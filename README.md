@@ -4,6 +4,7 @@ A powerful agentic automation CLI built for managing agentic loops in daily life
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Discord](https://img.shields.io/badge/chat-discord-5865F2.svg)](https://discord.gg/yBDbS2NZju)
 
 ## Overview
 
