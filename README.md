@@ -1,25 +1,25 @@
-# Jazz 🎷
+# Jazz
 
-A powerful agentic automation CLI built with for managing agentic loops in daily life workflows.
+A powerful agentic automation CLI built for managing agentic loops in daily life workflows.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 🎯 Overview
+## Overview
 
 Jazz is a command-line tool designed to help you create, manage, and execute autonomous agents that can perform complex automation tasks.
 
 ### Key Features
 
-- **🤖 Agent Management**: Create, configure, and manage autonomous agents
-- **⚡ Task Execution**: Execute various types of tasks (commands, scripts, API calls, file operations)
-- **🔄 Automation**: Schedule and trigger agent executions
-- **📊 Monitoring**: Track agent performance and execution results
-- **🛡️ Type Safety**: Full TypeScript support with strict type checking
-- **🔧 Extensible**: Plugin system for custom task types and integrations
-- **📝 Structured Logging**: Comprehensive logging with correlation IDs
+- **Agent Management**: Create, configure, and manage autonomous agents
+- **Task Execution**: Execute various types of tasks (commands, scripts, API calls, file operations)
+- **Automation**: Schedule and trigger agent executions
+- **Monitoring**: Track agent performance and execution results
+- **Type Safety**: Full TypeScript support with strict type checking
+- **Extensible**: Plugin system for custom task types and integrations
+- **Structured Logging**: Comprehensive logging with correlation IDs
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -78,7 +78,7 @@ jazz agent run <agent-id> --dry-run
 jazz agent delete <agent-id>
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 Jazz uses a JSON configuration file to manage application settings, API keys, and service integrations. The configuration system provides sensible defaults while allowing full customization.
 
@@ -113,7 +113,7 @@ Create a `.jazz/config.json` in your home directory:
 
 ### Configuration Sections
 
-#### 🔐 Google OAuth (Optional)
+#### Google OAuth (Optional)
 
 Required for Gmail integration and Google services:
 
@@ -135,7 +135,7 @@ Required for Gmail integration and Google services:
 5. Add `http://localhost:53682/oauth2callback` as redirect URI
 6. Copy client ID and secret to your config
 
-#### 🤖 LLM Providers
+#### LLM Providers
 
 Configure model providers for AI agents:
 
@@ -179,7 +179,7 @@ jazz auth gmail logout
 
 Jazz integrates with [Linkup](https://www.linkup.so/) to provide powerful search capabilities across your connected services and data sources.
 
-#### 🔍 Linkup Search Tool
+#### Linkup Search Tool
 
 The Linkup search tool allows agents to search on the web
 
@@ -198,7 +198,7 @@ The Linkup search tool allows agents to search on the web
 jazz --verbose agent list
 ```
 
-## 📖 Documentation
+## Documentation
 
 - [Architecture Overview](docs/architecture.md) - Understanding the system design
 - [CLI Reference](docs/cli-reference.md) - Complete command documentation
@@ -209,19 +209,20 @@ jazz --verbose agent list
 - [Examples](docs/examples.md) - Practical usage examples
 - [Contributing](CONTRIBUTING.md) - Development guidelines
 
-## 📋 Current Status
+## Current Status
 
 [TODO.md](./TODO.md)
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 📞 Support
+## Support
 
-- 📖 [Documentation](docs/)
-- 🐛 [Issue Tracker](https://github.com/lvndry/jazz/issues)
-- 💬 [Discussions](https://github.com/lvndry/jazz/discussions)
+- [Documentation](docs/)
+- [Discord](https://discord.gg/yBDbS2NZju)
+- [Issue Tracker](https://github.com/lvndry/jazz/issues)
+- [Discussions](https://github.com/lvndry/jazz/discussions)
 
 ---
 
