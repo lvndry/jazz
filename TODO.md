@@ -74,8 +74,8 @@
   - [x] Implement task execution framework
   - [x] Implement Gmail tool execution
   - [x] Command execution capability
-  - [ ] Script execution capability
-  - [ ] API call execution
+  - [x] Script execution capability
+  - [x] API call execution
   - [x] File operation tasks
   - [ ] Result tracking and storage
 

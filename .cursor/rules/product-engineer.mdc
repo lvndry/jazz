@@ -50,7 +50,7 @@ Jazz is a **revolutionary agentic automation CLI** that empowers users to create
 
 **🧠 AI-First Approach:**
 
-- **Multi-LLM Support**: OpenAI, Anthropic, Google, Mistral integration
+- **Multi-LLM Support**: OpenAI, Anthropic, Google, Mistral, xAI integration
 - **Context Management**: Intelligent conversation memory and summarization
 - **Tool Integration**: Rich ecosystem of pre-built tools (Git, Gmail, Shell, etc.)
 - **Adaptive Behavior**: Agents that learn from interactions and improve
@@ -239,7 +239,7 @@ src/
 
 - Use PascalCase for classes, interfaces, types, and enums
 - Use camelCase for functions, variables, and methods
-- Use SCREAMING_SNAKE_CASE for constants
+- Use SNAKE_CASE for constants
 - Use kebab-case for CLI command names
 - Prefix interfaces with 'I' only when distinguishing from implementation classes
 
@@ -333,20 +333,6 @@ jazz logs [--follow] [--level=<level>]
 - Prefer Effect ecosystem libraries when available
 - Pin dependency versions in package.json
 - Regular security audits of dependencies
-
-## Environment Setup
-
-```json
-{
-  "compilerOptions": {
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true
-  }
-}
-```
 
 ## Inspiring Use Cases & Workflows
 
@@ -594,5 +580,3 @@ jazz agent create --name "adaptive-assistant" --type "ai-agent" \
 - Identifies trends and anomalies
 - Generates actionable insights
 - Predicts future outcomes
-
-Remember: Every operation that can fail should be wrapped in Effect, every async operation should use Effect.gen, and every public function should have proper TypeScript types and JSDoc documentation. But more importantly, think about how each feature you build can enable these amazing workflows and make users' lives more productive and enjoyable.

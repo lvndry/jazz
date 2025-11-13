@@ -1,4 +1,6 @@
 import { Effect, Schedule } from "effect";
+import { appendFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 
 import { AgentConfigService, type ConfigService } from "../../services/config";
 import {
@@ -139,6 +141,8 @@ export class AgentRunner {
       };
       let finished = false;
       let iterationsUsed = 0;
+      let totalPromptTokens = 0;
+      let totalCompletionTokens = 0;
 
       // Memory safeguard: prevent unbounded message growth
       const MAX_MESSAGES = 100;
@@ -219,6 +223,11 @@ export class AgentRunner {
             Schedule.whileInput((error) => error instanceof LLMRateLimitError),
           ),
         );
+
+        if (completion.usage) {
+          totalPromptTokens += completion.usage.promptTokens;
+          totalCompletionTokens += completion.usage.completionTokens;
+        }
 
         // Add the assistant's response to the conversation (including tool calls, if any)
         currentMessages.push({
@@ -397,6 +406,7 @@ export class AgentRunner {
 
       // Post-loop diagnostics
       if (!finished) {
+        iterationsUsed = maxIterations;
         const warningMessage = MarkdownRenderer.formatWarning(
           agent.name,
           `reached maximum iterations (${maxIterations})`,
@@ -421,12 +431,56 @@ export class AgentRunner {
         });
       }
 
+      yield* writeTokenUsageLog({
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
+        iterations: iterationsUsed,
+        finished,
+      }).pipe(
+        Effect.catchAll((error) =>
+          logger.warn("Failed to write agent token usage log", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            error: error.message,
+          }),
+        ),
+      );
+
       // Optionally persist conversation history via a storage layer in the future
 
       // Return the full message history from this turn so callers can persist it
       return { ...response, messages: currentMessages };
     });
   }
+}
+
+interface TokenUsageLogPayload {
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly iterations: number;
+  readonly finished: boolean;
+}
+
+function writeTokenUsageLog(payload: TokenUsageLogPayload): Effect.Effect<void, Error> {
+  return Effect.tryPromise({
+    try: async () => {
+      const logsDir = path.resolve(process.cwd(), "logs");
+      await mkdir(logsDir, { recursive: true });
+      const logFilePath = path.join(logsDir, "agent-token-usage.log");
+      const timestamp = new Date().toISOString();
+      const totalTokens = payload.promptTokens + payload.completionTokens;
+      const line = `${timestamp} agentId=${payload.agentId} conversationId=${payload.conversationId} iterations=${payload.iterations} finished=${payload.finished} inputTokens=${payload.promptTokens} outputTokens=${payload.completionTokens} totalTokens=${totalTokens}\n`;
+      await appendFile(logFilePath, line, { encoding: "utf8" });
+    },
+    catch: (error: unknown) =>
+      new Error(
+        `Failed to write token usage log: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+  });
 }
 
 /**
