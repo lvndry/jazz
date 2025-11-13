@@ -42,6 +42,27 @@ function normalizeFilterPattern(pattern?: string): {
   return { type: "substring", value: trimmed };
 }
 
+function normalizeStatSize(size: unknown): number | string | null {
+  if (typeof size === "bigint") {
+    const maxSafe = BigInt(Number.MAX_SAFE_INTEGER);
+    if (size <= maxSafe && size >= -maxSafe) {
+      return Number(size);
+    }
+
+    return size.toString();
+  }
+
+  if (typeof size === "number") {
+    return size;
+  }
+
+  if (typeof size === "string") {
+    return size;
+  }
+
+  return null;
+}
+
 // findPath - helps agent discover paths when unsure
 export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
@@ -1262,34 +1283,36 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
         try {
           const stat = yield* fs.stat(target);
+          const normalizedSize = normalizeStatSize((stat as { size: unknown }).size);
           return {
             success: true,
             result: {
               path: target,
               exists: true,
               type: stat.type,
-              size: stat.size,
+              size: normalizedSize,
               mtime: stat.mtime,
               atime: stat.atime,
             },
           };
         } catch (error) {
           // Check if it's a "not found" error
-          if (
-            error instanceof Error &&
-            (error as unknown as { cause: { code: string } }).cause.code.includes("ENOENT")
-          ) {
-            return {
-              success: true,
-              result: {
-                path: target,
-                exists: false,
-                type: null,
-                size: null,
-                mtime: null,
-                atime: null,
-              },
-            };
+          if (error instanceof Error) {
+            const cause = (error as { cause?: { code?: string } }).cause;
+            const code = typeof cause?.code === "string" ? cause.code : undefined;
+            if (code?.includes("ENOENT")) {
+              return {
+                success: true,
+                result: {
+                  path: target,
+                  exists: false,
+                  type: null,
+                  size: null,
+                  mtime: null,
+                  atime: null,
+                },
+              };
+            }
           }
 
           return {
