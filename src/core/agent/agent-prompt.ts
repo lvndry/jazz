@@ -68,12 +68,11 @@ export class AgentPromptBuilder {
       const platform = os.platform();
       const arch = os.arch();
       const release = os.release();
-      const hostname = os.hostname();
       const username = os.userInfo().username;
       const shell = process.env["SHELL"] || "unknown";
       const workingDirectory = process.cwd();
 
-      const systemInfo = `${platform} ${release} (${arch}) on ${hostname}`;
+      const systemInfo = `${platform} ${release} (${arch})`;
       const userInfo = `${username} using ${shell.split("/").pop() || "shell"}`;
 
       return { currentDate, systemInfo, userInfo, workingDirectory };
