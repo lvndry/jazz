@@ -131,6 +131,7 @@ export function createListEmailsTool(): Tool<GmailService> {
   return defineTool<GmailService, { maxResults?: number; query?: string }>({
     name: "listEmails",
     description: "List the user's emails with optional filtering",
+    tags: ["gmail", "list"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -174,6 +175,7 @@ export function createGetEmailTool(): Tool<GmailService> {
   return defineTool<GmailService, { emailId: string }>({
     name: "getEmail",
     description: "Get the full content of a specific email by ID",
+    tags: ["gmail", "read"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -202,6 +204,7 @@ export function createSearchEmailsTool(): Tool<GmailService> {
   return defineTool<GmailService, { query: string; maxResults?: number }>({
     name: "searchEmails",
     description: "Search for emails matching specific criteria",
+    tags: ["gmail", "search"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -241,6 +244,7 @@ export function createSendEmailTool(): Tool<GmailService> {
   >({
     name: "sendEmail",
     description: "Draft an email on behalf of the user (does not send)",
+    tags: ["gmail", "compose"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -277,6 +281,7 @@ export function createListLabelsTool(): Tool<GmailService> {
   return defineTool<GmailService, Record<string, never>>({
     name: "listLabels",
     description: "List all Gmail labels (both system and user-created)",
+    tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -337,6 +342,7 @@ export function createCreateLabelTool(): Tool<GmailService> {
   >({
     name: "createLabel",
     description: "Create a new Gmail label with optional visibility and color settings",
+    tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -429,6 +435,7 @@ export function createUpdateLabelTool(): Tool<GmailService> {
   >({
     name: "updateLabel",
     description: "Update an existing Gmail label's properties",
+    tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -477,6 +484,7 @@ export function createDeleteLabelTool(): Tool<GmailService> {
   return defineTool<GmailService, { labelId: string }>({
     name: "deleteLabel",
     description: "Delete a Gmail label (only user-created labels can be deleted)",
+    tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);

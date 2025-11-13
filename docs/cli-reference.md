@@ -226,6 +226,35 @@ Tasks that would be executed:
    The agent has been validated and is ready for execution.
 ```
 
+### `jazz agent chat <agent-id|agent-name>`
+
+Start an interactive chat session with an AI agent. You can reference the agent either by its ID or by its unique name.
+
+```bash
+jazz agent chat <agent-id>
+jazz agent chat <agent-name>
+```
+
+**Examples:**
+
+```bash
+# Start a chat using the agent ID
+jazz agent chat 1724243d-344e-42ec-97e8-e53a2c8fd9d8
+
+# Start a chat using the agent name
+jazz agent chat my-agent
+```
+
+**Output:**
+
+```
+🤖 Starting chat with AI agent: my-agent (1724243d-344e-42ec-97e8-e53a2c8fd9d8)
+   Description: My first automation agent
+
+Type 'exit' or 'quit' to end the conversation.
+Type '/help' to see available special commands.
+```
+
 ### `jazz agent delete <agent-id>`
 
 Delete an agent and all its associated data.

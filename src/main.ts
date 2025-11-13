@@ -3,7 +3,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Command } from "commander";
-import { Effect, Layer } from "effect";
+import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
 import { gmailLoginCommand, gmailLogoutCommand, gmailStatusCommand } from "./cli/commands/auth";
 import { chatWithAIAgentCommand, createAIAgentCommand } from "./cli/commands/chat-agent";
 import { editAgentCommand } from "./cli/commands/edit-agent";
@@ -17,6 +17,7 @@ import {
 import { createAgentServiceLayer } from "./core/agent/agent-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
+import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
 import { MarkdownRenderer } from "./core/utils/markdown-renderer";
 import { AgentConfigService, createConfigLayer } from "./services/config";
@@ -97,6 +98,75 @@ function createAppLayer(debug?: boolean) {
 }
 
 /**
+ * Run a CLI effect with graceful shutdown handling for termination signals.
+ *
+ * This ensures Ctrl+C / SIGTERM interruptions trigger fiber interruption so that
+ * Effect finalizers run before the process exits.
+ */
+function runCliEffect<R, E extends JazzError | Error>(
+  effect: Effect.Effect<void, E, R>,
+  debugFlag?: boolean,
+): void {
+  const providedEffect = effect.pipe(Effect.provide(createAppLayer(debugFlag))) as Effect.Effect<
+    void,
+    E,
+    never
+  >;
+
+  const managedEffect = Effect.scoped(
+    Effect.gen(function* () {
+      const fiber = yield* Effect.fork(providedEffect);
+      let signalCount = 0;
+      type SignalName = "SIGINT" | "SIGTERM";
+
+      const handler = (signal: SignalName): void => {
+        signalCount += 1;
+        const label = signal === "SIGINT" ? "Ctrl+C" : signal;
+
+        if (signalCount === 1) {
+          process.stdout.write(`\nReceived ${label}. Gracefully shutting down...\n`);
+          Effect.runFork(Fiber.interrupt(fiber));
+        } else {
+          process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");
+          process.exit(1);
+        }
+      };
+
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          process.on("SIGINT", handler);
+          process.on("SIGTERM", handler);
+        }),
+        () =>
+          Effect.sync(() => {
+            process.off("SIGINT", handler);
+            process.off("SIGTERM", handler);
+          }),
+      );
+
+      const exit = yield* Fiber.await(fiber);
+
+      if (Exit.isFailure(exit)) {
+        if (Exit.isInterrupted(exit)) {
+          return;
+        }
+
+        const maybeError = Cause.failureOption(exit.cause);
+        if (Option.isSome(maybeError)) {
+          yield* handleError(maybeError.value);
+          return;
+        }
+
+        yield* handleError(new Error(Cause.pretty(exit.cause)));
+        return;
+      }
+    }),
+  );
+
+  void Effect.runPromise(managedEffect);
+}
+
+/**
  * Main CLI application entry point
  *
  * Sets up the Commander.js CLI program with all available commands including:
@@ -142,24 +212,14 @@ function main(): Effect.Effect<void, never> {
       .command("list")
       .description("List all agents")
       .action(() => {
-        void Effect.runPromise(
-          listAgentsCommand({ verbose: Boolean(program.opts()["verbose"]) }).pipe(
-            Effect.provide(createAppLayer(debugFlag)),
-            Effect.catchAll((error) => handleError(error)),
-          ),
-        );
+        runCliEffect(listAgentsCommand({ verbose: Boolean(program.opts()["verbose"]) }), debugFlag);
       });
 
     agentCommand
       .command("create")
       .description("Create a new AI chat agent (interactive mode)")
       .action(() => {
-        void Effect.runPromise(
-          createAIAgentCommand().pipe(
-            Effect.provide(createAppLayer(debugFlag)),
-            Effect.catchAll((error) => handleError(error)),
-          ),
-        );
+        runCliEffect(createAIAgentCommand(), debugFlag);
       });
 
     agentCommand
@@ -187,12 +247,7 @@ function main(): Effect.Effect<void, never> {
             retryBackoff?: "linear" | "exponential" | "fixed";
           },
         ) => {
-          void Effect.runPromise(
-            createAgentCommand(name, options.description || "", options).pipe(
-              Effect.provide(createAppLayer(debugFlag)),
-              Effect.catchAll((error) => handleError(error)),
-            ),
-          );
+          runCliEffect(createAgentCommand(name, options.description || "", options), debugFlag);
         },
       );
 
@@ -202,60 +257,35 @@ function main(): Effect.Effect<void, never> {
       .option("--watch", "Watch for changes")
       .option("--dry-run", "Show what would be executed without running")
       .action((agentId: string, options: { watch?: boolean; dryRun?: boolean }) => {
-        void Effect.runPromise(
-          runAgentCommand(agentId, options).pipe(
-            Effect.provide(createAppLayer(debugFlag)),
-            Effect.catchAll((error) => handleError(error)),
-          ),
-        );
+        runCliEffect(runAgentCommand(agentId, options), debugFlag);
       });
 
     agentCommand
       .command("get <agentId>")
       .description("Get task agent details")
       .action((agentId: string) => {
-        void Effect.runPromise(
-          getAgentCommand(agentId).pipe(
-            Effect.provide(createAppLayer(debugFlag)),
-            Effect.catchAll((error) => handleError(error)),
-          ),
-        );
+        runCliEffect(getAgentCommand(agentId), debugFlag);
       });
 
     agentCommand
       .command("delete <agentId>")
       .description("Delete a task agent")
       .action((agentId: string) => {
-        void Effect.runPromise(
-          deleteAgentCommand(agentId).pipe(
-            Effect.provide(createAppLayer(debugFlag)),
-            Effect.catchAll((error) => handleError(error)),
-          ),
-        );
+        runCliEffect(deleteAgentCommand(agentId), debugFlag);
       });
 
     agentCommand
-      .command("chat <agentId>")
-      .description("Start a chat with an AI agent")
-      .action((agentId: string) => {
-        void Effect.runPromise(
-          chatWithAIAgentCommand(agentId).pipe(
-            Effect.provide(createAppLayer(debugFlag)),
-            Effect.catchAll((error) => handleError(error)),
-          ),
-        );
+      .command("chat <agentRef>")
+      .description("Start a chat with an AI agent by ID or name")
+      .action((agentRef: string) => {
+        runCliEffect(chatWithAIAgentCommand(agentRef), debugFlag);
       });
 
     agentCommand
       .command("edit <agentId>")
       .description("Edit an existing agent (interactive mode)")
       .action((agentId: string) => {
-        void Effect.runPromise(
-          editAgentCommand(agentId).pipe(
-            Effect.provide(createAppLayer(debugFlag)),
-            Effect.catchAll((error) => handleError(error)),
-          ),
-        );
+        runCliEffect(editAgentCommand(agentId), debugFlag);
       });
 
     // Automation commands
@@ -265,12 +295,13 @@ function main(): Effect.Effect<void, never> {
       .command("list")
       .description("List all automations")
       .action(() => {
-        void Effect.runPromise(
+        runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
             yield* logger.info("Listing automations...");
             // TODO: Implement automation listing
-          }).pipe(Effect.provide(createAppLayer())),
+          }),
+          debugFlag,
         );
       });
 
@@ -279,7 +310,7 @@ function main(): Effect.Effect<void, never> {
       .description("Create a new automation")
       .option("-d, --description <description>", "Automation description")
       .action((name: string, options: { description?: string }) => {
-        void Effect.runPromise(
+        runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
             yield* logger.info(`Creating automation: ${name}`);
@@ -287,7 +318,8 @@ function main(): Effect.Effect<void, never> {
               yield* logger.info(`Description: ${options.description}`);
             }
             // TODO: Implement automation creation
-          }).pipe(Effect.provide(createAppLayer())),
+          }),
+          debugFlag,
         );
       });
 
@@ -298,12 +330,13 @@ function main(): Effect.Effect<void, never> {
       .command("get <key>")
       .description("Get a configuration value")
       .action((key: string) => {
-        void Effect.runPromise(
+        runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
             yield* logger.info(`Getting config: ${key}`);
             // TODO: Implement config retrieval
-          }).pipe(Effect.provide(createAppLayer())),
+          }),
+          debugFlag,
         );
       });
 
@@ -311,12 +344,13 @@ function main(): Effect.Effect<void, never> {
       .command("set <key> <value>")
       .description("Set a configuration value")
       .action((key: string, value: string) => {
-        void Effect.runPromise(
+        runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
             yield* logger.info(`Setting config: ${key} = ${value}`);
             // TODO: Implement config setting
-          }).pipe(Effect.provide(createAppLayer())),
+          }),
+          debugFlag,
         );
       });
 
@@ -324,12 +358,13 @@ function main(): Effect.Effect<void, never> {
       .command("list")
       .description("List all configuration values")
       .action(() => {
-        void Effect.runPromise(
+        runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
             yield* logger.info("Listing configuration...");
             // TODO: Implement config listing
-          }).pipe(Effect.provide(createAppLayer())),
+          }),
+          debugFlag,
         );
       });
 
@@ -343,36 +378,21 @@ function main(): Effect.Effect<void, never> {
       .command("login")
       .description("Authenticate with Gmail")
       .action(() => {
-        void Effect.runPromise(
-          gmailLoginCommand().pipe(
-            Effect.provide(createAppLayer(debugFlag)),
-            Effect.catchAll((error) => handleError(error)),
-          ),
-        );
+        runCliEffect(gmailLoginCommand(), debugFlag);
       });
 
     gmailAuthCommand
       .command("logout")
       .description("Logout from Gmail")
       .action(() => {
-        void Effect.runPromise(
-          gmailLogoutCommand().pipe(
-            Effect.provide(createAppLayer(debugFlag)),
-            Effect.catchAll((error) => handleError(error)),
-          ),
-        );
+        runCliEffect(gmailLogoutCommand(), debugFlag);
       });
 
     gmailAuthCommand
       .command("status")
       .description("Check Gmail authentication status")
       .action(() => {
-        void Effect.runPromise(
-          gmailStatusCommand().pipe(
-            Effect.provide(createAppLayer(debugFlag)),
-            Effect.catchAll((error) => handleError(error)),
-          ),
-        );
+        runCliEffect(gmailStatusCommand(), debugFlag);
       });
 
     // Logs command
@@ -382,7 +402,7 @@ function main(): Effect.Effect<void, never> {
       .option("-f, --follow", "Follow log output")
       .option("-l, --level <level>", "Filter by log level", "info")
       .action((options: { follow?: boolean; level: string }) => {
-        void Effect.runPromise(
+        runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
             yield* logger.info("Viewing logs...");
@@ -391,7 +411,8 @@ function main(): Effect.Effect<void, never> {
             }
             yield* logger.info(`Log level: ${options.level}`);
             // TODO: Implement log viewing
-          }).pipe(Effect.provide(createAppLayer())),
+          }),
+          debugFlag,
         );
       });
 

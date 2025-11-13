@@ -30,9 +30,15 @@ export interface ToolExecutionResult {
 export interface Tool<R = never> {
   readonly name: string;
   readonly description: string;
+  readonly tags?: readonly string[];
   readonly parameters: z.ZodTypeAny;
   /** If true, this tool is hidden from UI listings (but still usable programmatically). */
   readonly hidden: boolean;
+  /**
+   * Optional helper for approval-based tools pointing to the follow-up tool name
+   * that should be made available once user confirmation is granted.
+   */
+  readonly approvalExecuteToolName?: string;
   readonly execute: (
     args: Record<string, unknown>,
     context: ToolExecutionContext,

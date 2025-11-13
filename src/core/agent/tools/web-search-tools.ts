@@ -55,6 +55,7 @@ export function createWebSearchTool(): ReturnType<typeof defineTool<ConfigServic
     name: "web_search",
     description:
       "Search the web for current information. Uses Linkup search engine by default. Provides high-quality, factual search results to enrich AI responses with current information from the internet.",
+    tags: ["web", "search"],
     parameters: z
       .object({
         query: z

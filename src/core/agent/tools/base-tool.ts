@@ -20,6 +20,7 @@ export type ToolValidator<Args extends Record<string, unknown>> = (
 export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
   readonly name: string;
   readonly description: string;
+  readonly tags?: readonly string[];
   readonly parameters: z.ZodTypeAny;
   /** If true, hide this tool from UI listings while keeping it callable. */
   readonly hidden?: boolean;
@@ -160,11 +161,15 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
 export function defineTool<R, Args extends Record<string, unknown>>(
   config: BaseToolConfig<R, Args>,
 ): Tool<R> {
+  const approvalExecuteToolName = config.approval?.execute?.toolName;
+
   return {
     name: config.name,
     description: config.description,
+    tags: config.tags ?? [],
     parameters: config.parameters,
     hidden: config.hidden === true,
+    ...(approvalExecuteToolName ? { approvalExecuteToolName } : {}),
     createSummary: config.createSummary,
     execute(
       args: Record<string, unknown>,

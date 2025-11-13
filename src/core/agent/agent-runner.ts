@@ -85,10 +85,6 @@ export class AgentRunner {
             .filter((tool): tool is string => typeof tool === "string")
         : [];
 
-      // The approval system in base-tool.ts automatically handles execute-* tool mapping
-      // No need for manual mapping here as the tool registry handles this internally
-      const expandedToolNames = Array.from(agentToolNames);
-
       // Validate that all agent tools exist in the registry
       const invalidTools = agentToolNames.filter((toolName) => !allToolNames.includes(toolName));
       if (invalidTools.length > 0) {
@@ -96,6 +92,17 @@ export class AgentRunner {
           new Error(`Agent ${agent.id} references non-existent tools: ${invalidTools.join(", ")}`),
         );
       }
+
+      // Automatically include approval follow-up tools (e.g., execute-* variants)
+      const expandedToolNameSet = new Set(agentToolNames);
+      for (const toolName of agentToolNames) {
+        const tool = yield* toolRegistry.getTool(toolName);
+        if (tool.approvalExecuteToolName) {
+          expandedToolNameSet.add(tool.approvalExecuteToolName);
+        }
+      }
+
+      const expandedToolNames = Array.from(expandedToolNameSet);
 
       // Get tool definitions for only the agent's specified tools
       const allTools = yield* toolRegistry.getToolDefinitions();
@@ -113,7 +120,7 @@ export class AgentRunner {
         agentDescription: agent.description,
         userInput,
         conversationHistory: history,
-        toolNames: agentToolNames,
+        toolNames: expandedToolNames,
         availableTools,
       });
 

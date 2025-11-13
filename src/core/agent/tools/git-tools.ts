@@ -87,6 +87,7 @@ export function createGitStatusTool(): ReturnType<typeof defineTool> {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitStatusArgs>({
     name: "gitStatus",
     description: "Show the working tree status of a Git repository",
+    tags: ["git", "status"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -160,6 +161,7 @@ export function createGitLogTool(): ReturnType<typeof defineTool> {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitLogArgs>({
     name: "gitLog",
     description: "Show commit history of a Git repository",
+    tags: ["git", "history"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -221,6 +223,7 @@ export function createGitDiffTool(): ReturnType<typeof defineTool> {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
     name: "gitDiff",
     description: "Show changes between commits, commit and working tree, etc.",
+    tags: ["git", "diff"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -287,6 +290,7 @@ export function createGitBranchTool(): ReturnType<typeof defineTool> {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitBranchArgs>({
     name: "gitBranch",
     description: "List, create, or delete branches",
+    tags: ["git", "branch"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -356,6 +360,7 @@ export function createGitAddTool(): ReturnType<typeof defineTool> {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitAddArgs>({
     name: "gitAdd",
     description: "Add file contents to the staging area (requires user approval)",
+    tags: ["git", "index"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -438,6 +443,7 @@ export function createGitCommitTool(): ReturnType<typeof defineTool> {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCommitArgs>({
     name: "gitCommit",
     description: "Record changes to the repository (requires user approval)",
+    tags: ["git", "commit"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -520,6 +526,7 @@ export function createGitPushTool(): ReturnType<typeof defineTool> {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPushArgs>({
     name: "gitPush",
     description: "Update remote refs along with associated objects (requires user approval)",
+    tags: ["git", "push"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -608,6 +615,7 @@ export function createGitPullTool(): ReturnType<typeof defineTool> {
     name: "gitPull",
     description:
       "Fetch from and integrate with another repository or a local branch (requires user approval)",
+    tags: ["git", "pull"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -695,6 +703,7 @@ export function createGitCheckoutTool(): ReturnType<typeof defineTool> {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
     name: "gitCheckout",
     description: "Switch branches or restore working tree files (requires user approval)",
+    tags: ["git", "checkout"],
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
