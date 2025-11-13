@@ -1,6 +1,54 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import { type Tool, type ToolExecutionContext, type ToolExecutionResult } from "./tool-registry";
+import {
+  type Tool,
+  type ToolExecutionContext,
+  type ToolExecutionResult,
+  type ToolRoutingMetadata,
+} from "./tool-registry";
+
+const TOKEN_SPLIT_REGEX = /[^a-z0-9]+/gi;
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return Array.from(new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean)));
+}
+
+function splitIdentifier(identifier: string): readonly string[] {
+  const withSpaces = identifier.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ");
+  return uniqueStrings([identifier, ...withSpaces.split(/\s+/)]);
+}
+
+function tokenize(text: string, limit = 24): readonly string[] {
+  const lowered = text.toLowerCase();
+  const parts = lowered.split(TOKEN_SPLIT_REGEX);
+  const filtered = parts.filter((part) => part.length > 1 || part === "cd");
+  return uniqueStrings(filtered).slice(0, limit);
+}
+
+function buildRoutingMetadata(
+  name: string,
+  description: string,
+  custom?: ToolRoutingMetadata,
+): ToolRoutingMetadata {
+  const nameKeywords = splitIdentifier(name);
+  const descriptionTokens = tokenize(description);
+
+  const tags = uniqueStrings([...(custom?.tags ?? [])]);
+  const keywords = uniqueStrings([
+    ...nameKeywords,
+    ...descriptionTokens,
+    ...(custom?.keywords ?? []),
+  ]);
+  const examples = uniqueStrings([...(custom?.examples ?? [])]);
+  const priority = custom?.priority;
+
+  return {
+    tags,
+    keywords,
+    ...(examples.length > 0 ? { examples } : {}),
+    ...(priority !== undefined ? { priority } : {}),
+  };
+}
 
 /**
  * Lightweight, reusable tool builder with optional runtime validation.
@@ -23,6 +71,12 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
   readonly parameters: z.ZodTypeAny;
   /** If true, hide this tool from UI listings while keeping it callable. */
   readonly hidden?: boolean;
+  /**
+   * Optional routing metadata to help the agent decide when to use this tool.
+   * Tags and keywords are merged with intelligent defaults, so you can provide
+   * only the extra hints that matter.
+   */
+  readonly routing?: ToolRoutingMetadata;
   /**
    * Optional function to validate the tool arguments before execution.
    *
@@ -160,11 +214,14 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
 export function defineTool<R, Args extends Record<string, unknown>>(
   config: BaseToolConfig<R, Args>,
 ): Tool<R> {
+  const routing = buildRoutingMetadata(config.name, config.description, config.routing);
+
   return {
     name: config.name,
     description: config.description,
     parameters: config.parameters,
     hidden: config.hidden === true,
+    routing,
     createSummary: config.createSummary,
     execute(
       args: Record<string, unknown>,

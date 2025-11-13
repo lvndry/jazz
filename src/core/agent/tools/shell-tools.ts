@@ -38,6 +38,16 @@ export function createExecuteCommandTool(): Tool<FileSystemContextService> {
     name: "executeCommand",
     description:
       "Execute a shell command on the system. This tool requires user approval for security reasons.",
+    routing: {
+      tags: ["shell", "execution"],
+      keywords: [
+        "run command",
+        "execute command",
+        "shell command",
+        "terminal command",
+        "run shell",
+      ],
+    },
     parameters: withApprovalBoolean(
       z
         .object({

@@ -67,6 +67,17 @@ export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemCon
   >({
     name: "findPath",
     description: "Find directories or files by name using the system find command",
+    routing: {
+      tags: ["filesystem", "search"],
+      keywords: [
+        "find path",
+        "locate path",
+        "search path",
+        "find directory",
+        "find file",
+        "discover folder",
+      ],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -212,6 +223,10 @@ export function createPwdTool(): Tool<FileSystemContextService> {
   return defineTool<FileSystemContextService, Record<string, never>>({
     name: "pwd",
     description: "Print the current working directory for this agent session",
+    routing: {
+      tags: ["filesystem", "navigation"],
+      keywords: ["pwd", "current directory", "print working directory", "show cwd", "where am i"],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -260,6 +275,17 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
   >({
     name: "ls",
     description: "List directory contents with optional filtering and recursion",
+    routing: {
+      tags: ["filesystem", "listing"],
+      keywords: [
+        "ls",
+        "list files",
+        "list directory",
+        "show files",
+        "directory contents",
+        "view folder",
+      ],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -375,6 +401,18 @@ export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
   return defineTool<FileSystem.FileSystem | FileSystemContextService, { path: string }>({
     name: "cd",
     description: "Change the current working directory for this agent session",
+    routing: {
+      tags: ["filesystem", "navigation"],
+      keywords: [
+        "cd",
+        "change directory",
+        "switch directory",
+        "go to folder",
+        "enter folder",
+        "navigate folder",
+        "set working directory",
+      ],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -450,6 +488,10 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
   >({
     name: "readFile",
     description: "Read a text file with optional line range and size limit",
+    routing: {
+      tags: ["filesystem", "read"],
+      keywords: ["read file", "open file", "view file", "display file", "cat file", "show file"],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -583,6 +625,17 @@ export function createWriteFileTool(): Tool<FileSystem.FileSystem | FileSystemCo
     name: "writeFile",
     description:
       "Write content to a file, creating it if it doesn't exist (requires user approval)",
+    routing: {
+      tags: ["filesystem", "write"],
+      keywords: [
+        "write file",
+        "save file",
+        "update file",
+        "create file",
+        "overwrite file",
+        "persist file",
+      ],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -704,6 +757,10 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
   >({
     name: "grep",
     description: "Search for a pattern in files using the system grep command",
+    routing: {
+      tags: ["search", "text"],
+      keywords: ["grep", "search text", "find text", "regex search", "pattern search"],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -910,6 +967,17 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     name: "find",
     description:
       "Find files and directories using the system find command with smart hierarchical search",
+    routing: {
+      tags: ["filesystem", "search"],
+      keywords: [
+        "find",
+        "search files",
+        "locate files",
+        "search directories",
+        "discover path",
+        "find file",
+      ],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -1117,6 +1185,10 @@ export function createMkdirTool(): Tool<FileSystem.FileSystem | FileSystemContex
   >({
     name: "mkdir",
     description: "Create a directory (requires user approval)",
+    routing: {
+      tags: ["filesystem", "write"],
+      keywords: ["make directory", "create folder", "mkdir", "new directory"],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -1234,6 +1306,10 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, { path: string }>({
     name: "stat",
     description: "Check if a file or directory exists and get its information",
+    routing: {
+      tags: ["filesystem", "info"],
+      keywords: ["stat", "file info", "check file exists", "file metadata", "file status"],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -1308,6 +1384,10 @@ export function createRmTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
   >({
     name: "rm",
     description: "Remove a file or directory (requires user approval)",
+    routing: {
+      tags: ["filesystem", "destructive"],
+      keywords: ["remove file", "delete file", "delete folder", "rm", "remove directory"],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -1442,6 +1522,16 @@ export function createFindDirTool(): Tool<FileSystem.FileSystem | FileSystemCont
   >({
     name: "finddir",
     description: "Search for directories by name with partial matching",
+    routing: {
+      tags: ["filesystem", "search"],
+      keywords: [
+        "find dir",
+        "find directory",
+        "locate directory",
+        "search directory",
+        "find folder",
+      ],
+    },
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
