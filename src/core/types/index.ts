@@ -28,7 +28,6 @@ export interface AgentConfig {
   readonly llmModel: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   readonly tools?: AgentTools;
-  readonly toolRouting?: ToolRoutingConfig;
 }
 
 export interface AgentTools {
@@ -37,15 +36,6 @@ export interface AgentTools {
   readonly git?: readonly string[];
   readonly shell?: readonly string[];
   readonly web?: readonly string[];
-}
-
-export interface ToolRoutingConfig {
-  readonly mode?: "auto" | "all" | "manual";
-  readonly maxTools?: number;
-  readonly minScore?: number;
-  readonly manualTools?: readonly string[];
-  readonly forceTools?: readonly string[];
-  readonly allowFallback?: boolean;
 }
 
 export type AgentStatus = "idle" | "running" | "paused" | "error" | "completed";
