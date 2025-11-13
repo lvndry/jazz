@@ -157,12 +157,9 @@ function rankTools(input: ToolSelectionInput, candidateNames: readonly string[])
     const tagTokens = tags.flatMap((tag) => tokenize(tag));
     const descriptionTokens = tokenize(definition.function.description ?? "");
 
-    const toolTokens = uniqueStrings([
-      ...nameTokens,
-      ...keywordTokens,
-      ...tagTokens,
-      ...descriptionTokens,
-    ]).map(normalizeToken);
+    const toolTokens = uniqueStrings([...nameTokens, ...tagTokens, ...descriptionTokens]).map(
+      normalizeToken,
+    );
 
     const matches = toolTokens.filter((token) => queryTokenSet.has(token));
     const matchedKeywords: string[] = [];
