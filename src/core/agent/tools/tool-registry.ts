@@ -27,20 +27,18 @@ export interface ToolExecutionResult {
   readonly error?: string;
 }
 
-export interface ToolRoutingMetadata {
-  readonly tags: readonly string[];
-  readonly keywords: readonly string[];
-  readonly examples?: readonly string[];
-  readonly priority?: number;
-}
-
 export interface Tool<R = never> {
   readonly name: string;
   readonly description: string;
+  readonly tags?: readonly string[];
   readonly parameters: z.ZodTypeAny;
   /** If true, this tool is hidden from UI listings (but still usable programmatically). */
   readonly hidden: boolean;
-  readonly routing: ToolRoutingMetadata;
+  /**
+   * Optional helper for approval-based tools pointing to the follow-up tool name
+   * that should be made available once user confirmation is granted.
+   */
+  readonly approvalExecuteToolName?: string;
   readonly execute: (
     args: Record<string, unknown>,
     context: ToolExecutionContext,
@@ -57,7 +55,6 @@ export interface ToolRegistry {
   readonly getTool: (name: string) => Effect.Effect<Tool<unknown>, Error>;
   readonly listTools: () => Effect.Effect<readonly string[], never>;
   readonly getToolDefinitions: () => Effect.Effect<readonly ToolDefinition[], never>;
-  readonly getToolRoutingMetadata: () => Effect.Effect<Record<string, ToolRoutingMetadata>, never>;
   readonly listToolsByCategory: () => Effect.Effect<Record<string, readonly string[]>, never>;
   readonly getToolsInCategory: (category: string) => Effect.Effect<readonly string[], never>;
   readonly listCategories: () => Effect.Effect<readonly string[], never>;
@@ -71,18 +68,15 @@ export interface ToolRegistry {
 class DefaultToolRegistry implements ToolRegistry {
   private tools: Map<string, Tool<unknown>>;
   private toolCategories: Map<string, string>;
-  private routingMetadata: Map<string, ToolRoutingMetadata>;
 
   constructor() {
     this.tools = new Map<string, Tool<unknown>>();
     this.toolCategories = new Map<string, string>();
-    this.routingMetadata = new Map<string, ToolRoutingMetadata>();
   }
 
   registerTool(tool: Tool<unknown>, category?: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
       this.tools.set(tool.name, tool);
-      this.routingMetadata.set(tool.name, tool.routing);
       if (category) {
         this.toolCategories.set(tool.name, category);
       }
@@ -132,16 +126,6 @@ class DefaultToolRegistry implements ToolRegistry {
       });
 
       return definitions;
-    });
-  }
-
-  getToolRoutingMetadata(): Effect.Effect<Record<string, ToolRoutingMetadata>, never> {
-    return Effect.sync(() => {
-      const metadata: Record<string, ToolRoutingMetadata> = {};
-      this.routingMetadata.forEach((value, key) => {
-        metadata[key] = value;
-      });
-      return metadata;
     });
   }
 

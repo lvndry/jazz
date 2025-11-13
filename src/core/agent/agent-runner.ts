@@ -18,7 +18,6 @@ import {
   type ToolExecutionResult,
   type ToolRegistry,
 } from "./tools/tool-registry";
-import { selectToolsForTurn } from "./tools/tool-relevance";
 
 /**
  * Agent runner for executing agent conversations
@@ -86,10 +85,6 @@ export class AgentRunner {
             .filter((tool): tool is string => typeof tool === "string")
         : [];
 
-      // The approval system in base-tool.ts automatically handles execute-* tool mapping
-      // No need for manual mapping here as the tool registry handles this internally
-      const expandedToolNames = Array.from(agentToolNames);
-
       // Validate that all agent tools exist in the registry
       const invalidTools = agentToolNames.filter((toolName) => !allToolNames.includes(toolName));
       if (invalidTools.length > 0) {
@@ -98,24 +93,20 @@ export class AgentRunner {
         );
       }
 
+      // Automatically include approval follow-up tools (e.g., execute-* variants)
+      const expandedToolNameSet = new Set(agentToolNames);
+      for (const toolName of agentToolNames) {
+        const tool = yield* toolRegistry.getTool(toolName);
+        if (tool.approvalExecuteToolName) {
+          expandedToolNameSet.add(tool.approvalExecuteToolName);
+        }
+      }
+
+      const expandedToolNames = Array.from(expandedToolNameSet);
+
       // Get tool definitions for only the agent's specified tools
       const allTools = yield* toolRegistry.getToolDefinitions();
-      const toolMetadataRecord = yield* toolRegistry.getToolRoutingMetadata();
-      const toolMetadataByName = new Map(Object.entries(toolMetadataRecord));
-      const toolDefinitionsByName = new Map(allTools.map((tool) => [tool.function.name, tool]));
-
-      const toolSelection = selectToolsForTurn({
-        userInput,
-        conversationHistory: history,
-        candidateToolNames: expandedToolNames,
-        metadataByName: toolMetadataByName,
-        definitionsByName: toolDefinitionsByName,
-        ...(agent.config.toolRouting ? { config: agent.config.toolRouting } : {}),
-      });
-
-      const selectedToolNames =
-        toolSelection.selected.length > 0 ? [...toolSelection.selected] : expandedToolNames;
-      const tools = allTools.filter((tool) => selectedToolNames.includes(tool.function.name));
+      const tools = allTools.filter((tool) => expandedToolNames.includes(tool.function.name));
 
       // Build a map of available tool descriptions for prompt clarity
       const availableTools: Record<string, string> = {};
@@ -129,7 +120,7 @@ export class AgentRunner {
         agentDescription: agent.description,
         userInput,
         conversationHistory: history,
-        toolNames: selectedToolNames,
+        toolNames: expandedToolNames,
         availableTools,
       });
 
@@ -188,17 +179,6 @@ export class AgentRunner {
               name: t.function.name,
               description: t.function.description,
             })),
-            toolRouting: {
-              mode: toolSelection.mode,
-              selected: selectedToolNames,
-              ranking: toolSelection.ranking.slice(0, 8).map((item) => ({
-                name: item.toolName,
-                score: Number(item.score.toFixed(3)),
-                matchedKeywords: item.matchedKeywords,
-                matchedTags: item.matchedTags,
-              })),
-              excluded: toolSelection.excluded.map((item) => item.toolName),
-            },
           });
         }
 

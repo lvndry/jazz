@@ -1,5 +1,4 @@
 import { type ChatMessage, type ToolDefinition } from "../../../services/llm/types";
-import { type ToolRoutingMetadata } from "./tool-registry";
 
 export interface ToolSelectionConfig {
   readonly mode?: "auto" | "all" | "manual";
@@ -14,7 +13,7 @@ export interface ToolSelectionInput {
   readonly userInput: string;
   readonly conversationHistory?: readonly ChatMessage[];
   readonly candidateToolNames: readonly string[];
-  readonly metadataByName: ReadonlyMap<string, ToolRoutingMetadata>;
+  readonly tagsByName?: ReadonlyMap<string, readonly string[]>;
   readonly definitionsByName: ReadonlyMap<string, ToolDefinition>;
   readonly config?: ToolSelectionConfig;
 }
@@ -58,7 +57,7 @@ const SYNONYM_GROUPS: readonly (readonly string[])[] = [
 ];
 
 const SYNONYM_LOOKUP: ReadonlyMap<string, string> = buildSynonymLookup(SYNONYM_GROUPS);
-const EMPTY_ROUTING_METADATA: ToolRoutingMetadata = { tags: [], keywords: [] };
+const EMPTY_TAGS: readonly string[] = [];
 
 export function selectToolsForTurn(input: ToolSelectionInput): ToolSelectionResult {
   const candidateNames = uniqueStrings(input.candidateToolNames);
@@ -152,13 +151,10 @@ function rankTools(input: ToolSelectionInput, candidateNames: readonly string[])
     const definition = input.definitionsByName.get(toolName);
     if (!definition) continue;
 
-    const metadata = input.metadataByName.get(toolName) ?? EMPTY_ROUTING_METADATA;
+    const tags = input.tagsByName?.get(toolName) ?? EMPTY_TAGS;
 
     const nameTokens = splitIdentifier(toolName);
-    const keywordTokens = metadata.keywords
-      ? metadata.keywords.flatMap((keyword) => tokenize(keyword))
-      : [];
-    const tagTokens = metadata.tags ? metadata.tags.flatMap((tag) => tokenize(tag)) : [];
+    const tagTokens = tags.flatMap((tag) => tokenize(tag));
     const descriptionTokens = tokenize(definition.function.description ?? "");
 
     const toolTokens = uniqueStrings([
@@ -169,11 +165,8 @@ function rankTools(input: ToolSelectionInput, candidateNames: readonly string[])
     ]).map(normalizeToken);
 
     const matches = toolTokens.filter((token) => queryTokenSet.has(token));
-    const matchedKeywords = (metadata.keywords ?? []).filter((keyword) => {
-      const keywordTokens = tokenize(keyword).map(normalizeToken);
-      return keywordTokens.some((token) => queryTokenSet.has(token));
-    });
-    const matchedTags = (metadata.tags ?? []).filter((tag) => {
+    const matchedKeywords: string[] = [];
+    const matchedTags = tags.filter((tag) => {
       const tagTokens = tokenize(tag).map(normalizeToken);
       return tagTokens.some((token) => queryTokenSet.has(token));
     });
@@ -184,7 +177,7 @@ function rankTools(input: ToolSelectionInput, candidateNames: readonly string[])
       ? 0.18
       : 0;
     const tagBonus = Math.min(0.12, matchedTags.length * 0.06);
-    const priorityBonus = metadata.priority ? Math.min(0.1, metadata.priority / 10) : 0;
+    const priorityBonus = 0;
 
     const rawScore = keywordScore * 0.5 + similarity * 0.3 + nameBonus + tagBonus + priorityBonus;
     const score = clamp(rawScore, 0, 1);

@@ -9,11 +9,13 @@ import { ToolRegistryTag } from "../../core/agent/tools/tool-registry";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
+  AgentNotFoundError,
   StorageError,
   StorageNotFoundError,
   ValidationError,
 } from "../../core/types/errors";
 import type { Agent, AgentConfig } from "../../core/types/index";
+import { CommonSuggestions } from "../../core/utils/error-handler";
 import { MarkdownRenderer } from "../../core/utils/markdown-renderer";
 import type { ConfigService } from "../../services/config";
 import type { ChatMessage } from "../../services/llm/types";
@@ -138,7 +140,8 @@ export function createAIAgentCommand(): Effect.Effect<
     console.log(`   Created: ${agent.createdAt.toISOString()}`);
 
     console.log("\nYou can now chat with your agent using:");
-    console.log(`jazz agent chat ${agent.id}`);
+    console.log(`   • By ID:   jazz agent chat ${agent.id}`);
+    console.log(`   • By name: jazz agent chat ${agent.name}`);
   });
 }
 
@@ -281,10 +284,10 @@ async function promptForAgentInfo(
  * Chat with an AI agent
  */
 export function chatWithAIAgentCommand(
-  agentId: string,
+  agentIdentifier: string,
 ): Effect.Effect<
   void,
-  StorageError | StorageNotFoundError,
+  StorageError | StorageNotFoundError | AgentNotFoundError,
   | AgentService
   | ConfigService
   | LLMService
@@ -298,7 +301,8 @@ export function chatWithAIAgentCommand(
     const agentService = yield* AgentServiceTag;
 
     // Get the agent
-    const agent = yield* agentService.getAgent(agentId);
+    const normalizedIdentifier = agentIdentifier.trim();
+    const agent = yield* resolveAgentByIdentifier(agentService, normalizedIdentifier);
 
     console.log(`🤖 Starting chat with AI agent: ${agent.name} (${agent.id})`);
     console.log(`   Description: ${agent.description}`);
@@ -319,6 +323,44 @@ export function chatWithAIAgentCommand(
       ),
     );
   });
+}
+
+function resolveAgentByIdentifier(
+  agentService: AgentService,
+  identifier: string,
+): Effect.Effect<Agent, StorageError | StorageNotFoundError | AgentNotFoundError> {
+  if (identifier.length === 0) {
+    return Effect.fail(
+      new AgentNotFoundError({
+        agentId: identifier,
+        suggestion: CommonSuggestions.checkAgentExists(identifier),
+      }),
+    );
+  }
+
+  return agentService.getAgent(identifier).pipe(
+    Effect.catchAll((error) => {
+      if (error._tag !== "StorageNotFoundError") {
+        return Effect.fail(error);
+      }
+
+      return Effect.gen(function* () {
+        const agents = yield* agentService.listAgents();
+        const matchingAgent = agents.find((candidate) => candidate.name === identifier);
+
+        if (matchingAgent) {
+          return matchingAgent;
+        }
+
+        return yield* Effect.fail(
+          new AgentNotFoundError({
+            agentId: identifier,
+            suggestion: CommonSuggestions.checkAgentExists(identifier),
+          }),
+        );
+      });
+    }),
+  );
 }
 
 function initializeSession(
