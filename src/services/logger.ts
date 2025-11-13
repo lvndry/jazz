@@ -33,7 +33,17 @@ export class LoggerServiceImpl implements LoggerService {
   ): Effect.Effect<void, never, ConfigService> {
     return Effect.gen(function* () {
       const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{ format: "json" | "pretty" }>("logging");
+      const loggingConfig = yield* config.get<{
+        level: "debug" | "info" | "warn" | "error";
+        format: "json" | "pretty";
+      }>("logging");
+      const level = loggingConfig?.level ?? "info";
+
+      // Only output debug logs if level is "debug"
+      if (level !== "debug") {
+        return;
+      }
+
       const format = loggingConfig?.format ?? "pretty";
 
       const line = formatLogLine("debug", message, meta, format);
@@ -46,7 +56,17 @@ export class LoggerServiceImpl implements LoggerService {
   info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never, ConfigService> {
     return Effect.gen(function* () {
       const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{ format: "json" | "pretty" }>("logging");
+      const loggingConfig = yield* config.get<{
+        level: "debug" | "info" | "warn" | "error";
+        format: "json" | "pretty";
+      }>("logging");
+      const level = loggingConfig?.level ?? "info";
+
+      // Only output info logs if level allows it (info, warn, error levels)
+      if (!shouldLog(level, "info")) {
+        return;
+      }
+
       const format = loggingConfig?.format ?? "pretty";
 
       const line = formatLogLine("info", message, meta, format);
@@ -59,7 +79,17 @@ export class LoggerServiceImpl implements LoggerService {
   warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never, ConfigService> {
     return Effect.gen(function* () {
       const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{ format: "json" | "pretty" }>("logging");
+      const loggingConfig = yield* config.get<{
+        level: "debug" | "info" | "warn" | "error";
+        format: "json" | "pretty";
+      }>("logging");
+      const level = loggingConfig?.level ?? "info";
+
+      // Only output warn logs if level allows it (warn, error levels)
+      if (!shouldLog(level, "warn")) {
+        return;
+      }
+
       const format = loggingConfig?.format ?? "pretty";
 
       const line = formatLogLine("warn", message, meta, format);
@@ -75,7 +105,18 @@ export class LoggerServiceImpl implements LoggerService {
   ): Effect.Effect<void, never, ConfigService> {
     return Effect.gen(function* () {
       const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{ format: "json" | "pretty" }>("logging");
+      const loggingConfig = yield* config.get<{
+        level: "debug" | "info" | "warn" | "error";
+        format: "json" | "pretty";
+      }>("logging");
+      const level = loggingConfig?.level ?? "info";
+
+      // Error logs are always shown regardless of level
+      // (but we check for consistency)
+      if (!shouldLog(level, "error")) {
+        return;
+      }
+
       const format = loggingConfig?.format ?? "pretty";
 
       const line = formatLogLine("error", message, meta, format);
@@ -87,6 +128,20 @@ export class LoggerServiceImpl implements LoggerService {
 }
 
 type LogLevel = "debug" | "info" | "warn" | "error";
+
+/**
+ * Check if a log level should be output based on the configured log level.
+ * Log levels hierarchy: debug < info < warn < error
+ */
+function shouldLog(configuredLevel: LogLevel, messageLevel: LogLevel): boolean {
+  const levels: Record<LogLevel, number> = {
+    debug: 0,
+    info: 1,
+    warn: 2,
+    error: 3,
+  };
+  return levels[messageLevel] >= levels[configuredLevel];
+}
 
 function formatLogLine(
   level: LogLevel,
@@ -105,7 +160,7 @@ function formatLogLine(
     if (format === "pretty") {
       metaText = dim(" " + prettyPrintJson(meta));
     } else {
-      metaText = dim(" " + JSON.stringify(meta));
+      metaText = dim(" " + JSON.stringify(meta, jsonReplacer));
     }
   }
 
@@ -150,15 +205,25 @@ function indentMultiline(text: string): string {
   return lines.map((line, idx) => (idx === 0 ? line : "  " + line)).join("\n");
 }
 
+/**
+ * Custom replacer for JSON.stringify to handle BigInt values
+ */
+function jsonReplacer(_key: string, value: unknown): unknown {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+  return value;
+}
+
 function prettyPrintJson(obj: Record<string, unknown>): string {
   try {
-    const jsonString = JSON.stringify(obj, null, 2);
+    const jsonString = JSON.stringify(obj, jsonReplacer, 2);
     // Add indentation to each line except the first
     const lines = jsonString.split("\n");
     return lines.map((line, idx) => (idx === 0 ? line : "  " + line)).join("\n");
   } catch {
     // Fallback to regular JSON.stringify if pretty printing fails
-    return JSON.stringify(obj);
+    return JSON.stringify(obj, jsonReplacer);
   }
 }
 

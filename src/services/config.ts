@@ -1,14 +1,14 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect, Layer, Option } from "effect";
 import type {
-  AppConfig,
-  GoogleConfig,
-  LLMConfig,
-  LinkupConfig,
-  LoggingConfig,
-  PerformanceConfig,
-  SecurityConfig,
-  StorageConfig,
+    AppConfig,
+    GoogleConfig,
+    LLMConfig,
+    LinkupConfig,
+    LoggingConfig,
+    PerformanceConfig,
+    SecurityConfig,
+    StorageConfig,
 } from "../core/types/index";
 
 /**
@@ -68,14 +68,26 @@ export class ConfigServiceImpl implements ConfigService {
 
 export const AgentConfigService = Context.GenericTag<ConfigService>("ConfigService");
 
-export function createConfigLayer(): Layer.Layer<ConfigService, never, FileSystem.FileSystem> {
+export function createConfigLayer(
+  debug?: boolean,
+): Layer.Layer<ConfigService, never, FileSystem.FileSystem> {
   return Layer.effect(
     AgentConfigService,
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const loaded = yield* loadConfigFile(fs);
-      const config = mergeConfig(defaultConfig(), loaded.fileConfig ?? undefined);
-      return new ConfigServiceImpl(config);
+      const baseConfig = defaultConfig();
+      const fileConfig = loaded.fileConfig ?? undefined;
+
+      // Override logging level to debug if --debug flag is set
+      const finalConfig = debug
+        ? mergeConfig(baseConfig, {
+            ...fileConfig,
+            logging: { ...baseConfig.logging, ...fileConfig?.logging, level: "debug" },
+          })
+        : mergeConfig(baseConfig, fileConfig);
+
+      return new ConfigServiceImpl(finalConfig);
     }),
   );
 }

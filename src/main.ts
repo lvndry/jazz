@@ -46,9 +46,10 @@ import { StorageServiceTag } from "./services/storage/service";
  * yield* someCommand().pipe(Effect.provide(appLayer));
  * ```
  */
-function createAppLayer() {
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+function createAppLayer(debug?: boolean) {
   const fileSystemLayer = NodeFileSystem.layer;
-  const configLayer = createConfigLayer().pipe(Layer.provide(fileSystemLayer));
+  const configLayer = createConfigLayer(debug).pipe(Layer.provide(fileSystemLayer));
   const loggerLayer = createLoggerLayer().pipe(Layer.provide(configLayer));
 
   const storageLayer = Layer.effect(
@@ -116,9 +117,12 @@ function createAppLayer() {
  * Effect.runPromise(main()).catch(console.error);
  * ```
  */
-function main() {
+function main(): Effect.Effect<void, never> {
   return Effect.sync(() => {
     MarkdownRenderer.initialize();
+
+    // Check for --debug flag early so we can pass it to createAppLayer
+    const debugFlag = process.argv.includes("--debug");
 
     const program = new Command();
 
@@ -128,6 +132,7 @@ function main() {
     program
       .option("-v, --verbose", "Enable verbose logging")
       .option("-q, --quiet", "Suppress output")
+      .option("--debug", "Enable debug level logging")
       .option("--config <path>", "Path to configuration file");
 
     // Agent commands
@@ -139,7 +144,7 @@ function main() {
       .action(() => {
         void Effect.runPromise(
           listAgentsCommand({ verbose: Boolean(program.opts()["verbose"]) }).pipe(
-            Effect.provide(createAppLayer()),
+            Effect.provide(createAppLayer(debugFlag)),
             Effect.catchAll((error) => handleError(error)),
           ),
         );
@@ -151,7 +156,7 @@ function main() {
       .action(() => {
         void Effect.runPromise(
           createAIAgentCommand().pipe(
-            Effect.provide(createAppLayer()),
+            Effect.provide(createAppLayer(debugFlag)),
             Effect.catchAll((error) => handleError(error)),
           ),
         );
@@ -184,7 +189,7 @@ function main() {
         ) => {
           void Effect.runPromise(
             createAgentCommand(name, options.description || "", options).pipe(
-              Effect.provide(createAppLayer()),
+              Effect.provide(createAppLayer(debugFlag)),
               Effect.catchAll((error) => handleError(error)),
             ),
           );
@@ -199,7 +204,7 @@ function main() {
       .action((agentId: string, options: { watch?: boolean; dryRun?: boolean }) => {
         void Effect.runPromise(
           runAgentCommand(agentId, options).pipe(
-            Effect.provide(createAppLayer()),
+            Effect.provide(createAppLayer(debugFlag)),
             Effect.catchAll((error) => handleError(error)),
           ),
         );
@@ -211,7 +216,7 @@ function main() {
       .action((agentId: string) => {
         void Effect.runPromise(
           getAgentCommand(agentId).pipe(
-            Effect.provide(createAppLayer()),
+            Effect.provide(createAppLayer(debugFlag)),
             Effect.catchAll((error) => handleError(error)),
           ),
         );
@@ -223,7 +228,7 @@ function main() {
       .action((agentId: string) => {
         void Effect.runPromise(
           deleteAgentCommand(agentId).pipe(
-            Effect.provide(createAppLayer()),
+            Effect.provide(createAppLayer(debugFlag)),
             Effect.catchAll((error) => handleError(error)),
           ),
         );
@@ -235,7 +240,7 @@ function main() {
       .action((agentId: string) => {
         void Effect.runPromise(
           chatWithAIAgentCommand(agentId).pipe(
-            Effect.provide(createAppLayer()),
+            Effect.provide(createAppLayer(debugFlag)),
             Effect.catchAll((error) => handleError(error)),
           ),
         );
@@ -247,7 +252,7 @@ function main() {
       .action((agentId: string) => {
         void Effect.runPromise(
           editAgentCommand(agentId).pipe(
-            Effect.provide(createAppLayer()),
+            Effect.provide(createAppLayer(debugFlag)),
             Effect.catchAll((error) => handleError(error)),
           ),
         );
@@ -340,7 +345,7 @@ function main() {
       .action(() => {
         void Effect.runPromise(
           gmailLoginCommand().pipe(
-            Effect.provide(createAppLayer()),
+            Effect.provide(createAppLayer(debugFlag)),
             Effect.catchAll((error) => handleError(error)),
           ),
         );
@@ -352,7 +357,7 @@ function main() {
       .action(() => {
         void Effect.runPromise(
           gmailLogoutCommand().pipe(
-            Effect.provide(createAppLayer()),
+            Effect.provide(createAppLayer(debugFlag)),
             Effect.catchAll((error) => handleError(error)),
           ),
         );
@@ -364,7 +369,7 @@ function main() {
       .action(() => {
         void Effect.runPromise(
           gmailStatusCommand().pipe(
-            Effect.provide(createAppLayer()),
+            Effect.provide(createAppLayer(debugFlag)),
             Effect.catchAll((error) => handleError(error)),
           ),
         );
