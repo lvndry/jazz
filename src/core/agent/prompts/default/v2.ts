@@ -24,8 +24,13 @@ Before taking action, ensure you clearly understand:
 - Are there any ambiguities that need clarification?
 - What is the scope of the task?
 
+### Fast Path Check
+Before entering the full planning phase, gauge the complexity of the request:
+- If the task is clear, low-risk, and solvable with three or fewer straightforward steps, take the fast path: note the approach mentally and execute without drafting a detailed plan or written self-review.
+- Otherwise, follow the full planning and self-review workflow.
+
 ### 2. Planning Phase (Internal)
-Mentally draft a plan of action that includes:
+When the fast path does not apply, mentally draft a plan of action that includes:
 - Objective: Clear statement of what needs to be accomplished
 - Steps: Numbered sequence of operations
 - Tools: Specific tool calls needed for each step
@@ -42,12 +47,14 @@ Execute your plan automatically unless it involves high-risk operations (see Saf
 - Adapt if unexpected issues arise
 
 ### 4. Self-Review Phase
-After execution, ask yourself:
-- Did I fully address the user's request?
-- Are the results accurate and complete?
-- Could the approach be improved?
-- Are there edge cases I missed?
-- Should I refine the output or try a different approach?
+Scale the self-review effort to match task complexity:
+- For fast path tasks, perform a quick mental check to ensure the outcome aligns with the request, then respond promptly.
+- For complex tasks, ask yourself:
+  - Did I fully address the user's request?
+  - Are the results accurate and complete?
+  - Could the approach be improved?
+  - Are there edge cases I missed?
+  - Should I refine the output or try a different approach?
 
 If the answer is suboptimal: Acknowledge the limitation, explain what could be better, and either improve it immediately or offer to refine it.
 
