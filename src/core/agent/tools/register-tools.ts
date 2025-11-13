@@ -45,6 +45,7 @@ import {
   createTrashEmailTool,
   createUpdateLabelTool,
 } from "./gmail-tools";
+import { createHttpRequestTool } from "./http-tools";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
 import { ToolRegistryTag, type ToolRegistry } from "./tool-registry";
 import { createWebSearchTool } from "./web-search-tools";
@@ -64,6 +65,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerShellTools();
     yield* registerGitTools();
     yield* registerSearchTools();
+    yield* registerHttpTools();
   });
 }
 
@@ -120,6 +122,18 @@ export function registerGmailTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(addLabelsToEmailTool);
     yield* registerTool(removeLabelsFromEmailTool);
     yield* registerTool(batchModifyEmailsTool);
+  });
+}
+
+// Register HTTP tools
+export function registerHttpTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory("HTTP");
+
+    const httpRequestTool = createHttpRequestTool();
+
+    yield* registerTool(httpRequestTool);
   });
 }
 
