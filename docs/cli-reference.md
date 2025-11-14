@@ -1,557 +1,512 @@
 # CLI Reference
 
-Complete documentation for all Jazz CLI commands and options.
+Complete reference for all Jazz CLI commands.
 
-## 📋 Global Options
+## Global Options
 
-All commands support these global options:
-
-```bash
-jazz [global-options] <command> [command-options]
-```
-
-### Global Options
-
-| Option            | Short | Description                | Default              |
-| ----------------- | ----- | -------------------------- | -------------------- |
-| `--verbose`       | `-v`  | Enable verbose logging     | `false`              |
-| `--quiet`         | `-q`  | Suppress output            | `false`              |
-| `--config <path>` |       | Path to configuration file | `./jazz.config.json` |
-| `--help`          | `-h`  | Show help information      |                      |
-| `--version`       | `-V`  | Show version information   |                      |
-
-### Examples
+Available for all commands:
 
 ```bash
-# Enable verbose logging
-jazz --verbose agent list
-
-# Use custom config file
-jazz --config /path/to/config.json agent create my-agent
-
-# Suppress output
-jazz --quiet agent delete <agent-id>
+jazz [options] <command> [args]
 ```
 
-## 🤖 Agent Commands
-
-Manage autonomous agents for automation tasks.
-
-### `jazz agent list`
-
-List all available agents.
-
-```bash
-jazz agent list
-```
-
-**Output:**
-
-```
-Found 2 agent(s):
-
-1. my-agent (1724243d-344e-42ec-97e8-e53a2c8fd9d8)
-   Description: My first automation agent
-   Status: idle
-   Tasks: 0
-   Created: 2024-01-15T10:30:00.000Z
-   Updated: 2024-01-15T10:30:00.000Z
-
-2. backup-agent (3705b499-ff20-4c07-8b74-3728f049e889)
-   Description: Automated backup agent
-   Status: idle
-   Tasks: 3
-   Created: 2024-01-15T11:00:00.000Z
-   Updated: 2024-01-15T11:00:00.000Z
-```
-
-### `jazz agent create`
-
-Create a new agent with the specified name.
-
-```bash
-jazz agent create [options]
-```
-
-**Arguments:**
-
-- `<name>` - Agent name (required, alphanumeric with hyphens/underscores)
-
-**Options:**
-
-| Option                        | Short | Description                   | Default            |
-| ----------------------------- | ----- | ----------------------------- | ------------------ |
-| `--description <description>` | `-d`  | Agent description             | `Agent for <name>` |
-| `--timeout <timeout>`         | `-t`  | Agent timeout in milliseconds | `30000`            |
-| `--max-retries <retries>`     | `-r`  | Maximum number of retries     | `3`                |
-| `--retry-delay <delay>`       |       | Retry delay in milliseconds   | `1000`             |
-| `--retry-backoff <backoff>`   |       | Retry backoff strategy        | `exponential`      |
-
-**Backoff Strategies:**
-
-- `linear` - Constant delay between retries
-- `exponential` - Exponentially increasing delay
-- `fixed` - Fixed delay for all retries
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--verbose` | `-v` | Enable verbose logging |
+| `--debug` | | Enable debug-level logging |
+| `--config <path>` | | Use custom config file |
+| `--help` | `-h` | Show help |
+| `--version` | | Show version |
 
 **Examples:**
 
 ```bash
-# Create a basic agent
-jazz agent create my-agent
+# Verbose output
+jazz --verbose agent list
 
-# Create agent with custom description
-jazz agent create backup-agent --description "Automated backup agent"
+# Debug mode
+jazz --debug agent chat my-agent
 
-# Create agent with custom timeout and retry policy
-jazz agent create api-agent \
-  --description "API monitoring agent" \
-  --timeout 60000 \
-  --max-retries 5 \
-  --retry-delay 2000 \
-  --retry-backoff exponential
+# Custom config
+jazz --config /path/to/config.json agent create
 ```
+
+---
+
+## Agent Commands
+
+Manage AI agents for automation.
+
+### `jazz agent create`
+
+Create a new agent interactively.
+
+```bash
+jazz agent create
+```
+
+**Interactive prompts:**
+1. Agent name
+2. Description
+3. Agent type (default/gmail)
+4. LLM provider
+5. LLM model
+6. Tool categories
+
+**Example session:**
+
+```
+$ jazz agent create
+
+🤖 Welcome to the Jazz AI Agent Creation Wizard!
+
+? What would you like to name your AI agent? email-helper
+? Describe what this AI agent will do: Manage my Gmail inbox
+? What type of agent would you like to create? default
+? Which LLM provider would you like to use? openai
+? Which model would you like to use? gpt-4o-mini
+? Which tools should this agent have access to? Gmail (16 tools)
+
+✅ AI Agent created successfully!
+   ID: 550e8400-e29b-41d4-a716-446655440000
+   Name: email-helper
+   ...
+```
+
+---
+
+### `jazz agent list`
+
+List all agents.
+
+```bash
+jazz agent list [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--verbose` | Show detailed information |
 
 **Output:**
 
 ```
-✅ Agent created successfully!
-   ID: 1724243d-344e-42ec-97e8-e53a2c8fd9d8
-   Name: my-agent
-   Description: My first automation agent
-   Status: idle
+Found 3 agent(s):
+
+1. email-helper (550e8400-e29b-41d4-a716-446655440000)
+   Description: Manage my Gmail inbox
+   LLM: openai/gpt-4o-mini
    Created: 2024-01-15T10:30:00.000Z
-   Timeout: 30000ms
-   Retry Policy: 3 retries, 1000ms delay, exponential backoff
+   Updated: 2024-01-15T10:30:00.000Z
+
+2. git-assistant (661f9510-f39c-52e5-b827-557766551111)
+   Description: Help with git operations
+   LLM: anthropic/claude-3-5-sonnet-20241022
+   Created: 2024-01-15T11:00:00.000Z
+   Updated: 2024-01-15T11:00:00.000Z
 ```
 
-### `jazz agent get <agent-id>`
+---
 
-Get detailed information about a specific agent.
+### `jazz agent chat <agentRef>`
+
+Start a conversation with an agent.
 
 ```bash
-jazz agent get <agent-id>
+jazz agent chat <id|name>
 ```
 
 **Arguments:**
+- `agentRef`: Agent ID or name
 
-- `<agent-id>` - Agent UUID (required)
-
-**Example:**
+**Examples:**
 
 ```bash
-jazz agent get 1724243d-344e-42ec-97e8-e53a2c8fd9d8
+# By name
+jazz agent chat email-helper
+
+# By ID
+jazz agent chat 550e8400-e29b-41d4-a716-446655440000
+```
+
+**Chat commands:**
+
+While chatting, use these special commands:
+
+| Command | Description |
+|---------|-------------|
+| `/new` | Start new conversation (clear context) |
+| `/status` | Show conversation status |
+| `/tools` | List available tools |
+| `/clear` | Clear screen |
+| `/help` | Show help |
+| `exit` or `quit` | End conversation |
+
+**Example conversation:**
+
+```
+🤖 Starting chat with AI agent: email-helper (550e...)
+
+Type 'exit' or 'quit' to end the conversation.
+Type '/help' to see available special commands.
+
+You: Show me unread emails from today
+
+Agent: [Uses searchEmails tool]
+       I found 12 unread emails from today...
+
+You: exit
+👋 Goodbye!
+```
+
+---
+
+### `jazz agent get <agentId>`
+
+View agent details.
+
+```bash
+jazz agent get <id>
 ```
 
 **Output:**
 
 ```
 📋 Agent Details:
-   ID: 1724243d-344e-42ec-97e8-e53a2c8fd9d8
-   Name: my-agent
-   Description: My first automation agent
+   ID: 550e8400-e29b-41d4-a716-446655440000
+   Name: email-helper
+   Description: Manage my Gmail inbox
    Status: idle
    Created: 2024-01-15T10:30:00.000Z
    Updated: 2024-01-15T10:30:00.000Z
 
 ⚙️  Configuration:
-   Timeout: 30000ms
-   Tasks: 0
-   Retry Policy:
-     Max Retries: 3
-     Delay: 1000ms
-     Backoff: exponential
-
-📝 No tasks configured for this agent.
+   Agent Type: default
+   LLM Provider: openai
+   LLM Model: gpt-4o-mini
+   Reasoning Effort: low
+   Tools (16):
+     Gmail: listEmails, getEmail, searchEmails, sendEmail, ...
 ```
 
-### `jazz agent run <agent-id>`
+---
 
-Execute an agent and run its configured tasks.
+### `jazz agent edit <agentId>`
+
+Edit an existing agent interactively.
 
 ```bash
-jazz agent run <agent-id> [options]
+jazz agent edit <id>
 ```
 
-**Arguments:**
-
-- `<agent-id>` - Agent UUID (required)
-
-**Options:**
-
-| Option      | Description                                 | Default |
-| ----------- | ------------------------------------------- | ------- |
-| `--watch`   | Watch for changes and re-run                | `false` |
-| `--dry-run` | Show what would be executed without running | `false` |
-
-**Examples:**
-
-```bash
-# Run agent once
-jazz agent run 1724243d-344e-42ec-97e8-e53a2c8fd9d8
-
-# Dry run to see what would be executed
-jazz agent run 1724243d-344e-42ec-97e8-e53a2c8fd9d8 --dry-run
-
-# Watch mode for continuous execution
-jazz agent run 1724243d-344e-42ec-97e8-e53a2c8fd9d8 --watch
-```
-
-**Output (Dry Run):**
-
-```
-🚀 Running agent: my-agent (1724243d-344e-42ec-97e8-e53a2c8fd9d8)
-   Description: My first automation agent
-   Status: idle
-   Tasks: 2
-   Mode: DRY RUN (no actual execution)
-
-Tasks that would be executed:
-   1. backup-database (command)
-       Description: Backup the main database
-   2. cleanup-logs (script)
-       Description: Clean up old log files
-       Dependencies: backup-database
-```
-
-**Output (Normal Run):**
-
-```
-🚀 Running agent: my-agent (1724243d-344e-42ec-97e8-e53a2c8fd9d8)
-   Description: My first automation agent
-   Status: running
-   Tasks: 2
-
-⚠️  Agent execution is not yet implemented.
-   This is a placeholder for the execution engine.
-   The agent has been validated and is ready for execution.
-```
-
-### `jazz agent chat <agent-id|agent-name>`
-
-Start an interactive chat session with an AI agent. You can reference the agent either by its ID or by its unique name.
-
-```bash
-jazz agent chat <agent-id>
-jazz agent chat <agent-name>
-```
-
-**Examples:**
-
-```bash
-# Start a chat using the agent ID
-jazz agent chat 1724243d-344e-42ec-97e8-e53a2c8fd9d8
-
-# Start a chat using the agent name
-jazz agent chat my-agent
-```
-
-**Output:**
-
-```
-🤖 Starting chat with AI agent: my-agent (1724243d-344e-42ec-97e8-e53a2c8fd9d8)
-   Description: My first automation agent
-
-Type 'exit' or 'quit' to end the conversation.
-Type '/help' to see available special commands.
-```
-
-### `jazz agent delete <agent-id>`
-
-Delete an agent and all its associated data.
-
-```bash
-jazz agent delete <agent-id>
-```
-
-**Arguments:**
-
-- `<agent-id>` - Agent UUID (required)
+**What you can edit:**
+- Name
+- Description
+- Status
+- Agent type
+- LLM provider and model
+- Tools
+- Timeout
+- Retry policy
 
 **Example:**
 
+```
+$ jazz agent edit 550e8400-e29b-41d4-a716-446655440000
+
+✏️  Welcome to the Jazz Agent Edit Wizard!
+
+📋 Current Agent: email-helper
+   ID: 550e8400-e29b-41d4-a716-446655440000
+   Description: Manage my Gmail inbox
+   Tools: 16 tools
+
+? What would you like to update?
+  ◉ Name
+  ◯ Description
+  ◯ LLM Provider
+  ◯ Tools
+```
+
+---
+
+### `jazz agent delete <agentId>`
+
+Delete an agent.
+
 ```bash
-jazz agent delete 1724243d-344e-42ec-97e8-e53a2c8fd9d8
+jazz agent delete <id>
 ```
 
-**Output:**
+**Example:**
 
 ```
+$ jazz agent delete 550e8400-e29b-41d4-a716-446655440000
+
 🗑️  Agent deleted successfully!
-   Name: my-agent
-   ID: 1724243d-344e-42ec-97e8-e53a2c8fd9d8
+   Name: email-helper
+   ID: 550e8400-e29b-41d4-a716-446655440000
 ```
 
-## 🔄 Automation Commands
+---
 
-Manage automation workflows and schedules.
+## Authentication Commands
 
-### `jazz automation list`
+Manage service authentication.
 
-List all available automations.
+### Gmail Authentication
+
+#### `jazz auth gmail login`
+
+Authenticate with Gmail via OAuth.
 
 ```bash
-jazz automation list
+jazz auth gmail login
 ```
 
-**Status:** 🚧 Planned - Not yet implemented
+**Process:**
+1. Opens browser for Google OAuth
+2. User grants permissions
+3. Redirects to localhost callback
+4. Stores tokens securely
 
-### `jazz automation create`
-
-Create a new automation workflow.
-
-```bash
-jazz automation create [options]
-```
-
-**Arguments:**
-
-- `<name>` - Automation name (required)
-
-**Options:**
-
-| Option                        | Short | Description            | Default |
-| ----------------------------- | ----- | ---------------------- | ------- |
-| `--description <description>` | `-d`  | Automation description |         |
-
-**Status:** 🚧 Planned - Not yet implemented
-
-## ⚙️ Configuration Commands
-
-Manage application configuration.
-
-### `jazz config get <key>`
-
-Get a configuration value.
-
-```bash
-jazz config get <key>
-```
-
-**Arguments:**
-
-- `<key>` - Configuration key (required)
-
-**Status:** 🚧 Planned - Not yet implemented
-
-### `jazz config set <key> <value>`
-
-Set a configuration value.
-
-```bash
-jazz config set <key> <value>
-```
-
-**Arguments:**
-
-- `<key>` - Configuration key (required)
-- `<value>` - Configuration value (required)
-
-**Status:** 🚧 Planned - Not yet implemented
-
-### `jazz config list`
-
-List all configuration values.
-
-```bash
-jazz config list
-```
-
-**Status:** 🚧 Planned - Not yet implemented
-
-## 📊 Logs Command
-
-View and manage application logs.
-
-### `jazz logs`
-
-View application logs.
-
-```bash
-jazz logs [options]
-```
-
-**Options:**
-
-| Option            | Short | Description         | Default |
-| ----------------- | ----- | ------------------- | ------- |
-| `--follow`        | `-f`  | Follow log output   | `false` |
-| `--level <level>` | `-l`  | Filter by log level | `info`  |
-
-**Log Levels:**
-
-- `debug` - Detailed debugging information
-- `info` - General information messages
-- `warn` - Warning messages
-- `error` - Error messages
-
-**Examples:**
-
-```bash
-# View recent logs
-jazz logs
-
-# Follow logs in real-time
-jazz logs --follow
-
-# View only error logs
-jazz logs --level error
-
-# Follow debug logs
-jazz logs --follow --level debug
-```
-
-**Status:** 🚧 Planned - Not yet implemented
-
-## ❌ Error Handling
-
-### Common Error Messages
-
-#### Agent Not Found
-
-```
-❌ Agent with ID "invalid-id" not found
-```
-
-#### Storage Error
-
-```
-❌ Storage error: Failed to read file: ENOENT: no such file or directory
-```
-
-#### Validation Error
-
-```
-❌ Validation error: Agent name can only contain letters, numbers, underscores, and hyphens
-```
-
-#### Agent Already Exists
-
-```
-❌ Agent with name "existing-agent" already exists
-```
-
-#### Configuration Error
-
-```
-❌ Configuration error: Timeout must be between 1000ms and 3600000ms (1 hour)
-```
-
-### Exit Codes
-
-| Code | Description               |
-| ---- | ------------------------- |
-| `0`  | Success                   |
-| `1`  | General error             |
-| `2`  | Invalid command or option |
-| `3`  | Agent not found           |
-| `4`  | Storage error             |
-| `5`  | Validation error          |
-
-## 🔧 Configuration File
-
-Jazz supports configuration via a JSON file (planned feature):
+**Required config:**
 
 ```json
 {
-  "storage": {
-    "type": "file",
-    "path": "./.jazz"
-  },
-  "logging": {
-    "level": "info",
-    "format": "pretty",
-    "output": "console"
+  "google": {
+    "clientId": "your-client-id.apps.googleusercontent.com",
+    "clientSecret": "your-client-secret"
   }
 }
 ```
 
-## 📝 Examples
+---
 
-### Complete Workflow Example
+#### `jazz auth gmail status`
+
+Check Gmail authentication status.
 
 ```bash
-# 1. Create an agent
-jazz agent create backup-agent \
-  --description "Daily backup automation" \
-  --timeout 300000 \
-  --max-retries 3
-
-# 2. List agents to verify creation
-jazz agent list
-
-# 3. Get agent details
-jazz agent get <agent-id>
-
-# 4. Run agent in dry-run mode
-jazz agent run <agent-id> --dry-run
-
-# 5. Run agent normally
-jazz agent run <agent-id>
-
-# 6. Delete agent when done
-jazz agent delete <agent-id>
+jazz auth gmail status
 ```
 
-### Batch Operations
+**Output:**
+
+```
+✅ Gmail Authentication Status: Connected
+   Email: your.email@gmail.com
+   Scopes: gmail.modify, gmail.compose, gmail.labels
+   Token expires: 2024-01-16T10:30:00.000Z
+```
+
+or
+
+```
+❌ Gmail Authentication Status: Not connected
+   Run 'jazz auth gmail login' to authenticate
+```
+
+---
+
+#### `jazz auth gmail logout`
+
+Logout from Gmail.
 
 ```bash
-# Create multiple agents
-jazz agent create web-scraper --description "Web scraping agent"
-jazz agent create data-processor --description "Data processing agent"
-jazz agent create report-generator --description "Report generation agent"
+jazz auth gmail logout
+```
 
+**Output:**
+
+```
+✅ Successfully logged out from Gmail
+   Tokens have been removed
+```
+
+---
+
+## Quick Reference
+
+### Common Workflows
+
+**Create and use an agent:**
+
+```bash
+# 1. Create agent
+jazz agent create
+
+# 2. Chat with agent
+jazz agent chat my-agent
+
+# 3. List agents
+jazz agent list
+
+# 4. Delete agent
+jazz agent delete <id>
+```
+
+**Gmail setup:**
+
+```bash
+# 1. Configure in config.json
+# 2. Authenticate
+jazz auth gmail login
+
+# 3. Check status
+jazz auth gmail status
+
+# 4. Create Gmail agent
+jazz agent create
+# Select Gmail tools
+```
+
+**Debug issues:**
+
+```bash
+# Run with debug output
+jazz --debug agent chat my-agent
+
+# Run with verbose logging
+jazz --verbose agent list
+
+# Check version
+jazz --version
+```
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error |
+| 2 | Configuration error |
+| 3 | Authentication error |
+| 4 | Network error |
+| 5 | Storage error |
+
+---
+
+## Configuration File Location
+
+Jazz looks for configuration in order:
+
+1. `JAZZ_CONFIG_PATH` environment variable
+2. `./jazz.config.json` (current directory)
+3. `~/.jazz/config.json` (home directory)
+
+**Specify custom location:**
+
+```bash
+export JAZZ_CONFIG_PATH=/path/to/config.json
+# or
+jazz --config /path/to/config.json <command>
+```
+
+---
+
+## Environment Variables
+
+Override configuration with environment variables:
+
+```bash
+# LLM Provider API Keys
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+export GOOGLE_GENERATIVE_AI_API_KEY="AIza..."
+
+# Configuration
+export JAZZ_CONFIG_PATH="/path/to/config.json"
+
+# Linkup
+export LINKUP_API_KEY="your-key"
+```
+
+---
+
+## Troubleshooting
+
+### "No LLM providers configured"
+
+**Solution:**
+Add API key to config:
+
+```json
+{
+  "llm": {
+    "openai": {
+      "api_key": "sk-..."
+    }
+  }
+}
+```
+
+### "Agent not found"
+
+**Possible causes:**
+- Wrong agent ID
+- Agent deleted
+- Wrong config file location
+
+**Solution:**
+```bash
 # List all agents
 jazz agent list
 
-# Run all agents (when batch execution is implemented)
-jazz agent run-all
+# Use correct ID or name
+jazz agent chat <correct-id-or-name>
 ```
 
-## 🚀 Advanced Usage
+### "Gmail authentication required"
 
-### Environment Variables
+**Solution:**
+```bash
+# Authenticate
+jazz auth gmail login
 
-Override configuration using environment variables:
+# Verify
+jazz auth gmail status
+```
+
+### "Command execution failed"
+
+**Solution:**
+```bash
+# Check with debug mode
+jazz --debug agent chat my-agent
+
+# Verify API keys are valid
+# Check network connection
+```
+
+---
+
+## Getting Help
+
+**Command help:**
 
 ```bash
-# Set custom storage path
-export JAZZ_STORAGE_PATH="/custom/data/path"
-jazz agent list
+# General help
+jazz --help
 
-# Set log level
-export JAZZ_LOG_LEVEL="debug"
-jazz agent create my-agent
-
-# Set timeout
-export JAZZ_TIMEOUT="60000"
-jazz agent run <agent-id>
+# Command-specific help
+jazz agent --help
+jazz agent create --help
 ```
 
-### Scripting Integration
+**Documentation:**
+- [Getting Started](getting-started.md)
+- [Tools Reference](tools-reference.md)
+- [Security Guide](security.md)
+- [Integrations](integrations.md)
 
-Use Jazz in shell scripts:
+**Community:**
+- [Discord](https://discord.gg/yBDbS2NZju)
+- [GitHub Issues](https://github.com/lvndry/jazz/issues)
+- [GitHub Discussions](https://github.com/lvndry/jazz/discussions)
 
-```bash
-#!/bin/bash
+---
 
-# Create agent
-AGENT_ID=$(jazz agent create backup-agent --description "Backup agent" | grep "ID:" | cut -d' ' -f3)
-
-# Run agent
-jazz agent run $AGENT_ID
-
-# Check exit code
-if [ $? -eq 0 ]; then
-    echo "Backup completed successfully"
-else
-    echo "Backup failed"
-    exit 1
-fi
-```
-
-## 📚 Related Documentation
-
-- [Architecture Overview](architecture.md) - System design and components
-- [Agent Development](agent-development.md) - Creating and configuring agents
-- [Configuration](configuration.md) - Configuration options and file format
-- [Examples](examples.md) - Practical usage examples
+**Last Updated:** Compatible with Jazz v0.2.0

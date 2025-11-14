@@ -38,6 +38,10 @@
 - [ ] Security tests — build suites covering command injection, privilege escalation, sandbox escapes, and malicious tool payloads.
 - [ ] Broaden automated test coverage — prioritize Effect-based unit tests for CLI commands, tool adapters, and runtime layers.
 
+## Developer experience
+
+- [ ] Precommit hooks
+
 ## Backlog Ideas & Research
 
 - Config-driven agent provisioning, e.g. `jazz agent create --config agent.json`.
