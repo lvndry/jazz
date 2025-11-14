@@ -2,6 +2,15 @@
 
 Complete documentation for Jazz - Your AI agent that actually does things.
 
+## Architecture Highlights
+
+- **Effect-TS Foundation** - Functional programming for bulletproof error handling
+- **Type-Safe Everything** - Full TypeScript with strict mode
+- **Modular Tool System** - Easy to extend with custom tools
+- **Context-Aware** - Maintains working directory per conversation
+- **Approval Workflows** - Two-phase execution for dangerous operations
+- **Multi-Provider** - Switch LLM providers without changing agents
+
 ## 📚 Documentation Overview
 
 ### For New Users
@@ -87,12 +96,6 @@ Complete documentation for Jazz - Your AI agent that actually does things.
 - [CLI Reference](cli-reference.md) - Command details
 - [../CONTRIBUTING.md](../CONTRIBUTING.md) - Contributing guide
 - [../TODO.md](../TODO.md) - Feature roadmap
-
-**For System Administrators:**
-
-- [Security](security.md) - Security model
-- [Integrations](integrations.md) - Deployment configuration
-- [CLI Reference](cli-reference.md) - System integration
 
 ## 📖 Reading Order
 
