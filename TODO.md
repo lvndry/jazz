@@ -77,7 +77,7 @@
   - [x] Script execution capability
   - [x] API call execution
   - [x] File operation tasks
-  - [->] Result tracking and storage
+  - [x] Result tracking and storage
   - [ ] Make reasoning tokens visible
   - [ ] Should we support the `think` tool ?
 
