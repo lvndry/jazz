@@ -866,7 +866,7 @@ Should I create a detailed report with fixes?
 
 You: yes, and create GitHub issues for each critical item
 
-Agent: ✓ Created docs/security-audit-2024-01.md
+Agent: ✓ Created docs/security-audit-2025-01.md
 
 ✓ Created GitHub Issues:
 
@@ -1140,8 +1140,8 @@ Starting staging deployment:
 **Step 3: Database Migrations**
 Found 2 pending migrations:
 
-1. 20240115_add_notifications_table.sql
-2. 20240115_add_email_queue_table.sql
+1. 20250115_add_notifications_table.sql
+2. 20250115_add_email_queue_table.sql
 
 ⚠️ About to apply migrations to staging database
 Proceed? (yes/no)

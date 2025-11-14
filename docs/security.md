@@ -18,24 +18,28 @@ Jazz is designed with a **trust-but-verify** security model:
 When you give an agent tools, it can:
 
 **With Gmail Tools:**
+
 - Read all your emails
 - Send emails on your behalf
 - Delete emails permanently (with approval)
 - Manage labels and filters
 
 **With Git Tools:**
+
 - Read repository contents
 - Commit changes (with approval)
 - Push to remote (with approval)
 - Delete branches (with approval)
 
 **With File Tools:**
+
 - Read any file you can access
 - Write files (with approval)
 - Delete files (with approval)
 - Navigate your file system
 
 **With Shell Tools:**
+
 - Execute commands (with approval)
 - Install packages (with approval)
 - Run scripts (with approval)
@@ -80,6 +84,7 @@ Agent: [Executes deletion]
 ```
 
 **Approval Required For:**
+
 - Email deletion (trash or permanent)
 - File deletion
 - File/directory creation
@@ -93,14 +98,14 @@ Shell commands are checked against 40+ dangerous patterns.
 
 **Blocked Commands:**
 
-| Category | Examples | Why Blocked |
-|----------|----------|-------------|
-| **File Destruction** | `rm -rf /`, `rm -rf ~`, `rm *` | Could delete entire systems |
-| **Privilege Escalation** | `sudo`, `su` | Could gain root access |
-| **Remote Execution** | `curl ... \| sh`, `wget ... \| bash` | Could download and run malware |
-| **Process Manipulation** | `kill -9`, `pkill`, `killall` | Could kill critical processes |
-| **System Commands** | `shutdown`, `reboot`, `halt` | Could shut down system |
-| **Fork Bombs** | `:(){ :\|:& };:` | Could exhaust resources |
+| Category                 | Examples                             | Why Blocked                    |
+| ------------------------ | ------------------------------------ | ------------------------------ |
+| **File Destruction**     | `rm -rf /`, `rm -rf ~`, `rm *`       | Could delete entire systems    |
+| **Privilege Escalation** | `sudo`, `su`                         | Could gain root access         |
+| **Remote Execution**     | `curl ... \| sh`, `wget ... \| bash` | Could download and run malware |
+| **Process Manipulation** | `kill -9`, `pkill`, `killall`        | Could kill critical processes  |
+| **System Commands**      | `shutdown`, `reboot`, `halt`         | Could shut down system         |
+| **Fork Bombs**           | `:(){ :\|:& };:`                     | Could exhaust resources        |
 
 **Example:**
 
@@ -119,11 +124,13 @@ If you need to run this command, please execute it manually in your terminal.
 When executing shell commands, Jazz:
 
 **Removes:**
+
 - API keys (vars containing "API", "KEY", "SECRET")
 - Tokens (vars containing "TOKEN", "PASSWORD")
 - Credentials (vars containing "CREDENTIAL", "AUTH")
 
 **Keeps:**
+
 - PATH (for command resolution)
 - HOME (for home directory)
 - USER (for user identification)
@@ -135,18 +142,18 @@ When executing shell commands, Jazz:
 // Before sanitization
 process.env = {
   PATH: "/usr/local/bin:/usr/bin",
-  OPENAI_API_KEY: "sk-...",  // ⚠️ Sensitive
+  OPENAI_API_KEY: "sk-...", // ⚠️ Sensitive
   HOME: "/Users/you",
-  AWS_SECRET_KEY: "..."       // ⚠️ Sensitive
-}
+  AWS_SECRET_KEY: "...", // ⚠️ Sensitive
+};
 
 // After sanitization
 sanitizedEnv = {
-  PATH: "/usr/local/bin:/usr/bin",  // ✓ Safe
-  HOME: "/Users/you",                // ✓ Safe
-  USER: "you",                       // ✓ Safe
-  SHELL: "/bin/zsh"                  // ✓ Safe
-}
+  PATH: "/usr/local/bin:/usr/bin", // ✓ Safe
+  HOME: "/Users/you", // ✓ Safe
+  USER: "you", // ✓ Safe
+  SHELL: "/bin/zsh", // ✓ Safe
+};
 ```
 
 ### 4. Security Logging
@@ -160,13 +167,14 @@ All command executions are logged for audit purposes.
   command: "npm install",
   workingDirectory: "/path/to/project",
   exitCode: 0,
-  timestamp: "2024-01-15T10:30:00.000Z",
+  timestamp: "2025-01-15T10:30:00.000Z",
   agentId: "agent-123",
   conversationId: "conv-456"
 }
 ```
 
 **What's Logged:**
+
 - All shell command executions
 - File write operations
 - File deletions
@@ -174,6 +182,7 @@ All command executions are logged for audit purposes.
 - Email deletions
 
 **Where Logs Are:**
+
 - Console output
 - Agent execution logs
 - Can be redirected to files
@@ -183,6 +192,7 @@ All command executions are logged for audit purposes.
 File operations validate paths to prevent security issues:
 
 **Prevents:**
+
 - Path traversal attacks (`../../../etc/passwd`)
 - Symbolic link exploits
 - Access to system directories (without approval)
@@ -202,12 +212,14 @@ System files require manual access for safety.
 All operations have maximum execution times:
 
 **Default Timeouts:**
+
 - Shell commands: 30 seconds
 - File operations: 10 seconds
 - API requests: 30 seconds
 - Git operations: 60 seconds
 
 **Why Important:**
+
 - Prevents runaway processes
 - Stops infinite loops
 - Protects against resource exhaustion
@@ -218,12 +230,14 @@ All operations have maximum execution times:
 Commands run with restrictions:
 
 **Isolation Features:**
+
 - Same user privileges as Jazz process
 - No detached processes (can be terminated)
 - Timeout enforcement
 - Resource limits (where supported)
 
 **Cannot:**
+
 - Escalate privileges
 - Fork bomb the system
 - Access root resources (without sudo)
@@ -386,16 +400,19 @@ tail -100 ~/.jazz/logs/agent-operations.log
 ### Recovery Steps
 
 **For Deleted Files:**
+
 1. Check trash/recycle bin
 2. Restore from backup
 3. Use file recovery tools if needed
 
 **For Git Issues:**
+
 1. Check reflog: `git reflog`
 2. Reset to previous state: `git reset --hard <commit>`
 3. Recover from remote: `git fetch origin && git reset --hard origin/main`
 
 **For Email Issues:**
+
 1. Check Gmail trash (30-day retention)
 2. Contact Gmail support for recovery
 3. Restore from backup if available
@@ -407,12 +424,14 @@ tail -100 ~/.jazz/logs/agent-operations.log
 Perform these security checks regularly:
 
 **Weekly:**
+
 - Review command execution logs
 - Check for unexpected file changes
 - Verify agent configurations
 - Review approval patterns
 
 **Monthly:**
+
 - Audit API key usage
 - Review agent permissions
 - Update security policies
@@ -485,11 +504,13 @@ sudo -u jazzuser jazz agent chat my-agent
 ## 🆘 Getting Help
 
 **Security Questions:**
+
 - Join [Discord](https://discord.gg/yBDbS2NZju)
 - Open [GitHub Issue](https://github.com/lvndry/jazz/issues)
 - Email security concerns to the maintainers
 
 **Report Security Vulnerabilities:**
+
 - See [SECURITY.md](../SECURITY.md) for responsible disclosure
 - Do NOT post vulnerabilities in public issues
 
@@ -498,4 +519,3 @@ sudo -u jazzuser jazz agent chat my-agent
 **Remember**: Jazz is a powerful tool. With great power comes great responsibility. Always review, always verify, always backup.
 
 **The approval system is your safety net—use it wisely.**
-

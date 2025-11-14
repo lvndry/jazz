@@ -51,6 +51,7 @@ Jazz needs at least one LLM provider configured. Create a configuration file at 
 ```
 
 **Get API Keys:**
+
 - **OpenAI**: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 - **Anthropic**: [console.anthropic.com](https://console.anthropic.com/)
 - **Google**: [makersuite.google.com/app/apikey](https://makersuite.google.com/app/apikey)
@@ -127,7 +128,7 @@ You'll be prompted for:
    Tool Categories: Gmail
    Total Tools: 16
    Status: idle
-   Created: 2024-01-15T10:30:00.000Z
+   Created: 2025-01-15T10:30:00.000Z
 
 You can now chat with your agent using:
    • By ID:   jazz agent chat 550e8400-e29b-41d4-a716-446655440000
@@ -166,15 +167,15 @@ I found 12 unread emails from today. Here are the highlights:
 1. **GitHub Notifications** (5 emails)
    - Pull request reviews
    - Issue mentions
-   
+
 2. **Team Updates** (3 emails)
    - Sprint planning from Sarah
    - Weekly report from manager
-   
+
 3. **Newsletters** (4 emails)
    - JavaScript Weekly
    - Node Weekly
-   
+
 Would you like me to help you organize these?
 
 You: Label the GitHub ones as "dev" and archive them
@@ -247,7 +248,7 @@ You: yes
 
 Agent: ✓ Changes committed!
    Commit hash: abc123f
-   
+
 Would you like me to push to remote?
 ```
 
@@ -286,6 +287,7 @@ jazz agent edit <agent-id>
 ```
 
 This opens an interactive wizard to modify:
+
 - Name
 - Description
 - Status
@@ -303,14 +305,14 @@ jazz agent delete <agent-id>
 
 Jazz provides tools organized by category:
 
-| Category | Tools | What Can Agents Do? |
-|----------|-------|---------------------|
-| **Gmail** | 16 | List, search, read, send, label management, batch operations, delete (with approval) |
-| **Git** | 9 | Status, log, diff, branch, add, commit, push, pull, checkout (write operations require approval) |
-| **File Management** | 15 | Navigate (pwd, cd, ls), read files, write files (approval), search (grep, find), mkdir, rm (approval) |
-| **Shell** | 2 | Execute commands with security validation and approval |
-| **Web Search** | 1 | Search the web via Linkup (standard and deep search modes) |
-| **HTTP** | 1 | Make HTTP requests to APIs |
+| Category            | Tools | What Can Agents Do?                                                                                   |
+| ------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
+| **Gmail**           | 16    | List, search, read, send, label management, batch operations, delete (with approval)                  |
+| **Git**             | 9     | Status, log, diff, branch, add, commit, push, pull, checkout (write operations require approval)      |
+| **File Management** | 15    | Navigate (pwd, cd, ls), read files, write files (approval), search (grep, find), mkdir, rm (approval) |
+| **Shell**           | 2     | Execute commands with security validation and approval                                                |
+| **Web Search**      | 1     | Search the web via Linkup (standard and deep search modes)                                            |
+| **HTTP**            | 1     | Make HTTP requests to APIs                                                                            |
 
 See [tools-reference.md](tools-reference.md) for detailed documentation of each tool.
 
@@ -319,9 +321,11 @@ See [tools-reference.md](tools-reference.md) for detailed documentation of each 
 Jazz has a two-phase approval system for dangerous operations:
 
 ### Phase 1: Request Approval
+
 Agent detects a dangerous operation (delete, rm, push, etc.) and asks for approval with details.
 
 ### Phase 2: Execute After Approval
+
 If you approve, agent executes the operation using a special execution tool.
 
 **Example:**
@@ -370,6 +374,7 @@ Ask agents to do multiple things:
 ### 4. Review Approvals Carefully
 
 Always read approval messages before saying "yes":
+
 - Check file paths
 - Verify email counts
 - Review command details
@@ -398,7 +403,8 @@ If a conversation gets too long or confusing, use `/new` to start fresh while ke
 
 ### Agent not responding
 
-**Solution**: 
+**Solution**:
+
 1. Check your internet connection
 2. Verify API keys are valid
 3. Try with `--debug` flag: `jazz --debug agent chat my-agent`
@@ -436,4 +442,3 @@ jazz auth gmail logout        # Disconnect
 ---
 
 **Need help?** Join our [Discord](https://discord.gg/yBDbS2NZju) or check [GitHub Issues](https://github.com/lvndry/jazz/issues)
-

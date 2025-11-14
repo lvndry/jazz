@@ -10,13 +10,13 @@ Available for all commands:
 jazz [options] <command> [args]
 ```
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--verbose` | `-v` | Enable verbose logging |
-| `--debug` | | Enable debug-level logging |
-| `--config <path>` | | Use custom config file |
-| `--help` | `-h` | Show help |
-| `--version` | | Show version |
+| Option            | Short | Description                |
+| ----------------- | ----- | -------------------------- |
+| `--verbose`       | `-v`  | Enable verbose logging     |
+| `--debug`         |       | Enable debug-level logging |
+| `--config <path>` |       | Use custom config file     |
+| `--help`          | `-h`  | Show help                  |
+| `--version`       |       | Show version               |
 
 **Examples:**
 
@@ -46,6 +46,7 @@ jazz agent create
 ```
 
 **Interactive prompts:**
+
 1. Agent name
 2. Description
 3. Agent type (default/gmail)
@@ -96,14 +97,14 @@ Found 3 agent(s):
 1. email-helper (550e8400-e29b-41d4-a716-446655440000)
    Description: Manage my Gmail inbox
    LLM: openai/gpt-4o-mini
-   Created: 2024-01-15T10:30:00.000Z
-   Updated: 2024-01-15T10:30:00.000Z
+   Created: 2025-01-15T10:30:00.000Z
+   Updated: 2025-01-15T10:30:00.000Z
 
 2. git-assistant (661f9510-f39c-52e5-b827-557766551111)
    Description: Help with git operations
-   LLM: anthropic/claude-3-5-sonnet-20241022
-   Created: 2024-01-15T11:00:00.000Z
-   Updated: 2024-01-15T11:00:00.000Z
+   LLM: anthropic/claude-3-5-sonnet-20251022
+   Created: 2025-01-15T11:00:00.000Z
+   Updated: 2025-01-15T11:00:00.000Z
 ```
 
 ---
@@ -117,6 +118,7 @@ jazz agent chat <id|name>
 ```
 
 **Arguments:**
+
 - `agentRef`: Agent ID or name
 
 **Examples:**
@@ -133,14 +135,14 @@ jazz agent chat 550e8400-e29b-41d4-a716-446655440000
 
 While chatting, use these special commands:
 
-| Command | Description |
-|---------|-------------|
-| `/new` | Start new conversation (clear context) |
-| `/status` | Show conversation status |
-| `/tools` | List available tools |
-| `/clear` | Clear screen |
-| `/help` | Show help |
-| `exit` or `quit` | End conversation |
+| Command          | Description                            |
+| ---------------- | -------------------------------------- |
+| `/new`           | Start new conversation (clear context) |
+| `/status`        | Show conversation status               |
+| `/tools`         | List available tools                   |
+| `/clear`         | Clear screen                           |
+| `/help`          | Show help                              |
+| `exit` or `quit` | End conversation                       |
 
 **Example conversation:**
 
@@ -177,8 +179,8 @@ jazz agent get <id>
    Name: email-helper
    Description: Manage my Gmail inbox
    Status: idle
-   Created: 2024-01-15T10:30:00.000Z
-   Updated: 2024-01-15T10:30:00.000Z
+   Created: 2025-01-15T10:30:00.000Z
+   Updated: 2025-01-15T10:30:00.000Z
 
 ⚙️  Configuration:
    Agent Type: default
@@ -200,6 +202,7 @@ jazz agent edit <id>
 ```
 
 **What you can edit:**
+
 - Name
 - Description
 - Status
@@ -265,6 +268,7 @@ jazz auth gmail login
 ```
 
 **Process:**
+
 1. Opens browser for Google OAuth
 2. User grants permissions
 3. Redirects to localhost callback
@@ -297,7 +301,7 @@ jazz auth gmail status
 ✅ Gmail Authentication Status: Connected
    Email: your.email@gmail.com
    Scopes: gmail.modify, gmail.compose, gmail.labels
-   Token expires: 2024-01-16T10:30:00.000Z
+   Token expires: 2025-01-16T10:30:00.000Z
 ```
 
 or
@@ -378,14 +382,14 @@ jazz --version
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Configuration error |
-| 3 | Authentication error |
-| 4 | Network error |
-| 5 | Storage error |
+| Code | Meaning              |
+| ---- | -------------------- |
+| 0    | Success              |
+| 1    | General error        |
+| 2    | Configuration error  |
+| 3    | Authentication error |
+| 4    | Network error        |
+| 5    | Storage error        |
 
 ---
 
@@ -446,11 +450,13 @@ Add API key to config:
 ### "Agent not found"
 
 **Possible causes:**
+
 - Wrong agent ID
 - Agent deleted
 - Wrong config file location
 
 **Solution:**
+
 ```bash
 # List all agents
 jazz agent list
@@ -462,6 +468,7 @@ jazz agent chat <correct-id-or-name>
 ### "Gmail authentication required"
 
 **Solution:**
+
 ```bash
 # Authenticate
 jazz auth gmail login
@@ -473,6 +480,7 @@ jazz auth gmail status
 ### "Command execution failed"
 
 **Solution:**
+
 ```bash
 # Check with debug mode
 jazz --debug agent chat my-agent
@@ -497,12 +505,14 @@ jazz agent create --help
 ```
 
 **Documentation:**
+
 - [Getting Started](getting-started.md)
 - [Tools Reference](tools-reference.md)
 - [Security Guide](security.md)
 - [Integrations](integrations.md)
 
 **Community:**
+
 - [Discord](https://discord.gg/yBDbS2NZju)
 - [GitHub Issues](https://github.com/lvndry/jazz/issues)
 - [GitHub Discussions](https://github.com/lvndry/jazz/discussions)

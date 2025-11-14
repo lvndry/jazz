@@ -195,29 +195,6 @@ Want a new feature?
 2. Open a [discussion](https://github.com/lvndry/jazz/discussions)
 3. Submit a PR (see [CONTRIBUTING.md](../CONTRIBUTING.md))
 
-## 🔄 Document Updates
-
-These docs are for **Jazz v0.2.0** and are actively maintained.
-
-**Last updated:** January 2024
-
-**Contributing to docs:**
-
-- Docs are written in Markdown
-- See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines
-- Submit PRs for improvements
-
-## 📋 Document Status
-
-| Document             | Status     | Last Updated |
-| -------------------- | ---------- | ------------ |
-| Getting Started      | ✅ Current | Jan 2024     |
-| Examples & Use Cases | ✅ Current | Jan 2024     |
-| Tools Reference      | ✅ Current | Jan 2024     |
-| CLI Reference        | ✅ Current | Jan 2024     |
-| Integrations         | ✅ Current | Jan 2024     |
-| Security             | ✅ Current | Jan 2024     |
-
 ## 🚀 Next Steps
 
 1. **New to Jazz?** Start with [Getting Started](getting-started.md)
