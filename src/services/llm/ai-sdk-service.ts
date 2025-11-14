@@ -300,12 +300,14 @@ class DefaultAISDKService implements LLMService {
           }
         }
 
+        const MAXIMUM_STEPS = 12;
+
         const result = await generateText({
           model,
           messages: toCoreMessages(options.messages),
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(tools ? { tools } : {}),
-          stopWhen: stepCountIs(8),
+          stopWhen: stepCountIs(MAXIMUM_STEPS),
         });
 
         let responseModel = options.model;
