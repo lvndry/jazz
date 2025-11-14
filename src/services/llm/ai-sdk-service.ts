@@ -2,9 +2,9 @@ import { anthropic, AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { deepseek } from "@ai-sdk/deepseek";
 import { google } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
-import { openai } from "@ai-sdk/openai";
+import { openai, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai } from "@ai-sdk/xai";
-import { ollama } from "ollama-ai-provider-v2";
+import { ollama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 
 import {
   generateText,
@@ -137,7 +137,6 @@ function selectModel(providerName: string, modelId: ModelName): LanguageModel {
       return openai(modelId);
     case "anthropic":
       return anthropic(modelId);
-    case "gemini":
     case "google":
       return google(modelId);
     case "mistral":
@@ -170,7 +169,7 @@ function buildProviderOptions(
         return {
           openai: {
             reasoningEffort,
-          },
+          } satisfies OpenAIResponsesProviderOptions,
         };
       }
       break;
@@ -185,6 +184,13 @@ function buildProviderOptions(
         };
       }
       break;
+    }
+    case "ollama": {
+      return {
+        ollama: {
+          think: true,
+        } satisfies OllamaCompletionProviderOptions,
+      };
     }
     default:
       break;
@@ -223,7 +229,7 @@ class DefaultAISDKService implements LLMService {
         { id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", isReasoningModel: true },
         { id: "claude-opus-4-1", displayName: "Claude Opus 4.1", isReasoningModel: true },
       ],
-      gemini: [
+      google: [
         { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", isReasoningModel: true },
         { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", isReasoningModel: true },
         {
@@ -463,11 +469,15 @@ export function createAISDKServiceLayer(): Layer.Layer<
       const anthropicAPIKey = appConfig.llm?.anthropic?.api_key;
       if (anthropicAPIKey) apiKeys["anthropic"] = anthropicAPIKey;
 
-      const geminiAPIKey = appConfig.llm?.gemini?.api_key;
-      if (geminiAPIKey) apiKeys["gemini"] = geminiAPIKey;
+      const geminiAPIKey = appConfig.llm?.google?.api_key;
+      // Default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
+      if (geminiAPIKey) apiKeys["google_generative_ai"] = geminiAPIKey;
 
       const mistralAPIKey = appConfig.llm?.mistral?.api_key;
       if (mistralAPIKey) apiKeys["mistral"] = mistralAPIKey;
+
+      const xaiAPIKey = appConfig.llm?.xai?.api_key;
+      if (xaiAPIKey) apiKeys["xai"] = xaiAPIKey;
 
       const providers = Object.keys(apiKeys);
       if (providers.length === 0) {
