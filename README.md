@@ -1,230 +1,281 @@
-# Jazz
-
-A powerful agentic automation CLI built for managing agentic loops in daily life workflows.
+# Jazz 🎷
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Discord](https://img.shields.io/badge/chat-discord-5865F2.svg)](https://discord.gg/yBDbS2NZju)
+[![npm version](https://badge.fury.io/js/jazz-ai.svg)](https://www.npmjs.com/package/jazz-ai)
 
-## Overview
+> **Your AI agent that actually _does_ things**
 
-Jazz is a command-line tool designed to help you create, manage, and execute autonomous agents that can perform complex automation tasks.
+Jazz is a powerful CLI that lets you create autonomous AI agents with real-world capabilities. Instead of just chatting, your agents can read emails, manage git repositories, execute commands, search the web, and orchestrate complex workflows—all through natural conversation.
 
-### Key Features
+## What Makes Jazz Different?
 
-- **Agent Management**: Create, configure, and manage autonomous agents
-- **Task Execution**: Execute various types of tasks (commands, scripts, API calls, file operations)
-- **Automation**: Schedule and trigger agent executions
-- **Monitoring**: Track agent performance and execution results
-- **Type Safety**: Full TypeScript support with strict type checking
-- **Extensible**: Plugin system for custom task types and integrations
-- **Structured Logging**: Comprehensive logging with correlation IDs
+**Traditional AI assistants**: Chat and suggest
+**Jazz agents**: Chat and **execute**
+
+### Real Capabilities, Real Results
+
+- 📧 **Email Automation** - Read, search, label, draft, and manage your Gmail inbox
+- 🔧 **Git Operations** - Check status, commit changes, push code, manage branches
+- 🌐 **Web Research** - Search the web and get current information via Linkup
+- 💻 **Shell Commands** - Execute system commands with security safeguards
+- 📁 **File Operations** - Read, write, search, and manage files intelligently
+- 🔗 **HTTP Requests** - Call APIs and integrate with external services
+
+### Built for Trust
+
+- **User Approval System** - Dangerous operations require explicit confirmation
+- **Security-First** - Command validation, sandbox execution, audit logging
+- **Multi-LLM Support** - OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama
+- **Type-Safe** - 100% TypeScript with Effect-TS for reliability
 
 ## Quick Start
 
 ### Installation
 
-<details open>
-<summary>npm</summary>
-
 ```bash
+# Using npm
 npm install -g jazz-ai
-```
 
-</details>
-
-<details open>
-<summary>bun</summary>
-
-```bash
+# Using bun
 bun add -g jazz-ai
-```
 
-</details>
-<details open>
-<summary>pnpm</summary>
-
-```bash
+# Using pnpm
 pnpm add -g jazz-ai
+
+# Using yarn
+yarn global add jazz-ai
 ```
 
-</details>
-<details open>
-<summary>yarn</summary>
+### Create Your First Agent
 
 ```bash
-yarn add -g jazz-ai
-```
-
-</details>
-
-### Basic Usage
-
-```bash
-jazz --help
-
-# Create your first agent
+# Interactive agent creation wizard
 jazz agent create
 
-# List all agents
-jazz agent list
+# Follow the prompts to:
+# 1. Name your agent
+# 2. Describe what it should do
+# 3. Choose an LLM provider and model
+# 4. Select tools (Gmail, Git, Shell, etc.)
+```
 
-# Get agent details
-jazz agent get <agent-id>
+### Start Chatting
 
-# Run an agent (dry run)
-jazz agent run <agent-id> --dry-run
+```bash
+# Chat with your agent by name or ID
+jazz agent chat my-agent
 
-# Delete an agent
-jazz agent delete <agent-id>
+# Your agent will:
+# ✓ Understand natural language requests
+# ✓ Use tools to accomplish tasks
+# ✓ Ask for approval on sensitive operations
+# ✓ Remember conversation context
 ```
 
 ## Configuration
 
-Jazz uses a JSON configuration file to manage application settings, API keys, and service integrations. The configuration system provides sensible defaults while allowing full customization.
+Jazz uses a JSON configuration file for settings and API keys.
 
-### Configuration File Location
+### Configuration Location
 
-Jazz looks for configuration files in the following order:
+Jazz looks for configuration in this order:
 
-1. **Environment Variable**: `JAZZ_CONFIG_PATH`
-2. **Current Directory**: `./jazz.config.json`
-3. **Home Directory**: `~/.jazz/config.json`
+1. `JAZZ_CONFIG_PATH` environment variable
+2. `./jazz.config.json` (current directory)
+3. `~/.jazz/config.json` (home directory)
 
-### Basic Configuration
+### Quick Setup
 
-Create a `.jazz/config.json` in your home directory:
+Create `~/.jazz/config.json`:
 
 ```json
 {
-  "google": {
-    "clientId": "your-google-client-id.apps.googleusercontent.com",
-    "clientSecret": "your-google-client-secret"
-  },
   "llm": {
     "openai": {
-      "api_key": "sk-your-openai-api-key"
+      "api_key": "sk-..."
     },
     "anthropic": {
-      "api_key": "sk-ant-your-anthropic-api-key"
+      "api_key": "sk-ant-..."
     }
   }
 }
 ```
 
-### Configuration Sections
+**That's it!** You can now create and chat with agents.
 
-#### Google OAuth (Optional)
+### Optional Integrations
 
-Required for Gmail integration and Google services:
+Want more capabilities? Add these optional integrations:
 
 ```json
 {
   "google": {
     "clientId": "your-client-id.apps.googleusercontent.com",
     "clientSecret": "your-client-secret"
-  }
-}
-```
-
-**Setup Instructions:**
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing one
-3. Enable Gmail API
-4. Create OAuth 2.0 credentials
-5. Add `http://localhost:53682/oauth2callback` as redirect URI
-6. Copy client ID and secret to your config
-
-#### LLM Providers
-
-Configure model providers for AI agents:
-
-```json
-{
-  "llm": {
-    "openai": {
-      "api_key": "sk-your-openai-api-key"
-    },
-    "anthropic": {
-      "api_key": "sk-ant-your-anthropic-api-key"
-    },
-    "google": {
-      "api_key": "AIza-your-google-api-key"
-    },
-    "mistral": {
-      "api_key": "mist-your-mistral-api-key"
-    }
-  }
-}
-```
-
-### Authentication Management
-
-Jazz provides built-in authentication management for services:
-
-```bash
-# Authenticate with Gmail
-jazz auth gmail login
-
-# Check authentication status
-jazz auth gmail status
-
-# Logout from Gmail
-jazz auth gmail logout
-```
-
-**Token Storage**: Authentication tokens are automatically stored in `.jazz/google/gmail-token.json` and managed securely by Jazz.
-
-### Linkup Integration
-
-Jazz integrates with [Linkup](https://www.linkup.so/) to provide powerful search capabilities across your connected services and data sources.
-
-#### Linkup Search Tool
-
-The Linkup search tool allows agents to search on the web
-
-#### Configuration
-
-```json
-{
+  },
   "linkup": {
-    "api_key": "<your_linkup_api_key>"
+    "api_key": "your-linkup-api-key"
   }
 }
 ```
 
+See [docs/integrations.md](docs/integrations.md) for detailed setup instructions.
+
+## Real-World Examples
+
+### Email Triage Agent
+
 ```bash
-# Run with verbose logging to see configuration details
-jazz --verbose agent list
+jazz agent create --name "email-assistant"
+
+# Then chat:
+You: Show me unread emails from today
+Agent: [Searches and displays results]
+
+You: Label the ones from GitHub as "dev" and archive them
+Agent: [Requires approval] → Add "dev" label to 5 emails and archive?
+You: yes
+Agent: ✓ Done! Labeled and archived 5 emails.
 ```
+
+### Git Assistant
+
+```bash
+jazz agent chat git-helper
+
+You: What files have changed?
+Agent: [Runs git status, shows modified files]
+
+You: Commit these changes with a good message
+Agent: [Analyzes diff, suggests commit message]
+       About to commit with: "feat: add user authentication flow"
+You: yes
+Agent: ✓ Committed! Hash: abc123f
+```
+
+### Research and Report
+
+```bash
+You: Search for the latest TypeScript 5.5 features and summarize them
+Agent: [Searches web, analyzes results]
+       TypeScript 5.5 introduces:
+       - Inferred type predicates
+       - Control flow narrowing improvements
+       - [detailed summary with sources]
+```
+
+**Want more examples?** Check out our comprehensive [Examples & Use Cases](docs/examples.md) guide featuring:
+
+- 📧 Email management workflows
+- 🔧 Git history cleanup and branch management
+- 🚀 Automated project setup and cloning
+- 🔍 Code analysis and refactoring
+- 🔒 Security audits and dependency updates
+- 📊 Repository analytics and reports
+- 🌐 Web research and documentation generation
+- 🤖 Advanced multi-step workflows
+
+## CLI Commands
+
+### Agent Management
+
+```bash
+jazz agent create              # Create new agent (interactive)
+jazz agent list               # List all agents
+jazz agent chat <id|name>     # Start conversation
+jazz agent edit <id>          # Edit agent configuration
+jazz agent get <id>           # View agent details
+jazz agent delete <id>        # Remove agent
+```
+
+### Authentication
+
+```bash
+jazz auth gmail login         # Connect Gmail account
+jazz auth gmail status        # Check connection status
+jazz auth gmail logout        # Disconnect account
+```
+
+### Options
+
+```bash
+--verbose, -v                 # Detailed logging
+--debug                       # Debug mode
+--config <path>               # Custom config file
+```
+
+## Agent Capabilities
+
+Jazz agents can combine multiple tools to accomplish complex tasks:
+
+| Category        | Tools    | Capabilities                                                                             |
+| --------------- | -------- | ---------------------------------------------------------------------------------------- |
+| **Gmail**       | 16 tools | List, search, read, send, label management, batch operations, trash/delete with approval |
+| **Git**         | 9 tools  | Status, log, diff, branch, add, commit, push, pull, checkout with approval               |
+| **File System** | 15 tools | Navigate, read, write, search, grep, find, stat, mkdir, rm with approval                 |
+| **Shell**       | 2 tools  | Execute commands with security validation and approval                                   |
+| **Web**         | 1 tool   | Search via Linkup with deep/standard modes                                               |
+| **HTTP**        | 1 tool   | Make HTTP requests to APIs                                                               |
+
+## Architecture Highlights
+
+- **Effect-TS Foundation** - Functional programming for bulletproof error handling
+- **Type-Safe Everything** - Full TypeScript with strict mode
+- **Modular Tool System** - Easy to extend with custom tools
+- **Context-Aware** - Maintains working directory per conversation
+- **Approval Workflows** - Two-phase execution for dangerous operations
+- **Multi-Provider** - Switch LLM providers without changing agents
 
 ## Documentation
 
-- [Architecture Overview](docs/architecture.md) - Understanding the system design
-- [CLI Reference](docs/cli-reference.md) - Complete command documentation
-- [Agent Development](docs/agent-development.md) - Creating and configuring agents
-- [Task Types](docs/task-types.md) - Available task types and their usage
-- [Configuration](docs/configuration.md) - Application configuration options
-- [API Reference](docs/api-reference.md) - Service interfaces and types
-- [Examples](docs/examples.md) - Practical usage examples
-- [Contributing](CONTRIBUTING.md) - Development guidelines
+- **[Getting Started](docs/getting-started.md)** - Installation, setup, and first agent
+- **[Examples & Use Cases](docs/examples.md)** - Real-world workflows and inspiring examples
+- **[Tools Reference](docs/tools-reference.md)** - Complete guide to all 44 tools
+- **[CLI Reference](docs/cli-reference.md)** - Command-line interface documentation
+- **[Integrations](docs/integrations.md)** - Set up Gmail, Linkup, and LLM providers
+- **[Security Guide](docs/security.md)** - Security model and best practices
+- **[Docs Index](docs/README.md)** - Complete documentation overview
 
-## Current Status
+## Contributing
 
-[TODO.md](./TODO.md)
+We welcome contributions! Jazz is actively developed and there are many opportunities to help:
+
+### Ways to Contribute
+
+- 🐛 **Fix Bugs** - Check out [open issues](https://github.com/lvndry/jazz/issues)
+- ✨ **Add Features** - See [TODO.md](./TODO.md) for planned features
+- 📖 **Improve Docs** - Help make Jazz easier to use
+- 🧪 **Write Tests** - Increase test coverage
+- 💡 **Share Ideas** - Join [discussions](https://github.com/lvndry/jazz/discussions)
+
+### Quick Start for Contributors
+
+1. Fork the repository
+2. Check [TODO.md](./TODO.md) for tasks ready to be tackled
+3. Read [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines
+4. Submit a PR!
+
+**Active Development**: Jazz is in active development with frequent updates. The TODO list has many exciting features waiting to be built.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
-## Support
+## Support & Community
 
-- [Documentation](docs/)
-- [Discord](https://discord.gg/yBDbS2NZju)
-- [Issue Tracker](https://github.com/lvndry/jazz/issues)
-- [Discussions](https://github.com/lvndry/jazz/discussions)
+- 📖 [Documentation](docs/)
+- 💬 [Discord Community](https://discord.gg/yBDbS2NZju)
+- 🐛 [Issue Tracker](https://github.com/lvndry/jazz/issues)
+- 💡 [Discussions](https://github.com/lvndry/jazz/discussions)
+
+## Star History
+
+If Jazz helps you automate your workflows, consider giving it a ⭐️ on GitHub!
 
 ---
 
 **Built with ❤️ by [lvndry](https://github.com/lvndry)**
+
+_Jazz - Because AI should do more than just chat_

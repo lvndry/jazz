@@ -1,6 +1,27 @@
-# Contributing to jazz
+# Contributing to Jazz
 
-Thanks for your interest in contributing! This guide explains how to set up your environment, follow the code style, write tests, and submit changes.
+Thanks for your interest in contributing to Jazz! We're excited to have you here. This guide explains how to set up your environment, follow the code style, write tests, and submit changes.
+
+## 🎯 Where to Start
+
+Jazz is actively developed with many opportunities to contribute:
+
+### Ready-to-Work Tasks
+
+- **[TODO.md](./TODO.md)** - Feature roadmap with planned enhancements
+- **[Open Issues](https://github.com/lvndry/jazz/issues)** - Bug reports and feature requests
+- **[Discussions](https://github.com/lvndry/jazz/discussions)** - Ideas and questions
+
+### Contribution Ideas
+
+- 🐛 **Fix Bugs** - Check issues labeled `bug` or `good first issue`
+- ✨ **Add Features** - Pick from TODO.md or propose your own
+- 📚 **Improve Docs** - Make Jazz easier to understand and use
+- 🧪 **Write Tests** - Increase test coverage (see TODO.md)
+- 🔧 **Add Integrations** - Google Calendar, Slack, Notion, and more!
+- 🎨 **Enhance UX** - Better colors, streaming output, error messages
+
+**First-time contributor?** Look for issues labeled `good first issue` or start with documentation improvements!
 
 ## Quick start
 
