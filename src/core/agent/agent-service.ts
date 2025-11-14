@@ -95,14 +95,15 @@ export class DefaultAgentService implements AgentService {
 
         const normalizedTools = normalizeToolConfig(config.tools, { agentId: id });
 
-        // Merge with provided config
-        const agentConfig: AgentConfig = {
+        const baseConfig: AgentConfig = {
           ...defaultConfig,
           ...config,
-          tasks: config.tasks || [],
-          environment: { ...defaultConfig.environment, ...config.environment },
-          tools: normalizedTools.length > 0 ? normalizedTools : undefined,
+          tasks: config.tasks ?? [],
+          environment: { ...defaultConfig.environment, ...(config.environment ?? {}) },
         };
+
+        const agentConfig: AgentConfig =
+          normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
 
         // Validate the complete agent configuration
         yield* this.validateAgentConfig(agentConfig);
@@ -217,16 +218,20 @@ export class DefaultAgentService implements AgentService {
           agentId: existingAgent.id,
         });
 
+        const { tools: _existingTools, ...configWithoutTools } = mergedConfig;
+        void _existingTools;
+
+        const baseConfig: AgentConfig = configWithoutTools as AgentConfig;
+        const updatedConfig: AgentConfig =
+          normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
+
         const updatedAgent: Agent = {
           ...existingAgent,
           ...updates,
           id: existingAgent.id, // Ensure ID cannot be changed
           createdAt: existingAgent.createdAt, // Ensure createdAt cannot be changed
           updatedAt: new Date(),
-          config: {
-            ...mergedConfig,
-            tools: normalizedTools.length > 0 ? normalizedTools : undefined,
-          },
+          config: updatedConfig,
         };
 
         yield* this.validateAgentConfig(updatedAgent.config);
