@@ -77,7 +77,9 @@
   - [x] Script execution capability
   - [x] API call execution
   - [x] File operation tasks
-  - [ ] Result tracking and storage
+  - [->] Result tracking and storage
+  - [ ] Make reasoning tokens visible
+  - [ ] Should we support the `think` tool ?
 
 - [ ] **Context Management**
   - [ ] Reduce length of system prompt
@@ -93,17 +95,14 @@
 #### 📋 Task Execution Core
 
 - [ ] **Task Types Implementation**
-  - [->] Command execution (shell commands)
-  - [ ] Script execution (JavaScript/TypeScript)
-  - [ ] API call execution (HTTP requests)
-  - [->] File operation tasks
-  - [ ] Custom task type framework
+  - [x] Command execution (shell commands)
+  - [x] Script execution (JavaScript/TypeScript)
+  - [x] API call execution (HTTP requests)
+  - [x] File operation tasks
 
-- [ ] **Execution Context**
-  - [ ] Working directory management
+- [->] **Execution Context**
+  - [x] Working directory management
   - [ ] Environment variable injection
-  - [ ] Resource limits and timeouts
-  - [ ] Process isolation and security
 
 - [ ] **Task Dependencies**
   - [ ] Dependency resolution algorithm
@@ -191,10 +190,10 @@
 
 #### 📋 Configuration & Security
 
-- [ ] **Configuration Management**
-  - [ ] Environment-based configuration
-  - [ ] Configuration file support (JSON/YAML/TOML)
-  - [ ] Configuration validation
+- [x] **Configuration Management**
+  - [x] Environment-based configuration
+  - [x] Configuration file support (JSON/YAML/TOML)
+  - [x] Configuration validation
 
 - [ ] **Security Features**
   - [ ] Credential management
@@ -211,7 +210,7 @@
   - [ ] Configuration setup assistant
 
 - [ ] **Output & Formatting**
-  - [ ] Pretty-printed output
+  - [x] Pretty-printed output
   - [ ] JSON/YAML export options
   - [ ] Progress indicators
   - [ ] Colored output and themes
@@ -225,9 +224,8 @@
   - [ ] Performance benchmarks
 
 - [ ] **Documentation**
-  - [ ] API documentation
   - [x] CLI usage examples
-  - [ ] Agent development guide
+  - [->] Agent creation guide
   - [ ] MCP integration tutorial
 
 #### 📋 Plugin System
@@ -243,46 +241,6 @@
   - [ ] Popular MCP tools
   - [ ] Monitoring plugins
   - [ ] Notification plugins
-
-## 🚀 Quick Start Implementation Order
-
-### ✅ Completed (Week 1)
-
-1. **✅ Implement basic agent creation command**
-   - [x] Add agent creation logic to CLI
-   - [x] Implement agent storage
-   - [x] Add basic validation
-
-### 🔄 Current Priority (Week 2)
-
-2. **🔄 Create agent execution framework**
-   - [x] Basic task execution engine
-   - [x] Command execution capability
-   - [ ] Result tracking
-
-### Short Term (Weeks 2-4)
-
-3. **Add more task types**
-   - Script execution
-   - API calls
-   - File operations
-
-4. **Implement MCP integration**
-   - MCP client setup
-   - Basic tool execution
-   - Agent-MCP communication
-
-### Medium Term (Months 2-3)
-
-5. **Advanced features**
-   - Scheduling and automation
-   - Monitoring and logging
-   - Error handling and retries
-
-6. **Developer experience**
-   - Interactive CLI
-   - Testing framework
-   - Documentation
 
 ## 🔗 Related Issues
 

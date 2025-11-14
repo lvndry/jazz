@@ -1,6 +1,4 @@
 import { Effect, Schedule } from "effect";
-import { appendFile, mkdir } from "node:fs/promises";
-import path from "node:path";
 
 import { AgentConfigService, type ConfigService } from "../../services/config";
 import {
@@ -20,6 +18,14 @@ import {
   type ToolExecutionResult,
   type ToolRegistry,
 } from "./tools/tool-registry";
+import {
+  createAgentRunTracker,
+  finalizeAgentRun,
+  recordLLMRetry,
+  recordLLMUsage,
+  recordToolError,
+  recordToolInvocation,
+} from "./tracking/agent-run-tracker";
 
 /**
  * Agent runner for executing agent conversations
@@ -78,6 +84,18 @@ export class AgentRunner {
       const history: ChatMessage[] = options.conversationHistory || [];
 
       const agentType = agent.config.agentType;
+      const provider = agent.config.llmProvider;
+      const model = agent.config.llmModel;
+
+      const runTracker = createAgentRunTracker({
+        agent,
+        conversationId: actualConversationId,
+        ...(userId ? { userId } : {}),
+        provider,
+        model,
+        reasoningEffort: agent.config.reasoningEffort ?? "disable",
+        maxIterations,
+      });
 
       // Get available tools for this specific agent
       const allToolNames = yield* toolRegistry.listTools();
@@ -141,16 +159,11 @@ export class AgentRunner {
       };
       let finished = false;
       let iterationsUsed = 0;
-      let totalPromptTokens = 0;
-      let totalCompletionTokens = 0;
 
       // Memory safeguard: prevent unbounded message growth
       const MAX_MESSAGES = 100;
 
       // Determine the LLM provider and model to use
-      const provider = agent.config.llmProvider;
-      const model = agent.config.llmModel;
-
       for (let i = 0; i < maxIterations; i++) {
         // Log user-friendly progress for info level
         if (i === 0) {
@@ -215,8 +228,13 @@ export class AgentRunner {
               reasoning_effort: agent.config.reasoningEffort ?? "disable",
             };
 
-            const result = yield* llmService.createChatCompletion(provider, llmOptions);
-            return result;
+            try {
+              const result = yield* llmService.createChatCompletion(provider, llmOptions);
+              return result;
+            } catch (error) {
+              recordLLMRetry(runTracker, error);
+              throw error;
+            }
           }),
           Schedule.exponential("1 second").pipe(
             Schedule.intersect(Schedule.recurs(maxRetries)),
@@ -225,8 +243,7 @@ export class AgentRunner {
         );
 
         if (completion.usage) {
-          totalPromptTokens += completion.usage.promptTokens;
-          totalCompletionTokens += completion.usage.completionTokens;
+          recordLLMUsage(runTracker, completion.usage);
         }
 
         // Add the assistant's response to the conversation (including tool calls, if any)
@@ -297,6 +314,7 @@ export class AgentRunner {
           for (const toolCall of completion.toolCalls) {
             if (toolCall.type === "function") {
               const { name, arguments: argsString } = toolCall.function;
+              recordToolInvocation(runTracker, name);
 
               try {
                 // Parse the arguments safely with proper error handling
@@ -355,6 +373,7 @@ export class AgentRunner {
 
                 // Log the tool execution error for debugging
                 const errorMessage = error instanceof Error ? error.message : String(error);
+                recordToolError(runTracker, error);
                 yield* logger.error("Tool execution failed", {
                   agentId: agent.id,
                   conversationId: actualConversationId,
@@ -431,12 +450,8 @@ export class AgentRunner {
         });
       }
 
-      yield* writeTokenUsageLog({
-        agentId: agent.id,
-        conversationId: actualConversationId,
-        promptTokens: totalPromptTokens,
-        completionTokens: totalCompletionTokens,
-        iterations: iterationsUsed,
+      yield* finalizeAgentRun(runTracker, {
+        iterationsUsed,
         finished,
       }).pipe(
         Effect.catchAll((error) =>
@@ -454,33 +469,6 @@ export class AgentRunner {
       return { ...response, messages: currentMessages };
     });
   }
-}
-
-interface TokenUsageLogPayload {
-  readonly agentId: string;
-  readonly conversationId: string;
-  readonly promptTokens: number;
-  readonly completionTokens: number;
-  readonly iterations: number;
-  readonly finished: boolean;
-}
-
-function writeTokenUsageLog(payload: TokenUsageLogPayload): Effect.Effect<void, Error> {
-  return Effect.tryPromise({
-    try: async () => {
-      const logsDir = path.resolve(process.cwd(), "logs");
-      await mkdir(logsDir, { recursive: true });
-      const logFilePath = path.join(logsDir, "agent-token-usage.log");
-      const timestamp = new Date().toISOString();
-      const totalTokens = payload.promptTokens + payload.completionTokens;
-      const line = `${timestamp} agentId=${payload.agentId} conversationId=${payload.conversationId} iterations=${payload.iterations} finished=${payload.finished} inputTokens=${payload.promptTokens} outputTokens=${payload.completionTokens} totalTokens=${totalTokens}\n`;
-      await appendFile(logFilePath, line, { encoding: "utf8" });
-    },
-    catch: (error: unknown) =>
-      new Error(
-        `Failed to write token usage log: ${error instanceof Error ? error.message : String(error)}`,
-      ),
-  });
 }
 
 /**
