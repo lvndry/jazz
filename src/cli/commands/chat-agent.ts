@@ -95,14 +95,9 @@ export function createAIAgentCommand(): Effect.Effect<
       ? agentAnswers.llmModel
       : chosenProvider.defaultModel;
 
-    // Convert selected categories to categorized tool structure
-    const categorizedTools: Record<string, string[]> = {};
-    for (const category of agentAnswers.tools) {
-      const toolsInCategory = toolsByCategory[category] || [];
-      if (toolsInCategory.length > 0) {
-        categorizedTools[category] = [...toolsInCategory];
-      }
-    }
+    // Convert selected categories to a flat list of tool names
+    const selectedToolNames = agentAnswers.tools.flatMap((category) => toolsByCategory[category] || []);
+    const uniqueToolNames = Array.from(new Set(selectedToolNames));
 
     // Build agent configuration
     const config: AgentConfig = {
@@ -111,7 +106,7 @@ export function createAIAgentCommand(): Effect.Effect<
       llmProvider: agentAnswers.llmProvider,
       llmModel: selectedModel,
       ...(agentAnswers.reasoningEffort && { reasoningEffort: agentAnswers.reasoningEffort }),
-      ...(Object.keys(categorizedTools).length > 0 && { tools: categorizedTools }),
+      ...(uniqueToolNames.length > 0 && { tools: uniqueToolNames }),
       environment: {},
     };
 
@@ -131,11 +126,7 @@ export function createAIAgentCommand(): Effect.Effect<
     console.log(`   LLM Provider: ${config.llmProvider}`);
     console.log(`   LLM Model: ${config.llmModel}`);
     console.log(`   Tool Categories: ${agentAnswers.tools.join(", ") || "None"}`);
-    const totalTools = Object.values(categorizedTools).reduce(
-      (sum, tools) => sum + tools.length,
-      0,
-    );
-    console.log(`   Total Tools: ${totalTools}`);
+    console.log(`   Total Tools: ${uniqueToolNames.length}`);
     console.log(`   Status: ${agent.status}`);
     console.log(`   Created: ${agent.createdAt.toISOString()}`);
 
@@ -462,12 +453,7 @@ function handleSpecialCommand(
         console.log(`   Messages in history: ${conversationHistory.length}`);
         console.log(`   Agent type: ${agent.config.agentType}`);
         console.log(`   LLM: ${agent.config.llmProvider}/${agent.config.llmModel}`);
-        const totalTools = agent.config.tools
-          ? Object.values(agent.config.tools).reduce(
-              (sum: number, tools: unknown) => sum + (Array.isArray(tools) ? tools.length : 0),
-              0,
-            )
-          : 0;
+        const totalTools = agent.config.tools?.length ?? 0;
         console.log(`   Tools: ${totalTools} available`);
         console.log();
         return { shouldContinue: true };

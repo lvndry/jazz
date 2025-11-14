@@ -1,7 +1,8 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
-import { StorageError, StorageNotFoundError } from "../../core/types/errors";
-import type { Agent, AgentResult, Automation, TaskResult } from "../../core/types/index";
+import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
+import { AgentConfigurationError, StorageError, StorageNotFoundError } from "../../core/types/errors";
+import type { Agent, AgentConfig, AgentResult, Automation, TaskResult } from "../../core/types/index";
 import { StorageServiceTag, type StorageService } from "./service";
 
 export class FileStorageService implements StorageService {
@@ -9,6 +10,57 @@ export class FileStorageService implements StorageService {
     private readonly basePath: string,
     private readonly fs: FileSystem.FileSystem,
   ) {}
+
+  private isNotFoundError(error: unknown): boolean {
+    if (error && typeof error === "object") {
+      const tag = (error as { _tag?: string })._tag;
+      if (tag === "NotFound") {
+        return true;
+      }
+
+      const code = (error as { code?: string }).code;
+      if (code === "ENOENT") {
+        return true;
+      }
+
+      const causeCode = (error as { cause?: { code?: string } }).cause?.code;
+      if (causeCode === "ENOENT") {
+        return true;
+      }
+
+      const message = (error as { message?: string }).message;
+      if (typeof message === "string" && message.includes("ENOENT")) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private mapReadError(
+    path: string,
+    error: unknown,
+  ): StorageError | StorageNotFoundError {
+    if (this.isNotFoundError(error)) {
+      return new StorageNotFoundError({
+        path,
+        suggestion: "Verify the requested resource exists or create it first.",
+      });
+    }
+
+    const reason =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : String(error);
+
+    return new StorageError({
+      operation: "read",
+      path,
+      reason: `Failed to read file: ${reason}`,
+    });
+  }
 
   private getAgentPath(id: string): string {
     return `${this.basePath}/agents/${id}.json`;
@@ -64,14 +116,7 @@ export class FileStorageService implements StorageService {
     return Effect.gen(
       function* (this: FileStorageService) {
         const content = yield* this.fs.readFileString(path).pipe(
-          Effect.mapError(
-            (error) =>
-              new StorageError({
-                operation: "read",
-                path,
-                reason: `Failed to read file: ${String(error.message)}`,
-              }),
-          ),
+          Effect.mapError((error) => this.mapReadError(path, error)),
         );
         return JSON.parse(content) as T;
       }.bind(this),
@@ -82,21 +127,41 @@ export class FileStorageService implements StorageService {
     return Effect.gen(
       function* (this: FileStorageService) {
         const content = yield* this.fs.readFileString(path).pipe(
-          Effect.mapError(
-            (error) =>
-              new StorageError({
-                operation: "read",
-                path,
-                reason: `Failed to read file: ${String(error.message)}`,
-              }),
-          ),
+          Effect.mapError((error) => this.mapReadError(path, error)),
         );
 
         const rawData = JSON.parse(content) as Agent & { createdAt: string; updatedAt: string };
 
+        let normalizedTools: readonly string[] = [];
+        try {
+          normalizedTools = normalizeToolConfig(rawData.config?.tools, {
+            agentId: rawData.id,
+          });
+        } catch (error) {
+          if (error instanceof AgentConfigurationError) {
+            return yield* Effect.fail(
+              new StorageError({
+                operation: "read",
+                path,
+                reason: `Invalid tool configuration: ${error.message}`,
+              }),
+            );
+          }
+          throw error;
+        }
+
+        const { tools: _existingTools, ...configWithoutTools } = rawData.config;
+        void _existingTools;
+        const baseConfig: AgentConfig = configWithoutTools as AgentConfig;
+        const configWithNormalizedTools: AgentConfig =
+          normalizedTools.length > 0
+            ? { ...baseConfig, tools: normalizedTools }
+            : baseConfig;
+
         // Convert date strings back to Date objects
         const agent: Agent = {
           ...rawData,
+          config: configWithNormalizedTools,
           createdAt: new Date(rawData.createdAt),
           updatedAt: new Date(rawData.updatedAt),
         };
