@@ -10,7 +10,7 @@ Jazz is actively developed with many opportunities to contribute:
 
 - **[TODO.md](./TODO.md)** - Feature roadmap with planned enhancements
 - **[Open Issues](https://github.com/lvndry/jazz/issues)** - Bug reports and feature requests
-- **[Discussions](https://github.com/lvndry/jazz/discussions)** - Ideas and questions
+- **[Discussions](https://discord.gg/yBDbS2NZju)** - Ideas and questions
 
 ### Contribution Ideas
 
@@ -25,12 +25,8 @@ Jazz is actively developed with many opportunities to contribute:
 
 ## Quick start
 
-- Bun 1.x, Node.js >= 18
-- Install: `bun install`
-- Lint: `bun run lint`
-- Build: `bun run build`
-- Test: `bun test`
-- Dev: `bun run dev`
+- Bun 1.x
+- Node.js >= 18
 
 ## Getting started
 
@@ -40,7 +36,7 @@ Jazz is actively developed with many opportunities to contribute:
    - Fixes: `fix/<topic>`
    - Docs/Chores: `docs/<topic>` or `chore/<topic>`
 3. Install dependencies: `bun install`
-4. Develop using: `bun run dev`
+4. Develop using: `bun run dev agent [command]`
 5. Run checks locally: `bun run lint && bun run build && bun test`
 
 ## Project standards
@@ -56,24 +52,6 @@ This codebase is 100% TypeScript (strict) and uses Effect-TS.
 - Wrap side effects in `Effect`; compose with `Effect.gen` and `pipe`
 - Use `Effect.Layer` for dependency injection
 - Use tagged errors via `Data.TaggedError`
-
-Directory layout:
-
-```
-src/
-  cli/
-  core/
-  services/
-  main.ts
-```
-
-## Linting and formatting
-
-- ESLint and Prettier are configured for TypeScript + Effect-TS best practices.
-- Commands:
-  - `bun run lint` — check
-  - `bun run lint:fix` — fix
-  - `bun run format` — format
 
 ## Build and run
 
@@ -95,19 +73,6 @@ bun test
 bun test --watch
 ```
 
-## Commit messages (Conventional Commits)
-
-Follow Conventional Commits for clear history and tooling:
-
-- `feat(agent): add gmail tool registry`
-- `fix(cli): handle unknown subcommand`
-- `docs(readme): add usage examples`
-- `chore(deps): bump eslint`
-- `refactor(core): simplify runner`
-- `test(services): cover error paths`
-
-Reference issues when relevant, e.g. `(#123)`.
-
 ## Pull requests
 
 Before opening a PR:
@@ -119,10 +84,6 @@ Before opening a PR:
 - Include screenshots/logs for UX/CLI changes when helpful
 
 Target branch: `main`. Describe the problem, solution, and trade-offs.
-
-## Continuous Integration
-
-CI runs lint and build on pushes to `main` and on pull requests (see `.github/workflows/ci.yml`). Keep CI green; address flakes with a clear rationale if skipping.
 
 ## Security
 

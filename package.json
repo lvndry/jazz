@@ -2,9 +2,41 @@
   "name": "jazz-ai",
   "version": "0.2.0",
   "description": "A powerful agentic automation CLI for managing agentic loops in daily life workflows",
+  "license": "MIT",
   "main": "dist/main.js",
   "bin": {
     "jazz": "./dist/main.js"
+  },
+  "author": {
+    "name": "lvndry",
+    "email": "lvndry@proton.me",
+    "url": "https://github.com/lvndry"
+  },
+  "homepage": "https://github.com/lvndry/jazz#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lvndry/jazz.git"
+  },
+  "keywords": [
+    "cli",
+    "agents",
+    "automation",
+    "agentic",
+    "typescript",
+    "effect-ts",
+    "ai",
+    "llm",
+    "workflow",
+    "gmail",
+    "git",
+    "productivity",
+    "assistant",
+    "task-automation",
+    "developer-tools",
+    "ai-agent"
+  ],
+  "bugs": {
+    "url": "https://github.com/lvndry/jazz/issues"
   },
   "scripts": {
     "build": "bun run tsc",
@@ -20,28 +52,6 @@
     "clean": "rm -rf dist",
     "prebuild": "bun run clean",
     "prepublishOnly": "bun run build"
-  },
-  "keywords": [
-    "cli",
-    "agents",
-    "automation",
-    "agentic",
-    "typescript",
-    "effect-ts"
-  ],
-  "author": {
-    "name": "lvndry",
-    "email": "lvndry@proton.me",
-    "url": "https://github.com/lvndry"
-  },
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/lvndry/jazz.git"
-  },
-  "homepage": "https://github.com/lvndry/jazz#readme",
-  "bugs": {
-    "url": "https://github.com/lvndry/jazz/issues"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.17",
@@ -77,7 +87,6 @@
     "@typescript-eslint/parser": "^8.43.0",
     "eslint": "^9.35.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-prettier": "^5.5.4",
     "prettier": "^3.6.2",
     "typescript": "^5.9.2"
   },

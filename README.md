@@ -11,8 +11,8 @@ Jazz is a powerful CLI that lets you create autonomous AI agents with real-world
 
 ## What Makes Jazz Different?
 
-**Traditional AI assistants**: Chat and suggest
-**Jazz agents**: Chat and **execute**
+- **Traditional AI assistants**: Chat and suggest
+- **Jazz agents**: Chat and **execute**
 
 ### Real Capabilities, Real Results
 
@@ -26,7 +26,7 @@ Jazz is a powerful CLI that lets you create autonomous AI agents with real-world
 ### Built for Trust
 
 - **User Approval System** - Dangerous operations require explicit confirmation
-- **Security-First** - Command validation, sandbox execution, audit logging
+- **Security-First** - Command validation, process isolation, audit logging
 - **Multi-LLM Support** - OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama
 - **Type-Safe** - 100% TypeScript with Effect-TS for reliability
 
@@ -83,7 +83,7 @@ Jazz uses a JSON configuration file for settings and API keys.
 Jazz looks for configuration in this order:
 
 1. `JAZZ_CONFIG_PATH` environment variable
-2. `./jazz.config.json` (current directory)
+2. `./jazz.config.json` (current directory - mostly used in dev)
 3. `~/.jazz/config.json` (home directory)
 
 ### Quick Setup
@@ -128,7 +128,7 @@ See [docs/integrations.md](docs/integrations.md) for detailed setup instructions
 ### Email Triage Agent
 
 ```bash
-jazz agent create --name "email-assistant"
+$ jazz agent create --name "email-assistant"
 
 # Then chat:
 You: Show me unread emails from today
@@ -143,7 +143,7 @@ Agent: ✓ Done! Labeled and archived 5 emails.
 ### Git Assistant
 
 ```bash
-jazz agent chat git-helper
+$ jazz agent chat git-helper
 
 You: What files have changed?
 Agent: [Runs git status, shows modified files]
@@ -158,6 +158,8 @@ Agent: ✓ Committed! Hash: abc123f
 ### Research and Report
 
 ```bash
+$ jazz agent chat web-searcher
+
 You: Search for the latest TypeScript 5.5 features and summarize them
 Agent: [Searches web, analyzes results]
        TypeScript 5.5 introduces:
@@ -219,15 +221,6 @@ Jazz agents can combine multiple tools to accomplish complex tasks:
 | **Web**         | 1 tool   | Search via Linkup with deep/standard modes                                               |
 | **HTTP**        | 1 tool   | Make HTTP requests to APIs                                                               |
 
-## Architecture Highlights
-
-- **Effect-TS Foundation** - Functional programming for bulletproof error handling
-- **Type-Safe Everything** - Full TypeScript with strict mode
-- **Modular Tool System** - Easy to extend with custom tools
-- **Context-Aware** - Maintains working directory per conversation
-- **Approval Workflows** - Two-phase execution for dangerous operations
-- **Multi-Provider** - Switch LLM providers without changing agents
-
 ## Documentation
 
 - **[Getting Started](docs/getting-started.md)** - Installation, setup, and first agent
@@ -270,7 +263,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - 🐛 [Issue Tracker](https://github.com/lvndry/jazz/issues)
 - 💡 [Discussions](https://github.com/lvndry/jazz/discussions)
 
-## Star History
+## Give some love
 
 If Jazz helps you automate your workflows, consider giving it a ⭐️ on GitHub!
 

@@ -1,11 +1,10 @@
 {
-    "recommendations": [
-        "editorconfig.editorconfig",
-        "dsznajder.es7-react-js-snippets",
-        "dbaeumer.vscode-eslint",
-        "eamodio.gitlens",
-        "esbenp.prettier-vscode",
-        "rvest.vs-code-prettier-eslint",
-        "mike-co.import-sorter"
-    ]
+  "recommendations": [
+    "editorconfig.editorconfig",
+    "dbaeumer.vscode-eslint",
+    "eamodio.gitlens",
+    "esbenp.prettier-vscode",
+    "rvest.vs-code-prettier-eslint",
+    "mike-co.import-sorter"
+  ]
 }

@@ -260,7 +260,11 @@ export class GmailServiceResource implements GmailService {
     options?: {
       cc?: string[];
       bcc?: string[];
-      attachments?: Array<{ filename: string; content: string | Buffer; contentType?: string }>;
+      attachments?: Array<{
+        filename: string;
+        content: string | Buffer;
+        contentType?: string;
+      }>;
     },
   ): Effect.Effect<void, GmailOperationError | GmailAuthenticationError> {
     return Effect.gen(
@@ -276,7 +280,10 @@ export class GmailServiceResource implements GmailService {
           });
           // Attachments not implemented in this first pass
           yield* Effect.promise(() =>
-            this.gmail.users.drafts.create({ userId: "me", requestBody: { message: { raw } } }),
+            this.gmail.users.drafts.create({
+              userId: "me",
+              requestBody: { message: { raw } },
+            }),
           );
           return void 0;
         } catch (err) {
@@ -380,7 +387,11 @@ export class GmailServiceResource implements GmailService {
           if (updates.color !== undefined) requestBody.color = updates.color;
 
           const response = yield* Effect.promise(() =>
-            this.gmail.users.labels.update({ userId: "me", id: labelId, requestBody }),
+            this.gmail.users.labels.update({
+              userId: "me",
+              id: labelId,
+              requestBody,
+            }),
           );
           return this.parseLabelToGmailLabel(response.data);
         } catch (err) {
@@ -433,7 +444,11 @@ export class GmailServiceResource implements GmailService {
           if (options.removeLabelIds) requestBody.removeLabelIds = options.removeLabelIds;
 
           const response = yield* Effect.promise(() =>
-            this.gmail.users.messages.modify({ userId: "me", id: emailId, requestBody }),
+            this.gmail.users.messages.modify({
+              userId: "me",
+              id: emailId,
+              requestBody,
+            }),
           );
           return this.parseMessageToEmail(response.data);
         } catch (err) {
@@ -465,7 +480,10 @@ export class GmailServiceResource implements GmailService {
           if (options.removeLabelIds) requestBody.removeLabelIds = options.removeLabelIds;
 
           yield* Effect.promise(() =>
-            this.gmail.users.messages.batchModify({ userId: "me", requestBody }),
+            this.gmail.users.messages.batchModify({
+              userId: "me",
+              requestBody,
+            }),
           );
           return void 0;
         } catch (err) {
@@ -569,7 +587,11 @@ export class GmailServiceResource implements GmailService {
         if (!clientSecret) {
           throw new GmailAuthenticationError("Missing client secret");
         }
-        const freshClient = new google.auth.OAuth2({ clientId, clientSecret, redirectUri });
+        const freshClient = new google.auth.OAuth2({
+          clientId,
+          clientSecret,
+          redirectUri,
+        });
         freshClient.setCredentials(currentCreds);
         this.oauthClient = freshClient;
         this.gmail = google.gmail({ version: "v1", auth: this.oauthClient });
