@@ -1,4 +1,4 @@
-import { anthropic } from "@ai-sdk/anthropic";
+import { anthropic, AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { deepseek } from "@ai-sdk/deepseek";
 import { google } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
@@ -153,6 +153,46 @@ function selectModel(providerName: string, modelId: ModelName): LanguageModel {
   }
 }
 
+type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[];
+
+type ProviderOptions = Record<string, Record<string, JsonValue>>;
+
+function buildProviderOptions(
+  providerName: string,
+  options: ChatCompletionOptions,
+): ProviderOptions | undefined {
+  const normalizedProvider = providerName.toLowerCase();
+
+  switch (normalizedProvider) {
+    case "openai": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          openai: {
+            reasoningEffort,
+          },
+        };
+      }
+      break;
+    }
+    case "anthropic": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          anthropic: {
+            thinking: { type: "enabled" },
+          } satisfies AnthropicProviderOptions,
+        };
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return undefined;
+}
+
 class DefaultAISDKService implements LLMService {
   private config: AISDKConfig;
   private providerModels: Record<string, ModelInfo[]>;
@@ -216,10 +256,7 @@ class DefaultAISDKService implements LLMService {
         { id: "grok-3", displayName: "Grok 3", isReasoningModel: true },
         { id: "grok-3-mini", displayName: "Grok 3 Mini", isReasoningModel: true },
       ],
-      deepseek: [
-        { id: "deepseek-chat", displayName: "DeepSeek Chat", isReasoningModel: false },
-        { id: "deepseek-reasoner", displayName: "DeepSeek Reasoner", isReasoningModel: true },
-      ],
+      deepseek: [{ id: "deepseek-chat", displayName: "DeepSeek Chat", isReasoningModel: false }],
       ollama: [
         { id: "llama4", displayName: "Llama 4", isReasoningModel: false },
         { id: "llama3", displayName: "Llama 3", isReasoningModel: false },
@@ -302,11 +339,14 @@ class DefaultAISDKService implements LLMService {
 
         const MAXIMUM_STEPS = 12;
 
+        const providerOptions = buildProviderOptions(providerName, options);
+
         const result = await generateText({
           model,
           messages: toCoreMessages(options.messages),
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(tools ? { tools } : {}),
+          ...(providerOptions ? { providerOptions } : {}),
           stopWhen: stepCountIs(MAXIMUM_STEPS),
         });
 
