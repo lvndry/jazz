@@ -186,11 +186,14 @@ function buildProviderOptions(
       break;
     }
     case "ollama": {
-      return {
-        ollama: {
-          think: true,
-        } satisfies OllamaCompletionProviderOptions,
-      };
+      if (options.reasoning_effort && options.reasoning_effort !== "disable") {
+        return {
+          ollama: {
+            think: true,
+          } satisfies OllamaCompletionProviderOptions,
+        };
+      }
+      break;
     }
     default:
       break;
