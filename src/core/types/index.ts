@@ -210,11 +210,21 @@ export interface LLMProviderConfig {
   readonly api_key: string;
 }
 
+export interface XAIProviderConfig {
+  readonly api_key: string;
+}
+
+export interface DeepSeekProviderConfig {
+  readonly api_key: string;
+}
+
 export interface LLMConfig {
   readonly openai?: LLMProviderConfig;
   readonly anthropic?: LLMProviderConfig;
-  readonly gemini?: LLMProviderConfig;
+  readonly google?: LLMProviderConfig;
   readonly mistral?: LLMProviderConfig;
+  readonly xai?: XAIProviderConfig;
+  readonly deepseek?: DeepSeekProviderConfig;
   readonly contextManagement?: ContextManagementConfig;
 }
 

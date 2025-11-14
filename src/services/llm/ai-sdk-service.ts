@@ -1,8 +1,11 @@
-import { anthropic } from "@ai-sdk/anthropic";
+import { anthropic, AnthropicProviderOptions } from "@ai-sdk/anthropic";
+import { deepseek } from "@ai-sdk/deepseek";
 import { google } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
-import { openai } from "@ai-sdk/openai";
+import { openai, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai } from "@ai-sdk/xai";
+import { ollama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
+
 import {
   generateText,
   stepCountIs,
@@ -134,16 +137,69 @@ function selectModel(providerName: string, modelId: ModelName): LanguageModel {
       return openai(modelId);
     case "anthropic":
       return anthropic(modelId);
-    case "gemini":
     case "google":
       return google(modelId);
     case "mistral":
       return mistral(modelId);
     case "xai":
       return xai(modelId);
+    case "deepseek":
+      return (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+    case "ollama":
+      return ollama(modelId);
     default:
-      return openai(modelId);
+      throw new Error(`Unsupported provider: ${providerName}`);
   }
+}
+
+type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[];
+
+type ProviderOptions = Record<string, Record<string, JsonValue>>;
+
+function buildProviderOptions(
+  providerName: string,
+  options: ChatCompletionOptions,
+): ProviderOptions | undefined {
+  const normalizedProvider = providerName.toLowerCase();
+
+  switch (normalizedProvider) {
+    case "openai": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          openai: {
+            reasoningEffort,
+          } satisfies OpenAIResponsesProviderOptions,
+        };
+      }
+      break;
+    }
+    case "anthropic": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          anthropic: {
+            thinking: { type: "enabled" },
+          } satisfies AnthropicProviderOptions,
+        };
+      }
+      break;
+    }
+    case "ollama": {
+      if (options.reasoning_effort && options.reasoning_effort !== "disable") {
+        return {
+          ollama: {
+            think: true,
+          } satisfies OllamaCompletionProviderOptions,
+        };
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return undefined;
 }
 
 class DefaultAISDKService implements LLMService {
@@ -160,6 +216,7 @@ class DefaultAISDKService implements LLMService {
 
     this.providerModels = {
       openai: [
+        { id: "gpt-5.1", displayName: "GPT-5.1", isReasoningModel: true },
         { id: "gpt-5", displayName: "GPT-5", isReasoningModel: true },
         { id: "gpt-5-mini", displayName: "GPT-5 Mini", isReasoningModel: true },
         { id: "gpt-5-nano", displayName: "GPT-5 Nano", isReasoningModel: true },
@@ -171,16 +228,13 @@ class DefaultAISDKService implements LLMService {
         { id: "o4-mini", displayName: "o4-mini", isReasoningModel: true },
       ],
       anthropic: [
-        { id: "claude-opus-4", displayName: "Claude Opus 4", isReasoningModel: true },
-        { id: "claude-sonnet-4", displayName: "Claude Sonnet 4", isReasoningModel: true },
-        { id: "claude-3.7", displayName: "Claude 3.7", isReasoningModel: true },
-        { id: "claude-3-sonnet", displayName: "Claude 3 Sonnet", isReasoningModel: false },
-        { id: "claude-3-opus", displayName: "Claude 3 Opus", isReasoningModel: false },
-        { id: "claude-3-haiku", displayName: "Claude 3 Haiku", isReasoningModel: false },
+        { id: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5", isReasoningModel: true },
+        { id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", isReasoningModel: true },
+        { id: "claude-opus-4-1", displayName: "Claude Opus 4.1", isReasoningModel: true },
       ],
-      gemini: [
-        { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", isReasoningModel: true },
+      google: [
         { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", isReasoningModel: true },
+        { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", isReasoningModel: true },
         {
           id: "gemini-2.5-flash-lite",
           displayName: "Gemini 2.5 Flash Lite",
@@ -195,17 +249,28 @@ class DefaultAISDKService implements LLMService {
         { id: "magistral-small-2506", displayName: "Magistral Small", isReasoningModel: true },
         { id: "magistral-medium-2506", displayName: "Magistral Medium", isReasoningModel: true },
       ],
-      custom: [
+      xai: [
+        {
+          id: "grok-4-fast-non-reasoning",
+          displayName: "Grok 4 Fast (Non-Reasoning)",
+          isReasoningModel: false,
+        },
+        {
+          id: "grok-4-fast-reasoning",
+          displayName: "Grok 4 Fast (Reasoning)",
+          isReasoningModel: true,
+        },
+        { id: "grok-4", displayName: "Grok 4", isReasoningModel: false },
+        { id: "grok-code-fast-1", displayName: "Grok 4 (0709)", isReasoningModel: true },
+        { id: "grok-3", displayName: "Grok 3", isReasoningModel: true },
+        { id: "grok-3-mini", displayName: "Grok 3 Mini", isReasoningModel: true },
+      ],
+      deepseek: [{ id: "deepseek-chat", displayName: "DeepSeek Chat", isReasoningModel: false }],
+      ollama: [
         { id: "llama4", displayName: "Llama 4", isReasoningModel: false },
         { id: "llama3", displayName: "Llama 3", isReasoningModel: false },
         { id: "qwq", displayName: "QWQ", isReasoningModel: false },
         { id: "deepseek-r1", displayName: "DeepSeek R1", isReasoningModel: true },
-        { id: "mistral", displayName: "Mistral", isReasoningModel: false },
-      ],
-      xai: [
-        { id: "grok-4-0709", displayName: "Grok 4", isReasoningModel: true },
-        { id: "grok-3", displayName: "Grok 3", isReasoningModel: true },
-        { id: "grok-3-mini", displayName: "Grok 3 Mini", isReasoningModel: true },
       ],
     };
   }
@@ -281,12 +346,17 @@ class DefaultAISDKService implements LLMService {
           }
         }
 
+        const MAXIMUM_STEPS = 12;
+
+        const providerOptions = buildProviderOptions(providerName, options);
+
         const result = await generateText({
           model,
           messages: toCoreMessages(options.messages),
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(tools ? { tools } : {}),
-          stopWhen: stepCountIs(8),
+          ...(providerOptions ? { providerOptions } : {}),
+          stopWhen: stepCountIs(MAXIMUM_STEPS),
         });
 
         let responseModel = options.model;
@@ -402,11 +472,15 @@ export function createAISDKServiceLayer(): Layer.Layer<
       const anthropicAPIKey = appConfig.llm?.anthropic?.api_key;
       if (anthropicAPIKey) apiKeys["anthropic"] = anthropicAPIKey;
 
-      const geminiAPIKey = appConfig.llm?.gemini?.api_key;
-      if (geminiAPIKey) apiKeys["gemini"] = geminiAPIKey;
+      const geminiAPIKey = appConfig.llm?.google?.api_key;
+      // Default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
+      if (geminiAPIKey) apiKeys["google_generative_ai"] = geminiAPIKey;
 
       const mistralAPIKey = appConfig.llm?.mistral?.api_key;
       if (mistralAPIKey) apiKeys["mistral"] = mistralAPIKey;
+
+      const xaiAPIKey = appConfig.llm?.xai?.api_key;
+      if (xaiAPIKey) apiKeys["xai"] = xaiAPIKey;
 
       const providers = Object.keys(apiKeys);
       if (providers.length === 0) {
