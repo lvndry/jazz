@@ -246,7 +246,10 @@ describe("FileSystemContextService", () => {
 
       const result = (await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as any,
-      )) as { results: string[]; warnings?: string[] };
+      )) as {
+        results: string[];
+        warnings?: string[];
+      };
 
       // Should find our test bin directory
       expect(result.results.length).toBeGreaterThan(0);
@@ -266,7 +269,10 @@ describe("FileSystemContextService", () => {
 
       const result = (await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as any,
-      )) as { results: string[]; warnings?: string[] };
+      )) as {
+        results: string[];
+        warnings?: string[];
+      };
 
       expect(result.results).toEqual([]);
       expect(result.warnings).toBeDefined();
@@ -296,7 +302,10 @@ describe("FileSystemContextService", () => {
 
       const result = (await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as any,
-      )) as { results: string[]; warnings?: string[] };
+      )) as {
+        results: string[];
+        warnings?: string[];
+      };
 
       expect(result.results.length).toBeGreaterThan(0);
       expect(result.results.some((path: string) => path.includes("subdir"))).toBe(true);
@@ -313,7 +322,10 @@ describe("FileSystemContextService", () => {
 
       const result = (await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as any,
-      )) as { results: string[]; warnings?: string[] };
+      )) as {
+        results: string[];
+        warnings?: string[];
+      };
 
       // Should return an object with results and potentially warnings
       expect(result).toHaveProperty("results");

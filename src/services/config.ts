@@ -1,14 +1,14 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect, Layer, Option } from "effect";
 import type {
-    AppConfig,
-    GoogleConfig,
-    LLMConfig,
-    LinkupConfig,
-    LoggingConfig,
-    PerformanceConfig,
-    SecurityConfig,
-    StorageConfig,
+  AppConfig,
+  GoogleConfig,
+  LLMConfig,
+  LinkupConfig,
+  LoggingConfig,
+  PerformanceConfig,
+  SecurityConfig,
+  StorageConfig,
 } from "../core/types/index";
 
 /**
@@ -83,7 +83,11 @@ export function createConfigLayer(
       const finalConfig = debug
         ? mergeConfig(baseConfig, {
             ...fileConfig,
-            logging: { ...baseConfig.logging, ...fileConfig?.logging, level: "debug" },
+            logging: {
+              ...baseConfig.logging,
+              ...fileConfig?.logging,
+              level: "debug",
+            },
           })
         : mergeConfig(baseConfig, fileConfig);
 
@@ -117,7 +121,11 @@ export function requireConfigValue<T>(key: string): Effect.Effect<T, never, Conf
 
 function defaultConfig(): AppConfig {
   const storage: StorageConfig = { type: "file", path: "./.jazz" };
-  const logging: LoggingConfig = { level: "info", format: "pretty", output: "console" };
+  const logging: LoggingConfig = {
+    level: "info",
+    format: "pretty",
+    output: "console",
+  };
   const security: SecurityConfig = {};
   const performance: PerformanceConfig = {
     maxConcurrentAgents: 5,

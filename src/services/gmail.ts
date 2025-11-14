@@ -84,16 +84,10 @@ export interface GmailService {
   readonly listEmails: (
     maxResults?: number,
     query?: string,
-  ) => Effect.Effect<
-    GmailEmail[],
-    GmailOperationError | GmailAuthenticationError
-  >;
+  ) => Effect.Effect<GmailEmail[], GmailOperationError | GmailAuthenticationError>;
   readonly getEmail: (
     emailId: string,
-  ) => Effect.Effect<
-    GmailEmail,
-    GmailOperationError | GmailAuthenticationError
-  >;
+  ) => Effect.Effect<GmailEmail, GmailOperationError | GmailAuthenticationError>;
   readonly sendEmail: (
     to: string[],
     subject: string,
@@ -111,10 +105,7 @@ export interface GmailService {
   readonly searchEmails: (
     query: string,
     maxResults?: number,
-  ) => Effect.Effect<
-    GmailEmail[],
-    GmailOperationError | GmailAuthenticationError
-  >;
+  ) => Effect.Effect<GmailEmail[], GmailOperationError | GmailAuthenticationError>;
 
   // Label management
   readonly listLabels: () => Effect.Effect<
@@ -128,10 +119,7 @@ export interface GmailService {
       messageListVisibility?: "show" | "hide";
       color?: { textColor: string; backgroundColor: string };
     },
-  ) => Effect.Effect<
-    GmailLabel,
-    GmailOperationError | GmailAuthenticationError
-  >;
+  ) => Effect.Effect<GmailLabel, GmailOperationError | GmailAuthenticationError>;
   readonly updateLabel: (
     labelId: string,
     updates: {
@@ -140,10 +128,7 @@ export interface GmailService {
       messageListVisibility?: "show" | "hide";
       color?: { textColor: string; backgroundColor: string };
     },
-  ) => Effect.Effect<
-    GmailLabel,
-    GmailOperationError | GmailAuthenticationError
-  >;
+  ) => Effect.Effect<GmailLabel, GmailOperationError | GmailAuthenticationError>;
   readonly deleteLabel: (
     labelId: string,
   ) => Effect.Effect<void, GmailOperationError | GmailAuthenticationError>;
@@ -155,10 +140,7 @@ export interface GmailService {
       addLabelIds?: string[];
       removeLabelIds?: string[];
     },
-  ) => Effect.Effect<
-    GmailEmail,
-    GmailOperationError | GmailAuthenticationError
-  >;
+  ) => Effect.Effect<GmailEmail, GmailOperationError | GmailAuthenticationError>;
   readonly batchModifyEmails: (
     emailIds: string[],
     options: {
@@ -190,10 +172,7 @@ export class GmailServiceResource implements GmailService {
     private readonly tokenFilePath: string,
     private oauthClient: InstanceType<typeof google.auth.OAuth2>,
     private gmail: gmail_v1.Gmail,
-    private readonly requireCredentials: () => Effect.Effect<
-      void,
-      GmailAuthenticationError
-    >,
+    private readonly requireCredentials: () => Effect.Effect<void, GmailAuthenticationError>,
   ) {}
 
   authenticate(): Effect.Effect<void, GmailAuthenticationError> {
@@ -211,10 +190,7 @@ export class GmailServiceResource implements GmailService {
   listEmails(
     maxResults: number = 10,
     query?: string,
-  ): Effect.Effect<
-    GmailEmail[],
-    GmailOperationError | GmailAuthenticationError
-  > {
+  ): Effect.Effect<GmailEmail[], GmailOperationError | GmailAuthenticationError> {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
@@ -223,9 +199,7 @@ export class GmailServiceResource implements GmailService {
             query !== undefined && query !== ""
               ? { userId: "me", maxResults, q: query }
               : { userId: "me", maxResults };
-          const listResp = yield* Effect.promise(() =>
-            this.gmail.users.messages.list(paramsList),
-          );
+          const listResp = yield* Effect.promise(() => this.gmail.users.messages.list(paramsList));
           const messages = listResp.data.messages || [];
           if (messages.length === 0) return [];
           const emails: GmailEmail[] = [];
@@ -237,9 +211,7 @@ export class GmailServiceResource implements GmailService {
               format: "metadata",
               metadataHeaders: ["Subject", "From", "To", "Date", "Cc", "Bcc"],
             };
-            const full = yield* Effect.promise(() =>
-              this.gmail.users.messages.get(paramsGet),
-            );
+            const full = yield* Effect.promise(() => this.gmail.users.messages.get(paramsGet));
             const email = this.parseMessageToEmail(full.data);
             emails.push(email);
           }
@@ -267,9 +239,7 @@ export class GmailServiceResource implements GmailService {
             id: emailId,
             format: "full",
           };
-          const full = yield* Effect.promise(() =>
-            this.gmail.users.messages.get(paramsGet),
-          );
+          const full = yield* Effect.promise(() => this.gmail.users.messages.get(paramsGet));
           const email = this.parseMessageToEmail(full.data, true);
           return email;
         } catch (err) {
@@ -330,18 +300,12 @@ export class GmailServiceResource implements GmailService {
   searchEmails(
     query: string,
     maxResults: number = 10,
-  ): Effect.Effect<
-    GmailEmail[],
-    GmailOperationError | GmailAuthenticationError
-  > {
+  ): Effect.Effect<GmailEmail[], GmailOperationError | GmailAuthenticationError> {
     return this.listEmails(maxResults, query);
   }
 
   // Label management methods
-  listLabels(): Effect.Effect<
-    GmailLabel[],
-    GmailOperationError | GmailAuthenticationError
-  > {
+  listLabels(): Effect.Effect<GmailLabel[], GmailOperationError | GmailAuthenticationError> {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
@@ -476,10 +440,8 @@ export class GmailServiceResource implements GmailService {
         yield* this.ensureAuthenticated();
         try {
           const requestBody: gmail_v1.Schema$ModifyMessageRequest = {};
-          if (options.addLabelIds)
-            requestBody.addLabelIds = options.addLabelIds;
-          if (options.removeLabelIds)
-            requestBody.removeLabelIds = options.removeLabelIds;
+          if (options.addLabelIds) requestBody.addLabelIds = options.addLabelIds;
+          if (options.removeLabelIds) requestBody.removeLabelIds = options.removeLabelIds;
 
           const response = yield* Effect.promise(() =>
             this.gmail.users.messages.modify({
@@ -514,10 +476,8 @@ export class GmailServiceResource implements GmailService {
           const requestBody: gmail_v1.Schema$BatchModifyMessagesRequest = {
             ids: emailIds,
           };
-          if (options.addLabelIds)
-            requestBody.addLabelIds = options.addLabelIds;
-          if (options.removeLabelIds)
-            requestBody.removeLabelIds = options.removeLabelIds;
+          if (options.addLabelIds) requestBody.addLabelIds = options.addLabelIds;
+          if (options.removeLabelIds) requestBody.removeLabelIds = options.removeLabelIds;
 
           yield* Effect.promise(() =>
             this.gmail.users.messages.batchModify({
@@ -537,9 +497,7 @@ export class GmailServiceResource implements GmailService {
     );
   }
 
-  trashEmail(
-    emailId: string,
-  ): Effect.Effect<void, GmailOperationError | GmailAuthenticationError> {
+  trashEmail(emailId: string): Effect.Effect<void, GmailOperationError | GmailAuthenticationError> {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
@@ -595,10 +553,7 @@ export class GmailServiceResource implements GmailService {
     );
   }
 
-  private readTokenIfExists(): Effect.Effect<
-    boolean,
-    GmailAuthenticationError
-  > {
+  private readTokenIfExists(): Effect.Effect<boolean, GmailAuthenticationError> {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         const token = yield* this.fs.readFileString(this.tokenFilePath).pipe(
@@ -656,44 +611,38 @@ export class GmailServiceResource implements GmailService {
         });
 
         // Start local server to capture the OAuth code
-        const code = yield* Effect.async<string, GmailAuthenticationError>(
-          (resume) => {
-            const server = http.createServer((req, res) => {
-              if (!req.url) return;
-              const url = new URL(req.url, `http://localhost:${port}`);
-              if (url.pathname === "/oauth2callback") {
-                const codeParam = url.searchParams.get("code");
-                if (codeParam) {
-                  res.writeHead(200, { "Content-Type": "text/html" });
-                  res.end(
-                    "<html><body><h1>Authentication successful</h1>You can close this window.</body></html>",
-                  );
-                  server.close(() => resume(Effect.succeed(codeParam)));
-                } else {
-                  res.writeHead(400);
-                  res.end("Missing code");
-                }
+        const code = yield* Effect.async<string, GmailAuthenticationError>((resume) => {
+          const server = http.createServer((req, res) => {
+            if (!req.url) return;
+            const url = new URL(req.url, `http://localhost:${port}`);
+            if (url.pathname === "/oauth2callback") {
+              const codeParam = url.searchParams.get("code");
+              if (codeParam) {
+                res.writeHead(200, { "Content-Type": "text/html" });
+                res.end(
+                  "<html><body><h1>Authentication successful</h1>You can close this window.</body></html>",
+                );
+                server.close(() => resume(Effect.succeed(codeParam)));
               } else {
-                res.writeHead(404);
-                res.end("Not found");
+                res.writeHead(400);
+                res.end("Missing code");
               }
+            } else {
+              res.writeHead(404);
+              res.end("Not found");
+            }
+          });
+          server.listen(port, () => {
+            void open(authUrl).catch(() => {
+              // ignore browser open failures; user can copy URL
             });
-            server.listen(port, () => {
-              void open(authUrl).catch(() => {
-                // ignore browser open failures; user can copy URL
-              });
-              // Also print URL to console for visibility in CLI
-              console.log(
-                `Open this URL in your browser to authenticate with Google: ${authUrl}`,
-              );
-            });
-          },
-        );
+            // Also print URL to console for visibility in CLI
+            console.log(`Open this URL in your browser to authenticate with Google: ${authUrl}`);
+          });
+        });
 
         try {
-          const tokenResp = (yield* Effect.promise(() =>
-            this.oauthClient.getToken(code),
-          )) as {
+          const tokenResp = (yield* Effect.promise(() => this.oauthClient.getToken(code))) as {
             tokens: GoogleOAuthToken;
           };
           this.oauthClient.setCredentials(tokenResp.tokens);
@@ -707,15 +656,10 @@ export class GmailServiceResource implements GmailService {
     );
   }
 
-  private persistToken(
-    token: GoogleOAuthToken,
-  ): Effect.Effect<void, GmailAuthenticationError> {
+  private persistToken(token: GoogleOAuthToken): Effect.Effect<void, GmailAuthenticationError> {
     return Effect.gen(
       function* (this: GmailServiceResource) {
-        const dir = this.tokenFilePath.substring(
-          0,
-          this.tokenFilePath.lastIndexOf("/"),
-        );
+        const dir = this.tokenFilePath.substring(0, this.tokenFilePath.lastIndexOf("/"));
         yield* this.fs
           .makeDirectory(dir, { recursive: true })
           .pipe(Effect.catchAll(() => Effect.void));
@@ -738,21 +682,15 @@ export class GmailServiceResource implements GmailService {
     message: gmail_v1.Schema$Message,
     includeBody: boolean = false,
   ): GmailEmail {
-    const headers = (message.payload?.headers ?? []).reduce<
-      Record<string, string>
-    >((acc, h) => {
+    const headers = (message.payload?.headers ?? []).reduce<Record<string, string>>((acc, h) => {
       if (h.name && h.value) acc[h.name.toLowerCase()] = h.value;
       return acc;
     }, {});
     const subject = headers["subject"] || "";
     const from = headers["from"] || "";
     const to = (headers["to"] || "").split(/,\s*/).filter(Boolean);
-    const cc = headers["cc"]
-      ? headers["cc"].split(/,\s*/).filter(Boolean)
-      : undefined;
-    const bcc = headers["bcc"]
-      ? headers["bcc"].split(/,\s*/).filter(Boolean)
-      : undefined;
+    const cc = headers["cc"] ? headers["cc"].split(/,\s*/).filter(Boolean) : undefined;
+    const bcc = headers["bcc"] ? headers["bcc"].split(/,\s*/).filter(Boolean) : undefined;
     const date = headers["date"] || new Date().toISOString();
 
     const attachments: GmailEmail["attachments"] | undefined = [];
@@ -793,20 +731,12 @@ export class GmailServiceResource implements GmailService {
             backgroundColor: label.color.backgroundColor || "#ffffff",
           }
         : undefined,
-      labelListVisibility: label.labelListVisibility as
-        | "labelShow"
-        | "labelHide"
-        | undefined,
-      messageListVisibility: label.messageListVisibility as
-        | "show"
-        | "hide"
-        | undefined,
+      labelListVisibility: label.labelListVisibility as "labelShow" | "labelHide" | undefined,
+      messageListVisibility: label.messageListVisibility as "show" | "hide" | undefined,
     };
   }
 
-  private extractPlainTextBody(
-    part?: gmail_v1.Schema$MessagePart,
-  ): string | undefined {
+  private extractPlainTextBody(part?: gmail_v1.Schema$MessagePart): string | undefined {
     if (!part) return undefined;
     if (part.mimeType === "text/plain" && part.body?.data) {
       return Buffer.from(part.body.data, "base64").toString("utf8");
@@ -829,12 +759,8 @@ export class GmailServiceResource implements GmailService {
   }): string {
     const lines = [
       `To: ${input.to.join(", ")}`,
-      input.cc && input.cc.length > 0
-        ? `Cc: ${input.cc.join(", ")}`
-        : undefined,
-      input.bcc && input.bcc.length > 0
-        ? `Bcc: ${input.bcc.join(", ")}`
-        : undefined,
+      input.cc && input.cc.length > 0 ? `Cc: ${input.cc.join(", ")}` : undefined,
+      input.bcc && input.bcc.length > 0 ? `Bcc: ${input.bcc.join(", ")}` : undefined,
       `Subject: ${input.subject}`,
       "MIME-Version: 1.0",
       "Content-Type: text/plain; charset=utf-8",
@@ -867,10 +793,7 @@ export function createGmailServiceLayer(): Layer.Layer<
       const clientSecret = appConfig.google?.clientSecret;
       const missingCreds = !clientId || !clientSecret;
 
-      function requireCredentials(): Effect.Effect<
-        void,
-        GmailAuthenticationError
-      > {
+      function requireCredentials(): Effect.Effect<void, GmailAuthenticationError> {
         if (missingCreds) {
           return Effect.fail(
             new GmailAuthenticationError(
@@ -883,11 +806,7 @@ export function createGmailServiceLayer(): Layer.Layer<
 
       const port = 53682;
       const redirectUri = `http://localhost:${port}/oauth2callback`;
-      const oauth2Client = new google.auth.OAuth2(
-        clientId,
-        clientSecret,
-        redirectUri,
-      );
+      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
       const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
       const { storage } = yield* agentConfig.appConfig;
@@ -907,11 +826,7 @@ export function createGmailServiceLayer(): Layer.Layer<
 }
 
 // Helper functions for common Gmail operations
-export function authenticateGmail(): Effect.Effect<
-  void,
-  GmailAuthenticationError,
-  GmailService
-> {
+export function authenticateGmail(): Effect.Effect<void, GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.authenticate();
@@ -921,11 +836,7 @@ export function authenticateGmail(): Effect.Effect<
 export function listGmailEmails(
   maxResults?: number,
   query?: string,
-): Effect.Effect<
-  GmailEmail[],
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<GmailEmail[], GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.listEmails(maxResults, query);
@@ -934,11 +845,7 @@ export function listGmailEmails(
 
 export function getGmailEmail(
   emailId: string,
-): Effect.Effect<
-  GmailEmail,
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<GmailEmail, GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.getEmail(emailId);
@@ -958,11 +865,7 @@ export function sendGmailEmail(
       contentType?: string;
     }>;
   },
-): Effect.Effect<
-  void,
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<void, GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.sendEmail(to, subject, body, options);
@@ -972,11 +875,7 @@ export function sendGmailEmail(
 export function searchGmailEmails(
   query: string,
   maxResults?: number,
-): Effect.Effect<
-  GmailEmail[],
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<GmailEmail[], GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.searchEmails(query, maxResults);
@@ -1002,11 +901,7 @@ export function createGmailLabel(
     messageListVisibility?: "show" | "hide";
     color?: { textColor: string; backgroundColor: string };
   },
-): Effect.Effect<
-  GmailLabel,
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<GmailLabel, GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.createLabel(name, options);
@@ -1021,11 +916,7 @@ export function updateGmailLabel(
     messageListVisibility?: "show" | "hide";
     color?: { textColor: string; backgroundColor: string };
   },
-): Effect.Effect<
-  GmailLabel,
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<GmailLabel, GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.updateLabel(labelId, updates);
@@ -1034,11 +925,7 @@ export function updateGmailLabel(
 
 export function deleteGmailLabel(
   labelId: string,
-): Effect.Effect<
-  void,
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<void, GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.deleteLabel(labelId);
@@ -1052,11 +939,7 @@ export function modifyGmailEmail(
     addLabelIds?: string[];
     removeLabelIds?: string[];
   },
-): Effect.Effect<
-  GmailEmail,
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<GmailEmail, GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.modifyEmail(emailId, options);
@@ -1069,11 +952,7 @@ export function batchModifyGmailEmails(
     addLabelIds?: string[];
     removeLabelIds?: string[];
   },
-): Effect.Effect<
-  void,
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<void, GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.batchModifyEmails(emailIds, options);
@@ -1082,11 +961,7 @@ export function batchModifyGmailEmails(
 
 export function trashGmailEmail(
   emailId: string,
-): Effect.Effect<
-  void,
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<void, GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.trashEmail(emailId);
@@ -1095,11 +970,7 @@ export function trashGmailEmail(
 
 export function deleteGmailEmail(
   emailId: string,
-): Effect.Effect<
-  void,
-  GmailOperationError | GmailAuthenticationError,
-  GmailService
-> {
+): Effect.Effect<void, GmailOperationError | GmailAuthenticationError, GmailService> {
   return Effect.gen(function* () {
     const gmailService = yield* GmailServiceTag;
     return yield* gmailService.deleteEmail(emailId);
