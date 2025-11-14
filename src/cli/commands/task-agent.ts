@@ -164,29 +164,10 @@ export function listAgentsCommand(
         console.log(`   Reasoning Effort: ${agent.config.reasoningEffort || "low"}`);
         console.log(`   Timeout: ${agent.config.timeout || "default"}ms`);
 
-        if (agent.config.tools) {
-          // Calculate total tool count
-          const totalTools = Object.values(agent.config.tools).reduce(
-            (sum: number, categoryTools: unknown) =>
-              sum + (Array.isArray(categoryTools) ? categoryTools.length : 0),
-            0,
-          );
-
-          if (totalTools > 0) {
-            console.log(`   Tools (${totalTools}):`);
-
-            // Display tools by category
-            Object.entries(agent.config.tools).forEach(([category, tools]) => {
-              if (Array.isArray(tools) && tools.length > 0) {
-                const toolsList = tools.join(", ");
-                console.log(
-                  `     ${category.charAt(0).toUpperCase() + category.slice(1)}: ${toolsList}`,
-                );
-              }
-            });
-          } else {
-            console.log(`   Tools: None configured`);
-          }
+        const toolNames = agent.config.tools ?? [];
+        if (toolNames.length > 0) {
+          console.log(`   Tools (${toolNames.length}):`);
+          console.log(`     ${toolNames.join(", ")}`);
         } else {
           console.log(`   Tools: None configured`);
         }

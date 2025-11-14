@@ -28,6 +28,7 @@ import {
   recordToolError,
   recordToolInvocation,
 } from "./tracking/agent-run-tracker";
+import { normalizeToolConfig } from "./utils/tool-config";
 
 /**
  * Agent runner for executing agent conversations
@@ -101,11 +102,9 @@ export class AgentRunner {
 
       // Get available tools for this specific agent
       const allToolNames = yield* toolRegistry.listTools();
-      const agentToolNames = agent.config.tools
-        ? Object.values(agent.config.tools)
-            .flat()
-            .filter((tool): tool is string => typeof tool === "string")
-        : [];
+      const agentToolNames = normalizeToolConfig(agent.config.tools, {
+        agentId: agent.id,
+      });
 
       // Validate that all agent tools exist in the registry
       const invalidTools = agentToolNames.filter((toolName) => !allToolNames.includes(toolName));

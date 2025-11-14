@@ -11,6 +11,7 @@ import {
 } from "../types/errors";
 import { type Agent, type AgentConfig, type Task, TaskSchema } from "../types/index";
 import { CommonSuggestions } from "../utils/error-handler";
+import { normalizeToolConfig } from "./utils/tool-config";
 
 /**
  * Agent service for managing agent lifecycle and operations
@@ -30,7 +31,7 @@ export interface AgentService {
   readonly updateAgent: (
     id: string,
     updates: Partial<Agent>,
-  ) => Effect.Effect<Agent, StorageError | StorageNotFoundError>;
+  ) => Effect.Effect<Agent, StorageError | StorageNotFoundError | AgentConfigurationError>;
   readonly deleteAgent: (id: string) => Effect.Effect<void, StorageError | StorageNotFoundError>;
   readonly validateAgentConfig: (
     config: AgentConfig,
@@ -92,13 +93,17 @@ export class DefaultAgentService implements AgentService {
           llmModel: "gpt-4o",
         };
 
-        // Merge with provided config
-        const agentConfig: AgentConfig = {
+        const normalizedTools = normalizeToolConfig(config.tools, { agentId: id });
+
+        const baseConfig: AgentConfig = {
           ...defaultConfig,
           ...config,
-          tasks: config.tasks || [],
-          environment: { ...defaultConfig.environment, ...config.environment },
+          tasks: config.tasks ?? [],
+          environment: { ...defaultConfig.environment, ...(config.environment ?? {}) },
         };
+
+        const agentConfig: AgentConfig =
+          normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
 
         // Validate the complete agent configuration
         yield* this.validateAgentConfig(agentConfig);
@@ -198,10 +203,27 @@ export class DefaultAgentService implements AgentService {
   updateAgent(
     id: string,
     updates: Partial<Agent>,
-  ): Effect.Effect<Agent, StorageError | StorageNotFoundError> {
+  ): Effect.Effect<Agent, StorageError | StorageNotFoundError | AgentConfigurationError> {
     return Effect.gen(
       function* (this: DefaultAgentService) {
         const existingAgent = yield* this.storage.getAgent(id);
+
+        const mergedConfig: AgentConfig = {
+          ...existingAgent.config,
+          ...updates.config,
+          tasks: updates.config?.tasks ?? existingAgent.config.tasks,
+        };
+
+        const normalizedTools = normalizeToolConfig(mergedConfig.tools, {
+          agentId: existingAgent.id,
+        });
+
+        const { tools: _existingTools, ...configWithoutTools } = mergedConfig;
+        void _existingTools;
+
+        const baseConfig: AgentConfig = configWithoutTools as AgentConfig;
+        const updatedConfig: AgentConfig =
+          normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
 
         const updatedAgent: Agent = {
           ...existingAgent,
@@ -209,7 +231,10 @@ export class DefaultAgentService implements AgentService {
           id: existingAgent.id, // Ensure ID cannot be changed
           createdAt: existingAgent.createdAt, // Ensure createdAt cannot be changed
           updatedAt: new Date(),
+          config: updatedConfig,
         };
+
+        yield* this.validateAgentConfig(updatedAgent.config);
 
         yield* this.storage.saveAgent(updatedAgent);
         return updatedAgent;
@@ -265,6 +290,32 @@ export class DefaultAgentService implements AgentService {
       // Validate tasks
       for (const task of config.tasks) {
         yield* validateTask(task);
+      }
+
+      // Validate tools
+      if (config.tools) {
+        if (!Array.isArray(config.tools)) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.tools",
+              message: "Tools must be provided as an array of tool names",
+              suggestion: "Select tools using the CLI or supply an array of tool identifiers.",
+            }),
+          );
+        }
+
+        for (const tool of config.tools) {
+          if (typeof tool !== "string" || tool.trim().length === 0) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: "config.tools",
+                message: "Each tool entry must be a non-empty string",
+              }),
+            );
+          }
+        }
       }
 
       // Validate timeout

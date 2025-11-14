@@ -59,9 +59,7 @@ export function editAgentCommand(
     console.log(`   Type: ${agent.config.agentType || "N/A"}`);
     console.log(`   LLM Provider: ${agent.config.llmProvider || "N/A"}`);
     console.log(`   LLM Model: ${agent.config.llmModel || "N/A"}`);
-    console.log(
-      `   Tools: ${agent.config.tools ? Object.values(agent.config.tools).flat().length : 0} tools`,
-    );
+    console.log(`   Tools: ${agent.config.tools ? agent.config.tools.length : 0} tools`);
     console.log(`   Created: ${agent.createdAt.toISOString()}`);
     console.log(`   Updated: ${agent.updatedAt.toISOString()}\n`);
 
@@ -88,15 +86,7 @@ export function editAgentCommand(
       ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
       ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
       ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
-      ...(editAnswers.tools && {
-        tools: {
-          gmail: editAnswers.tools.filter((tool) => tool.startsWith("gmail")),
-          filesystem: editAnswers.tools.filter((tool) => tool.startsWith("fs")),
-          git: editAnswers.tools.filter((tool) => tool.startsWith("git")),
-          shell: editAnswers.tools.filter((tool) => tool.startsWith("shell")),
-          web: editAnswers.tools.filter((tool) => tool.startsWith("web")),
-        },
-      }),
+      ...(editAnswers.tools && { tools: Array.from(new Set(editAnswers.tools)) }),
       ...(editAnswers.timeout && { timeout: editAnswers.timeout }),
       ...(editAnswers.maxRetries !== undefined ||
       editAnswers.retryDelay !== undefined ||
@@ -132,9 +122,7 @@ export function editAgentCommand(
     console.log(`   Type: ${updatedConfig.agentType || "N/A"}`);
     console.log(`   LLM Provider: ${updatedConfig.llmProvider || "N/A"}`);
     console.log(`   LLM Model: ${updatedConfig.llmModel || "N/A"}`);
-    console.log(
-      `   Tools: ${updatedConfig.tools ? Object.values(updatedConfig.tools).flat().length : 0} tools`,
-    );
+    console.log(`   Tools: ${updatedConfig.tools ? updatedConfig.tools.length : 0} tools`);
     console.log(`   Updated: ${updatedAgent.updatedAt.toISOString()}`);
 
     console.log("\nYou can now chat with your updated agent using:");
@@ -298,7 +286,7 @@ async function promptForAgentUpdates(
       const toolsInCategory = toolsByCategory[category] || [];
       selectedTools.push(...toolsInCategory);
     }
-    answers.tools = selectedTools;
+    answers.tools = Array.from(new Set(selectedTools));
   }
 
   // Update timeout

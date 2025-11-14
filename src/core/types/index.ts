@@ -27,15 +27,7 @@ export interface AgentConfig {
   readonly llmProvider: string;
   readonly llmModel: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
-  readonly tools?: AgentTools;
-}
-
-export interface AgentTools {
-  readonly gmail?: readonly string[];
-  readonly filesystem?: readonly string[];
-  readonly git?: readonly string[];
-  readonly shell?: readonly string[];
-  readonly web?: readonly string[];
+  readonly tools?: readonly string[];
 }
 
 export type AgentStatus = "idle" | "running" | "paused" | "error" | "completed";
