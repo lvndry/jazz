@@ -1,8 +1,11 @@
 import { anthropic } from "@ai-sdk/anthropic";
+import { deepseek } from "@ai-sdk/deepseek";
 import { google } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
 import { openai } from "@ai-sdk/openai";
 import { xai } from "@ai-sdk/xai";
+import { ollama } from "ollama-ai-provider-v2";
+
 import {
   generateText,
   stepCountIs,
@@ -141,8 +144,12 @@ function selectModel(providerName: string, modelId: ModelName): LanguageModel {
       return mistral(modelId);
     case "xai":
       return xai(modelId);
+    case "deepseek":
+      return (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+    case "ollama":
+      return ollama(modelId);
     default:
-      return openai(modelId);
+      throw new Error(`Unsupported provider: ${providerName}`);
   }
 }
 
@@ -160,6 +167,7 @@ class DefaultAISDKService implements LLMService {
 
     this.providerModels = {
       openai: [
+        { id: "gpt-5.1", displayName: "GPT-5.1", isReasoningModel: true },
         { id: "gpt-5", displayName: "GPT-5", isReasoningModel: true },
         { id: "gpt-5-mini", displayName: "GPT-5 Mini", isReasoningModel: true },
         { id: "gpt-5-nano", displayName: "GPT-5 Nano", isReasoningModel: true },
@@ -171,16 +179,13 @@ class DefaultAISDKService implements LLMService {
         { id: "o4-mini", displayName: "o4-mini", isReasoningModel: true },
       ],
       anthropic: [
-        { id: "claude-opus-4", displayName: "Claude Opus 4", isReasoningModel: true },
-        { id: "claude-sonnet-4", displayName: "Claude Sonnet 4", isReasoningModel: true },
-        { id: "claude-3.7", displayName: "Claude 3.7", isReasoningModel: true },
-        { id: "claude-3-sonnet", displayName: "Claude 3 Sonnet", isReasoningModel: false },
-        { id: "claude-3-opus", displayName: "Claude 3 Opus", isReasoningModel: false },
-        { id: "claude-3-haiku", displayName: "Claude 3 Haiku", isReasoningModel: false },
+        { id: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5", isReasoningModel: true },
+        { id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", isReasoningModel: true },
+        { id: "claude-opus-4-1", displayName: "Claude Opus 4.1", isReasoningModel: true },
       ],
       gemini: [
-        { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", isReasoningModel: true },
         { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", isReasoningModel: true },
+        { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", isReasoningModel: true },
         {
           id: "gemini-2.5-flash-lite",
           displayName: "Gemini 2.5 Flash Lite",
@@ -195,17 +200,31 @@ class DefaultAISDKService implements LLMService {
         { id: "magistral-small-2506", displayName: "Magistral Small", isReasoningModel: true },
         { id: "magistral-medium-2506", displayName: "Magistral Medium", isReasoningModel: true },
       ],
-      custom: [
+      xai: [
+        {
+          id: "grok-4-fast-non-reasoning",
+          displayName: "Grok 4 Fast (Non-Reasoning)",
+          isReasoningModel: false,
+        },
+        {
+          id: "grok-4-fast-reasoning",
+          displayName: "Grok 4 Fast (Reasoning)",
+          isReasoningModel: true,
+        },
+        { id: "grok-4", displayName: "Grok 4", isReasoningModel: false },
+        { id: "grok-code-fast-1", displayName: "Grok 4 (0709)", isReasoningModel: true },
+        { id: "grok-3", displayName: "Grok 3", isReasoningModel: true },
+        { id: "grok-3-mini", displayName: "Grok 3 Mini", isReasoningModel: true },
+      ],
+      deepseek: [
+        { id: "deepseek-chat", displayName: "DeepSeek Chat", isReasoningModel: false },
+        { id: "deepseek-reasoner", displayName: "DeepSeek Reasoner", isReasoningModel: true },
+      ],
+      ollama: [
         { id: "llama4", displayName: "Llama 4", isReasoningModel: false },
         { id: "llama3", displayName: "Llama 3", isReasoningModel: false },
         { id: "qwq", displayName: "QWQ", isReasoningModel: false },
         { id: "deepseek-r1", displayName: "DeepSeek R1", isReasoningModel: true },
-        { id: "mistral", displayName: "Mistral", isReasoningModel: false },
-      ],
-      xai: [
-        { id: "grok-4-0709", displayName: "Grok 4", isReasoningModel: true },
-        { id: "grok-3", displayName: "Grok 3", isReasoningModel: true },
-        { id: "grok-3-mini", displayName: "Grok 3 Mini", isReasoningModel: true },
       ],
     };
   }
