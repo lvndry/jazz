@@ -1,6 +1,4 @@
 ---
-description:
-globs:
 alwaysApply: true
 ---
 
@@ -259,10 +257,7 @@ function runAgentLoop(agent: Agent): Effect.Effect<void, AgentError> {
       concurrency: 3,
     });
     yield* agent.updateResults(results);
-  }).pipe(
-    Effect.retry(Schedule.exponential("100 millis")),
-    Effect.timeout("30 seconds"),
-  );
+  }).pipe(Effect.retry(Schedule.exponential("100 millis")), Effect.timeout("30 seconds"));
 }
 ```
 

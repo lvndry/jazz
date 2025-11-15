@@ -21,6 +21,7 @@ import {
 } from "ai";
 import { Effect, Layer } from "effect";
 import { z } from "zod";
+import { MAX_AGENT_STEPS } from "../../constants/agent";
 import { AgentConfigService, type ConfigService } from "../config";
 import {
   LLMAuthenticationError,
@@ -346,8 +347,6 @@ class DefaultAISDKService implements LLMService {
           }
         }
 
-        const MAXIMUM_STEPS = 12;
-
         const providerOptions = buildProviderOptions(providerName, options);
 
         const result = await generateText({
@@ -356,7 +355,7 @@ class DefaultAISDKService implements LLMService {
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(tools ? { tools } : {}),
           ...(providerOptions ? { providerOptions } : {}),
-          stopWhen: stepCountIs(MAXIMUM_STEPS),
+          stopWhen: stepCountIs(MAX_AGENT_STEPS),
         });
 
         let responseModel = options.model;
