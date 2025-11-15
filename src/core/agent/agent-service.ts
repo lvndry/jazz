@@ -31,7 +31,10 @@ export interface AgentService {
   readonly updateAgent: (
     id: string,
     updates: Partial<Agent>,
-  ) => Effect.Effect<Agent, StorageError | StorageNotFoundError | AgentConfigurationError>;
+  ) => Effect.Effect<
+    Agent,
+    StorageError | StorageNotFoundError | AgentConfigurationError | AgentAlreadyExistsError | ValidationError
+  >;
   readonly deleteAgent: (id: string) => Effect.Effect<void, StorageError | StorageNotFoundError>;
   readonly validateAgentConfig: (
     config: AgentConfig,
@@ -203,10 +206,31 @@ export class DefaultAgentService implements AgentService {
   updateAgent(
     id: string,
     updates: Partial<Agent>,
-  ): Effect.Effect<Agent, StorageError | StorageNotFoundError | AgentConfigurationError> {
+  ): Effect.Effect<
+    Agent,
+    StorageError | StorageNotFoundError | AgentConfigurationError | AgentAlreadyExistsError | ValidationError
+  > {
     return Effect.gen(
       function* (this: DefaultAgentService) {
         const existingAgent = yield* this.storage.getAgent(id);
+
+        if (updates.name && updates.name !== existingAgent.name) {
+          yield* validateAgentName(updates.name);
+
+          const agents = yield* this.storage.listAgents();
+          const duplicateExists = agents.some(
+            (agent) => agent.name === updates.name && agent.id !== existingAgent.id,
+          );
+
+          if (duplicateExists) {
+            return yield* Effect.fail(
+              new AgentAlreadyExistsError({
+                agentId: updates.name,
+                suggestion: CommonSuggestions.checkAgentExists(updates.name),
+              }),
+            );
+          }
+        }
 
         const mergedConfig: AgentConfig = {
           ...existingAgent.config,
@@ -603,6 +627,49 @@ export function getAgentById(
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
     return yield* agentService.getAgent(id);
+  });
+}
+
+/**
+ * Retrieve an agent by identifier, matching ID first then falling back to name
+ *
+ * This helper improves CLI ergonomics by allowing users to reference agents
+ * using either their unique ID or their human-friendly name. The lookup order
+ * prioritizes IDs so that explicit references always take precedence, even if
+ * someone gives an agent a name that resembles an ID.
+ *
+ * @param identifier - The agent ID or name provided by the user
+ * @returns An Effect that resolves to the matching Agent
+ *
+ * @throws {StorageError} When there's an error accessing storage
+ * @throws {StorageNotFoundError} When no agent matches the provided identifier
+ */
+export function getAgentByIdentifier(
+  identifier: string,
+): Effect.Effect<Agent, StorageError | StorageNotFoundError, AgentService> {
+  return Effect.gen(function* () {
+    const agentService = yield* AgentServiceTag;
+
+    const agent = yield* agentService.getAgent(identifier).pipe(
+      Effect.catchAll((error) => {
+        if (error instanceof StorageNotFoundError) {
+          return Effect.gen(function* () {
+            const agents = yield* agentService.listAgents();
+            const match = agents.find((candidate) => candidate.name === identifier);
+
+            if (match) {
+              return match;
+            }
+
+            return yield* Effect.fail(error);
+          });
+        }
+
+        return Effect.fail(error);
+      }),
+    );
+
+    return agent;
   });
 }
 

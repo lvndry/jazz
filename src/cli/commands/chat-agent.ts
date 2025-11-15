@@ -3,7 +3,11 @@ import { Effect } from "effect";
 import inquirer from "inquirer";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
 import { AgentRunner, type AgentRunnerOptions } from "../../core/agent/agent-runner";
-import { AgentServiceTag, type AgentService } from "../../core/agent/agent-service";
+import {
+  AgentServiceTag,
+  getAgentByIdentifier,
+  type AgentService,
+} from "../../core/agent/agent-service";
 import type { ToolRegistry } from "../../core/agent/tools/tool-registry";
 import { ToolRegistryTag } from "../../core/agent/tools/tool-registry";
 import {
@@ -288,12 +292,27 @@ export function chatWithAIAgentCommand(
   | FileSystem.FileSystem
 > {
   return Effect.gen(function* () {
-    // Get the agent service
-    const agentService = yield* AgentServiceTag;
-
-    // Get the agent
     const normalizedIdentifier = agentIdentifier.trim();
-    const agent = yield* resolveAgentByIdentifier(agentService, normalizedIdentifier);
+
+    if (normalizedIdentifier.length === 0) {
+      return yield* Effect.fail(
+        new AgentNotFoundError({
+          agentId: normalizedIdentifier,
+          suggestion: CommonSuggestions.checkAgentExists("<empty>"),
+        }),
+      );
+    }
+
+    const agent = yield* getAgentByIdentifier(normalizedIdentifier).pipe(
+      Effect.catchTag("StorageNotFoundError", () =>
+        Effect.fail(
+          new AgentNotFoundError({
+            agentId: normalizedIdentifier,
+            suggestion: CommonSuggestions.checkAgentExists(normalizedIdentifier),
+          }),
+        ),
+      ),
+    );
 
     console.log(`🤖 Starting chat with AI agent: ${agent.name} (${agent.id})`);
     console.log(`   Description: ${agent.description}`);
@@ -314,44 +333,6 @@ export function chatWithAIAgentCommand(
       ),
     );
   });
-}
-
-function resolveAgentByIdentifier(
-  agentService: AgentService,
-  identifier: string,
-): Effect.Effect<Agent, StorageError | StorageNotFoundError | AgentNotFoundError> {
-  if (identifier.length === 0) {
-    return Effect.fail(
-      new AgentNotFoundError({
-        agentId: identifier,
-        suggestion: CommonSuggestions.checkAgentExists(identifier),
-      }),
-    );
-  }
-
-  return agentService.getAgent(identifier).pipe(
-    Effect.catchAll((error) => {
-      if (error._tag !== "StorageNotFoundError") {
-        return Effect.fail(error);
-      }
-
-      return Effect.gen(function* () {
-        const agents = yield* agentService.listAgents();
-        const matchingAgent = agents.find((candidate) => candidate.name === identifier);
-
-        if (matchingAgent) {
-          return matchingAgent;
-        }
-
-        return yield* Effect.fail(
-          new AgentNotFoundError({
-            agentId: identifier,
-            suggestion: CommonSuggestions.checkAgentExists(identifier),
-          }),
-        );
-      });
-    }),
-  );
 }
 
 function initializeSession(

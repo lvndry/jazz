@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import {
   AgentServiceTag,
   getAgentById,
+  getAgentByIdentifier,
   listAllAgents,
   type AgentService,
 } from "../../core/agent/agent-service";
@@ -332,16 +333,16 @@ export function runAgentCommand(
  * ```
  */
 export function deleteAgentCommand(
-  agentId: string,
+  agentIdentifier: string,
 ): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService> {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
 
-    // First check if agent exists
-    const agent = yield* agentService.getAgent(agentId);
+    // Resolve identifier (ID first, then fall back to matching by name)
+    const agent = yield* getAgentByIdentifier(agentIdentifier);
 
     // Delete the agent
-    yield* agentService.deleteAgent(agentId);
+    yield* agentService.deleteAgent(agent.id);
 
     console.log(`🗑️  Agent deleted successfully!`);
     console.log(`   Name: ${agent.name}`);

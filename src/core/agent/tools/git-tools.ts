@@ -6,6 +6,7 @@ import {
   FileSystemContextServiceTag,
 } from "../../../services/shell";
 import { defineTool } from "./base-tool";
+import { createSanitizedEnv } from "./env-utils";
 import { type ToolExecutionContext, type ToolExecutionResult } from "./tool-registry";
 
 /**
@@ -72,7 +73,91 @@ export interface GitCheckoutArgs extends Record<string, unknown> {
   force?: boolean;
 }
 
-// Safe Git operations (no approval needed)
+const DEFAULT_GIT_TIMEOUT = 15000;
+
+interface GitCommandResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number;
+}
+
+function buildShellKey(context: ToolExecutionContext): {
+  readonly agentId: string;
+  readonly conversationId?: string;
+} {
+  return context.conversationId
+    ? { agentId: context.agentId, conversationId: context.conversationId }
+    : { agentId: context.agentId };
+}
+
+function runGitCommand(options: {
+  readonly args: readonly string[];
+  readonly workingDirectory: string;
+  readonly timeoutMs?: number;
+}): Effect.Effect<GitCommandResult, Error> {
+  return Effect.gen(function* () {
+    const { spawn } = yield* Effect.promise(() => import("child_process"));
+
+    return yield* Effect.async<GitCommandResult, Error>((resume) => {
+      const sanitizedEnv = createSanitizedEnv();
+      const gitArgs = ["--no-pager", ...options.args];
+      const child = spawn("git", gitArgs, {
+        cwd: options.workingDirectory,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: sanitizedEnv,
+        detached: false,
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      const timeoutMs = options.timeoutMs ?? DEFAULT_GIT_TIMEOUT;
+      const timeoutId = setTimeout(() => {
+        child.kill("SIGTERM");
+        resume(Effect.fail(new Error(`Git command timed out after ${timeoutMs}ms`)));
+      }, timeoutMs);
+
+      child.stdout.on("data", (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      child.stderr.on("data", (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      child.on("error", (error) => {
+        clearTimeout(timeoutId);
+        resume(Effect.fail(error));
+      });
+
+      child.on("close", (code) => {
+        clearTimeout(timeoutId);
+        resume(
+          Effect.succeed({
+            stdout: stdout.trimEnd(),
+            stderr: stderr.trimEnd(),
+            exitCode: code ?? 0,
+          }),
+        );
+      });
+    });
+  });
+}
+
+function resolveWorkingDirectory(
+  shell: FileSystemContextService,
+  context: ToolExecutionContext,
+  path?: string,
+): Effect.Effect<string, Error, FileSystem.FileSystem | FileSystemContextService> {
+  const key = buildShellKey(context);
+  if (path && path.trim().length > 0) {
+    return shell.resolvePath(key, path);
+  }
+
+  return shell.getCwd(key);
+}
+
+// Safe Git operations (no approval needed) \\
 
 export function createGitStatusTool(): ReturnType<typeof defineTool> {
   const parameters = z
@@ -106,34 +191,46 @@ export function createGitStatusTool(): ReturnType<typeof defineTool> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitStatusArgs;
+        const workingDir = yield* resolveWorkingDirectory(shell, context, typedArgs.path);
 
-        const workingDir = typedArgs.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              typedArgs.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const commandResult = yield* runGitCommand({
+          args: ["status", "--short", "--branch"],
+          workingDirectory: workingDir,
+        });
 
-        // For now, return a simple status message
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr ||
+              `git status failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        const lines = commandResult.stdout.split("\n").filter((line) => line.trim().length > 0);
+        const branchLine = lines.find((line) => line.startsWith("##")) ?? "";
+        const changes = lines.filter((line) => !line.startsWith("##"));
+        const hasChanges = changes.length > 0;
+
         return {
           success: true,
           result: {
             workingDirectory: workingDir,
-            status: "Git status would be executed here",
-            hasChanges: false,
+            branch: branchLine.replace(/^##\s*/, "") || "unknown",
+            hasChanges,
+            summary: hasChanges ? changes : ["Working tree clean"],
+            rawStatus: commandResult.stdout,
           },
         };
       }),
     createSummary: (result: ToolExecutionResult) => {
       if (result.success && typeof result.result === "object" && result.result !== null) {
-        const gitResult = result.result as { hasChanges: boolean };
-        return gitResult.hasChanges ? "Repository has changes" : "Repository is clean (no changes)";
+        const gitResult = result.result as { hasChanges: boolean; branch?: string };
+        const suffix = gitResult.branch ? ` on ${gitResult.branch}` : "";
+        return gitResult.hasChanges
+          ? `Repository has changes${suffix}`
+          : `Repository is clean${suffix}`;
       }
       return result.success ? "Git status retrieved" : "Git status failed";
     },
@@ -173,27 +270,51 @@ export function createGitLogTool(): ReturnType<typeof defineTool> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitLogArgs;
+        const workingDir = yield* resolveWorkingDirectory(shell, context, typedArgs.path);
 
-        const workingDir = typedArgs.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              typedArgs.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const limit = typedArgs.limit ?? 10;
+        const prettyFormat = "%H%x1f%h%x1f%an%x1f%ar%x1f%s%x1e";
+        const commandResult = yield* runGitCommand({
+          args: [
+            "log",
+            `--max-count=${limit}`,
+            `--pretty=format:${prettyFormat}`,
+            "--date=relative",
+          ],
+          workingDirectory: workingDir,
+        });
 
-        // For now, return a simple log message
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error: commandResult.stderr || `git log failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        const commits = commandResult.stdout
+          .split("\x1e")
+          .filter((entry) => entry.trim().length > 0)
+          .map((entry) => {
+            const [hash, shortHash, author, relativeDate, subject] = entry
+              .split("\x1f")
+              .map((value) => value.trim());
+            return {
+              hash,
+              shortHash,
+              author,
+              relativeDate,
+              subject,
+              oneline: typedArgs.oneline ? `${shortHash} ${subject}` : undefined,
+            };
+          });
+
         return {
           success: true,
           result: {
             workingDirectory: workingDir,
-            commits: "Git log would be executed here",
-            commitCount: 0,
+            commitCount: commits.length,
+            commits,
           },
         };
       }),
@@ -235,29 +356,43 @@ export function createGitDiffTool(): ReturnType<typeof defineTool> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitDiffArgs;
+        const workingDir = yield* resolveWorkingDirectory(shell, context, typedArgs.path);
 
-        const workingDir = typedArgs.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              typedArgs.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const diffArgs: string[] = ["diff", "--no-color"];
+        if (typedArgs.staged) {
+          diffArgs.push("--staged");
+        }
+        if (typedArgs.branch) {
+          diffArgs.push(typedArgs.branch);
+        } else if (typedArgs.commit) {
+          diffArgs.push(typedArgs.commit);
+        }
 
-        // For now, return a simple diff message
+        const commandResult = yield* runGitCommand({
+          args: diffArgs,
+          workingDirectory: workingDir,
+          timeoutMs: 20000,
+        });
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error: commandResult.stderr || `git diff failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        const trimmedDiff = commandResult.stdout.trimEnd();
+        const hasChanges = trimmedDiff.length > 0;
+
         return {
           success: true,
           result: {
             workingDirectory: workingDir,
-            diff: "Git diff would be executed here",
-            hasChanges: false,
+            diff: trimmedDiff || "No differences",
+            hasChanges,
             options: {
-              staged: typedArgs.staged || false,
+              staged: typedArgs.staged ?? false,
               branch: typedArgs.branch,
               commit: typedArgs.commit,
             },
@@ -302,31 +437,49 @@ export function createGitBranchTool(): ReturnType<typeof defineTool> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitBranchArgs;
+        const workingDir = yield* resolveWorkingDirectory(shell, context, typedArgs.path);
 
-        const workingDir = typedArgs.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              typedArgs.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const branchArgs: string[] = ["branch", "--list"];
+        if (typedArgs.remote) {
+          branchArgs.push("--remotes");
+        } else if (typedArgs.all) {
+          branchArgs.push("--all");
+        }
 
-        // For now, return a simple branch message
+        const commandResult = yield* runGitCommand({
+          args: branchArgs,
+          workingDirectory: workingDir,
+        });
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr || `git branch failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        const lines = commandResult.stdout.split("\n").filter((line) => line.trim().length > 0);
+        let currentBranch: string | undefined;
+        const branches = lines.map((line) => {
+          const trimmed = line.replace(/^\*\s*/, "").trim();
+          if (line.trim().startsWith("*")) {
+            currentBranch = trimmed;
+          }
+          return trimmed;
+        });
+
         return {
           success: true,
           result: {
             workingDirectory: workingDir,
-            branches: ["main", "develop", "feature/new-feature"],
-            currentBranch: "main",
+            branches,
+            currentBranch,
             options: {
               list: typedArgs.list !== false,
-              all: typedArgs.all || false,
-              remote: typedArgs.remote || false,
+              all: typedArgs.all ?? false,
+              remote: typedArgs.remote ?? false,
             },
           },
         };
