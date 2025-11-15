@@ -233,6 +233,7 @@ Jazz agents can combine multiple tools to accomplish complex tasks:
 - **[CLI Reference](docs/cli-reference.md)** - Command-line interface documentation
 - **[Integrations](docs/integrations.md)** - Set up Gmail, Linkup, and LLM providers
 - **[Security Guide](docs/security.md)** - Security model and best practices
+- **[Explorations](docs/exploration/README.md)** - Advanced patterns and future features
 
 ## Contributing
 

@@ -20,7 +20,9 @@
       agent personalization.
 - [ ] Skills management — build discovery/registration mechanism so agents can opt into capabilities
       with explicit contracts.
-- [ ] Dynamic tool selection - dynamically load only relevant tools based on context/user query
+- [ ] Dynamic tool loading - dynamically load only relevant tools based on context/user query
+- [ ] Being able to always approve low stake tools - Give a risk level to tools, being able to say
+      if we want to allays authorize a tool so that it don't ask for approval every time
 
 ## CLI Feature Depth & Docs
 

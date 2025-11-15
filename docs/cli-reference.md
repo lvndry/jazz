@@ -84,10 +84,8 @@ List all agents.
 jazz agent list [options]
 ```
 
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `--verbose` | Show detailed information |
+**Options:** | Option | Description | |--------|-------------| | `--verbose` | Show detailed
+information |
 
 **Output:**
 
@@ -434,8 +432,7 @@ export LINKUP_API_KEY="your-key"
 
 ### "No LLM providers configured"
 
-**Solution:**
-Add API key to config:
+**Solution:** Add API key to config:
 
 ```json
 {
@@ -488,35 +485,3 @@ jazz --debug agent chat my-agent
 # Verify API keys are valid
 # Check network connection
 ```
-
----
-
-## Getting Help
-
-**Command help:**
-
-```bash
-# General help
-jazz --help
-
-# Command-specific help
-jazz agent --help
-jazz agent create --help
-```
-
-**Documentation:**
-
-- [Getting Started](getting-started.md)
-- [Tools Reference](tools-reference.md)
-- [Security Guide](security.md)
-- [Integrations](integrations.md)
-
-**Community:**
-
-- [Discord](https://discord.gg/yBDbS2NZju)
-- [GitHub Issues](https://github.com/lvndry/jazz/issues)
-- [GitHub Discussions](https://github.com/lvndry/jazz/discussions)
-
----
-
-**Last Updated:** Compatible with Jazz v0.2.0
