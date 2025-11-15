@@ -20,6 +20,7 @@
       agent personalization.
 - [ ] Skills management — build discovery/registration mechanism so agents can opt into capabilities
       with explicit contracts.
+- [ ] Dynamic tool selection - dynamically load only relevant tools based on context/user query
 
 ## CLI Feature Depth & Docs
 
