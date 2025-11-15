@@ -3,22 +3,31 @@
 ## CLI & User Experience
 
 - [ ] Make reasoning tokens visible.
-- [ ] Stream content in terminal — swap to `streamText` to present incremental LLM output and reduce perceived latency.
+- [ ] Stream content in terminal — swap to `streamText` to present incremental LLM output and reduce
+      perceived latency.
 - [ ] Reduce length of system prompt.
 - [ ] Better colors and themes.
 
 ## Agent Runtime & Automation
 
-- [ ] Summarize context near window limits — add automatic context compression that preserves action history when tokens spike.
-- [ ] Explore sub-agent triggers — design trigger taxonomy (event, schedule, manual) and PoC orchestration primitives.
-- [ ] Trigger system (schedule, file, webhook, manual) — implement unified trigger dispatcher with persistence and retry policies.
-- [ ] Memory architecture — define long-term memory spec (storage backend, schema, retrieval) for agent personalization.
-- [ ] Skills management — build discovery/registration mechanism so agents can opt into capabilities with explicit contracts.
+- [ ] Summarize context near window limits — add automatic context compression that preserves action
+      history when tokens spike.
+- [ ] Explore sub-agent triggers — design trigger taxonomy (event, schedule, manual) and PoC
+      orchestration primitives.
+- [ ] Trigger system (schedule, file, webhook, manual) — implement unified trigger dispatcher with
+      persistence and retry policies.
+- [ ] Memory architecture — define long-term memory spec (storage backend, schema, retrieval) for
+      agent personalization.
+- [ ] Skills management — build discovery/registration mechanism so agents can opt into capabilities
+      with explicit contracts.
 
 ## CLI Feature Depth & Docs
 
-- [ ] Improve `jazz agent create` ergonomics — expand flags (tools, schedule, auth) and inline help; document the flow with examples like `jazz agent create --name "deploy-master" --tools git,files`.
-- [ ] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox triage, reporting) with reusable configs.
+- [ ] Improve `jazz agent create` ergonomics — expand flags (tools, schedule, auth) and inline help;
+      document the flow with examples like
+      `jazz agent create --name "deploy-master" --tools git,files`.
+- [ ] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox
+      triage, reporting) with reusable configs.
 
 ## Integrations
 
@@ -30,13 +39,17 @@
   - [ ] Attachment support — wire interface implementation for upload/download streams.
   - [ ] `createReplyToEmailTool` — reply within thread while preserving references and history.
   - [ ] `createForwardEmailTool` — forward with original metadata and optional redaction.
-  - [ ] Advanced search with date ranges — accept structured filters and map to Gmail query language.
-  - [ ] Calendar integration bridge — parse meeting intents and invoke Calendar tooling once available.
+  - [ ] Advanced search with date ranges — accept structured filters and map to Gmail query
+        language.
+  - [ ] Calendar integration bridge — parse meeting intents and invoke Calendar tooling once
+        available.
 
 ## Quality, Safety & Testing
 
-- [ ] Security tests — build suites covering command injection, privilege escalation, sandbox escapes, and malicious tool payloads.
-- [ ] Broaden automated test coverage — prioritize Effect-based unit tests for CLI commands, tool adapters, and runtime layers.
+- [ ] Security tests — build suites covering command injection, privilege escalation, sandbox
+      escapes, and malicious tool payloads.
+- [ ] Broaden automated test coverage — prioritize Effect-based unit tests for CLI commands, tool
+      adapters, and runtime layers.
 
 ## Developer experience
 
@@ -46,7 +59,12 @@
 
 - Config-driven agent provisioning, e.g. `jazz agent create --config agent.json`.
 - Per-agent authentication domains to isolate credentials (support multiple Gmail accounts, etc.).
-- Rich workflow memory tuned to personal preferences (favorite folders, project contexts, historical decisions).
+- Rich workflow memory tuned to personal preferences (favorite folders, project contexts, historical
+  decisions).
+- Agent evaludation - When system prompt is evolving, users could create a bunch of tests to be run
+  in a sandbox and evaluate the output. Evals could be executed in a sandbox (docker container), we
+  could then evaluate the outcome and the tools/used and suggest improvements to the prompts for
+  better/faster task completion
 
 ## Workflow Concepts To Validate
 
