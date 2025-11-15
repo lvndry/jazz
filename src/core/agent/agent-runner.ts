@@ -1,5 +1,6 @@
 import { Effect, Schedule } from "effect";
 
+import { MAX_AGENT_STEPS } from "../../constants/agent";
 import { AgentConfigService, type ConfigService } from "../../services/config";
 import {
   LLMRateLimitError,
@@ -71,7 +72,8 @@ export class AgentRunner {
     LLMService | ToolRegistry | LoggerService | ConfigService
   > {
     return Effect.gen(function* () {
-      const { agent, userInput, conversationId, userId, maxIterations = 8 } = options;
+      const { agent, userInput, conversationId, userId, maxIterations = MAX_AGENT_STEPS } =
+        options;
 
       // Get services
       const llmService = yield* LLMServiceTag;
