@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { FileSystemContextService } from "../../../services/shell";
 import { FileSystemContextServiceTag } from "../../../services/shell";
 import { defineTool, withApprovalBoolean } from "./base-tool";
+import { createSanitizedEnv } from "./env-utils";
 import { type Tool, type ToolExecutionContext, type ToolExecutionResult } from "./tool-registry";
 
 /**
@@ -263,25 +264,7 @@ export function createExecuteCommandApprovedTool(): Tool<FileSystemContextServic
           const { spawn } = yield* Effect.promise(() => import("child_process"));
 
           // Sanitize environment variables for security
-          const sanitizedEnv = {
-            PATH: process.env["PATH"] || "/usr/local/bin:/usr/bin:/bin",
-            HOME: process.env["HOME"] || "/tmp",
-            USER: process.env["USER"] || "user",
-            SHELL: "/bin/sh",
-            // Remove potentially sensitive environment variables
-            ...Object.fromEntries(
-              Object.entries(process.env).filter(
-                ([key]) =>
-                  !key.includes("API") &&
-                  !key.includes("KEY") &&
-                  !key.includes("SECRET") &&
-                  !key.includes("TOKEN") &&
-                  !key.includes("PASSWORD") &&
-                  !key.includes("CREDENTIAL") &&
-                  !key.includes("AUTH"),
-              ),
-            ),
-          };
+          const sanitizedEnv = createSanitizedEnv();
 
           const result = yield* Effect.promise<{
             stdout: string;
