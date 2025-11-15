@@ -6,6 +6,7 @@ import {
   FileSystemContextServiceTag,
 } from "../../../services/shell";
 import { defineTool } from "./base-tool";
+import { buildKeyFromContext } from "./context-utils";
 import { createSanitizedEnv } from "./env-utils";
 import { type ToolExecutionContext, type ToolExecutionResult } from "./tool-registry";
 
@@ -81,15 +82,6 @@ interface GitCommandResult {
   readonly exitCode: number;
 }
 
-function buildShellKey(context: ToolExecutionContext): {
-  readonly agentId: string;
-  readonly conversationId?: string;
-} {
-  return context.conversationId
-    ? { agentId: context.agentId, conversationId: context.conversationId }
-    : { agentId: context.agentId };
-}
-
 function runGitCommand(options: {
   readonly args: readonly string[];
   readonly workingDirectory: string;
@@ -149,7 +141,7 @@ function resolveWorkingDirectory(
   context: ToolExecutionContext,
   path?: string,
 ): Effect.Effect<string, Error, FileSystem.FileSystem | FileSystemContextService> {
-  const key = buildShellKey(context);
+  const key = buildKeyFromContext(context);
   if (path && path.trim().length > 0) {
     return shell.resolvePath(key, path);
   }

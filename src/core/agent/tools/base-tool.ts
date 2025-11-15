@@ -4,7 +4,7 @@ import { type Tool, type ToolExecutionContext, type ToolExecutionResult } from "
 
 /**
  * Lightweight, reusable tool builder with optional runtime validation.
- * Keeps JSON Schema as-is for LLMs and applies a simple validator at runtime.
+ * Uses Zod schemas to ensure tool arguments stay in sync with runtime validation.
  */
 
 export interface ToolValidatorResult<Args extends Record<string, unknown>> {
@@ -196,7 +196,7 @@ export function defineTool<R, Args extends Record<string, unknown>>(
                 message: approvalMessage,
                 ...(execute
                   ? {
-                      instruction: `Please ask the user for confirmation. If they confirm, call this tool again with { "confirm": true } or call: ${execute.toolName} with these exact arguments: ${JSON.stringify(execute.buildArgs(validated))}`,
+                      instruction: `Please ask the user for confirmation. If they confirm, ${execute.toolName} with these exact arguments: ${JSON.stringify(execute.buildArgs(validated))}`,
                       executeToolName: execute.toolName,
                       executeArgs: execute.buildArgs(validated),
                     }
@@ -218,73 +218,21 @@ export function defineTool<R, Args extends Record<string, unknown>>(
 }
 
 /**
- * Build a minimal runtime validator from a JSON Schema subset.
- * Supports: type = string|number|boolean|array(object: items.type), required[], additionalProperties.
+ * Build a runtime validator from a Zod schema. Keeps validation logic and typing in sync.
  */
-export function makeJsonSchemaValidator<Args extends Record<string, unknown>>(
-  schema: Record<string, unknown>,
+export function makeZodValidator<Args extends Record<string, unknown>>(
+  schema: z.ZodType<Args>,
 ): ToolValidator<Args> {
   return (args: Record<string, unknown>) => {
-    const errors: string[] = [];
-
-    const s = schema as {
-      type?: string;
-      properties?: Record<string, unknown>;
-      required?: readonly string[];
-      additionalProperties?: boolean;
-    };
-
-    if (s.type !== undefined && s.type !== "object") {
-      errors.push("Root schema.type must be 'object'");
-    }
-
-    const properties = (s.properties || {}) as Record<
-      string,
-      { type?: string; items?: { type?: string } }
-    >;
-    const required = new Set((s.required || []) as string[]);
-
-    for (const key of required) {
-      if (!(key in args)) {
-        errors.push(`Missing required property: ${key}`);
-      }
-    }
-
-    for (const [key, value] of Object.entries(args)) {
-      const prop = properties[key];
-      if (!prop) {
-        if (s.additionalProperties === false) {
-          errors.push(`Unknown property: ${key}`);
-        }
-        continue;
-      }
-      const expected = prop.type;
-      if (!expected) continue;
-      const actual = typeof value;
-      if (expected === "array") {
-        if (!Array.isArray(value)) {
-          errors.push(`Property '${key}' expected array, got ${actual}`);
-        } else {
-          const itemType = prop.items?.type;
-          if (itemType) {
-            for (let i = 0; i < value.length; i++) {
-              const t = typeof (value as unknown[])[i];
-              if (t !== itemType) {
-                errors.push(`Property '${key}[${i}]' expected ${itemType}, got ${t}`);
-              }
-            }
-          }
-        }
-      } else if (actual !== expected) {
-        errors.push(`Property '${key}' expected ${expected}, got ${actual}`);
-      }
-    }
-
-    if (errors.length > 0) {
+    const result = schema.safeParse(args);
+    if (!result.success) {
+      const errors = result.error.issues.map((issue) => {
+        const path = issue.path.join(".");
+        return path.length > 0 ? `${path}: ${issue.message}` : issue.message;
+      });
       return { valid: false, errors } as const;
     }
-
-    return { valid: true, value: args as Args } as const;
+    return { valid: true, value: result.data } as const;
   };
 }
 
