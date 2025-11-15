@@ -7,22 +7,13 @@ import {
   FileSystemContextServiceTag,
 } from "../../../services/shell";
 import { defineTool } from "./base-tool";
-import { type Tool, type ToolExecutionContext } from "./tool-registry";
+import { buildKeyFromContext } from "./context-utils";
+import { type Tool } from "./tool-registry";
 
 /**
  * Filesystem and shell tools: pwd, ls, cd, grep, find, mkdir, rm
  * mkdir and rm require explicit approval and are executed via hidden execute* tools.
  */
-
-// Utility helpers
-function buildKeyFromContext(context: ToolExecutionContext): {
-  agentId: string;
-  conversationId?: string;
-} {
-  return context.conversationId
-    ? { agentId: context.agentId, conversationId: context.conversationId }
-    : { agentId: context.agentId };
-}
 
 function normalizeFilterPattern(pattern?: string): {
   type: "substring" | "regex";
@@ -39,6 +30,7 @@ function normalizeFilterPattern(pattern?: string): {
       return { type: "substring", value: body };
     }
   }
+
   return { type: "substring", value: trimmed };
 }
 

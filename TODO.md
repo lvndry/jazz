@@ -43,6 +43,7 @@
         language.
   - [ ] Calendar integration bridge — parse meeting intents and invoke Calendar tooling once
         available.
+  - Add more ready to use agent with specific set of tools ans skills - code agent, fs agent, ...
 
 ## Quality, Safety & Testing
 
