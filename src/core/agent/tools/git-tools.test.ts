@@ -123,9 +123,14 @@ describe("Git Tools", () => {
 
     expect(result.success).toBe(true);
     if (result.success && typeof result.result === "object" && result.result !== null) {
-      const gitResult = result.result as { workingDirectory: string; hasChanges: boolean };
+      const gitResult = result.result as {
+        workingDirectory: string;
+        hasChanges: boolean;
+        rawStatus: string;
+      };
       expect(gitResult.workingDirectory).toBeDefined();
       expect(typeof gitResult.hasChanges).toBe("boolean");
+      expect(typeof gitResult.rawStatus).toBe("string");
     }
   });
 
@@ -145,9 +150,14 @@ describe("Git Tools", () => {
 
     expect(result.success).toBe(true);
     if (result.success && typeof result.result === "object" && result.result !== null) {
-      const gitResult = result.result as { workingDirectory: string; commitCount: number };
+      const gitResult = result.result as {
+        workingDirectory: string;
+        commitCount: number;
+        commits: Array<{ hash: string }>;
+      };
       expect(gitResult.workingDirectory).toBeDefined();
       expect(typeof gitResult.commitCount).toBe("number");
+      expect(Array.isArray(gitResult.commits)).toBe(true);
     }
   });
 
@@ -170,10 +180,12 @@ describe("Git Tools", () => {
       const gitResult = result.result as {
         workingDirectory: string;
         hasChanges: boolean;
+        diff: string;
         options: any;
       };
       expect(gitResult.workingDirectory).toBeDefined();
       expect(typeof gitResult.hasChanges).toBe("boolean");
+      expect(typeof gitResult.diff).toBe("string");
       expect(gitResult.options.staged).toBe(true);
       expect(gitResult.options.branch).toBe("main");
     }
@@ -198,12 +210,11 @@ describe("Git Tools", () => {
       const gitResult = result.result as {
         workingDirectory: string;
         branches: string[];
-        currentBranch: string;
+        currentBranch?: string;
         options: any;
       };
       expect(gitResult.workingDirectory).toBeDefined();
       expect(Array.isArray(gitResult.branches)).toBe(true);
-      expect(gitResult.currentBranch).toBe("main");
       expect(gitResult.options.all).toBe(true);
       expect(gitResult.options.remote).toBe(false);
     }

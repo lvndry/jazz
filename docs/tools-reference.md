@@ -221,6 +221,7 @@ Permanently delete email (not recoverable).
 ## 🔧 Git Tools (9 tools)
 
 Enable version control operations with safety approvals for write operations.
+All commands invoke the native `git` CLI with paging disabled so output returns inline, ready for the agent to read or summarize.
 
 ### Read Operations (No Approval)
 
