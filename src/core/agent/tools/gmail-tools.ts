@@ -129,7 +129,7 @@ export function createListEmailsTool(): Tool<GmailService> {
     .strict();
 
   return defineTool<GmailService, { maxResults?: number; query?: string }>({
-    name: "listEmails",
+    name: "list_emails",
     description: "List the user's emails with optional filtering",
     tags: ["gmail", "list"],
     parameters,
@@ -173,7 +173,7 @@ export function createGetEmailTool(): Tool<GmailService> {
     .strict();
 
   return defineTool<GmailService, { emailId: string }>({
-    name: "getEmail",
+    name: "get_email",
     description: "Get the full content of a specific email by ID",
     tags: ["gmail", "read"],
     parameters,
@@ -202,7 +202,7 @@ export function createSearchEmailsTool(): Tool<GmailService> {
     .strict();
 
   return defineTool<GmailService, { query: string; maxResults?: number }>({
-    name: "searchEmails",
+    name: "search_emails",
     description: "Search for emails matching specific criteria",
     tags: ["gmail", "search"],
     parameters,
@@ -242,7 +242,7 @@ export function createSendEmailTool(): Tool<GmailService> {
     GmailService,
     { to: string[]; subject: string; body: string; cc?: string[]; bcc?: string[] }
   >({
-    name: "sendEmail",
+    name: "send_email",
     description: "Draft an email on behalf of the user (does not send)",
     tags: ["gmail", "compose"],
     parameters,
@@ -279,7 +279,7 @@ export function createListLabelsTool(): Tool<GmailService> {
   const parameters = z.object({}).strict();
 
   return defineTool<GmailService, Record<string, never>>({
-    name: "listLabels",
+    name: "list_labels",
     description: "List all Gmail labels (both system and user-created)",
     tags: ["gmail", "labels"],
     parameters,
@@ -340,7 +340,7 @@ export function createCreateLabelTool(): Tool<GmailService> {
       color?: { textColor: string; backgroundColor: string };
     }
   >({
-    name: "createLabel",
+    name: "create_label",
     description: "Create a new Gmail label with optional visibility and color settings",
     tags: ["gmail", "labels"],
     parameters,
@@ -433,7 +433,7 @@ export function createUpdateLabelTool(): Tool<GmailService> {
       color?: { textColor: string; backgroundColor: string };
     }
   >({
-    name: "updateLabel",
+    name: "update_label",
     description: "Update an existing Gmail label's properties",
     tags: ["gmail", "labels"],
     parameters,
@@ -482,7 +482,7 @@ export function createDeleteLabelTool(): Tool<GmailService> {
     })
     .strict();
   return defineTool<GmailService, { labelId: string }>({
-    name: "deleteLabel",
+    name: "delete_label",
     description: "Delete a Gmail label (only user-created labels can be deleted)",
     tags: ["gmail", "labels"],
     parameters,
@@ -496,11 +496,11 @@ export function createDeleteLabelTool(): Tool<GmailService> {
       message: (args, _context) => {
         const a = args as { labelId: string };
         return Effect.succeed(
-          `About to permanently delete label '${a.labelId}'. This action cannot be undone.\n\nIf the user confirms, call executeDeleteLabel with the same labelId.`,
+          `About to permanently delete label '${a.labelId}'. This action cannot be undone.\n\nIf the user confirms, call execute_delete_label with the same labelId.`,
         );
       },
       execute: {
-        toolName: "executeDeleteLabel",
+        toolName: "execute_delete_label",
         buildArgs: (args) => ({ labelId: (args as { labelId: string }).labelId }),
       },
     },
@@ -522,7 +522,7 @@ export function createTrashEmailTool(): Tool<GmailService> {
     .strict();
 
   return defineTool<GmailService, { emailId: string }>({
-    name: "trashEmail",
+    name: "trash_email",
     description: "Move an email to trash (recoverable). Use this for safer email removal.",
     parameters,
     validate: (args) => {
@@ -540,14 +540,14 @@ export function createTrashEmailTool(): Tool<GmailService> {
           try {
             const email = yield* gmailService.getEmail(a.emailId);
             const preview = createEmailPreviewMessage(email);
-            return `${preview}\n\n🗑️  About to move this email to trash. It can be recovered later.\n\nIf the user confirms, call executeTrashEmail with the same emailId.`;
+            return `${preview}\n\n🗑️  About to move this email to trash. It can be recovered later.\n\nIf the user confirms, call execute_trash_email with the same emailId.`;
           } catch (error) {
             // If we can't fetch email details, fall back to basic message
             return `About to move email '${a.emailId}' to trash. It can be recovered later.\n(Note: Could not fetch email details: ${error instanceof Error ? error.message : String(error)})`;
           }
         }),
       execute: {
-        toolName: "executeTrashEmail",
+        toolName: "execute_trash_email",
         buildArgs: (args) => ({ emailId: (args as { emailId: string }).emailId }),
       },
     },
@@ -569,7 +569,7 @@ export function createDeleteEmailTool(): Tool<GmailService> {
     .strict();
 
   return defineTool<GmailService, { emailId: string }>({
-    name: "deleteEmail",
+    name: "delete_email",
     description:
       "Permanently delete an email. This action cannot be undone. Consider using trashEmail for safer removal.",
     parameters,
@@ -588,14 +588,14 @@ export function createDeleteEmailTool(): Tool<GmailService> {
           try {
             const email = yield* gmailService.getEmail(a.emailId);
             const preview = createEmailPreviewMessage(email);
-            return `${preview}\n\n⚠️  About to PERMANENTLY DELETE this email. This cannot be undone!\n\nIf the user confirms, call executeDeleteEmail with the same emailId.`;
+            return `${preview}\n\n⚠️  About to PERMANENTLY DELETE this email. This cannot be undone!\n\nIf the user confirms, call execute_delete_email with the same emailId.`;
           } catch (error) {
             // If we can't fetch email details, fall back to basic message
             return `About to permanently delete email '${a.emailId}'. This cannot be undone!\n(Note: Could not fetch email details: ${error instanceof Error ? error.message : String(error)})`;
           }
         }),
       execute: {
-        toolName: "executeDeleteEmail",
+        toolName: "execute_delete_email",
         buildArgs: (args) => ({ emailId: (args as { emailId: string }).emailId }),
       },
     },
@@ -617,7 +617,7 @@ export function createExecuteTrashEmailTool(): Tool<GmailService> {
     .strict();
 
   return defineTool<GmailService, { emailId: string }>({
-    name: "executeTrashEmail",
+    name: "execute_trash_email",
     description: "Execute the trash email action after user approval",
     hidden: true,
     parameters,
@@ -645,7 +645,7 @@ export function createExecuteDeleteEmailTool(): Tool<GmailService> {
     .strict();
 
   return defineTool<GmailService, { emailId: string }>({
-    name: "executeDeleteEmail",
+    name: "execute_delete_email",
     description: "Execute the delete email action after user approval",
     hidden: true,
     parameters,
@@ -676,7 +676,7 @@ export function createExecuteDeleteLabelTool(): Tool<GmailService> {
     .strict();
 
   return defineTool<GmailService, { labelId: string }>({
-    name: "executeDeleteLabel",
+    name: "execute_delete_label",
     description: "Execute the delete label action after user approval",
     hidden: true,
     parameters,
@@ -708,7 +708,7 @@ export function createAddLabelsToEmailTool(): Tool<GmailService> {
     .strict();
 
   return defineTool<GmailService, { emailId: string; labelIds: string[] }>({
-    name: "addLabelsToEmail",
+    name: "add_labels_to_email",
     description: "Add one or more labels to a specific email",
     parameters,
     validate: (args) => {
@@ -744,7 +744,7 @@ export function createRemoveLabelsFromEmailTool(): Tool<GmailService> {
     .strict();
 
   return defineTool<GmailService, { emailId: string; labelIds: string[] }>({
-    name: "removeLabelsFromEmail",
+    name: "remove_labels_from_email",
     description: "Remove one or more labels from a specific email",
     parameters,
     validate: (args) => {
@@ -788,7 +788,7 @@ export function createBatchModifyEmailsTool(): Tool<GmailService> {
       removeLabelIds?: string[];
     }
   >({
-    name: "batchModifyEmails",
+    name: "batch_modify_emails",
     description: "Modify multiple emails at once by adding or removing labels",
     parameters,
     validate: (args) => {

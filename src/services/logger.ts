@@ -386,18 +386,18 @@ export function logToolExecutionApproval(
 function getToolEmoji(toolName: string): string {
   const toolEmojis: Record<string, string> = {
     // Gmail tools
-    listEmails: "📧",
-    getEmail: "📨",
-    sendEmail: "📤",
-    replyToEmail: "↩️",
-    forwardEmail: "↗️",
-    markAsRead: "👁️",
-    markAsUnread: "👁️‍🗨️",
-    deleteEmail: "🗑️",
-    createLabel: "🏷️",
-    addLabel: "🏷️",
-    removeLabel: "🏷️",
-    searchEmails: "🔍",
+    list_emails: "📧",
+    get_email: "📨",
+    send_email: "📤",
+    reply_to_email: "↩️",
+    forward_email: "↗️",
+    mark_as_read: "👁️",
+    mark_as_unread: "👁️‍🗨️",
+    delete_email: "🗑️",
+    create_label: "🏷️",
+    add_label: "🏷️",
+    remove_label: "🏷️",
+    search_emails: "🔍",
     // Default
     default: "🔧",
   };

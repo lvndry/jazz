@@ -26,88 +26,88 @@ describe("Git Tools", () => {
     );
   };
 
-  it("should create gitStatus tool with proper structure", () => {
+  it("should create git_status tool with proper structure", () => {
     const tool = createGitStatusTool();
-    expect(tool.name).toBe("gitStatus");
+    expect(tool.name).toBe("git_status");
     expect(tool.description).toContain("working tree status");
     expect(tool.parameters).toBeDefined();
     expect(tool.execute).toBeDefined();
     expect(tool.createSummary).toBeDefined();
   });
 
-  it("should create gitLog tool with proper structure", () => {
+  it("should create git_log tool with proper structure", () => {
     const tool = createGitLogTool();
-    expect(tool.name).toBe("gitLog");
+    expect(tool.name).toBe("git_log");
     expect(tool.description).toContain("commit history");
     expect(tool.parameters).toBeDefined();
     expect(tool.execute).toBeDefined();
     expect(tool.createSummary).toBeDefined();
   });
 
-  it("should create gitAdd tool with approval requirement", () => {
+  it("should create git_add tool with approval requirement", () => {
     const tool = createGitAddTool();
-    expect(tool.name).toBe("gitAdd");
+    expect(tool.name).toBe("git_add");
     expect(tool.description).toContain("requires user approval");
     expect(tool.parameters).toBeDefined();
     expect(tool.execute).toBeDefined();
     expect(tool.createSummary).toBeDefined();
   });
 
-  it("should create gitCommit tool with approval requirement", () => {
+  it("should create git_commit tool with approval requirement", () => {
     const tool = createGitCommitTool();
-    expect(tool.name).toBe("gitCommit");
+    expect(tool.name).toBe("git_commit");
     expect(tool.description).toContain("requires user approval");
     expect(tool.parameters).toBeDefined();
     expect(tool.execute).toBeDefined();
     expect(tool.createSummary).toBeDefined();
   });
 
-  it("should create gitDiff tool with proper structure", () => {
+  it("should create git_diff tool with proper structure", () => {
     const tool = createGitDiffTool();
-    expect(tool.name).toBe("gitDiff");
+    expect(tool.name).toBe("git_diff");
     expect(tool.description).toContain("changes between commits");
     expect(tool.parameters).toBeDefined();
     expect(tool.execute).toBeDefined();
     expect(tool.createSummary).toBeDefined();
   });
 
-  it("should create gitPush tool with approval requirement", () => {
+  it("should create git_push tool with approval requirement", () => {
     const tool = createGitPushTool();
-    expect(tool.name).toBe("gitPush");
+    expect(tool.name).toBe("git_push");
     expect(tool.description).toContain("requires user approval");
     expect(tool.parameters).toBeDefined();
     expect(tool.execute).toBeDefined();
     expect(tool.createSummary).toBeDefined();
   });
 
-  it("should create gitPull tool with approval requirement", () => {
+  it("should create git_pull tool with approval requirement", () => {
     const tool = createGitPullTool();
-    expect(tool.name).toBe("gitPull");
+    expect(tool.name).toBe("git_pull");
     expect(tool.description).toContain("requires user approval");
     expect(tool.parameters).toBeDefined();
     expect(tool.execute).toBeDefined();
     expect(tool.createSummary).toBeDefined();
   });
 
-  it("should create gitBranch tool with proper structure", () => {
+  it("should create git_branch tool with proper structure", () => {
     const tool = createGitBranchTool();
-    expect(tool.name).toBe("gitBranch");
+    expect(tool.name).toBe("git_branch");
     expect(tool.description).toContain("branches");
     expect(tool.parameters).toBeDefined();
     expect(tool.execute).toBeDefined();
     expect(tool.createSummary).toBeDefined();
   });
 
-  it("should create gitCheckout tool with approval requirement", () => {
+  it("should create git_checkout tool with approval requirement", () => {
     const tool = createGitCheckoutTool();
-    expect(tool.name).toBe("gitCheckout");
+    expect(tool.name).toBe("git_checkout");
     expect(tool.description).toContain("requires user approval");
     expect(tool.parameters).toBeDefined();
     expect(tool.execute).toBeDefined();
     expect(tool.createSummary).toBeDefined();
   });
 
-  it("should execute gitStatus tool", async () => {
+  it("should execute git_status tool", async () => {
     const testEffect = Effect.gen(function* () {
       const tool = createGitStatusTool();
       const context = {
@@ -129,7 +129,7 @@ describe("Git Tools", () => {
     }
   });
 
-  it("should execute gitLog tool", async () => {
+  it("should execute git_log tool", async () => {
     const testEffect = Effect.gen(function* () {
       const tool = createGitLogTool();
       const context = {
@@ -151,7 +151,7 @@ describe("Git Tools", () => {
     }
   });
 
-  it("should execute gitDiff tool", async () => {
+  it("should execute git_diff tool", async () => {
     const testEffect = Effect.gen(function* () {
       const tool = createGitDiffTool();
       const context = {
@@ -179,7 +179,7 @@ describe("Git Tools", () => {
     }
   });
 
-  it("should execute gitBranch tool", async () => {
+  it("should execute git_branch tool", async () => {
     const testEffect = Effect.gen(function* () {
       const tool = createGitBranchTool();
       const context = {

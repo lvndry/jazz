@@ -282,8 +282,8 @@ export function runAgentCommand(
 
           // Display the output based on the operation
           if (
-            task.config.gmailOperation === "listEmails" ||
-            task.config.gmailOperation === "searchEmails"
+            task.config.gmailOperation === "list_emails" ||
+            task.config.gmailOperation === "search_emails"
           ) {
             try {
               const emails = JSON.parse(result.output || "[]") as GmailEmail[];

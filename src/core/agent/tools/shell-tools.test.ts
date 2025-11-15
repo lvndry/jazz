@@ -12,10 +12,10 @@ describe("Shell Tools", () => {
     return Layer.mergeAll(toolRegistryLayer, Layer.provide(shellLayer, NodeFileSystem.layer));
   };
 
-  it("should create executeCommand tool with proper structure", () => {
+  it("should create execute_command tool with proper structure", () => {
     const tool = createExecuteCommandTool();
 
-    expect(tool.name).toBe("executeCommand");
+    expect(tool.name).toBe("execute_command");
     expect(tool.description).toContain("Execute a shell command");
     expect(tool.description).toContain("requires user approval");
     expect(tool.hidden).toBe(false);
@@ -28,10 +28,10 @@ describe("Shell Tools", () => {
     expect(tool.parameters).toHaveProperty("_def");
   });
 
-  it("should create executeCommandApproved tool with proper structure", () => {
+  it("should create execute_command_approved tool with proper structure", () => {
     const tool = createExecuteCommandApprovedTool();
 
-    expect(tool.name).toBe("executeCommandApproved");
+    expect(tool.name).toBe("execute_command_approved");
     expect(tool.description).toContain("Execute an approved shell command");
     expect(tool.hidden).toBe(true);
 

@@ -154,7 +154,7 @@ Type '/help' to see available special commands.
 
 You: Show me unread emails from today
 
-Agent: [Uses searchEmails tool]
+Agent: [Uses search_emails tool]
        I found 12 unread emails from today...
 
 You: exit
@@ -188,7 +188,7 @@ jazz agent get <id>
    LLM Model: gpt-4o-mini
    Reasoning Effort: low
    Tools (16):
-     Gmail: listEmails, getEmail, searchEmails, sendEmail, ...
+     Gmail: list_emails, get_email, search_emails, send_email, ...
 ```
 
 ---

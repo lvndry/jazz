@@ -482,7 +482,7 @@ function validateAgentDescription(description: string): Effect.Effect<void, Vali
  *   id: "task-1",
  *   name: "Process Email",
  *   type: "gmail",
- *   config: { gmailOperation: "listEmails" }
+ *   config: { gmailOperation: "list_emails" }
  * };
  * yield* validateTask(task);
  * ```

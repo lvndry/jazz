@@ -33,7 +33,7 @@ export function executeGmailTask(
 
       // Execute the task based on the Gmail operation
       switch (task.config.gmailOperation) {
-        case "listEmails": {
+        case "list_emails": {
           const maxResults = (task.config.gmailMaxResults as number) || 10;
           const query = (task.config.gmailQuery as string) || "";
 
@@ -67,14 +67,14 @@ export function executeGmailTask(
           };
         }
 
-        case "getEmail": {
+        case "get_email": {
           const emailId = task.config.emailId as string;
 
           if (!emailId) {
             return {
               taskId: task.id,
               status: "failure",
-              error: "Email ID is required for getEmail operation",
+              error: "Email ID is required for get_email operation",
               duration: Date.now() - startTime,
               timestamp: new Date(),
             };
@@ -107,7 +107,7 @@ export function executeGmailTask(
           };
         }
 
-        case "sendEmail": {
+        case "send_email": {
           const to = (task.config.to as string[]) || [];
           const subject = (task.config.subject as string) || "";
           const body = (task.config.body as string) || "";
@@ -118,7 +118,7 @@ export function executeGmailTask(
             return {
               taskId: task.id,
               status: "failure",
-              error: "Recipients, subject, and body are required for sendEmail operation",
+              error: "Recipients, subject, and body are required for send_email operation",
               duration: Date.now() - startTime,
               timestamp: new Date(),
             };
@@ -151,7 +151,7 @@ export function executeGmailTask(
           };
         }
 
-        case "searchEmails": {
+        case "search_emails": {
           const query = (task.config.gmailQuery as string) || "";
           const maxResults = (task.config.gmailMaxResults as number) || 10;
 
@@ -159,7 +159,7 @@ export function executeGmailTask(
             return {
               taskId: task.id,
               status: "failure",
-              error: "Search query is required for searchEmails operation",
+              error: "Search query is required for search_emails operation",
               duration: Date.now() - startTime,
               timestamp: new Date(),
             };

@@ -35,7 +35,7 @@ interface ExecuteCommandApprovedArgs extends Record<string, unknown> {
  */
 export function createExecuteCommandTool(): Tool<FileSystemContextService> {
   return defineTool<FileSystemContextService, ExecuteCommandArgs>({
-    name: "executeCommand",
+    name: "execute_command",
     description:
       "Execute a shell command on the system. This tool requires user approval for security reasons.",
     tags: ["shell", "execution"],
@@ -103,7 +103,7 @@ This command will be executed on your system. Please review it carefully and con
         }),
       errorMessage: "Command execution requires explicit user approval for security reasons.",
       execute: {
-        toolName: "executeCommandApproved",
+        toolName: "execute_command_approved",
         buildArgs: (args: Record<string, unknown>): Record<string, unknown> => {
           const typedArgs = args as ExecuteCommandArgs;
           return {
@@ -135,7 +135,7 @@ This command will be executed on your system. Please review it carefully and con
  */
 export function createExecuteCommandApprovedTool(): Tool<FileSystemContextService> {
   return defineTool<FileSystemContextService, ExecuteCommandApprovedArgs>({
-    name: "executeCommandApproved",
+    name: "execute_command_approved",
     description:
       "Execute an approved shell command. This is the internal tool called after user approval.",
     hidden: true,
