@@ -1,6 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import { exec } from "node:child_process";
 import { createFileSystemContextServiceLayer } from "../../../services/shell";
 import {
   createGitAddTool,
@@ -13,7 +14,21 @@ import {
   createGitPushTool,
   createGitStatusTool,
 } from "./git-tools";
-import { createToolRegistryLayer } from "./tool-registry";
+import { createToolRegistryLayer, type ToolExecutionResult } from "./tool-registry";
+
+function getCurrentBranch(): Effect.Effect<string, Error> {
+  return Effect.async((resume) => {
+    exec("git rev-parse --abbrev-ref HEAD", (error, stdout, stderr) => {
+      if (error) {
+        const message = stderr.trim() || error.message;
+        resume(Effect.fail(new Error(message)));
+        return;
+      }
+      const branch = stdout.trim();
+      resume(Effect.succeed(branch.length > 0 ? branch : "HEAD"));
+    });
+  });
+}
 
 describe("Git Tools", () => {
   const createTestLayer = () => {
@@ -119,7 +134,13 @@ describe("Git Tools", () => {
       return result;
     });
 
-    const result = await Effect.runPromise(testEffect.pipe(Effect.provide(createTestLayer())));
+    const result = await Effect.runPromise(
+      testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
+        ToolExecutionResult,
+        Error,
+        never
+      >,
+    );
 
     expect(result.success).toBe(true);
     if (result.success && typeof result.result === "object" && result.result !== null) {
@@ -146,7 +167,13 @@ describe("Git Tools", () => {
       return result;
     });
 
-    const result = await Effect.runPromise(testEffect.pipe(Effect.provide(createTestLayer())));
+    const result = await Effect.runPromise(
+      testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
+        ToolExecutionResult,
+        Error,
+        never
+      >,
+    );
 
     expect(result.success).toBe(true);
     if (result.success && typeof result.result === "object" && result.result !== null) {
@@ -162,18 +189,27 @@ describe("Git Tools", () => {
   });
 
   it("should execute git_diff tool", async () => {
+    let selectedBranch = "HEAD";
     const testEffect = Effect.gen(function* () {
       const tool = createGitDiffTool();
+      const branch = yield* getCurrentBranch().pipe(Effect.catchAll(() => Effect.succeed("HEAD")));
+      selectedBranch = branch;
       const context = {
         agentId: "test-agent",
         conversationId: "test-conversation",
       };
 
-      const result = yield* tool.execute({ staged: true, branch: "main" }, context);
+      const result = yield* tool.execute({ staged: true, branch }, context);
       return result;
     });
 
-    const result = await Effect.runPromise(testEffect.pipe(Effect.provide(createTestLayer())));
+    const result = await Effect.runPromise(
+      testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
+        ToolExecutionResult,
+        Error,
+        never
+      >,
+    );
 
     expect(result.success).toBe(true);
     if (result.success && typeof result.result === "object" && result.result !== null) {
@@ -181,13 +217,17 @@ describe("Git Tools", () => {
         workingDirectory: string;
         hasChanges: boolean;
         diff: string;
-        options: any;
+        options: {
+          staged: boolean;
+          branch?: string;
+          commit?: string;
+        };
       };
       expect(gitResult.workingDirectory).toBeDefined();
       expect(typeof gitResult.hasChanges).toBe("boolean");
       expect(typeof gitResult.diff).toBe("string");
       expect(gitResult.options.staged).toBe(true);
-      expect(gitResult.options.branch).toBe("main");
+      expect(gitResult.options.branch).toBe(selectedBranch);
     }
   });
 
@@ -203,7 +243,13 @@ describe("Git Tools", () => {
       return result;
     });
 
-    const result = await Effect.runPromise(testEffect.pipe(Effect.provide(createTestLayer())));
+    const result = await Effect.runPromise(
+      testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
+        ToolExecutionResult,
+        Error,
+        never
+      >,
+    );
 
     expect(result.success).toBe(true);
     if (result.success && typeof result.result === "object" && result.result !== null) {
@@ -211,7 +257,10 @@ describe("Git Tools", () => {
         workingDirectory: string;
         branches: string[];
         currentBranch?: string;
-        options: any;
+        options: {
+          all?: boolean;
+          remote?: boolean;
+        };
       };
       expect(gitResult.workingDirectory).toBeDefined();
       expect(Array.isArray(gitResult.branches)).toBe(true);
