@@ -4,6 +4,7 @@ import { agentPromptBuilder } from "../../core/agent/agent-prompt";
 import { AgentServiceTag, type AgentService } from "../../core/agent/agent-service";
 import { ToolRegistryTag, type ToolRegistry } from "../../core/agent/tools/tool-registry";
 import {
+  AgentAlreadyExistsError,
   AgentConfigurationError,
   StorageError,
   StorageNotFoundError,
@@ -41,6 +42,7 @@ export function editAgentCommand(
   | StorageError
   | StorageNotFoundError
   | AgentConfigurationError
+  | AgentAlreadyExistsError
   | ValidationError
   | LLMConfigurationError,
   AgentService | LLMService | ToolRegistry
