@@ -55,6 +55,7 @@
 ## Developer experience
 
 - [ ] Precommit hooks
+- [ ] Easy update - `jazz update`
 
 ## Backlog Ideas & Research
 
