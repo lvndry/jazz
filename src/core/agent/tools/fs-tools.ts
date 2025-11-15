@@ -63,7 +63,7 @@ function normalizeStatSize(size: unknown): number | string | null {
   return null;
 }
 
-// findPath - helps agent discover paths when unsure
+// find_path - helps agent discover paths when unsure
 export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
@@ -86,7 +86,7 @@ export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemCon
     FileSystem.FileSystem | FileSystemContextService,
     { name: string; maxDepth?: number; type?: "directory" | "file" | "both"; searchPath?: string }
   >({
-    name: "findPath",
+    name: "find_path",
     description: "Find directories or files by name using the system find command",
     tags: ["filesystem", "search"],
     parameters,
@@ -473,7 +473,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     FileSystem.FileSystem | FileSystemContextService,
     { path: string; startLine?: number; endLine?: number; maxBytes?: number; encoding?: string }
   >({
-    name: "readFile",
+    name: "read_file",
     description: "Read a text file with optional line range and size limit",
     tags: ["filesystem", "read"],
     parameters,
@@ -606,7 +606,7 @@ export function createWriteFileTool(): Tool<FileSystem.FileSystem | FileSystemCo
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, WriteFileArgs>({
-    name: "writeFile",
+    name: "write_file",
     description:
       "Write content to a file, creating it if it doesn't exist (requires user approval)",
     tags: ["filesystem", "write"],
@@ -658,7 +658,7 @@ export function createExecuteWriteFileTool(): Tool<
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, WriteFileArgs>({
-    name: "executeWriteFile",
+    name: "execute_write_file",
     description: "Execute writeFile after user approval",
     hidden: true,
     parameters,
@@ -1205,7 +1205,7 @@ export function createExecuteMkdirTool(): Tool<FileSystem.FileSystem | FileSyste
     FileSystem.FileSystem | FileSystemContextService,
     { path: string; recursive?: boolean }
   >({
-    name: "executeMkdir",
+    name: "execute_mkdir",
     description: "Execute mkdir after user approval",
     hidden: true,
     parameters,
@@ -1388,7 +1388,7 @@ export function createExecuteRmTool(): Tool<FileSystem.FileSystem | FileSystemCo
     FileSystem.FileSystem | FileSystemContextService,
     { path: string; recursive?: boolean; force?: boolean }
   >({
-    name: "executeRm",
+    name: "execute_rm",
     description: "Execute rm after user approval",
     hidden: true,
     parameters,
@@ -1474,7 +1474,7 @@ export function createFindDirTool(): Tool<FileSystem.FileSystem | FileSystemCont
     FileSystem.FileSystem | FileSystemContextService,
     { name: string; path?: string; maxDepth?: number }
   >({
-    name: "finddir",
+    name: "find_dir",
     description: "Search for directories by name with partial matching",
     tags: ["filesystem", "search"],
     parameters,

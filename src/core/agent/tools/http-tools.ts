@@ -342,7 +342,7 @@ function parseJsonBody(text: string): { data: unknown; error?: string } {
 
 export function createHttpRequestTool(): Tool<never> {
   return defineTool<never, HttpRequestArgs>({
-    name: "httpRequest",
+    name: "http_request",
     description: "Send an HTTP request and return the response details.",
     tags: ["http", "network", "api"],
     parameters: HttpRequestSchema,

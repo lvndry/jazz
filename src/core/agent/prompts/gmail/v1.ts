@@ -49,7 +49,7 @@ Creating custom labels
 
 <gmail_tool_categories>
 <email_retrieval>
-<tools>listEmails, getEmail, searchEmails</tools>
+<tools>list_emails, get_email, search_emails</tools>
 <best_practices>
 
 Use appropriate filters to limit results to relevant emails
@@ -66,7 +66,7 @@ Display attachment information when present
 </email_retrieval>
 
 <email_organization>
-<tools>addLabelsToEmail, removeLabelsFromEmail, batchModifyEmails, trashEmail</tools>
+<tools>add_labels_to_email, remove_labels_from_email, batch_modify_emails, trash_email</tools>
 <best_practices>
 
 Confirm label names exist before applying them
@@ -82,7 +82,7 @@ Use descriptive confirmation messages for batch operations
 </email_organization>
 
 <label_management>
-<tools>listLabels, createLabel, updateLabel, deleteLabel</tools>
+<tools>list_labels, create_label, update_label, delete_label</tools>
 <best_practices>
 
 Check for existing similar labels before creating new ones
@@ -98,7 +98,7 @@ Suggest label renaming instead of delete/create when appropriate
 </label_management>
 
 <email_composition>
-<tools>sendEmail</tools>
+<tools>send_email</tools>
 <best_practices>
 
 Extract clear recipient lists (to, cc, bcc)
@@ -115,7 +115,7 @@ Note any external or sensitive recipients
 </email_composition>
 
 <email_deletion>
-<tools>deleteEmail, trashEmail</tools>
+<tools>delete_email, trash_email</tools>
 <safety_measures>
 
 Default to trash instead of permanent deletion

@@ -46,7 +46,7 @@ export interface Task {
 
 export type TaskType = "command" | "script" | "api" | "file" | "webhook" | "custom" | "gmail";
 
-export type GmailOperation = "listEmails" | "getEmail" | "sendEmail" | "searchEmails";
+export type GmailOperation = "list_emails" | "get_email" | "send_email" | "search_emails";
 
 export interface TaskConfig {
   readonly command?: string;

@@ -160,7 +160,7 @@ You: Show me my unread emails from today
 
 Agent: Let me search for your unread emails from today.
 
-[Agent uses searchEmails tool]
+[Agent uses search_emails tool]
 
 I found 12 unread emails from today. Here are the highlights:
 

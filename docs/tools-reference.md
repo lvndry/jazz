@@ -25,7 +25,7 @@ Enable agents to manage Gmail with comprehensive email operations.
 
 ### Read Operations (No Approval)
 
-#### `listEmails`
+#### `list_emails`
 
 List emails with optional filtering.
 
@@ -38,10 +38,10 @@ List emails with optional filtering.
 
 ```
 "List my last 20 emails"
-→ listEmails({ maxResults: 20 })
+→ list_emails({ maxResults: 20 })
 ```
 
-#### `getEmail`
+#### `get_email`
 
 Get full content of a specific email.
 
@@ -53,10 +53,10 @@ Get full content of a specific email.
 
 ```
 "Show me the full content of email abc123"
-→ getEmail({ emailId: "abc123" })
+→ get_email({ emailId: "abc123" })
 ```
 
-#### `searchEmails`
+#### `search_emails`
 
 Search emails matching criteria.
 
@@ -69,10 +69,10 @@ Search emails matching criteria.
 
 ```
 "Find emails from GitHub in the last week"
-→ searchEmails({ query: "from:github.com newer_than:7d", maxResults: 20 })
+→ search_emails({ query: "from:github.com newer_than:7d", maxResults: 20 })
 ```
 
-#### `listLabels`
+#### `list_labels`
 
 List all Gmail labels (system and custom).
 
@@ -82,12 +82,12 @@ List all Gmail labels (system and custom).
 
 ```
 "What labels do I have?"
-→ listLabels({})
+→ list_labels({})
 ```
 
 ### Label Management (No Approval)
 
-#### `createLabel`
+#### `create_label`
 
 Create a new Gmail label.
 
@@ -102,10 +102,10 @@ Create a new Gmail label.
 
 ```
 "Create a label called 'important-project'"
-→ createLabel({ name: "important-project" })
+→ create_label({ name: "important-project" })
 ```
 
-#### `updateLabel`
+#### `update_label`
 
 Update existing label properties.
 
@@ -117,7 +117,7 @@ Update existing label properties.
 - `messageListVisibility` (optional): Visibility setting
 - `color` (optional): New colors
 
-#### `deleteLabel` (Requires Approval)
+#### `delete_label` (Requires Approval)
 
 Delete a user-created label.
 
@@ -127,7 +127,7 @@ Delete a user-created label.
 
 **Approval:** Shows label details and confirms permanent deletion.
 
-#### `addLabelsToEmail`
+#### `add_labels_to_email`
 
 Add labels to an email.
 
@@ -140,10 +140,10 @@ Add labels to an email.
 
 ```
 "Add 'dev' and 'urgent' labels to email abc123"
-→ addLabelsToEmail({ emailId: "abc123", labelIds: ["Label_1", "Label_2"] })
+→ add_labels_to_email({ emailId: "abc123", labelIds: ["Label_1", "Label_2"] })
 ```
 
-#### `removeLabelsFromEmail`
+#### `remove_labels_from_email`
 
 Remove labels from an email.
 
@@ -152,7 +152,7 @@ Remove labels from an email.
 - `emailId` (required): Email ID
 - `labelIds` (required): Array of label IDs to remove
 
-#### `batchModifyEmails`
+#### `batch_modify_emails`
 
 Modify multiple emails at once.
 
@@ -166,12 +166,12 @@ Modify multiple emails at once.
 
 ```
 "Archive all emails from the last search"
-→ batchModifyEmails({ emailIds: [...], removeLabelIds: ["INBOX"] })
+→ batch_modify_emails({ emailIds: [...], removeLabelIds: ["INBOX"] })
 ```
 
 ### Compose & Send (No Approval)
 
-#### `sendEmail`
+#### `send_email`
 
 Create a draft email (doesn't send immediately).
 
@@ -187,7 +187,7 @@ Create a draft email (doesn't send immediately).
 
 ```
 "Draft an email to john@example.com about the meeting"
-→ sendEmail({
+→ send_email({
   to: ["john@example.com"],
   subject: "Meeting Follow-up",
   body: "Hi John, ..."
@@ -196,7 +196,7 @@ Create a draft email (doesn't send immediately).
 
 ### Destructive Operations (Require Approval)
 
-#### `trashEmail` (Requires Approval)
+#### `trash_email` (Requires Approval)
 
 Move email to trash (recoverable).
 
@@ -206,7 +206,7 @@ Move email to trash (recoverable).
 
 **Approval:** Shows email preview with subject, sender, date, and confirms trash action.
 
-#### `deleteEmail` (Requires Approval)
+#### `delete_email` (Requires Approval)
 
 Permanently delete email (not recoverable).
 
@@ -224,7 +224,7 @@ Enable version control operations with safety approvals for write operations.
 
 ### Read Operations (No Approval)
 
-#### `gitStatus`
+#### `git_status`
 
 Show working tree status.
 
@@ -236,10 +236,10 @@ Show working tree status.
 
 ```
 "What's changed in my repo?"
-→ gitStatus({})
+→ git_status({})
 ```
 
-#### `gitLog`
+#### `git_log`
 
 Show commit history.
 
@@ -253,10 +253,10 @@ Show commit history.
 
 ```
 "Show me the last 10 commits"
-→ gitLog({ limit: 10 })
+→ git_log({ limit: 10 })
 ```
 
-#### `gitDiff`
+#### `git_diff`
 
 Show changes between commits, branches, or working tree.
 
@@ -271,10 +271,10 @@ Show changes between commits, branches, or working tree.
 
 ```
 "What's different from main?"
-→ gitDiff({ branch: "main" })
+→ git_diff({ branch: "main" })
 ```
 
-#### `gitBranch`
+#### `git_branch`
 
 List, create, or manage branches.
 
@@ -289,12 +289,12 @@ List, create, or manage branches.
 
 ```
 "List all branches"
-→ gitBranch({ list: true, all: true })
+→ git_branch({ list: true, all: true })
 ```
 
 ### Write Operations (Require Approval)
 
-#### `gitAdd` (Requires Approval)
+#### `git_add` (Requires Approval)
 
 Stage files for commit.
 
@@ -306,7 +306,7 @@ Stage files for commit.
 
 **Approval:** Shows files to be staged and working directory.
 
-#### `gitCommit` (Requires Approval)
+#### `git_commit` (Requires Approval)
 
 Record changes to repository.
 
@@ -318,7 +318,7 @@ Record changes to repository.
 
 **Approval:** Shows commit message and working directory.
 
-#### `gitPush` (Requires Approval)
+#### `git_push` (Requires Approval)
 
 Push commits to remote.
 
@@ -331,7 +331,7 @@ Push commits to remote.
 
 **Approval:** Shows remote, branch, and warns about force push if enabled.
 
-#### `gitPull` (Requires Approval)
+#### `git_pull` (Requires Approval)
 
 Fetch and integrate from remote.
 
@@ -344,7 +344,7 @@ Fetch and integrate from remote.
 
 **Approval:** Shows remote, branch, and rebase status.
 
-#### `gitCheckout` (Requires Approval)
+#### `git_checkout` (Requires Approval)
 
 Switch branches or restore files.
 
@@ -412,7 +412,7 @@ List directory contents.
 
 ### Read Operations (No Approval)
 
-#### `readFile`
+#### `read_file`
 
 Read file contents.
 
@@ -425,7 +425,7 @@ Read file contents.
 
 ```
 "Show me the contents of package.json"
-→ readFile({ path: "package.json" })
+→ read_file({ path: "package.json" })
 ```
 
 #### `stat`
@@ -486,7 +486,7 @@ Find directories by name.
 - `path` (optional): Starting directory
 - `maxResults` (optional): Limit results
 
-#### `findPath`
+#### `find_path`
 
 Find files or directories by exact name.
 
@@ -508,7 +508,7 @@ Create directory.
 
 **Approval:** Shows directory path to be created.
 
-#### `writeFile` (Requires Approval)
+#### `write_file` (Requires Approval)
 
 Write content to file.
 
@@ -539,7 +539,7 @@ Remove files or directories.
 
 Execute shell commands with comprehensive security checks.
 
-#### `executeCommand` (Requires Approval)
+#### `execute_command` (Requires Approval)
 
 Execute a shell command.
 
@@ -562,7 +562,7 @@ Execute a shell command.
 
 ```
 "Install npm dependencies"
-→ executeCommand({ command: "npm install" })
+→ execute_command({ command: "npm install" })
 ```
 
 **Blocked Commands:**
@@ -619,7 +619,7 @@ Search the web via Linkup.
 
 Make HTTP requests to APIs and web services.
 
-#### `httpRequest`
+#### `http_request`
 
 Make an HTTP request.
 
@@ -635,7 +635,7 @@ Make an HTTP request.
 
 ```
 "Get data from the API"
-→ httpRequest({
+→ http_request({
   url: "https://api.example.com/data",
   method: "GET",
   headers: { "Authorization": "Bearer token" }
@@ -718,14 +718,14 @@ Tools requiring approval use a two-phase system:
 
 **Phase 1: Request**
 
-- Agent calls approval tool (e.g., `deleteEmail`)
+- Agent calls approval tool (e.g., `delete_email`)
 - Tool shows detailed approval message
 - Returns approval request to user
 
 **Phase 2: Execute**
 
 - User approves
-- Agent calls execution tool (e.g., `executeDeleteEmail`)
+- Agent calls execution tool (e.g., `execute_delete_email`)
 - Tool performs actual operation
 
 ### Security Features

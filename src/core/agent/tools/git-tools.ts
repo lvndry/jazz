@@ -85,7 +85,7 @@ export function createGitStatusTool(): ReturnType<typeof defineTool> {
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitStatusArgs>({
-    name: "gitStatus",
+    name: "git_status",
     description: "Show the working tree status of a Git repository",
     tags: ["git", "status"],
     parameters,
@@ -159,7 +159,7 @@ export function createGitLogTool(): ReturnType<typeof defineTool> {
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitLogArgs>({
-    name: "gitLog",
+    name: "git_log",
     description: "Show commit history of a Git repository",
     tags: ["git", "history"],
     parameters,
@@ -221,7 +221,7 @@ export function createGitDiffTool(): ReturnType<typeof defineTool> {
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
-    name: "gitDiff",
+    name: "git_diff",
     description: "Show changes between commits, commit and working tree, etc.",
     tags: ["git", "diff"],
     parameters,
@@ -288,7 +288,7 @@ export function createGitBranchTool(): ReturnType<typeof defineTool> {
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitBranchArgs>({
-    name: "gitBranch",
+    name: "git_branch",
     description: "List, create, or delete branches",
     tags: ["git", "branch"],
     parameters,
@@ -358,7 +358,7 @@ export function createGitAddTool(): ReturnType<typeof defineTool> {
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitAddArgs>({
-    name: "gitAdd",
+    name: "git_add",
     description: "Add file contents to the staging area (requires user approval)",
     tags: ["git", "index"],
     parameters,
@@ -441,7 +441,7 @@ export function createGitCommitTool(): ReturnType<typeof defineTool> {
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCommitArgs>({
-    name: "gitCommit",
+    name: "git_commit",
     description: "Record changes to the repository (requires user approval)",
     tags: ["git", "commit"],
     parameters,
@@ -524,7 +524,7 @@ export function createGitPushTool(): ReturnType<typeof defineTool> {
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPushArgs>({
-    name: "gitPush",
+    name: "git_push",
     description: "Update remote refs along with associated objects (requires user approval)",
     tags: ["git", "push"],
     parameters,
@@ -612,7 +612,7 @@ export function createGitPullTool(): ReturnType<typeof defineTool> {
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPullArgs>({
-    name: "gitPull",
+    name: "git_pull",
     description:
       "Fetch from and integrate with another repository or a local branch (requires user approval)",
     tags: ["git", "pull"],
@@ -701,7 +701,7 @@ export function createGitCheckoutTool(): ReturnType<typeof defineTool> {
     .strict();
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
-    name: "gitCheckout",
+    name: "git_checkout",
     description: "Switch branches or restore working tree files (requires user approval)",
     tags: ["git", "checkout"],
     parameters,
