@@ -7,7 +7,9 @@
 
 > **Your AI agent that actually _does_ things**
 
-Jazz is a powerful CLI that lets you create autonomous AI agents with real-world capabilities. Instead of just chatting, your agents can read emails, manage git repositories, execute commands, search the web, and orchestrate complex workflows—all through natural conversation.
+Jazz is a powerful CLI that lets you create autonomous AI agents with real-world capabilities.
+Instead of just chatting, your agents can read emails, manage git repositories, execute commands,
+search the web, and orchestrate complex workflows—all through natural conversation.
 
 ## What Makes Jazz Different?
 
@@ -168,7 +170,8 @@ Agent: [Searches web, analyzes results]
        - [detailed summary with sources]
 ```
 
-**Want more examples?** Check out our comprehensive [Examples & Use Cases](docs/examples.md) guide featuring:
+**Want more examples?** Check out our comprehensive [Examples & Use Cases](docs/examples.md) guide
+featuring:
 
 - 📧 Email management workflows
 - 🔧 Git history cleanup and branch management
@@ -223,13 +226,13 @@ Jazz agents can combine multiple tools to accomplish complex tasks:
 
 ## Documentation
 
+- **[Docs](docs/README.md)** - Complete documentation overview
 - **[Getting Started](docs/getting-started.md)** - Installation, setup, and first agent
 - **[Examples & Use Cases](docs/examples.md)** - Real-world workflows and inspiring examples
 - **[Tools Reference](docs/tools-reference.md)** - Complete guide to all 44 tools
 - **[CLI Reference](docs/cli-reference.md)** - Command-line interface documentation
 - **[Integrations](docs/integrations.md)** - Set up Gmail, Linkup, and LLM providers
 - **[Security Guide](docs/security.md)** - Security model and best practices
-- **[Docs Index](docs/README.md)** - Complete documentation overview
 
 ## Contributing
 
@@ -249,8 +252,6 @@ We welcome contributions! Jazz is actively developed and there are many opportun
 2. Check [TODO.md](./TODO.md) for tasks ready to be tackled
 3. Read [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines
 4. Submit a PR!
-
-**Active Development**: Jazz is in active development with frequent updates. The TODO list has many exciting features waiting to be built.
 
 ## License
 
