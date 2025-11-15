@@ -89,6 +89,20 @@ Dynamic and intelligent tool management.
   - Token budgeting
   - Hybrid approach recommendations
 
+### 🧠 Advanced Reasoning
+
+Research-inspired patterns for building more capable agents.
+
+- **[Verification-and-Refinement Pipelines](./reasoning/verification-refinement-pipelines.md)**
+  - Inspired by IMO 2025 breakthrough (85.7% vs 21-38% baseline accuracy)
+  - Generate diverse candidate solutions
+  - Multi-strategy verification (self-check, tool-based, multi-model, formal)
+  - Iterative refinement loops
+  - Ensemble voting and consensus
+  - 2-5x improvement in solution quality
+  - Real-world applications (code gen, email, data analysis)
+  - Implementation roadmap (6-8 weeks)
+
 ### ⚡ Optimization
 
 Performance and cost optimization strategies.
@@ -144,13 +158,10 @@ Anthropic-inspired packaged expertise for agents.
 
 Have ideas for new patterns or improvements to existing designs?
 
-### 1. Start a Discussion
-
-### 2. Create an Exploration Doc
-
-### 3. Get Feedback
-
-### 4. Add to Roadmap
+1. Start a Discussion
+2. Create an Exploration Doc
+3. Get Feedback
+4. Add to Roadmap
 
 ---
 
@@ -164,18 +175,15 @@ Have ideas for new patterns or improvements to existing designs?
 
 ### External Inspiration
 
-- [Anthropic's Agent Skills](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills)
+- [Huang & Yang, 2025 - IMO 2025 Gold](https://arxiv.org/pdf/2507.15855) -
+  Verification-and-refinement pipelines for advanced reasoning
+- [Anthropic's Agent Skills](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills) -
+  Packaging procedural knowledge
 - [TOON Format](https://github.com/toon-format/toon) - Token-efficient data serialization for LLMs
-- [LangChain Agent Patterns](https://python.langchain.com/docs/modules/agents/)
-- [AutoGPT Architecture](https://github.com/Significant-Gravitas/AutoGPT)
-
-### Community
-
-- Discord: [discord.gg/jazz](https://discord.gg/jazz)
-- Twitter: [@jazzcli](https://twitter.com/jazzcli)
-- GitHub: [github.com/jazz/jazz](https://github.com/jazz/jazz)
-
----
+- [LangChain Agent Patterns](https://python.langchain.com/docs/modules/agents/) - Agent design
+  patterns
+- [AutoGPT Architecture](https://github.com/Significant-Gravitas/AutoGPT) - Autonomous agent
+  architecture
 
 ---
 
@@ -220,6 +228,10 @@ Have ideas for new patterns or improvements to existing designs?
 ### ⚡ "I want faster agent responses"
 
 → Read [Agent Loop Performance](./optimization/agent-loop-performance.md)
+
+### 🎯 "I want more reliable agent results"
+
+→ Read [Verification-and-Refinement Pipelines](./reasoning/verification-refinement-pipelines.md)
 
 ---
 
