@@ -131,7 +131,6 @@ export class AgentRunner {
       };
 
       if (streamDetection.shouldStream) {
-        // Use streaming path
         return yield* AgentRunner.runWithStreaming(
           options,
           displayConfig,
@@ -139,14 +138,30 @@ export class AgentRunner {
           showMetrics,
         );
       } else {
-        // Use non-streaming path (but still apply display config)
         return yield* AgentRunner.runWithoutStreaming(options, displayConfig, showMetrics);
       }
     });
   }
 
   /**
-   * Streaming implementation
+   * Streaming implementation that processes LLM responses in real-time.
+   *
+   * How it works:
+   * 1. Creates a streaming chat completion from the LLM service with retry logic for rate limits
+   * 2. Processes stream events (text chunks, tool calls, completion) as they arrive using Effect's Stream API
+   * 3. Renders events progressively to the user via OutputRenderer for immediate feedback
+   * 4. Tracks tool calls as they stream in, collecting them in pendingToolCalls array
+   * 5. Captures the final completion response from the "complete" event using Effect.Ref for thread-safe access
+   * 6. Falls back to non-streaming mode if streaming fails (timeout, error, or interruption)
+   * 7. Executes any tool calls after streaming completes, then continues the agent loop
+   * 8. Handles timeouts at both the stream creation level (5min default) and stream processing level
+   *
+   * Key features:
+   * - Progressive rendering: Users see text appear incrementally as the LLM generates it
+   * - Graceful degradation: Automatically falls back to non-streaming on errors
+   * - Thread-safe completion capture: Uses Effect.Ref to reliably capture completion from stream events
+   * - Tool call tracking: Collects tool calls during streaming for execution after completion
+   * - Timeout protection: Multiple timeout layers prevent hanging on slow or stuck streams
    */
   private static runWithStreaming(
     options: AgentRunnerOptions,
@@ -324,9 +339,12 @@ export class AgentRunner {
           // Track tool calls during streaming for execution
           const pendingToolCalls: ToolCall[] = [];
 
-          // Default timeout: 5 minutes (300 seconds) or use agent timeout if configured
-          const streamTimeoutMs = agent.config.timeout ?? 300000; // 5 minutes default
-          const streamTimeout = Duration.millis(streamTimeoutMs);
+          // Stream creation timeout: (2 minutes)
+          const streamCreationTimeout = Duration.minutes(2);
+          // Stream completion timeout: longer - reasoning and tool call generation can take time
+          // Use agent timeout if configured, otherwise default to 12 minutes for complex workflows
+          const streamCompletionTimeoutMs = agent.config.timeout ?? 12 * 60 * 1000; // 12 minutes default
+          const streamCompletionTimeout = Duration.millis(streamCompletionTimeoutMs);
 
           // Create streaming result with graceful degradation
           const streamingResult = yield* Effect.retry(
@@ -352,8 +370,8 @@ export class AgentRunner {
               Schedule.whileInput((error) => error instanceof LLMRateLimitError),
             ),
           ).pipe(
-            // Add timeout to stream creation
-            Effect.timeout(streamTimeout),
+            // Add timeout to stream creation (TTFT) - shorter timeout for initial response
+            Effect.timeout(streamCreationTimeout),
             // Graceful degradation: fallback to non-streaming on error
             Effect.catchAll((error) =>
               Effect.gen(function* () {
@@ -384,8 +402,9 @@ export class AgentRunner {
           );
 
           // Process stream events with timeout and error handling
+          // Use longer timeout for stream completion - reasoning and tool call generation can take time
           const streamWithTimeout = streamingResult.stream.pipe(
-            Stream.timeout(streamTimeout),
+            Stream.timeout(streamCompletionTimeout),
             Stream.catchAll((error) => {
               // Convert timeout/interruption to error event
               const cause = Cause.isCause(error) ? error : Cause.fail(error);
@@ -799,7 +818,29 @@ export class AgentRunner {
   }
 
   /**
-   * Non-streaming implementation (applies display config)
+   * Non-streaming implementation that waits for complete LLM responses before rendering.
+   *
+   * How it works:
+   * 1. Creates a non-streaming chat completion from the LLM service with retry logic for rate limits
+   * 2. Waits for the complete response (all tokens) before processing or displaying anything
+   * 3. Formats the entire response content at once (e.g., markdown rendering) if configured
+   * 4. Displays the complete response to the user via console.log after formatting
+   * 5. Executes any tool calls sequentially after receiving the complete response
+   * 6. Displays tool execution progress using direct console output (process.stdout.write)
+   * 7. Continues the agent loop with tool results until no more tool calls are needed
+   * 8. Respects display config for showing thinking indicators, tool execution, and formatting
+   *
+   * Key differences from streaming:
+   * - Blocking: User waits for complete response before seeing any output
+   * - Simpler: No stream processing, event handling, or timeout management for streams
+   * - Direct output: Uses console.log/process.stdout.write instead of progressive rendering
+   * - Batch formatting: Formats entire response at once rather than incrementally
+   * - Lower overhead: No stream infrastructure, but less responsive user experience
+   *
+   * Use cases:
+   * - When streaming is disabled or unavailable
+   * - For scripts and automated workflows where progressive output isn't needed
+   * - When simpler error handling is preferred (no stream-specific timeouts/errors)
    */
   private static runWithoutStreaming(
     options: AgentRunnerOptions,
