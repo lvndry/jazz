@@ -1,4 +1,5 @@
-import { Cause, Duration, Effect, Exit, Fiber, Option, Schedule, Stream } from "effect";
+import chalk from "chalk";
+import { Cause, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
 
 import { MAX_AGENT_STEPS } from "../../constants/agent";
 import { AgentConfigService, type ConfigService } from "../../services/config";
@@ -16,7 +17,7 @@ import { LoggerServiceTag, type LoggerService } from "../../services/logger";
 import type { StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { MarkdownRenderer } from "../utils/markdown-renderer";
-import { StreamRenderer, type DisplayConfig } from "../utils/stream-renderer";
+import { OutputRenderer, type DisplayConfig } from "../utils/output-renderer";
 import { agentPromptBuilder } from "./agent-prompt";
 import {
   ToolRegistryTag,
@@ -29,6 +30,7 @@ import {
   completeIteration,
   createAgentRunTracker,
   finalizeAgentRun,
+  recordFirstTokenLatency,
   recordLLMRetry,
   recordLLMUsage,
   recordToolError,
@@ -231,7 +233,7 @@ export class AgentRunner {
       // Build messages for the agent with only its specified tools and descriptions
       const messages = yield* agentPromptBuilder.buildAgentMessages(agentType, {
         agentName: agent.name,
-        agentDescription: agent.description,
+        agentDescription: agent.description || "",
         userInput,
         conversationHistory: history,
         toolNames: expandedToolNames,
@@ -254,7 +256,7 @@ export class AgentRunner {
           textBufferMs: streamingConfig.textBufferMs,
         }),
       };
-      const renderer = new StreamRenderer(displayConfig, rendererConfig, showMetrics, agent.name);
+      const renderer = new OutputRenderer(displayConfig, rendererConfig, showMetrics, agent.name);
 
       // Run the agent loop
       const currentMessages = [...messages];
@@ -405,6 +407,9 @@ export class AgentRunner {
           );
 
           // Process stream events and render them with interruption handling
+          // Use Ref to reliably track completion response from the complete event
+          // This ensures thread-safe access across the stream processing fiber
+          const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
           const streamFiber = yield* Effect.fork(
             Stream.runForEach(streamWithTimeout, (event: StreamEvent) =>
               Effect.gen(function* () {
@@ -414,6 +419,19 @@ export class AgentRunner {
                 // Track tool calls as they come in
                 if (event.type === "tool_call") {
                   pendingToolCalls.push(event.toolCall);
+                }
+
+                // Capture completion response and first token latency from complete event
+                // Use Ref to ensure thread-safe access and reliable capture
+                if (event.type === "complete") {
+                  yield* Ref.set(completionRef, event.response);
+                  if (event.metrics) {
+                    const latency = event.metrics.firstTokenLatencyMs;
+                    if (latency !== undefined) {
+                      // Record first token latency synchronously (mutation is safe here)
+                      recordFirstTokenLatency(runTracker, latency);
+                    }
+                  }
                 }
 
                 // Handle errors in stream
@@ -461,31 +479,44 @@ export class AgentRunner {
               continue;
             }
           } else {
-            // Stream completed successfully - get final response
-            completion = yield* streamingResult.response.pipe(
-              Effect.timeout(streamTimeout),
-              Effect.catchAll(() => {
-                // If response timeout, cancel and fallback
-                return Effect.gen(function* () {
-                  yield* streamingResult.cancel;
-                  yield* logger.warn("Response timeout, using fallback", {
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                    iteration: i + 1,
+            // Stream completed successfully - try to get completion from event first
+            const completionFromStream = yield* Ref.get(completionRef);
+
+            if (completionFromStream) {
+              // Use response from complete event - this is the fastest path
+              completion = completionFromStream;
+            } else {
+              // Fallback: if complete event didn't have response, wait for deferred
+              // This can happen if there's a race condition or the event wasn't captured
+              // Use a longer timeout (15 seconds) to account for slow deferred resolution
+              const responseTimeout = Duration.seconds(15);
+              completion = yield* streamingResult.response.pipe(
+                Effect.timeout(responseTimeout),
+                Effect.catchAll((timeoutError) => {
+                  // If response timeout, cancel and fallback to non-streaming
+                  return Effect.gen(function* () {
+                    yield* streamingResult.cancel;
+                    yield* logger.warn("Response timeout after stream completion, using fallback", {
+                      agentId: agent.id,
+                      conversationId: actualConversationId,
+                      iteration: i + 1,
+                      timeoutMs: Duration.toMillis(responseTimeout),
+                      error: timeoutError instanceof Error ? timeoutError.message : String(timeoutError),
+                    });
+
+                    const llmOptions = {
+                      model,
+                      messages: messagesToSend,
+                      tools,
+                      toolChoice: "auto" as const,
+                      reasoning_effort: agent.config.reasoningEffort ?? "disable",
+                    };
+
+                    return yield* llmService.createChatCompletion(provider, llmOptions);
                   });
-
-                  const llmOptions = {
-                    model,
-                    messages: messagesToSend,
-                    tools,
-                    toolChoice: "auto" as const,
-                    reasoning_effort: agent.config.reasoningEffort ?? "disable",
-                  };
-
-                  return yield* llmService.createChatCompletion(provider, llmOptions);
-                });
-              }),
-            );
+                }),
+              );
+            }
           }
 
           if (completion.usage) {
@@ -546,8 +577,19 @@ export class AgentRunner {
           if (completion.toolCalls && completion.toolCalls.length > 0) {
             const toolResults: Record<string, unknown> = {};
 
-            // Log user-friendly tool execution info
+            // Get tool names for logging and streaming
             const toolNames = completion.toolCalls.map((tc) => tc.function.name);
+
+            // Stream tool usage message immediately
+            if (displayConfig.showToolExecution) {
+              yield* renderer.handleEvent({
+                type: "tools_detected",
+                toolNames,
+                agentName: agent.name,
+              });
+            }
+
+            // Log user-friendly tool execution info
             const message = MarkdownRenderer.formatToolExecution(agent.name, toolNames);
             yield* logger.info(message, {
               agentId: agent.id,
@@ -561,15 +603,6 @@ export class AgentRunner {
               if (toolCall.type === "function") {
                 const { name, arguments: argsString } = toolCall.function;
                 recordToolInvocation(runTracker, name);
-
-                // Emit tool execution start event
-                if (displayConfig.showToolExecution) {
-                  yield* renderer.handleEvent({
-                    type: "tool_execution_start",
-                    toolName: name,
-                    toolCallId: toolCall.id,
-                  });
-                }
 
                 const toolStartTime = Date.now();
 
@@ -588,6 +621,16 @@ export class AgentRunner {
                     parsed && typeof parsed === "object" && !Array.isArray(parsed)
                       ? (parsed as Record<string, unknown>)
                       : {};
+
+                  // Emit tool execution start event with arguments
+                  if (displayConfig.showToolExecution) {
+                    yield* renderer.handleEvent({
+                      type: "tool_execution_start",
+                      toolName: name,
+                      toolCallId: toolCall.id,
+                      arguments: args,
+                    });
+                  }
 
                   // Log tool call arguments in debug mode
                   yield* logger.debug("Tool call arguments", {
@@ -735,6 +778,8 @@ export class AgentRunner {
         });
       }
 
+      // Finalize agent run asynchronously (fire-and-forget) to avoid blocking the response
+      // This improves perceived performance by not waiting for file I/O
       yield* finalizeAgentRun(runTracker, {
         iterationsUsed,
         finished,
@@ -746,6 +791,9 @@ export class AgentRunner {
             error: error.message,
           }),
         ),
+        // Fork to run in background - don't wait for completion
+        Effect.fork,
+        Effect.asVoid,
       );
 
       // Optionally persist conversation history via a storage layer in the future
@@ -837,7 +885,7 @@ export class AgentRunner {
       // Build messages for the agent with only its specified tools and descriptions
       const messages = yield* agentPromptBuilder.buildAgentMessages(agentType, {
         agentName: agent.name,
-        agentDescription: agent.description,
+        agentDescription: agent.description || "",
         userInput,
         conversationHistory: history,
         toolNames: expandedToolNames,
@@ -1014,6 +1062,13 @@ export class AgentRunner {
             if (displayConfig.showToolExecution) {
               const toolNames = completion.toolCalls.map((tc) => tc.function.name);
               const message = MarkdownRenderer.formatToolExecution(agent.name, toolNames);
+
+              // Display tools detected message (non-streaming mode)
+              const tools = toolNames.join(", ");
+              console.log(
+                `\n${chalk.yellow("🔧")} ${chalk.yellow(agent.name)} is using tools: ${chalk.cyan(tools)}\n`,
+              );
+
               yield* logger.info(message, {
                 agentId: agent.id,
                 conversationId: actualConversationId,
@@ -1027,6 +1082,9 @@ export class AgentRunner {
               if (toolCall.type === "function") {
                 const { name, arguments: argsString } = toolCall.function;
                 recordToolInvocation(runTracker, name);
+
+                // Track tool start time for duration calculation
+                const toolStartTime = Date.now();
 
                 try {
                   // Parse the arguments safely with proper error handling
@@ -1054,8 +1112,34 @@ export class AgentRunner {
                     rawArguments: argsString,
                   });
 
+                  // Display tool execution start (non-streaming mode)
+                  if (displayConfig.showToolExecution) {
+                    const argsStr = OutputRenderer.formatToolArguments(name, args);
+                    process.stdout.write(
+                      `\n${chalk.cyan("⚙️")}  Executing tool: ${chalk.cyan(name)}${argsStr}...`,
+                    );
+                  }
+
                   // Execute the tool
                   const result = yield* executeTool(name, args, context);
+
+                  const toolDuration = Date.now() - toolStartTime;
+                  const resultString = JSON.stringify(result.result);
+
+                  // Display tool execution complete (non-streaming mode)
+                  if (displayConfig.showToolExecution) {
+                    if (result.success) {
+                      const summary = OutputRenderer.formatToolResult(name, resultString);
+                      process.stdout.write(
+                        ` ${chalk.green("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
+                      );
+                    } else {
+                      const errorMsg = result.error || "Tool execution failed";
+                      process.stdout.write(
+                        ` ${chalk.red("✗")} ${chalk.red(`(${errorMsg})`)} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
+                      );
+                    }
+                  }
 
                   // Log tool execution result in debug mode
                   yield* logger.debug("Tool execution result", {
@@ -1085,6 +1169,15 @@ export class AgentRunner {
 
                   // Log the tool execution error for debugging
                   const errorMessage = error instanceof Error ? error.message : String(error);
+                  const toolDuration = Date.now() - toolStartTime;
+
+                  // Display tool execution error (non-streaming mode)
+                  if (displayConfig.showToolExecution) {
+                    process.stdout.write(
+                      ` ${chalk.red("✗")} ${chalk.red(`(${errorMessage})`)} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
+                    );
+                  }
+
                   recordToolError(runTracker, name, error);
                   yield* logger.error("Tool execution failed", {
                     agentId: agent.id,
@@ -1185,6 +1278,8 @@ export class AgentRunner {
         });
       }
 
+      // Finalize agent run asynchronously (fire-and-forget) to avoid blocking the response
+      // This improves perceived performance by not waiting for file I/O
       yield* finalizeAgentRun(runTracker, {
         iterationsUsed,
         finished,
@@ -1196,6 +1291,9 @@ export class AgentRunner {
             error: error.message,
           }),
         ),
+        // Fork to run in background - don't wait for completion
+        Effect.fork,
+        Effect.asVoid,
       );
 
       // Optionally persist conversation history via a storage layer in the future

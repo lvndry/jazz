@@ -10,7 +10,7 @@ export type { ChatMessage } from "../../services/llm/types";
 export interface Agent {
   readonly id: string;
   readonly name: string;
-  readonly description: string;
+  readonly description?: string;
   readonly config: AgentConfig;
   readonly status: AgentStatus;
   readonly createdAt: Date;

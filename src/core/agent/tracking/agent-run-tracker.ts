@@ -51,6 +51,7 @@ export interface AgentRunTracker {
   readonly errors: string[];
   readonly iterationSummaries: AgentRunIterationSummary[];
   currentIteration: AgentRunIterationSummary | undefined;
+  firstTokenLatencyMs?: number | undefined;
 }
 
 export function createAgentRunTracker(context: AgentRunTrackerContext): AgentRunTracker {
@@ -81,6 +82,7 @@ export function createAgentRunTracker(context: AgentRunTrackerContext): AgentRun
     errors: [],
     iterationSummaries: [],
     currentIteration: undefined,
+    firstTokenLatencyMs: undefined,
   };
 }
 
@@ -132,6 +134,13 @@ export function recordToolInvocation(tracker: AgentRunTracker, toolName: string)
 export function recordToolError(tracker: AgentRunTracker, toolName: string, error: unknown): void {
   tracker.toolErrors += 1;
   tracker.lastError = pushError(tracker, error, `tool:${toolName}`);
+}
+
+export function recordFirstTokenLatency(tracker: AgentRunTracker, latencyMs: number): void {
+  // Only record the first token latency once (from the first iteration)
+  if (tracker.firstTokenLatencyMs === undefined) {
+    tracker.firstTokenLatencyMs = latencyMs;
+  }
 }
 
 export function recordLastError(tracker: AgentRunTracker, error: unknown): void {
@@ -195,6 +204,9 @@ export function finalizeAgentRun(
     toolInvocationSequence: tracker.toolInvocationSequence,
     errors: tracker.errors,
     iterationSummaries,
+    ...(tracker.firstTokenLatencyMs !== undefined
+      ? { firstTokenLatencyMs: tracker.firstTokenLatencyMs }
+      : {}),
   });
 }
 
@@ -234,6 +246,7 @@ interface TokenUsageLogPayload {
     readonly errors: readonly string[];
     readonly toolSequence: readonly string[];
   }[];
+  readonly firstTokenLatencyMs?: number;
 }
 
 function writeTokenUsageLog(payload: TokenUsageLogPayload): Effect.Effect<void, Error> {
@@ -250,6 +263,8 @@ function writeTokenUsageLog(payload: TokenUsageLogPayload): Effect.Effect<void, 
       const safeToolInvocationSequence = JSON.stringify(payload.toolInvocationSequence);
       const safeErrors = JSON.stringify(payload.errors);
       const safeIterationSummaries = JSON.stringify(payload.iterationSummaries);
+      const firstTokenLatency =
+        payload.firstTokenLatencyMs !== undefined ? ` firstTokenLatencyMs=${payload.firstTokenLatencyMs}` : "";
       const line = `${timestamp} runId=${payload.runId} agentId=${payload.agentId} agentName="${safeAgentName}" agentType=${payload.agentType} agentUpdatedAt=${payload.agentUpdatedAt.toISOString()} conversationId=${payload.conversationId} userId=${
         payload.userId ?? "anonymous"
       } provider=${payload.provider ?? "unknown"} model=${payload.model ?? "unknown"} reasoningEffort=${
@@ -258,7 +273,7 @@ function writeTokenUsageLog(payload: TokenUsageLogPayload): Effect.Effect<void, 
         payload.retryCount
       } lastError="${safeLastError}" promptTokens=${payload.promptTokens} completionTokens=${
         payload.completionTokens
-      } totalTokens=${payload.totalTokens} toolCalls=${payload.toolCalls} toolErrors=${
+      } totalTokens=${payload.totalTokens}${firstTokenLatency} toolCalls=${payload.toolCalls} toolErrors=${
         payload.toolErrors
       } toolsUsed=${safeToolsUsed} toolCallCounts=${safeToolCallCounts} toolInvocationSequence=${safeToolInvocationSequence} errors=${safeErrors} iterationSummaries=${safeIterationSummaries} startedAt=${payload.startedAt.toISOString()} endedAt=${payload.endedAt.toISOString()} durationMs=${payload.durationMs}\n`;
       await appendFile(logFilePath, line, { encoding: "utf8" });

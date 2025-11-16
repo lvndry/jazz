@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import * as os from "os";
 import { type ChatMessage } from "../../services/llm/types";
+import { CODER_PROMPT_V1 } from "./prompts/coder/v1";
 import { DEFAULT_PROMPT_V2 } from "./prompts/default/v2";
 import { GMAIL_PROMPT_V2 } from "./prompts/gmail/v2";
 
@@ -52,6 +53,12 @@ export class AgentPromptBuilder {
           create_label: "Create a new label.",
           update_label: "Update a label by ID.",
         },
+      },
+      coder: {
+        name: "Coder Agent",
+        description: "An expert software engineer and architect specialized in code analysis, debugging, and implementation with deep context awareness.",
+        systemPrompt: CODER_PROMPT_V1,
+        userPromptTemplate: "{userInput}",
       },
     };
   }

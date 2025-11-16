@@ -197,7 +197,7 @@ async function promptForAgentUpdates(
         type: "input",
         name: "description",
         message: "Enter new agent description:",
-        default: currentAgent.description,
+        default: currentAgent.description || "",
         validate: (input: string) => {
           if (!input.trim()) {
             return "Agent description cannot be empty";

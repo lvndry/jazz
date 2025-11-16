@@ -537,6 +537,8 @@ class DefaultAISDKService implements LLMService {
           let reasoningSequence = 0;
           let hasStartedText = false;
           let hasStartedReasoning = false;
+          // Track tool calls as they come in during streaming
+          const collectedToolCalls: ToolCall[] = [];
 
           // Process fullStream for all events (text, reasoning, tool calls)
           for await (const part of result.fullStream) {
@@ -584,7 +586,7 @@ class DefaultAISDKService implements LLMService {
 
 
                   case "tool-call": {
-                    // Tool call detected
+                    // Tool call detected - collect it for immediate use
                     const toolCall: ToolCall = {
                       id: part.toolCallId,
                       type: "function",
@@ -593,6 +595,7 @@ class DefaultAISDKService implements LLMService {
                         arguments: JSON.stringify(part.input),
                       },
                     };
+                    collectedToolCalls.push(toolCall);
 
                     void emit(Effect.succeed(Chunk.of({
                       type: "tool_call",
@@ -624,11 +627,26 @@ class DefaultAISDKService implements LLMService {
                 }
               }
 
-              // Stream is complete, get final values
-              // AI SDK provides these as promises
-              const finalText = await result.text;
-              const finalToolCalls = await result.toolCalls;
-              const finalUsage = await result.usage;
+              // Stream is complete - use accumulated text immediately instead of waiting for promise
+              // This eliminates the 30-60 second delay after streaming finishes
+              const finalText = accumulatedText;
+
+              // Convert collected tool calls (already in our format)
+              const toolCalls = collectedToolCalls.length > 0 ? collectedToolCalls : undefined;
+
+              // Try to get usage immediately, but don't block if it's slow
+              // Usage is optional and can be added later if needed
+              // Use Promise.race to timeout after 2 seconds to avoid long delays
+              let finalUsage: Awaited<typeof result.usage> | undefined;
+              try {
+                finalUsage = await Promise.race([
+                  result.usage,
+                  new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 2000)),
+                ]);
+              } catch {
+                // If usage fails, continue without it
+                finalUsage = undefined;
+              }
 
               // Build usage object
               const usage = finalUsage
@@ -648,28 +666,18 @@ class DefaultAISDKService implements LLMService {
               let metrics:
                 | { firstTokenLatencyMs: number; tokensPerSecond?: number; totalTokens?: number }
                 | undefined;
-              if (firstTokenTime && usage?.totalTokens) {
+              if (firstTokenTime) {
                 const totalDuration = Date.now() - startTime;
-                const tokensPerSecond = (usage.totalTokens / totalDuration) * 1000;
                 metrics = {
                   firstTokenLatencyMs: firstTokenTime - startTime,
-                  tokensPerSecond,
-                  totalTokens: usage.totalTokens,
+                  ...(usage?.totalTokens
+                    ? {
+                        tokensPerSecond: (usage.totalTokens / totalDuration) * 1000,
+                        totalTokens: usage.totalTokens,
+                      }
+                    : {}),
                 };
               }
-
-              // Convert AI SDK tool calls to our format
-              const toolCalls =
-                finalToolCalls && finalToolCalls.length > 0
-                  ? finalToolCalls.map((tc: TypedToolCall<ToolSet>) => ({
-                      id: tc.toolCallId,
-                      type: "function" as const,
-                      function: {
-                        name: tc.toolName,
-                        arguments: JSON.stringify(tc.input ?? {}),
-                      },
-                    }))
-                  : undefined;
 
               // Build final response
               const finalResponse: ChatCompletionResponse = {

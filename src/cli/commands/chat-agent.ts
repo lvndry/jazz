@@ -43,7 +43,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "../.
 
 interface AIAgentCreationAnswers {
   name: string;
-  description: string;
+  description?: string;
   agentType: string;
   llmProvider: string;
   llmModel: string;
@@ -125,7 +125,9 @@ export function createAIAgentCommand(): Effect.Effect<
     console.log("\n✅ AI Agent created successfully!");
     console.log(`   ID: ${agent.id}`);
     console.log(`   Name: ${agent.name}`);
-    console.log(`   Description: ${agent.description}`);
+    if (agent.description) {
+      console.log(`   Description: ${agent.description}`);
+    }
     console.log(`   Type: ${config.agentType}`);
     console.log(`   LLM Provider: ${config.llmProvider}`);
     console.log(`   LLM Model: ${config.llmModel}`);
@@ -149,8 +151,25 @@ async function promptForAgentInfo(
   toolsByCategory: Record<string, readonly string[]>,
   llmService: LLMService,
 ): Promise<AIAgentCreationAnswers> {
-  // First, get basic information and provider
-  const basicQuestions = [
+  // First, ask for agent type
+  const agentTypeQuestion = [
+    {
+      type: "list",
+      name: "agentType",
+      message: "What type of agent would you like to create?",
+      choices: agentTypes,
+      default: "default",
+    },
+  ];
+
+  // @ts-expect-error - inquirer types are not matching correctly
+  const agentTypeAnswer = (await inquirer.prompt(agentTypeQuestion)) as Pick<
+    AIAgentCreationAnswers,
+    "agentType"
+  >;
+
+  // Then ask for name
+  const nameQuestion = [
     {
       type: "input",
       name: "name",
@@ -168,27 +187,40 @@ async function promptForAgentInfo(
         return true;
       },
     },
-    {
-      type: "input",
-      name: "description",
-      message: "Describe what this AI agent will do:",
-      validate: (input: string): boolean | string => {
-        if (!input || input.trim().length === 0) {
-          return "Agent description cannot be empty";
-        }
-        if (input.length > 500) {
-          return "Agent description cannot exceed 500 characters";
-        }
-        return true;
+  ];
+
+  // @ts-expect-error - inquirer types are not matching correctly
+  const nameAnswer = (await inquirer.prompt(nameQuestion)) as Pick<AIAgentCreationAnswers, "name">;
+
+  // Conditionally ask for description only if agent type is "default"
+  let descriptionAnswer: Pick<AIAgentCreationAnswers, "description"> = {};
+  if (agentTypeAnswer.agentType === "default") {
+    const descriptionQuestion = [
+      {
+        type: "input",
+        name: "description",
+        message: "Describe what this AI agent will do:",
+        validate: (input: string): boolean | string => {
+          if (!input || input.trim().length === 0) {
+            return "Agent description cannot be empty";
+          }
+          if (input.length > 500) {
+            return "Agent description cannot exceed 500 characters";
+          }
+          return true;
+        },
       },
-    },
-    {
-      type: "list",
-      name: "agentType",
-      message: "What type of agent would you like to create?",
-      choices: agentTypes,
-      default: "default",
-    },
+    ];
+
+    // @ts-expect-error - inquirer types are not matching correctly
+    descriptionAnswer = (await inquirer.prompt(descriptionQuestion)) as Pick<
+      AIAgentCreationAnswers,
+      "description"
+    >;
+  }
+
+  // Ask for provider
+  const providerQuestion = [
     {
       type: "list",
       name: "llmProvider",
@@ -199,10 +231,18 @@ async function promptForAgentInfo(
   ];
 
   // @ts-expect-error - inquirer types are not matching correctly
-  const basicAnswers = (await inquirer.prompt(basicQuestions)) as Pick<
+  const providerAnswer = (await inquirer.prompt(providerQuestion)) as Pick<
     AIAgentCreationAnswers,
-    "name" | "description" | "agentType" | "llmProvider"
+    "llmProvider"
   >;
+
+  // Combine answers so far
+  const basicAnswers = {
+    ...agentTypeAnswer,
+    ...nameAnswer,
+    ...descriptionAnswer,
+    ...providerAnswer,
+  };
 
   // Now get the models for the chosen provider
   const chosenProviderInfo = await Effect.runPromise(
@@ -219,6 +259,45 @@ async function promptForAgentInfo(
     (model) => model.id === modelDefault,
   );
   const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
+
+  // Predefined agents that have auto-assigned tools
+  const predefinedAgents = ["coder", "gmail"] as const;
+
+  // Define agent-specific tool categories
+  const CODER_AGENT_TOOL_CATEGORIES = [
+    "File Management",
+    "Shell Commands",
+    "Git",
+    "HTTP",
+    "Search",
+  ];
+
+  const GMAIL_AGENT_TOOL_CATEGORIES = [
+    "Gmail",
+    "HTTP",
+    "Search",
+    "File Management",
+    "Shell Commands",
+  ];
+
+  // Map agent types to their tool categories
+  const agentToolCategories: Record<string, readonly string[]> = {
+    coder: CODER_AGENT_TOOL_CATEGORIES,
+    gmail: GMAIL_AGENT_TOOL_CATEGORIES,
+  };
+
+  // Auto-select tools based on agent type
+  let autoSelectedTools: string[] = [];
+  if (predefinedAgents.includes(basicAnswers.agentType as typeof predefinedAgents[number])) {
+    const toolCategories = agentToolCategories[basicAnswers.agentType] || [];
+    autoSelectedTools = toolCategories.filter((category) => category in toolsByCategory);
+
+    const emoji = basicAnswers.agentType === "coder" ? "📦" : "📧";
+    const agentName = basicAnswers.agentType === "coder" ? "Coder" : "Gmail";
+    console.log(
+      `\n${emoji} ${agentName} agent will automatically include: ${autoSelectedTools.join(", ")}\n`,
+    );
+  }
 
   const finalQuestions = [
     {
@@ -249,17 +328,22 @@ async function promptForAgentInfo(
           },
         ]
       : []),
-    {
-      type: "checkbox",
-      name: "tools",
-      message: "Which tools should this agent have access to?",
-      choices: Object.entries(toolsByCategory).map(([category, tools]) => ({
-        name: `${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"})`,
-        value: category,
-        short: category,
-      })),
-      default: [],
-    },
+    // Skip tool selection for predefined agents (already auto-selected)
+    ...(!predefinedAgents.includes(basicAnswers.agentType as typeof predefinedAgents[number])
+      ? [
+          {
+            type: "checkbox",
+            name: "tools",
+            message: "Which tools should this agent have access to?",
+            choices: Object.entries(toolsByCategory).map(([category, tools]) => ({
+              name: `${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"})`,
+              value: category,
+              short: category,
+            })),
+            default: [],
+          },
+        ]
+      : []),
   ];
 
   // @ts-expect-error - inquirer types are not matching correctly
@@ -272,6 +356,10 @@ async function promptForAgentInfo(
   return {
     ...basicAnswers,
     ...finalAnswers,
+    // Use auto-selected tools for predefined agents
+    tools: predefinedAgents.includes(basicAnswers.agentType as typeof predefinedAgents[number])
+      ? autoSelectedTools
+      : finalAnswers.tools || [],
   };
 }
 
@@ -612,11 +700,15 @@ function startChatLoop(
         }
 
         // Display the response only if it wasn't already streamed
-        // In streaming mode, the response is displayed in real-time by StreamRenderer
+        // In streaming mode, the response is displayed in real-time by OutputRenderer
         if (!response.wasStreamed) {
           console.log();
           console.log(MarkdownRenderer.formatAgentResponse(agent.name, response.content));
           console.log();
+        } else {
+          // When streaming was used, ensure there's a clear visual separation
+          // before the next prompt appears (OutputRenderer already adds newlines)
+          // This helps make it clear that the assistant has finished and the user can respond
         }
       } catch (error) {
         console.log();

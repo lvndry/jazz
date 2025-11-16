@@ -15,10 +15,11 @@ export interface DisplayConfig {
 }
 
 /**
- * Stream renderer for terminal output
- * Handles progressive rendering of streaming LLM responses
+ * Output renderer for terminal display
+ * Handles progressive rendering of streaming LLM responses and provides
+ * utility methods for formatting tool output in both streaming and non-streaming modes
  */
-export class StreamRenderer {
+export class OutputRenderer {
   private toolNameMap: Map<string, string> = new Map();
 
   constructor(
@@ -155,6 +156,9 @@ export class StreamRenderer {
     );
   }
 
+  /**
+   * Utility method for safe string conversion (used in both streaming and non-streaming modes)
+   */
   static safeString(value: unknown): string {
     if (value === null || value === undefined) return "";
     if (typeof value === "string") return value;
@@ -162,6 +166,9 @@ export class StreamRenderer {
     return "";
   }
 
+  /**
+   * Format tool arguments for display (used in both streaming and non-streaming modes)
+   */
   static formatToolArguments(toolName: string, args?: Record<string, unknown>): string {
     if (!args || Object.keys(args).length === 0) {
       return "";
@@ -170,20 +177,20 @@ export class StreamRenderer {
     // Format arguments based on tool type
     switch (toolName) {
       case "read_file": {
-        const path = StreamRenderer.safeString(args["path"] || args["filePath"]);
+        const path = OutputRenderer.safeString(args["path"] || args["filePath"]);
         return path ? ` ${chalk.dim("file:")} ${chalk.cyan(path)}` : "";
       }
       case "write_file": {
-        const path = StreamRenderer.safeString(args["path"] || args["filePath"]);
+        const path = OutputRenderer.safeString(args["path"] || args["filePath"]);
         return path ? ` ${chalk.dim("file:")} ${chalk.cyan(path)}` : "";
       }
       case "cd": {
-        const to = StreamRenderer.safeString(args["path"] || args["directory"]);
+        const to = OutputRenderer.safeString(args["path"] || args["directory"]);
         return to ? ` ${chalk.dim("→")} ${chalk.cyan(to)}` : "";
       }
       case "grep": {
-        const pattern = StreamRenderer.safeString(args["pattern"]);
-        const path = StreamRenderer.safeString(args["path"]);
+        const pattern = OutputRenderer.safeString(args["pattern"]);
+        const path = OutputRenderer.safeString(args["path"]);
         const patternStr = pattern ? `${chalk.dim("pattern:")} ${chalk.cyan(pattern)}` : "";
         const pathStr = path ? ` ${chalk.dim(`in: ${path}`)}` : "";
         return patternStr + pathStr;
@@ -192,56 +199,56 @@ export class StreamRenderer {
         return "";
       case "git_log": {
         const limit = args["limit"];
-        const limitStr = StreamRenderer.safeString(limit);
+        const limitStr = OutputRenderer.safeString(limit);
         return limitStr ? ` ${chalk.dim("limit:")} ${chalk.cyan(limitStr)}` : "";
       }
       case "git_diff":
         return "";
       case "git_commit": {
-        const message = StreamRenderer.safeString(args["message"]);
+        const message = OutputRenderer.safeString(args["message"]);
         if (!message) return "";
         return ` ${chalk.dim("message:")} ${chalk.cyan(message.substring(0, 50))}`;
       }
       case "git_push": {
-        const branch = StreamRenderer.safeString(args["branch"]);
+        const branch = OutputRenderer.safeString(args["branch"]);
         return branch ? ` ${chalk.dim("branch:")} ${chalk.cyan(branch)}` : "";
       }
       case "git_pull":
         return "";
       case "git_checkout": {
-        const branchName = StreamRenderer.safeString(args["branch"]);
+        const branchName = OutputRenderer.safeString(args["branch"]);
         return branchName ? ` ${chalk.dim("branch:")} ${chalk.cyan(branchName)}` : "";
       }
       case "execute_command":
       case "execute_command_approved": {
-        const command = StreamRenderer.safeString(args["command"]);
+        const command = OutputRenderer.safeString(args["command"]);
         if (!command) return "";
         const truncated = command.substring(0, 60);
         return ` ${chalk.dim("command:")} ${chalk.cyan(truncated)}${command.length > 60 ? "..." : ""}`;
       }
       case "http_request": {
-        const url = StreamRenderer.safeString(args["url"]);
-        const method = StreamRenderer.safeString(args["method"] || "GET");
+        const url = OutputRenderer.safeString(args["url"]);
+        const method = OutputRenderer.safeString(args["method"] || "GET");
         if (!url) return "";
         const truncated = url.substring(0, 50);
         return ` ${chalk.dim(`${method}:`)} ${chalk.cyan(truncated)}${url.length > 50 ? "..." : ""}`;
       }
       case "web_search": {
-        const query = StreamRenderer.safeString(args["query"]);
+        const query = OutputRenderer.safeString(args["query"]);
         if (!query) return "";
         const truncated = query.substring(0, 50);
         return ` ${chalk.dim("query:")} ${chalk.cyan(truncated)}${query.length > 50 ? "..." : ""}`;
       }
       case "ls": {
-        const dir = StreamRenderer.safeString(args["path"]);
+        const dir = OutputRenderer.safeString(args["path"]);
         return dir ? ` ${chalk.dim("dir:")} ${chalk.cyan(dir)}` : "";
       }
       case "find": {
-        const searchPath = StreamRenderer.safeString(args["path"]);
+        const searchPath = OutputRenderer.safeString(args["path"]);
         return searchPath ? ` ${chalk.dim("path:")} ${chalk.cyan(searchPath)}` : "";
       }
       case "mkdir": {
-        const dirPath = StreamRenderer.safeString(args["path"]);
+        const dirPath = OutputRenderer.safeString(args["path"]);
         return dirPath ? ` ${chalk.dim("path:")} ${chalk.cyan(dirPath)}` : "";
       }
       default: {
@@ -249,7 +256,7 @@ export class StreamRenderer {
         const keys = Object.keys(args).slice(0, 2);
         if (keys.length === 0) return "";
         const parts = keys.map((key) => {
-          const valueStr = StreamRenderer.safeString(args[key]).substring(0, 30);
+          const valueStr = OutputRenderer.safeString(args[key]).substring(0, 30);
           return `${chalk.dim(`${key}:`)} ${chalk.cyan(valueStr)}`;
         });
         return ` ${parts.join(", ")}`;
@@ -257,6 +264,9 @@ export class StreamRenderer {
     }
   }
 
+  /**
+   * Format tool result for display (used in both streaming and non-streaming modes)
+   */
   static formatToolResult(toolName: string, result: string): string {
     try {
       const parsed: unknown = JSON.parse(result);
@@ -274,11 +284,11 @@ export class StreamRenderer {
           return ` ${chalk.dim(`(${lines} line${lines !== 1 ? "s" : ""})`)}`;
         }
         case "cd": {
-          const newPath = StreamRenderer.safeString(obj["path"] || obj["currentDirectory"]);
+          const newPath = OutputRenderer.safeString(obj["path"] || obj["currentDirectory"]);
           return newPath ? ` ${chalk.dim("→")} ${chalk.cyan(newPath)}` : "";
         }
         case "git_status": {
-          const branch = StreamRenderer.safeString(obj["branch"]);
+          const branch = OutputRenderer.safeString(obj["branch"]);
           const modified = Array.isArray(obj["modified"]) ? obj["modified"].length : 0;
           const staged = Array.isArray(obj["staged"]) ? obj["staged"].length : 0;
           const parts: string[] = [];
@@ -321,7 +331,7 @@ export class StreamRenderer {
         case "http_request": {
           const status = obj["statusCode"];
           if (status !== undefined && status !== null) {
-            const statusStr = StreamRenderer.safeString(status);
+            const statusStr = OutputRenderer.safeString(status);
             return statusStr ? ` ${chalk.dim(`(${statusStr})`)}` : "";
           }
           return "";
@@ -342,7 +352,7 @@ export class StreamRenderer {
     // Store tool name for later use in completion
     this.toolNameMap.set(event.toolCallId, event.toolName);
 
-    const argsStr = StreamRenderer.formatToolArguments(event.toolName, event.arguments);
+    const argsStr = OutputRenderer.formatToolArguments(event.toolName, event.arguments);
     process.stdout.write(
       `\n${chalk.cyan("⚙️")}  Executing tool: ${chalk.cyan(event.toolName)}${argsStr}...`,
     );
@@ -356,7 +366,7 @@ export class StreamRenderer {
   }): void {
     // Get tool name from map
     const toolName = this.toolNameMap.get(event.toolCallId) || "";
-    const summary = event.summary || StreamRenderer.formatToolResult(toolName, event.result);
+    const summary = event.summary || OutputRenderer.formatToolResult(toolName, event.result);
     process.stdout.write(
       ` ${chalk.green("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${event.durationMs}ms)`)}\n`,
     );

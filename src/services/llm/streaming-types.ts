@@ -52,12 +52,19 @@ export type StreamEvent =
 
   // Tool calls
   | { type: "tool_call"; toolCall: ToolCall; sequence: number }
-  | { type: "tool_execution_start"; toolName: string; toolCallId: string }
+  | { type: "tools_detected"; toolNames: readonly string[]; agentName: string }
+  | {
+      type: "tool_execution_start";
+      toolName: string;
+      toolCallId: string;
+      arguments?: Record<string, unknown>;
+    }
   | {
       type: "tool_execution_complete";
       toolCallId: string;
       result: string;
       durationMs: number;
+      summary?: string;
     }
 
   // Usage updates (optional, for real-time token tracking)

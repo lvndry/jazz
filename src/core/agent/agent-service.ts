@@ -20,7 +20,7 @@ import { normalizeToolConfig } from "./utils/tool-config";
 export interface AgentService {
   readonly createAgent: (
     name: string,
-    description: string,
+    description: string | undefined,
     config?: Partial<AgentConfig>,
   ) => Effect.Effect<
     Agent,
@@ -72,7 +72,7 @@ export class DefaultAgentService implements AgentService {
    */
   createAgent(
     name: string,
-    description: string,
+    description: string | undefined,
     config: Partial<AgentConfig> = {},
   ): Effect.Effect<
     Agent,
@@ -82,7 +82,9 @@ export class DefaultAgentService implements AgentService {
       function* (this: DefaultAgentService) {
         // Validate input parameters
         yield* validateAgentName(name);
+        if (description !== undefined) {
         yield* validateAgentDescription(description);
+        }
 
         const id = shortuuid.generate();
 
@@ -129,7 +131,7 @@ export class DefaultAgentService implements AgentService {
         const agent: Agent = {
           id,
           name,
-          description,
+          ...(description !== undefined && { description }),
           config: agentConfig,
           status: "idle",
           createdAt: now,
@@ -448,10 +450,10 @@ function validateAgentName(name: string): Effect.Effect<void, ValidationError> {
  * Validate an agent description for correctness
  *
  * Ensures the agent description meets the following criteria:
- * - Not empty or whitespace-only
- * - Maximum 500 characters
+ * - Not empty or whitespace-only (if provided)
+ * - Maximum 500 characters (if provided)
  *
- * @param description - The agent description to validate
+ * @param description - The agent description to validate (optional)
  * @returns An Effect that resolves if validation passes or fails with validation errors
  *
  * @throws {ValidationError} When the description doesn't meet the requirements
@@ -460,6 +462,7 @@ function validateAgentName(name: string): Effect.Effect<void, ValidationError> {
  * ```typescript
  * yield* validateAgentDescription("Processes emails and categorizes them"); // ✅ Valid
  * yield* validateAgentDescription(""); // ❌ Throws ValidationError
+ * yield* validateAgentDescription(undefined); // ✅ Valid (optional)
  * ```
  */
 function validateAgentDescription(description: string): Effect.Effect<void, ValidationError> {
@@ -608,7 +611,7 @@ export function createAgentServiceLayer(): Layer.Layer<AgentService, never, Stor
 // Helper functions for common agent operations
 export function createAgent(
   name: string,
-  description: string,
+  description: string | undefined,
   config?: Partial<AgentConfig>,
 ): Effect.Effect<
   Agent,
