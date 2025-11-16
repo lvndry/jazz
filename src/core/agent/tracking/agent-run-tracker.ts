@@ -137,7 +137,6 @@ export function recordToolError(tracker: AgentRunTracker, toolName: string, erro
 }
 
 export function recordFirstTokenLatency(tracker: AgentRunTracker, latencyMs: number): void {
-  // Only record the first token latency once (from the first iteration)
   if (tracker.firstTokenLatencyMs === undefined) {
     tracker.firstTokenLatencyMs = latencyMs;
   }

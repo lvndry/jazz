@@ -161,7 +161,7 @@ async function promptForAgentUpdates(
   currentAgent: Agent,
   providers: readonly string[],
   agentTypes: readonly string[],
-  toolsByCategory: Record<string, readonly string[]>, // Keys are display names
+  toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
 ): Promise<AgentEditAnswers> {
   const answers: AgentEditAnswers = {};
 
@@ -298,9 +298,9 @@ async function promptForAgentUpdates(
         message: "Select tool categories:",
         choices: Object.keys(toolsByCategory).map((category) => ({
           name: `${category} (${toolsByCategory[category]?.length || 0} tools)`,
-          value: category, // Store display name for UI
+          value: category,
         })),
-        default: [], // Don't pre-select any categories
+        default: [],
       },
     ]);
 

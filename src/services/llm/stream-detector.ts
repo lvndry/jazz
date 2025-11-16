@@ -14,14 +14,12 @@ import type { AppConfig } from "../../core/types/index.js";
  */
 export interface StreamDetectionOptions {
   /**
-   * Force streaming on (from --stream CLI flag)
+   * Override streaming behavior.
+   * - `true`: Force streaming on
+   * - `false`: Force streaming off
+   * - `undefined`: Use auto-detection (default)
    */
-  forceStream?: boolean;
-
-  /**
-   * Force streaming off (from --no-stream CLI flag)
-   */
-  forceNoStream?: boolean;
+  stream?: boolean;
 }
 
 /**
@@ -42,7 +40,7 @@ export interface StreamDetection {
 /**
  * Determine if streaming should be enabled
  * Priority order:
- * 1. CLI flags (--no-stream overrides --stream)
+ * 1. Explicit stream override (from CLI flags)
  * 2. Config file (enabled: true/false/auto)
  * 3. Environment variables (JAZZ_STREAM=0, CI=true, NO_COLOR=1)
  * 4. Auto-detection (TTY status)
@@ -51,18 +49,13 @@ export function shouldEnableStreaming(
   appConfig: AppConfig,
   options: StreamDetectionOptions = {},
 ): StreamDetection {
-  // Priority 1: CLI flags
-  if (options.forceNoStream) {
+  // Priority 1: Explicit stream override (from CLI flags)
+  if (options.stream !== undefined) {
     return {
-      shouldStream: false,
-      reason: "Disabled via --no-stream CLI flag",
-    };
-  }
-
-  if (options.forceStream) {
-    return {
-      shouldStream: true,
-      reason: "Enabled via --stream CLI flag",
+      shouldStream: options.stream,
+      reason: options.stream
+        ? "Enabled via --stream CLI flag"
+        : "Disabled via --no-stream CLI flag",
     };
   }
 

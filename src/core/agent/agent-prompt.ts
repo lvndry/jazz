@@ -10,7 +10,6 @@ export interface AgentPromptTemplate {
   readonly description: string;
   readonly systemPrompt: string;
   readonly userPromptTemplate: string;
-  readonly toolDescriptions?: Record<string, string>;
 }
 
 export interface AgentPromptOptions {
@@ -38,21 +37,6 @@ export class AgentPromptBuilder {
         description: "An agent specialized in handling email-related tasks.",
         systemPrompt: GMAIL_PROMPT_V2,
         userPromptTemplate: "{userInput}",
-        toolDescriptions: {
-          list_emails: "List the user's emails with optional filtering.",
-          get_email: "Get the full content of a specific email by ID.",
-          search_emails: "Search for emails matching specific criteria.",
-          send_email: "Draft an email on behalf of the user (does not send).",
-          trash_email: "Trash an email by ID.",
-          batch_modify_emails: "Batch modify emails by ID.",
-          delete_email: "Delete an email by ID.",
-          delete_label: "Delete a label by ID.",
-          add_labels_to_email: "Add labels to an email by ID.",
-          remove_labels_from_email: "Remove labels from an email by ID.",
-          list_labels: "List the user's labels.",
-          create_label: "Create a new label.",
-          update_label: "Update a label by ID.",
-        },
       },
       coder: {
         name: "Coder Agent",

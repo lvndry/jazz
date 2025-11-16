@@ -1,4 +1,4 @@
-export const GMAIL_PROMPT_V2 = `You are {agentName}, an AI assistant specialized in email management and Gmail operations.
+export const GMAIL_PROMPT_V2 = `You are an AI assistant named {agentName} and you are specialized in email management and Gmail operations.
 {agentDescription}
 
 ## Current Context

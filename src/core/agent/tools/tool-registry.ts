@@ -14,7 +14,7 @@ import {
  * Tool registry for managing agent tools
  */
 
-export interface Category {
+export interface ToolCategory {
   readonly id: string;
   readonly displayName: string;
 }
@@ -53,16 +53,16 @@ export interface Tool<R = never> {
 }
 
 export interface ToolRegistry {
-  readonly registerTool: (tool: Tool<unknown>, category?: Category) => Effect.Effect<void, never>;
+  readonly registerTool: (tool: Tool<unknown>, category?: ToolCategory) => Effect.Effect<void, never>;
   readonly registerForCategory: (
-    category: Category,
+    category: ToolCategory,
   ) => (tool: Tool<unknown>) => Effect.Effect<void, never>;
   readonly getTool: (name: string) => Effect.Effect<Tool<unknown>, Error>;
   readonly listTools: () => Effect.Effect<readonly string[], never>;
   readonly getToolDefinitions: () => Effect.Effect<readonly ToolDefinition[], never>;
   readonly listToolsByCategory: () => Effect.Effect<Record<string, readonly string[]>, never>;
   readonly getToolsInCategory: (categoryId: string) => Effect.Effect<readonly string[], never>;
-  readonly listCategories: () => Effect.Effect<readonly Category[], never>;
+  readonly listCategories: () => Effect.Effect<readonly ToolCategory[], never>;
   readonly executeTool: (
     name: string,
     args: Record<string, unknown>,
@@ -73,15 +73,15 @@ export interface ToolRegistry {
 class DefaultToolRegistry implements ToolRegistry {
   private tools: Map<string, Tool<unknown>>;
   private toolCategories: Map<string, string>; // tool name -> category id
-  private categories: Map<string, Category>; // category id -> Category object
+  private categories: Map<string, ToolCategory>; // category id -> ToolCategory object
 
   constructor() {
     this.tools = new Map<string, Tool<unknown>>();
     this.toolCategories = new Map<string, string>();
-    this.categories = new Map<string, Category>();
+    this.categories = new Map<string, ToolCategory>();
   }
 
-  registerTool(tool: Tool<unknown>, category?: Category): Effect.Effect<void, never> {
+  registerTool(tool: Tool<unknown>, category?: ToolCategory): Effect.Effect<void, never> {
     return Effect.sync(() => {
       this.tools.set(tool.name, tool);
       if (category) {
@@ -95,7 +95,7 @@ class DefaultToolRegistry implements ToolRegistry {
     });
   }
 
-  registerForCategory(category: Category): (tool: Tool<unknown>) => Effect.Effect<void, never> {
+  registerForCategory(category: ToolCategory): (tool: Tool<unknown>) => Effect.Effect<void, never> {
     return (tool: Tool<unknown>) => this.registerTool(tool, category);
   }
 
@@ -150,7 +150,7 @@ class DefaultToolRegistry implements ToolRegistry {
           const categoryId = this.toolCategories.get(toolName);
           if (categoryId) {
             const category = this.categories.get(categoryId);
-            // Use display name for UI, fallback to ID if category not found
+            // Use display name for UI, fallback to ID if category not foun
             const displayName = category?.displayName || categoryId;
             if (!categories[displayName]) {
               categories[displayName] = [];
@@ -193,7 +193,7 @@ class DefaultToolRegistry implements ToolRegistry {
     });
   }
 
-  listCategories(): Effect.Effect<readonly Category[], never> {
+  listCategories(): Effect.Effect<readonly ToolCategory[], never> {
     return Effect.sync(() => {
       const categoryIds = new Set<string>();
 
@@ -206,10 +206,9 @@ class DefaultToolRegistry implements ToolRegistry {
         }
       });
 
-      // Return Category objects sorted by display name
-      const categories: Category[] = Array.from(categoryIds)
+      const categories: ToolCategory[] = Array.from(categoryIds)
         .map((id) => this.categories.get(id))
-        .filter((cat): cat is Category => cat !== undefined)
+        .filter((cat): cat is ToolCategory => cat !== undefined)
         .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
       return categories;
@@ -332,7 +331,7 @@ export function registerTool(tool: Tool<unknown>): Effect.Effect<void, never, To
  * ```
  */
 export function registerForCategory(
-  category: Category,
+  category: ToolCategory,
 ): Effect.Effect<(tool: Tool<unknown>) => Effect.Effect<void, never>, never, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;

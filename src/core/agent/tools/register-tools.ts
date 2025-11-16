@@ -47,7 +47,7 @@ import {
 } from "./gmail-tools";
 import { createHttpRequestTool } from "./http-tools";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
-import { ToolRegistryTag, type Category, type ToolRegistry } from "./tool-registry";
+import { ToolRegistryTag, type ToolCategory, type ToolRegistry } from "./tool-registry";
 import { createWebSearchTool } from "./web-search-tools";
 
 /**
@@ -69,17 +69,17 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
   });
 }
 
-export const GMAIL_CATEGORY: Category = { id: "gmail", displayName: "Gmail" };
-export const HTTP_CATEGORY: Category = { id: "http", displayName: "HTTP" };
-export const FILE_MANAGEMENT_CATEGORY: Category = { id: "file_management", displayName: "File Management" };
-export const SHELL_COMMANDS_CATEGORY: Category = { id: "shell_commands", displayName: "Shell Commands" };
-export const GIT_CATEGORY: Category = { id: "git", displayName: "Git" };
-export const SEARCH_CATEGORY: Category = { id: "search", displayName: "Search" };
+export const GMAIL_CATEGORY: ToolCategory = { id: "gmail", displayName: "Gmail" };
+export const HTTP_CATEGORY: ToolCategory = { id: "http", displayName: "HTTP" };
+export const FILE_MANAGEMENT_CATEGORY: ToolCategory = { id: "file_management", displayName: "File Management" };
+export const SHELL_COMMANDS_CATEGORY: ToolCategory = { id: "shell_commands", displayName: "Shell Commands" };
+export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
+export const SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Search" };
 
 /**
  * All available tool categories
  */
-export const ALL_CATEGORIES: readonly Category[] = [
+export const ALL_CATEGORIES: readonly ToolCategory[] = [
   FILE_MANAGEMENT_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   GIT_CATEGORY,

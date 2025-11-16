@@ -216,7 +216,7 @@ export function createAIAgentCommand(): Effect.Effect<
 async function promptForAgentInfo(
   providers: readonly string[],
   agentTypes: readonly string[],
-  toolsByCategory: Record<string, readonly string[]>, // Keys are display names
+  toolsByCategory: Record<string, readonly string[]>, //{ displayName: string[] }
   llmService: LLMService,
   categoryIdToDisplayName: Map<string, string>,
 ): Promise<AIAgentCreationAnswers> {
@@ -733,11 +733,7 @@ function startChatLoop(
           userInput: userMessage,
           conversationId: conversationId || "",
           conversationHistory,
-          ...(loopOptions?.stream !== undefined
-            ? loopOptions.stream
-              ? { forceStream: true }
-              : { forceNoStream: true }
-            : {}),
+          ...(loopOptions?.stream !== undefined ? { stream: loopOptions.stream } : {}),
         };
 
         // Run the agent

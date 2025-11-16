@@ -1,5 +1,4 @@
 export const DEFAULT_PROMPT_V2 = `You are an AI assistant named {agentName}. You execute user commands through CLI tools and system operations.
-{agentDescription}
 
 ## Current Context
 - Current Date (ISO format): {currentDate}

@@ -1,5 +1,4 @@
 export const CODER_PROMPT_V1 = `You are {agentName}, a world-class software engineer with expertise in architecture, code quality, and systematic problem-solving.
-{agentDescription}
 
 ## Context
 - Current Date: {currentDate}

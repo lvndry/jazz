@@ -54,13 +54,12 @@ export interface AgentRunnerOptions {
    */
   readonly conversationHistory?: ChatMessage[];
   /**
-   * Force streaming on (from --stream CLI flag)
+   * Override streaming behavior (from --stream or --no-stream CLI flags).
+   * - `true`: Force streaming on
+   * - `false`: Force streaming off
+   * - `undefined`: Use auto-detection (default)
    */
-  readonly forceStream?: boolean;
-  /**
-   * Force streaming off (from --no-stream CLI flag)
-   */
-  readonly forceNoStream?: boolean;
+  readonly stream?: boolean;
 }
 
 export interface AgentResponse {
@@ -102,10 +101,10 @@ export class AgentRunner {
       const appConfig = yield* configService.appConfig;
 
       // Determine if streaming should be enabled
-      const streamDetection = shouldEnableStreaming(appConfig, {
-        ...(options.forceStream !== undefined ? { forceStream: options.forceStream } : {}),
-        ...(options.forceNoStream !== undefined ? { forceNoStream: options.forceNoStream } : {}),
-      });
+      const streamDetection = shouldEnableStreaming(
+        appConfig,
+        options.stream !== undefined ? { stream: options.stream } : {},
+      );
 
       // Get display config with defaults (applies to both modes)
       const displayConfig: DisplayConfig = {
