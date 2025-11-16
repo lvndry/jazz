@@ -1,4 +1,4 @@
-import type { AppConfig } from "../../core/types/index.js";
+import type { AppConfig } from "../../core/types";
 
 /**
  * Stream detection utility
@@ -125,27 +125,3 @@ export function shouldEnableStreaming(
     };
   }
 }
-
-/**
- * Check if the current environment supports interactive features
- * Useful for determining if we should show spinners, progress bars, etc.
- */
-export function isInteractiveTerminal(): boolean {
-  // Not interactive if stdout is not a TTY
-  if (!process.stdout.isTTY) {
-    return false;
-  }
-
-  // Not interactive in CI
-  if (process.env["CI"] === "true" || process.env["CI"] === "1") {
-    return false;
-  }
-
-  // Not interactive if NO_COLOR is set (convention for non-interactive terminals)
-  if (process.env["NO_COLOR"] === "1" || process.env["NO_COLOR"] === "true") {
-    return false;
-  }
-
-  return true;
-}
-

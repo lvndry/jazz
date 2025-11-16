@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import type { StreamEvent } from "../../services/llm/streaming-types";
 import type { LLMError, ToolCall } from "../../services/llm/types";
 import type { StreamingConfig } from "../types";
-import { MarkdownRenderer } from "./markdown-renderer.js";
+import { MarkdownRenderer } from "./markdown-renderer";
 
 /**
  * Display configuration for rendering
