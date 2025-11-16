@@ -15,6 +15,7 @@ import {
   HTTP_CATEGORY,
   SEARCH_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
+  createCategoryMappings,
 } from "../../core/agent/tools/register-tools";
 import type { ToolRegistry } from "../../core/agent/tools/tool-registry";
 import { ToolRegistryTag } from "../../core/agent/tools/tool-registry";
@@ -135,25 +136,10 @@ export function createAIAgentCommand(): Effect.Effect<
     const toolRegistry = yield* ToolRegistryTag;
     const toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
-    // Create a mapping from display name to category ID for logic operations
-    const categoryDisplayNameToId = new Map<string, string>([
-      [FILE_MANAGEMENT_CATEGORY.displayName, FILE_MANAGEMENT_CATEGORY.id],
-      [SHELL_COMMANDS_CATEGORY.displayName, SHELL_COMMANDS_CATEGORY.id],
-      [GIT_CATEGORY.displayName, GIT_CATEGORY.id],
-      [HTTP_CATEGORY.displayName, HTTP_CATEGORY.id],
-      [SEARCH_CATEGORY.displayName, SEARCH_CATEGORY.id],
-      [GMAIL_CATEGORY.displayName, GMAIL_CATEGORY.id],
-    ]);
-
-    // Create a mapping from category ID to display name for UI
-    const categoryIdToDisplayName = new Map<string, string>([
-      [FILE_MANAGEMENT_CATEGORY.id, FILE_MANAGEMENT_CATEGORY.displayName],
-      [SHELL_COMMANDS_CATEGORY.id, SHELL_COMMANDS_CATEGORY.displayName],
-      [GIT_CATEGORY.id, GIT_CATEGORY.displayName],
-      [HTTP_CATEGORY.id, HTTP_CATEGORY.displayName],
-      [SEARCH_CATEGORY.id, SEARCH_CATEGORY.displayName],
-      [GMAIL_CATEGORY.id, GMAIL_CATEGORY.displayName],
-    ]);
+    // Create mappings between category display names and IDs
+    const categoryMappings = createCategoryMappings();
+    const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
+    const categoryIdToDisplayName: Map<string, string> = categoryMappings.idToDisplayName;
 
     // Get agent basic information
     const agentAnswers = yield* Effect.promise(() =>

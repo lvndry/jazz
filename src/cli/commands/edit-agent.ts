@@ -2,14 +2,7 @@ import { Effect } from "effect";
 import inquirer from "inquirer";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
 import { AgentServiceTag, type AgentService } from "../../core/agent/agent-service";
-import {
-  FILE_MANAGEMENT_CATEGORY,
-  GIT_CATEGORY,
-  GMAIL_CATEGORY,
-  HTTP_CATEGORY,
-  SEARCH_CATEGORY,
-  SHELL_COMMANDS_CATEGORY,
-} from "../../core/agent/tools/register-tools";
+import { createCategoryMappings } from "../../core/agent/tools/register-tools";
 import { ToolRegistryTag, type ToolRegistry } from "../../core/agent/tools/tool-registry";
 import {
   AgentAlreadyExistsError,
@@ -84,15 +77,9 @@ export function editAgentCommand(
     const toolRegistry = yield* ToolRegistryTag;
     const toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
-    // Create a mapping from display name to category ID for logic operations
-    const categoryDisplayNameToId = new Map<string, string>([
-      [FILE_MANAGEMENT_CATEGORY.displayName, FILE_MANAGEMENT_CATEGORY.id],
-      [SHELL_COMMANDS_CATEGORY.displayName, SHELL_COMMANDS_CATEGORY.id],
-      [GIT_CATEGORY.displayName, GIT_CATEGORY.id],
-      [HTTP_CATEGORY.displayName, HTTP_CATEGORY.id],
-      [SEARCH_CATEGORY.displayName, SEARCH_CATEGORY.id],
-      [GMAIL_CATEGORY.displayName, GMAIL_CATEGORY.id],
-    ]);
+    // Create mappings between category display names and IDs
+    const categoryMappings = createCategoryMappings();
+    const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
 
     // Prompt for updates
     const editAnswers = yield* Effect.promise(() =>

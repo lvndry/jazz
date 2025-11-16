@@ -76,6 +76,39 @@ export const SHELL_COMMANDS_CATEGORY: Category = { id: "shell_commands", display
 export const GIT_CATEGORY: Category = { id: "git", displayName: "Git" };
 export const SEARCH_CATEGORY: Category = { id: "search", displayName: "Search" };
 
+/**
+ * All available tool categories
+ */
+export const ALL_CATEGORIES: readonly Category[] = [
+  FILE_MANAGEMENT_CATEGORY,
+  SHELL_COMMANDS_CATEGORY,
+  GIT_CATEGORY,
+  HTTP_CATEGORY,
+  SEARCH_CATEGORY,
+  GMAIL_CATEGORY,
+] as const;
+
+/**
+ * Create mappings between category display names and IDs
+ */
+export function createCategoryMappings(): {
+  displayNameToId: Map<string, string>;
+  idToDisplayName: Map<string, string>;
+} {
+  const displayNameToId = new Map<string, string>();
+  const idToDisplayName = new Map<string, string>();
+
+  for (const category of ALL_CATEGORIES) {
+    displayNameToId.set(category.displayName, category.id);
+    idToDisplayName.set(category.id, category.displayName);
+  }
+
+  return {
+    displayNameToId,
+    idToDisplayName,
+  };
+}
+
 // Register Gmail tools
 export function registerGmailTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
