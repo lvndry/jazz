@@ -1,5 +1,6 @@
 import { Context, Effect } from "effect";
 import type z from "zod";
+import type { StreamingResult } from "./streaming-types";
 
 /**
  * LLM service types and interfaces
@@ -149,10 +150,22 @@ export interface LLMProvider {
 export interface LLMService {
   readonly getProvider: (providerName: string) => Effect.Effect<LLMProvider, LLMConfigurationError>;
   readonly listProviders: () => Effect.Effect<readonly string[], never>;
+
+  /**
+   * Create a non-streaming chat completion
+   */
   readonly createChatCompletion: (
     providerName: string,
     options: ChatCompletionOptions,
   ) => Effect.Effect<ChatCompletionResponse, LLMError>;
+
+  /**
+   * Create a streaming chat completion
+   */
+  readonly createStreamingChatCompletion: (
+    providerName: string,
+    options: ChatCompletionOptions,
+  ) => Effect.Effect<StreamingResult, LLMError>;
 }
 
 // Service tag for dependency injection

@@ -8,6 +8,15 @@ import {
   getAgentByIdentifier,
   type AgentService,
 } from "../../core/agent/agent-service";
+import {
+  FILE_MANAGEMENT_CATEGORY,
+  GIT_CATEGORY,
+  GMAIL_CATEGORY,
+  HTTP_CATEGORY,
+  SEARCH_CATEGORY,
+  SHELL_COMMANDS_CATEGORY,
+  createCategoryMappings,
+} from "../../core/agent/tools/register-tools";
 import type { ToolRegistry } from "../../core/agent/tools/tool-registry";
 import { ToolRegistryTag } from "../../core/agent/tools/tool-registry";
 import {
@@ -20,7 +29,6 @@ import {
 } from "../../core/types/errors";
 import type { Agent, AgentConfig } from "../../core/types/index";
 import { CommonSuggestions } from "../../core/utils/error-handler";
-import { MarkdownRenderer } from "../../core/utils/markdown-renderer";
 import type { ConfigService } from "../../services/config";
 import type { ChatMessage } from "../../services/llm/types";
 import {
@@ -41,9 +49,50 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "../.
  * interactive creation wizards, real-time chat, and tool usage.
  */
 
+/**
+ * Configuration for predefined agent types
+ */
+interface PredefinedAgent {
+  readonly id: string;
+  readonly displayName: string;
+  readonly emoji: string;
+  readonly toolCategoryIds: readonly string[];
+}
+
+/**
+ * Registry of predefined agents with their configurations
+ * Add new predefined agents here as needed
+ */
+const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
+  coder: {
+    id: "coder",
+    displayName: "Coder",
+    emoji: "💻",
+    toolCategoryIds: [
+      FILE_MANAGEMENT_CATEGORY.id,
+      SHELL_COMMANDS_CATEGORY.id,
+      GIT_CATEGORY.id,
+      HTTP_CATEGORY.id,
+      SEARCH_CATEGORY.id,
+    ],
+  },
+  gmail: {
+    id: "gmail",
+    displayName: "Gmail",
+    emoji: "📧",
+    toolCategoryIds: [
+      GMAIL_CATEGORY.id,
+      HTTP_CATEGORY.id,
+      SEARCH_CATEGORY.id,
+      FILE_MANAGEMENT_CATEGORY.id,
+      SHELL_COMMANDS_CATEGORY.id,
+    ],
+  },
+} as const;
+
 interface AIAgentCreationAnswers {
   name: string;
-  description: string;
+  description?: string;
   agentType: string;
   llmProvider: string;
   llmModel: string;
@@ -87,9 +136,20 @@ export function createAIAgentCommand(): Effect.Effect<
     const toolRegistry = yield* ToolRegistryTag;
     const toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
+    // Create mappings between category display names and IDs
+    const categoryMappings = createCategoryMappings();
+    const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
+    const categoryIdToDisplayName: Map<string, string> = categoryMappings.idToDisplayName;
+
     // Get agent basic information
     const agentAnswers = yield* Effect.promise(() =>
-      promptForAgentInfo(providers, agentTypes, toolsByCategory, llmService),
+      promptForAgentInfo(
+        providers,
+        agentTypes,
+        toolsByCategory,
+        llmService,
+        categoryIdToDisplayName,
+      ),
     );
 
     // Validate the chosen model against the chosen provider
@@ -99,9 +159,17 @@ export function createAIAgentCommand(): Effect.Effect<
       ? agentAnswers.llmModel
       : chosenProvider.defaultModel;
 
-    // Convert selected categories to a flat list of tool names
-    const selectedToolNames = agentAnswers.tools.flatMap((category) => toolsByCategory[category] || []);
-    const uniqueToolNames = Array.from(new Set(selectedToolNames));
+    // Convert selected categories (display names) to category IDs, then get tools
+    const selectedCategoryIds = agentAnswers.tools
+      .map((displayName) => categoryDisplayNameToId.get(displayName))
+      .filter((id): id is string => id !== undefined);
+
+    // Get tools for each selected category ID
+    const selectedToolNames = yield* Effect.all(
+      selectedCategoryIds.map((categoryId) => toolRegistry.getToolsInCategory(categoryId)),
+      { concurrency: "unbounded" },
+    );
+    const uniqueToolNames = Array.from(new Set(selectedToolNames.flat()));
 
     // Build agent configuration
     const config: AgentConfig = {
@@ -125,7 +193,9 @@ export function createAIAgentCommand(): Effect.Effect<
     console.log("\n✅ AI Agent created successfully!");
     console.log(`   ID: ${agent.id}`);
     console.log(`   Name: ${agent.name}`);
-    console.log(`   Description: ${agent.description}`);
+    if (agent.description) {
+      console.log(`   Description: ${agent.description}`);
+    }
     console.log(`   Type: ${config.agentType}`);
     console.log(`   LLM Provider: ${config.llmProvider}`);
     console.log(`   LLM Model: ${config.llmModel}`);
@@ -146,11 +216,28 @@ export function createAIAgentCommand(): Effect.Effect<
 async function promptForAgentInfo(
   providers: readonly string[],
   agentTypes: readonly string[],
-  toolsByCategory: Record<string, readonly string[]>,
+  toolsByCategory: Record<string, readonly string[]>, //{ displayName: string[] }
   llmService: LLMService,
+  categoryIdToDisplayName: Map<string, string>,
 ): Promise<AIAgentCreationAnswers> {
-  // First, get basic information and provider
-  const basicQuestions = [
+  const agentTypeQuestion = [
+    {
+      type: "list",
+      name: "agentType",
+      message: "What type of agent would you like to create?",
+      choices: agentTypes,
+      default: "default",
+    },
+  ];
+
+  // @ts-expect-error - inquirer types are not matching correctly
+  const agentTypeAnswer = (await inquirer.prompt(agentTypeQuestion)) as Pick<
+    AIAgentCreationAnswers,
+    "agentType"
+  >;
+
+  // Then ask for name
+  const nameQuestion = [
     {
       type: "input",
       name: "name",
@@ -168,27 +255,40 @@ async function promptForAgentInfo(
         return true;
       },
     },
-    {
-      type: "input",
-      name: "description",
-      message: "Describe what this AI agent will do:",
-      validate: (input: string): boolean | string => {
-        if (!input || input.trim().length === 0) {
-          return "Agent description cannot be empty";
-        }
-        if (input.length > 500) {
-          return "Agent description cannot exceed 500 characters";
-        }
-        return true;
+  ];
+
+  // @ts-expect-error - inquirer types are not matching correctly
+  const nameAnswer = (await inquirer.prompt(nameQuestion)) as Pick<AIAgentCreationAnswers, "name">;
+
+  // ask for description only if agent type is "default"
+  let descriptionAnswer: Pick<AIAgentCreationAnswers, "description"> = {};
+  if (agentTypeAnswer.agentType === "default") {
+    const descriptionQuestion = [
+      {
+        type: "input",
+        name: "description",
+        message: "Describe what this AI agent will do:",
+        validate: (input: string): boolean | string => {
+          if (!input || input.trim().length === 0) {
+            return "Agent description cannot be empty";
+          }
+          if (input.length > 500) {
+            return "Agent description cannot exceed 500 characters";
+          }
+          return true;
+        },
       },
-    },
-    {
-      type: "list",
-      name: "agentType",
-      message: "What type of agent would you like to create?",
-      choices: agentTypes,
-      default: "default",
-    },
+    ];
+
+    // @ts-expect-error - inquirer types are not matching correctly
+    descriptionAnswer = (await inquirer.prompt(descriptionQuestion)) as Pick<
+      AIAgentCreationAnswers,
+      "description"
+    >;
+  }
+
+  // Ask for provider
+  const providerQuestion = [
     {
       type: "list",
       name: "llmProvider",
@@ -199,10 +299,18 @@ async function promptForAgentInfo(
   ];
 
   // @ts-expect-error - inquirer types are not matching correctly
-  const basicAnswers = (await inquirer.prompt(basicQuestions)) as Pick<
+  const providerAnswer = (await inquirer.prompt(providerQuestion)) as Pick<
     AIAgentCreationAnswers,
-    "name" | "description" | "agentType" | "llmProvider"
+    "llmProvider"
   >;
+
+  // Combine answers so far
+  const basicAnswers = {
+    ...agentTypeAnswer,
+    ...nameAnswer,
+    ...descriptionAnswer,
+    ...providerAnswer,
+  };
 
   // Now get the models for the chosen provider
   const chosenProviderInfo = await Effect.runPromise(
@@ -219,6 +327,24 @@ async function promptForAgentInfo(
     (model) => model.id === modelDefault,
   );
   const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
+
+  // Check if this is a predefined agent with auto-assigned tools
+  const currentPredefinedAgent = PREDEFINED_AGENTS[basicAnswers.agentType];
+  if (currentPredefinedAgent) {
+    // Filter to only categories that exist in toolsByCategory (by checking if display name exists)
+    const availableCategoryIds = currentPredefinedAgent.toolCategoryIds.filter((categoryId) => {
+      const displayName = categoryIdToDisplayName.get(categoryId);
+      return displayName && displayName in toolsByCategory;
+    });
+
+    const displayNames = availableCategoryIds
+      .map((id) => categoryIdToDisplayName.get(id))
+      .filter((name): name is string => name !== undefined);
+
+    console.log(
+      `\n${currentPredefinedAgent.emoji} ${currentPredefinedAgent.displayName} agent will automatically include: ${displayNames.join(", ")}\n`,
+    );
+  }
 
   const finalQuestions = [
     {
@@ -249,17 +375,22 @@ async function promptForAgentInfo(
           },
         ]
       : []),
-    {
-      type: "checkbox",
-      name: "tools",
-      message: "Which tools should this agent have access to?",
-      choices: Object.entries(toolsByCategory).map(([category, tools]) => ({
-        name: `${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"})`,
-        value: category,
-        short: category,
-      })),
-      default: [],
-    },
+    // Skip tool selection for predefined agents (already auto-selected)
+    ...(!PREDEFINED_AGENTS[basicAnswers.agentType]
+      ? [
+          {
+            type: "checkbox",
+            name: "tools",
+            message: "Which tools should this agent have access to?",
+            choices: Object.entries(toolsByCategory).map(([category, tools]) => ({
+              name: `${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"})`,
+              value: category,
+              short: category,
+            })),
+            default: [],
+          },
+        ]
+      : []),
   ];
 
   // @ts-expect-error - inquirer types are not matching correctly
@@ -269,9 +400,18 @@ async function promptForAgentInfo(
   >;
 
   // Combine all answers
+  // For predefined agents, convert category IDs back to display names for the answer
+  const predefinedAgent = PREDEFINED_AGENTS[basicAnswers.agentType];
+  const finalTools = predefinedAgent
+    ? predefinedAgent.toolCategoryIds
+          .map((id) => categoryIdToDisplayName.get(id))
+          .filter((name): name is string => name !== undefined && name in toolsByCategory)
+    : finalAnswers.tools || [];
+
   return {
     ...basicAnswers,
     ...finalAnswers,
+    tools: finalTools,
   };
 }
 
@@ -280,6 +420,9 @@ async function promptForAgentInfo(
  */
 export function chatWithAIAgentCommand(
   agentIdentifier: string,
+  options?: {
+    stream?: boolean;
+  },
 ): Effect.Effect<
   void,
   StorageError | StorageNotFoundError | AgentNotFoundError,
@@ -322,7 +465,7 @@ export function chatWithAIAgentCommand(
     console.log();
 
     // Start the chat loop with error logging
-    yield* startChatLoop(agent).pipe(
+    yield* startChatLoop(agent, options).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
@@ -502,6 +645,9 @@ function handleSpecialCommand(
  */
 function startChatLoop(
   agent: Agent,
+  loopOptions?: {
+    stream?: boolean;
+  },
 ): Effect.Effect<
   void,
   Error,
@@ -587,6 +733,7 @@ function startChatLoop(
           userInput: userMessage,
           conversationId: conversationId || "",
           conversationHistory,
+          ...(loopOptions?.stream !== undefined ? { stream: loopOptions.stream } : {}),
         };
 
         // Run the agent
@@ -600,10 +747,8 @@ function startChatLoop(
           conversationHistory = response.messages;
         }
 
-        // Display the response
-        console.log();
-        console.log(MarkdownRenderer.formatAgentResponse(agent.name, response.content));
-        console.log();
+        // Display is handled entirely by AgentRunner (both streaming and non-streaming)
+        // No need to display here - AgentRunner takes care of it
       } catch (error) {
         console.log();
 

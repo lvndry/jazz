@@ -54,6 +54,8 @@
       escapes, and malicious tool payloads.
 - [ ] Broaden automated test coverage — prioritize Effect-based unit tests for CLI commands, tool
       adapters, and runtime layers.
+- [ ] readFile tool should only read files 100 lines per 100 lines to avoid loading large files into
+      memory all at once
 
 ## Developer experience
 

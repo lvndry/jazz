@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import inquirer from "inquirer";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
 import { AgentServiceTag, type AgentService } from "../../core/agent/agent-service";
+import { createCategoryMappings } from "../../core/agent/tools/register-tools";
 import { ToolRegistryTag, type ToolRegistry } from "../../core/agent/tools/tool-registry";
 import {
   AgentAlreadyExistsError,
@@ -76,10 +77,31 @@ export function editAgentCommand(
     const toolRegistry = yield* ToolRegistryTag;
     const toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
+    // Create mappings between category display names and IDs
+    const categoryMappings = createCategoryMappings();
+    const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
+
     // Prompt for updates
     const editAnswers = yield* Effect.promise(() =>
       promptForAgentUpdates(agent, providers, agentTypes, toolsByCategory),
     );
+
+    // Convert selected categories (display names) to category IDs, then get tools
+    const selectedCategoryIds = (editAnswers.tools || [])
+      .map((displayName) => categoryDisplayNameToId.get(displayName))
+      .filter((id): id is string => id !== undefined);
+
+    // Get tools for each selected category ID
+    const selectedToolNames = yield* Effect.all(
+      selectedCategoryIds.map((categoryId) => toolRegistry.getToolsInCategory(categoryId)),
+      { concurrency: "unbounded" },
+    );
+    const uniqueToolNames = Array.from(new Set(selectedToolNames.flat()));
+
+    // Update the tools in editAnswers
+    if (editAnswers.tools && editAnswers.tools.length > 0) {
+      editAnswers.tools = uniqueToolNames;
+    }
 
     // Build updated configuration
     const updatedConfig: AgentConfig = {
@@ -88,7 +110,7 @@ export function editAgentCommand(
       ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
       ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
       ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
-      ...(editAnswers.tools && { tools: Array.from(new Set(editAnswers.tools)) }),
+      ...(editAnswers.tools && editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
       ...(editAnswers.timeout && { timeout: editAnswers.timeout }),
       ...(editAnswers.maxRetries !== undefined ||
       editAnswers.retryDelay !== undefined ||
@@ -139,7 +161,7 @@ async function promptForAgentUpdates(
   currentAgent: Agent,
   providers: readonly string[],
   agentTypes: readonly string[],
-  toolsByCategory: Record<string, readonly string[]>,
+  toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
 ): Promise<AgentEditAnswers> {
   const answers: AgentEditAnswers = {};
 
@@ -197,7 +219,7 @@ async function promptForAgentUpdates(
         type: "input",
         name: "description",
         message: "Enter new agent description:",
-        default: currentAgent.description,
+        default: currentAgent.description || "",
         validate: (input: string) => {
           if (!input.trim()) {
             return "Agent description cannot be empty";
@@ -278,17 +300,12 @@ async function promptForAgentUpdates(
           name: `${category} (${toolsByCategory[category]?.length || 0} tools)`,
           value: category,
         })),
-        default: [], // Don't pre-select any categories
+        default: [],
       },
     ]);
 
-    // Convert selected categories to actual tool names
-    const selectedTools: string[] = [];
-    for (const category of toolCategories) {
-      const toolsInCategory = toolsByCategory[category] || [];
-      selectedTools.push(...toolsInCategory);
-    }
-    answers.tools = Array.from(new Set(selectedTools));
+    // Store display names - will be converted to tool names in the calling function
+    answers.tools = toolCategories;
   }
 
   // Update timeout
