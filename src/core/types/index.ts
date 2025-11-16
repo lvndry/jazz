@@ -156,6 +156,7 @@ export interface AppConfig {
   readonly google?: GoogleConfig;
   readonly llm?: LLMConfig;
   readonly linkup?: LinkupConfig;
+  readonly output?: OutputConfig;
 }
 
 export type StorageConfig =
@@ -173,6 +174,12 @@ export interface LoggingConfig {
   readonly format: "json" | "pretty";
   readonly output: "console" | "file" | "both";
   readonly filePath?: string;
+  /**
+   * Show performance metrics (first token latency, tokens/sec, duration)
+   * Useful for debugging and monitoring performance
+   * Default: false (enable with "debug" level or explicitly)
+   */
+  readonly showMetrics?: boolean;
 }
 
 export interface SecurityConfig {
@@ -234,6 +241,68 @@ export interface LinkupConfig {
   readonly apiKey: string;
   readonly baseUrl?: string;
   readonly timeout?: number;
+}
+
+/**
+ * Output/display configuration for CLI and terminal rendering
+ * These settings apply to both streaming and non-streaming modes
+ */
+export interface OutputConfig {
+  /**
+   * Show reasoning/thinking process for models that support it
+   * (e.g., OpenAI o1, Claude extended thinking, DeepSeek R1)
+   * Applies to both streaming and non-streaming modes
+   * Default: true
+   */
+  readonly showThinking?: boolean;
+
+  /**
+   * Show visual indicators for tool execution
+   * Applies to both streaming and non-streaming modes
+   * Default: true
+   */
+  readonly showToolExecution?: boolean;
+
+  /**
+   * Output format for terminal display
+   * - "plain": Plain text
+   * - "markdown": Formatted markdown (default)
+   */
+  readonly format?: "plain" | "markdown";
+
+  /**
+   * Streaming-specific configuration
+   */
+  readonly streaming?: StreamingConfig;
+}
+
+/**
+ * Streaming configuration - controls HOW content is streamed
+ * All fields optional with sensible defaults
+ */
+export interface StreamingConfig {
+  /**
+   * Enable streaming mode
+   * - true: Always stream
+   * - false: Never stream
+   * - "auto": Auto-detect based on TTY (default)
+   */
+  readonly enabled?: boolean | "auto";
+
+  /**
+   * Enable progressive markdown rendering with formatting
+   * Only applies when streaming is enabled
+   * Default: true
+   */
+  readonly progressiveMarkdown?: boolean;
+
+  /**
+   * Text buffer delay in milliseconds
+   * Batches small chunks for smoother rendering
+   * Only applies when streaming is enabled
+   * Default: 50
+   */
+  readonly textBufferMs?: number;
 }
 
 export const TaskSchema = Schema.Struct({

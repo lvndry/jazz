@@ -1,0 +1,163 @@
+import type { AppConfig } from "../../core/types/index.js";
+
+/**
+ * Stream detection utility
+ * Determines if streaming should be enabled based on:
+ * 1. Explicit CLI flags (--stream, --no-stream)
+ * 2. Environment variables (JAZZ_STREAM, NO_COLOR, CI)
+ * 3. TTY status (stdout.isTTY)
+ * 4. User configuration
+ */
+
+/**
+ * Options to override stream detection
+ */
+export interface StreamDetectionOptions {
+  /**
+   * Force streaming on (from --stream CLI flag)
+   */
+  forceStream?: boolean;
+
+  /**
+   * Force streaming off (from --no-stream CLI flag)
+   */
+  forceNoStream?: boolean;
+}
+
+/**
+ * Result of stream detection
+ */
+export interface StreamDetection {
+  /**
+   * Should streaming be enabled?
+   */
+  shouldStream: boolean;
+
+  /**
+   * Reason for the decision (for debugging)
+   */
+  reason: string;
+}
+
+/**
+ * Determine if streaming should be enabled
+ * Priority order:
+ * 1. CLI flags (--no-stream overrides --stream)
+ * 2. Config file (enabled: true/false/auto)
+ * 3. Environment variables (JAZZ_STREAM=0, CI=true, NO_COLOR=1)
+ * 4. Auto-detection (TTY status)
+ */
+export function shouldEnableStreaming(
+  appConfig: AppConfig,
+  options: StreamDetectionOptions = {},
+): StreamDetection {
+  // Priority 1: CLI flags
+  if (options.forceNoStream) {
+    return {
+      shouldStream: false,
+      reason: "Disabled via --no-stream CLI flag",
+    };
+  }
+
+  if (options.forceStream) {
+    return {
+      shouldStream: true,
+      reason: "Enabled via --stream CLI flag",
+    };
+  }
+
+  // Priority 2: Config file
+  const configStreaming = appConfig.output?.streaming?.enabled;
+
+  if (configStreaming === false) {
+    return {
+      shouldStream: false,
+      reason: "Disabled in config file (output.streaming.enabled = false)",
+    };
+  }
+
+  if (configStreaming === true) {
+    return {
+      shouldStream: true,
+      reason: "Enabled in config file (output.streaming.enabled = true)",
+    };
+  }
+
+  // Priority 3: Environment variables
+  // Check for explicit disable
+  if (process.env.JAZZ_STREAM === "0" || process.env.JAZZ_STREAM === "false") {
+    return {
+      shouldStream: false,
+      reason: "Disabled via JAZZ_STREAM environment variable",
+    };
+  }
+
+  // Check for CI environment (disable streaming in CI by default)
+  if (process.env.CI === "true" || process.env.CI === "1") {
+    return {
+      shouldStream: false,
+      reason: "Disabled in CI environment (CI=true)",
+    };
+  }
+
+  // Check for NO_COLOR (often indicates non-interactive terminal)
+  if (process.env.NO_COLOR === "1" || process.env.NO_COLOR === "true") {
+    return {
+      shouldStream: false,
+      reason: "Disabled due to NO_COLOR environment variable",
+    };
+  }
+
+  // Check for explicit enable via environment
+  if (process.env.JAZZ_STREAM === "1" || process.env.JAZZ_STREAM === "true") {
+    return {
+      shouldStream: true,
+      reason: "Enabled via JAZZ_STREAM environment variable",
+    };
+  }
+
+  // Priority 4: Auto-detection based on TTY
+  // configStreaming is "auto" or undefined at this point
+  const isTTY = process.stdout.isTTY ?? false;
+
+  if (isTTY) {
+    return {
+      shouldStream: true,
+      reason: "Auto-enabled: stdout is a TTY (interactive terminal)",
+    };
+  } else {
+    return {
+      shouldStream: false,
+      reason: "Auto-disabled: stdout is not a TTY (piped/redirected)",
+    };
+  }
+}
+
+/**
+ * Check if the current environment supports interactive features
+ * Useful for determining if we should show spinners, progress bars, etc.
+ */
+export function isInteractiveTerminal(): boolean {
+  // Not interactive if stdout is not a TTY
+  if (!process.stdout.isTTY) {
+    return false;
+  }
+
+  // Not interactive in CI
+  if (process.env.CI === "true" || process.env.CI === "1") {
+    return false;
+  }
+
+  // Not interactive if NO_COLOR is set (convention for non-interactive terminals)
+  if (process.env.NO_COLOR === "1" || process.env.NO_COLOR === "true") {
+    return false;
+  }
+
+  // Not interactive if TERM is "dumb"
+  if (process.env.TERM === "dumb") {
+    return false;
+  }
+
+  return true;
+}
+

@@ -149,10 +149,26 @@ export interface LLMProvider {
 export interface LLMService {
   readonly getProvider: (providerName: string) => Effect.Effect<LLMProvider, LLMConfigurationError>;
   readonly listProviders: () => Effect.Effect<readonly string[], never>;
+
+  /**
+   * Create a non-streaming chat completion
+   */
   readonly createChatCompletion: (
     providerName: string,
     options: ChatCompletionOptions,
   ) => Effect.Effect<ChatCompletionResponse, LLMError>;
+
+  /**
+   * Create a streaming chat completion
+   * Returns a StreamingResult containing:
+   * - stream: Event stream for real-time updates
+   * - response: Effect that resolves with final response
+   * - cancel: Effect to abort the streaming operation
+   */
+  readonly createStreamingChatCompletion: (
+    providerName: string,
+    options: ChatCompletionOptions,
+  ) => Effect.Effect<import("./streaming-types.js").StreamingResult, LLMError>;
 }
 
 // Service tag for dependency injection
