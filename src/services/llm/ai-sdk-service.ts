@@ -24,7 +24,7 @@ import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { z } from "zod";
 import { MAX_AGENT_STEPS } from "../../constants/agent";
 import { AgentConfigService, type ConfigService } from "../config";
-import type { StreamingResult } from "./streaming-types.js";
+import type { StreamEvent, StreamingResult } from "./streaming-types";
 import {
   LLMAuthenticationError,
   LLMConfigurationError,
@@ -502,9 +502,6 @@ class DefaultAISDKService implements LLMService {
     // Create a deferred to collect final response
     const responseDeferred = createDeferred<ChatCompletionResponse>();
 
-    // Import StreamEvent type
-    type StreamEvent = import("./streaming-types.js").StreamEvent;
-
     // Create the stream - use Stream.async for async operations
     const stream = Stream.async<StreamEvent, LLMError>((emit) => {
       // Start async processing
@@ -521,7 +518,6 @@ class DefaultAISDKService implements LLMService {
             timestamp: startTime,
           })));
 
-          // Use AI SDK streamText with AbortSignal
           const result = streamText({
             model,
             messages: toCoreMessages(options.messages),
@@ -542,20 +538,31 @@ class DefaultAISDKService implements LLMService {
 
           // Process fullStream for all events (text, reasoning, tool calls)
           for await (const part of result.fullStream) {
-                // Record first token time (for metrics calculation at the end)
-                if (!firstTokenTime) {
-                  firstTokenTime = Date.now();
-                }
-
                 switch (part.type) {
-                  case "text-delta": {
-                    // Emit text start on first text chunk
+                  case "text-start": {
+                    // Explicit text start event - ensure we emit it only once
                     if (!hasStartedText) {
                       void emit(Effect.succeed(Chunk.of({ type: "text_start" })));
                       hasStartedText = true;
+                      // Record first token time on first content
+                      if (!firstTokenTime) {
+                        firstTokenTime = Date.now();
+                      }
+                    }
+                    break;
+                  }
+
+                  case "text-delta": {
+                    // Emit text start on first text chunk if not already started
+                    if (!hasStartedText) {
+                      void emit(Effect.succeed(Chunk.of({ type: "text_start" })));
+                      hasStartedText = true;
+                      // Record first token time on first content
+                      if (!firstTokenTime) {
+                        firstTokenTime = Date.now();
+                      }
                     }
 
-                    // AI SDK uses 'text' property, not 'textDelta'
                     const textDelta = "text" in part ? part.text : "";
                     accumulatedText += textDelta;
                     void emit(Effect.succeed(Chunk.of({
@@ -567,14 +574,36 @@ class DefaultAISDKService implements LLMService {
                     break;
                   }
 
-                  case "reasoning-delta": {
-                    // Reasoning/thinking from models like o1, Claude extended thinking
+                  case "text-end": {
+                    // Text block has ended - we don't need to do anything special
+                    // but we could reset hasStartedText if we wanted to support multiple text blocks
+                    // For now, we keep it true since the stream is typically one text block
+                    break;
+                  }
+
+                  case "reasoning-start": {
+                    // Explicit reasoning start event - ensure we emit it only once
                     if (!hasStartedReasoning) {
                       void emit(Effect.succeed(Chunk.of({ type: "thinking_start", provider: providerName })));
                       hasStartedReasoning = true;
+                      // Record first token time on first content
+                      if (!firstTokenTime) {
+                        firstTokenTime = Date.now();
+                      }
+                    }
+                    break;
+                  }
+
+                  case "reasoning-delta": {
+                    if (!hasStartedReasoning) {
+                      void emit(Effect.succeed(Chunk.of({ type: "thinking_start", provider: providerName })));
+                      hasStartedReasoning = true;
+                      // Record first token time on first content
+                      if (!firstTokenTime) {
+                        firstTokenTime = Date.now();
+                      }
                     }
 
-                    // AI SDK reasoning events use 'text' property
                     const reasoningText = "text" in part ? part.text : "";
                     void emit(Effect.succeed(Chunk.of({
                       type: "thinking_chunk",
@@ -584,9 +613,24 @@ class DefaultAISDKService implements LLMService {
                     break;
                   }
 
+                  case "reasoning-end": {
+                    // End of reasoning block - emit completion and reset flag
+                    if (hasStartedReasoning) {
+                      const totalUsage = "totalUsage" in part ? part.totalUsage : undefined;
+                      const totalTokens =
+                        totalUsage && typeof totalUsage === "object" && "reasoningTokens" in totalUsage
+                          ? (totalUsage as { reasoningTokens?: number }).reasoningTokens
+                          : undefined;
+                      void emit(Effect.succeed(Chunk.of({
+                        type: "thinking_complete",
+                        ...(totalTokens !== undefined ? { totalTokens } : {}),
+                      })));
+                      hasStartedReasoning = false;
+                    }
+                    break;
+                  }
 
                   case "tool-call": {
-                    // Tool call detected - collect it for immediate use
                     const toolCall: ToolCall = {
                       id: part.toolCallId,
                       type: "function",
@@ -606,17 +650,7 @@ class DefaultAISDKService implements LLMService {
                   }
 
                   case "finish": {
-                    // Final completion event from AI SDK
-                    if (hasStartedReasoning) {
-                      const totalTokens =
-                        "totalUsage" in part && part.totalUsage?.reasoningTokens
-                          ? part.totalUsage.reasoningTokens
-                          : undefined;
-                      void emit(Effect.succeed(Chunk.of({
-                        type: "thinking_complete",
-                        ...(totalTokens !== undefined ? { totalTokens } : {}),
-                      })));
-                    }
+                    // Final completion event - stream is finishing
                     break;
                   }
 
@@ -624,14 +658,25 @@ class DefaultAISDKService implements LLMService {
                     // Error during streaming
                     throw part.error;
                   }
+
+                  case "abort": {
+                    // Stream was aborted - emit error and stop processing
+                    void emit(Effect.fail(Option.some(
+                      new LLMRequestError(providerName, "Stream was aborted"),
+                    )));
+                    break;
+                  }
+
+                  default: {
+                    // Silently ignore unhandled part types that we don't need
+                    // This prevents TypeScript errors and allows the stream to continue
+                    break;
+                  }
                 }
               }
 
-              // Stream is complete - use accumulated text immediately instead of waiting for promise
-              // This eliminates the 30-60 second delay after streaming finishes
               const finalText = accumulatedText;
 
-              // Convert collected tool calls (already in our format)
               const toolCalls = collectedToolCalls.length > 0 ? collectedToolCalls : undefined;
 
               // Try to get usage immediately, but don't block if it's slow
@@ -648,7 +693,6 @@ class DefaultAISDKService implements LLMService {
                 finalUsage = undefined;
               }
 
-              // Build usage object
               const usage = finalUsage
                 ? {
                     promptTokens: finalUsage.inputTokens ?? 0,
@@ -679,7 +723,7 @@ class DefaultAISDKService implements LLMService {
                 };
               }
 
-              // Build final response
+
               const finalResponse: ChatCompletionResponse = {
                 id: "",
                 model: options.model,
@@ -688,7 +732,6 @@ class DefaultAISDKService implements LLMService {
                 ...(usage ? { usage } : {}),
               };
 
-              // Emit complete event with metrics (if calculated)
               const endTime = Date.now();
               void emit(Effect.succeed(Chunk.of({
                 type: "complete",

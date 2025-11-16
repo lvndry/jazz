@@ -251,14 +251,12 @@ export interface OutputConfig {
   /**
    * Show reasoning/thinking process for models that support it
    * (e.g., OpenAI o1, Claude extended thinking, DeepSeek R1)
-   * Applies to both streaming and non-streaming modes
    * Default: true
    */
   readonly showThinking?: boolean;
 
   /**
    * Show visual indicators for tool execution
-   * Applies to both streaming and non-streaming modes
    * Default: true
    */
   readonly showToolExecution?: boolean;
