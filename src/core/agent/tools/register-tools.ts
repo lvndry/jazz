@@ -47,7 +47,7 @@ import {
 } from "./gmail-tools";
 import { createHttpRequestTool } from "./http-tools";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
-import { ToolRegistryTag, type ToolRegistry } from "./tool-registry";
+import { ToolRegistryTag, type Category, type ToolRegistry } from "./tool-registry";
 import { createWebSearchTool } from "./web-search-tools";
 
 /**
@@ -69,11 +69,18 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
   });
 }
 
+export const GMAIL_CATEGORY: Category = { id: "gmail", displayName: "Gmail" };
+export const HTTP_CATEGORY: Category = { id: "http", displayName: "HTTP" };
+export const FILE_MANAGEMENT_CATEGORY: Category = { id: "file_management", displayName: "File Management" };
+export const SHELL_COMMANDS_CATEGORY: Category = { id: "shell_commands", displayName: "Shell Commands" };
+export const GIT_CATEGORY: Category = { id: "git", displayName: "Git" };
+export const SEARCH_CATEGORY: Category = { id: "search", displayName: "Search" };
+
 // Register Gmail tools
 export function registerGmailTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory("Gmail");
+    const registerTool = registry.registerForCategory(GMAIL_CATEGORY);
 
     // Create Gmail tools
     const listEmailsTool = createListEmailsTool();
@@ -129,7 +136,7 @@ export function registerGmailTools(): Effect.Effect<void, Error, ToolRegistry> {
 export function registerHttpTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory("HTTP");
+    const registerTool = registry.registerForCategory(HTTP_CATEGORY);
 
     const httpRequestTool = createHttpRequestTool();
 
@@ -141,7 +148,7 @@ export function registerHttpTools(): Effect.Effect<void, Error, ToolRegistry> {
 export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory("File Management");
+    const registerTool = registry.registerForCategory(FILE_MANAGEMENT_CATEGORY);
 
     const pwd = createPwdTool();
     const ls = createLsTool();
@@ -181,7 +188,7 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
 export function registerShellTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory("Shell Commands");
+    const registerTool = registry.registerForCategory(SHELL_COMMANDS_CATEGORY);
 
     const executeCommandTool = createExecuteCommandTool();
     const executeCommandApprovedTool = createExecuteCommandApprovedTool();
@@ -195,7 +202,7 @@ export function registerShellTools(): Effect.Effect<void, Error, ToolRegistry> {
 export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory("Git");
+    const registerTool = registry.registerForCategory(GIT_CATEGORY);
 
     // Safe Git operations (no approval needed)
     const gitStatusTool = createGitStatusTool();
@@ -229,7 +236,7 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
 export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory("Search");
+    const registerTool = registry.registerForCategory(SEARCH_CATEGORY);
 
     const webSearchTool = createWebSearchTool();
 

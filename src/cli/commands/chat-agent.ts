@@ -8,6 +8,14 @@ import {
   getAgentByIdentifier,
   type AgentService,
 } from "../../core/agent/agent-service";
+import {
+  FILE_MANAGEMENT_CATEGORY,
+  GIT_CATEGORY,
+  GMAIL_CATEGORY,
+  HTTP_CATEGORY,
+  SEARCH_CATEGORY,
+  SHELL_COMMANDS_CATEGORY,
+} from "../../core/agent/tools/register-tools";
 import type { ToolRegistry } from "../../core/agent/tools/tool-registry";
 import { ToolRegistryTag } from "../../core/agent/tools/tool-registry";
 import {
@@ -87,9 +95,59 @@ export function createAIAgentCommand(): Effect.Effect<
     const toolRegistry = yield* ToolRegistryTag;
     const toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
+    // Create a mapping from display name to category ID for logic operations
+    const categoryDisplayNameToId = new Map<string, string>([
+      [FILE_MANAGEMENT_CATEGORY.displayName, FILE_MANAGEMENT_CATEGORY.id],
+      [SHELL_COMMANDS_CATEGORY.displayName, SHELL_COMMANDS_CATEGORY.id],
+      [GIT_CATEGORY.displayName, GIT_CATEGORY.id],
+      [HTTP_CATEGORY.displayName, HTTP_CATEGORY.id],
+      [SEARCH_CATEGORY.displayName, SEARCH_CATEGORY.id],
+      [GMAIL_CATEGORY.displayName, GMAIL_CATEGORY.id],
+    ]);
+
+    // Create a mapping from category ID to display name for UI
+    const categoryIdToDisplayName = new Map<string, string>([
+      [FILE_MANAGEMENT_CATEGORY.id, FILE_MANAGEMENT_CATEGORY.displayName],
+      [SHELL_COMMANDS_CATEGORY.id, SHELL_COMMANDS_CATEGORY.displayName],
+      [GIT_CATEGORY.id, GIT_CATEGORY.displayName],
+      [HTTP_CATEGORY.id, HTTP_CATEGORY.displayName],
+      [SEARCH_CATEGORY.id, SEARCH_CATEGORY.displayName],
+      [GMAIL_CATEGORY.id, GMAIL_CATEGORY.displayName],
+    ]);
+
+    // Define agent-specific tool categories by ID (for logic)
+    const CODER_AGENT_TOOL_CATEGORY_IDS = [
+      FILE_MANAGEMENT_CATEGORY.id,
+      SHELL_COMMANDS_CATEGORY.id,
+      GIT_CATEGORY.id,
+      HTTP_CATEGORY.id,
+      SEARCH_CATEGORY.id,
+    ];
+
+    const GMAIL_AGENT_TOOL_CATEGORY_IDS = [
+      GMAIL_CATEGORY.id,
+      HTTP_CATEGORY.id,
+      SEARCH_CATEGORY.id,
+      FILE_MANAGEMENT_CATEGORY.id,
+      SHELL_COMMANDS_CATEGORY.id,
+    ];
+
+    // Map agent types to their tool category IDs
+    const agentToolCategoryIds: Record<string, readonly string[]> = {
+      coder: CODER_AGENT_TOOL_CATEGORY_IDS,
+      gmail: GMAIL_AGENT_TOOL_CATEGORY_IDS,
+    };
+
     // Get agent basic information
     const agentAnswers = yield* Effect.promise(() =>
-      promptForAgentInfo(providers, agentTypes, toolsByCategory, llmService),
+      promptForAgentInfo(
+        providers,
+        agentTypes,
+        toolsByCategory,
+        llmService,
+        agentToolCategoryIds,
+        categoryIdToDisplayName,
+      ),
     );
 
     // Validate the chosen model against the chosen provider
@@ -99,9 +157,17 @@ export function createAIAgentCommand(): Effect.Effect<
       ? agentAnswers.llmModel
       : chosenProvider.defaultModel;
 
-    // Convert selected categories to a flat list of tool names
-    const selectedToolNames = agentAnswers.tools.flatMap((category) => toolsByCategory[category] || []);
-    const uniqueToolNames = Array.from(new Set(selectedToolNames));
+    // Convert selected categories (display names) to category IDs, then get tools
+    const selectedCategoryIds = agentAnswers.tools
+      .map((displayName) => categoryDisplayNameToId.get(displayName))
+      .filter((id): id is string => id !== undefined);
+
+    // Get tools for each selected category ID
+    const selectedToolNames = yield* Effect.all(
+      selectedCategoryIds.map((categoryId) => toolRegistry.getToolsInCategory(categoryId)),
+      { concurrency: "unbounded" },
+    );
+    const uniqueToolNames = Array.from(new Set(selectedToolNames.flat()));
 
     // Build agent configuration
     const config: AgentConfig = {
@@ -148,10 +214,11 @@ export function createAIAgentCommand(): Effect.Effect<
 async function promptForAgentInfo(
   providers: readonly string[],
   agentTypes: readonly string[],
-  toolsByCategory: Record<string, readonly string[]>,
+  toolsByCategory: Record<string, readonly string[]>, // Keys are display names
   llmService: LLMService,
+  agentToolCategoryIds: Record<string, readonly string[]>,
+  categoryIdToDisplayName: Map<string, string>,
 ): Promise<AIAgentCreationAnswers> {
-  // First, ask for agent type
   const agentTypeQuestion = [
     {
       type: "list",
@@ -192,7 +259,7 @@ async function promptForAgentInfo(
   // @ts-expect-error - inquirer types are not matching correctly
   const nameAnswer = (await inquirer.prompt(nameQuestion)) as Pick<AIAgentCreationAnswers, "name">;
 
-  // Conditionally ask for description only if agent type is "default"
+  // ask for description only if agent type is "default"
   let descriptionAnswer: Pick<AIAgentCreationAnswers, "description"> = {};
   if (agentTypeAnswer.agentType === "default") {
     const descriptionQuestion = [
@@ -263,39 +330,23 @@ async function promptForAgentInfo(
   // Predefined agents that have auto-assigned tools
   const predefinedAgents = ["coder", "gmail"] as const;
 
-  // Define agent-specific tool categories
-  const CODER_AGENT_TOOL_CATEGORIES = [
-    "File Management",
-    "Shell Commands",
-    "Git",
-    "HTTP",
-    "Search",
-  ];
-
-  const GMAIL_AGENT_TOOL_CATEGORIES = [
-    "Gmail",
-    "HTTP",
-    "Search",
-    "File Management",
-    "Shell Commands",
-  ];
-
-  // Map agent types to their tool categories
-  const agentToolCategories: Record<string, readonly string[]> = {
-    coder: CODER_AGENT_TOOL_CATEGORIES,
-    gmail: GMAIL_AGENT_TOOL_CATEGORIES,
-  };
-
   // Auto-select tools based on agent type
-  let autoSelectedTools: string[] = [];
   if (predefinedAgents.includes(basicAnswers.agentType as typeof predefinedAgents[number])) {
-    const toolCategories = agentToolCategories[basicAnswers.agentType] || [];
-    autoSelectedTools = toolCategories.filter((category) => category in toolsByCategory);
+    const toolCategoryIds = agentToolCategoryIds[basicAnswers.agentType] || [];
+    // Filter to only categories that exist in toolsByCategory (by checking if display name exists)
+    const availableCategoryIds = toolCategoryIds.filter((categoryId) => {
+      const displayName = categoryIdToDisplayName.get(categoryId);
+      return displayName && displayName in toolsByCategory;
+    });
+
+    const displayNames = availableCategoryIds
+      .map((id) => categoryIdToDisplayName.get(id))
+      .filter((name): name is string => name !== undefined);
 
     const emoji = basicAnswers.agentType === "coder" ? "📦" : "📧";
     const agentName = basicAnswers.agentType === "coder" ? "Coder" : "Gmail";
     console.log(
-      `\n${emoji} ${agentName} agent will automatically include: ${autoSelectedTools.join(", ")}\n`,
+      `\n${emoji} ${agentName} agent will automatically include: ${displayNames.join(", ")}\n`,
     );
   }
 
@@ -353,13 +404,20 @@ async function promptForAgentInfo(
   >;
 
   // Combine all answers
+  // For predefined agents, convert category IDs back to display names for the answer
+  const finalTools = predefinedAgents.includes(basicAnswers.agentType as typeof predefinedAgents[number])
+    ? ((): string[] => {
+        const toolCategoryIds = agentToolCategoryIds[basicAnswers.agentType] || [];
+        return toolCategoryIds
+          .map((id) => categoryIdToDisplayName.get(id))
+          .filter((name): name is string => name !== undefined && name in toolsByCategory);
+      })()
+    : finalAnswers.tools || [];
+
   return {
     ...basicAnswers,
     ...finalAnswers,
-    // Use auto-selected tools for predefined agents
-    tools: predefinedAgents.includes(basicAnswers.agentType as typeof predefinedAgents[number])
-      ? autoSelectedTools
-      : finalAnswers.tools || [],
+    tools: finalTools,
   };
 }
 
