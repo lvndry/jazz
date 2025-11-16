@@ -274,7 +274,10 @@ class DefaultAISDKService implements LLMService {
     this.providerModels = {
       openai: [
         { id: "gpt-5.1", displayName: "GPT-5.1", isReasoningModel: true },
+        { id: "gpt-5.1-codex", displayName: "GPT-5.1 Codex", isReasoningModel: true },
         { id: "gpt-5", displayName: "GPT-5", isReasoningModel: true },
+        { id: "gpt-5-pro", displayName: "GPT-5 Pro", isReasoningModel: true },
+        { id: "gpt-5-codex", displayName: "GPT-5 Codex", isReasoningModel: true },
         { id: "gpt-5-mini", displayName: "GPT-5 Mini", isReasoningModel: true },
         { id: "gpt-5-nano", displayName: "GPT-5 Nano", isReasoningModel: true },
         { id: "gpt-4.1", displayName: "GPT-4.1", isReasoningModel: true },
@@ -604,7 +607,7 @@ class DefaultAISDKService implements LLMService {
                       }
                     }
 
-                    const reasoningText = "text" in part ? part.text : "";
+                    const reasoningText = part.text ?? "";
                     void emit(Effect.succeed(Chunk.of({
                       type: "thinking_chunk",
                       content: reasoningText,

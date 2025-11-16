@@ -769,7 +769,7 @@ export class AgentRunner {
         iterationsUsed = maxIterations;
         const warningMessage = MarkdownRenderer.formatWarning(
           agent.name,
-          `reached maximum iterations (${maxIterations})`,
+          `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
         );
         yield* logger.warn(warningMessage, {
           agentId: agent.id,
@@ -1298,7 +1298,7 @@ export class AgentRunner {
         iterationsUsed = maxIterations;
         const warningMessage = MarkdownRenderer.formatWarning(
           agent.name,
-          `reached maximum iterations (${maxIterations})`,
+          `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
         );
         yield* logger.warn(warningMessage, {
           agentId: agent.id,

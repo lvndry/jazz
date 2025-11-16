@@ -21,6 +21,8 @@ export interface DisplayConfig {
  */
 export class OutputRenderer {
   private toolNameMap: Map<string, string> = new Map();
+  private thinkingStarted: boolean = false;
+  private thinkingHasContent: boolean = false;
 
   constructor(
     private displayConfig: DisplayConfig,
@@ -41,19 +43,34 @@ export class OutputRenderer {
 
         case "thinking_start":
           if (this.displayConfig.showThinking) {
-            this.renderThinkingStart();
+            this.thinkingStarted = true;
+            // Don't render header yet - wait for first content
           }
           break;
 
         case "thinking_chunk":
           if (this.displayConfig.showThinking) {
-            this.renderThinkingChunk(event.content);
+            // Only show header on first non-empty chunk
+            if (!this.thinkingHasContent && event.content.trim().length > 0) {
+              this.renderThinkingStart();
+              this.thinkingHasContent = true;
+            }
+            if (this.thinkingHasContent) {
+              this.renderThinkingChunk(event.content);
+            }
           }
           break;
 
         case "thinking_complete":
-          if (this.displayConfig.showThinking) {
+          if (this.displayConfig.showThinking && this.thinkingHasContent) {
             this.renderThinkingComplete(event);
+            // Reset state for next thinking block
+            this.thinkingStarted = false;
+            this.thinkingHasContent = false;
+          } else if (this.thinkingStarted) {
+            // Reset state even if no content was shown
+            this.thinkingStarted = false;
+            this.thinkingHasContent = false;
           }
           break;
 
@@ -103,6 +120,9 @@ export class OutputRenderer {
   }
 
   private renderStreamStart(event: { provider: string; model: string }): void {
+    // Reset thinking state for new stream
+    this.thinkingStarted = false;
+    this.thinkingHasContent = false;
     console.log(`\n${chalk.bold.blue(this.agentName)} (${event.provider}/${event.model}):`);
   }
 
@@ -194,7 +214,7 @@ export class OutputRenderer {
       case "grep": {
         const pattern = OutputRenderer.safeString(args["pattern"]);
         const path = OutputRenderer.safeString(args["path"]);
-        const patternStr = pattern ? `${chalk.dim("pattern:")} ${chalk.cyan(pattern)}` : "";
+        const patternStr = pattern ? ` ${chalk.dim("pattern:")} ${chalk.cyan(pattern)}` : "";
         const pathStr = path ? ` ${chalk.dim(`in: ${path}`)}` : "";
         return patternStr + pathStr;
       }
