@@ -280,6 +280,9 @@ async function promptForAgentInfo(
  */
 export function chatWithAIAgentCommand(
   agentIdentifier: string,
+  options?: {
+    stream?: boolean;
+  },
 ): Effect.Effect<
   void,
   StorageError | StorageNotFoundError | AgentNotFoundError,
@@ -322,7 +325,7 @@ export function chatWithAIAgentCommand(
     console.log();
 
     // Start the chat loop with error logging
-    yield* startChatLoop(agent).pipe(
+    yield* startChatLoop(agent, options).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
@@ -502,6 +505,9 @@ function handleSpecialCommand(
  */
 function startChatLoop(
   agent: Agent,
+  streamingOptions?: {
+    stream?: boolean;
+  },
 ): Effect.Effect<
   void,
   Error,
@@ -587,6 +593,11 @@ function startChatLoop(
           userInput: userMessage,
           conversationId: conversationId || "",
           conversationHistory,
+          ...(streamingOptions?.stream !== undefined
+            ? streamingOptions.stream
+              ? { forceStream: true }
+              : { forceNoStream: true }
+            : {}),
         };
 
         // Run the agent
@@ -600,10 +611,13 @@ function startChatLoop(
           conversationHistory = response.messages;
         }
 
-        // Display the response
-        console.log();
-        console.log(MarkdownRenderer.formatAgentResponse(agent.name, response.content));
-        console.log();
+        // Display the response only if it wasn't already streamed
+        // In streaming mode, the response is displayed in real-time by StreamRenderer
+        if (!response.wasStreamed) {
+          console.log();
+          console.log(MarkdownRenderer.formatAgentResponse(agent.name, response.content));
+          console.log();
+        }
       } catch (error) {
         console.log();
 

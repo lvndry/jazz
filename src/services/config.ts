@@ -165,6 +165,23 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     logging: { ...base.logging, ...(override.logging ?? {}) },
     security: { ...base.security, ...(override.security ?? {}) },
     performance: { ...base.performance, ...(override.performance ?? {}) },
+    ...(override.output && {
+      output: {
+        ...base.output,
+        // Explicitly merge top-level output properties
+        ...(override.output.showThinking !== undefined
+          ? { showThinking: override.output.showThinking }
+          : {}),
+        ...(override.output.showToolExecution !== undefined
+          ? { showToolExecution: override.output.showToolExecution }
+          : {}),
+        ...(override.output.format !== undefined ? { format: override.output.format } : {}),
+        // Merge streaming config
+        ...(override.output.streaming && {
+          streaming: { ...(base.output?.streaming ?? {}), ...override.output.streaming },
+        }),
+      },
+    }),
     ...(override.google && { google: { ...base.google, ...override.google } }),
     ...(override.llm && { llm: { ...(base.llm ?? {}), ...override.llm } }),
     ...(override.linkup && { linkup: { ...base.linkup, ...override.linkup } }),

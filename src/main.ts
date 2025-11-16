@@ -47,7 +47,6 @@ import { StorageServiceTag } from "./services/storage/service";
  * yield* someCommand().pipe(Effect.provide(appLayer));
  * ```
  */
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 function createAppLayer(debug?: boolean) {
   const fileSystemLayer = NodeFileSystem.layer;
   const configLayer = createConfigLayer(debug).pipe(Layer.provide(fileSystemLayer));
@@ -277,9 +276,24 @@ function main(): Effect.Effect<void, never> {
     agentCommand
       .command("chat <agentRef>")
       .description("Start a chat with an AI agent by ID or name")
-      .action((agentRef: string) => {
-        runCliEffect(chatWithAIAgentCommand(agentRef), debugFlag);
-      });
+      .option("--stream", "Force streaming mode (real-time output)")
+      .option("--no-stream", "Disable streaming mode")
+      .action(
+        (
+          agentRef: string,
+          options: {
+            stream?: boolean;
+            noStream?: boolean;
+          },
+        ) => {
+          const streamOption =
+            options.noStream === true ? false : options.stream === true ? true : undefined;
+          runCliEffect(
+            chatWithAIAgentCommand(agentRef, streamOption !== undefined ? { stream: streamOption } : {}),
+            debugFlag,
+          );
+        },
+      );
 
     agentCommand
       .command("edit <agentId>")

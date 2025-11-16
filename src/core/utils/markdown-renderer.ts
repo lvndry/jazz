@@ -12,6 +12,8 @@ import TerminalRenderer from "marked-terminal";
  */
 export class MarkdownRenderer {
   private static renderer: TerminalRenderer | null = null;
+  private static streamingBuffer: string = "";
+  private static lastFlushTime: number = 0;
 
   /**
    * Initialize the markdown renderer with terminal-friendly options
@@ -19,9 +21,10 @@ export class MarkdownRenderer {
   static initialize(): void {
     try {
       // Configure marked with our terminal renderer using setOptions
+      // @ts-expect-error marked-terminal types are incompatible with marked v16
+      // TerminalRenderer works at runtime but types don't match _Renderer interface
       marked.setOptions({
-        // @ts-expect-error marked-terminal types lag behind marked v16
-        renderer: new (TerminalRenderer as unknown as new (...args: any[]) => TerminalRenderer)({
+        renderer: new TerminalRenderer({
           // Color scheme for better readability
           code: chalk.cyan,
           codespan: chalk.cyan,
@@ -44,7 +47,7 @@ export class MarkdownRenderer {
           reflowText: true,
           // Maximum width for better readability
           width: 80,
-        }),
+        }) as unknown as Parameters<typeof marked.setOptions>[0]["renderer"],
         gfm: true, // GitHub Flavored Markdown
         breaks: true, // Convert line breaks to <br>
       });
@@ -139,5 +142,120 @@ export class MarkdownRenderer {
    */
   static formatSuccess(message: string): string {
     return chalk.green(`✅ ${message}`);
+  }
+
+  /**
+   * Render markdown chunk progressively for streaming
+   * Buffers incomplete syntax constructs and flushes on word boundaries
+   *
+   * @param delta - New text chunk to add
+   * @param bufferMs - Buffer delay in milliseconds (default: 50ms)
+   * @returns Rendered markdown string, or empty string if buffering
+   */
+  static renderChunk(delta: string, bufferMs: number = 50): string {
+    this.streamingBuffer += delta;
+    const now = Date.now();
+
+    // Check if we should flush based on word boundaries or time
+    const shouldFlush =
+      // Complete word (ends with space or newline)
+      this.streamingBuffer.endsWith(" ") ||
+      this.streamingBuffer.endsWith("\n") ||
+      // Complete markdown construct (ends with closing markers)
+      /[`*_~#]\s*$/.test(this.streamingBuffer) ||
+      // Time-based flush (prevent long delays)
+      (now - this.lastFlushTime > bufferMs && this.streamingBuffer.length > 0);
+
+    if (shouldFlush) {
+      const toRender = this.streamingBuffer;
+      this.streamingBuffer = "";
+      this.lastFlushTime = now;
+
+      // Apply basic markdown formatting for streaming
+      return this.applyProgressiveFormatting(toRender);
+    }
+
+    // Hold incomplete words/constructs
+    return "";
+  }
+
+  /**
+   * Flush any remaining buffered content
+   * Call this when streaming is complete
+   */
+  static flushBuffer(): string {
+    if (this.streamingBuffer.length === 0) {
+      return "";
+    }
+
+    const toRender = this.streamingBuffer;
+    this.streamingBuffer = "";
+    this.lastFlushTime = Date.now();
+
+    return this.applyProgressiveFormatting(toRender);
+  }
+
+  /**
+   * Apply progressive markdown formatting
+   * Handles common markdown constructs that can be rendered incrementally
+   */
+  private static applyProgressiveFormatting(text: string): string {
+    if (!text || text.trim().length === 0) {
+      return text;
+    }
+
+    // For streaming, we use a simpler approach than full markdown parsing
+    // Full parsing would require complete markdown blocks which defeats streaming
+    // Instead, we apply basic formatting for common patterns
+
+    let formatted = text;
+
+    // Handle inline code (backticks)
+    formatted = formatted.replace(/`([^`]+)`/g, (_match, code) => {
+      return chalk.cyan(code);
+    });
+
+    // Handle bold (**text**)
+    formatted = formatted.replace(/\*\*([^*]+)\*\*/g, (_match, bold) => {
+      return chalk.bold(bold);
+    });
+
+    // Handle italic (*text* or _text_)
+    formatted = formatted.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, (_match, italic) => {
+      return chalk.italic(italic);
+    });
+    formatted = formatted.replace(/(?<!_)_([^_]+)_(?!_)/g, (_match, italic) => {
+      return chalk.italic(italic);
+    });
+
+    // Handle headers (# Header)
+    formatted = formatted.replace(/^###\s+(.+)$/gm, (_match, header) => {
+      return chalk.bold.blue(header);
+    });
+    formatted = formatted.replace(/^##\s+(.+)$/gm, (_match, header) => {
+      return chalk.bold.blue.underline(header);
+    });
+    formatted = formatted.replace(/^#\s+(.+)$/gm, (_match, header) => {
+      return chalk.bold.blue.underline(header);
+    });
+
+    // Handle links [text](url) - simplified for streaming
+    formatted = formatted.replace(/\[([^\]]+)\]\([^)]+\)/g, (_match, text) => {
+      return chalk.blue.underline(text);
+    });
+
+    // Note: For more complex markdown (lists, blockquotes, code blocks),
+    // we'd need to buffer more content. For now, this handles the most common
+    // streaming-friendly constructs.
+
+    return formatted;
+  }
+
+  /**
+   * Reset streaming buffer (useful for new streams)
+   */
+  static resetStreamingBuffer(): void {
+    this.streamingBuffer = "";
+    this.lastFlushTime = 0;
   }
 }

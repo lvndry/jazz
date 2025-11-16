@@ -9,6 +9,7 @@ import { ollama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 import {
   generateText,
   stepCountIs,
+  streamText,
   tool,
   type AssistantModelMessage,
   type LanguageModel,
@@ -19,10 +20,11 @@ import {
   type TypedToolCall,
   type UserModelMessage,
 } from "ai";
-import { Effect, Layer } from "effect";
+import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { z } from "zod";
 import { MAX_AGENT_STEPS } from "../../constants/agent";
 import { AgentConfigService, type ConfigService } from "../config";
+import type { StreamingResult } from "./streaming-types.js";
 import {
   LLMAuthenticationError,
   LLMConfigurationError,
@@ -35,6 +37,7 @@ import {
   type LLMProvider,
   type LLMService,
   type ModelInfo,
+  type ToolCall,
 } from "./types";
 
 interface AISDKConfig {
@@ -201,6 +204,59 @@ function buildProviderOptions(
   }
 
   return undefined;
+}
+
+/**
+ * Promise.withResolvers polyfill for older Node.js versions
+ */
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/**
+ * Convert error to LLMError
+ */
+function convertToLLMError(error: unknown, providerName: string): LLMError {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  let httpStatus: number | undefined;
+
+  if (error instanceof Error) {
+    const e = error as Error & { status?: number; statusCode?: number };
+    httpStatus = e.status || e.statusCode;
+    if (!httpStatus) {
+      const m = errorMessage.match(/(\d{3})\s/);
+      if (m && m[1]) httpStatus = parseInt(m[1], 10);
+    }
+  }
+
+  if (httpStatus === 401 || httpStatus === 403) {
+    return new LLMAuthenticationError(providerName, errorMessage);
+  } else if (httpStatus === 429) {
+    return new LLMRateLimitError(providerName, errorMessage);
+  } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
+    return new LLMRequestError(providerName, errorMessage);
+  } else if (httpStatus && httpStatus >= 500) {
+    return new LLMRequestError(providerName, `Server error (${httpStatus}): ${errorMessage}`);
+  } else {
+    if (
+      errorMessage.toLowerCase().includes("authentication") ||
+      errorMessage.toLowerCase().includes("api key")
+    ) {
+      return new LLMAuthenticationError(providerName, errorMessage);
+    } else {
+      return new LLMRequestError(providerName, errorMessage || "Unknown LLM request error");
+    }
+  }
 }
 
 class DefaultAISDKService implements LLMService {
@@ -416,39 +472,251 @@ class DefaultAISDKService implements LLMService {
         };
         return resultObj;
       },
-      catch: (error: unknown) => {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        let httpStatus: number | undefined;
-
-        if (error instanceof Error) {
-          const e = error as Error & { status?: number; statusCode?: number };
-          httpStatus = e.status || e.statusCode;
-          if (!httpStatus) {
-            const m = errorMessage.match(/(\d{3})\s/);
-            if (m && m[1]) httpStatus = parseInt(m[1], 10);
-          }
-        }
-
-        if (httpStatus === 401 || httpStatus === 403) {
-          return new LLMAuthenticationError(providerName, errorMessage);
-        } else if (httpStatus === 429) {
-          return new LLMRateLimitError(providerName, errorMessage);
-        } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
-          return new LLMRequestError(providerName, errorMessage);
-        } else if (httpStatus && httpStatus >= 500) {
-          return new LLMRequestError(providerName, `Server error (${httpStatus}): ${errorMessage}`);
-        } else {
-          if (
-            errorMessage.toLowerCase().includes("authentication") ||
-            errorMessage.toLowerCase().includes("api key")
-          ) {
-            return new LLMAuthenticationError(providerName, errorMessage);
-          } else {
-            return new LLMRequestError(providerName, errorMessage || "Unknown LLM request error");
-          }
-        }
-      },
+      catch: (error: unknown) => convertToLLMError(error, providerName),
     });
+  }
+
+  createStreamingChatCompletion(
+    providerName: string,
+    options: ChatCompletionOptions,
+  ): Effect.Effect<StreamingResult, LLMError> {
+    const model = selectModel(providerName, options.model);
+
+    // Prepare tools for AI SDK if present
+    let tools: ToolSet | undefined;
+    if (options.tools && options.tools.length > 0) {
+      tools = {};
+      for (const toolDef of options.tools) {
+        tools[toolDef.function.name] = tool({
+          description: toolDef.function.description,
+          inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+        });
+      }
+    }
+
+    const providerOptions = buildProviderOptions(providerName, options);
+
+    // Create AbortController for cancellation
+    const abortController = new AbortController();
+
+    // Create a deferred to collect final response
+    const responseDeferred = createDeferred<ChatCompletionResponse>();
+
+    // Import StreamEvent type
+    type StreamEvent = import("./streaming-types.js").StreamEvent;
+
+    // Create the stream - use Stream.async for async operations
+    const stream = Stream.async<StreamEvent, LLMError>((emit) => {
+      // Start async processing
+      void (async (): Promise<void> => {
+        const startTime = Date.now();
+        let firstTokenTime: number | null = null;
+
+        try {
+          // Emit start event
+          void emit(Effect.succeed(Chunk.of({
+            type: "stream_start",
+            provider: providerName,
+            model: options.model,
+            timestamp: startTime,
+          })));
+
+          // Use AI SDK streamText with AbortSignal
+          const result = streamText({
+            model,
+            messages: toCoreMessages(options.messages),
+            ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
+            ...(tools ? { tools } : {}),
+            ...(providerOptions ? { providerOptions } : {}),
+            abortSignal: abortController.signal,
+            stopWhen: stepCountIs(MAX_AGENT_STEPS),
+          });
+
+          let accumulatedText = "";
+          let textSequence = 0;
+          let reasoningSequence = 0;
+          let hasStartedText = false;
+          let hasStartedReasoning = false;
+
+          // Process fullStream for all events (text, reasoning, tool calls)
+          for await (const part of result.fullStream) {
+                // Record first token time (for metrics calculation at the end)
+                if (!firstTokenTime) {
+                  firstTokenTime = Date.now();
+                }
+
+                switch (part.type) {
+                  case "text-delta": {
+                    // Emit text start on first text chunk
+                    if (!hasStartedText) {
+                      void emit(Effect.succeed(Chunk.of({ type: "text_start" })));
+                      hasStartedText = true;
+                    }
+
+                    // AI SDK uses 'text' property, not 'textDelta'
+                    const textDelta = "text" in part ? part.text : "";
+                    accumulatedText += textDelta;
+                    void emit(Effect.succeed(Chunk.of({
+                      type: "text_chunk",
+                      delta: textDelta,
+                      accumulated: accumulatedText,
+                      sequence: textSequence++,
+                    })));
+                    break;
+                  }
+
+                  case "reasoning-delta": {
+                    // Reasoning/thinking from models like o1, Claude extended thinking
+                    if (!hasStartedReasoning) {
+                      void emit(Effect.succeed(Chunk.of({ type: "thinking_start", provider: providerName })));
+                      hasStartedReasoning = true;
+                    }
+
+                    // AI SDK reasoning events use 'text' property
+                    const reasoningText = "text" in part ? part.text : "";
+                    void emit(Effect.succeed(Chunk.of({
+                      type: "thinking_chunk",
+                      content: reasoningText,
+                      sequence: reasoningSequence++,
+                    })));
+                    break;
+                  }
+
+
+                  case "tool-call": {
+                    // Tool call detected
+                    const toolCall: ToolCall = {
+                      id: part.toolCallId,
+                      type: "function",
+                      function: {
+                        name: part.toolName,
+                        arguments: JSON.stringify(part.input),
+                      },
+                    };
+
+                    void emit(Effect.succeed(Chunk.of({
+                      type: "tool_call",
+                      toolCall,
+                      sequence: textSequence++,
+                    })));
+                    break;
+                  }
+
+                  case "finish": {
+                    // Final completion event from AI SDK
+                    if (hasStartedReasoning) {
+                      const totalTokens =
+                        "totalUsage" in part && part.totalUsage?.reasoningTokens
+                          ? part.totalUsage.reasoningTokens
+                          : undefined;
+                      void emit(Effect.succeed(Chunk.of({
+                        type: "thinking_complete",
+                        ...(totalTokens !== undefined ? { totalTokens } : {}),
+                      })));
+                    }
+                    break;
+                  }
+
+                  case "error": {
+                    // Error during streaming
+                    throw part.error;
+                  }
+                }
+              }
+
+              // Stream is complete, get final values
+              // AI SDK provides these as promises
+              const finalText = await result.text;
+              const finalToolCalls = await result.toolCalls;
+              const finalUsage = await result.usage;
+
+              // Build usage object
+              const usage = finalUsage
+                ? {
+                    promptTokens: finalUsage.inputTokens ?? 0,
+                    completionTokens: finalUsage.outputTokens ?? 0,
+                    totalTokens: finalUsage.totalTokens ?? 0,
+                  }
+                : undefined;
+
+              if (usage) {
+                void emit(Effect.succeed(Chunk.of({ type: "usage_update", usage })));
+              }
+
+              // Calculate metrics for complete event (if enabled via logging.showMetrics)
+              // Metrics are only included in the complete event, not emitted separately
+              let metrics:
+                | { firstTokenLatencyMs: number; tokensPerSecond?: number; totalTokens?: number }
+                | undefined;
+              if (firstTokenTime && usage?.totalTokens) {
+                const totalDuration = Date.now() - startTime;
+                const tokensPerSecond = (usage.totalTokens / totalDuration) * 1000;
+                metrics = {
+                  firstTokenLatencyMs: firstTokenTime - startTime,
+                  tokensPerSecond,
+                  totalTokens: usage.totalTokens,
+                };
+              }
+
+              // Convert AI SDK tool calls to our format
+              const toolCalls =
+                finalToolCalls && finalToolCalls.length > 0
+                  ? finalToolCalls.map((tc: TypedToolCall<ToolSet>) => ({
+                      id: tc.toolCallId,
+                      type: "function" as const,
+                      function: {
+                        name: tc.toolName,
+                        arguments: JSON.stringify(tc.input ?? {}),
+                      },
+                    }))
+                  : undefined;
+
+              // Build final response
+              const finalResponse: ChatCompletionResponse = {
+                id: "",
+                model: options.model,
+                content: finalText,
+                ...(toolCalls ? { toolCalls } : {}),
+                ...(usage ? { usage } : {}),
+              };
+
+              // Emit complete event with metrics (if calculated)
+              const endTime = Date.now();
+              void emit(Effect.succeed(Chunk.of({
+                type: "complete",
+                response: finalResponse,
+                totalDurationMs: endTime - startTime,
+                ...(metrics ? { metrics } : {}),
+              })));
+
+              // Resolve the deferred with final response
+              responseDeferred.resolve(finalResponse);
+            } catch (error) {
+              // Convert to LLM error
+              const llmError = convertToLLMError(error, providerName);
+
+              // Emit error event
+              void emit(Effect.fail(Option.some(llmError)));
+
+              // Reject the deferred
+              responseDeferred.reject(llmError);
+            }
+      })();
+    });
+
+    // Return streaming result with cancellation support
+    return Effect.succeed({
+      stream,
+      response: Effect.promise(() => responseDeferred.promise),
+      cancel: Effect.sync(() => {
+        abortController.abort();
+      }),
+    }).pipe(
+      Effect.catchAll((error) => {
+        // Convert any synchronous errors to LLMError
+        return Effect.fail(convertToLLMError(error, providerName));
+      }),
+    );
   }
 }
 
