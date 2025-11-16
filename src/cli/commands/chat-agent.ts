@@ -28,7 +28,6 @@ import {
 } from "../../core/types/errors";
 import type { Agent, AgentConfig } from "../../core/types/index";
 import { CommonSuggestions } from "../../core/utils/error-handler";
-import { MarkdownRenderer } from "../../core/utils/markdown-renderer";
 import type { ConfigService } from "../../services/config";
 import type { ChatMessage } from "../../services/llm/types";
 import {
@@ -67,7 +66,7 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
   coder: {
     id: "coder",
     displayName: "Coder",
-    emoji: "📦",
+    emoji: "💻",
     toolCategoryIds: [
       FILE_MANAGEMENT_CATEGORY.id,
       SHELL_COMMANDS_CATEGORY.id,
@@ -418,11 +417,9 @@ async function promptForAgentInfo(
   // For predefined agents, convert category IDs back to display names for the answer
   const predefinedAgent = PREDEFINED_AGENTS[basicAnswers.agentType];
   const finalTools = predefinedAgent
-    ? ((): string[] => {
-        return predefinedAgent.toolCategoryIds
+    ? predefinedAgent.toolCategoryIds
           .map((id) => categoryIdToDisplayName.get(id))
-          .filter((name): name is string => name !== undefined && name in toolsByCategory);
-      })()
+          .filter((name): name is string => name !== undefined && name in toolsByCategory)
     : finalAnswers.tools || [];
 
   return {
@@ -662,7 +659,7 @@ function handleSpecialCommand(
  */
 function startChatLoop(
   agent: Agent,
-  streamingOptions?: {
+  loopOptions?: {
     stream?: boolean;
   },
 ): Effect.Effect<
@@ -750,8 +747,8 @@ function startChatLoop(
           userInput: userMessage,
           conversationId: conversationId || "",
           conversationHistory,
-          ...(streamingOptions?.stream !== undefined
-            ? streamingOptions.stream
+          ...(loopOptions?.stream !== undefined
+            ? loopOptions.stream
               ? { forceStream: true }
               : { forceNoStream: true }
             : {}),
@@ -768,17 +765,8 @@ function startChatLoop(
           conversationHistory = response.messages;
         }
 
-        // Display the response only if it wasn't already streamed
-        // In streaming mode, the response is displayed in real-time by OutputRenderer
-        if (!response.wasStreamed) {
-          console.log();
-          console.log(MarkdownRenderer.formatAgentResponse(agent.name, response.content));
-          console.log();
-        } else {
-          // When streaming was used, ensure there's a clear visual separation
-          // before the next prompt appears (OutputRenderer already adds newlines)
-          // This helps make it clear that the assistant has finished and the user can respond
-        }
+        // Display is handled entirely by AgentRunner (both streaming and non-streaming)
+        // No need to display here - AgentRunner takes care of it
       } catch (error) {
         console.log();
 

@@ -73,11 +73,6 @@ export interface AgentResponse {
    * Pass this back on the next turn to retain context across approvals and multi-step tasks.
    */
   readonly messages?: ChatMessage[] | undefined;
-  /**
-   * Indicates if streaming was used for this response.
-   * When true, the response content was already displayed during streaming.
-   */
-  readonly wasStreamed?: boolean;
 }
 
 /**
@@ -799,8 +794,8 @@ export class AgentRunner {
       // Optionally persist conversation history via a storage layer in the future
 
       // Return the full message history from this turn so callers can persist it
-      // Mark as streamed since we used streaming mode
-      return { ...response, messages: currentMessages, wasStreamed: true };
+      // Display was already handled by OutputRenderer during streaming
+      return { ...response, messages: currentMessages };
     });
   }
 
@@ -1213,6 +1208,13 @@ export class AgentRunner {
           // No tool calls, we have the final response
           response = { ...response, content: formattedContent };
 
+          // Display the final response (non-streaming mode)
+          if (formattedContent && formattedContent.trim().length > 0) {
+            console.log();
+            console.log(MarkdownRenderer.formatAgentResponse(agent.name, formattedContent));
+            console.log();
+          }
+
           // Log completion
           const completionMessage = MarkdownRenderer.formatCompletion(agent.name);
           yield* logger.info(completionMessage, {
@@ -1299,8 +1301,8 @@ export class AgentRunner {
       // Optionally persist conversation history via a storage layer in the future
 
       // Return the full message history from this turn so callers can persist it
-      // Mark as not streamed since we used non-streaming mode
-      return { ...response, messages: currentMessages, wasStreamed: false };
+      // Display was already handled above in non-streaming mode
+      return { ...response, messages: currentMessages };
     });
   }
 }
