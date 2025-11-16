@@ -282,7 +282,6 @@ export function chatWithAIAgentCommand(
   agentIdentifier: string,
   options?: {
     stream?: boolean;
-    noStream?: boolean;
   },
 ): Effect.Effect<
   void,
@@ -508,7 +507,6 @@ function startChatLoop(
   agent: Agent,
   streamingOptions?: {
     stream?: boolean;
-    noStream?: boolean;
   },
 ): Effect.Effect<
   void,
@@ -595,9 +593,10 @@ function startChatLoop(
           userInput: userMessage,
           conversationId: conversationId || "",
           conversationHistory,
-          ...(streamingOptions?.stream !== undefined ? { forceStream: streamingOptions.stream } : {}),
-          ...(streamingOptions?.noStream !== undefined
-            ? { forceNoStream: streamingOptions.noStream }
+          ...(streamingOptions?.stream !== undefined
+            ? streamingOptions.stream
+              ? { forceStream: true }
+              : { forceNoStream: true }
             : {}),
         };
 

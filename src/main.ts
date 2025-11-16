@@ -286,7 +286,12 @@ function main(): Effect.Effect<void, never> {
             noStream?: boolean;
           },
         ) => {
-          runCliEffect(chatWithAIAgentCommand(agentRef, options), debugFlag);
+          const streamOption =
+            options.noStream === true ? false : options.stream === true ? true : undefined;
+          runCliEffect(
+            chatWithAIAgentCommand(agentRef, streamOption !== undefined ? { stream: streamOption } : {}),
+            debugFlag,
+          );
         },
       );
 

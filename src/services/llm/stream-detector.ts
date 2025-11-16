@@ -85,7 +85,7 @@ export function shouldEnableStreaming(
 
   // Priority 3: Environment variables
   // Check for explicit disable
-  if (process.env.JAZZ_STREAM === "0" || process.env.JAZZ_STREAM === "false") {
+  if (process.env["JAZZ_STREAM"] === "0" || process.env["JAZZ_STREAM"] === "false") {
     return {
       shouldStream: false,
       reason: "Disabled via JAZZ_STREAM environment variable",
@@ -93,7 +93,7 @@ export function shouldEnableStreaming(
   }
 
   // Check for CI environment (disable streaming in CI by default)
-  if (process.env.CI === "true" || process.env.CI === "1") {
+  if (process.env["CI"] === "true" || process.env["CI"] === "1") {
     return {
       shouldStream: false,
       reason: "Disabled in CI environment (CI=true)",
@@ -101,7 +101,7 @@ export function shouldEnableStreaming(
   }
 
   // Check for NO_COLOR (often indicates non-interactive terminal)
-  if (process.env.NO_COLOR === "1" || process.env.NO_COLOR === "true") {
+  if (process.env["NO_COLOR"] === "1" || process.env["NO_COLOR"] === "true") {
     return {
       shouldStream: false,
       reason: "Disabled due to NO_COLOR environment variable",
@@ -109,7 +109,7 @@ export function shouldEnableStreaming(
   }
 
   // Check for explicit enable via environment
-  if (process.env.JAZZ_STREAM === "1" || process.env.JAZZ_STREAM === "true") {
+  if (process.env["JAZZ_STREAM"] === "1" || process.env["JAZZ_STREAM"] === "true") {
     return {
       shouldStream: true,
       reason: "Enabled via JAZZ_STREAM environment variable",
@@ -144,17 +144,12 @@ export function isInteractiveTerminal(): boolean {
   }
 
   // Not interactive in CI
-  if (process.env.CI === "true" || process.env.CI === "1") {
+  if (process.env["CI"] === "true" || process.env["CI"] === "1") {
     return false;
   }
 
   // Not interactive if NO_COLOR is set (convention for non-interactive terminals)
-  if (process.env.NO_COLOR === "1" || process.env.NO_COLOR === "true") {
-    return false;
-  }
-
-  // Not interactive if TERM is "dumb"
-  if (process.env.TERM === "dumb") {
+  if (process.env["NO_COLOR"] === "1" || process.env["NO_COLOR"] === "true") {
     return false;
   }
 
