@@ -53,7 +53,7 @@ export class OutputRenderer {
 
         case "thinking_complete":
           if (this.displayConfig.showThinking) {
-            this.renderThinkingComplete();
+            this.renderThinkingComplete(event);
           }
           break;
 
@@ -107,16 +107,19 @@ export class OutputRenderer {
   }
 
   private renderThinkingStart(): void {
-    process.stdout.write(`\n${chalk.dim("🧠 Thinking...")}\n`);
+    process.stdout.write(`\n${chalk.blue.bold("🧠 Agent Reasoning:")}\n${chalk.dim("─".repeat(60))}\n`);
   }
 
   private renderThinkingChunk(content: string): void {
-    // Write thinking content in dimmed color
-    process.stdout.write(chalk.dim(content));
+    // Write thinking content in a readable format
+    // Use blue color for better visibility while still distinguishing from main text
+    process.stdout.write(chalk.blue(content));
   }
 
-  private renderThinkingComplete(): void {
-    process.stdout.write(chalk.dim(" ✓\n\n"));
+  private renderThinkingComplete(event?: { totalTokens?: number }): void {
+    const totalTokens = event?.totalTokens;
+    const tokenInfo = totalTokens ? chalk.dim(` (${totalTokens} reasoning tokens)`) : "";
+    process.stdout.write(`\n${chalk.dim("─".repeat(60))}${tokenInfo}\n${chalk.green("✓ Reasoning complete")}\n\n`);
   }
 
   private renderTextStart(): void {
