@@ -18,6 +18,7 @@ import type { StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { MarkdownRenderer } from "../utils/markdown-renderer";
 import { OutputRenderer, type DisplayConfig } from "../utils/output-renderer";
+import { formatToolArguments } from "../utils/tool-formatter";
 import { agentPromptBuilder } from "./agent-prompt";
 import {
   ToolRegistryTag,
@@ -265,7 +266,13 @@ export class AgentRunner {
           textBufferMs: streamingConfig.textBufferMs,
         }),
       };
-      const renderer = new OutputRenderer(displayConfig, rendererConfig, showMetrics, agent.name);
+      const renderer = new OutputRenderer(
+        displayConfig,
+        rendererConfig,
+        showMetrics,
+        agent.name,
+        agent.config.reasoningEffort,
+      );
 
       // Run the agent loop
       const currentMessages = [...messages];
@@ -301,21 +308,20 @@ export class AgentRunner {
           }
 
           // Log LLM request in debug mode
-          if (appConfig.logging.level === "debug") {
-            yield* logger.debug("LLM request", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              provider,
-              model,
-              messageCount: currentMessages.length,
-              messages: currentMessages,
-              tools: tools.map((t) => ({
-                name: t.function.name,
-                description: t.function.description,
-              })),
-            });
-          }
+          yield* logger.debug("LLM request", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: i + 1,
+            provider,
+            model,
+            messageCount: currentMessages.length,
+            messages: currentMessages,
+            tools: tools.map((t) => ({
+              name: t.function.name,
+              description: t.function.description,
+            })),
+          });
+
 
           // Call the LLM with streaming and retry logic for rate limit errors
           let messagesToSend = currentMessages;
@@ -423,6 +429,7 @@ export class AgentRunner {
           // Use Ref to reliably track completion response from the complete event
           // This ensures thread-safe access across the stream processing fiber
           const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
+          const shouldInterruptRef = yield* Ref.make(false);
           const streamFiber = yield* Effect.fork(
             Stream.runForEach(streamWithTimeout, (event: StreamEvent) =>
               Effect.gen(function* () {
@@ -437,7 +444,28 @@ export class AgentRunner {
                 // Capture completion response and first token latency from complete event
                 // Use Ref to ensure thread-safe access and reliable capture
                 if (event.type === "complete") {
+                  const completeEventTime = Date.now();
+                  yield* logger.debug("Received complete event", {
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                    iteration: i + 1,
+                    timestamp: completeEventTime,
+                    hasResponse: !!event.response,
+                    hasContent: !!event.response?.content,
+                    hasToolCalls: !!event.response?.toolCalls,
+                    totalDurationMs: event.totalDurationMs,
+                  });
+
                   yield* Ref.set(completionRef, event.response);
+                  const refSetTime = Date.now();
+                  yield* logger.debug("Set completion in Ref", {
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                    iteration: i + 1,
+                    timestamp: refSetTime,
+                    setDurationMs: refSetTime - completeEventTime,
+                  });
+
                   if (event.metrics) {
                     const latency = event.metrics.firstTokenLatencyMs;
                     if (latency !== undefined) {
@@ -445,6 +473,9 @@ export class AgentRunner {
                       recordFirstTokenLatency(runTracker, latency);
                     }
                   }
+
+                  // Signal that we should interrupt the stream fiber
+                  yield* Ref.set(shouldInterruptRef, true);
                 }
 
                 // Handle errors in stream
@@ -459,7 +490,42 @@ export class AgentRunner {
           );
 
           // Wait for stream to complete or timeout
-          const streamExit = yield* Fiber.await(streamFiber);
+          // If complete event is received, interrupt the fiber immediately to avoid 30-second delay
+          const streamWaitStart = Date.now();
+          yield* logger.debug("Waiting for stream to complete", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: i + 1,
+            timestamp: streamWaitStart,
+          });
+
+          // Race between stream completion and interrupt signal
+          // If complete event is received, interrupt immediately to avoid 30-second delay
+          const streamExit = yield* Effect.race(
+            Fiber.await(streamFiber),
+            Effect.gen(function* () {
+              // Poll the interrupt ref - if complete event was received, interrupt immediately
+              while (true) {
+                const shouldInterrupt = yield* Ref.get(shouldInterruptRef);
+                if (shouldInterrupt) {
+                  yield* Fiber.interrupt(streamFiber);
+                  // Return the interrupted exit
+                  return yield* Fiber.await(streamFiber);
+                }
+                // Small delay to avoid busy waiting
+                yield* Effect.sleep(Duration.millis(10));
+              }
+            }),
+          );
+          const streamWaitDuration = Date.now() - streamWaitStart;
+
+          yield* logger.debug("Stream fiber completed", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: i + 1,
+            waitDurationMs: streamWaitDuration,
+            exitType: Exit.isSuccess(streamExit) ? "success" : "failure",
+          });
 
           // Get completion - either from stream or fallback
           let completion: ChatCompletionResponse;
@@ -493,27 +559,54 @@ export class AgentRunner {
             }
           } else {
             // Stream completed successfully - try to get completion from event first
+            const refCheckStart = Date.now();
             const completionFromStream = yield* Ref.get(completionRef);
+            const refCheckDuration = Date.now() - refCheckStart;
+
+            yield* logger.debug("Checked completion Ref", {
+              agentId: agent.id,
+              conversationId: actualConversationId,
+              iteration: i + 1,
+              hasCompletion: !!completionFromStream,
+              checkDurationMs: refCheckDuration,
+            });
 
             if (completionFromStream) {
               // Use response from complete event - this is the fastest path
               completion = completionFromStream;
+              yield* logger.debug("Using completion from stream event", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+                hasContent: !!completion.content,
+                hasToolCalls: !!completion.toolCalls,
+              });
             } else {
               // Fallback: if complete event didn't have response, wait for deferred
               // This can happen if there's a race condition or the event wasn't captured
               // Use a longer timeout (15 seconds) to account for slow deferred resolution
+              const deferredWaitStart = Date.now();
+              yield* logger.warn("Completion not found in Ref, waiting for deferred response", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+                timestamp: deferredWaitStart,
+              });
+
               const responseTimeout = Duration.seconds(15);
               completion = yield* streamingResult.response.pipe(
                 Effect.timeout(responseTimeout),
                 Effect.catchAll((timeoutError) => {
                   // If response timeout, cancel and fallback to non-streaming
                   return Effect.gen(function* () {
+                    const deferredWaitDuration = Date.now() - deferredWaitStart;
                     yield* streamingResult.cancel;
                     yield* logger.warn("Response timeout after stream completion, using fallback", {
                       agentId: agent.id,
                       conversationId: actualConversationId,
                       iteration: i + 1,
                       timeoutMs: Duration.toMillis(responseTimeout),
+                      waitDurationMs: deferredWaitDuration,
                       error: timeoutError instanceof Error ? timeoutError.message : String(timeoutError),
                     });
 
@@ -529,8 +622,29 @@ export class AgentRunner {
                   });
                 }),
               );
+
+              const deferredWaitDuration = Date.now() - deferredWaitStart;
+              yield* logger.debug("Deferred response received", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+                waitDurationMs: deferredWaitDuration,
+                hasContent: !!completion.content,
+                hasToolCalls: !!completion.toolCalls,
+              });
             }
           }
+
+          const completionReceivedTime = Date.now();
+          yield* logger.debug("Completion received, processing", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: i + 1,
+            timestamp: completionReceivedTime,
+            hasContent: !!completion.content,
+            hasToolCalls: !!completion.toolCalls,
+            hasUsage: !!completion.usage,
+          });
 
           if (completion.usage) {
             recordLLMUsage(runTracker, completion.usage);
@@ -602,14 +716,29 @@ export class AgentRunner {
               });
             }
 
-            // Log user-friendly tool execution info
-            const message = MarkdownRenderer.formatToolExecution(agent.name, toolNames);
-            yield* logger.info(message, {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              toolCount: completion.toolCalls.length,
-              tools: toolNames,
-            });
+            // Log user-friendly tool execution info with arguments
+            const toolDetails: string[] = [];
+            for (const toolCall of completion.toolCalls) {
+              if (toolCall.type === "function") {
+                const { name, arguments: argsString } = toolCall.function;
+                try {
+                  const parsed: unknown = JSON.parse(argsString);
+                  const args: Record<string, unknown> =
+                    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                      ? (parsed as Record<string, unknown>)
+                      : {};
+                  const argsText = formatToolArguments(name, args, { style: "plain" });
+                  toolDetails.push(argsText ? `${name} ${argsText}` : name);
+                } catch {
+                  // If parsing fails, just show the tool name
+                  toolDetails.push(name);
+                }
+              }
+            }
+
+            const toolsList = toolDetails.join(", ");
+            const message = `${agent.name} is using tools: ${toolsList}`;
+            yield* logger.info(message);
 
             // Execute each tool call
             for (const toolCall of completion.toolCalls) {
@@ -744,6 +873,7 @@ export class AgentRunner {
           }
 
           // No tool calls, we have the final response
+          const beforeCompletionLogStart = Date.now();
           response = { ...response, content: completion.content };
 
           // Log completion
@@ -754,6 +884,16 @@ export class AgentRunner {
             totalIterations: i + 1,
             hasContent: !!completion.content,
           });
+          const completionLogDuration = Date.now() - beforeCompletionLogStart;
+
+          if (completionLogDuration > 100) {
+            yield* logger.warn("Completion message logging took longer than expected", {
+              agentId: agent.id,
+              conversationId: actualConversationId,
+              iteration: i + 1,
+              durationMs: completionLogDuration,
+            });
+          }
 
           // Mark loop as finished and break
           iterationsUsed = i + 1;
@@ -1096,21 +1236,36 @@ export class AgentRunner {
             // Log user-friendly tool execution info (respect display config)
             if (displayConfig.showToolExecution) {
               const toolNames = completion.toolCalls.map((tc) => tc.function.name);
-              const message = MarkdownRenderer.formatToolExecution(agent.name, toolNames);
 
               // Display tools detected message (non-streaming mode)
               const tools = toolNames.join(", ");
               console.log(
                 `\n${chalk.yellow("🔧")} ${chalk.yellow(agent.name)} is using tools: ${chalk.cyan(tools)}\n`,
               );
-
-              yield* logger.info(message, {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                toolCount: completion.toolCalls.length,
-                tools: toolNames,
-              });
             }
+
+            // Log tool execution with arguments
+            const toolDetails: string[] = [];
+            for (const toolCall of completion.toolCalls) {
+              if (toolCall.type === "function") {
+                const { name, arguments: argsString } = toolCall.function;
+                try {
+                  const parsed: unknown = JSON.parse(argsString);
+                  const args: Record<string, unknown> =
+                    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                      ? (parsed as Record<string, unknown>)
+                      : {};
+                  const argsText = formatToolArguments(name, args, { style: "plain" });
+                  toolDetails.push(argsText ? `${name} ${argsText}` : name);
+                } catch {
+                  // If parsing fails, just show the tool name
+                  toolDetails.push(name);
+                }
+              }
+            }
+            const toolsList = toolDetails.join(", ");
+            const logMessage = `${agent.name} is using tools: ${toolsList}`;
+            yield* logger.info(logMessage);
 
             // Execute each tool call
             for (const toolCall of completion.toolCalls) {

@@ -577,6 +577,7 @@ function handleSpecialCommand(
         console.log(`   Messages in history: ${conversationHistory.length}`);
         console.log(`   Agent type: ${agent.config.agentType}`);
         console.log(`   LLM: ${agent.config.llmProvider}/${agent.config.llmModel}`);
+        console.log(`   Reasoning effort: ${agent.config.reasoningEffort}`);
         const totalTools = agent.config.tools?.length ?? 0;
         console.log(`   Tools: ${totalTools} available`);
         console.log();

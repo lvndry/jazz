@@ -2,9 +2,9 @@
 
 ## CLI & User Experience
 
-- [ ] Make reasoning tokens visible.
-- [ ] Stream content in terminal — swap to `streamText` to present incremental LLM output and reduce
-      perceived latency.
+- [->] Make reasoning tokens visible.
+- [->] Stream content in terminal — swap to `streamText` to present incremental LLM output and
+  reduce perceived latency.
 - [ ] Reduce length of system prompt.
 - [ ] Better colors and themes.
 

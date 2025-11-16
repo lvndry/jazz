@@ -225,7 +225,7 @@ class DefaultToolRegistry implements ToolRegistry {
         const tool = yield* this.getTool(name);
 
         // Log tool execution start
-        yield* logToolExecutionStart(name, context.agentId, context.conversationId).pipe(
+        yield* logToolExecutionStart(name, args).pipe(
           Effect.catchAll(() => Effect.void),
         );
 
@@ -244,9 +244,7 @@ class DefaultToolRegistry implements ToolRegistry {
             // Log successful execution with improved formatting
             yield* logToolExecutionSuccess(
               name,
-              context.agentId,
               durationMs,
-              context.conversationId,
               resultSummary,
             ).pipe(Effect.catchAll(() => Effect.void));
           } else {
@@ -259,19 +257,15 @@ class DefaultToolRegistry implements ToolRegistry {
               const approvalMsg = resultObj?.message || result.error || "Approval required";
               yield* logToolExecutionApproval(
                 name,
-                context.agentId,
                 durationMs,
                 approvalMsg,
-                context.conversationId,
               ).pipe(Effect.catchAll(() => Effect.void));
             } else {
               const errorMessage = result.error || "Tool returned success=false";
               yield* logToolExecutionError(
                 name,
-                context.agentId,
                 durationMs,
                 errorMessage,
-                context.conversationId,
               ).pipe(Effect.catchAll(() => Effect.void));
             }
           }
@@ -284,10 +278,8 @@ class DefaultToolRegistry implements ToolRegistry {
           // Log error with improved formatting
           yield* logToolExecutionError(
             name,
-            context.agentId,
             durationMs,
             errorMessage,
-            context.conversationId,
           ).pipe(Effect.catchAll(() => Effect.void));
 
           throw err as Error;

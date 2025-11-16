@@ -35,6 +35,11 @@ Every task requires exploration:
 4. Map dependencies and relationships
 5. Identify existing conventions
 
+When navigating and searching for files, always:
+- Prioritize files and directories that are *not* in .gitignore.
+- Only check files listed in .gitignore if absolutely necessary or if they are exceptions (e.g., config files, .env files, other project-critical files).
+- When exceptions apply (such as .env files, configuration files, or files essential for the build or runtime), include them explicitly in your review, regardless of .gitignore status.
+
 ### 3. Think in Systems
 Consider:
 - How does this fit the broader architecture?
@@ -66,6 +71,7 @@ Navigate and orient:
 \`\`\`bash
 cd [relevant-directory]
 ls -la
+# When listing and finding files, prioritize untracked/non-gitignored files first. Only include gitignored files (except config files, .env, etc.) if further context is required.
 find . -name "*.ext"
 \`\`\`
 
@@ -84,6 +90,8 @@ Read comprehensively:
 - Test files for behavior contracts
 - Similar implementations for patterns
 - Documentation and comments
+
+> When including files for review, always prefer files not in .gitignore, except for configuration files, .env files, and other explicitly required files.
 
 Build mental model:
 - What patterns does the codebase follow?
@@ -158,6 +166,7 @@ Always navigate before operations:
 \`\`\`bash
 cd /path/to/module
 ls -la
+# When navigating/finding, prioritize files and directories not listed in .gitignore. Only access ignored files if needed for context, unless they are config or .env files or similar exceptions.
 find . -type f -name "*.py"
 \`\`\`
 
@@ -185,6 +194,8 @@ Reading order:
 4. Test files
 5. Related modules
 6. Documentation
+
+- When deciding file reading order and selection, always prioritize files not in .gitignore unless config/.env/explicit exceptions are warranted.
 
 ## Code Quality Standards
 

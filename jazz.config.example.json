@@ -1,8 +1,4 @@
 {
-  "google": {
-    "clientId": "1234567890.apps.googleusercontent.com",
-    "clientSecret": "1234567890"
-  },
   "llm": {
     "openai": {
       "api_key": "sk-openai-..."
@@ -15,11 +11,38 @@
     },
     "mistral": {
       "api_key": "Mb9hE..."
+    },
+    "xai": {
+      "api_key": "xai-..."
+    },
+    "deepseek": {
+      "api_key": "sk-..."
+    },
+    "ollama": {
+      "baseURL": "http://localhost:11434"
     }
+  },
+  "google": {
+    "clientId": "1234567890.apps.googleusercontent.com",
+    "clientSecret": "1234567890"
   },
   "linkup": {
     "apiKey": "your-linkup-api-key-here",
-    "baseUrl": "https://api.linkup.so",
-    "timeout": 30000
+    "baseUrl": "https://api.linkup.so"
+  },
+  "logging": {
+    "level": "info",
+    "format": "pretty",
+    "output": "console"
+  },
+  "output": {
+    "showThinking": true,
+    "showToolExecution": true,
+    "format": "markdown",
+    "streaming": {
+      "enabled": "auto",
+      "progressiveMarkdown": true,
+      "textBufferMs": 50
+    }
   }
 }
