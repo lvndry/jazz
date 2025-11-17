@@ -18,7 +18,11 @@ import { LoggerServiceTag, type LoggerService } from "../../services/logger";
 import type { StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { MarkdownRenderer } from "../utils/markdown-renderer";
-import { OutputRenderer, type DisplayConfig } from "../utils/output-renderer";
+import {
+  OutputRenderer,
+  type DisplayConfig,
+  type OutputRendererConfig,
+} from "../utils/output-renderer";
 import { formatToolArguments } from "../utils/tool-formatter";
 import { agentPromptBuilder } from "./agent-prompt";
 import {
@@ -87,7 +91,7 @@ export interface AgentResponse {
 const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
   showThinking: true,
   showToolExecution: true,
-  format: "markdown",
+  mode: "normal",
 };
 
 /**
@@ -490,7 +494,8 @@ export class AgentRunner {
         showThinking: appConfig.output?.showThinking ?? DEFAULT_DISPLAY_CONFIG.showThinking,
         showToolExecution:
           appConfig.output?.showToolExecution ?? DEFAULT_DISPLAY_CONFIG.showToolExecution,
-        format: appConfig.output?.format ?? DEFAULT_DISPLAY_CONFIG.format,
+        mode: appConfig.output?.mode ?? DEFAULT_DISPLAY_CONFIG.mode,
+        colorProfile: appConfig.output?.colorProfile,
       };
 
       // Check if we should show metrics (from logging config)
@@ -546,7 +551,8 @@ export class AgentRunner {
         runContext;
 
       // Create renderer
-      const rendererConfig: StreamingConfig = {
+      const normalizedStreamingConfig: StreamingConfig = {
+        enabled: true, // Always enabled in streaming mode
         ...(streamingConfig.progressiveMarkdown !== undefined && {
           progressiveMarkdown: streamingConfig.progressiveMarkdown,
         }),
@@ -554,13 +560,14 @@ export class AgentRunner {
           textBufferMs: streamingConfig.textBufferMs,
         }),
       };
-      const renderer = new OutputRenderer(
+      const rendererConfig: OutputRendererConfig = {
         displayConfig,
-        rendererConfig,
+        streamingConfig: normalizedStreamingConfig,
         showMetrics,
-        agent.name,
-        agent.config.reasoningEffort,
-      );
+        agentName: agent.name,
+        reasoningEffort: agent.config.reasoningEffort,
+      };
+      const renderer = new OutputRenderer(rendererConfig);
 
       // Run agent loop
       const currentMessages = [...messages];
@@ -890,9 +897,9 @@ export class AgentRunner {
 
           yield* trimMessages(currentMessages, logger, agent.id, actualConversationId);
 
-          // Format content
+          // Format content - always use markdown since LLMs output markdown
           let formattedContent = completion.content;
-          if (displayConfig.format === "markdown" && formattedContent) {
+          if (formattedContent) {
             formattedContent = MarkdownRenderer.render(formattedContent);
           }
 
