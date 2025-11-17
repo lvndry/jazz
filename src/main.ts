@@ -4,6 +4,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Command } from "commander";
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
+import packageJson from "../package.json";
 import { gmailLoginCommand, gmailLogoutCommand, gmailStatusCommand } from "./cli/commands/auth";
 import { chatWithAIAgentCommand, createAIAgentCommand } from "./cli/commands/chat-agent";
 import { editAgentCommand } from "./cli/commands/edit-agent";
@@ -195,7 +196,7 @@ function main(): Effect.Effect<void, never> {
 
     const program = new Command();
 
-    program.name("jazz").description("A powerful agentic automation CLI").version("0.1.0");
+    program.name("jazz").description("A powerful agentic automation CLI").version(packageJson.version);
 
     // Global options
     program
