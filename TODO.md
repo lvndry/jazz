@@ -23,6 +23,8 @@
 - [ ] Dynamic tool loading - dynamically load only relevant tools based on context/user query
 - [ ] Being able to always approve low stake tools - Give a risk level to tools, being able to say
       if we want to allays authorize a tool so that it don't ask for approval every time
+- [ ] Being able to switch agents while in the same conversation. This would allow to switch to a
+      less costly model or more complex model while keeping the same context window
 
 ## CLI Feature Depth & Docs
 
