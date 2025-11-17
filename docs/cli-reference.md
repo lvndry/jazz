@@ -342,9 +342,9 @@ jazz update [options]
 
 **Options:**
 
-| Option    | Description                           |
-| --------- | ------------------------------------- |
-| `--check` | Check for updates without installing  |
+| Option    | Description                          |
+| --------- | ------------------------------------ |
+| `--check` | Check for updates without installing |
 
 **Examples:**
 
@@ -354,46 +354,6 @@ jazz update
 
 # Only check for updates (don't install)
 jazz update --check
-```
-
-**Example output (when update available):**
-
-```
-🔍 Checking for updates...
-
-📦 Current version: 0.4.3
-📦 Latest version:  0.5.0
-
-🎉 A new version is available!
-⚡ Starting update process...
-
-📦 Installing update using npm...
-✅ Update completed successfully!
-🎉 Jazz has been updated to version 0.5.0
-```
-
-**Example output (already up to date):**
-
-```
-🔍 Checking for updates...
-
-📦 Current version: 0.4.3
-📦 Latest version:  0.4.3
-
-✅ You're already on the latest version!
-```
-
-**With --check flag:**
-
-```
-🔍 Checking for updates...
-
-📦 Current version: 0.4.3
-📦 Latest version:  0.5.0
-
-🎉 A new version is available!
-
-💡 Run 'jazz update' to install the latest version
 ```
 
 **Package managers supported:**
