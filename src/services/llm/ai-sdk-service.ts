@@ -23,22 +23,19 @@ import {
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { z } from "zod";
 import { MAX_AGENT_STEPS } from "../../constants/agent";
-import { AgentConfigService, type ConfigService } from "../config";
-import { StreamProcessor } from "./stream-processor";
-import type { StreamEvent, StreamingResult } from "./streaming-types";
 import {
   LLMAuthenticationError,
   LLMConfigurationError,
+  LLMError,
   LLMRateLimitError,
   LLMRequestError,
-  LLMServiceTag,
-  type ChatCompletionOptions,
-  type ChatCompletionResponse,
-  type LLMError,
-  type LLMProvider,
-  type LLMService,
-  type ModelInfo,
-} from "./types";
+} from "../../core/types/errors";
+import { AgentConfigService, type ConfigService } from "../config";
+import { writeLogToFile } from "../logger";
+import { LLMProvider, LLMService, LLMServiceTag } from "./interfaces";
+import { ChatCompletionOptions, ChatCompletionResponse, ModelInfo } from "./models";
+import { StreamProcessor } from "./stream-processor";
+import type { StreamEvent, StreamingResult } from "./streaming-types";
 
 interface AISDKConfig {
   apiKeys: Record<string, string>;
@@ -239,24 +236,27 @@ function convertToLLMError(error: unknown, providerName: string): LLMError {
     }
   }
 
+  let llmError: LLMError;
   if (httpStatus === 401 || httpStatus === 403) {
-    return new LLMAuthenticationError(providerName, errorMessage);
+    llmError = new LLMAuthenticationError({ provider: providerName, message: errorMessage });
   } else if (httpStatus === 429) {
-    return new LLMRateLimitError(providerName, errorMessage);
+    llmError = new LLMRateLimitError({ provider: providerName, message: errorMessage });
   } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
-    return new LLMRequestError(providerName, errorMessage);
+    llmError = new LLMRequestError({ provider: providerName, message: errorMessage });
   } else if (httpStatus && httpStatus >= 500) {
-    return new LLMRequestError(providerName, `Server error (${httpStatus}): ${errorMessage}`);
+    llmError = new LLMRequestError({ provider: providerName, message: `Server error (${httpStatus}): ${errorMessage}` });
   } else {
     if (
       errorMessage.toLowerCase().includes("authentication") ||
       errorMessage.toLowerCase().includes("api key")
     ) {
-      return new LLMAuthenticationError(providerName, errorMessage);
+      llmError = new LLMAuthenticationError({ provider: providerName, message: errorMessage });
     } else {
-      return new LLMRequestError(providerName, errorMessage || "Unknown LLM request error");
+      llmError = new LLMRequestError({ provider: providerName, message: errorMessage || "Unknown LLM request error" });
     }
   }
+
+  return llmError;
 }
 
 class DefaultAISDKService implements LLMService {
@@ -341,7 +341,7 @@ class DefaultAISDKService implements LLMService {
     return Effect.try({
       try: () => {
         if (!this.providerModels[providerName]) {
-          throw new LLMConfigurationError(providerName, `Provider not supported: ${providerName}`);
+          throw new LLMConfigurationError({ provider: providerName, message: `Provider not supported: ${providerName}` });
         }
 
         const provider: LLMProvider = {
@@ -353,14 +353,14 @@ class DefaultAISDKService implements LLMService {
               try: () => {
                 const apiKey = this.config.apiKeys[providerName];
                 if (!apiKey) {
-                  throw new LLMAuthenticationError(providerName, "API key not configured");
+                  throw new LLMAuthenticationError({ provider: providerName, message: "API key not configured" });
                 }
               },
               catch: (error: unknown) =>
-                new LLMAuthenticationError(
-                  providerName,
-                  error instanceof Error ? error.message : String(error),
-                ),
+                new LLMAuthenticationError({
+                  provider: providerName,
+                  message: error instanceof Error ? error.message : String(error),
+                }),
             }),
           createChatCompletion: (options) => this.createChatCompletion(providerName, options),
         };
@@ -368,10 +368,10 @@ class DefaultAISDKService implements LLMService {
         return provider;
       },
       catch: (error: unknown) =>
-        new LLMConfigurationError(
-          providerName,
-          `Failed to get provider: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+        new LLMConfigurationError({
+          provider: providerName,
+          message: `Failed to get provider: ${error instanceof Error ? error.message : String(error)}`,
+        }),
     });
   }
 
@@ -475,7 +475,32 @@ class DefaultAISDKService implements LLMService {
         };
         return resultObj;
       },
-      catch: (error: unknown) => convertToLLMError(error, providerName),
+      catch: (error: unknown) => {
+        const llmError = convertToLLMError(error, providerName) as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+
+        // Log error details
+        const errorDetails: Record<string, unknown> = {
+          provider: providerName,
+          errorType: llmError._tag,
+          message: llmError.message,
+        };
+
+        if (error instanceof Error) {
+          const e = error as Error & { code?: string; status?: number; statusCode?: number; type?: string };
+          if (e.code) errorDetails["code"] = e.code;
+          if (e.status) errorDetails["status"] = e.status;
+          if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
+          if (e.type) errorDetails["type"] = e.type;
+        }
+
+        // Log to console for immediate visibility
+        console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
+
+        // Also log to file for persistence
+        void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+
+        return llmError;
+      },
     });
   }
 
@@ -543,7 +568,34 @@ class DefaultAISDKService implements LLMService {
             processor.close();
           } catch (error) {
             // Convert to LLM error
-            const llmError = convertToLLMError(error, providerName);
+            const llmError = convertToLLMError(error, providerName) as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+
+            // Log the error details
+            const errorDetails: Record<string, unknown> = {
+              provider: providerName,
+              errorType: llmError._tag,
+              message: llmError.message,
+            };
+            if (error instanceof Error) {
+              const e = error as Error & { code?: string; status?: number; statusCode?: number; type?: string };
+              if (e.code) errorDetails["code"] = e.code;
+              if (e.status) errorDetails["status"] = e.status;
+              if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
+              if (e.type) errorDetails["type"] = e.type;
+              if (typeof error === "object" && error !== null) {
+                try {
+                  const errorObj = error as unknown as Record<string, unknown>;
+                  if (errorObj["param"]) errorDetails["param"] = errorObj["param"];
+                } catch {
+                  // Ignore
+                }
+              }
+            }
+            // Log to console for immediate visibility
+            console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
+
+            // Also log to file for persistence
+            void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
             // Emit error event
             void emit(Effect.fail(Option.some(llmError)));
@@ -568,7 +620,29 @@ class DefaultAISDKService implements LLMService {
     }).pipe(
       Effect.catchAll((error) => {
         // Convert any synchronous errors to LLMError
-        return Effect.fail(convertToLLMError(error, providerName));
+        const llmError = convertToLLMError(error, providerName) as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+
+        // Log error details
+        const errorDetails: Record<string, unknown> = {
+          provider: providerName,
+          errorType: llmError._tag,
+          message: llmError.message,
+        };
+        if (error && typeof error === "object" && "code" in error) {
+          const e = error as { code?: string; status?: number; statusCode?: number; type?: string };
+          if (e.code) errorDetails["code"] = e.code;
+          if (e.status) errorDetails["status"] = e.status;
+          if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
+          if (e.type) errorDetails["type"] = e.type;
+        }
+
+        // Log to console for immediate visibility
+        console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
+
+        // Also log to file for persistence
+        void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+
+        return Effect.fail(llmError);
       }),
     );
   }
@@ -606,10 +680,10 @@ export function createAISDKServiceLayer(): Layer.Layer<
       const providers = Object.keys(apiKeys);
       if (providers.length === 0) {
         return yield* Effect.fail(
-          new LLMConfigurationError(
-            "unknown",
-            "No LLM API keys configured. Set config.llm.<provider>.api_key or env (e.g., OPENAI_API_KEY).",
-          ),
+          new LLMConfigurationError({
+            provider: "unknown",
+            message: "No LLM API keys configured. Set config.llm.<provider>.api_key or env (e.g., OPENAI_API_KEY).",
+          }),
         );
       }
 

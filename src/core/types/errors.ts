@@ -181,19 +181,6 @@ export class ResourceExhaustedError extends Data.TaggedError("ResourceExhaustedE
   readonly suggestion?: string;
 }> {}
 
-// Additional error types from services
-export class LLMConfigurationError extends Data.TaggedError("LLMConfigurationError")<{
-  readonly provider: string;
-  readonly message: string;
-  readonly suggestion?: string;
-}> {}
-
-export class LLMAuthenticationError extends Data.TaggedError("LLMAuthenticationError")<{
-  readonly provider: string;
-  readonly message: string;
-  readonly suggestion?: string;
-}> {}
-
 export class GmailAuthenticationError extends Data.TaggedError("GmailAuthenticationError")<{
   readonly message: string;
   readonly suggestion?: string;
@@ -224,6 +211,38 @@ export class UpdateInstallError extends Data.TaggedError("UpdateInstallError")<{
   readonly cause?: unknown;
   readonly suggestion?: string;
 }> {}
+
+export class LLMAuthenticationError extends Data.TaggedError("LLMAuthenticationError")<{
+  readonly provider: string;
+  readonly message: string;
+  readonly suggestion?: string;
+}> {}
+
+export class LLMRequestError extends Data.TaggedError("LLMRequestError")<{
+  readonly provider: string;
+  readonly message: string;
+  readonly suggestion?: string;
+}> {}
+
+export class LLMRateLimitError extends Data.TaggedError("LLMRateLimitError")<{
+  readonly provider: string;
+  readonly message: string;
+  readonly suggestion?: string;
+}> {}
+
+export class LLMConfigurationError extends Data.TaggedError("LLMConfigurationError")<{
+  readonly provider: string;
+  readonly message: string;
+  readonly suggestion?: string;
+}> {}
+
+
+export type LLMError =
+  | LLMAuthenticationError
+  | LLMRequestError
+  | LLMRateLimitError
+  | LLMConfigurationError;
+
 
 export type JazzError =
   | AgentNotFoundError

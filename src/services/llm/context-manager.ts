@@ -1,5 +1,4 @@
-import { type ChatMessage } from "./types";
-
+import { ChatMessage } from "./messages";
 /**
  * Advanced context window management utilities
  * Provides intelligent conversation summarization and token management

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import * as os from "os";
-import { type ChatMessage } from "../../services/llm/types";
+import { ChatMessage } from "../../services/llm/messages";
 import { CODER_PROMPT_V1 } from "./prompts/coder/v1";
 import { DEFAULT_PROMPT_V2 } from "./prompts/default/v2";
 import { GMAIL_PROMPT_V2 } from "./prompts/gmail/v2";

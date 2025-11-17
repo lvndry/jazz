@@ -1,7 +1,7 @@
 import { Context, Effect, Layer } from "effect";
 import type z from "zod";
 import type { ConfigService } from "../../../services/config";
-import { type ToolDefinition } from "../../../services/llm/types";
+import { ToolDefinition } from "../../../services/llm/tools";
 import {
   type LoggerService,
   logToolExecutionApproval,
@@ -246,6 +246,7 @@ class DefaultToolRegistry implements ToolRegistry {
               name,
               durationMs,
               resultSummary,
+              result.result,
             ).pipe(Effect.catchAll(() => Effect.void));
           } else {
             // If this is an approval-required response, log as warning with special label

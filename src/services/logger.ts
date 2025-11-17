@@ -1,4 +1,8 @@
 import { Context, Effect, Layer } from "effect";
+import { appendFile, mkdir } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { isInstalledGlobally } from "../core/utils/runtime-detection";
 import { formatToolArguments } from "../core/utils/tool-formatter";
 import { AgentConfigService, type ConfigService } from "./config";
 
@@ -23,10 +27,33 @@ export interface LoggerService {
     message: string,
     meta?: Record<string, unknown>,
   ) => Effect.Effect<void, never, ConfigService>;
+  /**
+   * Write a log entry to file only (not console)
+   * Used for detailed logging that should not clutter console output
+   */
+  readonly writeToFile: (
+    level: "debug" | "info" | "warn" | "error",
+    message: string,
+    meta?: Record<string, unknown>,
+  ) => Effect.Effect<void, Error>;
 }
 
 export class LoggerServiceImpl implements LoggerService {
   constructor() {}
+
+  writeToFile(
+    level: "debug" | "info" | "warn" | "error",
+    message: string,
+    meta?: Record<string, unknown>,
+  ): Effect.Effect<void, Error> {
+    return Effect.tryPromise({
+      try: () => writeFormattedLogToFile(level, message, meta),
+      catch: (error: unknown) =>
+        new Error(
+          `Failed to write to log file: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    });
+  }
 
   debug(
     message: string,
@@ -310,6 +337,7 @@ export function logToolExecutionSuccess(
   toolName: string,
   durationMs: number,
   resultSummary?: string,
+  fullResult?: unknown,
 ): Effect.Effect<void, never, LoggerService | ConfigService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -320,6 +348,33 @@ export function logToolExecutionSuccess(
       : `${toolEmoji} ${toolName} ✅ (${duration})`;
 
     yield* logger.info(message);
+
+    // Log full result to file only (not console) for ALL tools
+    if (fullResult !== undefined) {
+      try {
+        const resultString = typeof fullResult === "string"
+          ? fullResult
+          : JSON.stringify(fullResult, null, 2);
+
+        // Truncate very long results to avoid overwhelming logs
+        const maxLength = 10000;
+        const truncatedResult = resultString.length > maxLength
+          ? resultString.substring(0, maxLength) + `\n... (truncated, ${resultString.length - maxLength} more characters)`
+          : resultString;
+
+        yield* logger.writeToFile("info", `Tool result for ${toolName}`, {
+          toolName,
+          resultLength: resultString.length,
+          result: truncatedResult,
+        }).pipe(Effect.catchAll(() => Effect.void));
+      } catch (error) {
+        // If serialization fails, log a warning to file
+        yield* logger.writeToFile("warn", `Failed to log full result for ${toolName}`, {
+          toolName,
+          error: error instanceof Error ? error.message : String(error),
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
+    }
   });
 }
 
@@ -390,4 +445,90 @@ function formatDuration(ms: number): string {
     const seconds = ((ms % 60000) / 1000).toFixed(1);
     return `${minutes}m ${seconds}s`;
   }
+}
+
+let logsDirectoryCache: string | undefined;
+
+/**
+ * Get the logs directory path
+ * Uses caching for performance
+ */
+export function getLogsDirectory(): string {
+  if (!logsDirectoryCache) {
+    logsDirectoryCache = resolveLogsDirectory();
+  }
+
+  return logsDirectoryCache;
+}
+
+/**
+ * Shared helper to format a log line for file output
+ */
+function formatLogLineForFile(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  meta?: Record<string, unknown>,
+): string {
+  const timestamp = new Date().toISOString();
+  const metaText = meta && Object.keys(meta).length > 0
+    ? " " + JSON.stringify(meta, jsonReplacer)
+    : "";
+  return `${timestamp} [${level.toUpperCase()}] ${message}${metaText}\n`;
+}
+
+/**
+ * Shared helper to write a formatted log line to file
+ */
+async function writeFormattedLogToFile(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  meta?: Record<string, unknown>,
+): Promise<void> {
+  const logsDir = getLogsDirectory();
+  await mkdir(logsDir, { recursive: true });
+  const logFilePath = path.join(logsDir, "jazz.log");
+  const line = formatLogLineForFile(level, message, meta);
+  await appendFile(logFilePath, line, { encoding: "utf8" });
+}
+
+/**
+ * Write a log entry directly to file (standalone function, no Effect/dependencies)
+ * Useful for logging in contexts where LoggerService is not available
+ */
+export async function writeLogToFile(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  meta?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await writeFormattedLogToFile(level, message, meta);
+  } catch {
+    // Silently fail to avoid breaking the calling code
+  }
+}
+
+/**
+ * Resolve the logs directory path
+ * 1. Check JAZZ_LOG_DIR environment variable
+ * 2. Check if installed globally (~/.jazz/logs)
+ * 3. Default to cwd/logs
+ */
+function resolveLogsDirectory(): string {
+  // 1. Allow manual override via environment variable
+  const override = process.env["JAZZ_LOG_DIR"];
+  if (override && override.trim().length > 0) {
+    return path.resolve(override);
+  }
+
+  // 2. Check if we're in a globally installed package
+  if (isInstalledGlobally()) {
+    // Global install: use ~/.jazz/logs
+    const homeDir = os.homedir();
+    if (homeDir && homeDir.trim().length > 0) {
+      return path.join(homeDir, ".jazz", "logs");
+    }
+  }
+
+  // 3. Local development or local install: use cwd/logs
+  return path.resolve(process.cwd(), "logs");
 }

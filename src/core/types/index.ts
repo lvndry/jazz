@@ -4,7 +4,6 @@ import { Schema } from "effect";
  * Core types and interfaces for the Jazz automation CLI
  */
 
-export type { ChatMessage } from "../../services/llm/types";
 
 // Agent Types
 export interface Agent {
