@@ -13,8 +13,19 @@ search the web, and orchestrate complex workflows—all through natural conversa
 
 ## What Makes Jazz Different?
 
-- **Traditional AI assistants**: Chat and suggest
-- **Jazz agents**: Chat and **execute**
+Traditional AI assistants can chat and suggest solutions, but you still have to do the work
+yourself. Jazz agents go beyond conversation—they **actually execute tasks** in the real world.
+
+**The difference in practice:**
+
+- **Traditional AI**: "Here's how you could check your email..." → You still need to open Gmail
+  yourself
+- **Jazz agents**: "I'll check your email" → Agent reads your inbox, summarizes messages, and takes
+  action
+
+Jazz agents have real capabilities: they can read your emails, commit code to git, execute shell
+commands, search the web, and orchestrate complex workflows—all through natural conversation, with
+your approval for sensitive operations.
 
 ### Real Capabilities, Real Results
 
