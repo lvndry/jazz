@@ -14,7 +14,7 @@ import {
   createGitPushTool,
   createGitStatusTool,
 } from "./git-tools";
-import { createToolRegistryLayer, type ToolExecutionResult } from "./tool-registry";
+import { createToolRegistryLayer, type Tool, type ToolExecutionResult } from "./tool-registry";
 
 function getCurrentBranch(): Effect.Effect<string, Error> {
   return Effect.async((resume) => {
@@ -41,85 +41,126 @@ describe("Git Tools", () => {
     );
   };
 
+  // Helper to verify tool structure
+  function verifyToolStructure<R = never>(
+    tool: Tool<R>,
+    expectedName: string,
+    shouldHaveApproval: boolean,
+  ) {
+    expect(tool.name).toBe(expectedName);
+    expect(tool.description).toBeTruthy();
+    expect(tool.description.length).toBeGreaterThan(20); // Ensure description is meaningful
+    expect(tool.parameters).toBeDefined();
+    expect(tool.parameters).toHaveProperty("_def");
+    expect(tool.execute).toBeDefined();
+    expect(typeof tool.execute).toBe("function");
+    expect(tool.createSummary).toBeDefined();
+    expect(typeof tool.createSummary).toBe("function");
+
+    if (shouldHaveApproval) {
+      expect(tool.approvalExecuteToolName).toBeDefined();
+      expect(typeof tool.approvalExecuteToolName).toBe("string");
+    }
+  }
+
   it("should create git_status tool with proper structure", () => {
     const tool = createGitStatusTool();
-    expect(tool.name).toBe("git_status");
-    expect(tool.description).toContain("working tree status");
-    expect(tool.parameters).toBeDefined();
-    expect(tool.execute).toBeDefined();
-    expect(tool.createSummary).toBeDefined();
+    verifyToolStructure(tool, "git_status", false);
   });
 
   it("should create git_log tool with proper structure", () => {
     const tool = createGitLogTool();
-    expect(tool.name).toBe("git_log");
-    expect(tool.description).toContain("commit history");
-    expect(tool.parameters).toBeDefined();
-    expect(tool.execute).toBeDefined();
-    expect(tool.createSummary).toBeDefined();
+    verifyToolStructure(tool, "git_log", false);
   });
 
   it("should create git_add tool with approval requirement", () => {
     const tool = createGitAddTool();
-    expect(tool.name).toBe("git_add");
-    expect(tool.description).toContain("requires user approval");
-    expect(tool.parameters).toBeDefined();
-    expect(tool.execute).toBeDefined();
-    expect(tool.createSummary).toBeDefined();
+    verifyToolStructure(tool, "git_add", true);
   });
 
   it("should create git_commit tool with approval requirement", () => {
     const tool = createGitCommitTool();
-    expect(tool.name).toBe("git_commit");
-    expect(tool.description).toContain("requires user approval");
-    expect(tool.parameters).toBeDefined();
-    expect(tool.execute).toBeDefined();
-    expect(tool.createSummary).toBeDefined();
+    verifyToolStructure(tool, "git_commit", true);
   });
 
   it("should create git_diff tool with proper structure", () => {
     const tool = createGitDiffTool();
-    expect(tool.name).toBe("git_diff");
-    expect(tool.description).toContain("changes between commits");
-    expect(tool.parameters).toBeDefined();
-    expect(tool.execute).toBeDefined();
-    expect(tool.createSummary).toBeDefined();
+    verifyToolStructure(tool, "git_diff", false);
   });
 
   it("should create git_push tool with approval requirement", () => {
     const tool = createGitPushTool();
-    expect(tool.name).toBe("git_push");
-    expect(tool.description).toContain("requires user approval");
-    expect(tool.parameters).toBeDefined();
-    expect(tool.execute).toBeDefined();
-    expect(tool.createSummary).toBeDefined();
+    verifyToolStructure(tool, "git_push", true);
   });
 
   it("should create git_pull tool with approval requirement", () => {
     const tool = createGitPullTool();
-    expect(tool.name).toBe("git_pull");
-    expect(tool.description).toContain("requires user approval");
-    expect(tool.parameters).toBeDefined();
-    expect(tool.execute).toBeDefined();
-    expect(tool.createSummary).toBeDefined();
+    verifyToolStructure(tool, "git_pull", true);
   });
 
   it("should create git_branch tool with proper structure", () => {
     const tool = createGitBranchTool();
-    expect(tool.name).toBe("git_branch");
-    expect(tool.description).toContain("branches");
-    expect(tool.parameters).toBeDefined();
-    expect(tool.execute).toBeDefined();
-    expect(tool.createSummary).toBeDefined();
+    verifyToolStructure(tool, "git_branch", false);
   });
 
   it("should create git_checkout tool with approval requirement", () => {
     const tool = createGitCheckoutTool();
-    expect(tool.name).toBe("git_checkout");
-    expect(tool.description).toContain("requires user approval");
-    expect(tool.parameters).toBeDefined();
-    expect(tool.execute).toBeDefined();
-    expect(tool.createSummary).toBeDefined();
+    verifyToolStructure(tool, "git_checkout", true);
+  });
+
+  it("should require approval for destructive git operations", async () => {
+    const tools = [
+      {
+        name: "git_add",
+        create: createGitAddTool,
+        validArgs: { files: ["test.txt"], all: false },
+      },
+      {
+        name: "git_commit",
+        create: createGitCommitTool,
+        validArgs: { message: "test commit" },
+      },
+      {
+        name: "git_push",
+        create: createGitPushTool,
+        validArgs: {},
+      },
+      {
+        name: "git_pull",
+        create: createGitPullTool,
+        validArgs: {},
+      },
+      {
+        name: "git_checkout",
+        create: createGitCheckoutTool,
+        validArgs: { branch: "test-branch" },
+      },
+    ];
+
+    for (const { create, validArgs } of tools) {
+      const tool = create();
+      const context = {
+        agentId: "test-agent",
+        conversationId: "test-conversation",
+      };
+
+      // Try to execute with valid args but without approval - should require approval
+      const result = await Effect.runPromise(
+        Effect.provide(
+          tool.execute(validArgs, context),
+          createTestLayer(),
+        ) as Effect.Effect<ToolExecutionResult, Error, never>,
+      );
+
+      // Tools with approval should return approval required
+      expect(result.success).toBe(false);
+      expect(result.result).toBeDefined();
+      if (result.result && typeof result.result === "object") {
+        expect(result.result).toHaveProperty("approvalRequired", true);
+        expect(result.result).toHaveProperty("message");
+        expect(typeof (result.result as { message: string }).message).toBe("string");
+      }
+    }
   });
 
   it("should execute git_status tool", async () => {
