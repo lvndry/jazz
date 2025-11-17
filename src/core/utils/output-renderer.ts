@@ -1,9 +1,13 @@
-import chalk from "chalk";
 import { Effect } from "effect";
 import type { StreamEvent } from "../../services/llm/streaming-types";
 import type { LLMError, ToolCall } from "../../services/llm/types";
 import type { StreamingConfig } from "../types";
 import { MarkdownRenderer } from "./markdown-renderer";
+import type { ColorProfile, OutputMode, RenderTheme } from "./output-theme";
+import { createTheme, detectColorProfile } from "./output-theme";
+import type { OutputWriter } from "./output-writer";
+import { JSONWriter, QuietWriter, TerminalWriter } from "./output-writer";
+import { ThinkingRenderer } from "./thinking-renderer";
 import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,
@@ -11,205 +15,354 @@ import {
 
 /**
  * Display configuration for rendering
+ * Simplified - removed format field since LLMs always output markdown
  */
 export interface DisplayConfig {
   readonly showThinking: boolean;
   readonly showToolExecution: boolean;
-  readonly format: "plain" | "markdown";
+  readonly mode: OutputMode;
+  readonly colorProfile?: ColorProfile | undefined; // Auto-detect if not specified
+}
+
+/**
+ * Output renderer configuration
+ */
+export interface OutputRendererConfig {
+  readonly displayConfig: DisplayConfig;
+  readonly streamingConfig: StreamingConfig;
+  readonly showMetrics: boolean;
+  readonly agentName: string;
+  readonly reasoningEffort?: "disable" | "low" | "medium" | "high" | undefined;
 }
 
 /**
  * Output renderer for terminal display
- * Handles progressive rendering of streaming LLM responses and provides
- * utility methods for formatting tool output in both streaming and non-streaming modes
+ * Handles progressive rendering of streaming LLM responses
+ * Supports multiple output modes: normal, quiet, verbose, json, accessible
  */
 export class OutputRenderer {
-  private toolNameMap: Map<string, string> = new Map();
-  private thinkingStarted: boolean = false;
-  private thinkingHasContent: boolean = false;
+  private readonly writer: OutputWriter;
+  private readonly theme: RenderTheme;
+  private readonly thinkingRenderer: ThinkingRenderer;
+  private readonly toolNameMap: Map<string, string> = new Map();
+  private readonly mode: OutputMode;
 
-  constructor(
-    private displayConfig: DisplayConfig,
-    private streamingConfig: StreamingConfig,
-    private showMetrics: boolean,
-    private agentName: string,
-    private reasoningEffort?: "disable" | "low" | "medium" | "high",
-  ) {}
+  constructor(private config: OutputRendererConfig) {
+    // Determine color profile
+    const colorProfile = config.displayConfig.colorProfile || detectColorProfile();
+
+    // Determine output mode
+    this.mode = config.displayConfig.mode;
+
+    // Create appropriate writer based on mode
+    this.writer = this.createWriter(this.mode);
+
+    // Create theme (use no-color for json/accessible modes)
+    this.theme = createTheme(
+      this.mode === "json" || this.mode === "accessible" ? "none" : colorProfile,
+    );
+
+    // Create thinking renderer
+    this.thinkingRenderer = new ThinkingRenderer(this.theme);
+  }
 
   /**
-   * Handle a streaming event and update terminal
+   * Create writer based on output mode
+   */
+  private createWriter(mode: OutputMode): OutputWriter {
+    switch (mode) {
+      case "quiet":
+        return new QuietWriter();
+      case "json":
+        return new JSONWriter();
+      case "normal":
+      case "verbose":
+      case "accessible":
+        return new TerminalWriter();
+    }
+  }
+
+  /**
+   * Handle a streaming event and update output
    */
   handleEvent(event: StreamEvent): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      switch (event.type) {
-        case "stream_start":
-          this.renderStreamStart(event);
-          break;
-
-        case "thinking_start":
-          if (this.displayConfig.showThinking) {
-            this.thinkingStarted = true;
-            // Render header immediately when reasoning starts
-            this.renderThinkingStart();
-          }
-          break;
-
-        case "thinking_chunk":
-          if (this.displayConfig.showThinking && this.thinkingStarted) {
-            // Mark that we have content (even if this chunk is empty, we want to track that we're in a reasoning block)
-            if (!this.thinkingHasContent) {
-              this.thinkingHasContent = true;
-            }
-            // Always render chunks when reasoning is active
-            this.renderThinkingChunk(event.content);
-          }
-          break;
-
-        case "thinking_complete":
-          if (this.displayConfig.showThinking) {
-            // Only show completion if reasoning was actually started (thinking_start was received)
-            // If thinkingStarted is false, this event shouldn't be displayed
-            if (this.thinkingStarted) {
-              // If we have tokens, always show them
-              if (event.totalTokens !== undefined) {
-                this.renderThinkingComplete(event);
-                // Reset state after rendering
-                this.thinkingStarted = false;
-                this.thinkingHasContent = false;
-              } else if (this.thinkingHasContent) {
-                // We have content but no tokens yet - show completion without tokens
-                this.renderThinkingComplete(event);
-                // Keep thinkingStarted true to allow token updates later
-                // Don't reset yet - wait for potential token update
-              } else {
-                // No content and no tokens - but thinking_start was received, so show minimal completion
-                // This means reasoning started but no content chunks were received
-                // Keep thinkingStarted true to allow token updates later
-                process.stdout.write(`\n${chalk.dim("─".repeat(60))}\n${chalk.green("✓ Reasoning complete")}\n\n`);
-                // Don't reset thinkingStarted yet - wait for potential token update
-              }
-            } else if (event.totalTokens !== undefined) {
-              // This is an update with tokens after the initial completion
-              // Rewrite the completion line with token info
-              // Move cursor up to the separator line and rewrite both lines
-              process.stdout.write(`\x1b[2A\x1b[0J`); // Move up 2 lines and clear to end of screen
-              this.renderThinkingComplete(event);
-              this.thinkingStarted = false;
-              this.thinkingHasContent = false;
-            } else {
-              // thinking_complete received but thinkingStarted is false and no tokens
-              // This shouldn't happen - ignore it silently
-              // This prevents showing "Reasoning complete" when no reasoning actually occurred
-            }
-          }
-          break;
-
-        case "text_start":
-          this.renderTextStart();
-          break;
-
-        case "text_chunk":
-          this.renderTextChunk(event.delta);
-          break;
-
-        case "tool_call":
-          this.renderToolCall(event.toolCall);
-          break;
-
-        case "tools_detected":
-          if (this.displayConfig.showToolExecution) {
-            this.renderToolsDetected(event);
-          }
-          break;
-
-        case "tool_execution_start":
-          if (this.displayConfig.showToolExecution) {
-            this.renderToolExecutionStart(event);
-          }
-          break;
-
-        case "tool_execution_complete":
-          if (this.displayConfig.showToolExecution) {
-            this.renderToolExecutionComplete(event);
-          }
-          break;
-
-        case "usage_update":
-          // Optional: show token usage (can be enabled later)
-          break;
-
-        case "error":
-          this.renderError(event.error);
-          break;
-
-        case "complete":
-          this.renderComplete(event);
-          break;
+    return Effect.gen(this, function* () {
+      const output = this.renderEvent(event);
+      if (output) {
+        yield* this.writer.write(output);
       }
     });
   }
 
-  private renderStreamStart(event: { provider: string; model: string }): void {
-    // Reset thinking state for new stream
-    this.thinkingStarted = false;
-    this.thinkingHasContent = false;
-    const reasoningInfo = this.reasoningEffort
-      ? chalk.dim(` [Reasoning: ${this.reasoningEffort}]`)
-      : "";
-    process.stdout.write(`\n${chalk.bold.blue(this.agentName)} (${event.provider}/${event.model})${reasoningInfo}:\n`);
-  }
+  /**
+   * Render an event to a string (pure function for easier testing)
+   */
+  private renderEvent(event: StreamEvent): string | null {
+    // In quiet mode, only show errors
+    if (this.mode === "quiet" && event.type !== "error") {
+      return null;
+    }
 
-  private renderThinkingStart(): void {
-    process.stdout.write(`\n${chalk.blue.bold("🧠 Agent Reasoning:")}\n${chalk.dim("─".repeat(60))}\n`);
-  }
+    switch (event.type) {
+      case "stream_start":
+        return this.renderStreamStart(event);
 
-  private renderThinkingChunk(content: string): void {
-    // Write thinking content in a readable format
-    // Use blue color for better visibility while still distinguishing from main text
-    process.stdout.write(chalk.italic.gray.dim(content));
-  }
-
-  private renderThinkingComplete(event?: { totalTokens?: number }): void {
-    const totalTokens = event?.totalTokens;
-    const tokenInfo = totalTokens ? chalk.dim(` (${totalTokens} reasoning tokens)`) : "";
-    process.stdout.write(`\n${chalk.dim("─".repeat(60))}${tokenInfo}\n${chalk.green("✓ Reasoning complete")}\n\n`);
-  }
-
-  private renderTextStart(): void {
-    // Start text section - no visual indicator needed
-    // Text will start streaming immediately
-  }
-
-  private renderTextChunk(delta: string): void {
-    if (this.streamingConfig.progressiveMarkdown && this.displayConfig.format === "markdown") {
-      // Use markdown renderer to stream formatted output with buffering
-      const bufferMs = this.streamingConfig.textBufferMs ?? 50;
-      try {
-        const rendered: string = MarkdownRenderer.renderChunk(delta, bufferMs);
-        if (rendered.length > 0) {
-          process.stdout.write(rendered);
+      case "thinking_start":
+        if (this.config.displayConfig.showThinking) {
+          return this.thinkingRenderer.handleStart();
         }
-      } catch {
-        // Fallback to plain text if markdown rendering fails
-        process.stdout.write(delta);
-      }
-    } else {
-      // Plain text streaming
-      process.stdout.write(delta);
+        return null;
+
+      case "thinking_chunk":
+        if (this.config.displayConfig.showThinking && this.thinkingRenderer.isActive()) {
+          return this.thinkingRenderer.handleChunk(event.content);
+        }
+        return null;
+
+      case "thinking_complete":
+        if (this.config.displayConfig.showThinking) {
+          const { output, shouldClearLines } = this.thinkingRenderer.handleComplete(
+            event.totalTokens,
+          );
+          if (shouldClearLines > 0) {
+            // Need to clear previous lines first
+            Effect.runSync(this.writer.clearLines(shouldClearLines));
+          }
+          return output;
+        }
+        return null;
+
+      case "text_start":
+        // No visual indicator needed
+        return null;
+
+      case "text_chunk":
+        return this.renderTextChunk(event.delta);
+
+      case "tool_call":
+        // Tool call detected - execution will be handled by separate events
+        if (this.mode === "verbose") {
+          return this.renderToolCallVerbose(event.toolCall);
+        }
+        return null;
+
+      case "tools_detected":
+        if (this.config.displayConfig.showToolExecution) {
+          return this.renderToolsDetected(event);
+        }
+        return null;
+
+      case "tool_execution_start":
+        if (this.config.displayConfig.showToolExecution) {
+          return this.renderToolExecutionStart(event);
+        }
+        return null;
+
+      case "tool_execution_complete":
+        if (this.config.displayConfig.showToolExecution) {
+          return this.renderToolExecutionComplete(event);
+        }
+        return null;
+
+      case "usage_update":
+        if (this.mode === "verbose") {
+          return this.renderUsageUpdate(event);
+        }
+        return null;
+
+      case "error":
+        return this.renderError(event.error);
+
+      case "complete":
+        return this.renderComplete(event);
+
+      default:
+        return null;
     }
   }
 
-  private renderToolCall(_toolCall: ToolCall): void {
-    // Note: Tool call detected, but don't execute yet
-    // Agent runner will handle execution and emit tool_execution_start/complete events
-    // We could show a subtle indicator here if needed
+  private renderStreamStart(event: { provider: string; model: string }): string {
+    // Reset thinking state for new stream
+    this.thinkingRenderer.reset();
+
+    const reasoningInfo = this.config.reasoningEffort
+      ? this.theme.colors.dim(` [Reasoning: ${this.config.reasoningEffort}]`)
+      : "";
+
+    return (
+      "\n" +
+      this.theme.colors.agentName(this.config.agentName) +
+      ` (${event.provider}/${event.model})` +
+      reasoningInfo +
+      ":\n"
+    );
   }
 
-  private renderToolsDetected(event: { toolNames: readonly string[]; agentName: string }): void {
-    const tools = event.toolNames.join(", ");
-    process.stdout.write(
-      `\n${chalk.yellow("🔧")} ${chalk.yellow(event.agentName)} is using tools: ${chalk.cyan(tools)}\n`,
+  private renderTextChunk(delta: string): string {
+    // Always use markdown rendering since LLMs output markdown
+    if (
+      this.config.streamingConfig.progressiveMarkdown &&
+      this.mode !== "json" &&
+      this.mode !== "accessible"
+    ) {
+      // Use markdown renderer with buffering
+      const bufferMs = this.config.streamingConfig.textBufferMs ?? 50;
+      try {
+        const rendered: string = MarkdownRenderer.renderChunk(delta, bufferMs);
+        return rendered;
+      } catch (error) {
+        // Fallback to plain text if markdown rendering fails
+        // Log warning in verbose mode
+        if (this.mode === "verbose") {
+          console.warn("Markdown rendering failed:", error);
+        }
+        return delta;
+      }
+    } else {
+      // Plain text streaming for accessible/json modes
+      return delta;
+    }
+  }
+
+  private renderToolCallVerbose(toolCall: ToolCall): string {
+    const { colors, icons } = this.theme;
+    return (
+      "\n" +
+      colors.dim(`${icons.tool} Tool call detected: `) +
+      colors.toolName(toolCall.function.name) +
+      "\n"
     );
+  }
+
+  private renderToolsDetected(event: {
+    toolNames: readonly string[];
+    agentName: string;
+  }): string {
+    const { colors, icons } = this.theme;
+    const tools = event.toolNames.join(", ");
+    return (
+      "\n" +
+      colors.warning(`${icons.tool} ${event.agentName} is using tools: `) +
+      colors.toolName(tools) +
+      "\n"
+    );
+  }
+
+  private renderToolExecutionStart(event: {
+    toolName: string;
+    toolCallId: string;
+    arguments?: Record<string, unknown>;
+  }): string {
+    // Store tool name for later use in completion
+    this.toolNameMap.set(event.toolCallId, event.toolName);
+
+    const argsStr = OutputRenderer.formatToolArguments(event.toolName, event.arguments);
+    const { colors, icons } = this.theme;
+
+    return (
+      "\n" +
+      colors.toolName(`${icons.tool}  Executing tool: `) +
+      colors.toolName(event.toolName) +
+      argsStr +
+      "..."
+    );
+  }
+
+  private renderToolExecutionComplete(event: {
+    toolCallId: string;
+    result: string;
+    durationMs: number;
+    summary?: string;
+  }): string {
+    // Get tool name from map
+    const toolName = this.toolNameMap.get(event.toolCallId) || "";
+    const summary = event.summary || OutputRenderer.formatToolResult(toolName, event.result);
+    const { colors, icons } = this.theme;
+
+    // Clean up
+    this.toolNameMap.delete(event.toolCallId);
+
+    return (
+      ` ${colors.success(icons.success)}` +
+      (summary ? ` ${summary}` : "") +
+      ` ${colors.dim(`(${event.durationMs}ms)`)}` +
+      "\n"
+    );
+  }
+
+  private renderUsageUpdate(event: {
+    usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  }): string {
+    const { colors } = this.theme;
+    return (
+      colors.dim(
+        `\n[Tokens: ${event.usage.promptTokens} prompt + ${event.usage.completionTokens} completion = ${event.usage.totalTokens} total]\n`,
+      ) + "\n"
+    );
+  }
+
+  private renderError(error: LLMError): string {
+    const { colors, icons } = this.theme;
+    return "\n" + colors.error(`${icons.error} Error: ${error.message}`) + "\n";
+  }
+
+  private renderComplete(event: {
+    totalDurationMs: number;
+    metrics?: {
+      firstTokenLatencyMs: number;
+      tokensPerSecond?: number;
+      totalTokens?: number;
+    };
+  }): string {
+    // Flush any remaining buffered markdown content
+    if (
+      this.config.streamingConfig.progressiveMarkdown &&
+      this.mode !== "json" &&
+      this.mode !== "accessible"
+    ) {
+      try {
+        const remaining: string = MarkdownRenderer.flushBuffer();
+        if (remaining.length > 0) {
+          // Write immediately (side effect, but necessary for proper output)
+          Effect.runSync(this.writer.write(remaining));
+        }
+      } catch {
+        // Silently ignore flush errors
+      }
+    }
+
+    let output = "";
+
+    // Show metrics if enabled and available
+    if (this.config.showMetrics && event.metrics) {
+      const parts: string[] = [];
+
+      if (event.metrics.firstTokenLatencyMs) {
+        parts.push(`First token: ${event.metrics.firstTokenLatencyMs}ms`);
+      }
+
+      if (event.metrics.tokensPerSecond) {
+        parts.push(`Speed: ${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
+      }
+
+      if (event.metrics.totalTokens) {
+        parts.push(`Total: ${event.metrics.totalTokens} tokens`);
+      }
+
+      if (parts.length > 0) {
+        output += this.theme.colors.dim(`\n[${parts.join(" | ")}]\n`);
+      }
+    }
+
+    // In verbose mode, show total duration
+    if (this.mode === "verbose") {
+      output += this.theme.colors.dim(`\n[Total duration: ${event.totalDurationMs}ms]\n`);
+    }
+
+    // Add final newline for separation
+    output += "\n";
+
+    return output;
   }
 
   /**
@@ -226,84 +379,29 @@ export class OutputRenderer {
     return formatToolResultShared(toolName, result);
   }
 
-  private renderToolExecutionStart(event: {
-    toolName: string;
-    toolCallId: string;
-    arguments?: Record<string, unknown>;
-  }): void {
-    // Store tool name for later use in completion
-    this.toolNameMap.set(event.toolCallId, event.toolName);
-
-    const argsStr = OutputRenderer.formatToolArguments(event.toolName, event.arguments);
-    process.stdout.write(
-      `\n${chalk.cyan("⚙️")}  Executing tool: ${chalk.cyan(event.toolName)}${argsStr}...`,
-    );
+  /**
+   * Reset renderer state (call between conversations)
+   */
+  reset(): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      this.toolNameMap.clear();
+      this.thinkingRenderer.reset();
+      MarkdownRenderer.resetStreamingBuffer();
+    });
   }
 
-  private renderToolExecutionComplete(event: {
-    toolCallId: string;
-    result: string;
-    durationMs: number;
-    summary?: string;
-  }): void {
-    // Get tool name from map
-    const toolName = this.toolNameMap.get(event.toolCallId) || "";
-    const summary = event.summary || OutputRenderer.formatToolResult(toolName, event.result);
-    process.stdout.write(
-      ` ${chalk.green("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${event.durationMs}ms)`)}\n`,
-    );
-
-    // Clean up
-    this.toolNameMap.delete(event.toolCallId);
+  /**
+   * Flush any pending output
+   */
+  flush(): Effect.Effect<void, never> {
+    return this.writer.flush();
   }
 
-  private renderError(error: LLMError): void {
-    console.error(`\n${chalk.red("✗")} Error: ${error.message}\n`);
-  }
-
-  private renderComplete(event: {
-    totalDurationMs: number;
-    metrics?: {
-      firstTokenLatencyMs: number;
-      tokensPerSecond?: number;
-      totalTokens?: number;
-    };
-  }): void {
-    // Flush any remaining buffered markdown content
-    if (this.streamingConfig.progressiveMarkdown && this.displayConfig.format === "markdown") {
-      try {
-        const remaining: string = MarkdownRenderer.flushBuffer();
-        if (remaining.length > 0) {
-          process.stdout.write(remaining);
-        }
-      } catch {
-        // Silently ignore flush errors
-      }
-    }
-
-    // Show metrics at the end if enabled and available
-    if (this.showMetrics && event.metrics) {
-      const parts: string[] = [];
-
-      if (event.metrics.firstTokenLatencyMs) {
-        parts.push(`First token: ${event.metrics.firstTokenLatencyMs}ms`);
-      }
-
-      if (event.metrics.tokensPerSecond) {
-        parts.push(`Speed: ${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
-      }
-
-      if (event.metrics.totalTokens) {
-        parts.push(`Total: ${event.metrics.totalTokens} tokens`);
-      }
-
-      if (parts.length > 0) {
-        process.stdout.write(chalk.dim(`\n[${parts.join(" | ")}]\n`));
-      }
-    }
-
-    // Ensure stdout is flushed and add clear separation before the next prompt
-    // Use console.log to ensure proper flushing and newline handling
-    console.log();
+  /**
+   * Get the underlying writer (useful for testing)
+   */
+  getWriter(): OutputWriter {
+    return this.writer;
   }
 }
+

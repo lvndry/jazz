@@ -155,7 +155,8 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
         ...(override.output.showToolExecution !== undefined
           ? { showToolExecution: override.output.showToolExecution }
           : {}),
-        ...(override.output.format !== undefined ? { format: override.output.format } : {}),
+        ...(override.output.mode !== undefined ? { mode: override.output.mode } : {}),
+        ...(override.output.colorProfile !== undefined ? { colorProfile: override.output.colorProfile } : {}),
         // Merge streaming config
         ...(override.output.streaming && {
           streaming: { ...(base.output?.streaming ?? {}), ...override.output.streaming },

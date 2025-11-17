@@ -229,6 +229,16 @@ export interface LinkupConfig {
 }
 
 /**
+ * Output mode controls what content is displayed and how
+ */
+export type OutputMode = "normal" | "quiet" | "verbose" | "json" | "accessible";
+
+/**
+ * Color profile for terminal output
+ */
+export type ColorProfile = "full" | "basic" | "none";
+
+/**
  * Output/display configuration for CLI and terminal rendering
  * These settings apply to both streaming and non-streaming modes
  */
@@ -247,11 +257,24 @@ export interface OutputConfig {
   readonly showToolExecution?: boolean;
 
   /**
-   * Output format for terminal display
-   * - "plain": Plain text
-   * - "markdown": Formatted markdown (default)
+   * Output mode
+   * - "normal": Standard output with colors and formatting (default)
+   * - "quiet": Suppress all output except errors
+   * - "verbose": Show detailed information including token usage
+   * - "json": Output structured JSON for programmatic consumption
+   * - "accessible": Plain text without colors or emojis
+   * Default: "normal"
    */
-  readonly format?: "plain" | "markdown";
+  readonly mode?: OutputMode;
+
+  /**
+   * Color profile for terminal output
+   * - "full": Full color support with emojis
+   * - "basic": 16 colors without emojis
+   * - "none": No colors (plain text)
+   * Default: auto-detect based on terminal capabilities
+   */
+  readonly colorProfile?: ColorProfile;
 
   /**
    * Streaming-specific configuration

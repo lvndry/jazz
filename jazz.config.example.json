@@ -38,7 +38,8 @@
   "output": {
     "showThinking": true,
     "showToolExecution": true,
-    "format": "markdown",
+    "mode": "normal",
+    "colorProfile": "full",
     "streaming": {
       "enabled": "auto",
       "progressiveMarkdown": true,
