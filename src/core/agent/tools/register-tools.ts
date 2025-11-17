@@ -17,6 +17,11 @@ import {
   createWriteFileTool,
 } from "./fs-tools";
 import {
+  createExecuteGitAddTool,
+  createExecuteGitCheckoutTool,
+  createExecuteGitCommitTool,
+  createExecuteGitPullTool,
+  createExecuteGitPushTool,
   createGitAddTool,
   createGitBranchTool,
   createGitCheckoutTool,
@@ -250,6 +255,13 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     const gitPullTool = createGitPullTool();
     const gitCheckoutTool = createGitCheckoutTool();
 
+    // Internal execution tools (called after approval)
+    const executeGitAddTool = createExecuteGitAddTool();
+    const executeGitCommitTool = createExecuteGitCommitTool();
+    const executeGitPushTool = createExecuteGitPushTool();
+    const executeGitPullTool = createExecuteGitPullTool();
+    const executeGitCheckoutTool = createExecuteGitCheckoutTool();
+
     // Register safe tools
     yield* registerTool(gitStatusTool);
     yield* registerTool(gitLogTool);
@@ -262,6 +274,13 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(gitPushTool);
     yield* registerTool(gitPullTool);
     yield* registerTool(gitCheckoutTool);
+
+    // Register internal execution tools
+    yield* registerTool(executeGitAddTool);
+    yield* registerTool(executeGitCommitTool);
+    yield* registerTool(executeGitPushTool);
+    yield* registerTool(executeGitPullTool);
+    yield* registerTool(executeGitCheckoutTool);
   });
 }
 

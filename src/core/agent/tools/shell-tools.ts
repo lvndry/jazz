@@ -38,7 +38,7 @@ export function createExecuteCommandTool(): Tool<FileSystemContextService> {
   return defineTool<FileSystemContextService, ExecuteCommandArgs>({
     name: "execute_command",
     description:
-      "Execute a shell command on the system. This tool requires user approval for security reasons.",
+      "Execute shell commands on the system with user approval. Runs commands in a specified working directory with configurable timeout. Includes security checks to block dangerous operations (file deletion, system commands, etc.). All command executions are logged for security auditing. Use for running build scripts, package managers, git commands, or other CLI tools. Requires explicit user confirmation before execution.",
     tags: ["shell", "execution"],
     parameters: withApprovalBoolean(
       z
@@ -138,7 +138,7 @@ export function createExecuteCommandApprovedTool(): Tool<FileSystemContextServic
   return defineTool<FileSystemContextService, ExecuteCommandApprovedArgs>({
     name: "execute_command_approved",
     description:
-      "Execute an approved shell command. This is the internal tool called after user approval.",
+      "Internal tool that executes a shell command after user approval. Performs additional security validation, runs the command with sanitized environment variables, and logs execution details. This is automatically called after the user approves execute_command.",
     hidden: true,
     parameters: z
       .object({
