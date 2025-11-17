@@ -246,6 +246,7 @@ class DefaultToolRegistry implements ToolRegistry {
               name,
               durationMs,
               resultSummary,
+              result.result,
             ).pipe(Effect.catchAll(() => Effect.void));
           } else {
             // If this is an approval-required response, log as warning with special label

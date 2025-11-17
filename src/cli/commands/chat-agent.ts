@@ -32,6 +32,7 @@ import { CommonSuggestions } from "../../core/utils/error-handler";
 import type { ConfigService } from "../../services/config";
 import type { ChatMessage } from "../../services/llm/types";
 import {
+  LLMAuthenticationError,
   LLMConfigurationError,
   LLMRateLimitError,
   LLMRequestError,
@@ -742,7 +743,24 @@ function startChatLoop(
           Effect.catchAll((error) =>
             Effect.gen(function* () {
               const logger = yield* LoggerServiceTag;
-              yield* logger.error("Agent execution error", { error });
+
+              // Log error with detailed information
+              const errorDetails: Record<string, unknown> = {
+                agentId: agent.id,
+                conversationId: conversationId || undefined,
+                errorMessage: error instanceof Error ? error.message : String(error),
+              };
+
+              if (error instanceof LLMRateLimitError || error instanceof LLMRequestError || error instanceof LLMAuthenticationError) {
+                errorDetails["errorType"] = error._tag;
+                errorDetails["provider"] = error.provider;
+              }
+
+              if (error instanceof Error && error.stack) {
+                errorDetails["stack"] = error.stack;
+              }
+
+              yield* logger.error("Agent execution error", errorDetails);
 
               console.log();
 

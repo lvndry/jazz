@@ -1,11 +1,10 @@
 import { Effect } from "effect";
 import { randomUUID } from "node:crypto";
 import { appendFile, mkdir } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
+import { getLogsDirectory } from "../../../services/logger";
 import { type Agent } from "../../types";
-import { isInstalledGlobally } from "../../utils/runtime-detection";
 
 export interface AgentRunTrackerContext {
   readonly agent: Agent;
@@ -299,32 +298,3 @@ function pushError(tracker: AgentRunTracker, error: unknown, context?: string): 
   return contextualized;
 }
 
-let logsDirectoryCache: string | undefined;
-
-function getLogsDirectory(): string {
-  if (!logsDirectoryCache) {
-    logsDirectoryCache = resolveLogsDirectory();
-  }
-  return logsDirectoryCache;
-}
-
-function resolveLogsDirectory(): string {
-  // 1. Allow manual override via environment variable
-  const override = process.env["JAZZ_LOG_DIR"];
-  if (override && override.trim().length > 0) {
-    return path.resolve(override);
-  }
-
-  // 2. Check if we're in a globally installed package
-  //    Global npm/pnpm/bun/yarn packages are installed in specific directories
-  if (isInstalledGlobally()) {
-    // Global install: use ~/.jazz/logs
-    const homeDir = os.homedir();
-    if (homeDir && homeDir.trim().length > 0) {
-      return path.join(homeDir, ".jazz", "logs");
-    }
-  }
-
-  // 3. Local development or local install: use cwd/logs
-  return path.resolve(process.cwd(), "logs");
-}

@@ -6,7 +6,9 @@ import { AgentConfigService, type ConfigService } from "../../services/config";
 import { shouldEnableStreaming } from "../../services/llm/stream-detector";
 import type { StreamEvent } from "../../services/llm/streaming-types";
 import {
+  LLMAuthenticationError,
   LLMRateLimitError,
+  LLMRequestError,
   LLMServiceTag,
   type ChatCompletionResponse,
   type ChatMessage,
@@ -616,6 +618,17 @@ export class AgentRunner {
                 return yield* llmService.createStreamingChatCompletion(provider, llmOptions);
               } catch (error) {
                 recordLLMRetry(runTracker, error);
+                // Log LLM error details
+                if (error instanceof LLMRequestError || error instanceof LLMRateLimitError || error instanceof LLMAuthenticationError) {
+                  yield* logger.error("LLM request error", {
+                    provider,
+                    model: agent.config.llmModel,
+                    errorType: error._tag,
+                    message: error.message,
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                  });
+                }
                 throw error;
               }
             }),
@@ -625,9 +638,27 @@ export class AgentRunner {
             ),
           ).pipe(
             Effect.timeout(STREAM_CREATION_TIMEOUT),
-            Effect.catchAll(() =>
+            Effect.catchAll((error) =>
               Effect.gen(function* () {
-                yield* logger.warn("Streaming failed, falling back to non-streaming mode");
+                // Log the error that caused fallback
+                if (error instanceof LLMRequestError || error instanceof LLMRateLimitError || error instanceof LLMAuthenticationError) {
+                  yield* logger.error("Streaming failed, falling back to non-streaming mode", {
+                    provider,
+                    model: agent.config.llmModel,
+                    errorType: error._tag,
+                    message: error.message,
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                  });
+                } else {
+                  yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
+                    provider,
+                    model: agent.config.llmModel,
+                    error: error instanceof Error ? error.message : String(error),
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                  });
+                }
                 const fallback = yield* llmService.createChatCompletion(provider, llmOptions);
                 return {
                   stream: Stream.empty,
@@ -655,8 +686,20 @@ export class AgentRunner {
                   }
                 }
 
-                if (event.type === "error" && !event.recoverable) {
-                  yield* streamingResult.cancel;
+                if (event.type === "error") {
+                  // Log the error
+                  yield* logger.error("Stream event error", {
+                    provider,
+                    model: agent.config.llmModel,
+                    errorType: event.error._tag,
+                    message: event.error.message,
+                    recoverable: event.recoverable,
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                  });
+                  if (!event.recoverable) {
+                    yield* streamingResult.cancel;
+                  }
                 }
               }),
             ),
