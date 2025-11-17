@@ -38,7 +38,7 @@ export function createExecuteCommandTool(): Tool<FileSystemContextService> {
   return defineTool<FileSystemContextService, ExecuteCommandArgs>({
     name: "execute_command",
     description:
-      "Execute a shell command on the system. This tool requires user approval for security reasons.",
+      "Request to execute a shell command on the system (requires user approval). After user approval, the actual execution is performed by the execute_command_approved tool. Runs commands in a specified working directory with configurable timeout. Includes security checks to block dangerous operations (file deletion, system commands, etc.). All command executions are logged for security auditing.",
     tags: ["shell", "execution"],
     parameters: withApprovalBoolean(
       z
@@ -100,7 +100,9 @@ Agent: ${context.agentId}
 
 This command will be executed on your system. Please review it carefully and confirm if you want to proceed.
 
-⚠️  WARNING: This tool can execute any command on your system. Only approve commands you trust! ⚠️`;
+⚠️  WARNING: This tool can execute any command on your system. Only approve commands you trust! ⚠️
+
+IMPORTANT: After getting user confirmation, you MUST call the execute_command_approved tool with these exact arguments: {"command": ${JSON.stringify(args.command)}, "workingDirectory": ${args.workingDirectory ? JSON.stringify(args.workingDirectory) : "undefined"}, "timeout": ${args.timeout ?? "undefined"}}`;
         }),
       errorMessage: "Command execution requires explicit user approval for security reasons.",
       execute: {
@@ -138,7 +140,7 @@ export function createExecuteCommandApprovedTool(): Tool<FileSystemContextServic
   return defineTool<FileSystemContextService, ExecuteCommandApprovedArgs>({
     name: "execute_command_approved",
     description:
-      "Execute an approved shell command. This is the internal tool called after user approval.",
+      "Internal tool that executes a shell command after user approval. Performs additional security validation, runs the command with sanitized environment variables, and logs execution details. This is automatically called after the user approves execute_command.",
     hidden: true,
     parameters: z
       .object({

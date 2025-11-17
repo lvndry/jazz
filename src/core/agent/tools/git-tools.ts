@@ -163,7 +163,7 @@ export function createGitStatusTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitStatusArgs>({
     name: "git_status",
-    description: "Show the working tree status of a Git repository",
+    description: "Display the current status of a Git repository's working tree. Shows modified files, untracked files, staged changes, and current branch information. Use this to understand what changes exist before committing or to check repository state.",
     tags: ["git", "status"],
     parameters,
     validate: (args) => {
@@ -270,7 +270,7 @@ export function createGitLogTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitLogArgs>({
     name: "git_log",
-    description: "Show commit history of a Git repository",
+    description: "Display commit history of a Git repository. Shows commit hashes, authors, dates, and messages. Supports limiting results and one-line format for quick overview. Use to review recent changes, find specific commits, or understand repository evolution.",
     tags: ["git", "history"],
     parameters,
     validate: (args) => {
@@ -377,7 +377,7 @@ export function createGitDiffTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
     name: "git_diff",
-    description: "Show changes between commits, commit and working tree, etc.",
+    description: "Display differences between commits, branches, or working tree. Shows what has changed in files (additions, deletions, modifications). Use to review changes before committing, compare branches, or see what differs from a specific commit. Supports staged changes and branch comparisons.",
     tags: ["git", "diff"],
     parameters,
     validate: (args) => {
@@ -479,7 +479,7 @@ export function createGitBranchTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitBranchArgs>({
     name: "git_branch",
-    description: "List, create, or delete branches",
+    description: "List Git branches (local, remote, or both). Shows all available branches and identifies the current branch. Use to see what branches exist, check which branch you're on, or discover remote branches. Note: This tool only lists branches; use git_checkout to switch branches.",
     tags: ["git", "branch"],
     parameters,
     validate: (args) => {
@@ -588,7 +588,7 @@ export function createGitAddTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitAddArgs>({
     name: "git_add",
-    description: "Add file contents to the staging area (requires user approval)",
+    description: "Stage files for commit by adding them to Git's index. Prepares changes to be included in the next commit. Can stage specific files or all changes. Requires user approval before execution.",
     tags: ["git", "index"],
     parameters,
     validate: (args) => {
@@ -616,34 +616,113 @@ export function createGitAddTool(): ReturnType<typeof defineTool> {
               });
 
           const filesToAdd = typedArgs.all ? "all files" : typedArgs.files.join(", ");
-          return `Add ${filesToAdd} to Git staging area in ${workingDir}?`;
+          return `Add ${filesToAdd} to Git staging area in ${workingDir}?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_add tool with these exact arguments: {"path": ${typedArgs.path ? `"${typedArgs.path}"` : "undefined"}, "files": ${JSON.stringify(typedArgs.files)}, "all": ${typedArgs.all === true}}`;
         }),
+      errorMessage: "Approval required: Git add requires user confirmation.",
+      execute: {
+        toolName: "execute_git_add",
+        buildArgs: (args) => {
+          const typedArgs = args;
+          return {
+            path: typedArgs.path,
+            files: typedArgs.files,
+            all: typedArgs.all,
+          };
+        },
+      },
+    },
+    handler: (_args: Record<string, unknown>, _context: ToolExecutionContext) =>
+      Effect.succeed({
+        success: false,
+        result: null,
+        error: "Approval required",
+      } as ToolExecutionResult),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { addedFiles: string | string[] };
+        return `Added ${Array.isArray(gitResult.addedFiles) ? gitResult.addedFiles.join(", ") : gitResult.addedFiles} to staging area`;
+      }
+      return result.success ? "Files added to Git" : "Git add failed";
+    },
+  });
+}
+
+export function createExecuteGitAddTool(): ReturnType<typeof defineTool> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe("Path to the Git repository (defaults to current working directory)"),
+      files: z.array(z.string()).min(1).describe("Files to add to the staging area"),
+      all: z.boolean().optional().describe("Add all changes in the working directory"),
+    })
+    .strict();
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitAddArgs>({
+    name: "execute_git_add",
+    description:
+      "Internal tool that performs the actual git add operation after user has approved the git_add request. Stages files for commit by adding them to Git's index.",
+    hidden: true,
+    parameters,
+    validate: (args) => {
+      const result = parameters.safeParse(args);
+      return result.success
+        ? ({ valid: true, value: result.data as GitAddArgs } as const)
+        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: Record<string, unknown>, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitAddArgs;
 
-        const workingDir = typedArgs.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              typedArgs.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: error instanceof Error ? error.message : String(error),
+            } as ToolExecutionResult),
+          ),
+        );
 
-        // For now, return a simple add message
+        if (
+          typeof workingDirResult === "object" &&
+          "success" in workingDirResult &&
+          !workingDirResult.success
+        ) {
+          return workingDirResult;
+        }
+
+        const workingDir = workingDirResult as string;
+
+        const addArgs: string[] = ["add"];
+        if (typedArgs.all) {
+          addArgs.push("--all");
+        } else {
+          addArgs.push(...typedArgs.files);
+        }
+
+        const commandResult = yield* runGitCommand({
+          args: addArgs,
+          workingDirectory: workingDir,
+        });
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr || `git add failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
         return {
           success: true,
           result: {
             workingDirectory: workingDir,
             addedFiles: typedArgs.all ? "all files" : typedArgs.files,
-            message: "Files would be added to staging area",
+            message: "Files added to staging area",
           },
         };
       }),
@@ -671,7 +750,7 @@ export function createGitCommitTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCommitArgs>({
     name: "git_commit",
-    description: "Record changes to the repository (requires user approval)",
+    description: "Create a commit to permanently record staged changes in the repository history. Requires a commit message describing the changes. Can commit all staged changes or all working directory changes. Requires user approval before execution.",
     tags: ["git", "commit"],
     parameters,
     validate: (args) => {
@@ -698,34 +777,119 @@ export function createGitCommitTool(): ReturnType<typeof defineTool> {
                 ...(context.conversationId && { conversationId: context.conversationId }),
               });
 
-          return `Commit changes in ${workingDir} with message: "${typedArgs.message}"?`;
+          return `Commit changes in ${workingDir} with message: "${typedArgs.message}"?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_commit tool with these exact arguments: {"path": ${typedArgs.path ? `"${typedArgs.path}"` : "undefined"}, "message": ${JSON.stringify(typedArgs.message)}, "all": ${typedArgs.all === true}}`;
         }),
+      errorMessage: "Approval required: Git commit requires user confirmation.",
+      execute: {
+        toolName: "execute_git_commit",
+        buildArgs: (args) => {
+          const typedArgs = args;
+          return {
+            path: typedArgs.path,
+            message: typedArgs.message,
+            all: typedArgs.all,
+          };
+        },
+      },
+    },
+    handler: (_args: Record<string, unknown>, _context: ToolExecutionContext) =>
+      Effect.succeed({
+        success: false,
+        result: null,
+        error: "Approval required",
+      } as ToolExecutionResult),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { message: string; commitHash: string };
+        return `Committed: "${gitResult.message}" (${gitResult.commitHash})`;
+      }
+      return result.success ? "Git commit created" : "Git commit failed";
+    },
+  });
+}
+
+export function createExecuteGitCommitTool(): ReturnType<typeof defineTool> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe("Path to the Git repository (defaults to current working directory)"),
+      message: z.string().min(1).describe("Commit message"),
+      all: z.boolean().optional().describe("Commit all changes in the working directory"),
+    })
+    .strict();
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCommitArgs>({
+    name: "execute_git_commit",
+    description:
+      "Internal tool that performs the actual git commit operation after user has approved the git_commit request. Creates a commit with the specified message.",
+    hidden: true,
+    parameters,
+    validate: (args) => {
+      const result = parameters.safeParse(args);
+      return result.success
+        ? ({ valid: true, value: result.data as GitCommitArgs } as const)
+        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: Record<string, unknown>, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitCommitArgs;
 
-        const workingDir = typedArgs.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              typedArgs.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: error instanceof Error ? error.message : String(error),
+            } as ToolExecutionResult),
+          ),
+        );
 
-        // For now, return a simple commit message
+        if (
+          typeof workingDirResult === "object" &&
+          "success" in workingDirResult &&
+          !workingDirResult.success
+        ) {
+          return workingDirResult;
+        }
+
+        const workingDir = workingDirResult as string;
+
+        const commitArgs: string[] = ["commit", "-m", typedArgs.message];
+        if (typedArgs.all) {
+          commitArgs.push("--all");
+        }
+
+        const commandResult = yield* runGitCommand({
+          args: commitArgs,
+          workingDirectory: workingDir,
+        });
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr || `git commit failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        // Get the commit hash from the last commit
+        const hashResult = yield* runGitCommand({
+          args: ["rev-parse", "HEAD"],
+          workingDirectory: workingDir,
+        });
+
+        const commitHash = hashResult.exitCode === 0 ? hashResult.stdout.trim() : "unknown";
+
         return {
           success: true,
           result: {
             workingDirectory: workingDir,
             message: typedArgs.message,
-            commitHash: "abc123",
+            commitHash,
           },
         };
       }),
@@ -754,7 +918,7 @@ export function createGitPushTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPushArgs>({
     name: "git_push",
-    description: "Update remote refs along with associated objects (requires user approval)",
+    description: "Upload local commits to a remote repository. Pushes the current branch (or specified branch) to the remote (default: origin). Supports force push to overwrite remote history (use with caution). Requires user approval before execution.",
     tags: ["git", "push"],
     parameters,
     validate: (args) => {
@@ -784,39 +948,28 @@ export function createGitPushTool(): ReturnType<typeof defineTool> {
           const remote = typedArgs.remote || "origin";
           const branch = typedArgs.branch || "current branch";
           const force = typedArgs.force ? " (force push)" : "";
-          return `Push${force} to ${remote}/${branch} in ${workingDir}?`;
+          return `Push${force} to ${remote}/${branch} in ${workingDir}?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_push tool with these exact arguments: {"path": ${typedArgs.path ? `"${typedArgs.path}"` : "undefined"}, "remote": ${typedArgs.remote ? `"${typedArgs.remote}"` : "undefined"}, "branch": ${typedArgs.branch ? `"${typedArgs.branch}"` : "undefined"}, "force": ${typedArgs.force === true}}`;
         }),
+      errorMessage: "Approval required: Git push requires user confirmation.",
+      execute: {
+        toolName: "execute_git_push",
+        buildArgs: (args) => {
+          const typedArgs = args;
+          return {
+            path: typedArgs.path,
+            remote: typedArgs.remote,
+            branch: typedArgs.branch,
+            force: typedArgs.force,
+          };
+        },
+      },
     },
-    handler: (args: Record<string, unknown>, context: ToolExecutionContext) =>
-      Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const typedArgs = args as GitPushArgs;
-
-        const workingDir = typedArgs.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              typedArgs.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
-
-        // For now, return a simple push message
-        return {
-          success: true,
-          result: {
-            workingDirectory: workingDir,
-            remote: typedArgs.remote || "origin",
-            branch: typedArgs.branch || "current",
-            force: typedArgs.force || false,
-            message: "Changes would be pushed successfully",
-          },
-        };
-      }),
+    handler: (_args: Record<string, unknown>, _context: ToolExecutionContext) =>
+      Effect.succeed({
+        success: false,
+        result: null,
+        error: "Approval required",
+      } as ToolExecutionResult),
     createSummary: (result: ToolExecutionResult) => {
       if (result.success && typeof result.result === "object" && result.result !== null) {
         const gitResult = result.result as { remote: string; branch: string; force: boolean };
@@ -843,7 +996,7 @@ export function createGitPullTool(): ReturnType<typeof defineTool> {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPullArgs>({
     name: "git_pull",
     description:
-      "Fetch from and integrate with another repository or a local branch (requires user approval)",
+      "Download and merge changes from a remote repository into the current branch. Combines git fetch and git merge. Supports rebase mode to maintain linear history. Use to update your local branch with remote changes. Requires user approval before execution.",
     tags: ["git", "pull"],
     parameters,
     validate: (args) => {
@@ -873,39 +1026,28 @@ export function createGitPullTool(): ReturnType<typeof defineTool> {
           const remote = typedArgs.remote || "origin";
           const branch = typedArgs.branch || "current branch";
           const rebase = typedArgs.rebase ? " (with rebase)" : "";
-          return `Pull${rebase} from ${remote}/${branch} in ${workingDir}?`;
+          return `Pull${rebase} from ${remote}/${branch} in ${workingDir}?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_pull tool with these exact arguments: {"path": ${typedArgs.path ? `"${typedArgs.path}"` : "undefined"}, "remote": ${typedArgs.remote ? `"${typedArgs.remote}"` : "undefined"}, "branch": ${typedArgs.branch ? `"${typedArgs.branch}"` : "undefined"}, "rebase": ${typedArgs.rebase === true}}`;
         }),
+      errorMessage: "Approval required: Git pull requires user confirmation.",
+      execute: {
+        toolName: "execute_git_pull",
+        buildArgs: (args) => {
+          const typedArgs = args;
+          return {
+            path: typedArgs.path,
+            remote: typedArgs.remote,
+            branch: typedArgs.branch,
+            rebase: typedArgs.rebase,
+          };
+        },
+      },
     },
-    handler: (args: Record<string, unknown>, context: ToolExecutionContext) =>
-      Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const typedArgs = args as GitPullArgs;
-
-        const workingDir = typedArgs.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              typedArgs.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
-
-        // For now, return a simple pull message
-        return {
-          success: true,
-          result: {
-            workingDirectory: workingDir,
-            remote: typedArgs.remote || "origin",
-            branch: typedArgs.branch || "current",
-            rebase: typedArgs.rebase || false,
-            message: "Changes would be pulled successfully",
-          },
-        };
-      }),
+    handler: (_args: Record<string, unknown>, _context: ToolExecutionContext) =>
+      Effect.succeed({
+        success: false,
+        result: null,
+        error: "Approval required",
+      } as ToolExecutionResult),
     createSummary: (result: ToolExecutionResult) => {
       if (result.success && typeof result.result === "object" && result.result !== null) {
         const gitResult = result.result as { remote: string; branch: string; rebase: boolean };
@@ -931,7 +1073,7 @@ export function createGitCheckoutTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
     name: "git_checkout",
-    description: "Switch branches or restore working tree files (requires user approval)",
+    description: "Switch to a different branch or create a new branch. Changes the working directory to match the specified branch. Can create new branches or force checkout (discarding local changes). Use to navigate between branches or start work on a new feature branch. Requires user approval before execution.",
     tags: ["git", "checkout"],
     parameters,
     validate: (args) => {
@@ -960,28 +1102,308 @@ export function createGitCheckoutTool(): ReturnType<typeof defineTool> {
 
           const create = typedArgs.create ? " (create new branch)" : "";
           const force = typedArgs.force ? " (force - discards changes)" : "";
-          return `Checkout branch "${typedArgs.branch}"${create}${force} in ${workingDir}?`;
+          return `Checkout branch "${typedArgs.branch}"${create}${force} in ${workingDir}?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_checkout tool with these exact arguments: {"path": ${typedArgs.path ? `"${typedArgs.path}"` : "undefined"}, "branch": "${typedArgs.branch}", "create": ${typedArgs.create === true}, "force": ${typedArgs.force === true}}`;
         }),
+      errorMessage: "Approval required: Git checkout requires user confirmation.",
+      execute: {
+        toolName: "execute_git_checkout",
+        buildArgs: (args) => {
+          const typedArgs = args;
+          return {
+            path: typedArgs.path,
+            branch: typedArgs.branch,
+            create: typedArgs.create,
+            force: typedArgs.force,
+          };
+        },
+      },
+    },
+    handler: (_args: Record<string, unknown>, _context: ToolExecutionContext) =>
+      Effect.succeed({
+        success: false,
+        result: null,
+        error: "Approval required",
+      } as ToolExecutionResult),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { branch: string; created: boolean };
+        return `Switched to ${gitResult.branch}${gitResult.created ? " (newly created)" : ""}`;
+      }
+      return result.success ? "Git checkout successful" : "Git checkout failed";
+    },
+  });
+}
+
+export function createExecuteGitPushTool(): ReturnType<typeof defineTool> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe("Path to the Git repository (defaults to current working directory)"),
+      remote: z.string().optional().describe("Remote repository name (defaults to 'origin')"),
+      branch: z.string().optional().describe("Branch to push (defaults to current branch)"),
+      force: z.boolean().optional().describe("Force push (overwrites remote history)"),
+    })
+    .strict();
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPushArgs>({
+    name: "execute_git_push",
+    description:
+      "Internal tool that performs the actual git push operation after user has approved the git_push request. Uploads local commits to the remote repository.",
+    hidden: true,
+    parameters,
+    validate: (args) => {
+      const result = parameters.safeParse(args);
+      return result.success
+        ? ({ valid: true, value: result.data as GitPushArgs } as const)
+        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+    },
+    handler: (args: Record<string, unknown>, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const typedArgs = args as GitPushArgs;
+
+        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: error instanceof Error ? error.message : String(error),
+            } as ToolExecutionResult),
+          ),
+        );
+
+        if (
+          typeof workingDirResult === "object" &&
+          "success" in workingDirResult &&
+          !workingDirResult.success
+        ) {
+          return workingDirResult;
+        }
+
+        const workingDir = workingDirResult as string;
+
+        const remote = typedArgs.remote || "origin";
+        const branch = typedArgs.branch || "";
+
+        const pushArgs: string[] = ["push"];
+        if (typedArgs.force) {
+          pushArgs.push("--force");
+        }
+        if (branch) {
+          pushArgs.push(remote, branch);
+        } else {
+          pushArgs.push(remote);
+        }
+
+        const commandResult = yield* runGitCommand({
+          args: pushArgs,
+          workingDirectory: workingDir,
+        });
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr || `git push failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        return {
+          success: true,
+          result: {
+            workingDirectory: workingDir,
+            remote,
+            branch: branch || "current",
+            force: typedArgs.force || false,
+            message: "Changes pushed successfully",
+          },
+        };
+      }),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { remote: string; branch: string; force: boolean };
+        return `Pushed to ${gitResult.remote}/${gitResult.branch}${gitResult.force ? " (force)" : ""}`;
+      }
+      return result.success ? "Git push successful" : "Git push failed";
+    },
+  });
+}
+
+export function createExecuteGitPullTool(): ReturnType<typeof defineTool> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe("Path to the Git repository (defaults to current working directory)"),
+      remote: z.string().optional().describe("Remote repository name (defaults to 'origin')"),
+      branch: z.string().optional().describe("Branch to pull (defaults to current branch)"),
+      rebase: z.boolean().optional().describe("Use rebase instead of merge"),
+    })
+    .strict();
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPullArgs>({
+    name: "execute_git_pull",
+    description:
+      "Internal tool that performs the actual git pull operation after user has approved the git_pull request. Downloads and merges changes from the remote repository.",
+    hidden: true,
+    parameters,
+    validate: (args) => {
+      const result = parameters.safeParse(args);
+      return result.success
+        ? ({ valid: true, value: result.data as GitPullArgs } as const)
+        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+    },
+    handler: (args: Record<string, unknown>, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const typedArgs = args as GitPullArgs;
+
+        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: error instanceof Error ? error.message : String(error),
+            } as ToolExecutionResult),
+          ),
+        );
+
+        if (
+          typeof workingDirResult === "object" &&
+          "success" in workingDirResult &&
+          !workingDirResult.success
+        ) {
+          return workingDirResult;
+        }
+
+        const workingDir = workingDirResult as string;
+
+        const remote = typedArgs.remote || "origin";
+        const branch = typedArgs.branch || "";
+
+        const pullArgs: string[] = ["pull"];
+        if (typedArgs.rebase) {
+          pullArgs.push("--rebase");
+        }
+        if (branch) {
+          pullArgs.push(remote, branch);
+        } else {
+          pullArgs.push(remote);
+        }
+
+        const commandResult = yield* runGitCommand({
+          args: pullArgs,
+          workingDirectory: workingDir,
+        });
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr || `git pull failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        return {
+          success: true,
+          result: {
+            workingDirectory: workingDir,
+            remote,
+            branch: branch || "current",
+            rebase: typedArgs.rebase || false,
+            message: "Changes pulled successfully",
+          },
+        };
+      }),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { remote: string; branch: string; rebase: boolean };
+        return `Pulled from ${gitResult.remote}/${gitResult.branch}${gitResult.rebase ? " (rebase)" : ""}`;
+      }
+      return result.success ? "Git pull successful" : "Git pull failed";
+    },
+  });
+}
+
+export function createExecuteGitCheckoutTool(): ReturnType<typeof defineTool> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe("Path to the Git repository (defaults to current working directory)"),
+      branch: z.string().min(1).describe("Branch name to checkout"),
+      create: z.boolean().optional().describe("Create the branch if it doesn't exist"),
+      force: z.boolean().optional().describe("Force checkout (discards local changes)"),
+    })
+    .strict();
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
+    name: "execute_git_checkout",
+    description:
+      "Internal tool that performs the actual git checkout operation after user has approved the git_checkout request. Switches to the specified branch or creates a new branch.",
+    hidden: true,
+    parameters,
+    validate: (args) => {
+      const result = parameters.safeParse(args);
+      return result.success
+        ? ({ valid: true, value: result.data as GitCheckoutArgs } as const)
+        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: Record<string, unknown>, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitCheckoutArgs;
 
-        const workingDir = typedArgs.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              typedArgs.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: error instanceof Error ? error.message : String(error),
+            } as ToolExecutionResult),
+          ),
+        );
 
-        // For now, return a simple checkout message
+        if (
+          typeof workingDirResult === "object" &&
+          "success" in workingDirResult &&
+          !workingDirResult.success
+        ) {
+          return workingDirResult;
+        }
+
+        const workingDir = workingDirResult as string;
+
+        const checkoutArgs: string[] = ["checkout"];
+        if (typedArgs.create) {
+          checkoutArgs.push("-b");
+        }
+        if (typedArgs.force) {
+          checkoutArgs.push("--force");
+        }
+        checkoutArgs.push(typedArgs.branch);
+
+        const commandResult = yield* runGitCommand({
+          args: checkoutArgs,
+          workingDirectory: workingDir,
+        });
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr ||
+              `git checkout failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
         return {
           success: true,
           result: {

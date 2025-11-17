@@ -16,31 +16,43 @@ describe("Shell Tools", () => {
     const tool = createExecuteCommandTool();
 
     expect(tool.name).toBe("execute_command");
-    expect(tool.description).toContain("Execute a shell command");
-    expect(tool.description).toContain("requires user approval");
+    expect(tool.description).toBeTruthy();
+    expect(tool.description.length).toBeGreaterThan(20); // Ensure description is meaningful
     expect(tool.hidden).toBe(false);
+    expect(tool.execute).toBeDefined();
+    expect(typeof tool.execute).toBe("function");
+    expect(tool.approvalExecuteToolName).toBe("execute_command_approved");
 
     // Check if parameters is a Zod schema (it should be)
     expect(tool.parameters).toBeDefined();
     expect(typeof tool.parameters).toBe("object");
-
-    // For Zod schemas, we check for _def property instead of type/properties
     expect(tool.parameters).toHaveProperty("_def");
+
+    // Verify schema has required fields
+    const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
+    expect(schema._def.shape).toHaveProperty("command");
+    expect(schema._def.shape).toHaveProperty("confirm");
   });
 
   it("should create execute_command_approved tool with proper structure", () => {
     const tool = createExecuteCommandApprovedTool();
 
     expect(tool.name).toBe("execute_command_approved");
-    expect(tool.description).toContain("Execute an approved shell command");
+    expect(tool.description).toBeTruthy();
+    expect(tool.description.length).toBeGreaterThan(20); // Ensure description is meaningful
     expect(tool.hidden).toBe(true);
+    expect(tool.execute).toBeDefined();
+    expect(typeof tool.execute).toBe("function");
 
     // Check if parameters is a Zod schema (it should be)
     expect(tool.parameters).toBeDefined();
     expect(typeof tool.parameters).toBe("object");
-
-    // For Zod schemas, we check for _def property instead of type/properties
     expect(tool.parameters).toHaveProperty("_def");
+
+    // Verify schema has required fields (no confirm field for approved tool)
+    const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
+    expect(schema._def.shape).toHaveProperty("command");
+    expect(schema._def.shape).not.toHaveProperty("confirm");
   });
 
   it("should require approval for command execution", async () => {

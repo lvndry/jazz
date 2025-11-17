@@ -366,12 +366,11 @@ async function promptForAgentInfo(
             name: "reasoningEffort",
             message: "What reasoning effort level would you like?",
             choices: [
-              { name: "Disable - No reasoning effort (fastest)", value: "disable" },
               { name: "Low - Faster responses, basic reasoning", value: "low" },
-              { name: "Medium - Balanced speed and reasoning depth", value: "medium" },
+              { name: "Medium - Balanced speed and reasoning depth (recommended)", value: "medium" },
               { name: "High - Deep reasoning, slower responses", value: "high" },
+              { name: "Disable - No reasoning effort (fastest)", value: "disable" },
             ],
-            default: "disable",
           },
         ]
       : []),

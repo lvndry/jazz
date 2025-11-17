@@ -54,7 +54,7 @@ export function createWebSearchTool(): ReturnType<typeof defineTool<ConfigServic
   return defineTool<ConfigService, WebSearchArgs>({
     name: "web_search",
     description:
-      "Search the web for current information. Uses Linkup search engine by default. Provides high-quality, factual search results to enrich AI responses with current information from the internet.",
+      "Search the web for current, real-time information using the Linkup search engine (with fallback options). Returns high-quality, factual search results with sources. Supports different search depths (standard/deep) and output formats (sourced answers, raw results, structured data). Use to find current events, recent information, or facts that may have changed since training data. Automatically falls back to alternative search methods if Linkup is unavailable.",
     tags: ["web", "search"],
     parameters: z
       .object({

@@ -20,21 +20,23 @@ describe("WebSearchTool", () => {
   const mockAppConfig: AppConfig = {
     storage: { type: "file", path: "./.jazz" },
     logging: { level: "info", format: "pretty", output: "console" },
-    security: {},
-    performance: { maxConcurrentAgents: 5, maxConcurrentTasks: 10, timeout: 30000 },
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("should create a web search tool with correct properties", () => {
+  it("should create a web search tool with correct structure", () => {
     const tool = createWebSearchTool();
 
     expect(tool.name).toBe("web_search");
-    expect(tool.description).toContain("Search the web for current information");
-    expect(tool.description).toContain("Linkup search engine by default");
-    expect(tool.description).toContain("high-quality, factual search results");
+    expect(tool.description).toBeTruthy();
+    expect(tool.description.length).toBeGreaterThan(20); // Ensure description is meaningful
+    expect(tool.hidden).toBe(false);
+    expect(tool.execute).toBeDefined();
+    expect(typeof tool.execute).toBe("function");
+    expect(tool.createSummary).toBeDefined();
+    expect(typeof tool.createSummary).toBe("function");
   });
 
   it("should have correct parameter schema", () => {
