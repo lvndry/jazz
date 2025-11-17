@@ -79,7 +79,7 @@ export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemCon
     { name: string; maxDepth?: number; type?: "directory" | "file" | "both"; searchPath?: string }
   >({
     name: "find_path",
-    description: "Find directories or files by name using the system find command",
+    description: "Quick search for files or directories by name with shallow depth (default 3 levels). Use when you need to quickly locate a specific file or directory by name without deep traversal.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {
@@ -274,7 +274,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
     }
   >({
     name: "ls",
-    description: "List directory contents with optional filtering and recursion",
+    description: "List files and directories within a specified path. Supports recursive traversal, filtering by name patterns (substring or regex), showing hidden files, and limiting results. Returns file/directory names, paths, and types.",
     tags: ["filesystem", "listing"],
     parameters,
     validate: (args) => {
@@ -466,7 +466,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     { path: string; startLine?: number; endLine?: number; maxBytes?: number; encoding?: string }
   >({
     name: "read_file",
-    description: "Read a text file with optional line range and size limit",
+    description: "Read the contents of a text file with optional line range selection (startLine/endLine). Automatically handles UTF-8 BOM, enforces size limits to prevent memory issues (default 128KB), and reports truncation. Returns file content, encoding, line counts, and range information.",
     tags: ["filesystem", "read"],
     parameters,
     validate: (args) => {
@@ -616,11 +616,11 @@ export function createWriteFileTool(): Tool<FileSystem.FileSystem | FileSystemCo
           const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
             skipExistenceCheck: true,
           });
-          return `About to write to file: ${target}${args.createDirs === true ? " (will create parent directories)" : ""}.\n\nIMPORTANT: After getting user confirmation, you MUST call the executeWriteFile tool with these exact arguments: {"path": "${args.path}", "content": ${JSON.stringify(args.content)}, "encoding": "${args.encoding ?? "utf-8"}", "createDirs": ${args.createDirs === true}}`;
+          return `About to write to file: ${target}${args.createDirs === true ? " (will create parent directories)" : ""}.\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_write_file tool with these exact arguments: {"path": "${args.path}", "content": ${JSON.stringify(args.content)}, "encoding": "${args.encoding ?? "utf-8"}", "createDirs": ${args.createDirs === true}}`;
         }),
       errorMessage: "Approval required: File writing requires user confirmation.",
       execute: {
-        toolName: "executeWriteFile",
+        toolName: "execute_write_file",
         buildArgs: (args) => ({
           path: args.path,
           content: args.content,
@@ -651,7 +651,7 @@ export function createExecuteWriteFileTool(): Tool<
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, WriteFileArgs>({
     name: "execute_write_file",
-    description: "Execute writeFile after user approval",
+    description: "Internal tool that performs the actual file write operation after user has approved the write_file request. Creates or overwrites the file at the specified path with the provided content.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -722,7 +722,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     }
   >({
     name: "grep",
-    description: "Search for a pattern in files using the system grep command",
+    description: "Search for text patterns within file contents using grep. Supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers.",
     tags: ["search", "text"],
     parameters,
     validate: (args) => {
@@ -929,7 +929,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
   >({
     name: "find",
     description:
-      "Find files and directories using the system find command with smart hierarchical search",
+      "Advanced file and directory search with smart hierarchical search strategy (searches cwd, home, and parent directories in order). Supports deep traversal (default 25 levels), regex patterns, type filters, and hidden files. Use for comprehensive searches when find_path doesn't locate what you need.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {
@@ -1169,11 +1169,11 @@ export function createMkdirTool(): Tool<FileSystem.FileSystem | FileSystemContex
             }
           }
 
-          return `About to create directory: ${target}${args.recursive === false ? "" : " (with parents)"}.\n\nIMPORTANT: After getting user confirmation, you MUST call the executeMkdir tool with these exact arguments: {"path": "${args.path}", "recursive": ${args.recursive !== false}}`;
+          return `About to create directory: ${target}${args.recursive === false ? "" : " (with parents)"}.\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_mkdir tool with these exact arguments: {"path": "${args.path}", "recursive": ${args.recursive !== false}}`;
         }),
       errorMessage: "Approval required: Directory creation requires user confirmation.",
       execute: {
-        toolName: "executeMkdir",
+        toolName: "execute_mkdir",
         buildArgs: (args) => ({
           path: (args as { path: string; recursive?: boolean }).path,
           recursive: (args as { path: string; recursive?: boolean }).recursive,
@@ -1198,7 +1198,7 @@ export function createExecuteMkdirTool(): Tool<FileSystem.FileSystem | FileSyste
     { path: string; recursive?: boolean }
   >({
     name: "execute_mkdir",
-    description: "Execute mkdir after user approval",
+    description: "Internal tool that performs the actual directory creation after user has approved the mkdir request. Creates the directory at the specified path, optionally creating parent directories.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -1255,7 +1255,7 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, { path: string }>({
     name: "stat",
-    description: "Check if a file or directory exists and get its information",
+    description: "Check if a file or directory exists and retrieve its metadata (type, size, modification time, access time). Use this to verify existence before operations or to get file information without reading contents.",
     tags: ["filesystem", "info"],
     parameters,
     validate: (args) => {
@@ -1350,11 +1350,11 @@ export function createRmTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
           const shell = yield* FileSystemContextServiceTag;
           const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
           const recurse = args.recursive === true ? " recursively" : "";
-          return `About to delete${recurse}: ${target}. This action may be irreversible.\nIf the user confirms, call executeRm with the same arguments.`;
+          return `About to delete${recurse}: ${target}. This action may be irreversible.\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_rm tool with the same arguments: {"path": "${args.path}", "recursive": ${args.recursive === true}, "force": ${args.force === true}}`;
         }),
       errorMessage: "Approval required: File/directory deletion requires user confirmation.",
       execute: {
-        toolName: "executeRm",
+        toolName: "execute_rm",
         buildArgs: (args) => ({
           path: (args as { path: string }).path,
           recursive: (args as { recursive?: boolean }).recursive,
@@ -1381,7 +1381,7 @@ export function createExecuteRmTool(): Tool<FileSystem.FileSystem | FileSystemCo
     { path: string; recursive?: boolean; force?: boolean }
   >({
     name: "execute_rm",
-    description: "Execute rm after user approval",
+    description: "Internal tool that performs the actual file/directory removal after user has approved the rm request. Deletes the specified path, optionally recursively for directories.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -1467,7 +1467,7 @@ export function createFindDirTool(): Tool<FileSystem.FileSystem | FileSystemCont
     { name: string; path?: string; maxDepth?: number }
   >({
     name: "find_dir",
-    description: "Search for directories by name with partial matching",
+    description: "Search specifically for directories by name with partial matching support. Specialized version of find_path that only returns directories. Use when you need to locate a directory and want to filter out files from results.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {

@@ -303,11 +303,11 @@ class DefaultAISDKService implements LLMService {
         { id: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash", isReasoningModel: false },
       ],
       mistral: [
-        { id: "mistral-small-latest", displayName: "Mistral Small", isReasoningModel: false },
-        { id: "mistral-medium-latest", displayName: "Mistral Medium", isReasoningModel: false },
         { id: "mistral-large-latest", displayName: "Mistral Large", isReasoningModel: false },
-        { id: "magistral-small-2506", displayName: "Magistral Small", isReasoningModel: true },
+        { id: "mistral-medium-latest", displayName: "Mistral Medium", isReasoningModel: false },
+        { id: "mistral-small-latest", displayName: "Mistral Small", isReasoningModel: false },
         { id: "magistral-medium-2506", displayName: "Magistral Medium", isReasoningModel: true },
+        { id: "magistral-small-2506", displayName: "Magistral Small", isReasoningModel: true },
       ],
       xai: [
         {
