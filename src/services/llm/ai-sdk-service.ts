@@ -24,6 +24,7 @@ import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { z } from "zod";
 import { MAX_AGENT_STEPS } from "../../constants/agent";
 import { AgentConfigService, type ConfigService } from "../config";
+import { StreamProcessor } from "./stream-processor";
 import type { StreamEvent, StreamingResult } from "./streaming-types";
 import {
   LLMAuthenticationError,
@@ -37,7 +38,6 @@ import {
   type LLMProvider,
   type LLMService,
   type ModelInfo,
-  type ToolCall,
 } from "./types";
 
 interface AISDKConfig {
@@ -505,258 +505,58 @@ class DefaultAISDKService implements LLMService {
     // Create a deferred to collect final response
     const responseDeferred = createDeferred<ChatCompletionResponse>();
 
-    // Create the stream - use Stream.async for async operations
-    const stream = Stream.async<StreamEvent, LLMError>((emit) => {
-      // Start async processing
-      void (async (): Promise<void> => {
-        const startTime = Date.now();
-        let firstTokenTime: number | null = null;
+    // Create the stream using Stream.async
+    const stream = Stream.async<StreamEvent, LLMError>(
+      (emit: (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void) => {
+        // Start async processing
+        void (async (): Promise<void> => {
+          try {
+            // Create the AI SDK stream
+            const result = streamText({
+              model,
+              messages: toCoreMessages(options.messages),
+              ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
+              ...(tools ? { tools } : {}),
+              ...(providerOptions ? { providerOptions } : {}),
+              abortSignal: abortController.signal,
+              stopWhen: stepCountIs(MAX_AGENT_STEPS),
+            });
 
-        try {
-          // Emit start event
-          void emit(Effect.succeed(Chunk.of({
-            type: "stream_start",
-            provider: providerName,
-            model: options.model,
-            timestamp: startTime,
-          })));
+            // Create stream processor
+            const processor = new StreamProcessor(
+              {
+                providerName,
+                modelName: options.model,
+                hasReasoningEnabled: !!(options.reasoning_effort && options.reasoning_effort !== "disable"),
+                startTime: Date.now(),
+              },
+              emit,
+            );
 
-          const result = streamText({
-            model,
-            messages: toCoreMessages(options.messages),
-            ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
-            ...(tools ? { tools } : {}),
-            ...(providerOptions ? { providerOptions } : {}),
-            abortSignal: abortController.signal,
-            stopWhen: stepCountIs(MAX_AGENT_STEPS),
-          });
+            // Process the stream and get final response
+            const finalResponse = await processor.process(result);
 
-          let accumulatedText = "";
-          let textSequence = 0;
-          let reasoningSequence = 0;
-          let hasStartedText = false;
-          let hasStartedReasoning = false;
-          // Track tool calls as they come in during streaming
-          const collectedToolCalls: ToolCall[] = [];
+            // Resolve deferred for consumers who just await response
+            responseDeferred.resolve(finalResponse);
 
-          // Process fullStream for all events (text, reasoning, tool calls)
-          for await (const part of result.fullStream) {
-                switch (part.type) {
-                  case "text-start": {
-                    // Explicit text start event - ensure we emit it only once
-                    if (!hasStartedText) {
-                      void emit(Effect.succeed(Chunk.of({ type: "text_start" })));
-                      hasStartedText = true;
-                      // Record first token time on first content
-                      if (!firstTokenTime) {
-                        firstTokenTime = Date.now();
-                      }
-                    }
-                    break;
-                  }
+            // Close the stream
+            processor.close();
+          } catch (error) {
+            // Convert to LLM error
+            const llmError = convertToLLMError(error, providerName);
 
-                  case "text-delta": {
-                    // Emit text start on first text chunk if not already started
-                    if (!hasStartedText) {
-                      void emit(Effect.succeed(Chunk.of({ type: "text_start" })));
-                      hasStartedText = true;
-                      // Record first token time on first content
-                      if (!firstTokenTime) {
-                        firstTokenTime = Date.now();
-                      }
-                    }
+            // Emit error event
+            void emit(Effect.fail(Option.some(llmError)));
 
-                    const textDelta = "text" in part ? part.text : "";
-                    accumulatedText += textDelta;
-                    void emit(Effect.succeed(Chunk.of({
-                      type: "text_chunk",
-                      delta: textDelta,
-                      accumulated: accumulatedText,
-                      sequence: textSequence++,
-                    })));
-                    break;
-                  }
+            // Reject the deferred
+            responseDeferred.reject(llmError);
 
-                  case "text-end": {
-                    // Text block has ended - we don't need to do anything special
-                    // but we could reset hasStartedText if we wanted to support multiple text blocks
-                    // For now, we keep it true since the stream is typically one text block
-                    break;
-                  }
-
-                  case "reasoning-start": {
-                    // Explicit reasoning start event - ensure we emit it only once
-                    if (!hasStartedReasoning) {
-                      void emit(Effect.succeed(Chunk.of({ type: "thinking_start", provider: providerName })));
-                      hasStartedReasoning = true;
-                      // Record first token time on first content
-                      if (!firstTokenTime) {
-                        firstTokenTime = Date.now();
-                      }
-                    }
-                    break;
-                  }
-
-                  case "reasoning-delta": {
-                    if (!hasStartedReasoning) {
-                      void emit(Effect.succeed(Chunk.of({ type: "thinking_start", provider: providerName })));
-                      hasStartedReasoning = true;
-                      // Record first token time on first content
-                      if (!firstTokenTime) {
-                        firstTokenTime = Date.now();
-                      }
-                    }
-
-                    const reasoningText = part.text ?? "";
-                    void emit(Effect.succeed(Chunk.of({
-                      type: "thinking_chunk",
-                      content: reasoningText,
-                      sequence: reasoningSequence++,
-                    })));
-                    break;
-                  }
-
-                  case "reasoning-end": {
-                    // End of reasoning block - emit completion and reset flag
-                    if (hasStartedReasoning) {
-                      const totalUsage = "totalUsage" in part ? part.totalUsage : undefined;
-                      const totalTokens =
-                        totalUsage && typeof totalUsage === "object" && "reasoningTokens" in totalUsage
-                          ? (totalUsage as { reasoningTokens?: number }).reasoningTokens
-                          : undefined;
-                      void emit(Effect.succeed(Chunk.of({
-                        type: "thinking_complete",
-                        ...(totalTokens !== undefined ? { totalTokens } : {}),
-                      })));
-                      hasStartedReasoning = false;
-                    }
-                    break;
-                  }
-
-                  case "tool-call": {
-                    const toolCall: ToolCall = {
-                      id: part.toolCallId,
-                      type: "function",
-                      function: {
-                        name: part.toolName,
-                        arguments: JSON.stringify(part.input),
-                      },
-                    };
-                    collectedToolCalls.push(toolCall);
-
-                    void emit(Effect.succeed(Chunk.of({
-                      type: "tool_call",
-                      toolCall,
-                      sequence: textSequence++,
-                    })));
-                    break;
-                  }
-
-                  case "finish": {
-                    // Final completion event - stream is finishing
-                    break;
-                  }
-
-                  case "error": {
-                    // Error during streaming
-                    throw part.error;
-                  }
-
-                  case "abort": {
-                    // Stream was aborted - emit error and stop processing
-                    void emit(Effect.fail(Option.some(
-                      new LLMRequestError(providerName, "Stream was aborted"),
-                    )));
-                    break;
-                  }
-
-                  default: {
-                    // Silently ignore unhandled part types that we don't need
-                    // This prevents TypeScript errors and allows the stream to continue
-                    break;
-                  }
-                }
-              }
-
-              const finalText = accumulatedText;
-
-              const toolCalls = collectedToolCalls.length > 0 ? collectedToolCalls : undefined;
-
-              // Try to get usage immediately, but don't block if it's slow
-              // Usage is optional and can be added later if needed
-              // Use Promise.race to timeout after 2 seconds to avoid long delays
-              let finalUsage: Awaited<typeof result.usage> | undefined;
-              try {
-                finalUsage = await Promise.race([
-                  result.usage,
-                  new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 2000)),
-                ]);
-              } catch {
-                // If usage fails, continue without it
-                finalUsage = undefined;
-              }
-
-              const usage = finalUsage
-                ? {
-                    promptTokens: finalUsage.inputTokens ?? 0,
-                    completionTokens: finalUsage.outputTokens ?? 0,
-                    totalTokens: finalUsage.totalTokens ?? 0,
-                  }
-                : undefined;
-
-              if (usage) {
-                void emit(Effect.succeed(Chunk.of({ type: "usage_update", usage })));
-              }
-
-              // Calculate metrics for complete event (if enabled via logging.showMetrics)
-              // Metrics are only included in the complete event, not emitted separately
-              let metrics:
-                | { firstTokenLatencyMs: number; tokensPerSecond?: number; totalTokens?: number }
-                | undefined;
-              if (firstTokenTime) {
-                const totalDuration = Date.now() - startTime;
-                metrics = {
-                  firstTokenLatencyMs: firstTokenTime - startTime,
-                  ...(usage?.totalTokens
-                    ? {
-                        tokensPerSecond: (usage.totalTokens / totalDuration) * 1000,
-                        totalTokens: usage.totalTokens,
-                      }
-                    : {}),
-                };
-              }
-
-
-              const finalResponse: ChatCompletionResponse = {
-                id: "",
-                model: options.model,
-                content: finalText,
-                ...(toolCalls ? { toolCalls } : {}),
-                ...(usage ? { usage } : {}),
-              };
-
-              const endTime = Date.now();
-              void emit(Effect.succeed(Chunk.of({
-                type: "complete",
-                response: finalResponse,
-                totalDurationMs: endTime - startTime,
-                ...(metrics ? { metrics } : {}),
-              })));
-
-              // Resolve the deferred with final response
-              responseDeferred.resolve(finalResponse);
-            } catch (error) {
-              // Convert to LLM error
-              const llmError = convertToLLMError(error, providerName);
-
-              // Emit error event
-              void emit(Effect.fail(Option.some(llmError)));
-
-              // Reject the deferred
-              responseDeferred.reject(llmError);
-            }
-      })();
-    });
+            // Close the stream
+            void emit(Effect.fail(Option.none()));
+          }
+        })();
+      },
+    );
 
     // Return streaming result with cancellation support
     return Effect.succeed({

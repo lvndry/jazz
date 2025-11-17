@@ -12,12 +12,14 @@ import {
   type ChatMessage,
   type LLMService,
   type ToolCall,
+  type ToolDefinition,
 } from "../../services/llm/types";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
 import type { StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { MarkdownRenderer } from "../utils/markdown-renderer";
 import { OutputRenderer, type DisplayConfig } from "../utils/output-renderer";
+import { formatToolArguments } from "../utils/tool-formatter";
 import { agentPromptBuilder } from "./agent-prompt";
 import {
   ToolRegistryTag,
@@ -37,6 +39,11 @@ import {
   recordToolInvocation,
 } from "./tracking/agent-run-tracker";
 import { normalizeToolConfig } from "./utils/tool-config";
+
+const MAX_MESSAGES = 100;
+const MAX_RETRIES = 3;
+const STREAM_CREATION_TIMEOUT = Duration.minutes(2);
+const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
 
 /**
  * Agent runner for executing agent conversations
@@ -83,6 +90,378 @@ const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
   format: "markdown",
 };
 
+/**
+ * Common initialization data for agent runs
+ */
+interface AgentRunContext {
+  readonly agent: Agent;
+  readonly actualConversationId: string;
+  readonly context: ToolExecutionContext;
+  readonly tools: ToolDefinition[];
+  readonly expandedToolNames: readonly string[];
+  readonly messages: ChatMessage[];
+  readonly runTracker: ReturnType<typeof createAgentRunTracker>;
+  readonly provider: string;
+  readonly model: string;
+}
+
+/**
+ * Initialize common agent run context (tools, messages, tracker)
+ */
+function initializeAgentRun(
+  options: AgentRunnerOptions,
+): Effect.Effect<
+  AgentRunContext,
+  Error,
+  ToolRegistry | LoggerService | ConfigService
+> {
+  return Effect.gen(function* () {
+    const { agent, userInput, conversationId, userId } = options;
+    const toolRegistry = yield* ToolRegistryTag;
+
+    const actualConversationId = conversationId || `conv-${Date.now()}`;
+    const history: ChatMessage[] = options.conversationHistory || [];
+    const agentType = agent.config.agentType;
+    const provider = agent.config.llmProvider;
+    const model = agent.config.llmModel;
+
+    const runTracker = createAgentRunTracker({
+      agent,
+      conversationId: actualConversationId,
+      ...(userId ? { userId } : {}),
+      provider,
+      model,
+      reasoningEffort: agent.config.reasoningEffort ?? "disable",
+      maxIterations: options.maxIterations ?? MAX_AGENT_STEPS,
+    });
+
+    // Get and validate tools
+    const allToolNames = yield* toolRegistry.listTools();
+    const agentToolNames = normalizeToolConfig(agent.config.tools, {
+      agentId: agent.id,
+    });
+
+    const invalidTools = agentToolNames.filter((toolName) => !allToolNames.includes(toolName));
+    if (invalidTools.length > 0) {
+      return yield* Effect.fail(
+        new Error(`Agent ${agent.id} references non-existent tools: ${invalidTools.join(", ")}`),
+      );
+    }
+
+    // Expand tool names to include approval execute tools
+    const expandedToolNameSet = new Set(agentToolNames);
+    for (const toolName of agentToolNames) {
+      const tool = yield* toolRegistry.getTool(toolName);
+      if (tool.approvalExecuteToolName) {
+        expandedToolNameSet.add(tool.approvalExecuteToolName);
+      }
+    }
+
+    const expandedToolNames = Array.from(expandedToolNameSet);
+    const allTools = yield* toolRegistry.getToolDefinitions();
+    const tools = Array.from(allTools.filter((tool) => expandedToolNames.includes(tool.function.name)));
+
+    // Build tool descriptions map
+    const availableTools: Record<string, string> = {};
+    for (const tool of tools) {
+      availableTools[tool.function.name] = tool.function.description;
+    }
+
+    // Build messages
+    const messages = yield* agentPromptBuilder.buildAgentMessages(agentType, {
+      agentName: agent.name,
+      agentDescription: agent.description || "",
+      userInput,
+      conversationHistory: history,
+      toolNames: expandedToolNames,
+      availableTools,
+    });
+
+    const context: ToolExecutionContext = {
+      agentId: agent.id,
+      conversationId: actualConversationId,
+      ...(userId ? { userId } : {}),
+    };
+
+    return {
+      agent,
+      actualConversationId,
+      context,
+      tools,
+      expandedToolNames,
+      messages,
+      runTracker,
+      provider,
+      model,
+    };
+  });
+}
+
+/**
+ * Execute a single tool call and return result
+ */
+function executeToolCall(
+  toolCall: ToolCall,
+  context: ToolExecutionContext,
+  displayConfig: DisplayConfig,
+  renderer: OutputRenderer | null,
+  runTracker: ReturnType<typeof createAgentRunTracker>,
+  logger: LoggerService,
+  agentId: string,
+  conversationId: string,
+): Effect.Effect<
+  { result: unknown; success: boolean },
+  Error,
+  ToolRegistry | LoggerService | ConfigService
+> {
+  return Effect.gen(function* () {
+    if (toolCall.type !== "function") {
+      return { result: null, success: false };
+    }
+
+    const { name, arguments: argsString } = toolCall.function;
+    recordToolInvocation(runTracker, name);
+    const toolStartTime = Date.now();
+
+    try {
+      // Parse arguments
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(argsString);
+      } catch (parseError) {
+        throw new Error(
+          `Invalid JSON in tool arguments: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+        );
+      }
+
+      const args: Record<string, unknown> =
+        parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : {};
+
+      // Emit tool execution start
+      if (displayConfig.showToolExecution) {
+        if (renderer) {
+          yield* renderer.handleEvent({
+            type: "tool_execution_start",
+            toolName: name,
+            toolCallId: toolCall.id,
+            arguments: args,
+          });
+        } else {
+          const argsStr = OutputRenderer.formatToolArguments(name, args);
+          process.stdout.write(
+            `\n${chalk.cyan("⚙️")}  Executing tool: ${chalk.cyan(name)}${argsStr}...`,
+          );
+        }
+      }
+
+      // Execute tool
+      const result = yield* executeTool(name, args, context);
+      const toolDuration = Date.now() - toolStartTime;
+      const resultString = JSON.stringify(result.result);
+
+      // Emit tool execution complete
+      if (displayConfig.showToolExecution) {
+        if (renderer) {
+          yield* renderer.handleEvent({
+            type: "tool_execution_complete",
+            toolCallId: toolCall.id,
+            result: resultString,
+            durationMs: toolDuration,
+          });
+        } else {
+          if (result.success) {
+            const summary = OutputRenderer.formatToolResult(name, resultString);
+            process.stdout.write(
+              ` ${chalk.green("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
+            );
+          } else {
+            const errorMsg = result.error || "Tool execution failed";
+            process.stdout.write(
+              ` ${chalk.red("✗")} ${chalk.red(`(${errorMsg})`)} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
+            );
+          }
+        }
+      }
+
+      return { result: result.result, success: result.success };
+    } catch (error) {
+      // Fail fast on missing tools
+      if (error instanceof Error && error.message.startsWith("Tool not found")) {
+        throw error;
+      }
+
+      const toolDuration = Date.now() - toolStartTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Emit error
+      if (displayConfig.showToolExecution) {
+        if (renderer) {
+          yield* renderer.handleEvent({
+            type: "tool_execution_complete",
+            toolCallId: toolCall.id,
+            result: `Error: ${errorMessage}`,
+            durationMs: toolDuration,
+          });
+        } else {
+          process.stdout.write(
+            ` ${chalk.red("✗")} ${chalk.red(`(${errorMessage})`)} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
+          );
+        }
+      }
+
+      recordToolError(runTracker, name, error);
+      yield* logger.error("Tool execution failed", {
+        agentId,
+        conversationId,
+        toolName: name,
+        toolCallId: toolCall.id,
+        error: errorMessage,
+      });
+
+      return { result: { error: errorMessage }, success: false };
+    }
+  });
+}
+
+/**
+ * Execute all tool calls and return results
+ */
+function executeToolCalls(
+  toolCalls: readonly ToolCall[],
+  context: ToolExecutionContext,
+  displayConfig: DisplayConfig,
+  renderer: OutputRenderer | null,
+  runTracker: ReturnType<typeof createAgentRunTracker>,
+  logger: LoggerService,
+  agentId: string,
+  conversationId: string,
+  agentName: string,
+): Effect.Effect<
+  Record<string, unknown>,
+  Error,
+  ToolRegistry | LoggerService | ConfigService
+> {
+  return Effect.gen(function* () {
+    const toolResults: Record<string, unknown> = {};
+    const toolNames = toolCalls.map((tc) => tc.function.name);
+
+    // Show tools detected
+    if (displayConfig.showToolExecution) {
+      if (renderer) {
+        yield* renderer.handleEvent({
+          type: "tools_detected",
+          toolNames,
+          agentName,
+        });
+      } else {
+        const tools = toolNames.join(", ");
+        console.log(
+          `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${chalk.cyan(tools)}\n`,
+        );
+      }
+    }
+
+    // Log tool details
+    const toolDetails: string[] = [];
+    for (const toolCall of toolCalls) {
+      if (toolCall.type === "function") {
+        const { name, arguments: argsString } = toolCall.function;
+        try {
+          const parsed: unknown = JSON.parse(argsString);
+          const args: Record<string, unknown> =
+            parsed && typeof parsed === "object" && !Array.isArray(parsed)
+              ? (parsed as Record<string, unknown>)
+              : {};
+          const argsText = formatToolArguments(name, args, { style: "plain" });
+          toolDetails.push(argsText ? `${name} ${argsText}` : name);
+        } catch {
+          toolDetails.push(name);
+        }
+      }
+    }
+    const toolsList = toolDetails.join(", ");
+    yield* logger.info(`${agentName} is using tools: ${toolsList}`);
+
+    // Execute each tool
+    for (const toolCall of toolCalls) {
+      const { result } = yield* executeToolCall(
+        toolCall,
+        context,
+        displayConfig,
+        renderer,
+        runTracker,
+        logger,
+        agentId,
+        conversationId,
+      );
+      toolResults[toolCall.function.name] = result;
+    }
+
+    return toolResults;
+  });
+}
+
+/**
+ * Trim message history to prevent unbounded growth.
+ * Always preserves the system message (first message) and keeps the most recent messages.
+ */
+function trimMessages(
+  messages: ChatMessage[],
+  logger: LoggerService,
+  agentId: string,
+  conversationId: string,
+): Effect.Effect<void, never, LoggerService | ConfigService> {
+  if (messages.length > MAX_MESSAGES) {
+    // Always preserve the system message (first message) as it contains important context
+    const systemMessage = messages[0];
+    if (systemMessage) {
+      // Keep system message + most recent (MAX_MESSAGES - 1) messages
+      const recentMessages = messages.slice(-(MAX_MESSAGES - 1));
+      messages.length = 0;
+      messages.push(systemMessage, ...recentMessages);
+    }
+
+    return logger.warn("Message history trimmed to prevent memory issues", {
+      agentId,
+      conversationId,
+      maxMessages: MAX_MESSAGES,
+      trimmedCount: messages.length,
+    });
+  }
+
+  return Effect.void;
+}
+
+/**
+ * Ensure messages array is never empty
+ */
+function ensureMessagesNotEmpty(
+  messages: ChatMessage[],
+  userInput: string,
+  logger: LoggerService,
+  agentId: string,
+  conversationId: string,
+  iteration: number,
+): Effect.Effect<ChatMessage[], never, LoggerService | ConfigService> {
+  if (messages.length === 0) {
+    return Effect.gen(function* () {
+      yield* logger.warn("messagesToSend was empty; using fallback single user message", {
+        agentId,
+        conversationId,
+        iteration,
+      });
+      return [
+        {
+          role: "user",
+          content: userInput && userInput.trim().length > 0 ? userInput : "Continue",
+        },
+      ];
+    });
+  }
+  return Effect.succeed(messages);
+}
 
 export class AgentRunner {
   /**
@@ -145,23 +524,6 @@ export class AgentRunner {
 
   /**
    * Streaming implementation that processes LLM responses in real-time.
-   *
-   * How it works:
-   * 1. Creates a streaming chat completion from the LLM service with retry logic for rate limits
-   * 2. Processes stream events (text chunks, tool calls, completion) as they arrive using Effect's Stream API
-   * 3. Renders events progressively to the user via OutputRenderer for immediate feedback
-   * 4. Tracks tool calls as they stream in, collecting them in pendingToolCalls array
-   * 5. Captures the final completion response from the "complete" event using Effect.Ref for thread-safe access
-   * 6. Falls back to non-streaming mode if streaming fails (timeout, error, or interruption)
-   * 7. Executes any tool calls after streaming completes, then continues the agent loop
-   * 8. Handles timeouts at both the stream creation level (5min default) and stream processing level
-   *
-   * Key features:
-   * - Progressive rendering: Users see text appear incrementally as the LLM generates it
-   * - Graceful degradation: Automatically falls back to non-streaming on errors
-   * - Thread-safe completion capture: Uses Effect.Ref to reliably capture completion from stream events
-   * - Tool call tracking: Collects tool calls during streaming for execution after completion
-   * - Timeout protection: Multiple timeout layers prevent hanging on slow or stuck streams
    */
   private static runWithStreaming(
     options: AgentRunnerOptions,
@@ -174,89 +536,16 @@ export class AgentRunner {
     LLMService | ToolRegistry | LoggerService | ConfigService
   > {
     return Effect.gen(function* () {
-      const { agent, userInput, conversationId, userId, maxIterations = MAX_AGENT_STEPS } =
-        options;
-
-      // Get services
+      const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
       const llmService = yield* LLMServiceTag;
-      const toolRegistry = yield* ToolRegistryTag;
-      const configService = yield* AgentConfigService;
       const logger = yield* LoggerServiceTag;
-      const appConfig = yield* configService.appConfig;
 
-      // Generate a conversation ID if not provided
-      const actualConversationId = conversationId || `conv-${Date.now()}`;
+      // Initialize common context
+      const runContext = yield* initializeAgentRun(options);
+      const { actualConversationId, context, tools, messages, runTracker, provider, model } =
+        runContext;
 
-      // Use provided history if available to preserve context across turns
-      const history: ChatMessage[] = options.conversationHistory || [];
-
-      const agentType = agent.config.agentType;
-      const provider = agent.config.llmProvider;
-      const model = agent.config.llmModel;
-
-      const runTracker = createAgentRunTracker({
-        agent,
-        conversationId: actualConversationId,
-        ...(userId ? { userId } : {}),
-        provider,
-        model,
-        reasoningEffort: agent.config.reasoningEffort ?? "disable",
-        maxIterations,
-      });
-
-      // Get available tools for this specific agent
-      const allToolNames = yield* toolRegistry.listTools();
-      const agentToolNames = normalizeToolConfig(agent.config.tools, {
-        agentId: agent.id,
-      });
-
-      // Validate that all agent tools exist in the registry
-      const invalidTools = agentToolNames.filter((toolName) => !allToolNames.includes(toolName));
-      if (invalidTools.length > 0) {
-        return yield* Effect.fail(
-          new Error(`Agent ${agent.id} references non-existent tools: ${invalidTools.join(", ")}`),
-        );
-      }
-
-      // Automatically include approval follow-up tools (e.g., execute-* variants)
-      const expandedToolNameSet = new Set(agentToolNames);
-      for (const toolName of agentToolNames) {
-        const tool = yield* toolRegistry.getTool(toolName);
-        if (tool.approvalExecuteToolName) {
-          expandedToolNameSet.add(tool.approvalExecuteToolName);
-        }
-      }
-
-      const expandedToolNames = Array.from(expandedToolNameSet);
-
-      // Get tool definitions for only the agent's specified tools
-      const allTools = yield* toolRegistry.getToolDefinitions();
-      const tools = allTools.filter((tool) => expandedToolNames.includes(tool.function.name));
-
-      // Build a map of available tool descriptions for prompt clarity
-      const availableTools: Record<string, string> = {};
-      for (const tool of tools) {
-        availableTools[tool.function.name] = tool.function.description;
-      }
-
-      // Build messages for the agent with only its specified tools and descriptions
-      const messages = yield* agentPromptBuilder.buildAgentMessages(agentType, {
-        agentName: agent.name,
-        agentDescription: agent.description || "",
-        userInput,
-        conversationHistory: history,
-        toolNames: expandedToolNames,
-        availableTools,
-      });
-
-      // Create execution context
-      const context: ToolExecutionContext = {
-        agentId: agent.id,
-        conversationId: actualConversationId,
-        ...(userId ? { userId } : {}),
-      };
-
-      // Create stream renderer with defaults applied
+      // Create renderer
       const rendererConfig: StreamingConfig = {
         ...(streamingConfig.progressiveMarkdown !== undefined && {
           progressiveMarkdown: streamingConfig.progressiveMarkdown,
@@ -265,9 +554,15 @@ export class AgentRunner {
           textBufferMs: streamingConfig.textBufferMs,
         }),
       };
-      const renderer = new OutputRenderer(displayConfig, rendererConfig, showMetrics, agent.name);
+      const renderer = new OutputRenderer(
+        displayConfig,
+        rendererConfig,
+        showMetrics,
+        agent.name,
+        agent.config.reasoningEffort,
+      );
 
-      // Run the agent loop
+      // Run agent loop
       const currentMessages = [...messages];
       let response: AgentResponse = {
         content: "",
@@ -276,258 +571,131 @@ export class AgentRunner {
       let finished = false;
       let iterationsUsed = 0;
 
-      // Memory safeguard: prevent unbounded message growth
-      const MAX_MESSAGES = 100;
-
-      // Determine the LLM provider and model to use
       for (let i = 0; i < maxIterations; i++) {
         yield* Effect.sync(() => beginIteration(runTracker, i + 1));
         try {
-          // Log user-friendly progress for info level
+          // Log thinking indicator
           if (i === 0) {
-            const message = MarkdownRenderer.formatThinking(agent.name, true);
-            yield* logger.info(message, {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-            });
+            yield* logger.info(MarkdownRenderer.formatThinking(agent.name, true));
           } else {
-            const message = MarkdownRenderer.formatThinking(agent.name, false);
-            yield* logger.info(message, {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-            });
+            yield* logger.info(MarkdownRenderer.formatThinking(agent.name, false));
           }
 
-          // Log LLM request in debug mode
-          if (appConfig.logging.level === "debug") {
-            yield* logger.debug("LLM request", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              provider,
-              model,
-              messageCount: currentMessages.length,
-              messages: currentMessages,
-              tools: tools.map((t) => ({
-                name: t.function.name,
-                description: t.function.description,
-              })),
-            });
-          }
+          // Ensure messages are not empty
+          const messagesToSend = yield* ensureMessagesNotEmpty(
+            currentMessages,
+            userInput,
+            logger,
+            agent.id,
+            actualConversationId,
+            i + 1,
+          );
 
-          // Call the LLM with streaming and retry logic for rate limit errors
-          let messagesToSend = currentMessages;
-          // Secondary safety: ensure messagesToSend is never empty
-          if (messagesToSend.length === 0) {
-            // Fallback to a single user message if everything else failed
-            messagesToSend = [
-              {
-                role: "user",
-                content: userInput && userInput.trim().length > 0 ? userInput : "Continue",
-              },
-            ];
-            yield* logger.warn("messagesToSend was empty; using fallback single user message", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-            });
-          }
-          const maxRetries = 3;
+          // Create streaming completion with retry and fallback
+          const llmOptions = {
+            model,
+            messages: messagesToSend,
+            tools,
+            toolChoice: "auto" as const,
+            reasoning_effort: agent.config.reasoningEffort ?? "disable",
+          };
 
-          // Track tool calls during streaming for execution
+          const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
           const pendingToolCalls: ToolCall[] = [];
 
-          // Stream creation timeout: (2 minutes)
-          const streamCreationTimeout = Duration.minutes(2);
-          // Stream completion timeout: longer - reasoning and tool call generation can take time
-          // Use agent timeout if configured, otherwise default to 12 minutes for complex workflows
-          const streamCompletionTimeoutMs = agent.config.timeout ?? 12 * 60 * 1000; // 12 minutes default
-          const streamCompletionTimeout = Duration.millis(streamCompletionTimeoutMs);
-
-          // Create streaming result with graceful degradation
           const streamingResult = yield* Effect.retry(
             Effect.gen(function* () {
-              const llmOptions = {
-                model,
-                messages: messagesToSend,
-                tools,
-                toolChoice: "auto" as const,
-                reasoning_effort: agent.config.reasoningEffort ?? "disable",
-              };
-
               try {
-                const result = yield* llmService.createStreamingChatCompletion(provider, llmOptions);
-                return result;
+                return yield* llmService.createStreamingChatCompletion(provider, llmOptions);
               } catch (error) {
                 recordLLMRetry(runTracker, error);
                 throw error;
               }
             }),
             Schedule.exponential("1 second").pipe(
-              Schedule.intersect(Schedule.recurs(maxRetries)),
+              Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
               Schedule.whileInput((error) => error instanceof LLMRateLimitError),
             ),
           ).pipe(
-            // Add timeout to stream creation (TTFT) - shorter timeout for initial response
-            Effect.timeout(streamCreationTimeout),
-            // Graceful degradation: fallback to non-streaming on error
-            Effect.catchAll((error) =>
+            Effect.timeout(STREAM_CREATION_TIMEOUT),
+            Effect.catchAll(() =>
               Effect.gen(function* () {
-                yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
-                  agentId: agent.id,
-                  conversationId: actualConversationId,
-                  iteration: i + 1,
-                  error: error instanceof Error ? error.message : String(error),
-                });
-
-                // Fallback to non-streaming
-                const llmOptions = {
-                  model,
-                  messages: messagesToSend,
-                  tools,
-                  toolChoice: "auto" as const,
-                  reasoning_effort: agent.config.reasoningEffort ?? "disable",
-                };
-
-                const fallbackResult = yield* llmService.createChatCompletion(provider, llmOptions);
+                yield* logger.warn("Streaming failed, falling back to non-streaming mode");
+                const fallback = yield* llmService.createChatCompletion(provider, llmOptions);
                 return {
                   stream: Stream.empty,
-                  response: Effect.succeed(fallbackResult),
+                  response: Effect.succeed(fallback),
                   cancel: Effect.void,
                 };
               }),
             ),
           );
 
-          // Process stream events with timeout and error handling
-          // Use longer timeout for stream completion - reasoning and tool call generation can take time
-          const streamWithTimeout = streamingResult.stream.pipe(
-            Stream.timeout(streamCompletionTimeout),
-            Stream.catchAll((error) => {
-              // Convert timeout/interruption to error event
-              const cause = Cause.isCause(error) ? error : Cause.fail(error);
-              if (Cause.isInterruptedOnly(cause)) {
-                return Stream.make({
-                  type: "error",
-                  error: new Error("Stream timeout exceeded") as LLMRateLimitError,
-                  recoverable: false,
-                } as StreamEvent);
-              }
-              return Stream.fail(error);
-            }),
-          );
-
-          // Process stream events and render them with interruption handling
-          // Use Ref to reliably track completion response from the complete event
-          // This ensures thread-safe access across the stream processing fiber
-          const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
+          // Process stream events
           const streamFiber = yield* Effect.fork(
-            Stream.runForEach(streamWithTimeout, (event: StreamEvent) =>
+            Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
               Effect.gen(function* () {
-                // Render the event
                 yield* renderer.handleEvent(event);
 
-                // Track tool calls as they come in
                 if (event.type === "tool_call") {
                   pendingToolCalls.push(event.toolCall);
                 }
 
-                // Capture completion response and first token latency from complete event
-                // Use Ref to ensure thread-safe access and reliable capture
                 if (event.type === "complete") {
                   yield* Ref.set(completionRef, event.response);
-                  if (event.metrics) {
-                    const latency = event.metrics.firstTokenLatencyMs;
-                    if (latency !== undefined) {
-                      // Record first token latency synchronously (mutation is safe here)
-                      recordFirstTokenLatency(runTracker, latency);
-                    }
+                  if (event.metrics?.firstTokenLatencyMs) {
+                    recordFirstTokenLatency(runTracker, event.metrics.firstTokenLatencyMs);
                   }
                 }
 
-                // Handle errors in stream
-                if (event.type === "error") {
-                  if (!event.recoverable) {
-                    // Non-recoverable error - cancel stream
-                    yield* streamingResult.cancel;
-                  }
+                if (event.type === "error" && !event.recoverable) {
+                  yield* streamingResult.cancel;
                 }
               }),
             ),
           );
 
-          // Wait for stream to complete or timeout
+          // Wait for stream completion - the stream is cancelled on completion event
+          // so the fiber should complete naturally without needing a timeout
           const streamExit = yield* Fiber.await(streamFiber);
 
-          // Get completion - either from stream or fallback
+          // Get completion from stream or fallback
           let completion: ChatCompletionResponse;
-
-          // If stream was interrupted or failed, cancel and fallback
           if (Exit.isFailure(streamExit)) {
             yield* streamingResult.cancel;
             const error = Cause.failureOption(streamExit.cause);
             if (Option.isSome(error)) {
-              yield* logger.warn("Stream processing failed, using fallback", {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-                error: error.value instanceof Error ? error.value.message : String(error.value),
-              });
-
-              // Fallback to non-streaming
-              const llmOptions = {
-                model,
-                messages: messagesToSend,
-                tools,
-                toolChoice: "auto" as const,
-                reasoning_effort: agent.config.reasoningEffort ?? "disable",
-              };
-
+              yield* logger.warn("Stream processing failed, using fallback");
               completion = yield* llmService.createChatCompletion(provider, llmOptions);
             } else {
-              // Stream was interrupted - cancel and continue to next iteration
-              yield* streamingResult.cancel;
-              continue;
+              const fromRef = yield* Ref.get(completionRef);
+              if (fromRef) {
+                completion = fromRef;
+              } else {
+                completion = yield* streamingResult.response.pipe(
+                  Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
+                  Effect.catchAll(() =>
+                    Effect.gen(function* () {
+                      yield* streamingResult.cancel;
+                      return yield* llmService.createChatCompletion(provider, llmOptions);
+                    }),
+                  ),
+                );
+              }
             }
           } else {
-            // Stream completed successfully - try to get completion from event first
-            const completionFromStream = yield* Ref.get(completionRef);
-
-            if (completionFromStream) {
-              // Use response from complete event - this is the fastest path
-              completion = completionFromStream;
+            const fromRef = yield* Ref.get(completionRef);
+            if (fromRef) {
+              completion = fromRef;
             } else {
-              // Fallback: if complete event didn't have response, wait for deferred
-              // This can happen if there's a race condition or the event wasn't captured
-              // Use a longer timeout (15 seconds) to account for slow deferred resolution
-              const responseTimeout = Duration.seconds(15);
               completion = yield* streamingResult.response.pipe(
-                Effect.timeout(responseTimeout),
-                Effect.catchAll((timeoutError) => {
-                  // If response timeout, cancel and fallback to non-streaming
-                  return Effect.gen(function* () {
+                Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
+                Effect.catchAll(() =>
+                  Effect.gen(function* () {
                     yield* streamingResult.cancel;
-                    yield* logger.warn("Response timeout after stream completion, using fallback", {
-                      agentId: agent.id,
-                      conversationId: actualConversationId,
-                      iteration: i + 1,
-                      timeoutMs: Duration.toMillis(responseTimeout),
-                      error: timeoutError instanceof Error ? timeoutError.message : String(timeoutError),
-                    });
-
-                    const llmOptions = {
-                      model,
-                      messages: messagesToSend,
-                      tools,
-                      toolChoice: "auto" as const,
-                      reasoning_effort: agent.config.reasoningEffort ?? "disable",
-                    };
-
                     return yield* llmService.createChatCompletion(provider, llmOptions);
-                  });
-                }),
+                  }),
+                ),
               );
             }
           }
@@ -536,7 +704,7 @@ export class AgentRunner {
             recordLLMUsage(runTracker, completion.usage);
           }
 
-          // Add the assistant's response to the conversation (including tool calls, if any)
+          // Add assistant response to conversation
           currentMessages.push({
             role: "assistant",
             content: completion.content,
@@ -551,211 +719,43 @@ export class AgentRunner {
               : {}),
           });
 
-          // Memory safeguard: trim messages if they exceed the limit
-          if (currentMessages.length > MAX_MESSAGES) {
-            // Keep the system message and the most recent messages
-            const systemMessage = currentMessages[0];
-            if (systemMessage) {
-              const recentMessages = currentMessages.slice(-(MAX_MESSAGES - 1));
-              currentMessages.length = 0;
-              currentMessages.push(systemMessage, ...recentMessages);
-            }
+          yield* trimMessages(currentMessages, logger, agent.id, actualConversationId);
 
-            yield* logger.warn("Message history trimmed to prevent memory issues", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              maxMessages: MAX_MESSAGES,
-              trimmedCount: currentMessages.length,
-            });
-          }
-
-          // Log assistant response if log level is debug
-          if (appConfig.logging.level === "debug") {
-            yield* logger.debug("LLM response received", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              model: completion.model,
-              content: completion.content,
-              toolCalls: completion.toolCalls?.map((tc) => ({
-                id: tc.id,
-                name: tc.function.name,
-                arguments: tc.function.arguments,
-              })),
-              usage: completion.usage,
-            });
-          }
-
-          // Check if the model wants to call a tool
+          // Handle tool calls
           if (completion.toolCalls && completion.toolCalls.length > 0) {
-            const toolResults: Record<string, unknown> = {};
+            const toolResults = yield* executeToolCalls(
+              completion.toolCalls,
+              context,
+              displayConfig,
+              renderer,
+              runTracker,
+              logger,
+              agent.id,
+              actualConversationId,
+              agent.name,
+            );
 
-            // Get tool names for logging and streaming
-            const toolNames = completion.toolCalls.map((tc) => tc.function.name);
-
-            // Stream tool usage message immediately
-            if (displayConfig.showToolExecution) {
-              yield* renderer.handleEvent({
-                type: "tools_detected",
-                toolNames,
-                agentName: agent.name,
-              });
-            }
-
-            // Log user-friendly tool execution info
-            const message = MarkdownRenderer.formatToolExecution(agent.name, toolNames);
-            yield* logger.info(message, {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              toolCount: completion.toolCalls.length,
-              tools: toolNames,
-            });
-
-            // Execute each tool call
+            // Add tool results to conversation
             for (const toolCall of completion.toolCalls) {
               if (toolCall.type === "function") {
-                const { name, arguments: argsString } = toolCall.function;
-                recordToolInvocation(runTracker, name);
-
-                const toolStartTime = Date.now();
-
-                try {
-                  // Parse the arguments safely with proper error handling
-                  let parsed: unknown;
-                  try {
-                    parsed = JSON.parse(argsString);
-                  } catch (parseError) {
-                    throw new Error(
-                      `Invalid JSON in tool arguments: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
-                    );
-                  }
-
-                  const args: Record<string, unknown> =
-                    parsed && typeof parsed === "object" && !Array.isArray(parsed)
-                      ? (parsed as Record<string, unknown>)
-                      : {};
-
-                  // Emit tool execution start event with arguments
-                  if (displayConfig.showToolExecution) {
-                    yield* renderer.handleEvent({
-                      type: "tool_execution_start",
-                      toolName: name,
-                      toolCallId: toolCall.id,
-                      arguments: args,
-                    });
-                  }
-
-                  // Log tool call arguments in debug mode
-                  yield* logger.debug("Tool call arguments", {
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                    toolName: name,
-                    toolCallId: toolCall.id,
-                    arguments: args,
-                    rawArguments: argsString,
-                  });
-
-                  // Execute the tool
-                  const result = yield* executeTool(name, args, context);
-
-                  const toolDuration = Date.now() - toolStartTime;
-                  const resultString = JSON.stringify(result.result);
-
-                  // Emit tool execution complete event
-                  if (displayConfig.showToolExecution) {
-                    yield* renderer.handleEvent({
-                      type: "tool_execution_complete",
-                      toolCallId: toolCall.id,
-                      result: resultString,
-                      durationMs: toolDuration,
-                    });
-                  }
-
-                  // Log tool execution result in debug mode
-                  yield* logger.debug("Tool execution result", {
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                    toolName: name,
-                    toolCallId: toolCall.id,
-                    arguments: args,
-                    result: result.result,
-                  });
-
-                  // Add the tool result to the conversation
-                  currentMessages.push({
-                    role: "tool",
-                    name,
-                    content: resultString,
-                    tool_call_id: toolCall.id,
-                  });
-
-                  // Store the tool result
-                  toolResults[name] = result.result;
-                } catch (error) {
-                  // If the tool does not exist, rethrow to fail fast (never mock missing tools)
-                  if (error instanceof Error && error.message.startsWith("Tool not found")) {
-                    throw error;
-                  }
-
-                  const toolDuration = Date.now() - toolStartTime;
-                  const errorMessage = error instanceof Error ? error.message : String(error);
-
-                  // Emit tool execution complete event with error
-                  if (displayConfig.showToolExecution) {
-                    yield* renderer.handleEvent({
-                      type: "tool_execution_complete",
-                      toolCallId: toolCall.id,
-                      result: `Error: ${errorMessage}`,
-                      durationMs: toolDuration,
-                    });
-                  }
-
-                  // Log the tool execution error for debugging
-                  recordToolError(runTracker, name, error);
-                  yield* logger.error("Tool execution failed", {
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                    toolName: name,
-                    toolCallId: toolCall.id,
-                    error: errorMessage,
-                  });
-
-                  // Include the tool execution error in the conversation
-                  currentMessages.push({
-                    role: "tool",
-                    name,
-                    content: `Error: ${errorMessage}`,
-                    tool_call_id: toolCall.id,
-                  });
-
-                  // Store the error
-                  toolResults[name] = {
-                    error: errorMessage,
-                  };
-                }
+                const result = toolResults[toolCall.function.name];
+                currentMessages.push({
+                  role: "tool",
+                  name: toolCall.function.name,
+                  content: JSON.stringify(result),
+                  tool_call_id: toolCall.id,
+                });
               }
             }
 
-            // Update the response with tool results
             response = { ...response, toolCalls: completion.toolCalls, toolResults };
-
-            // Continue the conversation with the tool results
             continue;
           }
 
-          // No tool calls, we have the final response
+          // No tool calls - final response
           response = { ...response, content: completion.content };
+          yield* logger.info(MarkdownRenderer.formatCompletion(agent.name));
 
-          // Log completion
-          const completionMessage = MarkdownRenderer.formatCompletion(agent.name);
-          yield* logger.info(completionMessage, {
-            agentId: agent.id,
-            conversationId: actualConversationId,
-            totalIterations: i + 1,
-            hasContent: !!completion.content,
-          });
-
-          // Mark loop as finished and break
           iterationsUsed = i + 1;
           finished = true;
           break;
@@ -764,83 +764,36 @@ export class AgentRunner {
         }
       }
 
-      // Post-loop diagnostics
+      // Post-loop cleanup
       if (!finished) {
         iterationsUsed = maxIterations;
-        const warningMessage = MarkdownRenderer.formatWarning(
-          agent.name,
-          `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
+        yield* logger.warn(
+          MarkdownRenderer.formatWarning(
+            agent.name,
+            `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
+          ),
         );
-        yield* logger.warn(warningMessage, {
-          agentId: agent.id,
-          conversationId: actualConversationId,
-          maxIterations,
-        });
-      } else if (
-        (!response.content || response.content.trim().length === 0) &&
-        !response.toolCalls
-      ) {
-        const emptyMessage = MarkdownRenderer.formatWarning(
-          agent.name,
-          "model returned an empty response",
+      } else if (!response.content?.trim() && !response.toolCalls) {
+        yield* logger.warn(
+          MarkdownRenderer.formatWarning(agent.name, "model returned an empty response"),
         );
-        yield* logger.warn(emptyMessage, {
-          agentId: agent.id,
-          conversationId: actualConversationId,
-          totalIterations: iterationsUsed,
-        });
       }
 
-      // Finalize agent run asynchronously (fire-and-forget) to avoid blocking the response
-      // This improves perceived performance by not waiting for file I/O
-      yield* finalizeAgentRun(runTracker, {
-        iterationsUsed,
-        finished,
-      }).pipe(
+      // Finalize run asynchronously
+      yield* finalizeAgentRun(runTracker, { iterationsUsed, finished }).pipe(
         Effect.catchAll((error) =>
-          logger.warn("Failed to write agent token usage log", {
-            agentId: agent.id,
-            conversationId: actualConversationId,
-            error: error.message,
-          }),
+          logger.warn("Failed to write agent token usage log", { error: error.message }),
         ),
-        // Fork to run in background - don't wait for completion
         Effect.fork,
         Effect.asVoid,
       );
 
-      // Optionally persist conversation history via a storage layer in the future
-
-      // Return the full message history from this turn so callers can persist it
-      // Display was already handled by OutputRenderer during streaming
       return { ...response, messages: currentMessages };
     });
   }
 
   /**
    * Non-streaming implementation that waits for complete LLM responses before rendering.
-   *
-   * How it works:
-   * 1. Creates a non-streaming chat completion from the LLM service with retry logic for rate limits
-   * 2. Waits for the complete response (all tokens) before processing or displaying anything
-   * 3. Formats the entire response content at once (e.g., markdown rendering) if configured
-   * 4. Displays the complete response to the user via console.log after formatting
-   * 5. Executes any tool calls sequentially after receiving the complete response
-   * 6. Displays tool execution progress using direct console output (process.stdout.write)
-   * 7. Continues the agent loop with tool results until no more tool calls are needed
-   * 8. Respects display config for showing thinking indicators, tool execution, and formatting
-   *
-   * Key differences from streaming:
-   * - Blocking: User waits for complete response before seeing any output
-   * - Simpler: No stream processing, event handling, or timeout management for streams
-   * - Direct output: Uses console.log/process.stdout.write instead of progressive rendering
-   * - Batch formatting: Formats entire response at once rather than incrementally
-   * - Lower overhead: No stream infrastructure, but less responsive user experience
-   *
-   * Use cases:
-   * - When streaming is disabled or unavailable
-   * - For scripts and automated workflows where progressive output isn't needed
-   * - When simpler error handling is preferred (no stream-specific timeouts/errors)
    */
   private static runWithoutStreaming(
     options: AgentRunnerOptions,
@@ -852,89 +805,16 @@ export class AgentRunner {
     LLMService | ToolRegistry | LoggerService | ConfigService
   > {
     return Effect.gen(function* () {
-      const { agent, userInput, conversationId, userId, maxIterations = MAX_AGENT_STEPS } =
-        options;
-
-      // Get services
+      const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
       const llmService = yield* LLMServiceTag;
-      const toolRegistry = yield* ToolRegistryTag;
-      const configService = yield* AgentConfigService;
       const logger = yield* LoggerServiceTag;
-      const appConfig = yield* configService.appConfig;
 
-      // Generate a conversation ID if not provided
-      const actualConversationId = conversationId || `conv-${Date.now()}`;
+      // Initialize common context
+      const runContext = yield* initializeAgentRun(options);
+      const { actualConversationId, context, tools, messages, runTracker, provider, model } =
+        runContext;
 
-      // Use provided history if available to preserve context across turns
-      const history: ChatMessage[] = options.conversationHistory || [];
-
-      const agentType = agent.config.agentType;
-      const provider = agent.config.llmProvider;
-      const model = agent.config.llmModel;
-
-      const runTracker = createAgentRunTracker({
-        agent,
-        conversationId: actualConversationId,
-        ...(userId ? { userId } : {}),
-        provider,
-        model,
-        reasoningEffort: agent.config.reasoningEffort ?? "disable",
-        maxIterations,
-      });
-
-      // Get available tools for this specific agent
-      const allToolNames = yield* toolRegistry.listTools();
-      const agentToolNames = normalizeToolConfig(agent.config.tools, {
-        agentId: agent.id,
-      });
-
-      // Validate that all agent tools exist in the registry
-      const invalidTools = agentToolNames.filter((toolName) => !allToolNames.includes(toolName));
-      if (invalidTools.length > 0) {
-        return yield* Effect.fail(
-          new Error(`Agent ${agent.id} references non-existent tools: ${invalidTools.join(", ")}`),
-        );
-      }
-
-      // Automatically include approval follow-up tools (e.g., execute-* variants)
-      const expandedToolNameSet = new Set(agentToolNames);
-      for (const toolName of agentToolNames) {
-        const tool = yield* toolRegistry.getTool(toolName);
-        if (tool.approvalExecuteToolName) {
-          expandedToolNameSet.add(tool.approvalExecuteToolName);
-        }
-      }
-
-      const expandedToolNames = Array.from(expandedToolNameSet);
-
-      // Get tool definitions for only the agent's specified tools
-      const allTools = yield* toolRegistry.getToolDefinitions();
-      const tools = allTools.filter((tool) => expandedToolNames.includes(tool.function.name));
-
-      // Build a map of available tool descriptions for prompt clarity
-      const availableTools: Record<string, string> = {};
-      for (const tool of tools) {
-        availableTools[tool.function.name] = tool.function.description;
-      }
-
-      // Build messages for the agent with only its specified tools and descriptions
-      const messages = yield* agentPromptBuilder.buildAgentMessages(agentType, {
-        agentName: agent.name,
-        agentDescription: agent.description || "",
-        userInput,
-        conversationHistory: history,
-        toolNames: expandedToolNames,
-        availableTools,
-      });
-
-      // Create execution context
-      const context: ToolExecutionContext = {
-        agentId: agent.id,
-        conversationId: actualConversationId,
-        ...(userId ? { userId } : {}),
-      };
-
-      // Run the agent loop
+      // Run agent loop
       const currentMessages = [...messages];
       let response: AgentResponse = {
         content: "",
@@ -943,88 +823,48 @@ export class AgentRunner {
       let finished = false;
       let iterationsUsed = 0;
 
-      // Memory safeguard: prevent unbounded message growth
-      const MAX_MESSAGES = 100;
-
-      // Determine the LLM provider and model to use
       for (let i = 0; i < maxIterations; i++) {
         yield* Effect.sync(() => beginIteration(runTracker, i + 1));
         try {
-          // Log user-friendly progress for info level (respect display config)
+          // Log thinking indicator
           if (displayConfig.showThinking) {
             if (i === 0) {
-              const message = MarkdownRenderer.formatThinking(agent.name, true);
-              yield* logger.info(message, {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-              });
+              yield* logger.info(MarkdownRenderer.formatThinking(agent.name, true));
             } else {
-              const message = MarkdownRenderer.formatThinking(agent.name, false);
-              yield* logger.info(message, {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-              });
+              yield* logger.info(MarkdownRenderer.formatThinking(agent.name, false));
             }
           }
 
-          // Log LLM request in debug mode
-          if (appConfig.logging.level === "debug") {
-            yield* logger.debug("LLM request", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              provider,
-              model,
-              messageCount: currentMessages.length,
-              messages: currentMessages,
-              tools: tools.map((t) => ({
-                name: t.function.name,
-                description: t.function.description,
-              })),
-            });
-          }
+          // Ensure messages are not empty
+          const messagesToSend = yield* ensureMessagesNotEmpty(
+            currentMessages,
+            userInput,
+            logger,
+            agent.id,
+            actualConversationId,
+            i + 1,
+          );
 
-          // Call the LLM with retry logic for rate limit errors
-          let messagesToSend = currentMessages;
-          // Secondary safety: ensure messagesToSend is never empty
-          if (messagesToSend.length === 0) {
-            // Fallback to a single user message if everything else failed
-            messagesToSend = [
-              {
-                role: "user",
-                content: userInput && userInput.trim().length > 0 ? userInput : "Continue",
-              },
-            ];
-            yield* logger.warn("messagesToSend was empty; using fallback single user message", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-            });
-          }
-          const maxRetries = 3;
+          // Create non-streaming completion with retry
+          const llmOptions = {
+        model,
+            messages: messagesToSend,
+            tools,
+            toolChoice: "auto" as const,
+            reasoning_effort: agent.config.reasoningEffort ?? "disable",
+          };
 
           const completion = yield* Effect.retry(
             Effect.gen(function* () {
-              const llmOptions = {
-                model,
-                messages: messagesToSend,
-                tools,
-                toolChoice: "auto" as const,
-                reasoning_effort: agent.config.reasoningEffort ?? "disable",
-              };
-
               try {
-                const result = yield* llmService.createChatCompletion(provider, llmOptions);
-                return result;
+                return yield* llmService.createChatCompletion(provider, llmOptions);
               } catch (error) {
                 recordLLMRetry(runTracker, error);
                 throw error;
               }
             }),
             Schedule.exponential("1 second").pipe(
-              Schedule.intersect(Schedule.recurs(maxRetries)),
+              Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
               Schedule.whileInput((error) => error instanceof LLMRateLimitError),
             ),
           );
@@ -1033,7 +873,7 @@ export class AgentRunner {
             recordLLMUsage(runTracker, completion.usage);
           }
 
-          // Add the assistant's response to the conversation (including tool calls, if any)
+          // Add assistant response to conversation
           currentMessages.push({
             role: "assistant",
             content: completion.content,
@@ -1048,243 +888,68 @@ export class AgentRunner {
               : {}),
           });
 
-          // Memory safeguard: trim messages if they exceed the limit
-          if (currentMessages.length > MAX_MESSAGES) {
-            // Keep the system message and the most recent messages
-            const systemMessage = currentMessages[0];
-            if (systemMessage) {
-              const recentMessages = currentMessages.slice(-(MAX_MESSAGES - 1));
-              currentMessages.length = 0;
-              currentMessages.push(systemMessage, ...recentMessages);
-            }
+          yield* trimMessages(currentMessages, logger, agent.id, actualConversationId);
 
-            yield* logger.warn("Message history trimmed to prevent memory issues", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              maxMessages: MAX_MESSAGES,
-              trimmedCount: currentMessages.length,
-            });
-          }
-
-          // Log assistant response if log level is debug
-          if (appConfig.logging.level === "debug") {
-            yield* logger.debug("LLM response received", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              model: completion.model,
-              content: completion.content,
-              toolCalls: completion.toolCalls?.map((tc) => ({
-                id: tc.id,
-                name: tc.function.name,
-                arguments: tc.function.arguments,
-              })),
-              usage: completion.usage,
-            });
-          }
-
-          // Format output based on display config
+          // Format content
           let formattedContent = completion.content;
           if (displayConfig.format === "markdown" && formattedContent) {
             formattedContent = MarkdownRenderer.render(formattedContent);
           }
 
-          // Check if the model wants to call a tool
+          // Handle tool calls
           if (completion.toolCalls && completion.toolCalls.length > 0) {
-            const toolResults: Record<string, unknown> = {};
+            const toolResults = yield* executeToolCalls(
+              completion.toolCalls,
+              context,
+              displayConfig,
+              null, // No renderer for non-streaming
+              runTracker,
+              logger,
+              agent.id,
+              actualConversationId,
+              agent.name,
+            );
 
-            // Log user-friendly tool execution info (respect display config)
-            if (displayConfig.showToolExecution) {
-              const toolNames = completion.toolCalls.map((tc) => tc.function.name);
-              const message = MarkdownRenderer.formatToolExecution(agent.name, toolNames);
-
-              // Display tools detected message (non-streaming mode)
-              const tools = toolNames.join(", ");
-              console.log(
-                `\n${chalk.yellow("🔧")} ${chalk.yellow(agent.name)} is using tools: ${chalk.cyan(tools)}\n`,
-              );
-
-              yield* logger.info(message, {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                toolCount: completion.toolCalls.length,
-                tools: toolNames,
-              });
-            }
-
-            // Execute each tool call
+            // Add tool results to conversation
             for (const toolCall of completion.toolCalls) {
               if (toolCall.type === "function") {
-                const { name, arguments: argsString } = toolCall.function;
-                recordToolInvocation(runTracker, name);
-
-                // Track tool start time for duration calculation
-                const toolStartTime = Date.now();
-
-                try {
-                  // Parse the arguments safely with proper error handling
-                  let parsed: unknown;
-                  try {
-                    parsed = JSON.parse(argsString);
-                  } catch (parseError) {
-                    throw new Error(
-                      `Invalid JSON in tool arguments: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
-                    );
-                  }
-
-                  const args: Record<string, unknown> =
-                    parsed && typeof parsed === "object" && !Array.isArray(parsed)
-                      ? (parsed as Record<string, unknown>)
-                      : {};
-
-                  // Log tool call arguments in debug mode
-                  yield* logger.debug("Tool call arguments", {
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                    toolName: name,
-                    toolCallId: toolCall.id,
-                    arguments: args,
-                    rawArguments: argsString,
-                  });
-
-                  // Display tool execution start (non-streaming mode)
-                  if (displayConfig.showToolExecution) {
-                    const argsStr = OutputRenderer.formatToolArguments(name, args);
-                    process.stdout.write(
-                      `\n${chalk.cyan("⚙️")}  Executing tool: ${chalk.cyan(name)}${argsStr}...`,
-                    );
-                  }
-
-                  // Execute the tool
-                  const result = yield* executeTool(name, args, context);
-
-                  const toolDuration = Date.now() - toolStartTime;
-                  const resultString = JSON.stringify(result.result);
-
-                  // Display tool execution complete (non-streaming mode)
-                  if (displayConfig.showToolExecution) {
-                    if (result.success) {
-                      const summary = OutputRenderer.formatToolResult(name, resultString);
-                      process.stdout.write(
-                        ` ${chalk.green("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
-                      );
-                    } else {
-                      const errorMsg = result.error || "Tool execution failed";
-                      process.stdout.write(
-                        ` ${chalk.red("✗")} ${chalk.red(`(${errorMsg})`)} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
-                      );
-                    }
-                  }
-
-                  // Log tool execution result in debug mode
-                  yield* logger.debug("Tool execution result", {
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                    toolName: name,
-                    toolCallId: toolCall.id,
-                    arguments: args,
-                    result: result.result,
-                  });
-
-                  // Add the tool result to the conversation
-                  currentMessages.push({
-                    role: "tool",
-                    name,
-                    content: JSON.stringify(result.result),
-                    tool_call_id: toolCall.id,
-                  });
-
-                  // Store the tool result
-                  toolResults[name] = result.result;
-                } catch (error) {
-                  // If the tool does not exist, rethrow to fail fast (never mock missing tools)
-                  if (error instanceof Error && error.message.startsWith("Tool not found")) {
-                    throw error;
-                  }
-
-                  // Log the tool execution error for debugging
-                  const errorMessage = error instanceof Error ? error.message : String(error);
-                  const toolDuration = Date.now() - toolStartTime;
-
-                  // Display tool execution error (non-streaming mode)
-                  if (displayConfig.showToolExecution) {
-                    process.stdout.write(
-                      ` ${chalk.red("✗")} ${chalk.red(`(${errorMessage})`)} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
-                    );
-                  }
-
-                  recordToolError(runTracker, name, error);
-                  yield* logger.error("Tool execution failed", {
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                    toolName: name,
-                    toolCallId: toolCall.id,
-                    error: errorMessage,
-                  });
-
-                  // Include the tool execution error in the conversation
-                  currentMessages.push({
-                    role: "tool",
-                    name,
-                    content: `Error: ${errorMessage}`,
-                    tool_call_id: toolCall.id,
-                  });
-
-                  // Store the error
-                  toolResults[name] = {
-                    error: errorMessage,
-                  };
-                }
+                const result = toolResults[toolCall.function.name];
+                currentMessages.push({
+                  role: "tool",
+                  name: toolCall.function.name,
+                  content: JSON.stringify(result),
+                  tool_call_id: toolCall.id,
+                });
               }
             }
 
-            // Update the response with tool results
             response = { ...response, toolCalls: completion.toolCalls, toolResults };
-
-            // Continue the conversation with the tool results
             continue;
           }
 
-          // No tool calls, we have the final response
+          // No tool calls - final response
           response = { ...response, content: formattedContent };
 
-          // Display the final response (non-streaming mode)
+          // Display final response
           if (formattedContent && formattedContent.trim().length > 0) {
             console.log();
             console.log(MarkdownRenderer.formatAgentResponse(agent.name, formattedContent));
             console.log();
           }
 
-          // Log completion
-          const completionMessage = MarkdownRenderer.formatCompletion(agent.name);
-          yield* logger.info(completionMessage, {
-            agentId: agent.id,
-            conversationId: actualConversationId,
-            totalIterations: i + 1,
-            hasContent: !!completion.content,
-          });
+          yield* logger.info(MarkdownRenderer.formatCompletion(agent.name));
 
           // Show metrics if enabled
           if (showMetrics && completion.usage) {
             const parts: string[] = [];
-            if (completion.usage.totalTokens) {
-              parts.push(`Total: ${completion.usage.totalTokens} tokens`);
-            }
-            if (completion.usage.promptTokens) {
-              parts.push(`Prompt: ${completion.usage.promptTokens}`);
-            }
-            if (completion.usage.completionTokens) {
-              parts.push(`Completion: ${completion.usage.completionTokens}`);
-            }
+            if (completion.usage.totalTokens) parts.push(`Total: ${completion.usage.totalTokens} tokens`);
+            if (completion.usage.promptTokens) parts.push(`Prompt: ${completion.usage.promptTokens}`);
+            if (completion.usage.completionTokens) parts.push(`Completion: ${completion.usage.completionTokens}`);
             if (parts.length > 0) {
-              yield* logger.info(`[${parts.join(" | ")}]`, {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-              });
+              yield* logger.info(`[${parts.join(" | ")}]`);
             }
           }
 
-          // Mark loop as finished and break
           iterationsUsed = i + 1;
           finished = true;
           break;
@@ -1293,55 +958,30 @@ export class AgentRunner {
         }
       }
 
-      // Post-loop diagnostics
+      // Post-loop cleanup
       if (!finished) {
         iterationsUsed = maxIterations;
-        const warningMessage = MarkdownRenderer.formatWarning(
-          agent.name,
-          `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
+        yield* logger.warn(
+          MarkdownRenderer.formatWarning(
+            agent.name,
+            `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
+          ),
         );
-        yield* logger.warn(warningMessage, {
-          agentId: agent.id,
-          conversationId: actualConversationId,
-          maxIterations,
-        });
-      } else if (
-        (!response.content || response.content.trim().length === 0) &&
-        !response.toolCalls
-      ) {
-        const emptyMessage = MarkdownRenderer.formatWarning(
-          agent.name,
-          "model returned an empty response",
+      } else if (!response.content?.trim() && !response.toolCalls) {
+        yield* logger.warn(
+          MarkdownRenderer.formatWarning(agent.name, "model returned an empty response"),
         );
-        yield* logger.warn(emptyMessage, {
-          agentId: agent.id,
-          conversationId: actualConversationId,
-          totalIterations: iterationsUsed,
-        });
       }
 
-      // Finalize agent run asynchronously (fire-and-forget) to avoid blocking the response
-      // This improves perceived performance by not waiting for file I/O
-      yield* finalizeAgentRun(runTracker, {
-        iterationsUsed,
-        finished,
-      }).pipe(
+      // Finalize run asynchronously
+      yield* finalizeAgentRun(runTracker, { iterationsUsed, finished }).pipe(
         Effect.catchAll((error) =>
-          logger.warn("Failed to write agent token usage log", {
-            agentId: agent.id,
-            conversationId: actualConversationId,
-            error: error.message,
-          }),
+          logger.warn("Failed to write agent token usage log", { error: error.message }),
         ),
-        // Fork to run in background - don't wait for completion
         Effect.fork,
         Effect.asVoid,
       );
 
-      // Optionally persist conversation history via a storage layer in the future
-
-      // Return the full message history from this turn so callers can persist it
-      // Display was already handled above in non-streaming mode
       return { ...response, messages: currentMessages };
     });
   }

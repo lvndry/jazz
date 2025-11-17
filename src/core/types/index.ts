@@ -151,8 +151,6 @@ export interface AgentResult {
 export interface AppConfig {
   readonly storage: StorageConfig;
   readonly logging: LoggingConfig;
-  readonly security: SecurityConfig;
-  readonly performance: PerformanceConfig;
   readonly google?: GoogleConfig;
   readonly llm?: LLMConfig;
   readonly linkup?: LinkupConfig;
@@ -182,22 +180,9 @@ export interface LoggingConfig {
   readonly showMetrics?: boolean;
 }
 
-export interface SecurityConfig {
-  readonly encryptionKey?: string;
-  readonly allowedOrigins?: readonly string[];
-  readonly rateLimit?: RateLimitConfig;
-}
-
 export interface RateLimitConfig {
   readonly requests: number;
   readonly window: number;
-}
-
-export interface PerformanceConfig {
-  readonly maxConcurrentAgents: number;
-  readonly maxConcurrentTasks: number;
-  readonly timeout: number;
-  readonly memoryLimit?: number;
 }
 
 export interface GoogleConfig {

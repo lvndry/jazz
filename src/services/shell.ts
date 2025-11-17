@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { spawn } from "child_process";
 import { Context, Effect, Layer } from "effect";
+import * as nodePath from "path";
 
 export interface FileSystemContextService {
   readonly getCwd: (key: { agentId: string; conversationId?: string }) => Effect.Effect<string>;
@@ -210,23 +211,37 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
             // Normalize the path first
             const normalizedPath = normalize(path);
 
-            // Check if it's an absolute path (after normalization)
-            const resolved = normalizedPath.startsWith("/")
-              ? normalizedPath
-              : `${base}/${normalizedPath}`;
+            // Handle special cases: "." and ".."
+            let resolved: string;
+            if (normalizedPath === ".") {
+              resolved = base;
+            } else if (normalizedPath === "..") {
+              // Go up one directory from base
+              const parent = base.substring(0, base.lastIndexOf("/"));
+              resolved = parent || "/";
+            } else if (normalizedPath.startsWith("/")) {
+              // Absolute path
+              resolved = normalizedPath;
+            } else {
+              // Relative path - combine with base
+              resolved = `${base}/${normalizedPath}`;
+            }
+
+            // Normalize the resolved path to remove . and .. components
+            const cleanedPath = nodePath.normalize(resolved);
 
             // If skipExistenceCheck is true, return the resolved path without checking existence
             if (options.skipExistenceCheck) {
-              return resolved;
+              return cleanedPath;
             }
 
             // Check if the resolved path exists
             const statResult = yield* fs
-              .stat(resolved)
+              .stat(cleanedPath)
               .pipe(Effect.catchAll(() => Effect.succeed(null)));
 
             if (statResult) {
-              return resolved;
+              return cleanedPath;
             } else {
               // If it's a relative path and doesn't exist, try to find similar directories
               if (!normalizedPath.startsWith("/")) {
@@ -239,7 +254,7 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
                   if (found.results.length > 0) {
                     const suggestion = found.results[0];
                     throw new Error(
-                      `Path not found: ${resolved}\n` +
+                      `Path not found: ${cleanedPath}\n` +
                         `Did you mean: ${suggestion}?\n` +
                         `Found ${found.results.length} similar directory${found.results.length > 1 ? "ies" : "y"}: ${found.results.join(", ")}`,
                     );
@@ -247,7 +262,7 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
                 }
               }
 
-              return yield* Effect.fail(new Error(`Path not found: ${resolved}`));
+              return yield* Effect.fail(new Error(`Path not found: ${cleanedPath}`));
             }
           }),
 
@@ -264,17 +279,31 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
             // Normalize the path first
             const normalizedPath = normalize(path);
 
-            // Check if it's an absolute path (after normalization)
-            const resolved = normalizedPath.startsWith("/")
-              ? normalizedPath
-              : `${base}/${normalizedPath}`;
+            // Handle special cases: "." and ".."
+            let resolved: string;
+            if (normalizedPath === ".") {
+              resolved = base;
+            } else if (normalizedPath === "..") {
+              // Go up one directory from base
+              const parent = base.substring(0, base.lastIndexOf("/"));
+              resolved = parent || "/";
+            } else if (normalizedPath.startsWith("/")) {
+              // Absolute path
+              resolved = normalizedPath;
+            } else {
+              // Relative path - combine with base
+              resolved = `${base}/${normalizedPath}`;
+            }
+
+            // Normalize the resolved path to remove . and .. components
+            const cleanedPath = nodePath.normalize(resolved);
 
             // For mkdir, we need to check if the parent directory exists
-            const parentDir = resolved.substring(0, resolved.lastIndexOf("/"));
+            const parentDir = cleanedPath.substring(0, cleanedPath.lastIndexOf("/"));
 
             // If parentDir is empty, it means we're creating in root
             if (parentDir === "") {
-              return resolved;
+              return cleanedPath;
             }
 
             // Check if the parent directory exists
@@ -285,7 +314,7 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
             if (!parentStatResult) {
               return yield* Effect.fail(
                 new Error(
-                  `Cannot create directory '${resolved}': parent directory '${parentDir}' does not exist. Use recursive=true to create parent directories.`,
+                  `Cannot create directory '${cleanedPath}': parent directory '${parentDir}' does not exist. Use recursive=true to create parent directories.`,
                 ),
               );
             }
@@ -293,12 +322,13 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
             if (parentStatResult.type !== "Directory") {
               return yield* Effect.fail(
                 new Error(
-                  `Cannot create directory '${resolved}': '${parentDir}' is not a directory.`,
+                  `Cannot create directory '${cleanedPath}': '${parentDir}' is not a directory.`,
+
                 ),
               );
             }
 
-            return resolved;
+            return cleanedPath;
           }),
 
         escapePath: (path) => escapeForShell(path),

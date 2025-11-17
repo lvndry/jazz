@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from "effect";
+import { formatToolArguments } from "../core/utils/tool-formatter";
 import { AgentConfigService, type ConfigService } from "./config";
 
 /**
@@ -294,26 +295,20 @@ export function logAutomationEvent(
 // Tool execution logging helpers
 export function logToolExecutionStart(
   toolName: string,
-  agentId: string,
-  conversationId?: string,
+  args?: Record<string, unknown>,
 ): Effect.Effect<void, never, LoggerService | ConfigService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const toolEmoji = getToolEmoji(toolName);
-    yield* logger.info(`${toolEmoji} ${toolName}`, {
-      toolName,
-      agentId,
-      conversationId,
-      status: "started",
-    });
+    const argsText = formatToolArguments(toolName, args, { style: "plain" });
+    const message = argsText ? `${toolEmoji} ${toolName} ${argsText}` : `${toolEmoji} ${toolName}`;
+    yield* logger.info(message);
   });
 }
 
 export function logToolExecutionSuccess(
   toolName: string,
-  agentId: string,
   durationMs: number,
-  conversationId?: string,
   resultSummary?: string,
 ): Effect.Effect<void, never, LoggerService | ConfigService> {
   return Effect.gen(function* () {
@@ -324,22 +319,14 @@ export function logToolExecutionSuccess(
       ? `${toolEmoji} ${toolName} ✅ (${duration}) - ${resultSummary}`
       : `${toolEmoji} ${toolName} ✅ (${duration})`;
 
-    yield* logger.info(message, {
-      toolName,
-      agentId,
-      conversationId,
-      durationMs,
-      status: "success",
-    });
+    yield* logger.info(message);
   });
 }
 
 export function logToolExecutionError(
   toolName: string,
-  agentId: string,
   durationMs: number,
   error: string,
-  conversationId?: string,
 ): Effect.Effect<void, never, LoggerService | ConfigService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -347,23 +334,14 @@ export function logToolExecutionError(
     const duration = formatDuration(durationMs);
     const message = `${toolEmoji} ${toolName} ✗ (${duration}) - ${error}`;
 
-    yield* logger.error(message, {
-      toolName,
-      agentId,
-      conversationId,
-      durationMs,
-      status: "error",
-      error,
-    });
+    yield* logger.error(message);
   });
 }
 
 export function logToolExecutionApproval(
   toolName: string,
-  agentId: string,
   durationMs: number,
   approvalMessage: string,
-  conversationId?: string,
 ): Effect.Effect<void, never, LoggerService | ConfigService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -371,14 +349,7 @@ export function logToolExecutionApproval(
     const duration = formatDuration(durationMs);
     const message = `${toolEmoji} ${toolName} ⚠️ APPROVE REQUIRED (${duration}) - ${approvalMessage}`;
 
-    yield* logger.warn(message, {
-      toolName,
-      agentId,
-      conversationId,
-      durationMs,
-      status: "approval_required",
-      approvalMessage,
-    });
+    yield* logger.warn(message);
   });
 }
 

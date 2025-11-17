@@ -4,6 +4,10 @@ import type { StreamEvent } from "../../services/llm/streaming-types";
 import type { LLMError, ToolCall } from "../../services/llm/types";
 import type { StreamingConfig } from "../types";
 import { MarkdownRenderer } from "./markdown-renderer";
+import {
+  formatToolArguments as formatToolArgumentsShared,
+  formatToolResult as formatToolResultShared,
+} from "./tool-formatter";
 
 /**
  * Display configuration for rendering
@@ -29,6 +33,7 @@ export class OutputRenderer {
     private streamingConfig: StreamingConfig,
     private showMetrics: boolean,
     private agentName: string,
+    private reasoningEffort?: "disable" | "low" | "medium" | "high",
   ) {}
 
   /**
@@ -44,33 +49,58 @@ export class OutputRenderer {
         case "thinking_start":
           if (this.displayConfig.showThinking) {
             this.thinkingStarted = true;
-            // Don't render header yet - wait for first content
+            // Render header immediately when reasoning starts
+            this.renderThinkingStart();
           }
           break;
 
         case "thinking_chunk":
-          if (this.displayConfig.showThinking) {
-            // Only show header on first non-empty chunk
-            if (!this.thinkingHasContent && event.content.trim().length > 0) {
-              this.renderThinkingStart();
+          if (this.displayConfig.showThinking && this.thinkingStarted) {
+            // Mark that we have content (even if this chunk is empty, we want to track that we're in a reasoning block)
+            if (!this.thinkingHasContent) {
               this.thinkingHasContent = true;
             }
-            if (this.thinkingHasContent) {
-              this.renderThinkingChunk(event.content);
-            }
+            // Always render chunks when reasoning is active
+            this.renderThinkingChunk(event.content);
           }
           break;
 
         case "thinking_complete":
-          if (this.displayConfig.showThinking && this.thinkingHasContent) {
-            this.renderThinkingComplete(event);
-            // Reset state for next thinking block
-            this.thinkingStarted = false;
-            this.thinkingHasContent = false;
-          } else if (this.thinkingStarted) {
-            // Reset state even if no content was shown
-            this.thinkingStarted = false;
-            this.thinkingHasContent = false;
+          if (this.displayConfig.showThinking) {
+            // Only show completion if reasoning was actually started (thinking_start was received)
+            // If thinkingStarted is false, this event shouldn't be displayed
+            if (this.thinkingStarted) {
+              // If we have tokens, always show them
+              if (event.totalTokens !== undefined) {
+                this.renderThinkingComplete(event);
+                // Reset state after rendering
+                this.thinkingStarted = false;
+                this.thinkingHasContent = false;
+              } else if (this.thinkingHasContent) {
+                // We have content but no tokens yet - show completion without tokens
+                this.renderThinkingComplete(event);
+                // Keep thinkingStarted true to allow token updates later
+                // Don't reset yet - wait for potential token update
+              } else {
+                // No content and no tokens - but thinking_start was received, so show minimal completion
+                // This means reasoning started but no content chunks were received
+                // Keep thinkingStarted true to allow token updates later
+                process.stdout.write(`\n${chalk.dim("─".repeat(60))}\n${chalk.green("✓ Reasoning complete")}\n\n`);
+                // Don't reset thinkingStarted yet - wait for potential token update
+              }
+            } else if (event.totalTokens !== undefined) {
+              // This is an update with tokens after the initial completion
+              // Rewrite the completion line with token info
+              // Move cursor up to the separator line and rewrite both lines
+              process.stdout.write(`\x1b[2A\x1b[0J`); // Move up 2 lines and clear to end of screen
+              this.renderThinkingComplete(event);
+              this.thinkingStarted = false;
+              this.thinkingHasContent = false;
+            } else {
+              // thinking_complete received but thinkingStarted is false and no tokens
+              // This shouldn't happen - ignore it silently
+              // This prevents showing "Reasoning complete" when no reasoning actually occurred
+            }
           }
           break;
 
@@ -123,7 +153,10 @@ export class OutputRenderer {
     // Reset thinking state for new stream
     this.thinkingStarted = false;
     this.thinkingHasContent = false;
-    console.log(`\n${chalk.bold.blue(this.agentName)} (${event.provider}/${event.model}):`);
+    const reasoningInfo = this.reasoningEffort
+      ? chalk.dim(` [Reasoning: ${this.reasoningEffort}]`)
+      : "";
+    process.stdout.write(`\n${chalk.bold.blue(this.agentName)} (${event.provider}/${event.model})${reasoningInfo}:\n`);
   }
 
   private renderThinkingStart(): void {
@@ -133,7 +166,7 @@ export class OutputRenderer {
   private renderThinkingChunk(content: string): void {
     // Write thinking content in a readable format
     // Use blue color for better visibility while still distinguishing from main text
-    process.stdout.write(chalk.blue(content));
+    process.stdout.write(chalk.italic.gray.dim(content));
   }
 
   private renderThinkingComplete(event?: { totalTokens?: number }): void {
@@ -180,191 +213,17 @@ export class OutputRenderer {
   }
 
   /**
-   * Utility method for safe string conversion (used in both streaming and non-streaming modes)
-   */
-  static safeString(value: unknown): string {
-    if (value === null || value === undefined) return "";
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-    return "";
-  }
-
-  /**
    * Format tool arguments for display (used in both streaming and non-streaming modes)
    */
   static formatToolArguments(toolName: string, args?: Record<string, unknown>): string {
-    if (!args || Object.keys(args).length === 0) {
-      return "";
-    }
-
-    // Format arguments based on tool type
-    switch (toolName) {
-      case "read_file": {
-        const path = OutputRenderer.safeString(args["path"] || args["filePath"]);
-        return path ? ` ${chalk.dim("file:")} ${chalk.cyan(path)}` : "";
-      }
-      case "write_file": {
-        const path = OutputRenderer.safeString(args["path"] || args["filePath"]);
-        return path ? ` ${chalk.dim("file:")} ${chalk.cyan(path)}` : "";
-      }
-      case "cd": {
-        const to = OutputRenderer.safeString(args["path"] || args["directory"]);
-        return to ? ` ${chalk.dim("→")} ${chalk.cyan(to)}` : "";
-      }
-      case "grep": {
-        const pattern = OutputRenderer.safeString(args["pattern"]);
-        const path = OutputRenderer.safeString(args["path"]);
-        const patternStr = pattern ? ` ${chalk.dim("pattern:")} ${chalk.cyan(pattern)}` : "";
-        const pathStr = path ? ` ${chalk.dim(`in: ${path}`)}` : "";
-        return patternStr + pathStr;
-      }
-      case "git_status":
-        return "";
-      case "git_log": {
-        const limit = args["limit"];
-        const limitStr = OutputRenderer.safeString(limit);
-        return limitStr ? ` ${chalk.dim("limit:")} ${chalk.cyan(limitStr)}` : "";
-      }
-      case "git_diff":
-        return "";
-      case "git_commit": {
-        const message = OutputRenderer.safeString(args["message"]);
-        if (!message) return "";
-        return ` ${chalk.dim("message:")} ${chalk.cyan(message.substring(0, 50))}`;
-      }
-      case "git_push": {
-        const branch = OutputRenderer.safeString(args["branch"]);
-        return branch ? ` ${chalk.dim("branch:")} ${chalk.cyan(branch)}` : "";
-      }
-      case "git_pull":
-        return "";
-      case "git_checkout": {
-        const branchName = OutputRenderer.safeString(args["branch"]);
-        return branchName ? ` ${chalk.dim("branch:")} ${chalk.cyan(branchName)}` : "";
-      }
-      case "execute_command":
-      case "execute_command_approved": {
-        const command = OutputRenderer.safeString(args["command"]);
-        if (!command) return "";
-        const truncated = command.substring(0, 60);
-        return ` ${chalk.dim("command:")} ${chalk.cyan(truncated)}${command.length > 60 ? "..." : ""}`;
-      }
-      case "http_request": {
-        const url = OutputRenderer.safeString(args["url"]);
-        const method = OutputRenderer.safeString(args["method"] || "GET");
-        if (!url) return "";
-        const truncated = url.substring(0, 50);
-        return ` ${chalk.dim(`${method}:`)} ${chalk.cyan(truncated)}${url.length > 50 ? "..." : ""}`;
-      }
-      case "web_search": {
-        const query = OutputRenderer.safeString(args["query"]);
-        if (!query) return "";
-        const truncated = query.substring(0, 50);
-        return ` ${chalk.dim("query:")} ${chalk.cyan(truncated)}${query.length > 50 ? "..." : ""}`;
-      }
-      case "ls": {
-        const dir = OutputRenderer.safeString(args["path"]);
-        return dir ? ` ${chalk.dim("dir:")} ${chalk.cyan(dir)}` : "";
-      }
-      case "find": {
-        const searchPath = OutputRenderer.safeString(args["path"]);
-        return searchPath ? ` ${chalk.dim("path:")} ${chalk.cyan(searchPath)}` : "";
-      }
-      case "mkdir": {
-        const dirPath = OutputRenderer.safeString(args["path"]);
-        return dirPath ? ` ${chalk.dim("path:")} ${chalk.cyan(dirPath)}` : "";
-      }
-      default: {
-        // For unknown tools, show first few arguments
-        const keys = Object.keys(args).slice(0, 2);
-        if (keys.length === 0) return "";
-        const parts = keys.map((key) => {
-          const valueStr = OutputRenderer.safeString(args[key]).substring(0, 30);
-          return `${chalk.dim(`${key}:`)} ${chalk.cyan(valueStr)}`;
-        });
-        return ` ${parts.join(", ")}`;
-      }
-    }
+    return formatToolArgumentsShared(toolName, args, { style: "colored" });
   }
 
   /**
    * Format tool result for display (used in both streaming and non-streaming modes)
    */
   static formatToolResult(toolName: string, result: string): string {
-    try {
-      const parsed: unknown = JSON.parse(result);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        return "";
-      }
-
-      const obj = parsed as Record<string, unknown>;
-
-      switch (toolName) {
-        case "read_file": {
-          const content = obj["content"];
-          if (typeof content !== "string") return "";
-          const lines = content.split("\n").length;
-          return ` ${chalk.dim(`(${lines} line${lines !== 1 ? "s" : ""})`)}`;
-        }
-        case "cd": {
-          const newPath = OutputRenderer.safeString(obj["path"] || obj["currentDirectory"]);
-          return newPath ? ` ${chalk.dim("→")} ${chalk.cyan(newPath)}` : "";
-        }
-        case "git_status": {
-          const branch = OutputRenderer.safeString(obj["branch"]);
-          const modified = Array.isArray(obj["modified"]) ? obj["modified"].length : 0;
-          const staged = Array.isArray(obj["staged"]) ? obj["staged"].length : 0;
-          const parts: string[] = [];
-          if (branch) parts.push(chalk.cyan(branch));
-          if (modified > 0) parts.push(chalk.yellow(`${modified} modified`));
-          if (staged > 0) parts.push(chalk.green(`${staged} staged`));
-          return parts.length > 0 ? ` ${chalk.dim("(")}${parts.join(chalk.dim(", "))}${chalk.dim(")")}` : "";
-        }
-        case "git_log": {
-          const commits = obj["commits"] || obj;
-          const count = Array.isArray(commits) ? commits.length : 0;
-          return count > 0 ? ` ${chalk.dim(`(${count} commit${count !== 1 ? "s" : ""})`)}` : "";
-        }
-        case "grep": {
-          const matches = obj["matches"] || obj;
-          const count = Array.isArray(matches) ? matches.length : 0;
-          return count > 0 ? ` ${chalk.dim(`(${count} match${count !== 1 ? "es" : ""})`)}` : "";
-        }
-        case "ls": {
-          const items = obj["items"] || obj["files"] || obj;
-          const count = Array.isArray(items) ? items.length : 0;
-          return count > 0 ? ` ${chalk.dim(`(${count} item${count !== 1 ? "s" : ""})`)}` : "";
-        }
-        case "execute_command":
-        case "execute_command_approved": {
-          const exitCode = obj["exitCode"];
-          const output = obj["output"];
-          if (exitCode !== undefined && exitCode !== null) {
-            const exitCodeNum = Number(exitCode);
-            if (!isNaN(exitCodeNum) && exitCodeNum !== 0) {
-              return ` ${chalk.red(`(exit: ${exitCodeNum})`)}`;
-            }
-          }
-          if (output && typeof output === "string") {
-            const truncated = output.substring(0, 50);
-            return ` ${chalk.dim(`(${truncated}${output.length >= 50 ? "..." : ""})`)}`;
-          }
-          return "";
-        }
-        case "http_request": {
-          const status = obj["statusCode"];
-          if (status !== undefined && status !== null) {
-            const statusStr = OutputRenderer.safeString(status);
-            return statusStr ? ` ${chalk.dim(`(${statusStr})`)}` : "";
-          }
-          return "";
-        }
-        default:
-          return "";
-      }
-    } catch {
-      return "";
-    }
+    return formatToolResultShared(toolName, result);
   }
 
   private renderToolExecutionStart(event: {

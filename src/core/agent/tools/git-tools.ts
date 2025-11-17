@@ -183,7 +183,28 @@ export function createGitStatusTool(): ReturnType<typeof defineTool> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitStatusArgs;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, typedArgs.path);
+
+        // Catch errors from path resolution and return them as ToolExecutionResult
+        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: error instanceof Error ? error.message : String(error),
+            } as ToolExecutionResult),
+          ),
+        );
+
+        // If path resolution failed, return the error
+        if (
+          typeof workingDirResult === "object" &&
+          "success" in workingDirResult &&
+          !workingDirResult.success
+        ) {
+          return workingDirResult;
+        }
+
+        const workingDir = workingDirResult as string;
 
         const commandResult = yield* runGitCommand({
           args: ["status", "--short", "--branch"],
@@ -262,7 +283,28 @@ export function createGitLogTool(): ReturnType<typeof defineTool> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitLogArgs;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, typedArgs.path);
+
+        // Catch errors from path resolution and return them as ToolExecutionResult
+        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: error instanceof Error ? error.message : String(error),
+            } as ToolExecutionResult),
+          ),
+        );
+
+        // If path resolution failed, return the error
+        if (
+          typeof workingDirResult === "object" &&
+          "success" in workingDirResult &&
+          !workingDirResult.success
+        ) {
+          return workingDirResult;
+        }
+
+        const workingDir = workingDirResult as string;
 
         const limit = typedArgs.limit ?? 10;
         const prettyFormat = "%H%x1f%h%x1f%an%x1f%ar%x1f%s%x1e";
@@ -348,7 +390,28 @@ export function createGitDiffTool(): ReturnType<typeof defineTool> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitDiffArgs;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, typedArgs.path);
+
+        // Catch errors from path resolution and return them as ToolExecutionResult
+        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: error instanceof Error ? error.message : String(error),
+            } as ToolExecutionResult),
+          ),
+        );
+
+        // If path resolution failed, return the error
+        if (
+          typeof workingDirResult === "object" &&
+          "success" in workingDirResult &&
+          !workingDirResult.success
+        ) {
+          return workingDirResult;
+        }
+
+        const workingDir = workingDirResult as string;
 
         const diffArgs: string[] = ["diff", "--no-color"];
         if (typedArgs.staged) {
@@ -429,7 +492,28 @@ export function createGitBranchTool(): ReturnType<typeof defineTool> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitBranchArgs;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, typedArgs.path);
+
+        // Catch errors from path resolution and return them as ToolExecutionResult
+        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: error instanceof Error ? error.message : String(error),
+            } as ToolExecutionResult),
+          ),
+        );
+
+        // If path resolution failed, return the error
+        if (
+          typeof workingDirResult === "object" &&
+          "success" in workingDirResult &&
+          !workingDirResult.success
+        ) {
+          return workingDirResult;
+        }
+
+        const workingDir = workingDirResult as string;
 
         const branchArgs: string[] = ["branch", "--list"];
         if (typedArgs.remote) {

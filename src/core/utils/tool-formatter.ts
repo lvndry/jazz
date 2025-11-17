@@ -6,101 +6,242 @@ import { safeString } from "./string";
  * Used by both streaming and non-streaming modes
  */
 
+type FormatStyle = "plain" | "colored";
+
+interface FormatOptions {
+  style?: FormatStyle;
+}
+
 /**
  * Format tool arguments for display
  * Shows relevant parameters for each tool type
+ * @param style - "plain" for logger (no colors, { } format), "colored" for console output (chalk colors)
  */
-export function formatToolArguments(toolName: string, args?: Record<string, unknown>): string {
+export function formatToolArguments(
+  toolName: string,
+  args?: Record<string, unknown>,
+  options: FormatOptions = { style: "colored" },
+): string {
   if (!args || Object.keys(args).length === 0) {
     return "";
+  }
+
+  const style = options.style ?? "colored";
+  const usePlain = style === "plain";
+
+  // Helper to format key-value pairs
+  function formatKeyValue(key: string, value: string, truncate?: number): string {
+    const truncated = truncate && value.length > truncate ? value.substring(0, truncate) + "..." : value;
+    if (usePlain) {
+      return `${key}: ${truncated}`;
+    }
+    return ` ${chalk.dim(`${key}:`)} ${chalk.cyan(truncated)}`;
+  }
+
+  // Helper to format parts list
+  function formatParts(parts: string[]): string {
+    if (parts.length === 0) return "";
+    if (usePlain) {
+      return `{ ${parts.join(", ")} }`;
+    }
+    return parts.join("");
   }
 
   // Format arguments based on tool type
   switch (toolName) {
     case "read_file": {
+      const parts: string[] = [];
       const path = safeString(args["path"] || args["filePath"]);
-      return path ? ` ${chalk.dim("file:")} ${chalk.cyan(path)}` : "";
+      if (path) {
+        if (usePlain) {
+          parts.push(`file: ${path}`);
+        } else {
+          parts.push(formatKeyValue("file", path));
+        }
+      }
+      const startLine = args["startLine"];
+      const endLine = args["endLine"];
+      if (typeof startLine === "number" || typeof endLine === "number") {
+        const start = typeof startLine === "number" ? startLine : undefined;
+        const end = typeof endLine === "number" ? endLine : undefined;
+        if (start && end) {
+          parts.push(usePlain ? `lines: ${start}-${end}` : ` ${chalk.dim(`lines: ${start}-${end}`)}`);
+        } else if (start) {
+          parts.push(usePlain ? `from line: ${start}` : ` ${chalk.dim(`from line: ${start}`)}`);
+        } else if (end) {
+          parts.push(usePlain ? `to line: ${end}` : ` ${chalk.dim(`to line: ${end}`)}`);
+        }
+      }
+      return formatParts(parts);
+    }
+    case "grep": {
+      const parts: string[] = [];
+      const pattern = safeString(args["pattern"]);
+      if (pattern) {
+        if (usePlain) {
+          parts.push(`pattern: ${pattern}`);
+        } else {
+          parts.push(formatKeyValue("pattern", pattern));
+        }
+      }
+      const path = safeString(args["path"]);
+      if (path) {
+        if (usePlain) {
+          parts.push(`in: ${path}`);
+        } else {
+          parts.push(` ${chalk.dim(`in: ${path}`)}`);
+        }
+      }
+      const flags: string[] = [];
+      if (args["recursive"] === true) flags.push("--recursive");
+      if (args["ignoreCase"] === true) flags.push("--ignore-case");
+      const rawPattern = args["pattern"];
+      if (args["regex"] === true || (typeof rawPattern === "string" && rawPattern.startsWith("re:"))) {
+        flags.push("--regex");
+      }
+      if (args["filePattern"]) {
+        const filePattern = safeString(args["filePattern"]);
+        if (filePattern) flags.push(`--include=${filePattern}`);
+      }
+      if (flags.length > 0) {
+        parts.push(usePlain ? `flags: ${flags.join(" ")}` : ` ${chalk.dim(`flags: ${flags.join(" ")}`)}`);
+      }
+      return formatParts(parts);
     }
     case "write_file": {
       const path = safeString(args["path"] || args["filePath"]);
-      return path ? ` ${chalk.dim("file:")} ${chalk.cyan(path)}` : "";
+      if (!path) return "";
+      return usePlain ? `{ file: ${path} }` : formatKeyValue("file", path);
     }
     case "cd": {
       const to = safeString(args["path"] || args["directory"]);
-      return to ? ` ${chalk.dim("→")} ${chalk.cyan(to)}` : "";
+      if (!to) return "";
+      return usePlain ? `{ path: ${to} }` : ` ${chalk.dim("→")} ${chalk.cyan(to)}`;
     }
-    case "grep": {
-      const pattern = safeString(args["pattern"]);
-      const path = safeString(args["path"]);
-      const patternStr = pattern ? `${chalk.dim("pattern:")} ${chalk.cyan(pattern)}` : "";
-      const pathStr = path ? ` ${chalk.dim(`in: ${path}`)}` : "";
-      return patternStr + pathStr;
+    case "ls": {
+      const parts: string[] = [];
+      const dir = safeString(args["path"]);
+      if (dir) {
+        if (usePlain) {
+          parts.push(`dir: ${dir}`);
+        } else {
+          parts.push(formatKeyValue("dir", dir));
+        }
+      }
+      if (args["all"] === true) parts.push(usePlain ? "--all" : ` ${chalk.dim("--all")}`);
+      if (args["long"] === true) parts.push(usePlain ? "--long" : ` ${chalk.dim("--long")}`);
+      return formatParts(parts);
+    }
+    case "find": {
+      const parts: string[] = [];
+      const searchPath = safeString(args["path"]);
+      if (searchPath) {
+        if (usePlain) {
+          parts.push(`path: ${searchPath}`);
+        } else {
+          parts.push(formatKeyValue("path", searchPath));
+        }
+      }
+      const name = safeString(args["name"]);
+      if (name) {
+        if (usePlain) {
+          parts.push(`name: ${name}`);
+        } else {
+          parts.push(formatKeyValue("name", name));
+        }
+      }
+      const type = safeString(args["type"]);
+      if (type) {
+        if (usePlain) {
+          parts.push(`type: ${type}`);
+        } else {
+          parts.push(formatKeyValue("type", type));
+        }
+      }
+      return formatParts(parts);
     }
     case "git_status":
       return "";
     case "git_log": {
       const limit = args["limit"];
       const limitStr = safeString(limit);
-      return limitStr ? ` ${chalk.dim("limit:")} ${chalk.cyan(limitStr)}` : "";
+      if (!limitStr) return "";
+      return usePlain ? `{ limit: ${limitStr} }` : formatKeyValue("limit", limitStr);
     }
     case "git_diff":
       return "";
     case "git_commit": {
       const message = safeString(args["message"]);
       if (!message) return "";
-      return ` ${chalk.dim("message:")} ${chalk.cyan(message.substring(0, 50))}`;
+      const truncated = message.length > 50 ? message.substring(0, 50) + "..." : message;
+      return usePlain
+        ? `{ message: "${truncated}" }`
+        : ` ${chalk.dim("message:")} ${chalk.cyan(truncated)}`;
     }
     case "git_push": {
       const branch = safeString(args["branch"]);
-      return branch ? ` ${chalk.dim("branch:")} ${chalk.cyan(branch)}` : "";
+      if (!branch) return "";
+      return usePlain ? `{ branch: ${branch} }` : formatKeyValue("branch", branch);
     }
     case "git_pull":
       return "";
     case "git_checkout": {
       const branchName = safeString(args["branch"]);
-      return branchName ? ` ${chalk.dim("branch:")} ${chalk.cyan(branchName)}` : "";
+      if (!branchName) return "";
+      return usePlain ? `{ branch: ${branchName} }` : formatKeyValue("branch", branchName);
     }
     case "execute_command":
     case "execute_command_approved": {
       const command = safeString(args["command"]);
       if (!command) return "";
-      const truncated = command.substring(0, 60);
-      return ` ${chalk.dim("command:")} ${chalk.cyan(truncated)}${command.length > 60 ? "..." : ""}`;
+      const truncated = command.length > 60 ? command.substring(0, 60) + "..." : command;
+      return usePlain
+        ? `{ command: "${truncated}" }`
+        : ` ${chalk.dim("command:")} ${chalk.cyan(truncated)}${command.length > 60 ? "..." : ""}`;
     }
     case "http_request": {
-      const url = safeString(args["url"]);
+      const parts: string[] = [];
       const method = safeString(args["method"] || "GET");
-      if (!url) return "";
-      const truncated = url.substring(0, 50);
-      return ` ${chalk.dim(`${method}:`)} ${chalk.cyan(truncated)}${url.length > 50 ? "..." : ""}`;
+      if (usePlain) {
+        parts.push(`method: ${method}`);
+      } else {
+        parts.push(` ${chalk.dim(`${method}:`)}`);
+      }
+      const url = safeString(args["url"]);
+      if (url) {
+        const truncated = url.length > 50 ? url.substring(0, 50) + "..." : url;
+        if (usePlain) {
+          parts.push(`url: ${truncated}`);
+        } else {
+          parts.push(` ${chalk.cyan(truncated)}`);
+        }
+      }
+      return formatParts(parts);
     }
     case "web_search": {
       const query = safeString(args["query"]);
       if (!query) return "";
-      const truncated = query.substring(0, 50);
-      return ` ${chalk.dim("query:")} ${chalk.cyan(truncated)}${query.length > 50 ? "..." : ""}`;
-    }
-    case "ls": {
-      const dir = safeString(args["path"]);
-      return dir ? ` ${chalk.dim("dir:")} ${chalk.cyan(dir)}` : "";
-    }
-    case "find": {
-      const searchPath = safeString(args["path"]);
-      return searchPath ? ` ${chalk.dim("path:")} ${chalk.cyan(searchPath)}` : "";
+      const truncated = query.length > 50 ? query.substring(0, 50) + "..." : query;
+      return usePlain ? `{ query: "${truncated}" }` : formatKeyValue("query", truncated);
     }
     case "mkdir": {
       const dirPath = safeString(args["path"]);
-      return dirPath ? ` ${chalk.dim("path:")} ${chalk.cyan(dirPath)}` : "";
+      if (!dirPath) return "";
+      return usePlain ? `{ path: ${dirPath} }` : formatKeyValue("path", dirPath);
     }
     default: {
       // For unknown tools, show first few arguments
-      const keys = Object.keys(args).slice(0, 2);
+      const keys = Object.keys(args).slice(0, usePlain ? 3 : 2);
       if (keys.length === 0) return "";
       const parts = keys.map((key) => {
-        const valueStr = safeString(args[key]).substring(0, 30);
-        return `${chalk.dim(`${key}:`)} ${chalk.cyan(valueStr)}`;
+        const valueStr = safeString(args[key]);
+        const truncated = valueStr.length > (usePlain ? 30 : 30) ? valueStr.substring(0, 30) + "..." : valueStr;
+        if (usePlain) {
+          return `${key}: ${truncated}`;
+        }
+        return `${chalk.dim(`${key}:`)} ${chalk.cyan(truncated)}`;
       });
-      return ` ${parts.join(", ")}`;
+      return usePlain ? `{ ${parts.join(", ")} }` : ` ${parts.join(", ")}`;
     }
   }
 }
