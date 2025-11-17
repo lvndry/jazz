@@ -24,6 +24,7 @@ import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { z } from "zod";
 import { MAX_AGENT_STEPS } from "../../constants/agent";
 import { AgentConfigService, type ConfigService } from "../config";
+import { StreamProcessor } from "./stream-processor";
 import type { StreamEvent, StreamingResult } from "./streaming-types";
 import {
   LLMAuthenticationError,
@@ -37,7 +38,6 @@ import {
   type LLMProvider,
   type LLMService,
   type ModelInfo,
-  type ToolCall,
 } from "./types";
 
 interface AISDKConfig {
@@ -505,473 +505,58 @@ class DefaultAISDKService implements LLMService {
     // Create a deferred to collect final response
     const responseDeferred = createDeferred<ChatCompletionResponse>();
 
-    // Create the stream - use Stream.async for async operations
-    const stream = Stream.async<StreamEvent, LLMError>((emit) => {
-      // Start async processing
-      void (async (): Promise<void> => {
-        const startTime = Date.now();
-        let firstTokenTime: number | null = null;
-
-        try {
-          // Emit start event
-          void emit(Effect.succeed(Chunk.of({
-            type: "stream_start",
-            provider: providerName,
-            model: options.model,
-            timestamp: startTime,
-          })));
-
-          const result = streamText({
-            model,
-            messages: toCoreMessages(options.messages),
-            ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
-            ...(tools ? { tools } : {}),
-            ...(providerOptions ? { providerOptions } : {}),
-            abortSignal: abortController.signal,
-            stopWhen: stepCountIs(MAX_AGENT_STEPS),
-          });
-
-          let accumulatedText = "";
-          let textSequence = 0;
-          let reasoningSequence = 0;
-          let hasStartedText = false;
-          let hasStartedReasoning = false;
-
-          // Track tool calls as they come in during streaming
-          const collectedToolCalls: ToolCall[] = [];
-
-          // Track reasoning tokens for later extraction from final usage
-          let reasoningTokensFromUsage: number | undefined = undefined;
-          let thinkingCompleteEmitted = false;
-          // Track completion signals
-          let finishEventReceived = false;
-          const completionDeferred = createDeferred<void>();
-          // Flag to stop processing fullStream after finish event
-          let shouldStopFullStream = false;
-
-          // Process textStream for text chunks - this is our primary completion signal
-          const textStreamPromise = (async (): Promise<void> => {
-            try {
-              for await (const textChunk of result.textStream) {
-                // Detect text-start: if hasStartedText = false and we get text
-                if (!hasStartedText && textChunk.length > 0) {
-                  void emit(Effect.succeed(Chunk.of({ type: "text_start" })));
-                  hasStartedText = true;
-                  // Record first token time on first content
-                  if (!firstTokenTime) {
-                    firstTokenTime = Date.now();
-                  }
-                }
-
-                if (textChunk.length > 0) {
-                  accumulatedText += textChunk;
-                  void emit(Effect.succeed(Chunk.of({
-                    type: "text_chunk",
-                    delta: textChunk,
-                    accumulated: accumulatedText,
-                    sequence: textSequence++,
-                  })));
-                }
-              }
-              // textStream completed - this is the reliable completion signal
-              completionDeferred.resolve();
-            } catch (error) {
-              // Handle textStream errors
-              if (options.reasoning_effort && options.reasoning_effort !== "disable") {
-                console.error(`Error in textStream:`, error);
-              }
-              // Resolve completion even on error - we may still have tool calls
-              completionDeferred.resolve();
-              throw error; // Re-throw to be caught by outer handler
-            }
-          })();
-
-          // Process reasoningText Promise with timeout to avoid blocking
-          const reasoningTextPromise = (async (): Promise<void> => {
-            try {
-              // Add timeout to prevent hanging - 5 seconds max
-              const reasoningText = await Promise.race([
-                result.reasoningText,
-                new Promise<string | undefined>((resolve) => setTimeout(() => resolve(undefined), 5000)),
-              ]);
-
-              // Detect reasoning-start: if not already processed and reasoningText exists and has meaningful content
-              // Guard against processing the same reasoning text multiple times
-              if (!hasStartedReasoning && reasoningText && reasoningText.length > 0) {
-                await emit(Effect.succeed(Chunk.of({ type: "thinking_start", provider: providerName })));
-                hasStartedReasoning = true;
-                // Record first token time on first content
-                if (!firstTokenTime) {
-                  firstTokenTime = Date.now();
-                }
-
-                // Emit reasoning text as chunks
-                // Split into reasonable chunks for streaming effect
-                const chunkSize = 1000; // characters per chunk
-                for (let i = 0; i < reasoningText.length; i += chunkSize) {
-                  const chunk = reasoningText.slice(i, i + chunkSize);
-                  await emit(Effect.succeed(Chunk.of({
-                    type: "thinking_chunk",
-                    content: chunk,
-                    sequence: reasoningSequence++,
-                  })));
-                }
-
-                // Emit thinking_complete after all reasoning text is processed
-                await emit(Effect.succeed(Chunk.of({
-                  type: "thinking_complete",
-                })));
-
-                thinkingCompleteEmitted = true;
-                hasStartedReasoning = false;
-              }
-            } catch {
-              // Handle reasoningText errors silently
-              // Errors are logged via the outer catch handler
-            }
-          })();
-
-          // Process toolResults Promise with timeout to avoid blocking
-          const toolResultsPromise = (async (): Promise<void> => {
-            try {
-              // Add timeout to prevent hanging - 5 seconds max
-              const toolResults = await Promise.race([
-                result.toolResults,
-                new Promise<Array<unknown>>((resolve) => setTimeout(() => resolve([]), 5000)),
-              ]);
-              if (toolResults && Array.isArray(toolResults) && toolResults.length > 0) {
-                // Process tool results if needed
-                // Note: toolResults are typically already handled via tool-call events in fullStream
-              }
-            } catch {
-              // Handle toolResults errors silently
-              // Errors are logged via the outer catch handler
-            }
-          })();
-
-          // Process fullStream for tool calls and other events (but not text/reasoning)
-          // Wrap in a promise so we can add timeout and track completion
-          const fullStreamPromise = (async (): Promise<void> => {
-            streamLoop: for await (const part of result.fullStream) {
-                // Stop processing if we've already received finish event and completed
-                if (shouldStopFullStream) {
-                  break streamLoop;
-                }
-
-                switch (part.type) {
-                  // Skip text events - handled by textStream
-                  case "text-start":
-                  case "text-delta":
-                  case "text-end": {
-                    break;
-                  }
-
-                  // Skip reasoning events - handled by reasoningText
-                  case "reasoning-start":
-                  case "reasoning-delta": {
-                    break;
-                  }
-
-                  case "reasoning-end": {
-                    // Still process reasoning-end to extract reasoning tokens from usage
-                    if (hasStartedReasoning || thinkingCompleteEmitted) {
-                      const totalUsage = "totalUsage" in part ? part.totalUsage : undefined;
-                      const usage = "usage" in part ? part.usage : undefined;
-                      // Check both totalUsage and usage for reasoning tokens
-                      const totalTokens =
-                        totalUsage && typeof totalUsage === "object" && "reasoningTokens" in totalUsage
-                          ? (totalUsage as { reasoningTokens?: number }).reasoningTokens
-                          : usage && typeof usage === "object" && "reasoningTokens" in usage
-                            ? (usage as { reasoningTokens?: number }).reasoningTokens
-                            : undefined;
-                      // Store reasoning tokens if found for potential later use
-                      if (totalTokens !== undefined) {
-                        reasoningTokensFromUsage = totalTokens;
-                        // Update thinking_complete with token count if not already emitted
-                        if (!thinkingCompleteEmitted) {
-                          void emit(Effect.succeed(Chunk.of({
-                            type: "thinking_complete",
-                            totalTokens,
-                          })));
-                          thinkingCompleteEmitted = true;
-                        }
-                      }
-                    }
-                    break;
-                  }
-
-                  case "tool-call": {
-                    const toolCall: ToolCall = {
-                      id: part.toolCallId,
-                      type: "function",
-                      function: {
-                        name: part.toolName,
-                        arguments: JSON.stringify(part.input),
-                      },
-                    };
-                    collectedToolCalls.push(toolCall);
-
-                    void emit(Effect.succeed(Chunk.of({
-                      type: "tool_call",
-                      toolCall,
-                      sequence: textSequence++,
-                    })));
-                    break;
-                  }
-
-                  case "finish": {
-                    // Finish event from fullStream - this is the definitive completion signal
-                    // The model is done generating, so we can proceed immediately
-                    finishEventReceived = true;
-                    shouldStopFullStream = true; // Signal to stop processing fullStream
-                    // Resolve completion immediately - finish event means model is done
-                    // This is especially important for tool-call-only responses where textStream may not complete
-                    completionDeferred.resolve();
-                    // Break out of the for loop, not just the switch
-                    break streamLoop;
-                  }
-
-                  case "error": {
-                    // Error during streaming
-                    throw part.error;
-                  }
-
-                  case "abort": {
-                    // Stream was aborted - if we've already completed, just break out
-                    // Otherwise emit error (this shouldn't happen after our fix, but keep for safety)
-                    if (shouldStopFullStream || finishEventReceived) {
-                      // Already completed, just break out of loop
-                      break streamLoop;
-                    }
-                    // Stream was aborted before completion - emit error
-                    void emit(Effect.fail(Option.some(
-                      new LLMRequestError(providerName, "Stream was aborted"),
-                    )));
-                    break streamLoop;
-                  }
-
-                  default: {
-                    // Silently ignore unhandled part types that we don't need
-                    // This prevents TypeScript errors and allows the stream to continue
-                    break;
-                  }
-                }
-            }
-          })();
-
-          // Start all streams in background - they process text, tool calls, and reasoning
-          void textStreamPromise.catch(() => {
-            // Silently handle errors - completion deferred is already resolved
-          });
-          void fullStreamPromise.catch(() => {
-            // Silently handle errors
-          });
-          void reasoningTextPromise.catch(() => {
-            // Silently handle errors
-          });
-          void toolResultsPromise.catch(() => {
-            // Silently handle errors
-          });
-
-          // Wait for completion signal - either textStream completes OR finish event (for tool-call-only responses)
-          // This handles both cases:
-          // 1. Normal text responses: textStream completes naturally
-          // 2. Tool-call-only responses: finish event triggers completion
-          const completionWaitStart = Date.now();
-          const completionTimeout = 10 * 1000; // 10 seconds safety timeout
-          let completionReceived = false;
-          let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-
+    // Create the stream using Stream.async
+    const stream = Stream.async<StreamEvent, LLMError>(
+      (emit: (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void) => {
+        // Start async processing
+        void (async (): Promise<void> => {
           try {
-            // Set up timeout first
-            const timeoutPromise = new Promise<void>((resolve) => {
-              timeoutHandle = setTimeout(() => {
-                // Only log timeout if completion wasn't received
-                if (!completionReceived) {
-                  console.error(`[DEBUG] Completion timeout after ${completionTimeout}ms (provider: ${providerName})`);
-                }
-                resolve();
-              }, completionTimeout);
+            // Create the AI SDK stream
+            const result = streamText({
+              model,
+              messages: toCoreMessages(options.messages),
+              ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
+              ...(tools ? { tools } : {}),
+              ...(providerOptions ? { providerOptions } : {}),
+              abortSignal: abortController.signal,
+              stopWhen: stepCountIs(MAX_AGENT_STEPS),
             });
 
-            // Race completion against timeout
-            await Promise.race([
-              completionDeferred.promise.then(() => {
-                completionReceived = true;
-                // Clear timeout if completion received early
-                if (timeoutHandle) {
-                  clearTimeout(timeoutHandle);
-                }
-              }),
-              timeoutPromise,
-            ]);
+            // Create stream processor
+            const processor = new StreamProcessor(
+              {
+                providerName,
+                modelName: options.model,
+                hasReasoningEnabled: !!(options.reasoning_effort && options.reasoning_effort !== "disable"),
+                startTime: Date.now(),
+              },
+              emit,
+            );
 
-            const completionWaitDuration = Date.now() - completionWaitStart;
-            if (completionWaitDuration > 100 && !completionReceived) {
-              console.error(`[DEBUG] Waited ${completionWaitDuration}ms for completion signal (provider: ${providerName})`, {
-                finishEventReceived,
-                hasToolCalls: collectedToolCalls.length > 0,
-                hasText: accumulatedText.length > 0,
-              });
-            }
+            // Process the stream and get final response
+            const finalResponse = await processor.process(result);
+
+            // Resolve deferred for consumers who just await response
+            responseDeferred.resolve(finalResponse);
+
+            // Close the stream
+            processor.close();
           } catch (error) {
-            // If completion errors, log but continue - we may still have accumulated text/tool calls
-            console.error(`[DEBUG] Completion error (provider: ${providerName}):`, error);
-          } finally {
-            // Clean up timeout if it's still pending
-            if (timeoutHandle) {
-              clearTimeout(timeoutHandle);
-            }
+            // Convert to LLM error
+            const llmError = convertToLLMError(error, providerName);
+
+            // Emit error event
+            void emit(Effect.fail(Option.some(llmError)));
+
+            // Reject the deferred
+            responseDeferred.reject(llmError);
+
+            // Close the stream
+            void emit(Effect.fail(Option.none()));
           }
-
-          const finalText = accumulatedText;
-          const toolCalls = collectedToolCalls.length > 0 ? collectedToolCalls : undefined;
-
-          // Get usage in parallel with building response - don't block on it
-          // Start usage retrieval immediately but don't wait for it
-          const usagePromise = (async (): Promise<Awaited<typeof result.usage> | undefined> => {
-            try {
-              return await Promise.race([
-                result.usage,
-                new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 100)),
-              ]);
-            } catch {
-              return undefined;
-            }
-          })();
-
-          // Build initial response immediately without usage (we'll update it if usage arrives quickly)
-          const endTime = Date.now();
-          let metrics:
-            | { firstTokenLatencyMs: number; tokensPerSecond?: number; totalTokens?: number }
-            | undefined;
-          if (firstTokenTime) {
-            metrics = {
-              firstTokenLatencyMs: firstTokenTime - startTime,
-            };
-          }
-
-          // Build response immediately - usage will be added if available
-          const initialResponse: ChatCompletionResponse = {
-            id: "",
-            model: options.model,
-            content: finalText,
-            ...(toolCalls ? { toolCalls } : {}),
-          };
-
-          // Try to get usage quickly (50ms) - if not available, proceed without it
-          const usageStartTime = Date.now();
-          let finalUsage: Awaited<typeof result.usage> | undefined = undefined;
-          try {
-            finalUsage = await Promise.race([
-              usagePromise,
-              new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 50)),
-            ]);
-          } catch {
-            finalUsage = undefined;
-          }
-          const usageDuration = Date.now() - usageStartTime;
-
-          // Add usage to response if we got it quickly
-          const finalResponse: ChatCompletionResponse = finalUsage
-            ? {
-                ...initialResponse,
-                usage: {
-                  promptTokens: finalUsage.inputTokens ?? 0,
-                  completionTokens: finalUsage.outputTokens ?? 0,
-                  totalTokens: finalUsage.totalTokens ?? 0,
-                },
-              }
-            : initialResponse;
-
-          // Update metrics with usage if available
-          if (finalUsage && metrics) {
-            const totalDuration = Date.now() - startTime;
-            const totalTokens = finalUsage.totalTokens ?? 0;
-            metrics = {
-              ...metrics,
-              ...(totalTokens > 0
-                ? {
-                    tokensPerSecond: (totalTokens / totalDuration) * 1000,
-                    totalTokens,
-                  }
-                : {}),
-            };
-          }
-
-          // Extract reasoning tokens from final usage if available
-          if (finalUsage && typeof finalUsage === "object") {
-            if ("reasoningTokens" in finalUsage && typeof finalUsage["reasoningTokens"] === "number") {
-              reasoningTokensFromUsage = finalUsage["reasoningTokens"];
-            } else if ("reasoning_tokens" in finalUsage && typeof finalUsage["reasoning_tokens"] === "number") {
-              reasoningTokensFromUsage = finalUsage["reasoning_tokens"];
-            } else if (
-              "experimental_providerMetadata" in finalUsage &&
-              typeof finalUsage.experimental_providerMetadata === "object" &&
-              finalUsage.experimental_providerMetadata !== null
-            ) {
-              const metadata = finalUsage.experimental_providerMetadata as Record<string, unknown>;
-              if ("reasoningTokens" in metadata && typeof metadata["reasoningTokens"] === "number") {
-                reasoningTokensFromUsage = metadata["reasoningTokens"];
-              } else if ("reasoning_tokens" in metadata && typeof metadata["reasoning_tokens"] === "number") {
-                reasoningTokensFromUsage = metadata["reasoning_tokens"];
-              }
-            }
-          }
-
-          // Emit thinking_complete with tokens if we have them
-          if (reasoningTokensFromUsage !== undefined && !thinkingCompleteEmitted) {
-            void emit(Effect.succeed(Chunk.of({
-              type: "thinking_complete",
-              totalTokens: reasoningTokensFromUsage,
-            })));
-          }
-
-          // Emit usage update if we have it
-          if (finalResponse.usage) {
-            void emit(Effect.succeed(Chunk.of({ type: "usage_update", usage: finalResponse.usage })));
-          }
-
-          // Emit complete event immediately - this is the critical path
-          const completeEventTime = Date.now();
-          void emit(Effect.succeed(Chunk.of({
-            type: "complete",
-            response: finalResponse,
-            totalDurationMs: endTime - startTime,
-            ...(metrics ? { metrics } : {}),
-          })));
-
-          // Signal to stop processing fullStream after complete event is emitted
-          // This ensures the stream can complete quickly after the complete event
-          shouldStopFullStream = true;
-
-          // Resolve the deferred immediately
-          responseDeferred.resolve(finalResponse);
-
-          // Abort the streamText result to stop all background processing
-          // This allows the stream to close quickly after the complete event
-          abortController.abort();
-
-          const completeEventEmitDuration = Date.now() - completeEventTime;
-          if (usageDuration > 50 || completeEventEmitDuration > 10) {
-            console.error(`[DEBUG] Timing breakdown (provider: ${providerName}):`, {
-              usageDuration,
-              completeEventEmitDuration,
-              totalDuration: endTime - startTime,
-            });
-          }
-        } catch (error) {
-          // Convert to LLM error
-          const llmError = convertToLLMError(error, providerName);
-
-          // Emit error event
-          void emit(Effect.fail(Option.some(llmError)));
-
-          // Reject the deferred
-          responseDeferred.reject(llmError);
-        }
-      })();
-    });
+        })();
+      },
+    );
 
     // Return streaming result with cancellation support
     return Effect.succeed({

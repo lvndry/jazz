@@ -67,16 +67,23 @@ export class OutputRenderer {
 
         case "thinking_complete":
           if (this.displayConfig.showThinking) {
-            // Show completion if reasoning was started (even if no chunks were received)
-            // Always use renderThinkingComplete if we have token info, otherwise use minimal version
+            // Only show completion if reasoning was actually started (thinking_start was received)
+            // If thinkingStarted is false, this event shouldn't be displayed
             if (this.thinkingStarted) {
-              if (this.thinkingHasContent) {
+              // If we have tokens, always show them
+              if (event.totalTokens !== undefined) {
                 this.renderThinkingComplete(event);
                 // Reset state after rendering
                 this.thinkingStarted = false;
                 this.thinkingHasContent = false;
+              } else if (this.thinkingHasContent) {
+                // We have content but no tokens yet - show completion without tokens
+                this.renderThinkingComplete(event);
+                // Keep thinkingStarted true to allow token updates later
+                // Don't reset yet - wait for potential token update
               } else {
-                // If header was shown but no content and no tokens, show minimal completion
+                // No content and no tokens - but thinking_start was received, so show minimal completion
+                // This means reasoning started but no content chunks were received
                 // Keep thinkingStarted true to allow token updates later
                 process.stdout.write(`\n${chalk.dim("─".repeat(60))}\n${chalk.green("✓ Reasoning complete")}\n\n`);
                 // Don't reset thinkingStarted yet - wait for potential token update
@@ -89,6 +96,10 @@ export class OutputRenderer {
               this.renderThinkingComplete(event);
               this.thinkingStarted = false;
               this.thinkingHasContent = false;
+            } else {
+              // thinking_complete received but thinkingStarted is false and no tokens
+              // This shouldn't happen - ignore it silently
+              // This prevents showing "Reasoning complete" when no reasoning actually occurred
             }
           }
           break;

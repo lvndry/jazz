@@ -714,7 +714,8 @@ function startChatLoop(
         continue;
       }
 
-      try {
+      // Use Effect.catchAll instead of try-catch for proper Effect error handling
+      yield* Effect.gen(function* () {
         if (!sessionInitialized) {
           yield* initializeSession(agent, conversationId || "").pipe(
             Effect.catchAll((error) =>
@@ -737,8 +738,39 @@ function startChatLoop(
           ...(loopOptions?.stream !== undefined ? { stream: loopOptions.stream } : {}),
         };
 
-        // Run the agent
-        const response = yield* AgentRunner.run(options);
+        // Run the agent with proper error handling
+        const response = yield* AgentRunner.run(options).pipe(
+          Effect.catchAll((error) =>
+            Effect.gen(function* () {
+              const logger = yield* LoggerServiceTag;
+              yield* logger.error("Agent execution error", { error });
+
+              console.log();
+
+              // Handle different error types with appropriate user feedback
+              if (error instanceof LLMRateLimitError) {
+                console.log(
+                  `⏳ Rate limit exceeded. The request was too large or you've hit your API limits.`,
+                );
+                console.log(`   Please try again in a moment or consider using a smaller context.`);
+                console.log(`   Error details: ${error.message}`);
+              } else if (error instanceof LLMRequestError) {
+                console.log(`❌ LLM request failed: ${error.message}`);
+                console.log(`   This might be a temporary issue. Please try again.`);
+              } else {
+                console.log(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
+              }
+              console.log();
+
+              // Return a minimal response to allow the loop to continue
+              return {
+                conversationId: conversationId || "",
+                messages: conversationHistory,
+                content: "",
+              };
+            }),
+          ),
+        );
 
         // Store the conversation ID for continuity
         conversationId = response.conversationId;
@@ -750,27 +782,7 @@ function startChatLoop(
 
         // Display is handled entirely by AgentRunner (both streaming and non-streaming)
         // No need to display here - AgentRunner takes care of it
-      } catch (error) {
-        console.log();
-
-        // Handle different error types with appropriate user feedback
-        if (error instanceof LLMRateLimitError) {
-          console.log(
-            `⏳ Rate limit exceeded. The request was too large or you've hit your API limits.`,
-          );
-          console.log(`   Please try again in a moment or consider using a smaller context.`);
-          console.log(`   Error details: ${error.message}`);
-        } else if (error instanceof LLMRequestError) {
-          console.log(`❌ LLM request failed: ${error.message}`);
-          console.log(`   This might be a temporary issue. Please try again.`);
-        } else {
-          console.log(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        console.log();
-
-        const logger = yield* LoggerServiceTag;
-        yield* logger.error("Agent chat processing error", { error });
-      }
+      })
     }
   });
 }
