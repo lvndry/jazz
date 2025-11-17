@@ -70,7 +70,7 @@ export class OutputRenderer {
             // Show completion if reasoning was started (even if no chunks were received)
             // Always use renderThinkingComplete if we have token info, otherwise use minimal version
             if (this.thinkingStarted) {
-              if (this.thinkingHasContent || event.totalTokens !== undefined) {
+              if (this.thinkingHasContent) {
                 this.renderThinkingComplete(event);
                 // Reset state after rendering
                 this.thinkingStarted = false;
@@ -155,7 +155,7 @@ export class OutputRenderer {
   private renderThinkingChunk(content: string): void {
     // Write thinking content in a readable format
     // Use blue color for better visibility while still distinguishing from main text
-    process.stdout.write(chalk.blue(content));
+    process.stdout.write(chalk.italic.gray.dim(content));
   }
 
   private renderThinkingComplete(event?: { totalTokens?: number }): void {

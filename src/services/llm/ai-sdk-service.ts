@@ -536,6 +536,7 @@ class DefaultAISDKService implements LLMService {
           let reasoningSequence = 0;
           let hasStartedText = false;
           let hasStartedReasoning = false;
+
           // Track tool calls as they come in during streaming
           const collectedToolCalls: ToolCall[] = [];
 
@@ -552,6 +553,7 @@ class DefaultAISDKService implements LLMService {
           const textStreamPromise = (async (): Promise<void> => {
             try {
               for await (const textChunk of result.textStream) {
+                // Detect text-start: if hasStartedText = false and we get text
                 if (!hasStartedText && textChunk.length > 0) {
                   void emit(Effect.succeed(Chunk.of({ type: "text_start" })));
                   hasStartedText = true;
@@ -572,7 +574,6 @@ class DefaultAISDKService implements LLMService {
                 }
               }
               // textStream completed - this is the reliable completion signal
-              console.error(`[DEBUG] textStream completed (provider: ${providerName})`);
               completionDeferred.resolve();
             } catch (error) {
               // Handle textStream errors
@@ -593,9 +594,11 @@ class DefaultAISDKService implements LLMService {
                 result.reasoningText,
                 new Promise<string | undefined>((resolve) => setTimeout(() => resolve(undefined), 5000)),
               ]);
-              // Detect reasoning-start: if hasStartedReasoning = false and reasoningText exists and has length > 0
+
+              // Detect reasoning-start: if not already processed and reasoningText exists and has meaningful content
+              // Guard against processing the same reasoning text multiple times
               if (!hasStartedReasoning && reasoningText && reasoningText.length > 0) {
-                void emit(Effect.succeed(Chunk.of({ type: "thinking_start", provider: providerName })));
+                await emit(Effect.succeed(Chunk.of({ type: "thinking_start", provider: providerName })));
                 hasStartedReasoning = true;
                 // Record first token time on first content
                 if (!firstTokenTime) {
@@ -607,7 +610,7 @@ class DefaultAISDKService implements LLMService {
                 const chunkSize = 1000; // characters per chunk
                 for (let i = 0; i < reasoningText.length; i += chunkSize) {
                   const chunk = reasoningText.slice(i, i + chunkSize);
-                  void emit(Effect.succeed(Chunk.of({
+                  await emit(Effect.succeed(Chunk.of({
                     type: "thinking_chunk",
                     content: chunk,
                     sequence: reasoningSequence++,
@@ -615,17 +618,16 @@ class DefaultAISDKService implements LLMService {
                 }
 
                 // Emit thinking_complete after all reasoning text is processed
-                void emit(Effect.succeed(Chunk.of({
+                await emit(Effect.succeed(Chunk.of({
                   type: "thinking_complete",
                 })));
+
                 thinkingCompleteEmitted = true;
                 hasStartedReasoning = false;
               }
-            } catch (error) {
+            } catch {
               // Handle reasoningText errors silently
-              if (options.reasoning_effort && options.reasoning_effort !== "disable") {
-                console.error(`[DEBUG] Error in reasoningText:`, error);
-              }
+              // Errors are logged via the outer catch handler
             }
           })();
 
@@ -640,15 +642,10 @@ class DefaultAISDKService implements LLMService {
               if (toolResults && Array.isArray(toolResults) && toolResults.length > 0) {
                 // Process tool results if needed
                 // Note: toolResults are typically already handled via tool-call events in fullStream
-                if (options.reasoning_effort && options.reasoning_effort !== "disable") {
-                  console.error(`[DEBUG] Received toolResults:`, toolResults.length);
-                }
               }
-            } catch (error) {
+            } catch {
               // Handle toolResults errors silently
-              if (options.reasoning_effort && options.reasoning_effort !== "disable") {
-                console.error(`[DEBUG] Error in toolResults:`, error);
-              }
+              // Errors are logged via the outer catch handler
             }
           })();
 
@@ -690,9 +687,6 @@ class DefaultAISDKService implements LLMService {
                       // Store reasoning tokens if found for potential later use
                       if (totalTokens !== undefined) {
                         reasoningTokensFromUsage = totalTokens;
-                        if (options.reasoning_effort && options.reasoning_effort !== "disable") {
-                          console.error(`[DEBUG] Found reasoningTokens in reasoning-end: ${totalTokens}`);
-                        }
                         // Update thinking_complete with token count if not already emitted
                         if (!thinkingCompleteEmitted) {
                           void emit(Effect.succeed(Chunk.of({
@@ -730,7 +724,6 @@ class DefaultAISDKService implements LLMService {
                     // The model is done generating, so we can proceed immediately
                     finishEventReceived = true;
                     shouldStopFullStream = true; // Signal to stop processing fullStream
-                    console.error(`[DEBUG] Received finish event (provider: ${providerName})`);
                     // Resolve completion immediately - finish event means model is done
                     // This is especially important for tool-call-only responses where textStream may not complete
                     completionDeferred.resolve();

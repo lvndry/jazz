@@ -181,9 +181,7 @@ export class AgentRunner {
       // Get services
       const llmService = yield* LLMServiceTag;
       const toolRegistry = yield* ToolRegistryTag;
-      const configService = yield* AgentConfigService;
       const logger = yield* LoggerServiceTag;
-      const appConfig = yield* configService.appConfig;
 
       // Generate a conversation ID if not provided
       const actualConversationId = conversationId || `conv-${Date.now()}`;
@@ -293,18 +291,10 @@ export class AgentRunner {
           // Log user-friendly progress for info level
           if (i === 0) {
             const message = MarkdownRenderer.formatThinking(agent.name, true);
-            yield* logger.info(message, {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-            });
+            yield* logger.info(message);
           } else {
             const message = MarkdownRenderer.formatThinking(agent.name, false);
-            yield* logger.info(message, {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-            });
+            yield* logger.info(message);
           }
 
           // Log LLM request in debug mode
@@ -347,10 +337,8 @@ export class AgentRunner {
 
           // Stream creation timeout: (2 minutes)
           const streamCreationTimeout = Duration.minutes(2);
-          // Stream completion timeout: longer - reasoning and tool call generation can take time
-          // Use agent timeout if configured, otherwise default to 12 minutes for complex workflows
-          const streamCompletionTimeoutMs = agent.config.timeout ?? 12 * 60 * 1000; // 12 minutes default
-          const streamCompletionTimeout = Duration.millis(streamCompletionTimeoutMs);
+          // No timeout on stream completion - streams can take as long as needed
+          // The stream will complete naturally when the LLM finishes generating
 
           // Create streaming result with graceful degradation
           const streamingResult = yield* Effect.retry(
@@ -407,23 +395,10 @@ export class AgentRunner {
             ),
           );
 
-          // Process stream events with timeout and error handling
-          // Use longer timeout for stream completion - reasoning and tool call generation can take time
-          const streamWithTimeout = streamingResult.stream.pipe(
-            Stream.timeout(streamCompletionTimeout),
-            Stream.catchAll((error) => {
-              // Convert timeout/interruption to error event
-              const cause = Cause.isCause(error) ? error : Cause.fail(error);
-              if (Cause.isInterruptedOnly(cause)) {
-                return Stream.make({
-                  type: "error",
-                  error: new Error("Stream timeout exceeded") as LLMRateLimitError,
-                  recoverable: false,
-                } as StreamEvent);
-              }
-              return Stream.fail(error);
-            }),
-          );
+          // Process stream events - let the stream complete naturally
+          // No timeout on stream completion - streams can take as long as needed
+          // The stream will complete naturally when the LLM finishes generating
+          const streamWithTimeout = streamingResult.stream;
 
           // Process stream events and render them with interruption handling
           // Use Ref to reliably track completion response from the complete event
@@ -457,14 +432,6 @@ export class AgentRunner {
                   });
 
                   yield* Ref.set(completionRef, event.response);
-                  const refSetTime = Date.now();
-                  yield* logger.debug("Set completion in Ref", {
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                    iteration: i + 1,
-                    timestamp: refSetTime,
-                    setDurationMs: refSetTime - completeEventTime,
-                  });
 
                   if (event.metrics) {
                     const latency = event.metrics.firstTokenLatencyMs;
@@ -474,7 +441,9 @@ export class AgentRunner {
                     }
                   }
 
-                  // Signal that we should interrupt the stream fiber
+                  // Mark that we've received the complete event
+                  // Don't interrupt immediately - let the stream finish processing naturally
+                  // The stream should complete quickly after the complete event
                   yield* Ref.set(shouldInterruptRef, true);
                 }
 
@@ -489,53 +458,58 @@ export class AgentRunner {
             ),
           );
 
-          // Wait for stream to complete or timeout
-          // If complete event is received, interrupt the fiber immediately to avoid 30-second delay
-          const streamWaitStart = Date.now();
-          yield* logger.debug("Waiting for stream to complete", {
-            agentId: agent.id,
-            conversationId: actualConversationId,
-            iteration: i + 1,
-            timestamp: streamWaitStart,
-          });
+          // Wait for stream to complete naturally
+          // No timeout - the stream will complete when the LLM finishes generating
+          yield* logger.debug("Waiting for stream to complete...");
 
-          // Race between stream completion and interrupt signal
-          // If complete event is received, interrupt immediately to avoid 30-second delay
+          // Wait for stream to complete naturally
+          // If complete event is received, we still wait for stream to finish processing all events
           const streamExit = yield* Effect.race(
             Fiber.await(streamFiber),
             Effect.gen(function* () {
-              // Poll the interrupt ref - if complete event was received, interrupt immediately
-              while (true) {
-                const shouldInterrupt = yield* Ref.get(shouldInterruptRef);
-                if (shouldInterrupt) {
-                  yield* Fiber.interrupt(streamFiber);
-                  // Return the interrupted exit
+              // Check if we've received the complete event
+              const hasCompleteEvent = yield* Ref.get(shouldInterruptRef);
+
+              if (hasCompleteEvent) {
+                // We have the complete event - wait for stream to finish naturally
+                // No timeout needed - the stream should complete on its own after the complete event
+                // The stream-level timeout (12 minutes) will catch truly stuck streams
+                yield* logger.debug("Complete event received, waiting for stream to finish naturally", {
+                  agentId: agent.id,
+                  conversationId: actualConversationId,
+                  iteration: i + 1,
+                });
+                // Just wait for the stream to complete naturally - no timeout
+                return yield* Fiber.await(streamFiber);
+              } else {
+                // No complete event yet - wait for stream to complete
+                // Use the stream-level timeout as a safety net (already applied at line 403)
+                // Don't add another aggressive timeout here - let the stream-level timeout handle it
+                yield* logger.debug("No complete event yet, waiting for stream to complete", {
+                  agentId: agent.id,
+                  conversationId: actualConversationId,
+                  iteration: i + 1,
+                });
+                // Just wait for the stream to complete - the stream-level timeout will catch stuck streams
                   return yield* Fiber.await(streamFiber);
-                }
-                // Small delay to avoid busy waiting
-                yield* Effect.sleep(Duration.millis(10));
               }
             }),
           );
-          const streamWaitDuration = Date.now() - streamWaitStart;
-
-          yield* logger.debug("Stream fiber completed", {
-            agentId: agent.id,
-            conversationId: actualConversationId,
-            iteration: i + 1,
-            waitDurationMs: streamWaitDuration,
-            exitType: Exit.isSuccess(streamExit) ? "success" : "failure",
-          });
 
           // Get completion - either from stream or fallback
           let completion: ChatCompletionResponse;
 
           // If stream was interrupted or failed, cancel and fallback
           if (Exit.isFailure(streamExit)) {
+            yield* logger.debug("Stream exit was a failure", {
+              agentId: agent.id,
+              conversationId: actualConversationId,
+              iteration: i + 1,
+            });
             yield* streamingResult.cancel;
             const error = Cause.failureOption(streamExit.cause);
             if (Option.isSome(error)) {
-              yield* logger.warn("Stream processing failed, using fallback", {
+              yield* logger.warn("Stream processing failed with error, using fallback", {
                 agentId: agent.id,
                 conversationId: actualConversationId,
                 iteration: i + 1,
@@ -553,12 +527,89 @@ export class AgentRunner {
 
               completion = yield* llmService.createChatCompletion(provider, llmOptions);
             } else {
-              // Stream was interrupted - cancel and continue to next iteration
+              // Stream was interrupted - check if we already have a completion from the complete event
+              // This happens when we intentionally interrupt after receiving a complete event
+              yield* logger.debug("Stream was interrupted (no error), checking for completion in ref", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+              });
+              const completionFromRef = yield* Ref.get(completionRef);
+              yield* logger.debug("Checked completion ref after interruption", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+                hasCompletion: !!completionFromRef,
+              });
+              if (completionFromRef) {
+                // We have a completion from the complete event, use it
+                completion = completionFromRef;
+                yield* logger.debug("Using completion from ref after stream interruption", {
+                  agentId: agent.id,
+                  conversationId: actualConversationId,
+                  iteration: i + 1,
+                  hasContent: !!completion.content,
+                  hasToolCalls: !!completion.toolCalls,
+                });
+              } else {
+                // Stream was interrupted without a completion in ref
+                // Try to get completion from deferred response - the stream might have completed
+                // but the complete event wasn't captured in the ref
+                yield* logger.debug("No completion in ref, trying deferred response", {
+                  agentId: agent.id,
+                  conversationId: actualConversationId,
+                  iteration: i + 1,
+                });
+
+                const responseTimeout = Duration.seconds(2);
+                const deferredResult = yield* streamingResult.response.pipe(
+                  Effect.timeout(responseTimeout),
+                  Effect.catchAll((timeoutError) => {
+                    // If response timeout, return undefined to signal we should continue
+                    return Effect.gen(function* () {
               yield* streamingResult.cancel;
-              continue;
+                      yield* logger.warn("Deferred response timeout after stream interruption, continuing", {
+                        agentId: agent.id,
+                        conversationId: actualConversationId,
+                        iteration: i + 1,
+                        error: timeoutError instanceof Error ? timeoutError.message : String(timeoutError),
+                      });
+                      // Return undefined to signal we should continue
+                      return undefined as ChatCompletionResponse | undefined;
+                    });
+                  }),
+                );
+
+                if (deferredResult) {
+                  completion = deferredResult;
+                  yield* logger.debug("Got completion from deferred response after interruption", {
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                    iteration: i + 1,
+                    hasContent: !!completion.content,
+                    hasToolCalls: !!completion.toolCalls,
+                  });
+                } else {
+                  // Failed to get completion from both ref and deferred
+                  // This should not happen in normal operation - log error and fail gracefully
+                  yield* logger.error("Failed to get completion from both ref and deferred response", {
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                    iteration: i + 1,
+                  });
+                  // Don't continue to next iteration - this would cause infinite loop
+                  // Instead, throw an error to fail the iteration
+                  throw new Error("Stream completed but no completion response available");
+                }
+              }
             }
           } else {
             // Stream completed successfully - try to get completion from event first
+            yield* logger.debug("Stream exit was successful, getting completion from ref", {
+              agentId: agent.id,
+              conversationId: actualConversationId,
+              iteration: i + 1,
+            });
             const refCheckStart = Date.now();
             const completionFromStream = yield* Ref.get(completionRef);
             const refCheckDuration = Date.now() - refCheckStart;
@@ -635,6 +686,16 @@ export class AgentRunner {
             }
           }
 
+          // Safety check: ensure completion is set
+          if (!completion) {
+            yield* logger.error("Completion is undefined - this should not happen", {
+              agentId: agent.id,
+              conversationId: actualConversationId,
+              iteration: i + 1,
+            });
+            throw new Error("Completion is undefined - stream processing failed");
+          }
+
           const completionReceivedTime = Date.now();
           yield* logger.debug("Completion received, processing", {
             agentId: agent.id,
@@ -643,6 +704,7 @@ export class AgentRunner {
             timestamp: completionReceivedTime,
             hasContent: !!completion.content,
             hasToolCalls: !!completion.toolCalls,
+            toolCallsLength: completion.toolCalls?.length ?? 0,
             hasUsage: !!completion.usage,
           });
 
@@ -684,24 +746,32 @@ export class AgentRunner {
           }
 
           // Log assistant response if log level is debug
-          if (appConfig.logging.level === "debug") {
-            yield* logger.debug("LLM response received", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              model: completion.model,
-              content: completion.content,
-              toolCalls: completion.toolCalls?.map((tc) => ({
-                id: tc.id,
-                name: tc.function.name,
-                arguments: tc.function.arguments,
-              })),
-              usage: completion.usage,
-            });
-          }
+          yield* logger.debug("LLM response received", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: i + 1,
+            model: completion.model,
+            content: completion.content,
+            toolCalls: completion.toolCalls?.map((tc) => ({
+              id: tc.id,
+              name: tc.function.name,
+              arguments: tc.function.arguments,
+            })),
+            usage: completion.usage,
+          });
+
 
           // Check if the model wants to call a tool
-          if (completion.toolCalls && completion.toolCalls.length > 0) {
+          const hasToolCalls = completion.toolCalls && completion.toolCalls.length > 0;
+          yield* logger.debug("Checking for tool calls", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: i + 1,
+            hasToolCalls,
+            toolCallsLength: completion.toolCalls?.length ?? 0,
+          });
+
+          if (hasToolCalls && completion.toolCalls) {
             const toolResults: Record<string, unknown> = {};
 
             // Get tool names for logging and streaming
@@ -873,6 +943,14 @@ export class AgentRunner {
           }
 
           // No tool calls, we have the final response
+          yield* logger.debug("No tool calls detected - preparing to finish", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: i + 1,
+            hasContent: !!completion.content,
+            contentLength: completion.content?.length ?? 0,
+          });
+
           const beforeCompletionLogStart = Date.now();
           response = { ...response, content: completion.content };
 
@@ -896,6 +974,11 @@ export class AgentRunner {
           }
 
           // Mark loop as finished and break
+          yield* logger.debug("Setting finished=true and breaking loop", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: i + 1,
+          });
           iterationsUsed = i + 1;
           finished = true;
           break;
@@ -998,9 +1081,7 @@ export class AgentRunner {
       // Get services
       const llmService = yield* LLMServiceTag;
       const toolRegistry = yield* ToolRegistryTag;
-      const configService = yield* AgentConfigService;
       const logger = yield* LoggerServiceTag;
-      const appConfig = yield* configService.appConfig;
 
       // Generate a conversation ID if not provided
       const actualConversationId = conversationId || `conv-${Date.now()}`;
@@ -1094,37 +1175,27 @@ export class AgentRunner {
           if (displayConfig.showThinking) {
             if (i === 0) {
               const message = MarkdownRenderer.formatThinking(agent.name, true);
-              yield* logger.info(message, {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-              });
+              yield* logger.info(message);
             } else {
               const message = MarkdownRenderer.formatThinking(agent.name, false);
-              yield* logger.info(message, {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-              });
+              yield* logger.info(message);
             }
           }
 
           // Log LLM request in debug mode
-          if (appConfig.logging.level === "debug") {
-            yield* logger.debug("LLM request", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              provider,
-              model,
-              messageCount: currentMessages.length,
-              messages: currentMessages,
-              tools: tools.map((t) => ({
-                name: t.function.name,
-                description: t.function.description,
-              })),
-            });
-          }
+          yield* logger.debug("LLM request", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: i + 1,
+            provider,
+            model,
+            messageCount: currentMessages.length,
+            messages: currentMessages,
+            tools: tools.map((t) => ({
+              name: t.function.name,
+              description: t.function.description,
+            })),
+          });
 
           // Call the LLM with retry logic for rate limit errors
           let messagesToSend = currentMessages;
@@ -1207,21 +1278,20 @@ export class AgentRunner {
           }
 
           // Log assistant response if log level is debug
-          if (appConfig.logging.level === "debug") {
-            yield* logger.debug("LLM response received", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              model: completion.model,
-              content: completion.content,
-              toolCalls: completion.toolCalls?.map((tc) => ({
-                id: tc.id,
-                name: tc.function.name,
-                arguments: tc.function.arguments,
-              })),
-              usage: completion.usage,
-            });
-          }
+          yield* logger.debug("LLM response received", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: i + 1,
+            model: completion.model,
+            content: completion.content,
+            toolCalls: completion.toolCalls?.map((tc) => ({
+              id: tc.id,
+              name: tc.function.name,
+              arguments: tc.function.arguments,
+            })),
+            usage: completion.usage,
+          });
+
 
           // Format output based on display config
           let formattedContent = completion.content;
