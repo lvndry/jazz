@@ -7,12 +7,13 @@ import { ToolRegistryTag, type ToolRegistry } from "../../core/agent/tools/tool-
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
+  LLMConfigurationError,
   StorageError,
   StorageNotFoundError,
   ValidationError,
 } from "../../core/types/errors";
 import type { Agent, AgentConfig, AgentStatus } from "../../core/types/index";
-import { LLMConfigurationError, LLMServiceTag, type LLMService } from "../../services/llm/types";
+import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
 
 /**
  * CLI commands for editing existing agents

@@ -1,7 +1,8 @@
 import { Effect } from "effect";
 import type { StreamEvent } from "../../services/llm/streaming-types";
-import type { LLMError, ToolCall } from "../../services/llm/types";
+import { ToolCall } from "../../services/llm/tools";
 import type { StreamingConfig } from "../types";
+import { LLMError } from "../types/errors";
 import { MarkdownRenderer } from "./markdown-renderer";
 import type { ColorProfile, OutputMode, RenderTheme } from "./output-theme";
 import { createTheme, detectColorProfile } from "./output-theme";
@@ -170,8 +171,10 @@ export class OutputRenderer {
         }
         return null;
 
-      case "error":
-        return this.renderError(event.error);
+      case "error": {
+        const error = event.error;
+        return this.renderError(error);
+      }
 
       case "complete":
         return this.renderComplete(event);

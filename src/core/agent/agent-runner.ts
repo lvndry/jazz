@@ -3,22 +3,16 @@ import { Cause, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } f
 
 import { MAX_AGENT_STEPS } from "../../constants/agent";
 import { AgentConfigService, type ConfigService } from "../../services/config";
+import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
+import { ChatMessage } from "../../services/llm/messages";
+import { ChatCompletionResponse } from "../../services/llm/models";
 import { shouldEnableStreaming } from "../../services/llm/stream-detector";
 import type { StreamEvent } from "../../services/llm/streaming-types";
-import {
-  LLMAuthenticationError,
-  LLMRateLimitError,
-  LLMRequestError,
-  LLMServiceTag,
-  type ChatCompletionResponse,
-  type ChatMessage,
-  type LLMService,
-  type ToolCall,
-  type ToolDefinition,
-} from "../../services/llm/types";
+import { ToolCall, ToolDefinition } from "../../services/llm/tools";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
 import type { StreamingConfig } from "../types";
 import { type Agent } from "../types";
+import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "../types/errors";
 import { MarkdownRenderer } from "../utils/markdown-renderer";
 import {
   OutputRenderer,
@@ -688,11 +682,12 @@ export class AgentRunner {
 
                 if (event.type === "error") {
                   // Log the error
+                  const error = event.error as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
                   yield* logger.error("Stream event error", {
                     provider,
                     model: agent.config.llmModel,
-                    errorType: event.error._tag,
-                    message: event.error.message,
+                    errorType: error._tag,
+                    message: error.message,
                     recoverable: event.recoverable,
                     agentId: agent.id,
                     conversationId: actualConversationId,
