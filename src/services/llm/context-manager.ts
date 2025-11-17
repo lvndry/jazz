@@ -1,10 +1,9 @@
+import { ChatMessage } from "./messages";
 /**
  * Advanced context window management utilities
  * Provides intelligent conversation summarization and token management
  * for maintaining context within LLM model limits
  */
-
-import { ChatMessage } from "./messages";
 
 // Model context window limits organized by provider (in tokens)
 const MODEL_CONTEXT_LIMITS_BY_PROVIDER = {
