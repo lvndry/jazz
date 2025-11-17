@@ -212,6 +212,19 @@ export class GmailTaskError extends Data.TaggedError("GmailTaskError")<{
   readonly suggestion?: string;
 }> {}
 
+// Update Errors
+export class UpdateCheckError extends Data.TaggedError("UpdateCheckError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+  readonly suggestion?: string;
+}> {}
+
+export class UpdateInstallError extends Data.TaggedError("UpdateInstallError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+  readonly suggestion?: string;
+}> {}
+
 export type JazzError =
   | AgentNotFoundError
   | AgentAlreadyExistsError
@@ -244,4 +257,6 @@ export type JazzError =
   | LLMAuthenticationError
   | GmailAuthenticationError
   | GmailOperationError
-  | GmailTaskError;
+  | GmailTaskError
+  | UpdateCheckError
+  | UpdateInstallError;

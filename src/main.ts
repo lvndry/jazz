@@ -15,6 +15,7 @@ import {
   listAgentsCommand,
   runAgentCommand,
 } from "./cli/commands/task-agent";
+import { updateCommand } from "./cli/commands/update";
 import { createAgentServiceLayer } from "./core/agent/agent-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
@@ -432,6 +433,15 @@ function main(): Effect.Effect<void, never> {
           }),
           debugFlag,
         );
+      });
+
+    // Update command
+    program
+      .command("update")
+      .description("Update Jazz to the latest version")
+      .option("--check", "Check for updates without installing")
+      .action((options: { check?: boolean }) => {
+        runCliEffect(updateCommand(options), debugFlag);
       });
 
     program.parse();

@@ -328,6 +328,99 @@ jazz auth gmail logout
 
 ---
 
+## Update Command
+
+Keep Jazz up to date with the latest features and bug fixes.
+
+### `jazz update`
+
+Check for and install the latest version of Jazz.
+
+```bash
+jazz update [options]
+```
+
+**Options:**
+
+| Option    | Description                           |
+| --------- | ------------------------------------- |
+| `--check` | Check for updates without installing  |
+
+**Examples:**
+
+```bash
+# Check for updates and install if available
+jazz update
+
+# Only check for updates (don't install)
+jazz update --check
+```
+
+**Example output (when update available):**
+
+```
+🔍 Checking for updates...
+
+📦 Current version: 0.4.3
+📦 Latest version:  0.5.0
+
+🎉 A new version is available!
+⚡ Starting update process...
+
+📦 Installing update using npm...
+✅ Update completed successfully!
+🎉 Jazz has been updated to version 0.5.0
+```
+
+**Example output (already up to date):**
+
+```
+🔍 Checking for updates...
+
+📦 Current version: 0.4.3
+📦 Latest version:  0.4.3
+
+✅ You're already on the latest version!
+```
+
+**With --check flag:**
+
+```
+🔍 Checking for updates...
+
+📦 Current version: 0.4.3
+📦 Latest version:  0.5.0
+
+🎉 A new version is available!
+
+💡 Run 'jazz update' to install the latest version
+```
+
+**Package managers supported:**
+
+The update command automatically detects and uses the appropriate package manager:
+
+1. **Bun** (if available): `bun add -g jazz-ai@latest`
+2. **pnpm** (if available): `pnpm add -g jazz-ai@latest`
+3. **npm** (default): `npm install -g jazz-ai@latest`
+
+**Manual update:**
+
+If the automatic update fails, you can manually update:
+
+```bash
+# Using npm
+npm install -g jazz-ai@latest
+
+# Using bun
+bun add -g jazz-ai@latest
+
+# Using pnpm
+pnpm add -g jazz-ai@latest
+```
+
+---
+
 ## Quick Reference
 
 ### Common Workflows
@@ -374,6 +467,16 @@ jazz --verbose agent list
 
 # Check version
 jazz --version
+```
+
+**Update Jazz:**
+
+```bash
+# Check for updates
+jazz update --check
+
+# Update to latest version
+jazz update
 ```
 
 ---
