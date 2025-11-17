@@ -7,6 +7,7 @@
   reduce perceived latency.
 - [ ] Reduce length of system prompt.
 - [ ] Better colors and themes.
+- `jazz config` command similar to `git config` where we can inline change jazz config
 
 ## Agent Runtime & Automation
 
