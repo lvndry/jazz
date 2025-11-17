@@ -203,6 +203,14 @@ jazz auth gmail status        # Check connection status
 jazz auth gmail logout        # Disconnect account
 ```
 
+### Other Commands
+
+```bash
+jazz update                   # Update to latest version
+jazz update --check           # Check for updates only
+jazz --version                # Show current version
+```
+
 ### Options
 
 ```bash
