@@ -457,7 +457,7 @@ export function chatWithAIAgentCommand(
     console.log(`🤖 Starting chat with AI agent: ${agent.name} (${agent.id})`);
     console.log(`   Description: ${agent.description}`);
     console.log();
-    console.log("Type 'exit' or 'quit' to end the conversation.");
+    console.log("Type '/exit' to end the conversation.");
     console.log("Type '/help' to see available special commands.");
     console.log();
 
@@ -563,7 +563,7 @@ function handleSpecialCommand(
         console.log("   /edit    - Edit this agent's configuration");
         console.log("   /clear   - Clear the screen");
         console.log("   /help    - Show this help message");
-        console.log("   exit     - Exit the chat");
+        console.log("   /exit    - Exit the chat");
         console.log();
         return { shouldContinue: true };
 
@@ -621,7 +621,7 @@ function handleSpecialCommand(
       case "clear":
         console.clear();
         console.log(`🤖 Chat with ${agent.name} - Screen cleared`);
-        console.log("Type 'exit' or 'quit' to end the conversation.");
+        console.log("Type '/exit' to end the conversation.");
         console.log("Type '/help' to see available commands.");
         console.log();
         return { shouldContinue: true };
@@ -677,7 +677,8 @@ function startChatLoop(
       const userMessage = answer.message as string;
 
       // Check if user wants to exit
-      if (userMessage.toLowerCase() === "exit" || userMessage.toLowerCase() === "quit") {
+      const trimmedMessage = userMessage.trim().toLowerCase();
+      if (trimmedMessage === "/exit" || trimmedMessage === "exit" || trimmedMessage === "quit") {
         console.log("👋 Goodbye!");
         chatActive = false;
         continue;
@@ -686,7 +687,7 @@ function startChatLoop(
       // Ignore empty messages with a gentle hint
       if (!userMessage || userMessage.trim().length === 0) {
         console.log(
-          "(Tip) Type a message and press Enter, '/help' for commands, or 'exit' to quit.",
+          "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
         );
         continue;
       }
