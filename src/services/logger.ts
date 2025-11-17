@@ -47,20 +47,7 @@ export class LoggerServiceImpl implements LoggerService {
     meta?: Record<string, unknown>,
   ): Effect.Effect<void, Error> {
     return Effect.tryPromise({
-      try: async () => {
-        const logsDir = getLogsDirectory();
-        await mkdir(logsDir, { recursive: true });
-        const logFilePath = path.join(logsDir, "jazz.log");
-        const timestamp = new Date().toISOString();
-
-        // Format the log entry
-        const metaText = meta && Object.keys(meta).length > 0
-          ? " " + JSON.stringify(meta, jsonReplacer)
-          : "";
-
-        const line = `${timestamp} [${level.toUpperCase()}] ${message}${metaText}\n`;
-        await appendFile(logFilePath, line, { encoding: "utf8" });
-      },
+      try: () => writeFormattedLogToFile(level, message, meta),
       catch: (error: unknown) =>
         new Error(
           `Failed to write to log file: ${error instanceof Error ? error.message : String(error)}`,
@@ -475,6 +462,36 @@ export function getLogsDirectory(): string {
 }
 
 /**
+ * Shared helper to format a log line for file output
+ */
+function formatLogLineForFile(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  meta?: Record<string, unknown>,
+): string {
+  const timestamp = new Date().toISOString();
+  const metaText = meta && Object.keys(meta).length > 0
+    ? " " + JSON.stringify(meta, jsonReplacer)
+    : "";
+  return `${timestamp} [${level.toUpperCase()}] ${message}${metaText}\n`;
+}
+
+/**
+ * Shared helper to write a formatted log line to file
+ */
+async function writeFormattedLogToFile(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  meta?: Record<string, unknown>,
+): Promise<void> {
+  const logsDir = getLogsDirectory();
+  await mkdir(logsDir, { recursive: true });
+  const logFilePath = path.join(logsDir, "jazz.log");
+  const line = formatLogLineForFile(level, message, meta);
+  await appendFile(logFilePath, line, { encoding: "utf8" });
+}
+
+/**
  * Write a log entry directly to file (standalone function, no Effect/dependencies)
  * Useful for logging in contexts where LoggerService is not available
  */
@@ -484,18 +501,7 @@ export async function writeLogToFile(
   meta?: Record<string, unknown>,
 ): Promise<void> {
   try {
-    const logsDir = getLogsDirectory();
-    await mkdir(logsDir, { recursive: true });
-    const logFilePath = path.join(logsDir, "jazz.log");
-    const timestamp = new Date().toISOString();
-
-    // Format the log entry
-    const metaText = meta && Object.keys(meta).length > 0
-      ? " " + JSON.stringify(meta, jsonReplacer)
-      : "";
-
-    const line = `${timestamp} [${level.toUpperCase()}] ${message}${metaText}\n`;
-    await appendFile(logFilePath, line, { encoding: "utf8" });
+    await writeFormattedLogToFile(level, message, meta);
   } catch {
     // Silently fail to avoid breaking the calling code
   }

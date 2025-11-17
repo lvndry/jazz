@@ -23,6 +23,10 @@ import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
   AgentNotFoundError,
+  LLMAuthenticationError,
+  LLMConfigurationError,
+  LLMRateLimitError,
+  LLMRequestError,
   StorageError,
   StorageNotFoundError,
   ValidationError,
@@ -30,15 +34,8 @@ import {
 import type { Agent, AgentConfig } from "../../core/types/index";
 import { CommonSuggestions } from "../../core/utils/error-handler";
 import type { ConfigService } from "../../services/config";
-import type { ChatMessage } from "../../services/llm/types";
-import {
-  LLMAuthenticationError,
-  LLMConfigurationError,
-  LLMRateLimitError,
-  LLMRequestError,
-  LLMServiceTag,
-  type LLMService,
-} from "../../services/llm/types";
+import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
+import { ChatMessage } from "../../services/llm/messages";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/shell";
 
@@ -123,10 +120,10 @@ export function createAIAgentCommand(): Effect.Effect<
 
     if (providers.length === 0) {
       return yield* Effect.fail(
-        new LLMConfigurationError(
-          "no_providers",
-          "No LLM providers configured. Set an API key for at least one provider in the config.",
-        ),
+        new LLMConfigurationError({
+          provider: "no_providers",
+          message: "No LLM providers configured. Set an API key for at least one provider in the config.",
+        }),
       );
     }
 
