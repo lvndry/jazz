@@ -196,7 +196,10 @@ function main(): Effect.Effect<void, never> {
 
     const program = new Command();
 
-    program.name("jazz").description("A powerful agentic automation CLI").version(packageJson.version);
+    program
+      .name("jazz")
+      .description("Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)")
+      .version(packageJson.version);
 
     // Global options
     program
