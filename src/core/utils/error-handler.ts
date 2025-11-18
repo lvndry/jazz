@@ -527,6 +527,15 @@ export function formatError(error: JazzError): string {
  */
 export function handleError(error: JazzError | Error): Effect.Effect<void> {
   return Effect.sync(() => {
+    // Handle ExitPromptError from inquirer (Ctrl+C during prompts)
+    if (
+      error instanceof Error &&
+      (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
+    ) {
+      console.log("\n👋 Goodbye!");
+      process.exit(0);
+    }
+
     // Check if it's a JazzError (has _tag property)
     if ("_tag" in error && typeof error._tag === "string") {
       const formattedError = formatError(error);

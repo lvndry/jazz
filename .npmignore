@@ -1,0 +1,6 @@
+# TypeScript declaration maps (not needed for consumers)
+dist/**/*.d.ts.map
+
+# Development files
+*.test.js
+*.test.d.ts

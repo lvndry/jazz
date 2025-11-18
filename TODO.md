@@ -2,13 +2,15 @@
 
 ## CLI & User Experience
 
-- [->] Make reasoning tokens visible.
+- [x] Make reasoning tokens visible.
 - [x] Stream content in terminal — swap to `streamText` to present incremental LLM output and reduce
       perceived latency.
 - [ ] Reduce length of system prompt.
 - [ ] Update system prompt to discorourage usage of tables. They don't render well in terminal
 - [ ] Better colors and themes.
-- `jazz config` command similar to `git config` where we can inline change jazz config
+- [ ] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
+- [ ] Finish implementation of `jazz create-quick`
+- [ ] Finish implementation of `jazz logs`
 
 ## Agent Runtime & Automation
 

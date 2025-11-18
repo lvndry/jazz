@@ -120,7 +120,7 @@ function runCliEffect<R, E extends JazzError | Error>(
       let signalCount = 0;
       type SignalName = "SIGINT" | "SIGTERM";
 
-      const handler = (signal: SignalName): void => {
+      function handler(signal: SignalName): void {
         signalCount += 1;
         const label = signal === "SIGINT" ? "Ctrl+C" : signal;
 
@@ -131,7 +131,7 @@ function runCliEffect<R, E extends JazzError | Error>(
           process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");
           process.exit(1);
         }
-      };
+      }
 
       yield* Effect.acquireRelease(
         Effect.sync(() => {
@@ -192,9 +192,6 @@ function main(): Effect.Effect<void, never> {
   return Effect.sync(() => {
     MarkdownRenderer.initialize();
 
-    // Check for --debug flag early so we can pass it to createAppLayer
-    const debugFlag = process.argv.includes("--debug");
-
     const program = new Command();
 
     program
@@ -214,16 +211,22 @@ function main(): Effect.Effect<void, never> {
 
     agentCommand
       .command("list")
+      .alias("ls")
       .description("List all agents")
       .action(() => {
-        runCliEffect(listAgentsCommand({ verbose: Boolean(program.opts()["verbose"]) }), debugFlag);
+        const opts = program.opts();
+        runCliEffect(
+          listAgentsCommand({ verbose: Boolean(opts["verbose"]) }),
+          Boolean(opts["debug"]),
+        );
       });
 
     agentCommand
       .command("create")
       .description("Create a new AI chat agent (interactive mode)")
       .action(() => {
-        runCliEffect(createAIAgentCommand(), debugFlag);
+        const opts = program.opts();
+        runCliEffect(createAIAgentCommand(), Boolean(opts["debug"]));
       });
 
     agentCommand
@@ -251,7 +254,11 @@ function main(): Effect.Effect<void, never> {
             retryBackoff?: "linear" | "exponential" | "fixed";
           },
         ) => {
-          runCliEffect(createAgentCommand(name, options.description || "", options), debugFlag);
+          const opts = program.opts();
+          runCliEffect(
+            createAgentCommand(name, options.description || "", options),
+            Boolean(opts["debug"]),
+          );
         },
       );
 
@@ -261,21 +268,26 @@ function main(): Effect.Effect<void, never> {
       .option("--watch", "Watch for changes")
       .option("--dry-run", "Show what would be executed without running")
       .action((agentId: string, options: { watch?: boolean; dryRun?: boolean }) => {
-        runCliEffect(runAgentCommand(agentId, options), debugFlag);
+        const opts = program.opts();
+        runCliEffect(runAgentCommand(agentId, options), Boolean(opts["debug"]));
       });
 
     agentCommand
       .command("get <agentId>")
       .description("Get task agent details")
       .action((agentId: string) => {
-        runCliEffect(getAgentCommand(agentId), debugFlag);
+        const opts = program.opts();
+        runCliEffect(getAgentCommand(agentId), Boolean(opts["debug"]));
       });
 
     agentCommand
       .command("delete <agentId>")
+      .alias("remove")
+      .alias("rm")
       .description("Delete a task agent")
       .action((agentId: string) => {
-        runCliEffect(deleteAgentCommand(agentId), debugFlag);
+        const opts = program.opts();
+        runCliEffect(deleteAgentCommand(agentId), Boolean(opts["debug"]));
       });
 
     agentCommand
@@ -291,11 +303,12 @@ function main(): Effect.Effect<void, never> {
             noStream?: boolean;
           },
         ) => {
+          const opts = program.opts();
           const streamOption =
             options.noStream === true ? false : options.stream === true ? true : undefined;
           runCliEffect(
             chatWithAIAgentCommand(agentRef, streamOption !== undefined ? { stream: streamOption } : {}),
-            debugFlag,
+            Boolean(opts["debug"]),
           );
         },
       );
@@ -304,7 +317,8 @@ function main(): Effect.Effect<void, never> {
       .command("edit <agentId>")
       .description("Edit an existing agent (interactive mode)")
       .action((agentId: string) => {
-        runCliEffect(editAgentCommand(agentId), debugFlag);
+        const opts = program.opts();
+        runCliEffect(editAgentCommand(agentId), Boolean(opts["debug"]));
       });
 
     // Automation commands
@@ -314,13 +328,14 @@ function main(): Effect.Effect<void, never> {
       .command("list")
       .description("List all automations")
       .action(() => {
+        const opts = program.opts();
         runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
             yield* logger.info("Listing automations...");
             // TODO: Implement automation listing
           }),
-          debugFlag,
+          Boolean(opts["debug"]),
         );
       });
 
@@ -329,6 +344,7 @@ function main(): Effect.Effect<void, never> {
       .description("Create a new automation")
       .option("-d, --description <description>", "Automation description")
       .action((name: string, options: { description?: string }) => {
+        const opts = program.opts();
         runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
@@ -338,7 +354,7 @@ function main(): Effect.Effect<void, never> {
             }
             // TODO: Implement automation creation
           }),
-          debugFlag,
+          Boolean(opts["debug"]),
         );
       });
 
@@ -349,13 +365,14 @@ function main(): Effect.Effect<void, never> {
       .command("get <key>")
       .description("Get a configuration value")
       .action((key: string) => {
+        const opts = program.opts();
         runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
             yield* logger.info(`Getting config: ${key}`);
             // TODO: Implement config retrieval
           }),
-          debugFlag,
+          Boolean(opts["debug"]),
         );
       });
 
@@ -363,13 +380,14 @@ function main(): Effect.Effect<void, never> {
       .command("set <key> <value>")
       .description("Set a configuration value")
       .action((key: string, value: string) => {
+        const opts = program.opts();
         runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
             yield* logger.info(`Setting config: ${key} = ${value}`);
             // TODO: Implement config setting
           }),
-          debugFlag,
+          Boolean(opts["debug"]),
         );
       });
 
@@ -377,13 +395,14 @@ function main(): Effect.Effect<void, never> {
       .command("list")
       .description("List all configuration values")
       .action(() => {
+        const opts = program.opts();
         runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
             yield* logger.info("Listing configuration...");
             // TODO: Implement config listing
           }),
-          debugFlag,
+          Boolean(opts["debug"]),
         );
       });
 
@@ -397,21 +416,24 @@ function main(): Effect.Effect<void, never> {
       .command("login")
       .description("Authenticate with Gmail")
       .action(() => {
-        runCliEffect(gmailLoginCommand(), debugFlag);
+        const opts = program.opts();
+        runCliEffect(gmailLoginCommand(), Boolean(opts["debug"]));
       });
 
     gmailAuthCommand
       .command("logout")
       .description("Logout from Gmail")
       .action(() => {
-        runCliEffect(gmailLogoutCommand(), debugFlag);
+        const opts = program.opts();
+        runCliEffect(gmailLogoutCommand(), Boolean(opts["debug"]));
       });
 
     gmailAuthCommand
       .command("status")
       .description("Check Gmail authentication status")
       .action(() => {
-        runCliEffect(gmailStatusCommand(), debugFlag);
+        const opts = program.opts();
+        runCliEffect(gmailStatusCommand(), Boolean(opts["debug"]));
       });
 
     // Logs command
@@ -421,6 +443,7 @@ function main(): Effect.Effect<void, never> {
       .option("-f, --follow", "Follow log output")
       .option("-l, --level <level>", "Filter by log level", "info")
       .action((options: { follow?: boolean; level: string }) => {
+        const opts = program.opts();
         runCliEffect(
           Effect.gen(function* () {
             const logger = yield* LoggerServiceTag;
@@ -431,7 +454,7 @@ function main(): Effect.Effect<void, never> {
             yield* logger.info(`Log level: ${options.level}`);
             // TODO: Implement log viewing
           }),
-          debugFlag,
+          Boolean(opts["debug"]),
         );
       });
 
@@ -441,7 +464,8 @@ function main(): Effect.Effect<void, never> {
       .description("Update Jazz to the latest version")
       .option("--check", "Check for updates without installing")
       .action((options: { check?: boolean }) => {
-        runCliEffect(updateCommand(options), debugFlag);
+        const opts = program.opts();
+        runCliEffect(updateCommand(options), Boolean(opts["debug"]));
       });
 
     program.parse();
