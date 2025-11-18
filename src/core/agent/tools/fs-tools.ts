@@ -5,7 +5,7 @@ import { z } from "zod";
 import {
   type FileSystemContextService,
   FileSystemContextServiceTag,
-} from "../../../services/shell";
+} from "../../../services/fs";
 import { defineTool } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 import { type Tool } from "./tool-registry";

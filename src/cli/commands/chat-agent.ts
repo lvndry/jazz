@@ -34,10 +34,10 @@ import {
 import type { Agent, AgentConfig } from "../../core/types/index";
 import { CommonSuggestions } from "../../core/utils/error-handler";
 import type { ConfigService } from "../../services/config";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/fs";
 import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
 import { ChatMessage } from "../../services/llm/messages";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
-import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/shell";
 
 /**
  * CLI commands for AI-powered chat agent management

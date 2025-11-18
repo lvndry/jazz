@@ -23,10 +23,10 @@ import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
 import { MarkdownRenderer } from "./core/utils/markdown-renderer";
 import { AgentConfigService, createConfigLayer } from "./services/config";
+import { createFileSystemContextServiceLayer } from "./services/fs";
 import { createGmailServiceLayer } from "./services/gmail";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer, LoggerServiceTag } from "./services/logger";
-import { createFileSystemContextServiceLayer } from "./services/shell";
 import { FileStorageService } from "./services/storage/file";
 import { StorageServiceTag } from "./services/storage/service";
 
