@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Logger } from "effect";
 import { appendFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,26 +7,30 @@ import { formatToolArguments } from "../core/utils/tool-formatter";
 import { AgentConfigService, type ConfigService } from "./config";
 
 /**
- * Structured logging service using Effect's Logger
+ * Structured logging service using Effect's Logger API
+ *
+ * Provides a custom logger implementation that maintains pretty formatting
+ * (colors, emojis) while leveraging Effect's built-in logging capabilities
+ * including automatic context propagation, fiber IDs, and log level management.
  */
 
 export interface LoggerService {
   readonly debug: (
     message: string,
     meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never, ConfigService>;
+  ) => Effect.Effect<void, never>;
   readonly info: (
     message: string,
     meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never, ConfigService>;
+  ) => Effect.Effect<void, never>;
   readonly warn: (
     message: string,
     meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never, ConfigService>;
+  ) => Effect.Effect<void, never>;
   readonly error: (
     message: string,
     meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never, ConfigService>;
+  ) => Effect.Effect<void, never>;
   /**
    * Write a log entry to file only (not console)
    * Used for detailed logging that should not clutter console output
@@ -58,121 +62,45 @@ export class LoggerServiceImpl implements LoggerService {
   debug(
     message: string,
     meta?: Record<string, unknown>,
-  ): Effect.Effect<void, never, ConfigService> {
-    return Effect.gen(function* () {
-      const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{
-        level: "debug" | "info" | "warn" | "error";
-        format: "json" | "pretty";
-      }>("logging");
-      const level = loggingConfig?.level ?? "info";
-
-      // Only output debug logs if level is "debug"
-      if (level !== "debug") {
-        return;
-      }
-
-      const format = loggingConfig?.format ?? "pretty";
-
-      const line = formatLogLine("debug", message, meta, format);
-
-      console.debug(line);
-      console.log();
-    });
+  ): Effect.Effect<void, never> {
+    const logEffect = Effect.logDebug(message);
+    return meta && Object.keys(meta).length > 0
+      ? Effect.annotateLogs(meta)(logEffect)
+      : logEffect;
   }
 
-  info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never, ConfigService> {
-    return Effect.gen(function* () {
-      const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{
-        level: "debug" | "info" | "warn" | "error";
-        format: "json" | "pretty";
-      }>("logging");
-      const level = loggingConfig?.level ?? "info";
-
-      // Only output info logs if level allows it (info, warn, error levels)
-      if (!shouldLog(level, "info")) {
-        return;
-      }
-
-      const format = loggingConfig?.format ?? "pretty";
-
-      const line = formatLogLine("info", message, meta, format);
-
-      console.info(line);
-      console.log();
-    });
+  info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
+    const logEffect = Effect.logInfo(message);
+    return meta && Object.keys(meta).length > 0
+      ? Effect.annotateLogs(meta)(logEffect)
+      : logEffect;
   }
 
-  warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never, ConfigService> {
-    return Effect.gen(function* () {
-      const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{
-        level: "debug" | "info" | "warn" | "error";
-        format: "json" | "pretty";
-      }>("logging");
-      const level = loggingConfig?.level ?? "info";
-
-      // Only output warn logs if level allows it (warn, error levels)
-      if (!shouldLog(level, "warn")) {
-        return;
-      }
-
-      const format = loggingConfig?.format ?? "pretty";
-
-      const line = formatLogLine("warn", message, meta, format);
-
-      console.warn(line);
-      console.log();
-    });
+  warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
+    const logEffect = Effect.logWarning(message);
+    return meta && Object.keys(meta).length > 0
+      ? Effect.annotateLogs(meta)(logEffect)
+      : logEffect;
   }
 
   error(
     message: string,
     meta?: Record<string, unknown>,
-  ): Effect.Effect<void, never, ConfigService> {
-    return Effect.gen(function* () {
-      const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{
-        level: "debug" | "info" | "warn" | "error";
-        format: "json" | "pretty";
-      }>("logging");
-      const level = loggingConfig?.level ?? "info";
-
-      // Error logs are always shown regardless of level
-      // (but we check for consistency)
-      if (!shouldLog(level, "error")) {
-        return;
-      }
-
-      const format = loggingConfig?.format ?? "pretty";
-
-      const line = formatLogLine("error", message, meta, format);
-
-      console.error(line);
-      console.log();
-    });
+  ): Effect.Effect<void, never> {
+    const logEffect = Effect.logError(message);
+    return meta && Object.keys(meta).length > 0
+      ? Effect.annotateLogs(meta)(logEffect)
+      : logEffect;
   }
 }
 
-type LogLevel = "debug" | "info" | "warn" | "error";
+type AppLogLevel = "debug" | "info" | "warn" | "error";
 
 /**
- * Check if a log level should be output based on the configured log level.
- * Log levels hierarchy: debug < info < warn < error
+ * Format a log line with pretty colors and emojis
  */
-function shouldLog(configuredLevel: LogLevel, messageLevel: LogLevel): boolean {
-  const levels: Record<LogLevel, number> = {
-    debug: 0,
-    info: 1,
-    warn: 2,
-    error: 3,
-  };
-  return levels[messageLevel] >= levels[configuredLevel];
-}
-
 function formatLogLine(
-  level: LogLevel,
+  level: AppLogLevel,
   message: string,
   meta?: Record<string, unknown>,
   format: "json" | "pretty" = "pretty",
@@ -196,7 +124,7 @@ function formatLogLine(
   return `${dim(ts)} ${color(levelLabel)} ${emoji} ${body}${metaText}`;
 }
 
-function selectColor(level: LogLevel): (text: string) => string {
+function selectColor(level: AppLogLevel): (text: string) => string {
   switch (level) {
     case "debug":
       return gray;
@@ -209,7 +137,7 @@ function selectColor(level: LogLevel): (text: string) => string {
   }
 }
 
-function selectEmoji(level: LogLevel): string {
+function selectEmoji(level: AppLogLevel): string {
   switch (level) {
     case "debug":
       return "🔍";
@@ -267,10 +195,151 @@ const cyan = wrap("\u001B[36m", "\u001B[39m");
 const yellow = wrap("\u001B[33m", "\u001B[39m");
 const red = wrap("\u001B[31m", "\u001B[39m");
 
+/**
+ * Create a custom Effect Logger that formats logs with pretty colors and emojis
+ *
+ * @param minLevel - Minimum log level to output (logs below this level are filtered out)
+ * @param format - Output format ("pretty" or "json")
+ */
+function createPrettyLogger(
+  minLevel: AppLogLevel,
+  format: "json" | "pretty" = "pretty",
+): Logger.Logger<unknown, void> {
+  const minLevelOrdinal = getLogLevelOrdinal(minLevel);
+
+  return Logger.make(({ logLevel, message, annotations }) => {
+    // Filter by minimum log level
+    const levelLabel = logLevel.label.toLowerCase();
+    const currentLevelOrdinal = getLogLevelOrdinalFromLabel(levelLabel);
+    if (currentLevelOrdinal < minLevelOrdinal) {
+      return; // Skip logs below minimum level
+    }
+
+    // Extract message and metadata from annotations
+    const logMessage = typeof message === "string" ? message : String(message);
+    const meta: Record<string, unknown> = {};
+
+    // Collect annotations as metadata (excluding internal Effect annotations)
+    for (const [key, value] of annotations) {
+      if (!key.startsWith("effect.")) {
+        meta[key] = value;
+      }
+    }
+
+    // Map Effect LogLevel to our AppLogLevel
+    // Effect LogLevels: Trace < Debug < Info < Warning < Error < Fatal
+    let appLevel: AppLogLevel;
+    if (levelLabel === "debug" || levelLabel === "trace") {
+      appLevel = "debug";
+    } else if (levelLabel === "info") {
+      appLevel = "info";
+    } else if (levelLabel === "warning" || levelLabel === "warn") {
+      appLevel = "warn";
+    } else {
+      appLevel = "error";
+    }
+
+    const formattedLine = formatLogLine(appLevel, logMessage, Object.keys(meta).length > 0 ? meta : undefined, format);
+
+    // Output to appropriate console method
+    switch (appLevel) {
+      case "debug":
+        console.debug(formattedLine);
+        console.log();
+        break;
+      case "info":
+        console.info(formattedLine);
+        console.log();
+        break;
+      case "warn":
+        console.warn(formattedLine);
+        console.log();
+        break;
+      case "error":
+        console.error(formattedLine);
+        console.log();
+        break;
+    }
+  });
+}
+
+/**
+ * Get ordinal value for log level comparison
+ */
+function getLogLevelOrdinal(level: AppLogLevel): number {
+  switch (level) {
+    case "debug":
+      return 0;
+    case "info":
+      return 1;
+    case "warn":
+      return 2;
+    case "error":
+      return 3;
+  }
+}
+
+/**
+ * Get ordinal value from Effect log level label
+ */
+function getLogLevelOrdinalFromLabel(label: string): number {
+  const normalized = label.toLowerCase();
+  if (normalized === "trace" || normalized === "debug") {
+    return 0;
+  } else if (normalized === "info") {
+    return 1;
+  } else if (normalized === "warning" || normalized === "warn") {
+    return 2;
+  } else {
+    return 3; // error or fatal
+  }
+}
+
 export const LoggerServiceTag = Context.GenericTag<LoggerService>("LoggerService");
 
+/**
+ * Create the Effect Logger layer with custom formatting
+ *
+ * This layer provides the custom Effect logger that will be used by all Effect.log* calls.
+ * It should be merged with the app layer in main.ts.
+ */
+export function createEffectLoggerLayer(
+  level: AppLogLevel,
+  format: "json" | "pretty",
+): Layer.Layer<never, never, never> {
+  const customLogger = createPrettyLogger(level, format);
+  // Logger.replaceScoped expects an Effect that produces a Logger
+  return Logger.replaceScoped(Logger.defaultLogger, Effect.succeed(customLogger));
+}
+
+/**
+ * Create the logger layer with Effect Logger integration
+ *
+ * Sets up both the LoggerService (for backward compatibility) and the Effect Logger
+ * (for Effect.log* calls) with custom pretty formatting and log level filtering.
+ */
 export function createLoggerLayer(): Layer.Layer<LoggerService, never, ConfigService> {
-  return Layer.succeed(LoggerServiceTag, new LoggerServiceImpl());
+  return Layer.effect(
+    LoggerServiceTag,
+    Effect.gen(function* () {
+      // Read config to set up Effect logger
+      const config = yield* AgentConfigService;
+      const loggingConfig = yield* config.get<{
+        level: AppLogLevel;
+        format: "json" | "pretty";
+      }>("logging");
+
+      const level = loggingConfig?.level ?? "info";
+      const format = loggingConfig?.format ?? "pretty";
+
+      // Create and provide the Effect logger layer
+      // This ensures all Effect.log* calls use our custom formatting
+      const effectLoggerLayer = createEffectLoggerLayer(level, format);
+      yield* Effect.provide(Effect.void, effectLoggerLayer);
+
+      return new LoggerServiceImpl();
+    }),
+  );
 }
 
 // Helper functions for common logging patterns
