@@ -173,6 +173,19 @@ Complex multi-step agent workflows and task orchestration.
   - Complete implementation roadmap
   - Real-world examples with code
 
+### 🖥️ User Interfaces
+
+Web-based interfaces for interacting with Jazz agents.
+
+- **[Web Interface](./ui/web-interface.md)**
+  - `jazz ui` command for web-based chat interface
+  - Server-Sent Events (SSE) for real-time streaming
+  - Express.js web server architecture
+  - Frontend implementation with vanilla JavaScript
+  - API endpoints for agent management and chat
+  - Feature parity with CLI chat interface
+  - Implementation roadmap and technical decisions
+
 ---
 
 ## 🤝 Contributing to Exploration
@@ -261,6 +274,10 @@ Have ideas for new patterns or improvements to existing designs?
 ### 🎼 "I want agents to practice and improve over time"
 
 → Read [Self-Improving Jam Sessions](./agent-orchestration/self-improving-jam-sessions.md)
+
+### 🖥️ "I want a web interface for chatting with agents"
+
+→ Read [Web Interface](./ui/web-interface.md)
 
 ---
 
