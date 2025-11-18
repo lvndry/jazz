@@ -14,20 +14,12 @@ install: ## Install dependencies
 	@echo "Installing dependencies..."
 	bun install
 
-install-global: build ## Install Jazz globally
-	@echo "Installing Jazz globally..."
-	npm link
-
-uninstall-global: ## Uninstall Jazz globally
-	@echo "Uninstalling Jazz globally..."
-	npm unlink -g jazz
-
 # Development
 dev: ## Start development server with hot reload
 	@echo "Starting development server..."
 	bun --watch src/main.ts
 
-start: ## Start the built application
+start: build ## Start the built application
 	@echo "Starting Jazz CLI..."
 	bun dist/main.js
 
@@ -72,36 +64,6 @@ check: lint test ## Run linting and tests
 
 pre-commit: format lint-fix test ## Run pre-commit checks
 	@echo "Pre-commit checks completed!"
-
-# Agent management (examples)
-agent-list: ## List all agents
-	@echo "Listing agents..."
-	bun src/main.ts agent list
-
-agent-create: ## Create a test agent
-	@echo "Creating test agent..."
-	bun src/main.ts agent create test-agent --description "Test agent created via Makefile"
-
-agent-clean: ## Clean up test agents
-	@echo "Cleaning up test agents..."
-	@echo "Note: This would delete test agents (not implemented yet)"
-
-# Documentation
-docs-serve: ## Serve documentation locally (requires mkdocs)
-	@echo "Serving documentation..."
-	@if command -v mkdocs >/dev/null 2>&1; then \
-		mkdocs serve; \
-	else \
-		echo "MkDocs not installed. Install with: pip install mkdocs"; \
-	fi
-
-docs-build: ## Build documentation
-	@echo "Building documentation..."
-	@if command -v mkdocs >/dev/null 2>&1; then \
-		mkdocs build; \
-	else \
-		echo "MkDocs not installed. Install with: pip install mkdocs"; \
-	fi
 
 # Release
 release-check: check ## Check if ready for release
@@ -198,15 +160,6 @@ tree: ## Show project structure
 	@echo "Project structure:"
 	@tree -I 'node_modules|dist|.git' -a
 
-# Performance
-benchmark: ## Run performance benchmarks
-	@echo "Running benchmarks..."
-	@if [ -f "benchmarks/" ]; then \
-		bun run benchmark; \
-	else \
-		echo "No benchmarks found"; \
-	fi
-
 # Security
 audit: ## Run security audit
 	@echo "Running security audit..."
@@ -217,6 +170,15 @@ update: ## Update dependencies
 	@echo "Updating dependencies..."
 	bun update
 
-update-interactive: ## Update dependencies interactively
-	@echo "Updating dependencies interactively..."
-	bun update --interactive
+# Version bumping
+patch: ## Bump patch version (e.g., 0.4.5 -> 0.4.6)
+	@echo "Bumping patch version..."
+	@bun version patch
+
+minor: ## Bump minor version (e.g., 0.4.5 -> 0.5.0)
+	@echo "Bumping minor version..."
+	@bun version minor
+
+major: ## Bump major version (e.g., 0.4.5 -> 1.0.0)
+	@echo "Bumping major version..."
+	@bun version major
