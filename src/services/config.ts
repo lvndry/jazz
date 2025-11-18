@@ -188,6 +188,7 @@ function loadConfigFile(fs: FileSystem.FileSystem): Effect.Effect<
     const envConfigPath = process.env["JAZZ_CONFIG_PATH"];
     const candidates: readonly string[] = [
       envConfigPath ? expandHome(envConfigPath) : "",
+      `${process.cwd()}/.jazz/config.json`,
       `${process.cwd()}/jazz.config.json`,
       `${expandHome("~/.jazz")}/config.json`,
     ].filter(Boolean);
