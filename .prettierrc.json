@@ -9,25 +9,5 @@
   "bracketSpacing": true,
   "arrowParens": "always",
   "proseWrap": "preserve",
-  "singleAttributePerLine": true,
-  "overrides": [
-    {
-      "files": [
-        "*.md"
-      ],
-      "options": {
-        "proseWrap": "always",
-        "printWidth": 100
-      }
-    },
-    {
-      "files": [
-        "*.yml",
-        "*.yaml"
-      ],
-      "options": {
-        "printWidth": 100
-      }
-    }
-  ]
+  "singleAttributePerLine": true
 }
