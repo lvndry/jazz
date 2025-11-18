@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discord Community
+    url: https://discord.gg/yBDbS2NZju
+    about: Join our Discord community for discussions, questions, and support
+  - name: 📖 Documentation
+    url: https://github.com/lvndry/jazz/tree/main/docs
+    about: Check our documentation for guides and examples
+  - name: 💡 Discussions
+    url: https://github.com/lvndry/jazz/discussions
+    about: Start a discussion for questions, ideas, or general feedback
