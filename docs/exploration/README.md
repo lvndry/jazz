@@ -33,6 +33,13 @@ Advanced patterns for coordinating multiple agents and complex workflows.
   - Lightweight routing without dedicated agent
   - When to use workflow vs. handoff vs. events
 
+- **[Self-Improving Jam Sessions](./agent-orchestration/self-improving-jam-sessions.md)**
+  - Agents practice and compare techniques on shared tasks
+  - Publication ledger for run transcripts and peer reviews
+  - Self-editing skill notebooks with regression protection
+  - Skill capsules with unlock criteria based on performance
+  - Simplicity leaderboards and practice queues
+
 ### 📅 Scheduling
 
 Time-based and recurring agent execution.
@@ -152,6 +159,20 @@ Anthropic-inspired packaged expertise for agents.
   - **[Content Creation Skill](./skills/examples/content-creation-skill.md)** - Content generation
     and optimization
 
+### 🔄 Workflows
+
+Complex multi-step agent workflows and task orchestration.
+
+- **[Complex Task Implementation](./workflows/complex-task-implementation.md)**
+  - Analysis of vision examples (Social Media Manager, Blog Writer, Infrastructure Monitor, Security Scanner)
+  - Current architecture capabilities and limitations
+  - Implementation patterns and approaches
+  - Required new tools and services
+  - Template variable resolution
+  - Conditional execution strategies
+  - Complete implementation roadmap
+  - Real-world examples with code
+
 ---
 
 ## 🤝 Contributing to Exploration
@@ -232,6 +253,14 @@ Have ideas for new patterns or improvements to existing designs?
 ### 🎯 "I want more reliable agent results"
 
 → Read [Verification-and-Refinement Pipelines](./reasoning/verification-refinement-pipelines.md)
+
+### 🔄 "I want to implement complex multi-step workflows"
+
+→ Read [Complex Task Implementation](./workflows/complex-task-implementation.md)
+
+### 🎼 "I want agents to practice and improve over time"
+
+→ Read [Self-Improving Jam Sessions](./agent-orchestration/self-improving-jam-sessions.md)
 
 ---
 
