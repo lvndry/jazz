@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-
 import { Effect } from "effect";
 import packageJson from "../../../package.json";
 import { UpdateCheckError, UpdateInstallError } from "../../core/types/errors";
@@ -105,45 +101,268 @@ function checkForUpdate(): Effect.Effect<
 }
 
 /**
- * Install the latest version using npm
+ * Package manager information
+ */
+interface PackageManagerInfo {
+  readonly name: string;
+  readonly version: string;
+}
+
+/**
+ * Find where the jazz command is installed
+ * Returns the full path to the jazz executable, or null if not found
+ */
+function findJazzInstallationPath(): Effect.Effect<string | null, never> {
+  return Effect.gen(function* () {
+    const { spawn } = yield* Effect.promise(() => import("child_process"));
+    const isWindows = process.platform === "win32";
+    const checkCommand = isWindows ? "where" : "which";
+
+    return yield* Effect.async<string | null, never>((resume) => {
+      const child = spawn(checkCommand, ["jazz"], {
+        stdio: ["ignore", "pipe", "ignore"],
+        shell: true,
+      });
+
+      let stdout = "";
+
+      if (child.stdout) {
+        child.stdout.on("data", (data: Buffer) => {
+          stdout += data.toString();
+        });
+      }
+
+      child.on("close", (code) => {
+        if (code === 0 && stdout.trim()) {
+          // Found the path (take first line in case of multiple matches)
+          const lines = stdout.trim().split("\n");
+          const path = lines[0]?.trim();
+
+          if (path) {
+            resume(Effect.succeed(path));
+          } else {
+            resume(Effect.succeed(null));
+          }
+        } else {
+          // Command not found
+          resume(Effect.succeed(null));
+        }
+      });
+
+      child.on("error", () => {
+        // Command not found
+        resume(Effect.succeed(null));
+      });
+    });
+  });
+}
+
+/**
+ * Detect which package manager was used to install Jazz based on installation path
+ * Returns the package manager name or null if cannot be determined
+ */
+function detectInstalledPackageManager(
+  installPath: string,
+): Effect.Effect<string | null, never> {
+  return Effect.gen(function* () {
+    const fs = yield* Effect.promise(() => import("fs"));
+
+    // Try to resolve symlinks to get the actual path
+    const resolvedPath = yield* Effect.gen(function* () {
+      const statsResult = yield* Effect.tryPromise({
+        try: () => fs.promises.lstat(installPath),
+        catch: () => new Error("Cannot stat file"),
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+      if (statsResult && statsResult.isSymbolicLink()) {
+        const realPathResult = yield* Effect.tryPromise({
+          try: () => fs.promises.realpath(installPath),
+          catch: () => new Error("Cannot resolve symlink"),
+        }).pipe(Effect.catchAll(() => Effect.succeed(installPath)));
+        return realPathResult;
+      }
+
+      return installPath;
+    });
+
+    const normalizedPath = resolvedPath.toLowerCase().replace(/\\/g, "/");
+
+    // Check for bun installation paths
+    // Bun typically installs to: ~/.bun/bin/jazz or similar
+    if (normalizedPath.includes("/.bun/") || normalizedPath.includes("\\bun\\")) {
+      return "bun" as const;
+    }
+
+    // Check for pnpm installation paths
+    // pnpm typically installs to: ~/.local/share/pnpm/global/5/node_modules/.bin/jazz
+    // or ~/.pnpm-global/ or similar
+    if (
+      normalizedPath.includes("/pnpm/") ||
+      normalizedPath.includes("\\pnpm\\") ||
+      normalizedPath.includes("/.pnpm") ||
+      normalizedPath.includes("\\.pnpm")
+    ) {
+      return "pnpm" as const;
+    }
+
+    // Check for npm installation paths
+    // npm typically installs to:
+    // - /usr/local/bin/jazz (standard Unix location)
+    // - ~/.npm-global/bin/jazz (custom npm global)
+    // - node_modules/.bin/jazz in global node_modules
+    // - Windows: AppData\Roaming\npm\jazz.cmd
+    if (
+      normalizedPath.includes("/npm/") ||
+      normalizedPath.includes("\\npm\\") ||
+      normalizedPath.includes("/.npm") ||
+      normalizedPath.includes("\\.npm") ||
+      normalizedPath.includes("/node_modules/.bin/") ||
+      normalizedPath.includes("\\node_modules\\.bin\\") ||
+      normalizedPath.includes("appdata/roaming/npm") ||
+      normalizedPath.includes("appdata\\roaming\\npm")
+    ) {
+      return "npm" as const;
+    }
+
+    // Check if it's in a standard bin directory (likely npm)
+    // Common locations: /usr/local/bin, /usr/bin, ~/.local/bin
+    // But exclude bun and pnpm specific directories
+    if (
+      (normalizedPath.includes("/usr/local/bin/") ||
+        normalizedPath.includes("/usr/bin/") ||
+        normalizedPath.includes("/.local/bin/")) &&
+      !normalizedPath.includes("/.bun/") &&
+      !normalizedPath.includes("/pnpm/") &&
+      !normalizedPath.includes("/.pnpm")
+    ) {
+      return "npm" as const;
+    }
+
+    // Cannot determine from path - return null
+    return null;
+  });
+}
+
+/**
+ * Get the version of a package manager command
+ * Gracefully handles errors - returns null if command doesn't exist or version check fails
+ */
+function getPackageManagerVersion(
+  command: string,
+): Effect.Effect<PackageManagerInfo | null, never> {
+  return Effect.gen(function* () {
+    const { spawn } = yield* Effect.promise(() => import("child_process"));
+
+    return yield* Effect.async<PackageManagerInfo | null, never>((resume) => {
+      const child = spawn(command, ["--version"], {
+        stdio: ["ignore", "pipe", "ignore"],
+        shell: true,
+      });
+
+      let stdout = "";
+
+      if (child.stdout) {
+        child.stdout.on("data", (data: Buffer) => {
+          stdout += data.toString();
+        });
+      }
+
+      child.on("close", (code) => {
+        if (code === 0 && stdout.trim()) {
+          // Successfully got version
+          resume(
+            Effect.succeed({
+              name: command,
+              version: stdout.trim(),
+            }),
+          );
+        } else {
+          // Command doesn't exist or version check failed
+          resume(Effect.succeed(null));
+        }
+      });
+
+      child.on("error", () => {
+        // Command doesn't exist or spawn failed
+        resume(Effect.succeed(null));
+      });
+    });
+  });
+}
+
+/**
+ * Detect which package manager to use for updating
+ * First tries to detect which package manager was used to install Jazz
+ * Falls back to checking available package managers if detection fails
+ *
+ * Future: Can add minimum version checks here
+ */
+function detectPackageManager(): Effect.Effect<PackageManagerInfo, UpdateInstallError> {
+  return Effect.gen(function* () {
+    // First, try to find where Jazz is installed
+    const installPath = yield* findJazzInstallationPath();
+
+    if (installPath) {
+      // Try to detect which package manager was used based on installation path
+      const detectedPm = yield* detectInstalledPackageManager(installPath);
+
+      if (detectedPm) {
+        // Found the package manager that was used to install Jazz
+        const pmInfo = yield* getPackageManagerVersion(detectedPm);
+        if (pmInfo) {
+          return pmInfo;
+        }
+        // Package manager detected but version check failed - fall through to fallback
+      }
+    }
+
+    // Fallback: Check available package managers in order of preference
+    // Check bun first
+    const bunInfo = yield* getPackageManagerVersion("bun");
+    if (bunInfo) return bunInfo;
+
+    // Check pnpm
+    const pnpmInfo = yield* getPackageManagerVersion("pnpm");
+    if (pnpmInfo) return pnpmInfo;
+
+    // Check npm
+    const npmInfo = yield* getPackageManagerVersion("npm");
+    if (npmInfo) return npmInfo;
+
+    // None of the package managers are installed
+    return yield* Effect.fail(
+      new UpdateInstallError({
+        message:
+          "No package manager found. Please install one of: bun, pnpm, or npm\n" +
+          "npm usually comes with Node.js: https://nodejs.org/\n" +
+          "bun: https://bun.sh/\n" +
+          "pnpm: https://pnpm.io/",
+      }),
+    );
+  });
+}
+
+/**
+ * Install the latest version using the detected package manager
  */
 function installUpdate(packageName: string): Effect.Effect<void, UpdateInstallError> {
   return Effect.gen(function* () {
     const { spawn } = yield* Effect.promise(() => import("child_process"));
 
     // Detect which package manager to use
-    const packageManager = yield* Effect.sync(() => {
-      // Check if bun is available
-      try {
-        const bunCheck = spawn("bun", ["--version"], { stdio: "ignore" });
-        if (bunCheck.exitCode === 0) return "bun";
-      } catch {
-        // bun not available
-      }
+    const pmInfo = yield* detectPackageManager();
 
-      // Check if pnpm is available
-      try {
-        const pnpmCheck = spawn("pnpm", ["--version"], { stdio: "ignore" });
-        if (pnpmCheck.exitCode === 0) return "pnpm";
-      } catch {
-        // pnpm not available
-      }
-
-      // Default to npm
-      return "npm";
-    });
-
-    console.log(`\n📦 Installing update using ${packageManager}...`);
+    console.log(`\n📦 Installing update using ${pmInfo.name} (${pmInfo.version})...`);
 
     const installArgs =
-      packageManager === "bun"
+      pmInfo.name === "bun"
         ? ["add", "-g", `${packageName}@latest`]
-        : packageManager === "pnpm"
+        : pmInfo.name === "pnpm"
           ? ["add", "-g", `${packageName}@latest`]
           : ["install", "-g", `${packageName}@latest`];
 
     yield* Effect.async<void, UpdateInstallError>((resume) => {
-      const child = spawn(packageManager, installArgs, {
+      const child = spawn(pmInfo.name, installArgs, {
         stdio: "inherit",
         shell: true,
       });
@@ -155,7 +374,7 @@ function installUpdate(packageName: string): Effect.Effect<void, UpdateInstallEr
           resume(
             Effect.fail(
               new UpdateInstallError({
-                message: `${packageManager} install failed with exit code ${code ?? "unknown"}`,
+                message: `${pmInfo.name} install failed with exit code ${code ?? "unknown"}`,
               }),
             ),
           );
@@ -166,7 +385,7 @@ function installUpdate(packageName: string): Effect.Effect<void, UpdateInstallEr
         resume(
           Effect.fail(
             new UpdateInstallError({
-              message: `Failed to spawn ${packageManager}`,
+              message: `Failed to spawn ${pmInfo.name}`,
               cause: unknownError,
             }),
           ),
@@ -231,8 +450,8 @@ export function updateCommand(options?: {
           console.log(`   ${installError.message}`);
           console.log("\n💡 You can manually update by running:");
           console.log(`   npm install -g ${packageJson.name}@latest`);
-          console.log("   or");
           console.log(`   bun add -g ${packageJson.name}@latest`);
+          console.log(`   pnpm add -g ${packageJson.name}@latest`);
         });
       }),
     );
