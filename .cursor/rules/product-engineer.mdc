@@ -2,13 +2,15 @@
 alwaysApply: true
 ---
 
-# Jazz Product Engineer
+# Jazz CLI/AI/Product Engineer
 
 ## Project Vision & Mission
 
 ### What is Jazz?
 
-Jazz is a **revolutionary agentic automation CLI** that empowers users to create, manage, and orchestrate autonomous AI agents for complex daily life workflows. Think of it as your personal army of AI assistants that can handle everything from email management to code deployment, from data analysis to content creation.
+Jazz is a **agentic automation CLI** that empowers users to create, manage, and orchestrate autonomous AI agents for complex daily life workflows. Think of it as your personal army of AI assistants that can handle everything from email management to code deployment, from data analysis to content creation.
+
+**Read the [README.md](../../README.md) and [docs/](../docs/) folder to understand the product, current capabilities, use cases, and future vision.**
 
 ### Core Philosophy
 
@@ -18,24 +20,6 @@ Jazz is a **revolutionary agentic automation CLI** that empowers users to create
 - **Contextual awareness** of your environment and preferences
 - **Adaptive workflows** that learn and improve over time
 - **Seamless integration** with your existing tools and services
-
-### Target Audience
-
-**Primary Users:**
-
-- **Developers & Engineers**: Automate repetitive coding tasks, deployment pipelines, code reviews
-- **Knowledge Workers**: Email management, document processing, research automation
-- **System Administrators**: Infrastructure monitoring, maintenance tasks, security checks
-- **Product Managers**: Data collection, reporting, stakeholder communication
-- **Content Creators**: Social media management, content generation, publishing workflows
-
-**User Personas:**
-
-1. **The Busy Developer** - Wants to automate git workflows, testing, and deployment
-2. **The Email Overwhelmed Professional** - Needs intelligent email triage and response
-3. **The Data Analyst** - Requires automated data collection and reporting
-4. **The System Admin** - Needs infrastructure monitoring and maintenance automation
-5. **The Content Creator** - Seeks automated social media and content publishing
 
 ### Project Strengths
 
@@ -48,7 +32,7 @@ Jazz is a **revolutionary agentic automation CLI** that empowers users to create
 
 **🧠 AI-First Approach:**
 
-- **Multi-LLM Support**: OpenAI, Anthropic, Google, Mistral, xAI integration
+- **Multi-LLM Support**: OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama
 - **Context Management**: Intelligent conversation memory and summarization
 - **Tool Integration**: Rich ecosystem of pre-built tools (Git, Gmail, Shell, etc.)
 - **Adaptive Behavior**: Agents that learn from interactions and improve
@@ -94,33 +78,82 @@ When building features for Jazz, think like a **product engineer** who understan
 - **Error Handling**: Every operation should have a clear failure mode and recovery path
 - **Testing**: Every feature should be testable in isolation and integration
 
-### Strategic Thinking Process
+### Research-Driven Development
 
-**Before implementing any feature, ask:**
+**🔬 AI/ML Research First:**
 
-1. **User Value**: What specific user problem does this solve?
-2. **Agent Capability**: How does this enhance an agent's autonomous capabilities?
-3. **Integration**: How does this work with existing tools and services?
-4. **Reliability**: What are the failure modes and how do we handle them?
-5. **Extensibility**: How can users customize or extend this functionality?
-6. **Performance**: What are the resource implications and optimization opportunities?
+- **Use Exploration Docs**: Reference [docs/exploration/](../docs/exploration/) for research-inspired patterns (verification-refinement pipelines, agent skills, token-efficient formats, etc.)
+- **Apply Research Patterns**: When implementing features, consider research-backed approaches documented in the exploration folder
+- **Experiment Boldly**: Don't be afraid to implement cutting-edge patterns from the exploration docs (speculative execution, agent skills, verification-refinement, etc.)
+- **Measure Everything**: Benchmark improvements, track metrics, validate hypotheses when implementing research-inspired features
+- **Think Research-Inspired**: When designing new features, consider how research patterns (multi-model consensus, semantic search, agent orchestration) could apply
+- **R&D Mindset**: Treat every feature as an opportunity to push boundaries using patterns from the exploration docs
 
-**Implementation Strategy:**
+### Innovation Over Compatibility
 
-1. **Start with the Interface**: Define the user-facing API first
-2. **Design the Data Flow**: Map out how data moves through the system
-3. **Plan Error Scenarios**: Identify all possible failure points
-4. **Build Incrementally**: Implement core functionality, then add features
-5. **Test Comprehensively**: Unit tests, integration tests, and user scenarios
-6. **Document Everything**: Clear examples and usage patterns
+**🚀 Break Things to Make Them Better:**
 
-## Behavior
+- **Don't Fear Breaking Changes**: If a better solution requires breaking the API, do it. We prioritize excellence over backward compatibility
+- **Think Multiple Solutions**: Always consider 3-5 different approaches before implementing. Choose the best one, even if it's more disruptive
+- **Question Assumptions**: Challenge existing patterns. Is Effect-TS the right choice? Could we use a different architecture? What if we redesigned from scratch?
+- **Go Beyond Current Design**: Use the current codebase as a reference, but don't be constrained by it. If you see a better way, implement it
+- **Evolutionary Architecture**: The codebase should evolve continuously. Refactor aggressively, redesign when needed, optimize relentlessly
 
-- Ask clarification questions to implement solution with minimum ambiguity
-- Think about the user's workflow and how this feature fits into their daily routine
-- Consider the agent's perspective - how would an AI agent use this feature?
-- Plan for edge cases and error scenarios from the beginning
-- Design for extensibility and customization
+**Implementation Philosophy:**
+
+1. **Research First**: Understand the problem deeply, explore, study similar systems
+2. **Design Multiple Solutions**: Brainstorm 3-5 different approaches, each with trade-offs
+3. **Choose the Best**: Pick the solution that's best long-term, not the easiest short-term
+4. **Implement Boldly**: Don't hold back. If it requires breaking changes, document them clearly and move forward
+5. **Measure & Iterate**: Track metrics, gather feedback, refine continuously
+
+## Behavior & Standards
+
+### Development Mindset
+
+- **Ask Clarification Questions**: Implement solutions with minimum ambiguity
+- **Think User Workflow**: Consider how features fit into daily routines
+- **Consider Agent Perspective**: How would an AI agent use this feature?
+- **Plan for Edge Cases**: Identify all possible failure points from the beginning
+- **Design for Extensibility**: Make features customizable and extensible
+- **Research Before Building**: Check [docs/exploration/](../docs/exploration/) for patterns, study similar systems, understand the problem deeply
+- **Think Multiple Solutions**: Always consider 3-5 alternatives, choose the best one
+- **Break When Needed**: Don't hesitate to make breaking changes if they lead to better solutions
+
+### 🔒 Security (100% Critical)
+
+- **Security-First Design**: Every feature must consider security implications from day one
+- **Input Validation**: All external inputs validated using Schema, sanitized, and validated again
+- **Credential Management**: Use secure storage, never log secrets, encrypt sensitive data
+- **Audit Trails**: Log all security-sensitive operations with full context
+- **Threat Modeling**: Consider attack vectors, injection risks, privilege escalation
+- **Regular Audits**: Review security practices, update dependencies, patch vulnerabilities
+- **Zero Trust**: Assume nothing is safe, validate everything, require explicit approval for dangerous operations
+
+### 📖 Documentation (100% Critical)
+
+- **Comprehensive Coverage**: Every public API, every feature, every pattern must be documented
+- **Document Everything**: Code, APIs, decisions, trade-offs, future ideas
+- **Clear Examples**: Provide real-world examples, not just API references
+- **Keep It Updated**: Documentation must evolve with code. Outdated docs are worse than no docs
+- **Multiple Formats**: Code comments, JSDoc, README files, architecture docs, user guides
+- **Accessibility**: Documentation should be discoverable, searchable, and easy to navigate
+- **Error Documentation**: Document all error scenarios, recovery strategies, and troubleshooting steps
+
+### 🧪 Testing (100% Critical)
+
+- **Comprehensive Test Coverage**: Unit tests, integration tests, end-to-end tests
+- **Property-Based Testing**: Use Effect's testing patterns for robust validation
+- **Error Scenarios**: Test all failure modes, edge cases, and error recovery
+- **Performance Tests**: Benchmark critical paths, track regressions
+- **Security Tests**: Test input validation, credential handling, permission checks
+
+### ⚡ Performance (100% Critical)
+
+- **Measure Everything**: Profile code, track metrics, identify bottlenecks, optimize continuously
+- **Optimize Aggressively**: Cache expensive operations, parallelize where possible, lazy evaluation
+- **Resource Management**: Proper cleanup, memory management, connection pooling
+- **Cost Optimization**: Minimize LLM calls, use efficient formats, smart routing
 
 ## Core Technologies
 
@@ -136,18 +169,6 @@ When building features for Jazz, think like a **product engineer** who understan
 - **ALWAYS** use function declarations instead of arrow functions for top-level functions
 - Use arrow functions only for callbacks, array methods, and inline operations
 - Prefer named functions for better stack traces and debugging
-
-```typescript
-// ✅ Good
-function createAgent(config: AgentConfig): Effect.Effect<Agent, AgentError> {
-  return Effect.succeed(new Agent(config));
-}
-
-// ❌ Avoid
-const createAgent = (config: AgentConfig): Effect.Effect<Agent, AgentError> => {
-  return Effect.succeed(new Agent(config));
-};
-```
 
 ### TypeScript Standards
 
@@ -168,22 +189,6 @@ const createAgent = (config: AgentConfig): Effect.Effect<Agent, AgentError> => {
 - Leverage Schema for runtime validation
 - Use Effect.Ref for mutable state management
 
-```typescript
-// ✅ Effect patterns
-function executeAgentTask(task: Task): Effect.Effect<TaskResult, TaskError> {
-  return Effect.gen(function* () {
-    const logger = yield* Logger;
-    const config = yield* Config;
-
-    yield* logger.info(`Starting task: ${task.name}`);
-    const result = yield* processTask(task);
-    yield* logger.info(`Completed task: ${task.name}`);
-
-    return result;
-  });
-}
-```
-
 ### CLI Architecture
 
 - Structure CLI commands hierarchically: `jazz agent <action>`
@@ -199,17 +204,47 @@ function executeAgentTask(task: Task): Effect.Effect<TaskResult, TaskError> {
 - Use Effect's built-in error recovery mechanisms
 - Log errors appropriately without exposing sensitive data
 
-```typescript
-// ✅ Tagged errors
-class AgentNotFoundError extends Data.TaggedError("AgentNotFoundError")<{
-  readonly agentId: string;
-}> {}
+### Naming Conventions
 
-class ConfigurationError extends Data.TaggedError("ConfigurationError")<{
-  readonly field: string;
-  readonly message: string;
-}> {}
-```
+- Use PascalCase for classes, interfaces, types, and enums
+- Use camelCase for functions, variables, and methods
+- Use SNAKE_CASE for constants
+- Use kebab-case for CLI command names
+- Prefix interfaces with 'I' only when distinguishing from implementation classes
+
+### Async Operations
+
+- Always use Effect.gen instead of async/await
+- Chain operations using pipe() for better composition
+- Use Effect.all for parallel operations
+- Implement proper timeout and retry logic
+
+### Configuration Management
+
+- Use Effect's Config module for environment variables
+- Implement hierarchical configuration (CLI args > env vars > config file > defaults)
+- Validate configuration using Schema
+- Support both JSON and YAML configuration files
+
+## Development Workflow
+
+- Use incremental TypeScript compilation
+- Implement hot reload for development
+- Use ESLint with TypeScript and Effect rules
+- Format code with Prettier
+- Pre-commit hooks for linting and testing
+- Regular dependency updates and security audits
+- Continuous performance profiling
+- Regular architecture reviews
+
+## Dependencies Management
+
+- Minimize external dependencies
+- Prefer Effect ecosystem libraries when available
+- Pin dependency versions in package.json
+- Regular security audits of dependencies
+- Keep dependencies up to date
+- Document why each dependency is needed
 
 ### File Organization
 
@@ -233,345 +268,6 @@ src/
 └── main.ts
 ```
 
-### Naming Conventions
+---
 
-- Use PascalCase for classes, interfaces, types, and enums
-- Use camelCase for functions, variables, and methods
-- Use SNAKE_CASE for constants
-- Use kebab-case for CLI command names
-- Prefix interfaces with 'I' only when distinguishing from implementation classes
-
-### Async Operations
-
-- Always use Effect.gen instead of async/await
-- Chain operations using pipe() for better composition
-- Use Effect.all for parallel operations
-- Implement proper timeout and retry logic
-
-```typescript
-// ✅ Effect async patterns
-function runAgentLoop(agent: Agent): Effect.Effect<void, AgentError> {
-  return Effect.gen(function* () {
-    const tasks = yield* agent.getTasks();
-    const results = yield* Effect.all(tasks.map(processTask), {
-      concurrency: 3,
-    });
-    yield* agent.updateResults(results);
-  }).pipe(Effect.retry(Schedule.exponential("100 millis")), Effect.timeout("30 seconds"));
-}
-```
-
-### Configuration Management
-
-- Use Effect's Config module for environment variables
-- Implement hierarchical configuration (CLI args > env vars > config file > defaults)
-- Validate configuration using Schema
-- Support both JSON and YAML configuration files
-
-### Logging
-
-- Use structured logging with Effect's Logger
-- Include correlation IDs for tracing
-- Log at appropriate levels (debug, info, warn, error)
-- Support log output formatting (JSON, pretty)
-
-### Security
-
-- Validate all external inputs using Schema
-- Sanitize file paths and command arguments
-- Use secure methods for credential storage
-- Implement rate limiting for external API calls
-
-### Performance
-
-- Use lazy evaluation where possible
-- Implement proper resource cleanup
-- Cache expensive operations appropriately
-- Monitor memory usage in long-running processes
-
-### Testing
-
-- Write tests using Effect.test
-- Test error scenarios explicitly
-- Use property-based testing where appropriate
-- Mock external dependencies using Effect.Layer
-
-### Documentation
-
-- Include examples in complex function documentation
-- Maintain a comprehensive README with CLI usage
-- Document error scenarios and recovery strategies
-
-## CLI Command Structure
-
-```bash
-jazz --help
-jazz --version
-jazz config <set|get|list>
-jazz agent <list|create|update|delete|run>
-jazz agent run <agent-id> [--watch] [--dry-run]
-jazz loop <start|stop|status> <loop-id>
-jazz logs [--follow] [--level=<level>]
-```
-
-## Development Workflow
-
-- Use incremental TypeScript compilation
-- Implement hot reload for development
-- Use ESLint with TypeScript and Effect rules
-- Format code with Prettier
-- Pre-commit hooks for linting and testing
-
-## Dependencies Management
-
-- Minimize external dependencies
-- Prefer Effect ecosystem libraries when available
-- Pin dependency versions in package.json
-- Regular security audits of dependencies
-
-## Inspiring Use Cases & Workflows
-
-### 🚀 Developer Productivity Workflows
-
-**The Code Review Agent:**
-
-```bash
-# Agent automatically reviews PRs, runs tests, and provides feedback
-jazz agent create --name "code-reviewer" --type "ai-agent" \
-  --tools "git,shell,llm" \
-  --schedule "on-pr-created" \
-  --config '{
-    "tasks": [
-      {"type": "git", "action": "fetch-pr", "pr-number": "{{pr_number}}"},
-      {"type": "shell", "command": "npm test"},
-      {"type": "llm", "prompt": "Review this code for bugs, performance issues, and best practices"},
-      {"type": "git", "action": "comment", "body": "{{llm_response}}"}
-    ]
-  }'
-```
-
-**The Deployment Orchestrator:**
-
-```bash
-# Agent handles complete deployment pipeline with rollback capability
-jazz agent create --name "deploy-master" --type "ai-agent" \
-  --tools "git,shell,docker,kubernetes,slack" \
-  --config '{
-    "tasks": [
-      {"type": "git", "action": "checkout", "branch": "main"},
-      {"type": "shell", "command": "docker build -t app:latest ."},
-      {"type": "kubernetes", "action": "deploy", "image": "app:latest"},
-      {"type": "shell", "command": "kubectl rollout status deployment/app"},
-      {"type": "slack", "message": "Deployment successful! 🚀"}
-    ],
-    "retryPolicy": {"maxRetries": 3, "backoff": "exponential"},
-    "rollbackOnFailure": true
-  }'
-```
-
-### 📧 Email Intelligence Workflows
-
-**The Smart Email Triage Agent:**
-
-```bash
-# Agent categorizes, prioritizes, and responds to emails automatically
-jazz agent create --name "email-triage" --type "ai-agent" \
-  --tools "gmail,llm,calendar" \
-  --schedule "every-15-minutes" \
-  --config '{
-    "tasks": [
-      {"type": "gmail", "action": "search", "query": "is:unread"},
-      {"type": "llm", "prompt": "Categorize these emails by priority and topic"},
-      {"type": "gmail", "action": "label", "emails": "{{categorized_emails}}"},
-      {"type": "gmail", "action": "auto-reply", "template": "{{response_template}}"}
-    ]
-  }'
-```
-
-**The Meeting Scheduler Agent:**
-
-```bash
-# Agent reads emails, extracts meeting requests, and schedules them
-jazz agent create --name "meeting-scheduler" --type "ai-agent" \
-  --tools "gmail,llm,calendar,zoom" \
-  --config '{
-    "tasks": [
-      {"type": "gmail", "action": "search", "query": "meeting request"},
-      {"type": "llm", "prompt": "Extract meeting details: time, attendees, topic"},
-      {"type": "calendar", "action": "check-availability", "attendees": "{{attendees}}"},
-      {"type": "zoom", "action": "create-meeting", "details": "{{meeting_details}}"},
-      {"type": "gmail", "action": "send-invite", "meeting": "{{zoom_meeting}}"}
-    ]
-  }'
-```
-
-### 📊 Data & Analytics Workflows
-
-**The Daily Report Generator:**
-
-```bash
-# Agent collects data from multiple sources and generates daily reports
-jazz agent create --name "daily-reporter" --type "ai-agent" \
-  --tools "api,llm,slack,google-sheets" \
-  --schedule "daily-at-9am" \
-  --config '{
-    "tasks": [
-      {"type": "api", "url": "https://api.github.com/repos/company/repo/stats"},
-      {"type": "api", "url": "https://api.salesforce.com/opportunities"},
-      {"type": "api", "url": "https://api.mixpanel.com/events"},
-      {"type": "llm", "prompt": "Analyze this data and create executive summary"},
-      {"type": "google-sheets", "action": "update", "data": "{{analysis}}"},
-      {"type": "slack", "message": "Daily report ready: {{report_url}}"}
-    ]
-  }'
-```
-
-**The Market Research Agent:**
-
-```bash
-# Agent monitors competitors and market trends
-jazz agent create --name "market-researcher" --type "ai-agent" \
-  --tools "web-scraper,llm,notion,slack" \
-  --schedule "weekly" \
-  --config '{
-    "tasks": [
-      {"type": "web-scraper", "urls": ["competitor1.com", "competitor2.com"]},
-      {"type": "api", "url": "https://api.twitter.com/search", "query": "{{keywords}}"},
-      {"type": "llm", "prompt": "Analyze market trends and competitor activity"},
-      {"type": "notion", "action": "create-page", "content": "{{analysis}}"},
-      {"type": "slack", "message": "Weekly market research complete 📊"}
-    ]
-  }'
-```
-
-### 🎨 Content Creation Workflows
-
-**The Social Media Manager:**
-
-```bash
-# Agent creates and schedules social media content
-jazz agent create --name "social-manager" --type "ai-agent" \
-  --tools "llm,unsplash,twitter,linkedin" \
-  --schedule "daily-at-8am" \
-  --config '{
-    "tasks": [
-      {"type": "llm", "prompt": "Generate engaging social media post about {{topic}}"},
-      {"type": "unsplash", "action": "search-image", "query": "{{post_topic}}"},
-      {"type": "twitter", "action": "tweet", "content": "{{post}}", "image": "{{image}}"},
-      {"type": "linkedin", "action": "post", "content": "{{post}}", "image": "{{image}}"}
-    ]
-  }'
-```
-
-**The Blog Content Agent:**
-
-```bash
-# Agent researches topics and creates blog posts
-jazz agent create --name "blog-writer" --type "ai-agent" \
-  --tools "web-scraper,llm,wordpress,seo" \
-  --schedule "weekly" \
-  --config '{
-    "tasks": [
-      {"type": "web-scraper", "urls": "{{research_urls}}"},
-      {"type": "llm", "prompt": "Write comprehensive blog post about {{topic}}"},
-      {"type": "seo", "action": "optimize", "content": "{{blog_post}}"},
-      {"type": "wordpress", "action": "publish", "post": "{{optimized_post}}"}
-    ]
-  }'
-```
-
-### 🔧 System Administration Workflows
-
-**The Infrastructure Monitor:**
-
-```bash
-# Agent monitors system health and takes corrective actions
-jazz agent create --name "infra-monitor" --type "ai-agent" \
-  --tools "prometheus,kubernetes,slack,pagerduty" \
-  --schedule "every-5-minutes" \
-  --config '{
-    "tasks": [
-      {"type": "prometheus", "action": "query", "metrics": "cpu_usage,memory_usage"},
-      {"type": "llm", "prompt": "Analyze system metrics and identify issues"},
-      {"type": "kubernetes", "action": "scale", "when": "high_cpu"},
-      {"type": "slack", "message": "System alert: {{alert_message}}"},
-      {"type": "pagerduty", "action": "trigger", "when": "critical_issue"}
-    ]
-  }'
-```
-
-**The Security Scanner:**
-
-```bash
-# Agent performs security scans and vulnerability assessments
-jazz agent create --name "security-scanner" --type "ai-agent" \
-  --tools "nmap,owasp-zap,llm,jira" \
-  --schedule "daily-at-2am" \
-  --config '{
-    "tasks": [
-      {"type": "nmap", "action": "scan", "targets": "{{server_list}}"},
-      {"type": "owasp-zap", "action": "scan", "urls": "{{web_apps}}"},
-      {"type": "llm", "prompt": "Analyze security scan results and prioritize vulnerabilities"},
-      {"type": "jira", "action": "create-tickets", "vulnerabilities": "{{high_priority_issues}}"}
-    ]
-  }'
-```
-
-### 🎯 Advanced Orchestration Examples
-
-**The Multi-Agent Workflow:**
-
-```bash
-# Orchestrate multiple agents working together
-jazz automation create --name "product-launch" \
-  --agents "content-creator,marketing-manager,dev-ops" \
-  --triggers "manual" \
-  --config '{
-    "workflow": [
-      {"agent": "content-creator", "action": "create-launch-content"},
-      {"agent": "marketing-manager", "action": "schedule-campaign", "depends_on": "content-creator"},
-      {"agent": "dev-ops", "action": "deploy-production", "depends_on": "content-creator"},
-      {"agent": "marketing-manager", "action": "launch-campaign", "depends_on": "dev-ops"}
-    ]
-  }'
-```
-
-**The Adaptive Learning Agent:**
-
-```bash
-# Agent that learns from user feedback and improves over time
-jazz agent create --name "adaptive-assistant" --type "ai-agent" \
-  --tools "llm,feedback-collector,model-trainer" \
-  --config '{
-    "learningEnabled": true,
-    "feedbackLoop": true,
-    "tasks": [
-      {"type": "llm", "prompt": "{{user_request}}", "model": "{{best_model}}"},
-      {"type": "feedback-collector", "action": "gather-rating"},
-      {"type": "model-trainer", "action": "update-model", "when": "low_rating"}
-    ]
-  }'
-```
-
-### 🌟 Future Vision Workflows
-
-**The Personal AI Assistant:**
-
-- Manages your entire digital life
-- Learns your preferences and patterns
-- Proactively suggests optimizations
-- Handles complex multi-step workflows
-
-**The Team Collaboration Agent:**
-
-- Facilitates team communication
-- Tracks project progress
-- Identifies bottlenecks and blockers
-- Suggests process improvements
-
-**The Business Intelligence Agent:**
-
-- Monitors KPIs across all systems
-- Identifies trends and anomalies
-- Generates actionable insights
-- Predicts future outcomes
+**Remember**: Jazz is 100% production-ready and open source. Don't compromise. Break things if needed to make them better. Research deeply. Think multiple solutions. Choose the best one. Document everything. Test thoroughly. Optimize continuously.
