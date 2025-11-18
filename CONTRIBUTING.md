@@ -41,17 +41,16 @@ Jazz is actively developed with many opportunities to contribute:
 
 ## Project standards
 
-This codebase is 100% TypeScript (strict) and uses Effect-TS.
+This codebase is 100% TypeScript and uses Effect-TS. Follow these critical patterns:
 
-- Prefer function declarations for top-level functions
-- Use `interface` over `type` for object shapes
-- Use discriminated unions for variants
+- Use `Data.TaggedError` for all error types (see `src/core/types/errors.ts` for examples)
+- Always use `Effect.gen` for async workflows, never async/await
+- Use `yield*` to unwrap Effects inside `Effect.gen` blocks
+- Services are provided via `Effect.Layer`, never imported directly
+- Access services with `yield* ServiceTag` inside `Effect.gen`
+- Use `Effect.catchAll` to handle errors, never try/catch
+- Use `Schema` from `@effect/schema` to validate all external inputs at boundaries
 - Always specify return types for public APIs
-- Prefer `readonly` where applicable
-- Validate external inputs with `@effect/schema`
-- Wrap side effects in `Effect`; compose with `Effect.gen` and `pipe`
-- Use `Effect.Layer` for dependency injection
-- Use tagged errors via `Data.TaggedError`
 
 ## Build and run
 
