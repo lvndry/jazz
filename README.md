@@ -264,12 +264,16 @@ We welcome contributions! Jazz is actively developed and there are many opportun
 - ✨ **Add Features** - See [TODO.md](./TODO.md) for planned features
 - 📖 **Improve Docs** - Help make Jazz easier to use
 - 🧪 **Write Tests** - Increase test coverage
-- 💡 **Share Ideas** - Join [discussions](https://github.com/lvndry/jazz/discussions)
+- 💡 **Share Ideas** - Join [Discussions](https://github.com/lvndry/jazz/discussions) to share ideas
+  and move conversations forward
+- 🔬 **Explore Advanced Topics** - Check out the [exploration folder](docs/exploration/README.md)
+  for future features and research
 
 ### Quick Start for Contributors
 
 1. Fork the repository
-2. Check [TODO.md](./TODO.md) for tasks ready to be tackled
+2. Check [TODO.md](./TODO.md) or [GitHub issues](https://github.com/lvndry/jazz/issues) for tasks
+   ready to be tackled
 3. Read [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines
 4. Submit a PR!
 
