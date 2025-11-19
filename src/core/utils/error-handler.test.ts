@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { createTerminalServiceLayer } from "../../services/terminal";
 import {
   AgentAlreadyExistsError,
   AgentNotFoundError,
@@ -77,8 +78,10 @@ describe("Error Handler", () => {
       agentId: "test-agent",
     });
 
+    const terminalLayer = createTerminalServiceLayer();
+
     // This should not throw
-    await Effect.runPromise(handleError(error));
+    await Effect.runPromise(handleError(error).pipe(Effect.provide(terminalLayer)));
   });
 
   it("should provide related commands for different error types", () => {

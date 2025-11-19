@@ -163,28 +163,37 @@ export function findSummarizationPoint(
   maxRecentTokens?: number,
   preserveRecentMessages?: number,
 ): number {
-  const maxTokens = getModelContextLimit(model);
-  const availableTokens = maxTokens - targetTokens;
-
-  let accumulatedTokens = 0;
   let index = 0;
+  let systemTokens = 0;
 
   // Always keep the first message (usually system message)
   if (messages.length > 0) {
     const firstMessage = messages[0];
     if (firstMessage) {
-      accumulatedTokens += estimateMessageTokens(firstMessage);
+      systemTokens = estimateMessageTokens(firstMessage);
       index = 1;
     }
   }
 
+  // Estimate tokens for the summary message (will be added later)
+  const summaryMessage = createSummaryMessage(0);
+  const summaryTokens = estimateMessageTokens(summaryMessage);
+
   // Calculate how many recent messages to preserve
-  const recentMessagesToPreserve = preserveRecentMessages ?? 10;
-  const maxRecentTokensToPreserve = maxRecentTokens ?? 2000;
+  // Reserve tokens for system message and summary message
+  const reservedTokens = systemTokens + summaryTokens;
+  const availableForRecent = Math.max(0, targetTokens - reservedTokens);
+
+  // Use the smaller of: maxRecentTokens or availableForRecent
+  const maxRecentTokensToPreserve = Math.min(
+    maxRecentTokens ?? 2000,
+    availableForRecent,
+  );
 
   // Start from the end and work backwards to find recent messages to preserve
   let recentTokens = 0;
   let recentMessageCount = 0;
+  const recentMessagesToPreserve = preserveRecentMessages ?? 10;
   const recentStartIndex = Math.max(0, messages.length - recentMessagesToPreserve * 2); // *2 for user/assistant pairs
 
   for (let i = messages.length - 1; i >= recentStartIndex; i--) {
@@ -207,17 +216,30 @@ export function findSummarizationPoint(
     return Math.max(1, messages.length - 1); // Keep at least the system message + 1 recent message
   }
 
-  // Find the point where we exceed available tokens, but don't go past recent messages
-  for (let i = index; i < actualRecentStartIndex; i++) {
-    const message = messages[i];
-    if (!message) continue;
-    const messageTokens = estimateMessageTokens(message);
+  // Calculate total tokens for the final result
+  const totalTokens = systemTokens + summaryTokens + recentTokens;
 
-    if (accumulatedTokens + messageTokens > availableTokens - recentTokens) {
-      return i;
+  // If we're already over the target, we need to be more aggressive
+  if (totalTokens > targetTokens && recentMessageCount > 0) {
+    // Reduce recent messages until we're under the target
+    let adjustedRecentTokens = recentTokens;
+    let adjustedRecentCount = recentMessageCount;
+
+    for (let i = messages.length - recentMessageCount; i < messages.length; i++) {
+      const message = messages[i];
+      if (!message) continue;
+
+      const messageTokens = estimateMessageTokens(message);
+      if (systemTokens + summaryTokens + adjustedRecentTokens - messageTokens <= targetTokens) {
+        adjustedRecentCount--;
+        adjustedRecentTokens -= messageTokens;
+        break;
+      }
+      adjustedRecentCount--;
+      adjustedRecentTokens -= messageTokens;
     }
 
-    accumulatedTokens += messageTokens;
+    return Math.max(index, messages.length - adjustedRecentCount);
   }
 
   // If we can fit all messages, return the recent start index
@@ -320,6 +342,23 @@ export function summarizeConversation(
   // Final safety check: ensure we never return an empty array
   if (result.length === 0) {
     return messages; // Fallback to original messages
+  }
+
+  // Verify that the result meets the target token requirement
+  const finalTokens = estimateConversationTokens(result);
+  if (finalTokens > targetTokens && result.length > 2) {
+    // If we're still over the target, be more aggressive
+    // Remove messages from the end until we're under the target
+    let adjustedResult = [...result];
+    while (adjustedResult.length > 2 && estimateConversationTokens(adjustedResult) > targetTokens) {
+      // Keep system message and summary, remove from the end
+      if (systemMessage && systemMessage.role === "system") {
+        adjustedResult = [systemMessage, summaryMessage, ...adjustedResult.slice(2, -1)];
+      } else {
+        adjustedResult = [summaryMessage, ...adjustedResult.slice(1, -1)];
+      }
+    }
+    return adjustedResult;
   }
 
   return result;
