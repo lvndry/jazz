@@ -9,6 +9,7 @@ import type {
   StorageConfig
 } from "../core/types/index";
 import { safeParseJson } from "../core/utils/json";
+import { getDefaultDataDirectory } from "../core/utils/runtime-detection";
 
 /**
  * Configuration service using Effect's Config module
@@ -119,7 +120,7 @@ export function requireConfigValue<T>(key: string): Effect.Effect<T, never, Conf
 // -----------------
 
 function defaultConfig(): AppConfig {
-  const storage: StorageConfig = { type: "file", path: "./.jazz" };
+  const storage: StorageConfig = { type: "file", path: getDefaultDataDirectory() };
   const logging: LoggingConfig = {
     level: "info",
     format: "pretty",

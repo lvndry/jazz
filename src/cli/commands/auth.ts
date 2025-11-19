@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { AgentConfigService, type ConfigService } from "../../services/config";
 import { GmailAuthenticationError, GmailServiceTag, type GmailService } from "../../services/gmail";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
+import { resolveStorageDirectory } from "../../services/storage/utils";
 
 /**
  * CLI commands for authentication management
@@ -56,7 +57,7 @@ export function gmailLogoutCommand(): Effect.Effect<
 
     // Get the token file path from config
     const { storage } = yield* config.appConfig;
-    const dataDir = storage.type === "file" ? storage.path : "./.jazz";
+    const dataDir = resolveStorageDirectory(storage);
     const tokenFilePath = `${dataDir}/google/gmail-token.json`;
 
     // Check if token file exists
@@ -105,7 +106,7 @@ export function gmailStatusCommand(): Effect.Effect<
 
     // Get the token file path from config
     const { storage } = yield* config.appConfig;
-    const dataDir = storage.type === "file" ? storage.path : "./.jazz";
+    const dataDir = resolveStorageDirectory(storage);
     const tokenFilePath = `${dataDir}/google/gmail-token.json`;
 
     // Check if token file exists

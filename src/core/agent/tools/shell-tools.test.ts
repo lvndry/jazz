@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { createFileSystemContextServiceLayer } from "../../../services/shell";
+import { createFileSystemContextServiceLayer } from "../../../services/fs";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 

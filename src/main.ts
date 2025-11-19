@@ -29,6 +29,7 @@ import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer, LoggerServiceTag } from "./services/logger";
 import { FileStorageService } from "./services/storage/file";
 import { StorageServiceTag } from "./services/storage/service";
+import { resolveStorageDirectory } from "./services/storage/utils";
 
 /**
  * Main entry point for the Jazz CLI
@@ -59,7 +60,7 @@ function createAppLayer(debug?: boolean) {
     Effect.gen(function* () {
       const config = yield* AgentConfigService;
       const { storage } = yield* config.appConfig;
-      const basePath = storage.type === "file" ? storage.path : "./.jazz";
+      const basePath = resolveStorageDirectory(storage);
       const fs = yield* FileSystem.FileSystem;
       return new FileStorageService(basePath, fs);
     }),

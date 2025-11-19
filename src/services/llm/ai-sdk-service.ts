@@ -30,6 +30,7 @@ import {
   LLMRateLimitError,
   LLMRequestError,
 } from "../../core/types/errors";
+import { safeParseJson } from "../../core/utils/json";
 import { AgentConfigService, type ConfigService } from "../config";
 import { writeLogToFile } from "../logger";
 import { LLMProvider, LLMService, LLMServiceTag } from "./interfaces";
@@ -41,13 +42,12 @@ interface AISDKConfig {
   apiKeys: Record<string, string>;
 }
 
-function safeParseJson(input: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(input) as Record<string, unknown>;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+function parseToolArguments(input: string): Record<string, unknown> {
+  const parsed = safeParseJson<Record<string, unknown>>(input);
+  return Option.match(parsed, {
+    onNone: () => ({}),
+    onSome: (value) => (value && typeof value === "object" ? value : {}),
+  });
 }
 
 function toCoreMessages(
@@ -98,17 +98,12 @@ function toCoreMessages(
             type: "tool-call",
             toolCallId: tc.id,
             toolName: tc.function.name,
-            input: safeParseJson(tc.function.arguments),
+            input: parseToolArguments(tc.function.arguments),
           });
         }
       }
 
-      // If we have content parts, return them as an array, otherwise return as string
-      if (contentParts.length > 0) {
-        return { role: "assistant", content: contentParts } as AssistantModelMessage;
-      } else {
-        return { role: "assistant", content: "" } as AssistantModelMessage;
-      }
+      return { role: "assistant", content: contentParts } as AssistantModelMessage;
     }
 
     // Tool messages (tool results)
@@ -153,14 +148,10 @@ function selectModel(providerName: string, modelId: ModelName): LanguageModel {
   }
 }
 
-type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[];
-
-type ProviderOptions = Record<string, Record<string, JsonValue>>;
-
 function buildProviderOptions(
   providerName: string,
   options: ChatCompletionOptions,
-): ProviderOptions | undefined {
+) {
   const normalizedProvider = providerName.toLowerCase();
 
   switch (normalizedProvider) {
@@ -259,7 +250,7 @@ function convertToLLMError(error: unknown, providerName: string): LLMError {
   return llmError;
 }
 
-class DefaultAISDKService implements LLMService {
+class AISDKService implements LLMService {
   private config: AISDKConfig;
   private providerModels: Record<string, ModelInfo[]>;
 
@@ -688,7 +679,7 @@ export function createAISDKServiceLayer(): Layer.Layer<
       }
 
       const cfg: AISDKConfig = { apiKeys };
-      return new DefaultAISDKService(cfg);
+      return new AISDKService(cfg);
     }),
   );
 }
