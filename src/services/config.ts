@@ -8,6 +8,7 @@ import type {
   LoggingConfig,
   StorageConfig
 } from "../core/types/index";
+import { safeParseJson } from "../core/utils/json";
 
 /**
  * Configuration service using Effect's Config module
@@ -209,14 +210,6 @@ function loadConfigFile(fs: FileSystem.FileSystem): Effect.Effect<
 
     return {};
   });
-}
-
-function safeParseJson<T>(text: string): Option.Option<T> {
-  try {
-    return Option.some(JSON.parse(text) as T);
-  } catch {
-    return Option.none();
-  }
 }
 
 /**
