@@ -23,7 +23,7 @@
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "removeComments": false,
+    "removeComments": true,
     "importHelpers": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

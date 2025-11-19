@@ -34,10 +34,12 @@ import {
 import type { Agent, AgentConfig } from "../../core/types/index";
 import { CommonSuggestions } from "../../core/utils/error-handler";
 import type { ConfigService } from "../../services/config";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/fs";
 import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
 import { ChatMessage } from "../../services/llm/messages";
+import { ProviderName } from "../../services/llm/models";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
-import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/shell";
+import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
  * CLI commands for AI-powered chat agent management
@@ -92,7 +94,7 @@ interface AIAgentCreationAnswers {
   name: string;
   description?: string;
   agentType: string;
-  llmProvider: string;
+  llmProvider: ProviderName;
   llmModel: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
   tools: string[];
@@ -108,11 +110,13 @@ export function createAIAgentCommand(): Effect.Effect<
   | AgentConfigurationError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry
+  AgentService | LLMService | ToolRegistry | TerminalService
 > {
   return Effect.gen(function* () {
-    console.log("🤖 Welcome to the Jazz AI Agent Creation Wizard!");
-    console.log("Let's create a new AI agent step by step.\n");
+    const terminal = yield* TerminalServiceTag;
+    yield* terminal.heading("🤖 Welcome to the Jazz AI Agent Creation Wizard!");
+    yield* terminal.log("Let's create a new AI agent step by step.");
+    yield* terminal.log("");
 
     // Get available LLM providers and models
     const llmService = yield* LLMServiceTag;
@@ -147,6 +151,7 @@ export function createAIAgentCommand(): Effect.Effect<
         toolsByCategory,
         llmService,
         categoryIdToDisplayName,
+        terminal,
       ),
     );
 
@@ -188,23 +193,23 @@ export function createAIAgentCommand(): Effect.Effect<
     );
 
     // Display success message
-    console.log("\n✅ AI Agent created successfully!");
-    console.log(`   ID: ${agent.id}`);
-    console.log(`   Name: ${agent.name}`);
+    yield* terminal.success("AI Agent created successfully!");
+    yield* terminal.log(`   ID: ${agent.id}`);
+    yield* terminal.log(`   Name: ${agent.name}`);
     if (agent.description) {
-      console.log(`   Description: ${agent.description}`);
+      yield* terminal.log(`   Description: ${agent.description}`);
     }
-    console.log(`   Type: ${config.agentType}`);
-    console.log(`   LLM Provider: ${config.llmProvider}`);
-    console.log(`   LLM Model: ${config.llmModel}`);
-    console.log(`   Tool Categories: ${agentAnswers.tools.join(", ") || "None"}`);
-    console.log(`   Total Tools: ${uniqueToolNames.length}`);
-    console.log(`   Status: ${agent.status}`);
-    console.log(`   Created: ${agent.createdAt.toISOString()}`);
-
-    console.log("\nYou can now chat with your agent using:");
-    console.log(`   • By ID:   jazz agent chat ${agent.id}`);
-    console.log(`   • By name: jazz agent chat ${agent.name}`);
+    yield* terminal.log(`   Type: ${config.agentType}`);
+    yield* terminal.log(`   LLM Provider: ${config.llmProvider}`);
+    yield* terminal.log(`   LLM Model: ${config.llmModel}`);
+    yield* terminal.log(`   Tool Categories: ${agentAnswers.tools.join(", ") || "None"}`);
+    yield* terminal.log(`   Total Tools: ${uniqueToolNames.length}`);
+    yield* terminal.log(`   Status: ${agent.status}`);
+    yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
+    yield* terminal.log("");
+    yield* terminal.info("You can now chat with your agent using:");
+    yield* terminal.log(`   • By ID:   jazz agent chat ${agent.id}`);
+    yield* terminal.log(`   • By name: jazz agent chat ${agent.name}`);
   });
 }
 
@@ -217,6 +222,7 @@ async function promptForAgentInfo(
   toolsByCategory: Record<string, readonly string[]>, //{ displayName: string[] }
   llmService: LLMService,
   categoryIdToDisplayName: Map<string, string>,
+  terminal: TerminalService,
 ): Promise<AIAgentCreationAnswers> {
   const agentTypeQuestion = [
     {
@@ -339,8 +345,14 @@ async function promptForAgentInfo(
       .map((id) => categoryIdToDisplayName.get(id))
       .filter((name): name is string => name !== undefined);
 
-    console.log(
-      `\n${currentPredefinedAgent.emoji} ${currentPredefinedAgent.displayName} agent will automatically include: ${displayNames.join(", ")}\n`,
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* terminal.log("");
+        yield* terminal.log(
+          `${currentPredefinedAgent.emoji} ${currentPredefinedAgent.displayName} agent will automatically include: ${displayNames.join(", ")}`,
+        );
+        yield* terminal.log("");
+      }),
     );
   }
 
@@ -430,6 +442,7 @@ export function chatWithAIAgentCommand(
   | LoggerService
   | FileSystemContextService
   | FileSystem.FileSystem
+  | TerminalService
 > {
   return Effect.gen(function* () {
     const normalizedIdentifier = agentIdentifier.trim();
@@ -454,12 +467,15 @@ export function chatWithAIAgentCommand(
       ),
     );
 
-    console.log(`🤖 Starting chat with AI agent: ${agent.name} (${agent.id})`);
-    console.log(`   Description: ${agent.description}`);
-    console.log();
-    console.log("Type '/exit' to end the conversation.");
-    console.log("Type '/help' to see available special commands.");
-    console.log();
+    const terminal = yield* TerminalServiceTag;
+    yield* terminal.heading(`🤖 Starting chat with AI agent: ${agent.name} (${agent.id})`);
+    if (agent.description) {
+      yield* terminal.log(`   Description: ${agent.description}`);
+    }
+    yield* terminal.log("");
+    yield* terminal.info("Type '/exit' to end the conversation.");
+    yield* terminal.info("Type '/help' to see available special commands.");
+    yield* terminal.log("");
 
     // Start the chat loop with error logging
     yield* startChatLoop(agent, options).pipe(
@@ -467,7 +483,7 @@ export function chatWithAIAgentCommand(
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
           yield* logger.error("Chat loop error", { error });
-          console.error("❌ Chat loop error:", error);
+          yield* terminal.error(`Chat loop error: ${error instanceof Error ? error.message : String(error)}`);
           return yield* Effect.void;
         }),
       ),
@@ -540,15 +556,16 @@ function handleSpecialCommand(
 ): Effect.Effect<
   { shouldContinue: boolean; newConversationId?: string | undefined; newHistory?: ChatMessage[] },
   never,
-  ToolRegistry
+  ToolRegistry | TerminalService
 > {
   return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
     switch (command.type) {
       case "new":
-        console.log("🆕 Starting new conversation...");
-        console.log("   • Conversation context cleared");
-        console.log("   • Fresh start with the agent");
-        console.log();
+        yield* terminal.info("Starting new conversation...");
+        yield* terminal.log("   • Conversation context cleared");
+        yield* terminal.log("   • Fresh start with the agent");
+        yield* terminal.log("");
         return {
           shouldContinue: true,
           newConversationId: undefined,
@@ -556,28 +573,28 @@ function handleSpecialCommand(
         };
 
       case "help":
-        console.log("📖 Available special commands:");
-        console.log("   /new     - Start a new conversation (clear context)");
-        console.log("   /status  - Show current conversation status");
-        console.log("   /tools   - List all available tools by category");
-        console.log("   /edit    - Edit this agent's configuration");
-        console.log("   /clear   - Clear the screen");
-        console.log("   /help    - Show this help message");
-        console.log("   /exit    - Exit the chat");
-        console.log();
+        yield* terminal.heading("📖 Available special commands");
+        yield* terminal.log("   /new     - Start a new conversation (clear context)");
+        yield* terminal.log("   /status  - Show current conversation status");
+        yield* terminal.log("   /tools   - List all available tools by category");
+        yield* terminal.log("   /edit    - Edit this agent's configuration");
+        yield* terminal.log("   /clear   - Clear the screen");
+        yield* terminal.log("   /help    - Show this help message");
+        yield* terminal.log("   /exit    - Exit the chat");
+        yield* terminal.log("");
         return { shouldContinue: true };
 
       case "status": {
-        console.log("📊 Conversation Status:");
-        console.log(`   Agent: ${agent.name} (${agent.id})`);
-        console.log(`   Conversation ID: ${conversationId || "Not started"}`);
-        console.log(`   Messages in history: ${conversationHistory.length}`);
-        console.log(`   Agent type: ${agent.config.agentType}`);
-        console.log(`   LLM: ${agent.config.llmProvider}/${agent.config.llmModel}`);
-        console.log(`   Reasoning effort: ${agent.config.reasoningEffort}`);
+        yield* terminal.heading("📊 Conversation Status");
+        yield* terminal.log(`   Agent: ${agent.name} (${agent.id})`);
+        yield* terminal.log(`   Conversation ID: ${conversationId || "Not started"}`);
+        yield* terminal.log(`   Messages in history: ${conversationHistory.length}`);
+        yield* terminal.log(`   Agent type: ${agent.config.agentType}`);
+        yield* terminal.log(`   LLM: ${agent.config.llmProvider}/${agent.config.llmModel}`);
+        yield* terminal.log(`   Reasoning effort: ${agent.config.reasoningEffort}`);
         const totalTools = agent.config.tools?.length ?? 0;
-        console.log(`   Tools: ${totalTools} available`);
-        console.log();
+        yield* terminal.log(`   Tools: ${totalTools} available`);
+        yield* terminal.log("");
         return { shouldContinue: true };
       }
 
@@ -585,11 +602,10 @@ function handleSpecialCommand(
         const toolRegistry = yield* ToolRegistryTag;
         const toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
-        console.log("🔧 Available Tools by Category:");
-        console.log();
+        yield* terminal.heading("🔧 Available Tools by Category");
 
         if (Object.keys(toolsByCategory).length === 0) {
-          console.log("   No tools available.");
+          yield* terminal.warn("No tools available.");
         } else {
           // Sort categories alphabetically
           const sortedCategories = Object.keys(toolsByCategory).sort();
@@ -597,13 +613,13 @@ function handleSpecialCommand(
           for (const category of sortedCategories) {
             const tools = toolsByCategory[category];
             if (tools && tools.length > 0) {
-              console.log(
+              yield* terminal.log(
                 `   📁 ${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"}):`,
               );
               for (const tool of tools) {
-                console.log(`      • ${tool}`);
+                yield* terminal.log(`      • ${tool}`);
               }
-              console.log();
+              yield* terminal.log("");
             }
           }
 
@@ -612,24 +628,26 @@ function handleSpecialCommand(
             (sum, tools) => sum + (tools?.length || 0),
             0,
           );
-          console.log(`   Total: ${totalTools} tools across ${sortedCategories.length} categories`);
+          yield* terminal.log(
+            `   Total: ${totalTools} tools across ${sortedCategories.length} categories`,
+          );
         }
-        console.log();
+        yield* terminal.log("");
         return { shouldContinue: true };
       }
 
       case "clear":
         console.clear();
-        console.log(`🤖 Chat with ${agent.name} - Screen cleared`);
-        console.log("Type '/exit' to end the conversation.");
-        console.log("Type '/help' to see available commands.");
-        console.log();
+        yield* terminal.info(`Chat with ${agent.name} - Screen cleared`);
+        yield* terminal.info("Type '/exit' to end the conversation.");
+        yield* terminal.info("Type '/help' to see available commands.");
+        yield* terminal.log("");
         return { shouldContinue: true };
 
       case "unknown":
-        console.log(`❓ Unknown command: /${command.args.join(" ")}`);
-        console.log("Type '/help' to see available commands.");
-        console.log();
+        yield* terminal.warn(`Unknown command: /${command.args.join(" ")}`);
+        yield* terminal.info("Type '/help' to see available commands.");
+        yield* terminal.log("");
         return { shouldContinue: true };
 
       default:
@@ -655,8 +673,10 @@ function startChatLoop(
   | LoggerService
   | FileSystemContextService
   | FileSystem.FileSystem
+  | TerminalService
 > {
   return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
     let chatActive = true;
     let conversationId: string | undefined;
     let conversationHistory: ChatMessage[] = [];
@@ -671,7 +691,19 @@ function startChatLoop(
             name: "message",
             message: "You:",
           },
-        ]),
+        ]).catch((error: unknown) => {
+          // Handle ExitPromptError from inquirer when user presses Ctrl+C
+          if (
+            error instanceof Error &&
+            (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
+          ) {
+            // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
+            // The exit check below will handle the goodbye message
+            return Promise.resolve({ message: "/exit" });
+          }
+          // Re-throw other errors, ensuring it's an Error instance
+          return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+        }),
       );
 
       const userMessage = answer.message as string;
@@ -679,14 +711,14 @@ function startChatLoop(
       // Check if user wants to exit
       const trimmedMessage = userMessage.trim().toLowerCase();
       if (trimmedMessage === "/exit" || trimmedMessage === "exit" || trimmedMessage === "quit") {
-        console.log("👋 Goodbye!");
+        yield* terminal.info("👋 Goodbye!");
         chatActive = false;
         continue;
       }
 
       // Ignore empty messages with a gentle hint
       if (!userMessage || userMessage.trim().length === 0) {
-        console.log(
+        yield* terminal.log(
           "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
         );
         continue;
@@ -760,22 +792,26 @@ function startChatLoop(
 
               yield* logger.error("Agent execution error", errorDetails);
 
-              console.log();
+              yield* terminal.log("");
 
               // Handle different error types with appropriate user feedback
               if (error instanceof LLMRateLimitError) {
-                console.log(
-                  `⏳ Rate limit exceeded. The request was too large or you've hit your API limits.`,
+                yield* terminal.warn(
+                  `Rate limit exceeded. The request was too large or you've hit your API limits.`,
                 );
-                console.log(`   Please try again in a moment or consider using a smaller context.`);
-                console.log(`   Error details: ${error.message}`);
+                yield* terminal.log(
+                  "   Please try again in a moment or consider using a smaller context.",
+                );
+                yield* terminal.log(`   Error details: ${error.message}`);
               } else if (error instanceof LLMRequestError) {
-                console.log(`❌ LLM request failed: ${error.message}`);
-                console.log(`   This might be a temporary issue. Please try again.`);
+                yield* terminal.error(`LLM request failed: ${error.message}`);
+                yield* terminal.log("   This might be a temporary issue. Please try again.");
               } else {
-                console.log(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
+                yield* terminal.error(
+                  `Error: ${error instanceof Error ? error.message : String(error)}`,
+                );
               }
-              console.log();
+              yield* terminal.log("");
 
               // Return a minimal response to allow the loop to continue
               return {

@@ -38,11 +38,10 @@
   "output": {
     "showThinking": true,
     "showToolExecution": true,
-    "mode": "normal",
+    "mode": "markdown",
     "colorProfile": "full",
     "streaming": {
       "enabled": "auto",
-      "progressiveMarkdown": true,
       "textBufferMs": 50
     }
   }

@@ -3,9 +3,9 @@ import { Cause, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } f
 
 import { MAX_AGENT_STEPS } from "../../constants/agent";
 import { AgentConfigService, type ConfigService } from "../../services/config";
+import { ChatCompletionResponse } from "../../services/llm/chat";
 import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
 import { ChatMessage } from "../../services/llm/messages";
-import { ChatCompletionResponse } from "../../services/llm/models";
 import { shouldEnableStreaming } from "../../services/llm/stream-detector";
 import type { StreamEvent } from "../../services/llm/streaming-types";
 import { ToolCall, ToolDefinition } from "../../services/llm/tools";
@@ -87,7 +87,7 @@ export interface AgentResponse {
 const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
   showThinking: true,
   showToolExecution: true,
-  mode: "normal",
+  mode: "markdown",
 };
 
 /**
@@ -502,9 +502,6 @@ export class AgentRunner {
         ...(appConfig.output?.streaming?.enabled !== undefined
           ? { enabled: appConfig.output.streaming.enabled }
           : {}),
-        ...(appConfig.output?.streaming?.progressiveMarkdown !== undefined
-          ? { progressiveMarkdown: appConfig.output.streaming.progressiveMarkdown }
-          : {}),
         ...(appConfig.output?.streaming?.textBufferMs !== undefined
           ? { textBufferMs: appConfig.output.streaming.textBufferMs }
           : {}),
@@ -549,9 +546,6 @@ export class AgentRunner {
       // Create renderer
       const normalizedStreamingConfig: StreamingConfig = {
         enabled: true, // Always enabled in streaming mode
-        ...(streamingConfig.progressiveMarkdown !== undefined && {
-          progressiveMarkdown: streamingConfig.progressiveMarkdown,
-        }),
         ...(streamingConfig.textBufferMs !== undefined && {
           textBufferMs: streamingConfig.textBufferMs,
         }),

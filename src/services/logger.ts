@@ -1,32 +1,37 @@
 import { Context, Effect, Layer } from "effect";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isInstalledGlobally } from "../core/utils/runtime-detection";
 import { formatToolArguments } from "../core/utils/tool-formatter";
-import { AgentConfigService, type ConfigService } from "./config";
+import { type ConfigService } from "./config";
 
 /**
- * Structured logging service using Effect's Logger
+ * Structured logging service using Effect's Logger API
+ *
+ * Provides a custom logger implementation that maintains pretty formatting
+ * (colors, emojis) while leveraging Effect's built-in logging capabilities
+ * including automatic context propagation, fiber IDs, and log level management.
  */
 
 export interface LoggerService {
   readonly debug: (
     message: string,
     meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never, ConfigService>;
+  ) => Effect.Effect<void, never>;
   readonly info: (
     message: string,
     meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never, ConfigService>;
+  ) => Effect.Effect<void, never>;
   readonly warn: (
     message: string,
     meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never, ConfigService>;
+  ) => Effect.Effect<void, never>;
   readonly error: (
     message: string,
     meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never, ConfigService>;
+  ) => Effect.Effect<void, never>;
   /**
    * Write a log entry to file only (not console)
    * Used for detailed logging that should not clutter console output
@@ -58,179 +63,32 @@ export class LoggerServiceImpl implements LoggerService {
   debug(
     message: string,
     meta?: Record<string, unknown>,
-  ): Effect.Effect<void, never, ConfigService> {
-    return Effect.gen(function* () {
-      const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{
-        level: "debug" | "info" | "warn" | "error";
-        format: "json" | "pretty";
-      }>("logging");
-      const level = loggingConfig?.level ?? "info";
-
-      // Only output debug logs if level is "debug"
-      if (level !== "debug") {
-        return;
-      }
-
-      const format = loggingConfig?.format ?? "pretty";
-
-      const line = formatLogLine("debug", message, meta, format);
-
-      console.debug(line);
-      console.log();
+  ): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      writeLogToFileSync("debug", message, meta);
     });
   }
 
-  info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never, ConfigService> {
-    return Effect.gen(function* () {
-      const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{
-        level: "debug" | "info" | "warn" | "error";
-        format: "json" | "pretty";
-      }>("logging");
-      const level = loggingConfig?.level ?? "info";
-
-      // Only output info logs if level allows it (info, warn, error levels)
-      if (!shouldLog(level, "info")) {
-        return;
-      }
-
-      const format = loggingConfig?.format ?? "pretty";
-
-      const line = formatLogLine("info", message, meta, format);
-
-      console.info(line);
-      console.log();
+  info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      writeLogToFileSync("info", message, meta);
     });
   }
 
-  warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never, ConfigService> {
-    return Effect.gen(function* () {
-      const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{
-        level: "debug" | "info" | "warn" | "error";
-        format: "json" | "pretty";
-      }>("logging");
-      const level = loggingConfig?.level ?? "info";
-
-      // Only output warn logs if level allows it (warn, error levels)
-      if (!shouldLog(level, "warn")) {
-        return;
-      }
-
-      const format = loggingConfig?.format ?? "pretty";
-
-      const line = formatLogLine("warn", message, meta, format);
-
-      console.warn(line);
-      console.log();
+  warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      writeLogToFileSync("warn", message, meta);
     });
   }
 
   error(
     message: string,
     meta?: Record<string, unknown>,
-  ): Effect.Effect<void, never, ConfigService> {
-    return Effect.gen(function* () {
-      const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{
-        level: "debug" | "info" | "warn" | "error";
-        format: "json" | "pretty";
-      }>("logging");
-      const level = loggingConfig?.level ?? "info";
-
-      // Error logs are always shown regardless of level
-      // (but we check for consistency)
-      if (!shouldLog(level, "error")) {
-        return;
-      }
-
-      const format = loggingConfig?.format ?? "pretty";
-
-      const line = formatLogLine("error", message, meta, format);
-
-      console.error(line);
-      console.log();
+  ): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      writeLogToFileSync("error", message, meta);
     });
   }
-}
-
-type LogLevel = "debug" | "info" | "warn" | "error";
-
-/**
- * Check if a log level should be output based on the configured log level.
- * Log levels hierarchy: debug < info < warn < error
- */
-function shouldLog(configuredLevel: LogLevel, messageLevel: LogLevel): boolean {
-  const levels: Record<LogLevel, number> = {
-    debug: 0,
-    info: 1,
-    warn: 2,
-    error: 3,
-  };
-  return levels[messageLevel] >= levels[configuredLevel];
-}
-
-function formatLogLine(
-  level: LogLevel,
-  message: string,
-  meta?: Record<string, unknown>,
-  format: "json" | "pretty" = "pretty",
-): string {
-  const now = new Date();
-  const ts = now.toISOString();
-  const color = selectColor(level);
-  const levelLabel = padLevel(level.toUpperCase());
-  const emoji = selectEmoji(level);
-
-  let metaText = "";
-  if (meta && Object.keys(meta).length > 0) {
-    if (format === "pretty") {
-      metaText = dim(" " + prettyPrintJson(meta));
-    } else {
-      metaText = dim(" " + JSON.stringify(meta, jsonReplacer));
-    }
-  }
-
-  const body = indentMultiline(message);
-  return `${dim(ts)} ${color(levelLabel)} ${emoji} ${body}${metaText}`;
-}
-
-function selectColor(level: LogLevel): (text: string) => string {
-  switch (level) {
-    case "debug":
-      return gray;
-    case "info":
-      return cyan;
-    case "warn":
-      return yellow;
-    case "error":
-      return red;
-  }
-}
-
-function selectEmoji(level: LogLevel): string {
-  switch (level) {
-    case "debug":
-      return "🔍";
-    case "info":
-      return "ℹ️";
-    case "warn":
-      return "⚠️";
-    case "error":
-      return "❌";
-  }
-}
-
-function padLevel(level: string): string {
-  // Ensures consistent width: DEBUG/ INFO/ WARN/ ERROR
-  return level.padEnd(5, " ");
-}
-
-function indentMultiline(text: string): string {
-  if (!text.includes("\n")) return text;
-  const lines = text.split("\n");
-  return lines.map((line, idx) => (idx === 0 ? line : "  " + line)).join("\n");
 }
 
 /**
@@ -243,33 +101,14 @@ function jsonReplacer(_key: string, value: unknown): unknown {
   return value;
 }
 
-function prettyPrintJson(obj: Record<string, unknown>): string {
-  try {
-    const jsonString = JSON.stringify(obj, jsonReplacer, 2);
-    // Add indentation to each line except the first
-    const lines = jsonString.split("\n");
-    return lines.map((line, idx) => (idx === 0 ? line : "  " + line)).join("\n");
-  } catch {
-    // Fallback to regular JSON.stringify if pretty printing fails
-    return JSON.stringify(obj, jsonReplacer);
-  }
-}
-
-// ANSI color helpers (no dependency)
-function wrap(open: string, close: string): (text: string) => string {
-  const enabled = process.stdout.isTTY === true;
-  return (text: string) => (enabled ? `${open}${text}${close}` : text);
-}
-
-const dim = wrap("\u001B[2m", "\u001B[22m");
-const gray = wrap("\u001B[90m", "\u001B[39m");
-const cyan = wrap("\u001B[36m", "\u001B[39m");
-const yellow = wrap("\u001B[33m", "\u001B[39m");
-const red = wrap("\u001B[31m", "\u001B[39m");
-
 export const LoggerServiceTag = Context.GenericTag<LoggerService>("LoggerService");
 
-export function createLoggerLayer(): Layer.Layer<LoggerService, never, ConfigService> {
+/**
+ * Create the logger layer
+ *
+ * Sets up the LoggerService for use throughout the application.
+ */
+export function createLoggerLayer(): Layer.Layer<LoggerService, never, never> {
   return Layer.succeed(LoggerServiceTag, new LoggerServiceImpl());
 }
 
@@ -489,6 +328,28 @@ async function writeFormattedLogToFile(
   const logFilePath = path.join(logsDir, "jazz.log");
   const line = formatLogLineForFile(level, message, meta);
   await appendFile(logFilePath, line, { encoding: "utf8" });
+}
+
+/**
+ * Write a log entry directly to file synchronously (standalone function)
+ * Useful for Effect Logger which requires synchronous execution
+ */
+export function writeLogToFileSync(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  meta?: Record<string, unknown>,
+): void {
+  try {
+    const logsDir = getLogsDirectory();
+    if (!existsSync(logsDir)) {
+      mkdirSync(logsDir, { recursive: true });
+    }
+    const logFilePath = path.join(logsDir, "jazz.log");
+    const line = formatLogLineForFile(level, message, meta);
+    appendFileSync(logFilePath, line, { encoding: "utf8" });
+  } catch {
+    // Silently fail to avoid breaking the calling code
+  }
 }
 
 /**

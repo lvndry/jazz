@@ -1,6 +1,6 @@
 import { Effect, Stream } from "effect";
 import { LLMError } from "../../core/types/errors";
-import { ChatCompletionResponse } from "./models";
+import { ChatCompletionResponse } from "./chat";
 import { ToolCall } from "./tools";
 
 /**
@@ -86,13 +86,6 @@ export interface StreamingConfig {
   readonly enabled: boolean | "auto";
 
   /**
-   * Enable progressive markdown rendering with formatting
-   * Only applies when streaming is enabled
-   * Default: true
-   */
-  readonly progressiveMarkdown: boolean;
-
-  /**
    * Text buffer delay in milliseconds
    * Batches small chunks for smoother rendering
    * Only applies when streaming is enabled
@@ -131,7 +124,6 @@ export interface StreamingResult {
  */
 export const DEFAULT_STREAMING_CONFIG: StreamingConfig = {
   enabled: true, // Used internally after auto-detection
-  progressiveMarkdown: true,
   textBufferMs: 50,
 };
 

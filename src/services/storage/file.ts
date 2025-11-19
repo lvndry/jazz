@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect";
 import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
 import { AgentConfigurationError, StorageError, StorageNotFoundError } from "../../core/types/errors";
 import type { Agent, AgentConfig, AgentResult, Automation, TaskResult } from "../../core/types/index";
+import { parseJson } from "../../core/utils/json";
 import { StorageServiceTag, type StorageService } from "./service";
 
 export class FileStorageService implements StorageService {
@@ -62,36 +63,36 @@ export class FileStorageService implements StorageService {
     });
   }
 
-  private getAgentPath(id: string): string {
-    return `${this.basePath}/agents/${id}.json`;
-  }
-
   private getAgentsDir(): string {
     return `${this.basePath}/agents`;
   }
 
-  private getAutomationPath(id: string): string {
-    return `${this.basePath}/automations/${id}.json`;
+  private getAgentPath(id: string): string {
+    return `${this.getAgentsDir()}/${id}.json`;
   }
 
   private getAutomationsDir(): string {
     return `${this.basePath}/automations`;
   }
 
-  private getTaskResultsPath(taskId: string): string {
-    return `${this.basePath}/task-results/${taskId}.json`;
+  private getAutomationPath(id: string): string {
+    return `${this.getAutomationsDir()}/${id}.json`;
   }
 
   private getTaskResultsDir(): string {
     return `${this.basePath}/task-results`;
   }
 
-  private getAgentResultsPath(agentId: string): string {
-    return `${this.basePath}/agent-results/${agentId}.json`;
+  private getTaskResultsPath(taskId: string): string {
+    return `${this.getTaskResultsDir()}/${taskId}.json`;
   }
 
   private getAgentResultsDir(): string {
     return `${this.basePath}/agent-results`;
+  }
+
+  private getAgentResultsPath(agentId: string): string {
+    return `${this.getAgentResultsDir()}/${agentId}.json`;
   }
 
   private ensureDirectoryExists(path: string): Effect.Effect<void, StorageError> {
@@ -118,7 +119,16 @@ export class FileStorageService implements StorageService {
         const content = yield* this.fs.readFileString(path).pipe(
           Effect.mapError((error) => this.mapReadError(path, error)),
         );
-        return JSON.parse(content) as T;
+        return yield* parseJson<T>(content).pipe(
+          Effect.mapError(
+            (error) =>
+              new StorageError({
+                operation: "read",
+                path,
+                reason: `Invalid JSON format: ${error.message}`,
+              }),
+          ),
+        );
       }.bind(this),
     );
   }
@@ -130,7 +140,16 @@ export class FileStorageService implements StorageService {
           Effect.mapError((error) => this.mapReadError(path, error)),
         );
 
-        const rawData = JSON.parse(content) as Agent & { createdAt: string; updatedAt: string };
+        const rawData = yield* parseJson<Agent & { createdAt: string; updatedAt: string }>(content).pipe(
+          Effect.mapError(
+            (error) =>
+              new StorageError({
+                operation: "read",
+                path,
+                reason: `Invalid JSON format: ${error.message}`,
+              }),
+          ),
+        );
 
         let normalizedTools: readonly string[] = [];
         try {

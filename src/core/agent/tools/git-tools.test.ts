@@ -2,7 +2,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { exec } from "node:child_process";
-import { createFileSystemContextServiceLayer } from "../../../services/shell";
+import { createFileSystemContextServiceLayer } from "../../../services/fs";
 import {
   createGitAddTool,
   createGitBranchTool,

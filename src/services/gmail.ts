@@ -7,6 +7,8 @@ import open from "open";
 import type { ConfigService } from "./config";
 import { AgentConfigService } from "./config";
 import type { LoggerService } from "./logger";
+import { resolveStorageDirectory } from "./storage/utils";
+import { TerminalServiceTag, type TerminalService } from "./terminal";
 
 // Helper function to extract HTTP status code from gaxios errors
 function getHttpStatusFromError(error: unknown): number | undefined {
@@ -173,6 +175,7 @@ export class GmailServiceResource implements GmailService {
     private oauthClient: InstanceType<typeof google.auth.OAuth2>,
     private gmail: gmail_v1.Gmail,
     private readonly requireCredentials: () => Effect.Effect<void, GmailAuthenticationError>,
+    private readonly terminal: TerminalService,
   ) {}
 
   authenticate(): Effect.Effect<void, GmailAuthenticationError> {
@@ -194,35 +197,33 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          const paramsList: gmail_v1.Params$Resource$Users$Messages$List =
-            query !== undefined && query !== ""
-              ? { userId: "me", maxResults, q: query }
-              : { userId: "me", maxResults };
-          const listResp = yield* Effect.promise(() => this.gmail.users.messages.list(paramsList));
-          const messages = listResp.data.messages || [];
-          if (messages.length === 0) return [];
-          const emails: GmailEmail[] = [];
-          for (const message of messages) {
-            if (!message.id) continue;
-            const paramsGet: gmail_v1.Params$Resource$Users$Messages$Get = {
-              userId: "me",
-              id: message.id,
-              format: "metadata",
-              metadataHeaders: ["Subject", "From", "To", "Date", "Cc", "Bcc"],
-            };
-            const full = yield* Effect.promise(() => this.gmail.users.messages.get(paramsGet));
-            const email = this.parseMessageToEmail(full.data);
-            emails.push(email);
-          }
-          return emails;
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to list emails: ${err instanceof Error ? err.message : String(err)}`,
-            status,
+        const paramsList: gmail_v1.Params$Resource$Users$Messages$List =
+          query !== undefined && query !== ""
+            ? { userId: "me", maxResults, q: query }
+            : { userId: "me", maxResults };
+        const listResp = yield* this.wrapGmailCall(
+          () => this.gmail.users.messages.list(paramsList),
+          "Failed to list emails",
+        );
+        const messages = listResp.data.messages || [];
+        if (messages.length === 0) return [];
+        const emails: GmailEmail[] = [];
+        for (const message of messages) {
+          if (!message.id) continue;
+          const paramsGet: gmail_v1.Params$Resource$Users$Messages$Get = {
+            userId: "me",
+            id: message.id,
+            format: "metadata",
+            metadataHeaders: ["Subject", "From", "To", "Date", "Cc", "Bcc"],
+          };
+          const full = yield* this.wrapGmailCall(
+            () => this.gmail.users.messages.get(paramsGet),
+            "Failed to fetch email metadata",
           );
+          const email = this.parseMessageToEmail(full.data);
+          emails.push(email);
         }
+        return emails;
       }.bind(this),
     );
   }
@@ -233,22 +234,17 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          const paramsGet: gmail_v1.Params$Resource$Users$Messages$Get = {
-            userId: "me",
-            id: emailId,
-            format: "full",
-          };
-          const full = yield* Effect.promise(() => this.gmail.users.messages.get(paramsGet));
-          const email = this.parseMessageToEmail(full.data, true);
-          return email;
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to get email: ${err instanceof Error ? err.message : String(err)}`,
-            status,
-          );
-        }
+        const paramsGet: gmail_v1.Params$Resource$Users$Messages$Get = {
+          userId: "me",
+          id: emailId,
+          format: "full",
+        };
+        const full = yield* this.wrapGmailCall(
+          () => this.gmail.users.messages.get(paramsGet),
+          "Failed to get email",
+        );
+        const email = this.parseMessageToEmail(full.data, true);
+        return email;
       }.bind(this),
     );
   }
@@ -270,29 +266,23 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          const raw = this.buildRawEmail({
-            to,
-            subject,
-            body,
-            cc: options?.cc ?? [],
-            bcc: options?.bcc ?? [],
-          });
-          // Attachments not implemented in this first pass
-          yield* Effect.promise(() =>
+        const raw = this.buildRawEmail({
+          to,
+          subject,
+          body,
+          cc: options?.cc ?? [],
+          bcc: options?.bcc ?? [],
+        });
+        // Attachments not implemented in this first pass
+        yield* this.wrapGmailCall(
+          () =>
             this.gmail.users.drafts.create({
               userId: "me",
               requestBody: { message: { raw } },
             }),
-          );
-          return void 0;
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to create draft: ${err instanceof Error ? err.message : String(err)}`,
-            status,
-          );
-        }
+          "Failed to create draft",
+        );
+        return void 0;
       }.bind(this),
     );
   }
@@ -309,21 +299,14 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          const response = yield* Effect.promise(() =>
-            this.gmail.users.labels.list({ userId: "me" }),
-          );
-          const labels = (response.data.labels || []).map((label) =>
-            this.parseLabelToGmailLabel(label),
-          );
-          return labels;
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to list labels: ${err instanceof Error ? err.message : String(err)}`,
-            status,
-          );
-        }
+        const response = yield* this.wrapGmailCall(
+          () => this.gmail.users.labels.list({ userId: "me" }),
+          "Failed to list labels",
+        );
+        const labels = (response.data.labels || []).map((label) =>
+          this.parseLabelToGmailLabel(label),
+        );
+        return labels;
       }.bind(this),
     );
   }
@@ -339,28 +322,21 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          const requestBody: gmail_v1.Schema$Label = {
-            name,
-            ...(options?.labelListVisibility && {
-              labelListVisibility: options.labelListVisibility,
-            }),
-            ...(options?.messageListVisibility && {
-              messageListVisibility: options.messageListVisibility,
-            }),
-            ...(options?.color && { color: options.color }),
-          };
-          const response = yield* Effect.promise(() =>
-            this.gmail.users.labels.create({ userId: "me", requestBody }),
-          );
-          return this.parseLabelToGmailLabel(response.data);
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to create label: ${err instanceof Error ? err.message : String(err)}`,
-            status,
-          );
-        }
+        const requestBody: gmail_v1.Schema$Label = {
+          name,
+          ...(options?.labelListVisibility && {
+            labelListVisibility: options.labelListVisibility,
+          }),
+          ...(options?.messageListVisibility && {
+            messageListVisibility: options.messageListVisibility,
+          }),
+          ...(options?.color && { color: options.color }),
+        };
+        const response = yield* this.wrapGmailCall(
+          () => this.gmail.users.labels.create({ userId: "me", requestBody }),
+          "Failed to create label",
+        );
+        return this.parseLabelToGmailLabel(response.data);
       }.bind(this),
     );
   }
@@ -377,30 +353,24 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          const requestBody: gmail_v1.Schema$Label = {};
-          if (updates.name !== undefined) requestBody.name = updates.name;
-          if (updates.labelListVisibility !== undefined)
-            requestBody.labelListVisibility = updates.labelListVisibility;
-          if (updates.messageListVisibility !== undefined)
-            requestBody.messageListVisibility = updates.messageListVisibility;
-          if (updates.color !== undefined) requestBody.color = updates.color;
+        const requestBody: gmail_v1.Schema$Label = {};
+        if (updates.name !== undefined) requestBody.name = updates.name;
+        if (updates.labelListVisibility !== undefined)
+          requestBody.labelListVisibility = updates.labelListVisibility;
+        if (updates.messageListVisibility !== undefined)
+          requestBody.messageListVisibility = updates.messageListVisibility;
+        if (updates.color !== undefined) requestBody.color = updates.color;
 
-          const response = yield* Effect.promise(() =>
+        const response = yield* this.wrapGmailCall(
+          () =>
             this.gmail.users.labels.update({
               userId: "me",
               id: labelId,
               requestBody,
             }),
-          );
-          return this.parseLabelToGmailLabel(response.data);
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to update label: ${err instanceof Error ? err.message : String(err)}`,
-            status,
-          );
-        }
+          "Failed to update label",
+        );
+        return this.parseLabelToGmailLabel(response.data);
       }.bind(this),
     );
   }
@@ -411,18 +381,11 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          yield* Effect.promise(() =>
-            this.gmail.users.labels.delete({ userId: "me", id: labelId }),
-          );
-          return void 0;
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to delete label: ${err instanceof Error ? err.message : String(err)}`,
-            status,
-          );
-        }
+        yield* this.wrapGmailCall(
+          () => this.gmail.users.labels.delete({ userId: "me", id: labelId }),
+          "Failed to delete label",
+        );
+        return void 0;
       }.bind(this),
     );
   }
@@ -438,26 +401,20 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          const requestBody: gmail_v1.Schema$ModifyMessageRequest = {};
-          if (options.addLabelIds) requestBody.addLabelIds = options.addLabelIds;
-          if (options.removeLabelIds) requestBody.removeLabelIds = options.removeLabelIds;
+        const requestBody: gmail_v1.Schema$ModifyMessageRequest = {};
+        if (options.addLabelIds) requestBody.addLabelIds = options.addLabelIds;
+        if (options.removeLabelIds) requestBody.removeLabelIds = options.removeLabelIds;
 
-          const response = yield* Effect.promise(() =>
+        const response = yield* this.wrapGmailCall(
+          () =>
             this.gmail.users.messages.modify({
               userId: "me",
               id: emailId,
               requestBody,
             }),
-          );
-          return this.parseMessageToEmail(response.data);
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to modify email: ${err instanceof Error ? err.message : String(err)}`,
-            status,
-          );
-        }
+          "Failed to modify email",
+        );
+        return this.parseMessageToEmail(response.data);
       }.bind(this),
     );
   }
@@ -472,27 +429,21 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          const requestBody: gmail_v1.Schema$BatchModifyMessagesRequest = {
-            ids: emailIds,
-          };
-          if (options.addLabelIds) requestBody.addLabelIds = options.addLabelIds;
-          if (options.removeLabelIds) requestBody.removeLabelIds = options.removeLabelIds;
+        const requestBody: gmail_v1.Schema$BatchModifyMessagesRequest = {
+          ids: emailIds,
+        };
+        if (options.addLabelIds) requestBody.addLabelIds = options.addLabelIds;
+        if (options.removeLabelIds) requestBody.removeLabelIds = options.removeLabelIds;
 
-          yield* Effect.promise(() =>
+        yield* this.wrapGmailCall(
+          () =>
             this.gmail.users.messages.batchModify({
               userId: "me",
               requestBody,
             }),
-          );
-          return void 0;
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to batch modify emails: ${err instanceof Error ? err.message : String(err)}`,
-            status,
-          );
-        }
+          "Failed to batch modify emails",
+        );
+        return void 0;
       }.bind(this),
     );
   }
@@ -501,18 +452,11 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          yield* Effect.promise(() =>
-            this.gmail.users.messages.trash({ userId: "me", id: emailId }),
-          );
-          return void 0;
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to trash email: ${err instanceof Error ? err.message : String(err)}`,
-            status,
-          );
-        }
+        yield* this.wrapGmailCall(
+          () => this.gmail.users.messages.trash({ userId: "me", id: emailId }),
+          "Failed to trash email",
+        );
+        return void 0;
       }.bind(this),
     );
   }
@@ -523,18 +467,11 @@ export class GmailServiceResource implements GmailService {
     return Effect.gen(
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
-        try {
-          yield* Effect.promise(() =>
-            this.gmail.users.messages.delete({ userId: "me", id: emailId }),
-          );
-          return void 0;
-        } catch (err) {
-          const status = getHttpStatusFromError(err);
-          throw new GmailOperationError(
-            `Failed to delete email: ${err instanceof Error ? err.message : String(err)}`,
-            status,
-          );
-        }
+        yield* this.wrapGmailCall(
+          () => this.gmail.users.messages.delete({ userId: "me", id: emailId }),
+          "Failed to delete email",
+        );
+        return void 0;
       }.bind(this),
     );
   }
@@ -636,8 +573,10 @@ export class GmailServiceResource implements GmailService {
             void open(authUrl).catch(() => {
               // ignore browser open failures; user can copy URL
             });
-            // Also print URL to console for visibility in CLI
-            console.log(`Open this URL in your browser to authenticate with Google: ${authUrl}`);
+            // Also print URL to terminal for visibility in CLI
+            void Effect.runPromise(
+              this.terminal.log(`Open this URL in your browser to authenticate with Google: ${authUrl}`)
+            );
           });
         });
 
@@ -771,6 +710,22 @@ export class GmailServiceResource implements GmailService {
     const message = lines.join("\r\n");
     return Buffer.from(message).toString("base64url");
   }
+
+  private wrapGmailCall<A>(
+    operation: () => Promise<A>,
+    failureMessage: string,
+  ): Effect.Effect<A, GmailOperationError> {
+    return Effect.tryPromise({
+      try: operation,
+      catch: (err) => {
+        const status = getHttpStatusFromError(err);
+        return new GmailOperationError(
+          `${failureMessage}: ${err instanceof Error ? err.message : String(err)}`,
+          status,
+        );
+      },
+    });
+  }
 }
 
 // Service tag for dependency injection
@@ -780,12 +735,13 @@ export const GmailServiceTag = Context.GenericTag<GmailService>("GmailService");
 export function createGmailServiceLayer(): Layer.Layer<
   GmailService,
   never,
-  FileSystem.FileSystem | ConfigService | LoggerService
+  FileSystem.FileSystem | ConfigService | LoggerService | TerminalService
 > {
   return Layer.effect(
     GmailServiceTag,
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
+      const terminal = yield* TerminalServiceTag;
 
       const agentConfig = yield* AgentConfigService;
       const appConfig = yield* agentConfig.appConfig;
@@ -810,7 +766,7 @@ export function createGmailServiceLayer(): Layer.Layer<
       const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
       const { storage } = yield* agentConfig.appConfig;
-      const dataDir = storage.type === "file" ? storage.path : "./.jazz";
+      const dataDir = resolveStorageDirectory(storage);
       const tokenFilePath = `${dataDir}/google/gmail-token.json`;
       const service: GmailService = new GmailServiceResource(
         fs,
@@ -818,6 +774,7 @@ export function createGmailServiceLayer(): Layer.Layer<
         oauth2Client,
         gmail,
         requireCredentials,
+        terminal,
       );
 
       return service;

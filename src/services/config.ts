@@ -8,6 +8,8 @@ import type {
   LoggingConfig,
   StorageConfig
 } from "../core/types/index";
+import { safeParseJson } from "../core/utils/json";
+import { getDefaultDataDirectory } from "../core/utils/runtime-detection";
 
 /**
  * Configuration service using Effect's Config module
@@ -118,7 +120,7 @@ export function requireConfigValue<T>(key: string): Effect.Effect<T, never, Conf
 // -----------------
 
 function defaultConfig(): AppConfig {
-  const storage: StorageConfig = { type: "file", path: "./.jazz" };
+  const storage: StorageConfig = { type: "file", path: getDefaultDataDirectory() };
   const logging: LoggingConfig = {
     level: "info",
     format: "pretty",
@@ -188,6 +190,7 @@ function loadConfigFile(fs: FileSystem.FileSystem): Effect.Effect<
     const envConfigPath = process.env["JAZZ_CONFIG_PATH"];
     const candidates: readonly string[] = [
       envConfigPath ? expandHome(envConfigPath) : "",
+      `${process.cwd()}/.jazz/config.json`,
       `${process.cwd()}/jazz.config.json`,
       `${expandHome("~/.jazz")}/config.json`,
     ].filter(Boolean);
@@ -208,14 +211,6 @@ function loadConfigFile(fs: FileSystem.FileSystem): Effect.Effect<
 
     return {};
   });
-}
-
-function safeParseJson<T>(text: string): Option.Option<T> {
-  try {
-    return Option.some(JSON.parse(text) as T);
-  } catch {
-    return Option.none();
-  }
 }
 
 /**

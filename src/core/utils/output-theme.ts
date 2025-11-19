@@ -1,43 +1,5 @@
 import chalk from "chalk";
-
-/**
- * Color profile for terminal output
- */
-export type ColorProfile = "full" | "basic" | "none";
-
-/**
- * Output mode controls what content is displayed
- */
-export type OutputMode = "normal" | "quiet" | "verbose" | "json" | "accessible";
-
-/**
- * Theme configuration for rendering output
- */
-export interface RenderTheme {
-  readonly colors: {
-    readonly thinking: (text: string) => string;
-    readonly thinkingContent: (text: string) => string;
-    readonly toolName: (text: string) => string;
-    readonly toolArgs: (text: string) => string;
-    readonly success: (text: string) => string;
-    readonly error: (text: string) => string;
-    readonly warning: (text: string) => string;
-    readonly info: (text: string) => string;
-    readonly dim: (text: string) => string;
-    readonly highlight: (text: string) => string;
-    readonly agentName: (text: string) => string;
-  };
-  readonly icons: {
-    readonly thinking: string;
-    readonly tool: string;
-    readonly success: string;
-    readonly error: string;
-    readonly warning: string;
-    readonly info: string;
-  };
-  readonly separatorWidth: number;
-  readonly separatorChar: string;
-}
+import { ColorProfile, RenderTheme } from "../types";
 
 /**
  * ANSI escape sequences
@@ -137,7 +99,7 @@ function createBasicColorTheme(): RenderTheme {
 }
 
 /**
- * No color theme (accessible mode)
+ * No color theme (used for raw/json modes)
  */
 function createNoColorTheme(): RenderTheme {
   const identity = (text: string): string => text;

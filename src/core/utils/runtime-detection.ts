@@ -61,3 +61,17 @@ export function isDevelopmentMode(): boolean {
   return !isInstalledGlobally();
 }
 
+/**
+ * Resolve the default directory where Jazz should persist user data
+ * Falls back to the current working directory when not installed globally
+ */
+export function getDefaultDataDirectory(): string {
+  if (isInstalledGlobally()) {
+    const homeDir = os.homedir();
+    if (homeDir && homeDir.trim().length > 0) {
+      return path.join(homeDir, ".jazz");
+    }
+  }
+
+  return path.resolve(process.cwd(), ".jazz");
+}

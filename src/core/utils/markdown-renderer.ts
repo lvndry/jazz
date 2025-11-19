@@ -3,10 +3,6 @@ import { Effect } from "effect";
 import { marked } from "marked";
 import TerminalRenderer from "marked-terminal";
 
-// Type workaround for marked v16 compatibility with marked-terminal
-// Suppress unused type alias for now
-// type _MarkedRenderer = Parameters<typeof marked.setOptions>[0]["renderer"];
-
 /**
  * Markdown renderer utility for terminal output
  */

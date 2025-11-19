@@ -3,6 +3,8 @@ import { Effect } from "effect";
 import { AgentConfigService, type ConfigService } from "../../services/config";
 import { GmailAuthenticationError, GmailServiceTag, type GmailService } from "../../services/gmail";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
+import { resolveStorageDirectory } from "../../services/storage/utils";
+import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
  * CLI commands for authentication management
@@ -22,19 +24,20 @@ interface GoogleOAuthToken {
 export function gmailLoginCommand(): Effect.Effect<
   void,
   GmailAuthenticationError,
-  GmailService | LoggerService | ConfigService
+  GmailService | LoggerService | ConfigService | TerminalService
 > {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const gmailService = yield* GmailServiceTag;
+    const terminal = yield* TerminalServiceTag;
 
     yield* logger.info("Starting Gmail authentication...");
-    console.log("🔐 Starting Gmail authentication process...");
+    yield* terminal.info("Starting Gmail authentication process...");
 
     yield* gmailService.authenticate();
     yield* logger.info("Gmail authentication completed successfully");
-    console.log("✅ Gmail authentication successful!");
-    console.log("You can now use Gmail tools with your agents.");
+    yield* terminal.success("Gmail authentication successful!");
+    yield* terminal.log("You can now use Gmail tools with your agents.");
   });
 }
 
@@ -44,19 +47,20 @@ export function gmailLoginCommand(): Effect.Effect<
 export function gmailLogoutCommand(): Effect.Effect<
   void,
   never,
-  FileSystem.FileSystem | ConfigService | LoggerService
+  FileSystem.FileSystem | ConfigService | LoggerService | TerminalService
 > {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const fs = yield* FileSystem.FileSystem;
     const config = yield* AgentConfigService;
+    const terminal = yield* TerminalServiceTag;
 
     yield* logger.info("Starting Gmail logout process...");
-    console.log("🚪 Logging out of Gmail...");
+    yield* terminal.info("Logging out of Gmail...");
 
     // Get the token file path from config
     const { storage } = yield* config.appConfig;
-    const dataDir = storage.type === "file" ? storage.path : "./.jazz";
+    const dataDir = resolveStorageDirectory(storage);
     const tokenFilePath = `${dataDir}/google/gmail-token.json`;
 
     // Check if token file exists
@@ -70,19 +74,19 @@ export function gmailLogoutCommand(): Effect.Effect<
         Effect.catchAll((error) => {
           return Effect.gen(function* () {
             yield* logger.error("Failed to remove token file", { error });
-            console.log("⚠️  Warning: Could not remove token file:");
-            console.log(`   ${error instanceof Error ? error.message : String(error)}`);
+            yield* terminal.warn("Warning: Could not remove token file:");
+            yield* terminal.log(`   ${error instanceof Error ? error.message : String(error)}`);
           });
         }),
       );
 
       yield* logger.info("Gmail token removed successfully");
-      console.log("✅ Successfully logged out of Gmail");
-      console.log("Your authentication tokens have been removed.");
+      yield* terminal.success("Successfully logged out of Gmail");
+      yield* terminal.log("Your authentication tokens have been removed.");
     } else {
       yield* logger.info("No Gmail token found to remove");
-      console.log("ℹ️  No Gmail authentication found");
-      console.log("You were not logged in to Gmail.");
+      yield* terminal.info("No Gmail authentication found");
+      yield* terminal.log("You were not logged in to Gmail.");
     }
   });
 }
@@ -93,19 +97,20 @@ export function gmailLogoutCommand(): Effect.Effect<
 export function gmailStatusCommand(): Effect.Effect<
   void,
   never,
-  FileSystem.FileSystem | ConfigService | LoggerService
+  FileSystem.FileSystem | ConfigService | LoggerService | TerminalService
 > {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const fs = yield* FileSystem.FileSystem;
     const config = yield* AgentConfigService;
+    const terminal = yield* TerminalServiceTag;
 
     yield* logger.info("Checking Gmail authentication status...");
-    console.log("🔍 Checking Gmail authentication status...");
+    yield* terminal.info("Checking Gmail authentication status...");
 
     // Get the token file path from config
     const { storage } = yield* config.appConfig;
-    const dataDir = storage.type === "file" ? storage.path : "./.jazz";
+    const dataDir = resolveStorageDirectory(storage);
     const tokenFilePath = `${dataDir}/google/gmail-token.json`;
 
     // Check if token file exists
@@ -131,31 +136,31 @@ export function gmailStatusCommand(): Effect.Effect<
             isExpired,
           });
 
-          console.log("✅ Gmail authentication status:");
-          console.log(`   Status: ${isExpired ? "Expired" : "Active"}`);
-          console.log(`   Access Token: ${token.access_token ? "Present" : "Missing"}`);
-          console.log(`   Refresh Token: ${token.refresh_token ? "Present" : "Missing"}`);
+          yield* terminal.success("Gmail authentication status:");
+          yield* terminal.log(`   Status: ${isExpired ? "Expired" : "Active"}`);
+          yield* terminal.log(`   Access Token: ${token.access_token ? "Present" : "Missing"}`);
+          yield* terminal.log(`   Refresh Token: ${token.refresh_token ? "Present" : "Missing"}`);
           if (expiryDate) {
-            console.log(`   Expires: ${expiryDate.toLocaleString()}`);
+            yield* terminal.log(`   Expires: ${expiryDate.toLocaleString()}`);
           }
           if (token.scope) {
-            console.log(`   Scopes: ${token.scope}`);
+            yield* terminal.log(`   Scopes: ${token.scope}`);
           }
         } catch (parseError) {
           yield* logger.error("Failed to parse Gmail token", { error: parseError });
-          console.log("⚠️  Gmail token file exists but is corrupted");
-          console.log("   Run 'jazz auth gmail logout' to clean up and re-authenticate");
+          yield* terminal.warn("Gmail token file exists but is corrupted");
+          yield* terminal.log("   Run 'jazz auth gmail logout' to clean up and re-authenticate");
         }
       } else {
         yield* logger.info("Gmail token file is empty");
-        console.log("⚠️  Gmail token file exists but is empty");
-        console.log("   Run 'jazz auth gmail logout' to clean up and re-authenticate");
+        yield* terminal.warn("Gmail token file exists but is empty");
+        yield* terminal.log("   Run 'jazz auth gmail logout' to clean up and re-authenticate");
       }
     } else {
       yield* logger.info("No Gmail token found");
-      console.log("❌ Gmail authentication status:");
-      console.log("   Status: Not authenticated");
-      console.log("   Run 'jazz auth gmail login' to authenticate");
+      yield* terminal.error("Gmail authentication status:");
+      yield* terminal.log("   Status: Not authenticated");
+      yield* terminal.log("   Run 'jazz auth gmail login' to authenticate");
     }
   });
 }

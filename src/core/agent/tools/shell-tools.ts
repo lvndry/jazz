@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import type { FileSystemContextService } from "../../../services/shell";
-import { FileSystemContextServiceTag } from "../../../services/shell";
+import type { FileSystemContextService } from "../../../services/fs";
+import { FileSystemContextServiceTag } from "../../../services/fs";
 import { defineTool, withApprovalBoolean } from "./base-tool";
 import { createSanitizedEnv } from "./env-utils";
 import { type Tool, type ToolExecutionContext, type ToolExecutionResult } from "./tool-registry";

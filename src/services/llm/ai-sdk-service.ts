@@ -21,6 +21,7 @@ import {
   type UserModelMessage,
 } from "ai";
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
+import shortUUID from "short-uuid";
 import { z } from "zod";
 import { MAX_AGENT_STEPS } from "../../constants/agent";
 import {
@@ -30,10 +31,12 @@ import {
   LLMRateLimitError,
   LLMRequestError,
 } from "../../core/types/errors";
+import { safeParseJson } from "../../core/utils/json";
 import { AgentConfigService, type ConfigService } from "../config";
 import { writeLogToFile } from "../logger";
+import { ChatCompletionOptions, ChatCompletionResponse } from "./chat";
 import { LLMProvider, LLMService, LLMServiceTag } from "./interfaces";
-import { ChatCompletionOptions, ChatCompletionResponse, ModelInfo } from "./models";
+import { PROVIDER_MODELS, type ProviderName } from "./models";
 import { StreamProcessor } from "./stream-processor";
 import type { StreamEvent, StreamingResult } from "./streaming-types";
 
@@ -41,13 +44,12 @@ interface AISDKConfig {
   apiKeys: Record<string, string>;
 }
 
-function safeParseJson(input: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(input) as Record<string, unknown>;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+function parseToolArguments(input: string): Record<string, unknown> {
+  const parsed = safeParseJson<Record<string, unknown>>(input);
+  return Option.match(parsed, {
+    onNone: () => ({}),
+    onSome: (value) => (value && typeof value === "object" ? value : {}),
+  });
 }
 
 function toCoreMessages(
@@ -98,17 +100,12 @@ function toCoreMessages(
             type: "tool-call",
             toolCallId: tc.id,
             toolName: tc.function.name,
-            input: safeParseJson(tc.function.arguments),
+            input: parseToolArguments(tc.function.arguments),
           });
         }
       }
 
-      // If we have content parts, return them as an array, otherwise return as string
-      if (contentParts.length > 0) {
-        return { role: "assistant", content: contentParts } as AssistantModelMessage;
-      } else {
-        return { role: "assistant", content: "" } as AssistantModelMessage;
-      }
+      return { role: "assistant", content: contentParts } as AssistantModelMessage;
     }
 
     // Tool messages (tool results)
@@ -131,6 +128,7 @@ function toCoreMessages(
 }
 
 type ModelName = string;
+type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
 
 function selectModel(providerName: string, modelId: ModelName): LanguageModel {
   switch (providerName.toLowerCase()) {
@@ -152,10 +150,6 @@ function selectModel(providerName: string, modelId: ModelName): LanguageModel {
       throw new Error(`Unsupported provider: ${providerName}`);
   }
 }
-
-type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[];
-
-type ProviderOptions = Record<string, Record<string, JsonValue>>;
 
 function buildProviderOptions(
   providerName: string,
@@ -259,95 +253,41 @@ function convertToLLMError(error: unknown, providerName: string): LLMError {
   return llmError;
 }
 
-class DefaultAISDKService implements LLMService {
+
+
+class AISDKService implements LLMService {
   private config: AISDKConfig;
-  private providerModels: Record<string, ModelInfo[]>;
+  private readonly providerModels = PROVIDER_MODELS;
 
   constructor(config: AISDKConfig) {
     this.config = config;
 
     // Export API keys to env for providers that read from env
     Object.entries(this.config.apiKeys).forEach(([provider, apiKey]) => {
-      process.env[`${provider.toUpperCase()}_API_KEY`] = apiKey;
+      if (this.isProviderName(provider)) {
+        if (provider === "google") {
+          // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
+          process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
+        } else {
+          process.env[`${provider.toUpperCase()}_API_KEY`] = apiKey;
+        }
+      }
     });
 
-    this.providerModels = {
-      openai: [
-        { id: "gpt-5.1", displayName: "GPT-5.1", isReasoningModel: true },
-        { id: "gpt-5.1-codex", displayName: "GPT-5.1 Codex", isReasoningModel: true },
-        { id: "gpt-5", displayName: "GPT-5", isReasoningModel: true },
-        { id: "gpt-5-pro", displayName: "GPT-5 Pro", isReasoningModel: true },
-        { id: "gpt-5-codex", displayName: "GPT-5 Codex", isReasoningModel: true },
-        { id: "gpt-5-mini", displayName: "GPT-5 Mini", isReasoningModel: true },
-        { id: "gpt-5-nano", displayName: "GPT-5 Nano", isReasoningModel: true },
-        { id: "gpt-4.1", displayName: "GPT-4.1", isReasoningModel: true },
-        { id: "gpt-4.1-mini", displayName: "GPT-4.1 Mini", isReasoningModel: true },
-        { id: "gpt-4.1-nano", displayName: "GPT-4.1 Nano", isReasoningModel: true },
-        { id: "gpt-4o", displayName: "GPT-4o", isReasoningModel: false },
-        { id: "gpt-4o-mini", displayName: "GPT-4o Mini", isReasoningModel: false },
-        { id: "o4-mini", displayName: "o4-mini", isReasoningModel: true },
-      ],
-      anthropic: [
-        { id: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5", isReasoningModel: true },
-        { id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", isReasoningModel: true },
-        { id: "claude-opus-4-1", displayName: "Claude Opus 4.1", isReasoningModel: true },
-      ],
-      google: [
-        { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", isReasoningModel: true },
-        { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", isReasoningModel: true },
-        {
-          id: "gemini-2.5-flash-lite",
-          displayName: "Gemini 2.5 Flash Lite",
-          isReasoningModel: true,
-        },
-        { id: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash", isReasoningModel: false },
-      ],
-      mistral: [
-        { id: "mistral-large-latest", displayName: "Mistral Large", isReasoningModel: false },
-        { id: "mistral-medium-latest", displayName: "Mistral Medium", isReasoningModel: false },
-        { id: "mistral-small-latest", displayName: "Mistral Small", isReasoningModel: false },
-        { id: "magistral-medium-2506", displayName: "Magistral Medium", isReasoningModel: true },
-        { id: "magistral-small-2506", displayName: "Magistral Small", isReasoningModel: true },
-      ],
-      xai: [
-        {
-          id: "grok-4-fast-non-reasoning",
-          displayName: "Grok 4 Fast (Non-Reasoning)",
-          isReasoningModel: false,
-        },
-        {
-          id: "grok-4-fast-reasoning",
-          displayName: "Grok 4 Fast (Reasoning)",
-          isReasoningModel: true,
-        },
-        { id: "grok-4", displayName: "Grok 4", isReasoningModel: false },
-        { id: "grok-code-fast-1", displayName: "Grok 4 (0709)", isReasoningModel: true },
-        { id: "grok-3", displayName: "Grok 3", isReasoningModel: true },
-        { id: "grok-3-mini", displayName: "Grok 3 Mini", isReasoningModel: true },
-      ],
-      deepseek: [{ id: "deepseek-chat", displayName: "DeepSeek Chat", isReasoningModel: false }],
-      ollama: [
-        { id: "llama4", displayName: "Llama 4", isReasoningModel: false },
-        { id: "llama3", displayName: "Llama 3", isReasoningModel: false },
-        { id: "qwq", displayName: "QWQ", isReasoningModel: false },
-        { id: "deepseek-r1", displayName: "DeepSeek R1", isReasoningModel: true },
-      ],
-    };
   }
 
-  getProvider(
-    providerName: keyof typeof this.providerModels,
-  ): Effect.Effect<LLMProvider, LLMConfigurationError> {
+  private isProviderName(name: string): name is keyof typeof this.providerModels {
+    return Object.hasOwn(this.providerModels, name);
+  }
+
+  readonly getProvider: LLMService["getProvider"] = (providerName: ProviderName) => {
     return Effect.try({
       try: () => {
-        if (!this.providerModels[providerName]) {
-          throw new LLMConfigurationError({ provider: providerName, message: `Provider not supported: ${providerName}` });
-        }
-
+        const models = this.providerModels[providerName];
         const provider: LLMProvider = {
           name: providerName,
-          supportedModels: this.providerModels[providerName],
-          defaultModel: this.providerModels[providerName][0]?.id ?? "",
+          supportedModels: models.map((model) => ({ ...model })),
+          defaultModel: models[0]?.id ?? "",
           authenticate: () =>
             Effect.try({
               try: () => {
@@ -373,11 +313,13 @@ class DefaultAISDKService implements LLMService {
           message: `Failed to get provider: ${error instanceof Error ? error.message : String(error)}`,
         }),
     });
-  }
+  };
 
   listProviders(): Effect.Effect<readonly string[], never> {
     const configuredProviders = Object.keys(this.config.apiKeys);
-    const intersect = configuredProviders.filter((p) => this.providerModels[p]);
+    const intersect = configuredProviders.filter((provider): provider is keyof typeof this.providerModels =>
+      this.isProviderName(provider),
+    );
     return Effect.succeed(intersect);
   }
 
@@ -387,10 +329,6 @@ class DefaultAISDKService implements LLMService {
   ): Effect.Effect<ChatCompletionResponse, LLMError> {
     return Effect.tryPromise({
       try: async () => {
-        if (options.stream === true) {
-          throw new Error("Streaming responses are not supported yet");
-        }
-
         const model = selectModel(providerName, options.model);
 
         // Prepare tools for AI SDK if present
@@ -417,16 +355,10 @@ class DefaultAISDKService implements LLMService {
           stopWhen: stepCountIs(MAX_AGENT_STEPS),
         });
 
-        let responseModel = options.model;
-        let content = "";
+        const responseModel = options.model;
+        const content = result.text ?? "";
         let toolCalls: ChatCompletionResponse["toolCalls"] | undefined = undefined;
         let usage: ChatCompletionResponse["usage"] | undefined = undefined;
-
-        // Extract text content
-        content = result.text ?? "";
-
-        // Extract model ID from result (fallback to options.model if not available)
-        responseModel = options.model; // AI SDK doesn't expose modelId in result
 
         // Extract usage information
         if (result.usage) {
@@ -467,7 +399,7 @@ class DefaultAISDKService implements LLMService {
         }
 
         const resultObj: ChatCompletionResponse = {
-          id: "",
+          id: shortUUID.generate(),
           model: responseModel,
           content,
           ...(toolCalls ? { toolCalls } : {}),
@@ -476,7 +408,7 @@ class DefaultAISDKService implements LLMService {
         return resultObj;
       },
       catch: (error: unknown) => {
-        const llmError = convertToLLMError(error, providerName) as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+        const llmError = convertToLLMError(error, providerName);
 
         // Log error details
         const errorDetails: Record<string, unknown> = {
@@ -493,10 +425,7 @@ class DefaultAISDKService implements LLMService {
           if (e.type) errorDetails["type"] = e.type;
         }
 
-        // Log to console for immediate visibility
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-
-        // Also log to file for persistence
         void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
         return llmError;
@@ -530,13 +459,10 @@ class DefaultAISDKService implements LLMService {
     // Create a deferred to collect final response
     const responseDeferred = createDeferred<ChatCompletionResponse>();
 
-    // Create the stream using Stream.async
     const stream = Stream.async<StreamEvent, LLMError>(
       (emit: (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void) => {
-        // Start async processing
         void (async (): Promise<void> => {
           try {
-            // Create the AI SDK stream
             const result = streamText({
               model,
               messages: toCoreMessages(options.messages),
@@ -547,7 +473,6 @@ class DefaultAISDKService implements LLMService {
               stopWhen: stepCountIs(MAX_AGENT_STEPS),
             });
 
-            // Create stream processor
             const processor = new StreamProcessor(
               {
                 providerName,
@@ -567,15 +492,14 @@ class DefaultAISDKService implements LLMService {
             // Close the stream
             processor.close();
           } catch (error) {
-            // Convert to LLM error
-            const llmError = convertToLLMError(error, providerName) as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+            const llmError = convertToLLMError(error, providerName);
 
-            // Log the error details
             const errorDetails: Record<string, unknown> = {
               provider: providerName,
               errorType: llmError._tag,
               message: llmError.message,
             };
+
             if (error instanceof Error) {
               const e = error as Error & { code?: string; status?: number; statusCode?: number; type?: string };
               if (e.code) errorDetails["code"] = e.code;
@@ -591,26 +515,18 @@ class DefaultAISDKService implements LLMService {
                 }
               }
             }
-            // Log to console for immediate visibility
+
             console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
 
-            // Also log to file for persistence
             void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
-
-            // Emit error event
             void emit(Effect.fail(Option.some(llmError)));
 
-            // Reject the deferred
             responseDeferred.reject(llmError);
-
-            // Close the stream
-            void emit(Effect.fail(Option.none()));
           }
         })();
       },
     );
 
-    // Return streaming result with cancellation support
     return Effect.succeed({
       stream,
       response: Effect.promise(() => responseDeferred.promise),
@@ -619,15 +535,14 @@ class DefaultAISDKService implements LLMService {
       }),
     }).pipe(
       Effect.catchAll((error) => {
-        // Convert any synchronous errors to LLMError
-        const llmError = convertToLLMError(error, providerName) as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+        const llmError = convertToLLMError(error, providerName);
 
-        // Log error details
         const errorDetails: Record<string, unknown> = {
           provider: providerName,
           errorType: llmError._tag,
           message: llmError.message,
         };
+
         if (error && typeof error === "object" && "code" in error) {
           const e = error as { code?: string; status?: number; statusCode?: number; type?: string };
           if (e.code) errorDetails["code"] = e.code;
@@ -636,10 +551,7 @@ class DefaultAISDKService implements LLMService {
           if (e.type) errorDetails["type"] = e.type;
         }
 
-        // Log to console for immediate visibility
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-
-        // Also log to file for persistence
         void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
         return Effect.fail(llmError);
@@ -668,8 +580,7 @@ export function createAISDKServiceLayer(): Layer.Layer<
       if (anthropicAPIKey) apiKeys["anthropic"] = anthropicAPIKey;
 
       const geminiAPIKey = appConfig.llm?.google?.api_key;
-      // Default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
-      if (geminiAPIKey) apiKeys["google_generative_ai"] = geminiAPIKey;
+      if (geminiAPIKey) apiKeys["google"] = geminiAPIKey;
 
       const mistralAPIKey = appConfig.llm?.mistral?.api_key;
       if (mistralAPIKey) apiKeys["mistral"] = mistralAPIKey;
@@ -688,7 +599,7 @@ export function createAISDKServiceLayer(): Layer.Layer<
       }
 
       const cfg: AISDKConfig = { apiKeys };
-      return new DefaultAISDKService(cfg);
+      return new AISDKService(cfg);
     }),
   );
 }

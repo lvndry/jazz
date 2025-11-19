@@ -16,6 +16,7 @@ import {
 } from "../../core/types/errors";
 import type { AgentConfig } from "../../core/types/index";
 import type { GmailEmail, GmailService } from "../../services/gmail";
+import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
  * CLI commands for task-based agent management
@@ -64,10 +65,11 @@ export function createAgentCommand(
 ): Effect.Effect<
   void,
   StorageError | AgentAlreadyExistsError | AgentConfigurationError | ValidationError,
-  AgentService
+  AgentService | TerminalService
 > {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
+    const terminal = yield* TerminalServiceTag;
 
     // Use provided description or default
     const agentDescription = description || options.description || `Agent for ${name}`;
@@ -95,19 +97,19 @@ export function createAgentCommand(
     const agent = yield* agentService.createAgent(name, agentDescription, config);
 
     // Display success message
-    console.log(`✅ Agent created successfully!`);
-    console.log(`   ID: ${agent.id}`);
-    console.log(`   Name: ${agent.name}`);
-    console.log(`   Description: ${agent.description}`);
-    console.log(`   Status: ${agent.status}`);
-    console.log(`   Created: ${agent.createdAt.toISOString()}`);
+    yield* terminal.success("Agent created successfully!");
+    yield* terminal.log(`   ID: ${agent.id}`);
+    yield* terminal.log(`   Name: ${agent.name}`);
+    yield* terminal.log(`   Description: ${agent.description}`);
+    yield* terminal.log(`   Status: ${agent.status}`);
+    yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
 
     if (config.timeout) {
-      console.log(`   Timeout: ${config.timeout}ms`);
+      yield* terminal.log(`   Timeout: ${config.timeout}ms`);
     }
 
     if (config.retryPolicy) {
-      console.log(
+      yield* terminal.log(
         `   Retry Policy: ${config.retryPolicy.maxRetries} retries, ${config.retryPolicy.delay}ms delay, ${config.retryPolicy.backoff} backoff`,
       );
     }
@@ -135,65 +137,66 @@ export function createAgentCommand(
  */
 export function listAgentsCommand(
   options: { verbose?: boolean } = {},
-): Effect.Effect<void, StorageError, AgentService> {
+): Effect.Effect<void, StorageError, AgentService | TerminalService> {
   return Effect.gen(function* () {
     const agents = yield* listAllAgents();
+    const terminal = yield* TerminalServiceTag;
 
     if (agents.length === 0) {
-      console.log("No agents found. Create your first agent with: jazz agent create");
+      yield* terminal.info("No agents found. Create your first agent with: jazz agent create");
       return;
     }
 
-    console.log(`Found ${agents.length} agent(s):`);
-    console.log();
+    yield* terminal.log(`Found ${agents.length} agent(s):`);
+    yield* terminal.log("");
 
-    agents.forEach((agent, index) => {
-      console.log(`${index + 1}. ${agent.name} (${agent.id})`);
-      console.log(`   Description: ${agent.description}`);
+    for (const [index, agent] of agents.entries()) {
+      yield* terminal.log(`${index + 1}. ${agent.name} (${agent.id})`);
+      yield* terminal.log(`   Description: ${agent.description}`);
 
       // Always show LLM provider and model
       const llmProvider = agent.config.llmProvider || "openai";
       const llmModel = agent.config.llmModel || "gpt-4o-mini";
-      console.log(`   LLM: ${llmProvider}/${llmModel}`);
+      yield* terminal.log(`   LLM: ${llmProvider}/${llmModel}`);
 
-      console.log(`   Created: ${agent.createdAt.toISOString()}`);
-      console.log(`   Updated: ${agent.updatedAt.toISOString()}`);
+      yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
+      yield* terminal.log(`   Updated: ${agent.updatedAt.toISOString()}`);
 
       // Show verbose details if requested
       if (options.verbose) {
-        console.log(`   Agent Type: ${agent.config.agentType || "default"}`);
-        console.log(`   Reasoning Effort: ${agent.config.reasoningEffort || "low"}`);
-        console.log(`   Timeout: ${agent.config.timeout || "default"}ms`);
+        yield* terminal.log(`   Agent Type: ${agent.config.agentType || "default"}`);
+        yield* terminal.log(`   Reasoning Effort: ${agent.config.reasoningEffort || "low"}`);
+        yield* terminal.log(`   Timeout: ${agent.config.timeout || "default"}ms`);
 
         const toolNames = agent.config.tools ?? [];
         if (toolNames.length > 0) {
-          console.log(`   Tools (${toolNames.length}):`);
-          console.log(`     ${toolNames.join(", ")}`);
+          yield* terminal.log(`   Tools (${toolNames.length}):`);
+          yield* terminal.log(`     ${toolNames.join(", ")}`);
         } else {
-          console.log(`   Tools: None configured`);
+          yield* terminal.log(`   Tools: None configured`);
         }
 
         if (agent.config.retryPolicy) {
-          console.log(
+          yield* terminal.log(
             `   Retry Policy: ${agent.config.retryPolicy.maxRetries} retries, ${agent.config.retryPolicy.delay}ms delay, ${agent.config.retryPolicy.backoff} backoff`,
           );
         }
 
         if (agent.config.environment && Object.keys(agent.config.environment).length > 0) {
-          console.log(
+          yield* terminal.log(
             `   Environment Variables: ${Object.keys(agent.config.environment).length} configured`,
           );
         }
 
         if (agent.config.schedule) {
-          console.log(
+          yield* terminal.log(
             `   Schedule: ${agent.config.schedule.type} - ${agent.config.schedule.value}`,
           );
         }
       }
 
-      console.log();
-    });
+      yield* terminal.log("");
+    }
   });
 }
 
@@ -223,47 +226,46 @@ export function runAgentCommand(
     watch?: boolean;
     dryRun?: boolean;
   },
-): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService | GmailService> {
+): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService | GmailService | TerminalService> {
   return Effect.gen(function* () {
     const agent = yield* getAgentById(agentId);
+    const terminal = yield* TerminalServiceTag;
 
-    console.log(`🚀 Running agent: ${agent.name} (${agent.id})`);
-    console.log(`   Description: ${agent.description}`);
-    console.log(`   Status: ${agent.status}`);
-    console.log(`   Tasks: ${agent.config.tasks.length}`);
+    yield* terminal.info(`Running agent: ${agent.name} (${agent.id})`);
+    yield* terminal.log(`   Description: ${agent.description}`);
+    yield* terminal.log(`   Status: ${agent.status}`);
+    yield* terminal.log(`   Tasks: ${agent.config.tasks.length}`);
 
     if (options.dryRun) {
-      console.log(`   Mode: DRY RUN (no actual execution)`);
-      console.log();
-      console.log("Tasks that would be executed:");
-      agent.config.tasks.forEach((task, index) => {
-        console.log(`   ${index + 1}. ${task.name} (${task.type})`);
-        console.log(`      Description: ${task.description}`);
+      yield* terminal.log(`   Mode: DRY RUN (no actual execution)`);
+      yield* terminal.log("");
+      yield* terminal.log("Tasks that would be executed:");
+      for (const [index, task] of agent.config.tasks.entries()) {
+        yield* terminal.log(`   ${index + 1}. ${task.name} (${task.type})`);
+        yield* terminal.log(`      Description: ${task.description}`);
         if (task.dependencies && task.dependencies.length > 0) {
-          console.log(`      Dependencies: ${task.dependencies.join(", ")}`);
+          yield* terminal.log(`      Dependencies: ${task.dependencies.join(", ")}`);
         }
-      });
+      }
       return;
     }
 
     if (options.watch) {
-      console.log(`   Mode: WATCH (continuous execution)`);
+      yield* terminal.log(`   Mode: WATCH (continuous execution)`);
     }
 
-    console.log();
+    yield* terminal.log("");
 
     // Check if this agent has Gmail tasks
     const gmailTasks = agent.config.tasks.filter((task) => task.type === "gmail");
 
     if (gmailTasks.length > 0) {
-      console.log(`🔍 Found ${gmailTasks.length} Gmail task(s) to execute`);
-
-      // Import the Gmail task executor dynamically
+      yield* terminal.info(`Found ${gmailTasks.length} Gmail task(s) to execute`);
 
       // Execute each Gmail task
       for (const task of gmailTasks) {
-        console.log(`\n📨 Executing Gmail task: ${task.name}`);
-        console.log(`   Operation: ${task.config.gmailOperation}`);
+        yield* terminal.log(`\n📨 Executing Gmail task: ${task.name}`);
+        yield* terminal.log(`   Operation: ${task.config.gmailOperation}`);
 
         const result = yield* executeGmailTask(task).pipe(
           Effect.catchAll((error) =>
@@ -279,7 +281,7 @@ export function runAgentCommand(
         );
 
         if (result.status === "success") {
-          console.log(`✅ Task completed successfully in ${result.duration}ms`);
+          yield* terminal.success(`Task completed successfully in ${result.duration}ms`);
 
           // Display the output based on the operation
           if (
@@ -288,27 +290,27 @@ export function runAgentCommand(
           ) {
             try {
               const emails = JSON.parse(result.output || "[]") as GmailEmail[];
-              console.log(`\n📬 Found ${emails.length} email(s):`);
+              yield* terminal.log(`\n📬 Found ${emails.length} email(s):`);
 
-              emails.forEach((email: GmailEmail, index: number) => {
-                console.log(`\n${index + 1}. ${email.subject}`);
-                console.log(`   From: ${email.from}`);
-                console.log(`   Date: ${new Date(email.date).toLocaleString()}`);
-                console.log(`   ${email.snippet}`);
-              });
+              for (const [index, email] of emails.entries()) {
+                yield* terminal.log(`\n${index + 1}. ${email.subject}`);
+                yield* terminal.log(`   From: ${email.from}`);
+                yield* terminal.log(`   Date: ${new Date(email.date).toLocaleString()}`);
+                yield* terminal.log(`   ${email.snippet}`);
+              }
             } catch {
-              console.log(`\n${result.output}`);
+              yield* terminal.log(`\n${result.output}`);
             }
           } else {
-            console.log(`\n${result.output}`);
+            yield* terminal.log(`\n${result.output}`);
           }
         } else {
-          console.log(`❌ Task failed: ${result.error}`);
+          yield* terminal.error(`Task failed: ${result.error}`);
         }
       }
     } else {
-      console.log("⚠️  No Gmail tasks found in this agent.");
-      console.log("   Other task types are not yet implemented.");
+      yield* terminal.warn("No Gmail tasks found in this agent.");
+      yield* terminal.log("   Other task types are not yet implemented.");
     }
   });
 }
@@ -334,9 +336,10 @@ export function runAgentCommand(
  */
 export function deleteAgentCommand(
   agentIdentifier: string,
-): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService> {
+): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService | TerminalService> {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
+    const terminal = yield* TerminalServiceTag;
 
     // Resolve identifier (ID first, then fall back to matching by name)
     const agent = yield* getAgentByIdentifier(agentIdentifier);
@@ -344,9 +347,9 @@ export function deleteAgentCommand(
     // Delete the agent
     yield* agentService.deleteAgent(agent.id);
 
-    console.log(`🗑️  Agent deleted successfully!`);
-    console.log(`   Name: ${agent.name}`);
-    console.log(`   ID: ${agent.id}`);
+    yield* terminal.success("Agent deleted successfully!");
+    yield* terminal.log(`   Name: ${agent.name}`);
+    yield* terminal.log(`   ID: ${agent.id}`);
   });
 }
 
@@ -370,98 +373,99 @@ export function deleteAgentCommand(
  */
 export function getAgentCommand(
   agentId: string,
-): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService> {
+): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService | TerminalService> {
   return Effect.gen(function* () {
     const agent = yield* getAgentById(agentId);
+    const terminal = yield* TerminalServiceTag;
 
-    console.log(`📋 Agent Details:`);
-    console.log(`   ID: ${agent.id}`);
-    console.log(`   Name: ${agent.name}`);
-    console.log(`   Description: ${agent.description}`);
-    console.log(`   Status: ${agent.status}`);
-    console.log(`   Created: ${agent.createdAt.toISOString()}`);
-    console.log(`   Updated: ${agent.updatedAt.toISOString()}`);
-    console.log();
+    yield* terminal.log(`📋 Agent Details:`);
+    yield* terminal.log(`   ID: ${agent.id}`);
+    yield* terminal.log(`   Name: ${agent.name}`);
+    yield* terminal.log(`   Description: ${agent.description}`);
+    yield* terminal.log(`   Status: ${agent.status}`);
+    yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
+    yield* terminal.log(`   Updated: ${agent.updatedAt.toISOString()}`);
+    yield* terminal.log("");
 
-    console.log(`⚙️  Configuration:`);
-    console.log(`   Timeout: ${agent.config.timeout || "default"}ms`);
-    console.log(`   Tasks: ${agent.config.tasks.length}`);
+    yield* terminal.log(`⚙️  Configuration:`);
+    yield* terminal.log(`   Timeout: ${agent.config.timeout || "default"}ms`);
+    yield* terminal.log(`   Tasks: ${agent.config.tasks.length}`);
 
     if (agent.config.retryPolicy) {
-      console.log(`   Retry Policy:`);
-      console.log(`     Max Retries: ${agent.config.retryPolicy.maxRetries}`);
-      console.log(`     Delay: ${agent.config.retryPolicy.delay}ms`);
-      console.log(`     Backoff: ${agent.config.retryPolicy.backoff}`);
+      yield* terminal.log(`   Retry Policy:`);
+      yield* terminal.log(`     Max Retries: ${agent.config.retryPolicy.maxRetries}`);
+      yield* terminal.log(`     Delay: ${agent.config.retryPolicy.delay}ms`);
+      yield* terminal.log(`     Backoff: ${agent.config.retryPolicy.backoff}`);
     }
 
     if (agent.config.environment && Object.keys(agent.config.environment).length > 0) {
-      console.log(`   Environment Variables: ${Object.keys(agent.config.environment).length}`);
+      yield* terminal.log(`   Environment Variables: ${Object.keys(agent.config.environment).length}`);
     }
 
     if (agent.config.schedule) {
-      console.log(`   Schedule: ${agent.config.schedule.type} - ${agent.config.schedule.value}`);
+      yield* terminal.log(`   Schedule: ${agent.config.schedule.type} - ${agent.config.schedule.value}`);
     }
 
-    console.log();
+    yield* terminal.log("");
 
     if (agent.config.tasks.length > 0) {
-      console.log(`📝 Tasks:`);
-      agent.config.tasks.forEach((task, index) => {
-        console.log(`   ${index + 1}. ${task.name} (${task.type})`);
-        console.log(`      Description: ${task.description}`);
-        console.log(`      ID: ${task.id}`);
+      yield* terminal.log(`📝 Tasks:`);
+      for (const [index, task] of agent.config.tasks.entries()) {
+        yield* terminal.log(`   ${index + 1}. ${task.name} (${task.type})`);
+        yield* terminal.log(`      Description: ${task.description}`);
+        yield* terminal.log(`      ID: ${task.id}`);
 
         if (task.dependencies && task.dependencies.length > 0) {
-          console.log(`      Dependencies: ${task.dependencies.join(", ")}`);
+          yield* terminal.log(`      Dependencies: ${task.dependencies.join(", ")}`);
         }
 
         if (task.maxRetries !== undefined) {
-          console.log(`      Max Retries: ${task.maxRetries}`);
+          yield* terminal.log(`      Max Retries: ${task.maxRetries}`);
         }
 
         // Show task-specific config
         switch (task.type) {
           case "command":
             if (task.config.command) {
-              console.log(`      Command: ${task.config.command}`);
+              yield* terminal.log(`      Command: ${task.config.command}`);
             }
             break;
           case "script":
             if (task.config.script) {
-              console.log(
+              yield* terminal.log(
                 `      Script: ${task.config.script.substring(0, 100)}${task.config.script.length > 100 ? "..." : ""}`,
               );
             }
             break;
           case "api":
             if (task.config.url) {
-              console.log(`      URL: ${task.config.url}`);
+              yield* terminal.log(`      URL: ${task.config.url}`);
               if (task.config.method) {
-                console.log(`      Method: ${task.config.method}`);
+                yield* terminal.log(`      Method: ${task.config.method}`);
               }
             }
             break;
           case "file":
             if (task.config.filePath) {
-              console.log(`      File Path: ${task.config.filePath}`);
+              yield* terminal.log(`      File Path: ${task.config.filePath}`);
             }
             break;
           case "gmail":
             if (task.config.gmailOperation) {
-              console.log(`      Gmail Operation: ${task.config.gmailOperation}`);
+              yield* terminal.log(`      Gmail Operation: ${task.config.gmailOperation}`);
               if (task.config.gmailQuery) {
-                console.log(`      Query: ${task.config.gmailQuery}`);
+                yield* terminal.log(`      Query: ${task.config.gmailQuery}`);
               }
               if (task.config.gmailMaxResults) {
-                console.log(`      Max Results: ${task.config.gmailMaxResults}`);
+                yield* terminal.log(`      Max Results: ${task.config.gmailMaxResults}`);
               }
             }
             break;
         }
-        console.log();
-      });
+        yield* terminal.log("");
+      }
     } else {
-      console.log(`📝 No tasks configured for this agent.`);
+      yield* terminal.log(`📝 No tasks configured for this agent.`);
     }
   });
 }

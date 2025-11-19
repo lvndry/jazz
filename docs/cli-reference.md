@@ -459,8 +459,9 @@ jazz update
 Jazz looks for configuration in order:
 
 1. `JAZZ_CONFIG_PATH` environment variable
-2. `./jazz.config.json` (current directory)
-3. `~/.jazz/config.json` (home directory)
+2. `.jazz/config.json` (current directory)
+3. `./jazz.config.json` (current directory)
+4. `~/.jazz/config.json` (home directory)
 
 **Specify custom location:**
 

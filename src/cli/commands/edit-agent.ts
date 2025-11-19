@@ -14,6 +14,7 @@ import {
 } from "../../core/types/errors";
 import type { Agent, AgentConfig, AgentStatus } from "../../core/types/index";
 import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
+import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
  * CLI commands for editing existing agents
@@ -47,25 +48,28 @@ export function editAgentCommand(
   | AgentAlreadyExistsError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry
+  AgentService | LLMService | ToolRegistry | TerminalService
 > {
   return Effect.gen(function* () {
-    console.log("✏️  Welcome to the Jazz Agent Edit Wizard!");
-    console.log("Let's update your agent step by step.\n");
+    const terminal = yield* TerminalServiceTag;
+    yield* terminal.heading("✏️  Welcome to the Jazz Agent Edit Wizard!");
+    yield* terminal.log("Let's update your agent step by step.");
+    yield* terminal.log("");
 
     const agentService = yield* AgentServiceTag;
     const agent = yield* agentService.getAgent(agentId);
 
-    console.log(`📋 Current Agent: ${agent.name}`);
-    console.log(`   ID: ${agent.id}`);
-    console.log(`   Description: ${agent.description}`);
-    console.log(`   Status: ${agent.status}`);
-    console.log(`   Type: ${agent.config.agentType || "N/A"}`);
-    console.log(`   LLM Provider: ${agent.config.llmProvider || "N/A"}`);
-    console.log(`   LLM Model: ${agent.config.llmModel || "N/A"}`);
-    console.log(`   Tools: ${agent.config.tools ? agent.config.tools.length : 0} tools`);
-    console.log(`   Created: ${agent.createdAt.toISOString()}`);
-    console.log(`   Updated: ${agent.updatedAt.toISOString()}\n`);
+    yield* terminal.heading(`📋 Current Agent: ${agent.name}`);
+    yield* terminal.log(`   ID: ${agent.id}`);
+    yield* terminal.log(`   Description: ${agent.description}`);
+    yield* terminal.log(`   Status: ${agent.status}`);
+    yield* terminal.log(`   Type: ${agent.config.agentType || "N/A"}`);
+    yield* terminal.log(`   LLM Provider: ${agent.config.llmProvider || "N/A"}`);
+    yield* terminal.log(`   LLM Model: ${agent.config.llmModel || "N/A"}`);
+    yield* terminal.log(`   Tools: ${agent.config.tools ? agent.config.tools.length : 0} tools`);
+    yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
+    yield* terminal.log(`   Updated: ${agent.updatedAt.toISOString()}`);
+    yield* terminal.log("");
 
     // Get available LLM providers and models
     const llmService = yield* LLMServiceTag;
@@ -84,7 +88,7 @@ export function editAgentCommand(
 
     // Prompt for updates
     const editAnswers = yield* Effect.promise(() =>
-      promptForAgentUpdates(agent, providers, agentTypes, toolsByCategory),
+      promptForAgentUpdates(agent, providers, agentTypes, toolsByCategory, terminal),
     );
 
     // Convert selected categories (display names) to category IDs, then get tools
@@ -139,19 +143,19 @@ export function editAgentCommand(
     const updatedAgent = yield* agentService.updateAgent(agentId, updates);
 
     // Display success message
-    console.log("\n✅ Agent updated successfully!");
-    console.log(`   ID: ${updatedAgent.id}`);
-    console.log(`   Name: ${updatedAgent.name}`);
-    console.log(`   Description: ${updatedAgent.description}`);
-    console.log(`   Status: ${updatedAgent.status}`);
-    console.log(`   Type: ${updatedConfig.agentType || "N/A"}`);
-    console.log(`   LLM Provider: ${updatedConfig.llmProvider || "N/A"}`);
-    console.log(`   LLM Model: ${updatedConfig.llmModel || "N/A"}`);
-    console.log(`   Tools: ${updatedConfig.tools ? updatedConfig.tools.length : 0} tools`);
-    console.log(`   Updated: ${updatedAgent.updatedAt.toISOString()}`);
-
-    console.log("\nYou can now chat with your updated agent using:");
-    console.log(`jazz agent chat ${updatedAgent.id}`);
+    yield* terminal.success("Agent updated successfully!");
+    yield* terminal.log(`   ID: ${updatedAgent.id}`);
+    yield* terminal.log(`   Name: ${updatedAgent.name}`);
+    yield* terminal.log(`   Description: ${updatedAgent.description}`);
+    yield* terminal.log(`   Status: ${updatedAgent.status}`);
+    yield* terminal.log(`   Type: ${updatedConfig.agentType || "N/A"}`);
+    yield* terminal.log(`   LLM Provider: ${updatedConfig.llmProvider || "N/A"}`);
+    yield* terminal.log(`   LLM Model: ${updatedConfig.llmModel || "N/A"}`);
+    yield* terminal.log(`   Tools: ${updatedConfig.tools ? updatedConfig.tools.length : 0} tools`);
+    yield* terminal.log(`   Updated: ${updatedAgent.updatedAt.toISOString()}`);
+    yield* terminal.log("");
+    yield* terminal.info("You can now chat with your updated agent using:");
+    yield* terminal.log(`jazz agent chat ${updatedAgent.id}`);
   });
 }
 
@@ -163,6 +167,7 @@ async function promptForAgentUpdates(
   providers: readonly string[],
   agentTypes: readonly string[],
   toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
+  terminal: TerminalService,
 ): Promise<AgentEditAnswers> {
   const answers: AgentEditAnswers = {};
 
@@ -187,7 +192,7 @@ async function promptForAgentUpdates(
   ]);
 
   if (fieldsToUpdate.length === 0) {
-    console.log("No fields selected for update. Exiting...");
+    await Effect.runPromise(terminal.warn("No fields selected for update. Exiting..."));
     return answers;
   }
 
@@ -286,7 +291,9 @@ async function promptForAgentUpdates(
     if (fieldsToUpdate.includes("llmModel")) {
       // Note: This would need to be handled in the Effect context
       // For now, we'll skip the model selection in the prompt
-      console.log("LLM model selection will be handled during agent update");
+      await Effect.runPromise(
+        terminal.info("LLM model selection will be handled during agent update"),
+      );
     }
   }
 

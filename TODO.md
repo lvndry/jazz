@@ -2,13 +2,17 @@
 
 ## CLI & User Experience
 
-- [->] Make reasoning tokens visible.
+- [x] Make reasoning tokens visible.
 - [x] Stream content in terminal — swap to `streamText` to present incremental LLM output and reduce
       perceived latency.
 - [ ] Reduce length of system prompt.
 - [ ] Update system prompt to discorourage usage of tables. They don't render well in terminal
 - [ ] Better colors and themes.
-- `jazz config` command similar to `git config` where we can inline change jazz config
+- [ ] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
+- [ ] Finish implementation of `jazz create-quick`
+- [ ] Finish implementation of `jazz logs`
+- [ ] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
+      more capable or less costly model while keeping the same context
 
 ## Agent Runtime & Automation
 
@@ -25,8 +29,6 @@
 - [ ] Dynamic tool loading - dynamically load only relevant tools based on context/user query
 - [ ] Being able to always approve low stake tools - Give a risk level to tools, being able to say
       if we want to allays authorize a tool so that it don't ask for approval every time
-- [ ] Being able to switch agents while in the same conversation. This would allow to switch to a
-      less costly model or more complex model while keeping the same context window
 
 ## CLI Feature Depth & Docs
 
