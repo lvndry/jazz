@@ -3,6 +3,7 @@ import packageJson from "../../../package.json";
 import { UpdateCheckError, UpdateInstallError } from "../../core/types/errors";
 import type { ConfigService } from "../../services/config";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
+import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
  * CLI command for updating Jazz to the latest version
@@ -345,14 +346,14 @@ function detectPackageManager(): Effect.Effect<PackageManagerInfo, UpdateInstall
 /**
  * Install the latest version using the detected package manager
  */
-function installUpdate(packageName: string): Effect.Effect<void, UpdateInstallError> {
+function installUpdate(packageName: string, terminal: TerminalService): Effect.Effect<void, UpdateInstallError> {
   return Effect.gen(function* () {
     const { spawn } = yield* Effect.promise(() => import("child_process"));
 
     // Detect which package manager to use
     const pmInfo = yield* detectPackageManager();
 
-    console.log(`\n📦 Installing update using ${pmInfo.name} (${pmInfo.version})...`);
+    yield* terminal.log(`\n📦 Installing update using ${pmInfo.name} (${pmInfo.version})...`);
 
     const installArgs =
       pmInfo.name === "bun"
@@ -400,64 +401,68 @@ function installUpdate(packageName: string): Effect.Effect<void, UpdateInstallEr
  */
 export function updateCommand(options?: {
   check?: boolean;
-}): Effect.Effect<void, never, LoggerService | ConfigService> {
+}): Effect.Effect<void, never, LoggerService | ConfigService | TerminalService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
+    const terminal = yield* TerminalServiceTag;
 
     yield* logger.info("Checking for updates...");
-    console.log("🔍 Checking for updates...\n");
+    yield* terminal.info("Checking for updates...");
+    yield* terminal.log("");
 
     // Check for updates
     const versionInfo = yield* checkForUpdate().pipe(
       Effect.catchAll((checkError: UpdateCheckError) => {
         return Effect.gen(function* () {
           yield* logger.error("Failed to check for updates", { error: checkError.message });
-          console.log("❌ Failed to check for updates:");
-          console.log(`   ${checkError.message}`);
-          console.log("\n💡 You can manually check for updates at:");
-          console.log(`   https://www.npmjs.com/package/${packageJson.name}`);
+          yield* terminal.error("Failed to check for updates:");
+          yield* terminal.log(`   ${checkError.message}`);
+          yield* terminal.log("\n💡 You can manually check for updates at:");
+          yield* terminal.log(`   https://www.npmjs.com/package/${packageJson.name}`);
           return yield* Effect.fail(checkError);
         });
       }),
       Effect.catchAll(() => Effect.succeed({ hasUpdate: false, currentVersion: packageJson.version, latestVersion: packageJson.version })),
     );
 
-    console.log(`📦 Current version: ${versionInfo.currentVersion}`);
-    console.log(`📦 Latest version:  ${versionInfo.latestVersion}\n`);
+    yield* terminal.log(`📦 Current version: ${versionInfo.currentVersion}`);
+    yield* terminal.log(`📦 Latest version:  ${versionInfo.latestVersion}`);
+    yield* terminal.log("");
 
     if (!versionInfo.hasUpdate) {
       yield* logger.info("Already on latest version");
-      console.log("✅ You're already on the latest version!");
+      yield* terminal.success("You're already on the latest version!");
       return;
     }
 
-    console.log("🎉 A new version is available!");
+    yield* terminal.success("A new version is available!");
 
     // If --check flag is used, just show the info and exit
     if (options?.check) {
-      console.log("\n💡 Run 'jazz update' to install the latest version");
+      yield* terminal.log("\n💡 Run 'jazz update' to install the latest version");
       return;
     }
 
-    console.log("⚡ Starting update process...\n");
+    yield* terminal.log("⚡ Starting update process...");
+    yield* terminal.log("");
 
     // Install the update
-    yield* installUpdate(packageJson.name).pipe(
+    yield* installUpdate(packageJson.name, terminal).pipe(
       Effect.catchAll((installError: UpdateInstallError) => {
         return Effect.gen(function* () {
           yield* logger.error("Failed to install update", { error: installError.message });
-          console.log("\n❌ Failed to install update:");
-          console.log(`   ${installError.message}`);
-          console.log("\n💡 You can manually update by running:");
-          console.log(`   npm install -g ${packageJson.name}@latest`);
-          console.log(`   bun add -g ${packageJson.name}@latest`);
-          console.log(`   pnpm add -g ${packageJson.name}@latest`);
+          yield* terminal.error("Failed to install update:");
+          yield* terminal.log(`   ${installError.message}`);
+          yield* terminal.log("\n💡 You can manually update by running:");
+          yield* terminal.log(`   npm install -g ${packageJson.name}@latest`);
+          yield* terminal.log(`   bun add -g ${packageJson.name}@latest`);
+          yield* terminal.log(`   pnpm add -g ${packageJson.name}@latest`);
         });
       }),
     );
 
     yield* logger.info("Update completed successfully");
-    console.log("\n✅ Update completed successfully!");
-    console.log(`🎉 Jazz has been updated to version ${versionInfo.latestVersion}`);
+    yield* terminal.success("Update completed successfully!");
+    yield* terminal.log(`🎉 Jazz has been updated to version ${versionInfo.latestVersion}`);
   });
 }

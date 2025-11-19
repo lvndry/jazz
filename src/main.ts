@@ -30,6 +30,7 @@ import { createLoggerLayer, LoggerServiceTag } from "./services/logger";
 import { FileStorageService } from "./services/storage/file";
 import { StorageServiceTag } from "./services/storage/service";
 import { resolveStorageDirectory } from "./services/storage/utils";
+import { createTerminalServiceLayer } from "./services/terminal";
 
 /**
  * Main entry point for the Jazz CLI
@@ -53,7 +54,8 @@ import { resolveStorageDirectory } from "./services/storage/utils";
 function createAppLayer(debug?: boolean) {
   const fileSystemLayer = NodeFileSystem.layer;
   const configLayer = createConfigLayer(debug).pipe(Layer.provide(fileSystemLayer));
-  const loggerLayer = createLoggerLayer().pipe(Layer.provide(configLayer));
+  const loggerLayer = createLoggerLayer();
+  const terminalLayer = createTerminalServiceLayer();
 
   const storageLayer = Layer.effect(
     StorageServiceTag,
@@ -89,6 +91,7 @@ function createAppLayer(debug?: boolean) {
     fileSystemLayer,
     configLayer,
     loggerLayer,
+    terminalLayer,
     storageLayer,
     gmailLayer,
     llmLayer,

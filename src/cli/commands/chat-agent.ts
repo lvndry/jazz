@@ -37,6 +37,7 @@ import type { ConfigService } from "../../services/config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/fs";
 import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
 import { ChatMessage } from "../../services/llm/messages";
+import { ProviderName } from "../../services/llm/models";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
 
 /**
@@ -92,7 +93,7 @@ interface AIAgentCreationAnswers {
   name: string;
   description?: string;
   agentType: string;
-  llmProvider: string;
+  llmProvider: ProviderName;
   llmModel: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
   tools: string[];

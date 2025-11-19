@@ -21,6 +21,7 @@ import {
   type UserModelMessage,
 } from "ai";
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
+import shortUUID from "short-uuid";
 import { z } from "zod";
 import { MAX_AGENT_STEPS } from "../../constants/agent";
 import {
@@ -33,9 +34,9 @@ import {
 import { safeParseJson } from "../../core/utils/json";
 import { AgentConfigService, type ConfigService } from "../config";
 import { writeLogToFile } from "../logger";
+import { ChatCompletionOptions, ChatCompletionResponse } from "./chat";
 import { LLMProvider, LLMService, LLMServiceTag } from "./interfaces";
-import { ChatCompletionOptions, ChatCompletionResponse } from "./models";
-import { PROVIDER_MODELS, type ProviderName } from "./providers";
+import { PROVIDER_MODELS, type ProviderName } from "./models";
 import { StreamProcessor } from "./stream-processor";
 import type { StreamEvent, StreamingResult } from "./streaming-types";
 
@@ -263,7 +264,14 @@ class AISDKService implements LLMService {
 
     // Export API keys to env for providers that read from env
     Object.entries(this.config.apiKeys).forEach(([provider, apiKey]) => {
-      process.env[`${provider.toUpperCase()}_API_KEY`] = apiKey;
+      if (this.isProviderName(provider)) {
+        if (provider === "google") {
+          // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
+          process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
+        } else {
+          process.env[`${provider.toUpperCase()}_API_KEY`] = apiKey;
+        }
+      }
     });
 
   }
@@ -275,10 +283,6 @@ class AISDKService implements LLMService {
   readonly getProvider: LLMService["getProvider"] = (providerName: ProviderName) => {
     return Effect.try({
       try: () => {
-        if (!this.isProviderName(providerName)) {
-          throw new LLMConfigurationError({ provider: providerName, message: `Provider not supported: ${providerName}` });
-        }
-
         const models = this.providerModels[providerName];
         const provider: LLMProvider = {
           name: providerName,
@@ -325,10 +329,6 @@ class AISDKService implements LLMService {
   ): Effect.Effect<ChatCompletionResponse, LLMError> {
     return Effect.tryPromise({
       try: async () => {
-        if (options.stream === true) {
-          throw new Error("Streaming responses are not supported yet");
-        }
-
         const model = selectModel(providerName, options.model);
 
         // Prepare tools for AI SDK if present
@@ -355,16 +355,10 @@ class AISDKService implements LLMService {
           stopWhen: stepCountIs(MAX_AGENT_STEPS),
         });
 
-        let responseModel = options.model;
-        let content = "";
+        const responseModel = options.model;
+        const content = result.text ?? "";
         let toolCalls: ChatCompletionResponse["toolCalls"] | undefined = undefined;
         let usage: ChatCompletionResponse["usage"] | undefined = undefined;
-
-        // Extract text content
-        content = result.text ?? "";
-
-        // Extract model ID from result (fallback to options.model if not available)
-        responseModel = options.model; // AI SDK doesn't expose modelId in result
 
         // Extract usage information
         if (result.usage) {
@@ -405,7 +399,7 @@ class AISDKService implements LLMService {
         }
 
         const resultObj: ChatCompletionResponse = {
-          id: "",
+          id: shortUUID.generate(),
           model: responseModel,
           content,
           ...(toolCalls ? { toolCalls } : {}),
@@ -414,7 +408,7 @@ class AISDKService implements LLMService {
         return resultObj;
       },
       catch: (error: unknown) => {
-        const llmError = convertToLLMError(error, providerName) as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+        const llmError = convertToLLMError(error, providerName);
 
         // Log error details
         const errorDetails: Record<string, unknown> = {
@@ -431,10 +425,7 @@ class AISDKService implements LLMService {
           if (e.type) errorDetails["type"] = e.type;
         }
 
-        // Log to console for immediate visibility
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-
-        // Also log to file for persistence
         void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
         return llmError;
@@ -468,13 +459,10 @@ class AISDKService implements LLMService {
     // Create a deferred to collect final response
     const responseDeferred = createDeferred<ChatCompletionResponse>();
 
-    // Create the stream using Stream.async
     const stream = Stream.async<StreamEvent, LLMError>(
       (emit: (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void) => {
-        // Start async processing
         void (async (): Promise<void> => {
           try {
-            // Create the AI SDK stream
             const result = streamText({
               model,
               messages: toCoreMessages(options.messages),
@@ -485,7 +473,6 @@ class AISDKService implements LLMService {
               stopWhen: stepCountIs(MAX_AGENT_STEPS),
             });
 
-            // Create stream processor
             const processor = new StreamProcessor(
               {
                 providerName,
@@ -505,15 +492,14 @@ class AISDKService implements LLMService {
             // Close the stream
             processor.close();
           } catch (error) {
-            // Convert to LLM error
-            const llmError = convertToLLMError(error, providerName) as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+            const llmError = convertToLLMError(error, providerName);
 
-            // Log the error details
             const errorDetails: Record<string, unknown> = {
               provider: providerName,
               errorType: llmError._tag,
               message: llmError.message,
             };
+
             if (error instanceof Error) {
               const e = error as Error & { code?: string; status?: number; statusCode?: number; type?: string };
               if (e.code) errorDetails["code"] = e.code;
@@ -529,26 +515,18 @@ class AISDKService implements LLMService {
                 }
               }
             }
-            // Log to console for immediate visibility
+
             console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
 
-            // Also log to file for persistence
             void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
-
-            // Emit error event
             void emit(Effect.fail(Option.some(llmError)));
 
-            // Reject the deferred
             responseDeferred.reject(llmError);
-
-            // Close the stream
-            void emit(Effect.fail(Option.none()));
           }
         })();
       },
     );
 
-    // Return streaming result with cancellation support
     return Effect.succeed({
       stream,
       response: Effect.promise(() => responseDeferred.promise),
@@ -557,15 +535,14 @@ class AISDKService implements LLMService {
       }),
     }).pipe(
       Effect.catchAll((error) => {
-        // Convert any synchronous errors to LLMError
-        const llmError = convertToLLMError(error, providerName) as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+        const llmError = convertToLLMError(error, providerName);
 
-        // Log error details
         const errorDetails: Record<string, unknown> = {
           provider: providerName,
           errorType: llmError._tag,
           message: llmError.message,
         };
+
         if (error && typeof error === "object" && "code" in error) {
           const e = error as { code?: string; status?: number; statusCode?: number; type?: string };
           if (e.code) errorDetails["code"] = e.code;
@@ -574,10 +551,7 @@ class AISDKService implements LLMService {
           if (e.type) errorDetails["type"] = e.type;
         }
 
-        // Log to console for immediate visibility
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-
-        // Also log to file for persistence
         void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
         return Effect.fail(llmError);
@@ -606,8 +580,7 @@ export function createAISDKServiceLayer(): Layer.Layer<
       if (anthropicAPIKey) apiKeys["anthropic"] = anthropicAPIKey;
 
       const geminiAPIKey = appConfig.llm?.google?.api_key;
-      // Default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
-      if (geminiAPIKey) apiKeys["google_generative_ai"] = geminiAPIKey;
+      if (geminiAPIKey) apiKeys["google"] = geminiAPIKey;
 
       const mistralAPIKey = appConfig.llm?.mistral?.api_key;
       if (mistralAPIKey) apiKeys["mistral"] = mistralAPIKey;

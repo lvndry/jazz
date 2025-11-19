@@ -1,10 +1,11 @@
-import { Context, Effect, Layer, Logger } from "effect";
+import { Context, Effect, Layer } from "effect";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isInstalledGlobally } from "../core/utils/runtime-detection";
 import { formatToolArguments } from "../core/utils/tool-formatter";
-import { AgentConfigService, type ConfigService } from "./config";
+import { type ConfigService } from "./config";
 
 /**
  * Structured logging service using Effect's Logger API
@@ -63,102 +64,31 @@ export class LoggerServiceImpl implements LoggerService {
     message: string,
     meta?: Record<string, unknown>,
   ): Effect.Effect<void, never> {
-    const logEffect = Effect.logDebug(message);
-    return meta && Object.keys(meta).length > 0
-      ? Effect.annotateLogs(meta)(logEffect)
-      : logEffect;
+    return Effect.sync(() => {
+      writeLogToFileSync("debug", message, meta);
+    });
   }
 
   info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    const logEffect = Effect.logInfo(message);
-    return meta && Object.keys(meta).length > 0
-      ? Effect.annotateLogs(meta)(logEffect)
-      : logEffect;
+    return Effect.sync(() => {
+      writeLogToFileSync("info", message, meta);
+    });
   }
 
   warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    const logEffect = Effect.logWarning(message);
-    return meta && Object.keys(meta).length > 0
-      ? Effect.annotateLogs(meta)(logEffect)
-      : logEffect;
+    return Effect.sync(() => {
+      writeLogToFileSync("warn", message, meta);
+    });
   }
 
   error(
     message: string,
     meta?: Record<string, unknown>,
   ): Effect.Effect<void, never> {
-    const logEffect = Effect.logError(message);
-    return meta && Object.keys(meta).length > 0
-      ? Effect.annotateLogs(meta)(logEffect)
-      : logEffect;
+    return Effect.sync(() => {
+      writeLogToFileSync("error", message, meta);
+    });
   }
-}
-
-type AppLogLevel = "debug" | "info" | "warn" | "error";
-
-/**
- * Format a log line with pretty colors and emojis
- */
-function formatLogLine(
-  level: AppLogLevel,
-  message: string,
-  meta?: Record<string, unknown>,
-  format: "json" | "pretty" = "pretty",
-): string {
-  const now = new Date();
-  const ts = now.toISOString();
-  const color = selectColor(level);
-  const levelLabel = padLevel(level.toUpperCase());
-  const emoji = selectEmoji(level);
-
-  let metaText = "";
-  if (meta && Object.keys(meta).length > 0) {
-    if (format === "pretty") {
-      metaText = dim(" " + prettyPrintJson(meta));
-    } else {
-      metaText = dim(" " + JSON.stringify(meta, jsonReplacer));
-    }
-  }
-
-  const body = indentMultiline(message);
-  return `${dim(ts)} ${color(levelLabel)} ${emoji} ${body}${metaText}`;
-}
-
-function selectColor(level: AppLogLevel): (text: string) => string {
-  switch (level) {
-    case "debug":
-      return gray;
-    case "info":
-      return cyan;
-    case "warn":
-      return yellow;
-    case "error":
-      return red;
-  }
-}
-
-function selectEmoji(level: AppLogLevel): string {
-  switch (level) {
-    case "debug":
-      return "🔍";
-    case "info":
-      return "ℹ️";
-    case "warn":
-      return "⚠️";
-    case "error":
-      return "❌";
-  }
-}
-
-function padLevel(level: string): string {
-  // Ensures consistent width: DEBUG/ INFO/ WARN/ ERROR
-  return level.padEnd(5, " ");
-}
-
-function indentMultiline(text: string): string {
-  if (!text.includes("\n")) return text;
-  const lines = text.split("\n");
-  return lines.map((line, idx) => (idx === 0 ? line : "  " + line)).join("\n");
 }
 
 /**
@@ -171,175 +101,15 @@ function jsonReplacer(_key: string, value: unknown): unknown {
   return value;
 }
 
-function prettyPrintJson(obj: Record<string, unknown>): string {
-  try {
-    const jsonString = JSON.stringify(obj, jsonReplacer, 2);
-    // Add indentation to each line except the first
-    const lines = jsonString.split("\n");
-    return lines.map((line, idx) => (idx === 0 ? line : "  " + line)).join("\n");
-  } catch {
-    // Fallback to regular JSON.stringify if pretty printing fails
-    return JSON.stringify(obj, jsonReplacer);
-  }
-}
-
-// ANSI color helpers (no dependency)
-function wrap(open: string, close: string): (text: string) => string {
-  const enabled = process.stdout.isTTY === true;
-  return (text: string) => (enabled ? `${open}${text}${close}` : text);
-}
-
-const dim = wrap("\u001B[2m", "\u001B[22m");
-const gray = wrap("\u001B[90m", "\u001B[39m");
-const cyan = wrap("\u001B[36m", "\u001B[39m");
-const yellow = wrap("\u001B[33m", "\u001B[39m");
-const red = wrap("\u001B[31m", "\u001B[39m");
-
-/**
- * Create a custom Effect Logger that formats logs with pretty colors and emojis
- *
- * @param minLevel - Minimum log level to output (logs below this level are filtered out)
- * @param format - Output format ("pretty" or "json")
- */
-function createPrettyLogger(
-  minLevel: AppLogLevel,
-  format: "json" | "pretty" = "pretty",
-): Logger.Logger<unknown, void> {
-  const minLevelOrdinal = getLogLevelOrdinal(minLevel);
-
-  return Logger.make(({ logLevel, message, annotations }) => {
-    // Filter by minimum log level
-    const levelLabel = logLevel.label.toLowerCase();
-    const currentLevelOrdinal = getLogLevelOrdinalFromLabel(levelLabel);
-    if (currentLevelOrdinal < minLevelOrdinal) {
-      return; // Skip logs below minimum level
-    }
-
-    // Extract message and metadata from annotations
-    const logMessage = typeof message === "string" ? message : String(message);
-    const meta: Record<string, unknown> = {};
-
-    // Collect annotations as metadata (excluding internal Effect annotations)
-    for (const [key, value] of annotations) {
-      if (!key.startsWith("effect.")) {
-        meta[key] = value;
-      }
-    }
-
-    // Map Effect LogLevel to our AppLogLevel
-    // Effect LogLevels: Trace < Debug < Info < Warning < Error < Fatal
-    let appLevel: AppLogLevel;
-    if (levelLabel === "debug" || levelLabel === "trace") {
-      appLevel = "debug";
-    } else if (levelLabel === "info") {
-      appLevel = "info";
-    } else if (levelLabel === "warning" || levelLabel === "warn") {
-      appLevel = "warn";
-    } else {
-      appLevel = "error";
-    }
-
-    const formattedLine = formatLogLine(appLevel, logMessage, Object.keys(meta).length > 0 ? meta : undefined, format);
-
-    // Output to appropriate console method
-    switch (appLevel) {
-      case "debug":
-        console.debug(formattedLine);
-        console.log();
-        break;
-      case "info":
-        console.info(formattedLine);
-        console.log();
-        break;
-      case "warn":
-        console.warn(formattedLine);
-        console.log();
-        break;
-      case "error":
-        console.error(formattedLine);
-        console.log();
-        break;
-    }
-  });
-}
-
-/**
- * Get ordinal value for log level comparison
- */
-function getLogLevelOrdinal(level: AppLogLevel): number {
-  switch (level) {
-    case "debug":
-      return 0;
-    case "info":
-      return 1;
-    case "warn":
-      return 2;
-    case "error":
-      return 3;
-  }
-}
-
-/**
- * Get ordinal value from Effect log level label
- */
-function getLogLevelOrdinalFromLabel(label: string): number {
-  const normalized = label.toLowerCase();
-  if (normalized === "trace" || normalized === "debug") {
-    return 0;
-  } else if (normalized === "info") {
-    return 1;
-  } else if (normalized === "warning" || normalized === "warn") {
-    return 2;
-  } else {
-    return 3; // error or fatal
-  }
-}
-
 export const LoggerServiceTag = Context.GenericTag<LoggerService>("LoggerService");
 
 /**
- * Create the Effect Logger layer with custom formatting
+ * Create the logger layer
  *
- * This layer provides the custom Effect logger that will be used by all Effect.log* calls.
- * It should be merged with the app layer in main.ts.
+ * Sets up the LoggerService for use throughout the application.
  */
-export function createEffectLoggerLayer(
-  level: AppLogLevel,
-  format: "json" | "pretty",
-): Layer.Layer<never, never, never> {
-  const customLogger = createPrettyLogger(level, format);
-  // Logger.replaceScoped expects an Effect that produces a Logger
-  return Logger.replaceScoped(Logger.defaultLogger, Effect.succeed(customLogger));
-}
-
-/**
- * Create the logger layer with Effect Logger integration
- *
- * Sets up both the LoggerService (for backward compatibility) and the Effect Logger
- * (for Effect.log* calls) with custom pretty formatting and log level filtering.
- */
-export function createLoggerLayer(): Layer.Layer<LoggerService, never, ConfigService> {
-  return Layer.effect(
-    LoggerServiceTag,
-    Effect.gen(function* () {
-      // Read config to set up Effect logger
-      const config = yield* AgentConfigService;
-      const loggingConfig = yield* config.get<{
-        level: AppLogLevel;
-        format: "json" | "pretty";
-      }>("logging");
-
-      const level = loggingConfig?.level ?? "info";
-      const format = loggingConfig?.format ?? "pretty";
-
-      // Create and provide the Effect logger layer
-      // This ensures all Effect.log* calls use our custom formatting
-      const effectLoggerLayer = createEffectLoggerLayer(level, format);
-      yield* Effect.provide(Effect.void, effectLoggerLayer);
-
-      return new LoggerServiceImpl();
-    }),
-  );
+export function createLoggerLayer(): Layer.Layer<LoggerService, never, never> {
+  return Layer.succeed(LoggerServiceTag, new LoggerServiceImpl());
 }
 
 // Helper functions for common logging patterns
@@ -558,6 +328,28 @@ async function writeFormattedLogToFile(
   const logFilePath = path.join(logsDir, "jazz.log");
   const line = formatLogLineForFile(level, message, meta);
   await appendFile(logFilePath, line, { encoding: "utf8" });
+}
+
+/**
+ * Write a log entry directly to file synchronously (standalone function)
+ * Useful for Effect Logger which requires synchronous execution
+ */
+export function writeLogToFileSync(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  meta?: Record<string, unknown>,
+): void {
+  try {
+    const logsDir = getLogsDirectory();
+    if (!existsSync(logsDir)) {
+      mkdirSync(logsDir, { recursive: true });
+    }
+    const logFilePath = path.join(logsDir, "jazz.log");
+    const line = formatLogLineForFile(level, message, meta);
+    appendFileSync(logFilePath, line, { encoding: "utf8" });
+  } catch {
+    // Silently fail to avoid breaking the calling code
+  }
 }
 
 /**

@@ -179,7 +179,7 @@ export function findSummarizationPoint(
   }
 
   // Calculate how many recent messages to preserve
-  const recentMessagesToPreserve = preserveRecentMessages ?? 3;
+  const recentMessagesToPreserve = preserveRecentMessages ?? 10;
   const maxRecentTokensToPreserve = maxRecentTokens ?? 2000;
 
   // Start from the end and work backwards to find recent messages to preserve
@@ -292,16 +292,13 @@ export function summarizeConversation(
   );
 
   if (summarizationPoint <= 1) {
-    return messages; // Can't summarize much
+    return messages;
   }
 
-  // Create summary and keep recent messages
   const summaryMessage = createSummaryMessage(summarizationPoint);
   let recentMessages = messages.slice(summarizationPoint);
 
-  // Safety check: ensure we never return an empty array
   if (recentMessages.length === 0) {
-    // If no recent messages, keep at least the last message
     recentMessages = messages.slice(-1);
   }
 

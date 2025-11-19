@@ -1,7 +1,7 @@
 import { Context, Effect } from "effect";
 import { LLMAuthenticationError, LLMConfigurationError, LLMError } from "../../core/types/errors";
-import type { ChatCompletionOptions, ChatCompletionResponse, ModelInfo } from "./models";
-import type { ProviderName } from "./providers";
+import type { ChatCompletionOptions, ChatCompletionResponse } from "./chat";
+import type { ModelInfo, ProviderName } from "./models";
 import type { StreamingResult } from "./streaming-types";
 
 /**

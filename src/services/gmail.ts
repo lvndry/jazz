@@ -708,11 +708,11 @@ export class GmailServiceResource implements GmailService {
   }
 
   private wrapGmailCall<A>(
-    effect: () => Promise<A>,
+    operation: () => Promise<A>,
     failureMessage: string,
   ): Effect.Effect<A, GmailOperationError> {
     return Effect.tryPromise({
-      try: effect,
+      try: operation,
       catch: (err) => {
         const status = getHttpStatusFromError(err);
         return new GmailOperationError(

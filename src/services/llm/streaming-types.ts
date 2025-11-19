@@ -1,6 +1,6 @@
 import { Effect, Stream } from "effect";
 import { LLMError } from "../../core/types/errors";
-import { ChatCompletionResponse } from "./models";
+import { ChatCompletionResponse } from "./chat";
 import { ToolCall } from "./tools";
 
 /**
