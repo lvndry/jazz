@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { createFileSystemContextServiceLayer, FileSystemContextServiceTag } from "./shell";
+import { createFileSystemContextServiceLayer, FileSystemContextServiceTag } from "./fs";
 
 describe("FileSystemContextService", () => {
   const createTestLayer = () => {
