@@ -20,7 +20,7 @@ import {
 export interface DisplayConfig {
   readonly showThinking: boolean;
   readonly showToolExecution: boolean;
-  readonly mode: OutputMode
+  readonly mode: OutputMode;
   readonly colorProfile?: ColorProfile | undefined; // Auto-detect if not specified
 }
 

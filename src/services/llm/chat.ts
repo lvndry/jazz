@@ -1,7 +1,6 @@
 import type { ChatMessage } from "./messages";
 import type { ToolCall, ToolDefinition } from "./tools";
 
-
 export interface ChatCompletionResponse {
   id: string;
   model: string;

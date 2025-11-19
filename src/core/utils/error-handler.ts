@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { TerminalServiceTag } from "../../services/terminal";
+import { TerminalService, TerminalServiceTag } from "../../services/terminal";
 import type { JazzError } from "../types/errors";
 
 /**
@@ -526,7 +526,7 @@ export function formatError(error: JazzError): string {
  * yield* handleError(genericError);
  * ```
  */
-export function handleError(error: JazzError | Error): Effect.Effect<void, never, import("../../services/terminal").TerminalService> {
+export function handleError(error: JazzError | Error): Effect.Effect<void, never, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
 
