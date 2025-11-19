@@ -8,7 +8,7 @@ export interface ModelFetcherService {
     baseUrl: string,
     endpointPath: string,
     apiKey?: string,
-  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError>;
+  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never>;
 }
 
 // Provider-specific response transformers

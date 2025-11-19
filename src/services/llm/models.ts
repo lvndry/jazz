@@ -88,6 +88,11 @@ export const PROVIDER_MODELS = {
     endpointPath: "/tags",
     defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL,
   },
+  openrouter: {
+    type: "dynamic",
+    endpointPath: "/api/v1/models",
+    defaultBaseUrl: "https://openrouter.ai",
+  },
 } as const satisfies Record<string, ModelSource>;
 
 export type ProviderName = keyof typeof PROVIDER_MODELS;

@@ -85,6 +85,7 @@ export interface LLMConfig {
   readonly xai?: XAIProviderConfig;
   readonly deepseek?: DeepSeekProviderConfig;
   readonly ollama?: OllamaProviderConfig;
+  readonly openrouter?: LLMProviderConfig;
 }
 
 export interface LinkupConfig {

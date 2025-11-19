@@ -2,7 +2,7 @@ import { anthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { deepseek } from "@ai-sdk/deepseek";
 import { google, type GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
-import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
+import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 
@@ -190,6 +190,17 @@ function selectModel(
         : {};
       const ollamaInstance = createOllama({ baseURL: DEFAULT_OLLAMA_BASE_URL, headers });
       return ollamaInstance(modelId);
+    }
+    case "openrouter": {
+      // Create OpenRouter provider using OpenAI SDK with custom baseURL
+      const openrouter = createOpenAI({
+        baseURL: "https://openrouter.ai/api/v1",
+        headers: {
+          "HTTP-Referer": "https://github.com/lvndry/jazz",
+          "X-Title": "Jazz CLI",
+        },
+      });
+      return openrouter(modelId);
     }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
@@ -379,7 +390,7 @@ class AISDKService implements LLMService {
 
   private getProviderModels(
     providerName: ProviderName,
-  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError> {
+  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never> {
     const modelSource = this.providerModels[providerName];
 
     if (!modelSource) {
@@ -556,9 +567,7 @@ class AISDKService implements LLMService {
         }
 
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        void Effect.runPromise(
-          this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails),
-        );
+        void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
         return llmError;
       },
@@ -665,9 +674,11 @@ class AISDKService implements LLMService {
 
             console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
 
-            Effect.runSync(
-              this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails),
+            void this.logger.error(
+              `LLM Error: ${llmError._tag} - ${llmError.message}`,
+              errorDetails,
             );
+
             void emit(Effect.fail(Option.some(llmError)));
 
             responseDeferred.reject(llmError);
@@ -701,9 +712,8 @@ class AISDKService implements LLMService {
         }
 
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        Effect.runSync(
-          this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails),
-        );
+
+        void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
         return Effect.fail(llmError);
       }),
@@ -724,6 +734,7 @@ export function createAISDKServiceLayer(): Layer.Layer<
       const appConfig = yield* configService.appConfig;
 
       const configuredProviders = getConfiguredProviders(appConfig.llm);
+
       if (configuredProviders.length === 0) {
         return yield* Effect.fail(
           new LLMConfigurationError({
