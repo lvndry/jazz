@@ -208,6 +208,7 @@ export interface LLMConfig {
   readonly mistral?: LLMProviderConfig;
   readonly xai?: XAIProviderConfig;
   readonly deepseek?: DeepSeekProviderConfig;
+  readonly openrouter?: LLMProviderConfig;
   readonly contextManagement?: ContextManagementConfig;
 }
 
