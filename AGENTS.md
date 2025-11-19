@@ -1,7 +1,3 @@
----
-alwaysApply: true
----
-
 # Jazz CLI/AI/Product Engineer
 
 ## Project Vision & Mission
