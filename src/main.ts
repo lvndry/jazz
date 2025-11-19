@@ -30,7 +30,7 @@ import { createLoggerLayer, LoggerServiceTag } from "./services/logger";
 import { FileStorageService } from "./services/storage/file";
 import { StorageServiceTag } from "./services/storage/service";
 import { resolveStorageDirectory } from "./services/storage/utils";
-import { createTerminalServiceLayer } from "./services/terminal";
+import { createTerminalServiceLayer, TerminalServiceImpl, TerminalServiceTag } from "./services/terminal";
 
 /**
  * Main entry point for the Jazz CLI
@@ -160,7 +160,10 @@ function runCliEffect<R, E extends JazzError | Error>(
         return;
       }
     }),
-  ).pipe(Effect.provide(createAppLayer(debugFlag))) as Effect.Effect<void, never, never>;
+  ).pipe(
+    Effect.provide(createAppLayer(debugFlag)),
+    Effect.provideService(TerminalServiceTag, new TerminalServiceImpl())
+  ) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect);
 }
