@@ -126,6 +126,7 @@ function toCoreMessages(
 }
 
 type ModelName = string;
+type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
 
 function selectModel(providerName: string, modelId: ModelName): LanguageModel {
   switch (providerName.toLowerCase()) {
@@ -151,7 +152,7 @@ function selectModel(providerName: string, modelId: ModelName): LanguageModel {
 function buildProviderOptions(
   providerName: string,
   options: ChatCompletionOptions,
-) {
+): ProviderOptions | undefined {
   const normalizedProvider = providerName.toLowerCase();
 
   switch (normalizedProvider) {
@@ -250,9 +251,72 @@ function convertToLLMError(error: unknown, providerName: string): LLMError {
   return llmError;
 }
 
+const PROVIDER_MODELS = {
+  openai: [
+    { id: "gpt-5.1", displayName: "GPT-5.1", isReasoningModel: true },
+    { id: "gpt-5.1-codex", displayName: "GPT-5.1 Codex", isReasoningModel: true },
+    { id: "gpt-5", displayName: "GPT-5", isReasoningModel: true },
+    { id: "gpt-5-pro", displayName: "GPT-5 Pro", isReasoningModel: true },
+    { id: "gpt-5-codex", displayName: "GPT-5 Codex", isReasoningModel: true },
+    { id: "gpt-5-mini", displayName: "GPT-5 Mini", isReasoningModel: true },
+    { id: "gpt-5-nano", displayName: "GPT-5 Nano", isReasoningModel: true },
+    { id: "gpt-4.1", displayName: "GPT-4.1", isReasoningModel: true },
+    { id: "gpt-4.1-mini", displayName: "GPT-4.1 Mini", isReasoningModel: true },
+    { id: "gpt-4.1-nano", displayName: "GPT-4.1 Nano", isReasoningModel: true },
+    { id: "gpt-4o", displayName: "GPT-4o", isReasoningModel: false },
+    { id: "gpt-4o-mini", displayName: "GPT-4o Mini", isReasoningModel: false },
+    { id: "o4-mini", displayName: "o4-mini", isReasoningModel: true },
+  ],
+  anthropic: [
+    { id: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5", isReasoningModel: true },
+    { id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", isReasoningModel: true },
+    { id: "claude-opus-4-1", displayName: "Claude Opus 4.1", isReasoningModel: true },
+  ],
+  google: [
+    { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", isReasoningModel: true },
+    { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", isReasoningModel: true },
+    {
+      id: "gemini-2.5-flash-lite",
+      displayName: "Gemini 2.5 Flash Lite",
+      isReasoningModel: true,
+    },
+    { id: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash", isReasoningModel: false },
+  ],
+  mistral: [
+    { id: "mistral-large-latest", displayName: "Mistral Large", isReasoningModel: false },
+    { id: "mistral-medium-latest", displayName: "Mistral Medium", isReasoningModel: false },
+    { id: "mistral-small-latest", displayName: "Mistral Small", isReasoningModel: false },
+    { id: "magistral-medium-2506", displayName: "Magistral Medium", isReasoningModel: true },
+    { id: "magistral-small-2506", displayName: "Magistral Small", isReasoningModel: true },
+  ],
+  xai: [
+    {
+      id: "grok-4-fast-non-reasoning",
+      displayName: "Grok 4 Fast (Non-Reasoning)",
+      isReasoningModel: false,
+    },
+    {
+      id: "grok-4-fast-reasoning",
+      displayName: "Grok 4 Fast (Reasoning)",
+      isReasoningModel: true,
+    },
+    { id: "grok-4", displayName: "Grok 4", isReasoningModel: false },
+    { id: "grok-code-fast-1", displayName: "Grok 4 (0709)", isReasoningModel: true },
+    { id: "grok-3", displayName: "Grok 3", isReasoningModel: true },
+    { id: "grok-3-mini", displayName: "Grok 3 Mini", isReasoningModel: true },
+  ],
+  deepseek: [{ id: "deepseek-chat", displayName: "DeepSeek Chat", isReasoningModel: false }],
+  ollama: [
+    { id: "llama4", displayName: "Llama 4", isReasoningModel: false },
+    { id: "llama3", displayName: "Llama 3", isReasoningModel: false },
+    { id: "qwq", displayName: "QWQ", isReasoningModel: false },
+    { id: "deepseek-r1", displayName: "DeepSeek R1", isReasoningModel: true },
+  ],
+} as const satisfies Record<string, readonly ModelInfo[]>;
+
 class AISDKService implements LLMService {
   private config: AISDKConfig;
-  private providerModels: Record<string, ModelInfo[]>;
+  private readonly providerModels = PROVIDER_MODELS;
 
   constructor(config: AISDKConfig) {
     this.config = config;
@@ -262,83 +326,26 @@ class AISDKService implements LLMService {
       process.env[`${provider.toUpperCase()}_API_KEY`] = apiKey;
     });
 
-    this.providerModels = {
-      openai: [
-        { id: "gpt-5.1", displayName: "GPT-5.1", isReasoningModel: true },
-        { id: "gpt-5.1-codex", displayName: "GPT-5.1 Codex", isReasoningModel: true },
-        { id: "gpt-5", displayName: "GPT-5", isReasoningModel: true },
-        { id: "gpt-5-pro", displayName: "GPT-5 Pro", isReasoningModel: true },
-        { id: "gpt-5-codex", displayName: "GPT-5 Codex", isReasoningModel: true },
-        { id: "gpt-5-mini", displayName: "GPT-5 Mini", isReasoningModel: true },
-        { id: "gpt-5-nano", displayName: "GPT-5 Nano", isReasoningModel: true },
-        { id: "gpt-4.1", displayName: "GPT-4.1", isReasoningModel: true },
-        { id: "gpt-4.1-mini", displayName: "GPT-4.1 Mini", isReasoningModel: true },
-        { id: "gpt-4.1-nano", displayName: "GPT-4.1 Nano", isReasoningModel: true },
-        { id: "gpt-4o", displayName: "GPT-4o", isReasoningModel: false },
-        { id: "gpt-4o-mini", displayName: "GPT-4o Mini", isReasoningModel: false },
-        { id: "o4-mini", displayName: "o4-mini", isReasoningModel: true },
-      ],
-      anthropic: [
-        { id: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5", isReasoningModel: true },
-        { id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", isReasoningModel: true },
-        { id: "claude-opus-4-1", displayName: "Claude Opus 4.1", isReasoningModel: true },
-      ],
-      google: [
-        { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", isReasoningModel: true },
-        { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", isReasoningModel: true },
-        {
-          id: "gemini-2.5-flash-lite",
-          displayName: "Gemini 2.5 Flash Lite",
-          isReasoningModel: true,
-        },
-        { id: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash", isReasoningModel: false },
-      ],
-      mistral: [
-        { id: "mistral-large-latest", displayName: "Mistral Large", isReasoningModel: false },
-        { id: "mistral-medium-latest", displayName: "Mistral Medium", isReasoningModel: false },
-        { id: "mistral-small-latest", displayName: "Mistral Small", isReasoningModel: false },
-        { id: "magistral-medium-2506", displayName: "Magistral Medium", isReasoningModel: true },
-        { id: "magistral-small-2506", displayName: "Magistral Small", isReasoningModel: true },
-      ],
-      xai: [
-        {
-          id: "grok-4-fast-non-reasoning",
-          displayName: "Grok 4 Fast (Non-Reasoning)",
-          isReasoningModel: false,
-        },
-        {
-          id: "grok-4-fast-reasoning",
-          displayName: "Grok 4 Fast (Reasoning)",
-          isReasoningModel: true,
-        },
-        { id: "grok-4", displayName: "Grok 4", isReasoningModel: false },
-        { id: "grok-code-fast-1", displayName: "Grok 4 (0709)", isReasoningModel: true },
-        { id: "grok-3", displayName: "Grok 3", isReasoningModel: true },
-        { id: "grok-3-mini", displayName: "Grok 3 Mini", isReasoningModel: true },
-      ],
-      deepseek: [{ id: "deepseek-chat", displayName: "DeepSeek Chat", isReasoningModel: false }],
-      ollama: [
-        { id: "llama4", displayName: "Llama 4", isReasoningModel: false },
-        { id: "llama3", displayName: "Llama 3", isReasoningModel: false },
-        { id: "qwq", displayName: "QWQ", isReasoningModel: false },
-        { id: "deepseek-r1", displayName: "DeepSeek R1", isReasoningModel: true },
-      ],
-    };
   }
 
-  getProvider(
+  private isProviderName(name: string): name is keyof typeof this.providerModels {
+    return Object.hasOwn(this.providerModels, name);
+  }
+
+  readonly getProvider: LLMService["getProvider"] & ((
     providerName: keyof typeof this.providerModels,
-  ): Effect.Effect<LLMProvider, LLMConfigurationError> {
+  ) => Effect.Effect<LLMProvider, LLMConfigurationError>) = (providerName: string) => {
     return Effect.try({
       try: () => {
-        if (!this.providerModels[providerName]) {
+        if (!this.isProviderName(providerName)) {
           throw new LLMConfigurationError({ provider: providerName, message: `Provider not supported: ${providerName}` });
         }
 
+        const models = this.providerModels[providerName];
         const provider: LLMProvider = {
           name: providerName,
-          supportedModels: this.providerModels[providerName],
-          defaultModel: this.providerModels[providerName][0]?.id ?? "",
+          supportedModels: models.map((model) => ({ ...model })),
+          defaultModel: models[0]?.id ?? "",
           authenticate: () =>
             Effect.try({
               try: () => {
@@ -364,11 +371,13 @@ class AISDKService implements LLMService {
           message: `Failed to get provider: ${error instanceof Error ? error.message : String(error)}`,
         }),
     });
-  }
+  };
 
   listProviders(): Effect.Effect<readonly string[], never> {
     const configuredProviders = Object.keys(this.config.apiKeys);
-    const intersect = configuredProviders.filter((p) => this.providerModels[p]);
+    const intersect = configuredProviders.filter((provider): provider is keyof typeof this.providerModels =>
+      this.isProviderName(provider),
+    );
     return Effect.succeed(intersect);
   }
 
