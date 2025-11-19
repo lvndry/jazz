@@ -1,6 +1,7 @@
 import { Context, Effect } from "effect";
 import { LLMAuthenticationError, LLMConfigurationError, LLMError } from "../../core/types/errors";
 import type { ChatCompletionOptions, ChatCompletionResponse, ModelInfo } from "./models";
+import type { ProviderName } from "./providers";
 import type { StreamingResult } from "./streaming-types";
 
 /**
@@ -19,7 +20,7 @@ export interface LLMProvider {
 
 
 export interface LLMService {
-  readonly getProvider: (providerName: string) => Effect.Effect<LLMProvider, LLMConfigurationError>;
+  readonly getProvider: (providerName: ProviderName) => Effect.Effect<LLMProvider, LLMConfigurationError>;
   readonly listProviders: () => Effect.Effect<readonly string[], never>;
 
   /**
