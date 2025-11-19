@@ -1,13 +1,12 @@
 import { Effect } from "effect";
 import type { StreamEvent } from "../../services/llm/streaming-types";
 import { ToolCall } from "../../services/llm/tools";
-import type { StreamingConfig } from "../types";
+import type { ColorProfile, OutputMode, RenderTheme, StreamingConfig } from "../types";
 import { LLMError } from "../types/errors";
 import { MarkdownRenderer } from "./markdown-renderer";
-import type { ColorProfile, OutputMode, RenderTheme } from "./output-theme";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
-import { JSONWriter, QuietWriter, TerminalWriter } from "./output-writer";
+import { JSONWriter, TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
 import {
   formatToolArguments as formatToolArgumentsShared,
@@ -21,7 +20,7 @@ import {
 export interface DisplayConfig {
   readonly showThinking: boolean;
   readonly showToolExecution: boolean;
-  readonly mode: OutputMode;
+  readonly mode: OutputMode
   readonly colorProfile?: ColorProfile | undefined; // Auto-detect if not specified
 }
 
@@ -39,7 +38,7 @@ export interface OutputRendererConfig {
 /**
  * Output renderer for terminal display
  * Handles progressive rendering of streaming LLM responses
- * Supports multiple output modes: normal, quiet, verbose, json, accessible
+ * Supports multiple output modes: markdown, raw, json
  */
 export class OutputRenderer {
   private readonly writer: OutputWriter;
@@ -49,19 +48,21 @@ export class OutputRenderer {
   private readonly mode: OutputMode;
 
   constructor(private config: OutputRendererConfig) {
-    // Determine color profile
-    const colorProfile = config.displayConfig.colorProfile || detectColorProfile();
-
     // Determine output mode
-    this.mode = config.displayConfig.mode;
+    this.mode = config.displayConfig.mode ?? "markdown";
+
+    const isMarkdownMode = this.mode === "markdown";
+
+    // Determine color profile
+    const colorProfile: ColorProfile = isMarkdownMode
+      ? config.displayConfig.colorProfile || detectColorProfile()
+      : "none";
 
     // Create appropriate writer based on mode
     this.writer = this.createWriter(this.mode);
 
-    // Create theme (use no-color for json/accessible modes)
-    this.theme = createTheme(
-      this.mode === "json" || this.mode === "accessible" ? "none" : colorProfile,
-    );
+    // Create theme (disable colors for json/raw modes)
+    this.theme = createTheme(colorProfile);
 
     // Create thinking renderer
     this.thinkingRenderer = new ThinkingRenderer(this.theme);
@@ -72,13 +73,11 @@ export class OutputRenderer {
    */
   private createWriter(mode: OutputMode): OutputWriter {
     switch (mode) {
-      case "quiet":
-        return new QuietWriter();
       case "json":
         return new JSONWriter();
-      case "normal":
-      case "verbose":
-      case "accessible":
+      case "markdown":
+      case "raw":
+      default:
         return new TerminalWriter();
     }
   }
@@ -99,11 +98,6 @@ export class OutputRenderer {
    * Render an event to a string (pure function for easier testing)
    */
   private renderEvent(event: StreamEvent): string | null {
-    // In quiet mode, only show errors
-    if (this.mode === "quiet" && event.type !== "error") {
-      return null;
-    }
-
     switch (event.type) {
       case "stream_start":
         return this.renderStreamStart(event);
@@ -142,8 +136,8 @@ export class OutputRenderer {
 
       case "tool_call":
         // Tool call detected - execution will be handled by separate events
-        if (this.mode === "verbose") {
-          return this.renderToolCallVerbose(event.toolCall);
+        if (this.config.displayConfig.showToolExecution) {
+          return this.renderToolCallDetected(event.toolCall);
         }
         return null;
 
@@ -166,7 +160,7 @@ export class OutputRenderer {
         return null;
 
       case "usage_update":
-        if (this.mode === "verbose") {
+        if (this.config.showMetrics) {
           return this.renderUsageUpdate(event);
         }
         return null;
@@ -202,32 +196,23 @@ export class OutputRenderer {
   }
 
   private renderTextChunk(delta: string): string {
-    // Always use markdown rendering since LLMs output markdown
-    if (
-      this.config.streamingConfig.progressiveMarkdown &&
-      this.mode !== "json" &&
-      this.mode !== "accessible"
-    ) {
-      // Use markdown renderer with buffering
+    if (this.mode === "markdown") {
       const bufferMs = this.config.streamingConfig.textBufferMs ?? 50;
       try {
         const rendered: string = MarkdownRenderer.renderChunk(delta, bufferMs);
         return rendered;
       } catch (error) {
         // Fallback to plain text if markdown rendering fails
-        // Log warning in verbose mode
-        if (this.mode === "verbose") {
-          console.warn("Markdown rendering failed:", error);
-        }
+        console.warn("Markdown rendering failed:", error);
         return delta;
       }
-    } else {
-      // Plain text streaming for accessible/json modes
-      return delta;
     }
+
+    // Plain text streaming for json/raw modes
+    return delta;
   }
 
-  private renderToolCallVerbose(toolCall: ToolCall): string {
+  private renderToolCallDetected(toolCall: ToolCall): string {
     const { colors, icons } = this.theme;
     return (
       "\n" +
@@ -318,11 +303,7 @@ export class OutputRenderer {
     };
   }): string {
     // Flush any remaining buffered markdown content
-    if (
-      this.config.streamingConfig.progressiveMarkdown &&
-      this.mode !== "json" &&
-      this.mode !== "accessible"
-    ) {
+    if (this.mode === "markdown") {
       try {
         const remaining: string = MarkdownRenderer.flushBuffer();
         if (remaining.length > 0) {
@@ -357,8 +338,8 @@ export class OutputRenderer {
       }
     }
 
-    // In verbose mode, show total duration
-    if (this.mode === "verbose") {
+    // Include total duration when metrics are enabled
+    if (this.config.showMetrics) {
       output += this.theme.colors.dim(`\n[Total duration: ${event.totalDurationMs}ms]\n`);
     }
 
@@ -407,4 +388,5 @@ export class OutputRenderer {
     return this.writer;
   }
 }
+
 

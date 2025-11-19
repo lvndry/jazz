@@ -228,14 +228,43 @@ export interface LinkupConfig {
 }
 
 /**
- * Output mode controls what content is displayed and how
+ * Output mode controls what content is displayed and how it is formatted
  */
-export type OutputMode = "normal" | "quiet" | "verbose" | "json" | "accessible";
+export type OutputMode = "markdown" | "json" | "raw";
 
 /**
  * Color profile for terminal output
  */
 export type ColorProfile = "full" | "basic" | "none";
+
+/**
+ * Theme configuration for rendering output
+ */
+export interface RenderTheme {
+  readonly colors: {
+    readonly thinking: (text: string) => string;
+    readonly thinkingContent: (text: string) => string;
+    readonly toolName: (text: string) => string;
+    readonly toolArgs: (text: string) => string;
+    readonly success: (text: string) => string;
+    readonly error: (text: string) => string;
+    readonly warning: (text: string) => string;
+    readonly info: (text: string) => string;
+    readonly dim: (text: string) => string;
+    readonly highlight: (text: string) => string;
+    readonly agentName: (text: string) => string;
+  };
+  readonly icons: {
+    readonly thinking: string;
+    readonly tool: string;
+    readonly success: string;
+    readonly error: string;
+    readonly warning: string;
+    readonly info: string;
+  };
+  readonly separatorWidth: number;
+  readonly separatorChar: string;
+}
 
 /**
  * Output/display configuration for CLI and terminal rendering
@@ -257,12 +286,10 @@ export interface OutputConfig {
 
   /**
    * Output mode
-   * - "normal": Standard output with colors and formatting (default)
-   * - "quiet": Suppress all output except errors
-   * - "verbose": Show detailed information including token usage
-   * - "json": Output structured JSON for programmatic consumption
-   * - "accessible": Plain text without colors or emojis
-   * Default: "normal"
+   * - "markdown": Rich, styled markdown output with colors (default)
+   * - "json": Structured JSON for programmatic consumption
+   * - "raw": Plain text stream without markdown formatting
+   * Default: "markdown"
    */
   readonly mode?: OutputMode;
 
@@ -293,13 +320,6 @@ export interface StreamingConfig {
    * - "auto": Auto-detect based on TTY (default)
    */
   readonly enabled?: boolean | "auto";
-
-  /**
-   * Enable progressive markdown rendering with formatting
-   * Only applies when streaming is enabled
-   * Default: true
-   */
-  readonly progressiveMarkdown?: boolean;
 
   /**
    * Text buffer delay in milliseconds

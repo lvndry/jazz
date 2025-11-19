@@ -112,15 +112,9 @@ function runCliEffect<R, E extends JazzError | Error>(
   effect: Effect.Effect<void, E, R>,
   debugFlag?: boolean,
 ): void {
-  const providedEffect = effect.pipe(Effect.provide(createAppLayer(debugFlag))) as Effect.Effect<
-    void,
-    E,
-    never
-  >;
-
   const managedEffect = Effect.scoped(
     Effect.gen(function* () {
-      const fiber = yield* Effect.fork(providedEffect);
+      const fiber = yield* Effect.fork(effect);
       let signalCount = 0;
       type SignalName = "SIGINT" | "SIGTERM";
 
@@ -166,7 +160,7 @@ function runCliEffect<R, E extends JazzError | Error>(
         return;
       }
     }),
-  );
+  ).pipe(Effect.provide(createAppLayer(debugFlag))) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect);
 }

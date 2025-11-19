@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { TerminalServiceTag } from "../../services/terminal";
 import type { JazzError } from "../types/errors";
 
 /**
@@ -525,14 +526,16 @@ export function formatError(error: JazzError): string {
  * yield* handleError(genericError);
  * ```
  */
-export function handleError(error: JazzError | Error): Effect.Effect<void> {
-  return Effect.sync(() => {
+export function handleError(error: JazzError | Error): Effect.Effect<void, never, import("../../services/terminal").TerminalService> {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+
     // Handle ExitPromptError from inquirer (Ctrl+C during prompts)
     if (
       error instanceof Error &&
       (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
     ) {
-      console.log("\n👋 Goodbye!");
+      yield* terminal.log("\n👋 Goodbye!");
       process.exit(0);
     }
 

@@ -8,6 +8,7 @@ import type { ConfigService } from "./config";
 import { AgentConfigService } from "./config";
 import type { LoggerService } from "./logger";
 import { resolveStorageDirectory } from "./storage/utils";
+import { TerminalServiceTag, type TerminalService } from "./terminal";
 
 // Helper function to extract HTTP status code from gaxios errors
 function getHttpStatusFromError(error: unknown): number | undefined {
@@ -174,6 +175,7 @@ export class GmailServiceResource implements GmailService {
     private oauthClient: InstanceType<typeof google.auth.OAuth2>,
     private gmail: gmail_v1.Gmail,
     private readonly requireCredentials: () => Effect.Effect<void, GmailAuthenticationError>,
+    private readonly terminal: TerminalService,
   ) {}
 
   authenticate(): Effect.Effect<void, GmailAuthenticationError> {
@@ -571,8 +573,10 @@ export class GmailServiceResource implements GmailService {
             void open(authUrl).catch(() => {
               // ignore browser open failures; user can copy URL
             });
-            // Also print URL to console for visibility in CLI
-            console.log(`Open this URL in your browser to authenticate with Google: ${authUrl}`);
+            // Also print URL to terminal for visibility in CLI
+            void Effect.runPromise(
+              this.terminal.log(`Open this URL in your browser to authenticate with Google: ${authUrl}`)
+            );
           });
         });
 
@@ -731,12 +735,13 @@ export const GmailServiceTag = Context.GenericTag<GmailService>("GmailService");
 export function createGmailServiceLayer(): Layer.Layer<
   GmailService,
   never,
-  FileSystem.FileSystem | ConfigService | LoggerService
+  FileSystem.FileSystem | ConfigService | LoggerService | TerminalService
 > {
   return Layer.effect(
     GmailServiceTag,
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
+      const terminal = yield* TerminalServiceTag;
 
       const agentConfig = yield* AgentConfigService;
       const appConfig = yield* agentConfig.appConfig;
@@ -769,6 +774,7 @@ export function createGmailServiceLayer(): Layer.Layer<
         oauth2Client,
         gmail,
         requireCredentials,
+        terminal,
       );
 
       return service;
