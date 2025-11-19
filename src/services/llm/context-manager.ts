@@ -163,6 +163,11 @@ export function findSummarizationPoint(
   maxRecentTokens?: number,
   preserveRecentMessages?: number,
 ): number {
+  const maxTokens = getModelContextLimit(model);
+
+  // Ensure targetTokens doesn't exceed the model's context limit
+  const actualTargetTokens = Math.min(targetTokens, maxTokens);
+
   let index = 0;
   let systemTokens = 0;
 
@@ -182,11 +187,14 @@ export function findSummarizationPoint(
   // Calculate how many recent messages to preserve
   // Reserve tokens for system message and summary message
   const reservedTokens = systemTokens + summaryTokens;
-  const availableForRecent = Math.max(0, targetTokens - reservedTokens);
+  const availableForRecent = Math.max(0, actualTargetTokens - reservedTokens);
+
+  // Default maxRecentTokens based on model context limit (10% of context window, but cap at reasonable values)
+  const defaultMaxRecentTokens = Math.min(Math.floor(maxTokens * 0.1), 2000);
 
   // Use the smaller of: maxRecentTokens or availableForRecent
   const maxRecentTokensToPreserve = Math.min(
-    maxRecentTokens ?? 2000,
+    maxRecentTokens ?? defaultMaxRecentTokens,
     availableForRecent,
   );
 
@@ -220,7 +228,7 @@ export function findSummarizationPoint(
   const totalTokens = systemTokens + summaryTokens + recentTokens;
 
   // If we're already over the target, we need to be more aggressive
-  if (totalTokens > targetTokens && recentMessageCount > 0) {
+  if (totalTokens > actualTargetTokens && recentMessageCount > 0) {
     // Reduce recent messages until we're under the target
     let adjustedRecentTokens = recentTokens;
     let adjustedRecentCount = recentMessageCount;
@@ -230,7 +238,7 @@ export function findSummarizationPoint(
       if (!message) continue;
 
       const messageTokens = estimateMessageTokens(message);
-      if (systemTokens + summaryTokens + adjustedRecentTokens - messageTokens <= targetTokens) {
+      if (systemTokens + summaryTokens + adjustedRecentTokens - messageTokens <= actualTargetTokens) {
         adjustedRecentCount--;
         adjustedRecentTokens -= messageTokens;
         break;
