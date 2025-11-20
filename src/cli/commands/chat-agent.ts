@@ -19,6 +19,7 @@ import {
 } from "../../core/agent/tools/register-tools";
 import type { ToolRegistry } from "../../core/agent/tools/tool-registry";
 import { ToolRegistryTag } from "../../core/agent/tools/tool-registry";
+import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -600,18 +601,30 @@ function handleSpecialCommand(
 
       case "tools": {
         const toolRegistry = yield* ToolRegistryTag;
-        const toolsByCategory = yield* toolRegistry.listToolsByCategory();
+        const allToolsByCategory = yield* toolRegistry.listToolsByCategory();
 
-        yield* terminal.heading("🔧 Available Tools by Category");
+        const agentToolNames = normalizeToolConfig(agent.config.tools, {
+          agentId: agent.id,
+        });
+        const agentToolSet = new Set(agentToolNames);
 
-        if (Object.keys(toolsByCategory).length === 0) {
-          yield* terminal.warn("No tools available.");
+        const filteredToolsByCategory: Record<string, readonly string[]> = {};
+        for (const [category, tools] of Object.entries(allToolsByCategory)) {
+          const filteredTools = tools.filter((tool) => agentToolSet.has(tool));
+          if (filteredTools.length > 0) {
+            filteredToolsByCategory[category] = filteredTools;
+          }
+        }
+
+        yield* terminal.heading(`🔧 Tools Available to ${agent.name}`);
+
+        if (Object.keys(filteredToolsByCategory).length === 0) {
+          yield* terminal.warn("This agent has no tools configured.");
         } else {
-          // Sort categories alphabetically
-          const sortedCategories = Object.keys(toolsByCategory).sort();
+          const sortedCategories = Object.keys(filteredToolsByCategory).sort();
 
           for (const category of sortedCategories) {
-            const tools = toolsByCategory[category];
+            const tools = filteredToolsByCategory[category];
             if (tools && tools.length > 0) {
               yield* terminal.log(
                 `   📁 ${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"}):`,
@@ -623,15 +636,16 @@ function handleSpecialCommand(
             }
           }
 
-          // Show total count
-          const totalTools = Object.values(toolsByCategory).reduce(
+          const totalTools = Object.values(filteredToolsByCategory).reduce(
             (sum, tools) => sum + (tools?.length || 0),
             0,
           );
+
           yield* terminal.log(
             `   Total: ${totalTools} tools across ${sortedCategories.length} categories`,
           );
         }
+
         yield* terminal.log("");
         return { shouldContinue: true };
       }
@@ -645,7 +659,7 @@ function handleSpecialCommand(
         return { shouldContinue: true };
 
       case "unknown":
-        yield* terminal.warn(`Unknown command: /${command.args.join(" ")}`);
+        yield* terminal.error(`Unknown command: /${command.args.join(" ")}`);
         yield* terminal.info("Type '/help' to see available commands.");
         yield* terminal.log("");
         return { shouldContinue: true };
@@ -708,25 +722,23 @@ function startChatLoop(
 
       const userMessage = answer.message as string;
 
-      // Check if user wants to exit
-      const trimmedMessage = userMessage.trim().toLowerCase();
-      if (trimmedMessage === "/exit" || trimmedMessage === "exit" || trimmedMessage === "quit") {
+      const trimmedMessage = userMessage.trim();
+      const lowerMessage = trimmedMessage.toLowerCase();
+      if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
         yield* terminal.info("👋 Goodbye!");
         chatActive = false;
         continue;
       }
 
-      // Ignore empty messages with a gentle hint
-      if (!userMessage || userMessage.trim().length === 0) {
+      if (!userMessage || trimmedMessage.length === 0) {
         yield* terminal.log(
           "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
         );
         continue;
       }
 
-      // Check for special commands
-      const specialCommand = parseSpecialCommand(userMessage);
-      if (specialCommand.type !== "unknown") {
+      if (trimmedMessage.startsWith("/")) {
+        const specialCommand = parseSpecialCommand(userMessage);
         const commandResult = yield* handleSpecialCommand(
           specialCommand,
           agent,
