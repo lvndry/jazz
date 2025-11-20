@@ -224,7 +224,7 @@ function main(): Effect.Effect<void, never> {
 
     agentCommand
       .command("create")
-      .description("Create a new AI chat agent (interactive mode)")
+      .description("Create a new agent (interactive mode)")
       .action(() => {
         const opts = program.opts();
         runCliEffect(createAIAgentCommand(), Boolean(opts["debug"]));
@@ -232,7 +232,7 @@ function main(): Effect.Effect<void, never> {
 
     agentCommand
       .command("create-quick <name>")
-      .description("Create a new task agent quickly with command line options")
+      .description("Create a new agent quickly with command line options")
       .option("-d, --description <description>", "Agent description")
       .option("-t, --timeout <timeout>", "Agent timeout in milliseconds", (value) =>
         parseInt(value, 10),
@@ -265,7 +265,7 @@ function main(): Effect.Effect<void, never> {
 
     agentCommand
       .command("run <agentId>")
-      .description("Run a task agent")
+      .description("Run an agent")
       .option("--watch", "Watch for changes")
       .option("--dry-run", "Show what would be executed without running")
       .action((agentId: string, options: { watch?: boolean; dryRun?: boolean }) => {
@@ -275,7 +275,7 @@ function main(): Effect.Effect<void, never> {
 
     agentCommand
       .command("get <agentId>")
-      .description("Get task agent details")
+      .description("Get an agent details")
       .action((agentId: string) => {
         const opts = program.opts();
         runCliEffect(getAgentCommand(agentId), Boolean(opts["debug"]));
@@ -285,20 +285,20 @@ function main(): Effect.Effect<void, never> {
       .command("delete <agentId>")
       .alias("remove")
       .alias("rm")
-      .description("Delete a task agent")
+      .description("Delete an agent")
       .action((agentId: string) => {
         const opts = program.opts();
         runCliEffect(deleteAgentCommand(agentId), Boolean(opts["debug"]));
       });
 
     agentCommand
-      .command("chat <agentRef>")
+      .command("chat <agentIdentifier>")
       .description("Start a chat with an AI agent by ID or name")
       .option("--stream", "Force streaming mode (real-time output)")
       .option("--no-stream", "Disable streaming mode")
       .action(
         (
-          agentRef: string,
+          agentIdentifier: string,
           options: {
             stream?: boolean;
             noStream?: boolean;
@@ -308,7 +308,7 @@ function main(): Effect.Effect<void, never> {
           const streamOption =
             options.noStream === true ? false : options.stream === true ? true : undefined;
           runCliEffect(
-            chatWithAIAgentCommand(agentRef, streamOption !== undefined ? { stream: streamOption } : {}),
+            chatWithAIAgentCommand(agentIdentifier, streamOption !== undefined ? { stream: streamOption } : {}),
             Boolean(opts["debug"]),
           );
         },
