@@ -473,25 +473,6 @@ jazz --config /path/to/config.json <command>
 
 ---
 
-## Environment Variables
-
-Override configuration with environment variables:
-
-```bash
-# LLM Provider API Keys
-export OPENAI_API_KEY="sk-..."
-export ANTHROPIC_API_KEY="sk-ant-..."
-export GOOGLE_GENERATIVE_AI_API_KEY="AIza..."
-
-# Configuration
-export JAZZ_CONFIG_PATH="/path/to/config.json"
-
-# Linkup
-export LINKUP_API_KEY="your-key"
-```
-
----
-
 ## Troubleshooting
 
 ### "No LLM providers configured"

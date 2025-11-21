@@ -2,6 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { Context, Effect, Layer, Option } from "effect";
 import type {
   AppConfig,
+  ExaConfig,
   GoogleConfig,
   LLMConfig,
   LinkupConfig,
@@ -135,11 +136,13 @@ function defaultConfig(): AppConfig {
   const llm: LLMConfig = {};
   const linkup: LinkupConfig = {
     apiKey: "",
-    baseUrl: "https://api.linkup.so",
-    timeout: 30000,
   };
 
-  return { storage, logging, google, llm, linkup };
+  const exa: ExaConfig = {
+    apiKey: "",
+  };
+
+  return { storage, logging, google, llm, linkup, exa };
 }
 
 function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig {
@@ -168,6 +171,7 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     ...(override.google && { google: { ...base.google, ...override.google } }),
     ...(override.llm && { llm: { ...(base.llm ?? {}), ...override.llm } }),
     ...(override.linkup && { linkup: { ...base.linkup, ...override.linkup } }),
+    ...(override.exa && { exa: { ...base.exa, ...override.exa } }),
   };
 }
 

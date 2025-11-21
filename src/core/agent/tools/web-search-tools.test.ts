@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { Effect, Layer } from "effect";
 import type { AppConfig } from "../../../core/types";
 import { AgentConfigService } from "../../../services/config";
+import { LoggerServiceTag } from "../../../services/logger";
 import { createWebSearchTool } from "./web-search-tools";
 
 // Mock the linkup-sdk
@@ -15,6 +16,16 @@ mockLinkupClient.mockImplementation(() => ({
 
 // Replace the LinkupClient import
 (globalThis as unknown as { LinkupClient: unknown }).LinkupClient = mockLinkupClient;
+
+// Mock exa-js
+const mockExaSearch = mock();
+mock.module("exa-js", () => {
+  return {
+    default: class {
+      search = mockExaSearch;
+    },
+  };
+});
 
 describe("WebSearchTool", () => {
   const mockAppConfig: AppConfig = {
@@ -53,7 +64,6 @@ describe("WebSearchTool", () => {
     const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
     expect(schema._def.shape).toHaveProperty("query");
     expect(schema._def.shape).toHaveProperty("depth");
-    expect(schema._def.shape).toHaveProperty("outputType");
     expect(schema._def.shape).toHaveProperty("includeImages");
   });
 
@@ -63,19 +73,33 @@ describe("WebSearchTool", () => {
     // Mock config service
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
-      getOrElse: vi.fn().mockReturnValue(Effect.succeed("default")),
-      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("Linkup API key not found"))),
+      getOrElse: vi.fn().mockImplementation((key) => {
+        if (key === "linkup.apiKey") return Effect.succeed("");
+        if (key === "exa.apiKey") return Effect.succeed("");
+        return Effect.succeed("default");
+      }),
+      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),
       has: vi.fn().mockReturnValue(Effect.succeed(false)),
       set: vi.fn().mockReturnValue(Effect.succeed(undefined)),
       appConfig: Effect.succeed(mockAppConfig),
     };
 
-    const mockLayer = Layer.succeed(AgentConfigService, mockConfigService);
+    const mockLoggerService = {
+      debug: vi.fn().mockReturnValue(Effect.void),
+      info: vi.fn().mockReturnValue(Effect.void),
+      warn: vi.fn().mockReturnValue(Effect.void),
+      error: vi.fn().mockReturnValue(Effect.void),
+      writeToFile: vi.fn().mockReturnValue(Effect.void),
+    };
+
+    const mockLayer = Layer.merge(
+      Layer.succeed(AgentConfigService, mockConfigService),
+      Layer.succeed(LoggerServiceTag, mockLoggerService),
+    );
 
     const validArgs = {
       query: "test search",
       depth: "standard" as const,
-      outputType: "sourcedAnswer" as const,
     };
     const validationResult = await Effect.runPromise(
       Effect.provide(tool.execute(validArgs, { agentId: "test" }), mockLayer),
@@ -89,20 +113,46 @@ describe("WebSearchTool", () => {
     expect(invalidResult).toBeDefined();
   });
 
-  it("should fallback to web search when Linkup fails", async () => {
+  it("should fallback to Exa when Linkup is unavailable", async () => {
     const tool = createWebSearchTool();
 
-    // Mock config service that doesn't have Linkup API key
+    // Mock config service: Linkup missing, Exa present
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
-      getOrElse: vi.fn().mockReturnValue(Effect.succeed("default")),
+      getOrElse: vi.fn().mockImplementation((key) => {
+        if (key === "linkup.apiKey") return Effect.succeed("");
+        if (key === "exa.apiKey") return Effect.succeed("exa-key");
+        return Effect.succeed("default");
+      }),
       getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("Linkup API key not found"))),
       has: vi.fn().mockReturnValue(Effect.succeed(false)),
       set: vi.fn().mockReturnValue(Effect.succeed(undefined)),
       appConfig: Effect.succeed(mockAppConfig),
     };
 
-    const mockLayer = Layer.succeed(AgentConfigService, mockConfigService);
+    const mockLoggerService = {
+      debug: vi.fn().mockReturnValue(Effect.void),
+      info: vi.fn().mockReturnValue(Effect.void),
+      warn: vi.fn().mockReturnValue(Effect.void),
+      error: vi.fn().mockReturnValue(Effect.void),
+      writeToFile: vi.fn().mockReturnValue(Effect.void),
+    };
+
+    const mockLayer = Layer.merge(
+      Layer.succeed(AgentConfigService, mockConfigService),
+      Layer.succeed(LoggerServiceTag, mockLoggerService),
+    );
+
+    // Mock Exa response
+    mockExaSearch.mockResolvedValue({
+      results: [
+        {
+          title: "Exa Result",
+          url: "https://exa.ai",
+          text: "This is a result from Exa",
+        },
+      ],
+    });
 
     const context = {
       agentId: "test-agent",
@@ -112,7 +162,6 @@ describe("WebSearchTool", () => {
     const args = {
       query: "test search",
       depth: "standard" as const,
-      outputType: "sourcedAnswer" as const,
     };
 
     const result = await Effect.runPromise(
@@ -127,10 +176,10 @@ describe("WebSearchTool", () => {
       query: string;
       results: Array<{ title: string }>;
     };
-    expect(searchResult.provider).toBe("web_search");
+    expect(searchResult.provider).toBe("exa");
     expect(searchResult.query).toBe("test search");
     expect(searchResult.results).toHaveLength(1);
-    expect(searchResult.results[0].title).toBe("Web Search Fallback");
+    expect(searchResult.results[0].title).toBe("Exa Result");
   });
 
   it("should create correct summary", () => {
