@@ -145,7 +145,7 @@ function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; ap
   if (llmConfig.mistral?.api_key) providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
   if (llmConfig.xai?.api_key) providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
   if (llmConfig.deepseek?.api_key) providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
-  if (llmConfig.ollama?.api_key) providers.push({ name: "ollama", apiKey: llmConfig.ollama.api_key });
+  providers.push({ name: "ollama", apiKey: llmConfig.ollama?.api_key ?? "" });
 
   return providers;
 }
