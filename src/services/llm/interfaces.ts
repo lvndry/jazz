@@ -18,7 +18,7 @@ export interface LLMProvider {
 
 export interface LLMService {
   readonly getProvider: (providerName: ProviderName) => Effect.Effect<LLMProvider, LLMConfigurationError>;
-  readonly listProviders: () => Effect.Effect<readonly string[], never>;
+  readonly listProviders: () => Effect.Effect<readonly { name: string; configured: boolean }[], never>;
 
   /**
    * Create a non-streaming chat completion

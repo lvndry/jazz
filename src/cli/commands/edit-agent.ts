@@ -164,7 +164,7 @@ export function editAgentCommand(
  */
 async function promptForAgentUpdates(
   currentAgent: Agent,
-  providers: readonly string[],
+  providers: readonly { name: string; configured: boolean }[],
   agentTypes: readonly string[],
   toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
   terminal: TerminalService,
@@ -281,8 +281,12 @@ async function promptForAgentUpdates(
         type: "list",
         name: "llmProvider",
         message: "Select LLM provider:",
-        choices: providers.map((provider) => ({ name: provider, value: provider })),
-        default: currentAgent.config.llmProvider || providers[0],
+        choices: providers.map((provider) => ({
+          name: provider.name,
+          value: provider.name,
+          disabled: provider.configured ? false : "API Key not configured",
+        })),
+        default: currentAgent.config.llmProvider || providers.find((p) => p.configured)?.name,
       },
     ]);
     answers.llmProvider = llmProvider;
