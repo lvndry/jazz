@@ -39,7 +39,7 @@ export function createWebSearchTool(): ReturnType<
   return defineTool<ConfigService | LoggerService, WebSearchArgs>({
     name: "web_search",
     description:
-      "Search the web for current, real-time information using the Linkup search engine (with fallback options). Returns high-quality search results with snippets and sources that you can use to synthesize answers. Supports different search depths (standard/deep). Use to find current events, recent information, or facts that may have changed since training data. Automatically falls back to alternative search methods if Linkup is unavailable.",
+      "Search the web for current, real-time information using Linkup or Exa search engine. Returns high-quality search results with snippets and sources that you can use to synthesize answers. Supports different search depths (standard/deep). Use to find current events, recent information, or facts that may have changed since training data.",
     tags: ["web", "search"],
     parameters: z
       .object({
