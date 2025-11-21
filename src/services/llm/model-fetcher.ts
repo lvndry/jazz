@@ -12,7 +12,7 @@ export interface ModelFetcherService {
 }
 
 // Provider-specific response transformers
-const PROVIDER_TRANSFORMERS: Record<ProviderName, (data: unknown) => ModelInfo[]> = {
+const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => ModelInfo[]>> = {
   ollama: (data: unknown) => {
     // Transform Ollama API response
     // Example: { models: [{ name: "llama3:latest", model: "llama3:latest", ... }] }
@@ -27,7 +27,7 @@ const PROVIDER_TRANSFORMERS: Record<ProviderName, (data: unknown) => ModelInfo[]
     return (response.models ?? []).map((model) => ({
       id: model.name,
       displayName: model.name,
-      isReasoningModel: false, // Could be inferred from model metadata in the future
+      isReasoningModel: false,
     }));
   },
 };
@@ -53,7 +53,9 @@ export function createModelFetcher(): ModelFetcherService {
 
           if (!response.ok) {
             if (response.status === 404) {
-              throw new Error("Failed to fetch models: No models found. Pull a model using `ollama pull` first.");
+              if (providerName === "ollama") {
+                throw new Error("Failed to fetch models: No models found. Pull a model using `ollama pull` first.");
+              }
             }
 
             throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);

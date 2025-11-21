@@ -8,7 +8,7 @@ export type ModelSource =
   | { type: "static"; models: readonly ModelInfo[] }
   | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
 
-export const PROVIDER_MODELS: Record<string, ModelSource> = {
+export const PROVIDER_MODELS = {
   openai: {
     type: "static",
     models: [
