@@ -4,7 +4,7 @@ import { google } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
 import { openai, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai } from "@ai-sdk/xai";
-import { createOllama, ollama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
+import { createOllama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 
 import {
   generateText,
@@ -37,7 +37,8 @@ import { AgentConfigService, type ConfigService } from "../config";
 import { writeLogToFile } from "../logger";
 import { ChatCompletionOptions, ChatCompletionResponse } from "./chat";
 import { LLMProvider, LLMService, LLMServiceTag } from "./interfaces";
-import { PROVIDER_MODELS, type ProviderName } from "./models";
+import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
+import { PROVIDER_MODELS, type ModelInfo, type ProviderName } from "./models";
 import { StreamProcessor } from "./stream-processor";
 import type { StreamEvent, StreamingResult } from "./streaming-types";
 
@@ -144,7 +145,7 @@ function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; ap
   if (llmConfig.mistral?.api_key) providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
   if (llmConfig.xai?.api_key) providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
   if (llmConfig.deepseek?.api_key) providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
-  if (llmConfig.ollama?.api_key) providers.push({ name: "ollama", apiKey: llmConfig.ollama.api_key });
+  providers.push({ name: "ollama", apiKey: llmConfig.ollama?.api_key ?? "" });
 
   return providers;
 }
@@ -165,11 +166,8 @@ function selectModel(providerName: string, modelId: ModelName, llmConfig?: LLMCo
       return (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
     case "ollama": {
       const headers = llmConfig?.ollama?.api_key ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` } : {};
-      if (llmConfig?.ollama?.base_url) {
-        const ollamaInstance = createOllama({ baseURL: llmConfig.ollama.base_url || "http://localhost:11434", headers });
-        return ollamaInstance(modelId);
-      }
-      return ollama(modelId);
+      const ollamaInstance = createOllama({ baseURL: "http://localhost:11434/api", headers });
+      return ollamaInstance(modelId);
     }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
@@ -263,7 +261,10 @@ function convertToLLMError(error: unknown, providerName: string): LLMError {
   } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
     llmError = new LLMRequestError({ provider: providerName, message: errorMessage });
   } else if (httpStatus && httpStatus >= 500) {
-    llmError = new LLMRequestError({ provider: providerName, message: `Server error (${httpStatus}): ${errorMessage}` });
+    llmError = new LLMRequestError({
+      provider: providerName,
+      message: `Server error (${httpStatus}): ${errorMessage}`,
+    });
   } else {
     if (
       errorMessage.toLowerCase().includes("authentication") ||
@@ -271,21 +272,24 @@ function convertToLLMError(error: unknown, providerName: string): LLMError {
     ) {
       llmError = new LLMAuthenticationError({ provider: providerName, message: errorMessage });
     } else {
-      llmError = new LLMRequestError({ provider: providerName, message: errorMessage || "Unknown LLM request error" });
+      llmError = new LLMRequestError({
+        provider: providerName,
+        message: errorMessage || "Unknown LLM request error",
+      });
     }
   }
 
   return llmError;
 }
 
-
-
 class AISDKService implements LLMService {
   private config: AISDKConfig;
   private readonly providerModels = PROVIDER_MODELS;
+  private readonly modelFetcher: ModelFetcherService;
 
   constructor(config: AISDKConfig) {
     this.config = config;
+    this.modelFetcher = createModelFetcher();
 
     // Export API keys to env for providers that read from env
     if (this.config.llmConfig) {
@@ -308,51 +312,82 @@ class AISDKService implements LLMService {
     return Object.hasOwn(this.providerModels, name);
   }
 
-  readonly getProvider: LLMService["getProvider"] = (providerName: ProviderName) => {
-    return Effect.try({
-      try: () => {
-        const models = this.providerModels[providerName];
-        const provider: LLMProvider = {
-          name: providerName,
-          supportedModels: models.map((model) => ({ ...model })),
-          defaultModel: models[0]?.id ?? "",
-          authenticate: () =>
-            Effect.try({
-              try: () => {
-                const apiKey = this.config.llmConfig?.[providerName]?.api_key;
+  private getProviderModels(
+    providerName: ProviderName,
+  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError> {
+    const modelSource = this.providerModels[providerName];
 
-                if (!apiKey) {
-                  // API Key is optional for Ollama
-                  if (providerName.toLowerCase() === "ollama") {
-                    return Effect.succeed(void 0);
-                  }
-                  throw new LLMAuthenticationError({ provider: providerName, message: "API key not configured" });
-                }
-                return Effect.succeed(apiKey);
-              },
-              catch: (error: unknown) =>
-                new LLMAuthenticationError({
-                  provider: providerName,
-                  message: error instanceof Error ? error.message : String(error),
-                }),
-            }),
-        };
-
-        return provider;
-      },
-      catch: (error: unknown) =>
+    if (!modelSource) {
+      return Effect.fail(
         new LLMConfigurationError({
           provider: providerName,
-          message: `Failed to get provider: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Unknown provider: ${providerName}`,
         }),
+      );
+    }
+
+    if (modelSource.type === "static") {
+      return Effect.succeed(modelSource.models);
+    }
+
+    const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
+    const baseUrl = modelSource.defaultBaseUrl;
+
+    if (!baseUrl) {
+      console.warn(
+        `[LLM Warning] Provider '${providerName}' requires dynamic model fetching but no defaultBaseUrl is defined. Skipping provider.`,
+      );
+      return Effect.succeed([]);
+    }
+
+    const apiKey = providerConfig?.api_key;
+
+    return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey);
+  }
+
+  readonly getProvider: LLMService["getProvider"] = (providerName: ProviderName) => {
+    return Effect.gen(this, function* () {
+      const models = yield* this.getProviderModels(providerName);
+
+      const provider: LLMProvider = {
+        name: providerName,
+        supportedModels: models.map((model) => ({ ...model })),
+        defaultModel: models[0]?.id ?? "",
+        authenticate: () =>
+          Effect.try({
+            try: () => {
+              const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
+              const apiKey = providerConfig?.api_key;
+
+              if (!apiKey) {
+                // API Key is optional for Ollama
+                if (providerName.toLowerCase() === "ollama") {
+                  return Effect.succeed(void 0);
+                }
+                throw new LLMAuthenticationError({
+                  provider: providerName,
+                  message: "API key not configured",
+                });
+              }
+              return Effect.succeed(apiKey);
+            },
+            catch: (error: unknown) =>
+              new LLMAuthenticationError({
+                provider: providerName,
+                message: error instanceof Error ? error.message : String(error),
+              }),
+          }),
+      };
+
+      return provider;
     });
   };
 
   listProviders(): Effect.Effect<readonly string[], never> {
     const configuredProviders = getConfiguredProviders(this.config.llmConfig);
     const providerNames = configuredProviders.map((p) => p.name);
-    const intersect = providerNames.filter((provider): provider is keyof typeof this.providerModels =>
-      this.isProviderName(provider),
+    const intersect = providerNames.filter(
+      (provider): provider is keyof typeof this.providerModels => this.isProviderName(provider),
     );
     return Effect.succeed(intersect);
   }
@@ -406,30 +441,14 @@ class AISDKService implements LLMService {
 
         // Extract tool calls if present
         if (result.toolCalls && result.toolCalls.length > 0) {
-          toolCalls = result.toolCalls.map((tc: TypedToolCall<ToolSet>) => {
-            // Handle both static and dynamic tool calls
-            if ("dynamic" in tc && tc.dynamic) {
-              // Dynamic tool call
-              return {
-                id: tc.toolCallId,
-                type: "function" as const,
-                function: {
-                  name: tc.toolName,
-                  arguments: JSON.stringify(tc.input ?? {}),
-                },
-              };
-            } else {
-              // Static tool call
-              return {
-                id: tc.toolCallId,
-                type: "function" as const,
-                function: {
-                  name: tc.toolName,
-                  arguments: JSON.stringify(tc.input ?? {}),
-                },
-              };
-            }
-          });
+          toolCalls = result.toolCalls.map((tc: TypedToolCall<ToolSet>) => ({
+            id: tc.toolCallId,
+            type: "function" as const,
+            function: {
+              name: tc.toolName,
+              arguments: JSON.stringify(tc.input ?? {}),
+            },
+          }));
         }
 
         const resultObj: ChatCompletionResponse = {
@@ -452,7 +471,12 @@ class AISDKService implements LLMService {
         };
 
         if (error instanceof Error) {
-          const e = error as Error & { code?: string; status?: number; statusCode?: number; type?: string };
+          const e = error as Error & {
+            code?: string;
+            status?: number;
+            statusCode?: number;
+            type?: string;
+          };
           if (e.code) errorDetails["code"] = e.code;
           if (e.status) errorDetails["status"] = e.status;
           if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
@@ -460,7 +484,11 @@ class AISDKService implements LLMService {
         }
 
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+        void writeLogToFile(
+          "error",
+          `LLM Error: ${llmError._tag} - ${llmError.message}`,
+          errorDetails,
+        );
 
         return llmError;
       },
@@ -494,13 +522,17 @@ class AISDKService implements LLMService {
     const responseDeferred = createDeferred<ChatCompletionResponse>();
 
     const stream = Stream.async<StreamEvent, LLMError>(
-      (emit: (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void) => {
+      (
+        emit: (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void,
+      ) => {
         void (async (): Promise<void> => {
           try {
             const result = streamText({
               model,
               messages: toCoreMessages(options.messages),
-              ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
+              ...(typeof options.temperature === "number"
+                ? { temperature: options.temperature }
+                : {}),
               ...(tools ? { tools } : {}),
               ...(providerOptions ? { providerOptions } : {}),
               abortSignal: abortController.signal,
@@ -511,7 +543,9 @@ class AISDKService implements LLMService {
               {
                 providerName,
                 modelName: options.model,
-                hasReasoningEnabled: !!(options.reasoning_effort && options.reasoning_effort !== "disable"),
+                hasReasoningEnabled: !!(
+                  options.reasoning_effort && options.reasoning_effort !== "disable"
+                ),
                 startTime: Date.now(),
               },
               emit,
@@ -535,7 +569,12 @@ class AISDKService implements LLMService {
             };
 
             if (error instanceof Error) {
-              const e = error as Error & { code?: string; status?: number; statusCode?: number; type?: string };
+              const e = error as Error & {
+                code?: string;
+                status?: number;
+                statusCode?: number;
+                type?: string;
+              };
               if (e.code) errorDetails["code"] = e.code;
               if (e.status) errorDetails["status"] = e.status;
               if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
@@ -552,7 +591,11 @@ class AISDKService implements LLMService {
 
             console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
 
-            void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+            void writeLogToFile(
+              "error",
+              `LLM Error: ${llmError._tag} - ${llmError.message}`,
+              errorDetails,
+            );
             void emit(Effect.fail(Option.some(llmError)));
 
             responseDeferred.reject(llmError);
@@ -586,7 +629,11 @@ class AISDKService implements LLMService {
         }
 
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+        void writeLogToFile(
+          "error",
+          `LLM Error: ${llmError._tag} - ${llmError.message}`,
+          errorDetails,
+        );
 
         return Effect.fail(llmError);
       }),
@@ -610,7 +657,8 @@ export function createAISDKServiceLayer(): Layer.Layer<
         return yield* Effect.fail(
           new LLMConfigurationError({
             provider: "unknown",
-            message: "No LLM API keys configured. Set config.llm.<provider>.api_key or env (e.g., OPENAI_API_KEY).",
+            message:
+              "No LLM API keys configured. Set config.llm.<provider>.api_key or env (e.g., OPENAI_API_KEY).",
           }),
         );
       }
