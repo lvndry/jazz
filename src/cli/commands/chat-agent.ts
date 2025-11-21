@@ -123,15 +123,6 @@ export function createAIAgentCommand(): Effect.Effect<
     const llmService = yield* LLMServiceTag;
     const providers = yield* llmService.listProviders();
 
-    if (providers.length === 0) {
-      return yield* Effect.fail(
-        new LLMConfigurationError({
-          provider: "no_providers",
-          message: "No LLM providers configured. Set an API key for at least one provider in the config.",
-        }),
-      );
-    }
-
     // Get available agent types
     const agentTypes = yield* agentPromptBuilder.listTemplates();
 
@@ -218,7 +209,7 @@ export function createAIAgentCommand(): Effect.Effect<
  * Prompt for basic agent information
  */
 async function promptForAgentInfo(
-  providers: readonly string[],
+  providers: readonly { name: string; configured: boolean }[],
   agentTypes: readonly string[],
   toolsByCategory: Record<string, readonly string[]>, //{ displayName: string[] }
   llmService: LLMService,
@@ -298,8 +289,12 @@ async function promptForAgentInfo(
       type: "list",
       name: "llmProvider",
       message: "Which LLM provider would you like to use?",
-      choices: providers,
-      default: providers[0],
+      choices: providers.map((p) => ({
+        name: p.name,
+        value: p.name,
+        disabled: p.configured ? false : "- API key not configured",
+      })),
+      default: providers.find((p) => p.configured)?.name,
     },
   ];
 

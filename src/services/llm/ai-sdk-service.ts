@@ -383,13 +383,18 @@ class AISDKService implements LLMService {
     });
   };
 
-  listProviders(): Effect.Effect<readonly string[], never> {
+  listProviders(): Effect.Effect<readonly { name: string; configured: boolean }[], never> {
     const configuredProviders = getConfiguredProviders(this.config.llmConfig);
-    const providerNames = configuredProviders.map((p) => p.name);
-    const intersect = providerNames.filter(
-      (provider): provider is keyof typeof this.providerModels => this.isProviderName(provider),
-    );
-    return Effect.succeed(intersect);
+    const configuredNames = new Set(configuredProviders.map((p) => p.name));
+
+    const allProviders = Object.keys(this.providerModels).filter((provider): provider is keyof typeof this.providerModels =>
+      this.isProviderName(provider)
+    ).map(name => ({
+      name,
+      configured: configuredNames.has(name)
+    }));
+
+    return Effect.succeed(allProviders);
   }
 
   createChatCompletion(
