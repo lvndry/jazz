@@ -37,7 +37,8 @@ import { AgentConfigService, type ConfigService } from "../config";
 import { writeLogToFile } from "../logger";
 import { ChatCompletionOptions, ChatCompletionResponse } from "./chat";
 import { LLMProvider, LLMService, LLMServiceTag } from "./interfaces";
-import { PROVIDER_MODELS, type ProviderName } from "./models";
+import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
+import { PROVIDER_MODELS, type ModelInfo, type ProviderName } from "./models";
 import { StreamProcessor } from "./stream-processor";
 import type { StreamEvent, StreamingResult } from "./streaming-types";
 
@@ -283,9 +284,11 @@ function convertToLLMError(error: unknown, providerName: string): LLMError {
 class AISDKService implements LLMService {
   private config: AISDKConfig;
   private readonly providerModels = PROVIDER_MODELS;
+  private readonly modelFetcher: ModelFetcherService;
 
   constructor(config: AISDKConfig) {
     this.config = config;
+    this.modelFetcher = createModelFetcher();
 
     // Export API keys to env for providers that read from env
     if (this.config.llmConfig) {
@@ -308,43 +311,74 @@ class AISDKService implements LLMService {
     return Object.hasOwn(this.providerModels, name);
   }
 
-  readonly getProvider: LLMService["getProvider"] = (providerName: ProviderName) => {
-    return Effect.try({
-      try: () => {
-        const models = this.providerModels[providerName];
-        const provider: LLMProvider = {
-          name: providerName,
-          supportedModels: models.map((model) => ({ ...model })),
-          defaultModel: models[0]?.id ?? "",
-          authenticate: () =>
-            Effect.try({
-              try: () => {
-                const apiKey = this.config.llmConfig?.[providerName]?.api_key;
+  private getProviderModels(
+    providerName: ProviderName,
+  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError> {
+    const modelSource = this.providerModels[providerName];
 
-                if (!apiKey) {
-                  // API Key is optional for Ollama
-                  if (providerName.toLowerCase() === "ollama") {
-                    return Effect.succeed(void 0);
-                  }
-                  throw new LLMAuthenticationError({ provider: providerName, message: "API key not configured" });
-                }
-                return Effect.succeed(apiKey);
-              },
-              catch: (error: unknown) =>
-                new LLMAuthenticationError({
-                  provider: providerName,
-                  message: error instanceof Error ? error.message : String(error),
-                }),
-            }),
-        };
-
-        return provider;
-      },
-      catch: (error: unknown) =>
+    if (!modelSource) {
+      return Effect.fail(
         new LLMConfigurationError({
           provider: providerName,
-          message: `Failed to get provider: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Unknown provider: ${providerName}`,
         }),
+      );
+    }
+
+    if (modelSource.type === "static") {
+      return Effect.succeed(modelSource.models);
+    }
+
+    const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig] as
+      | { api_key?: string; base_url?: string }
+      | undefined;
+
+    const baseUrl = providerConfig?.base_url ?? modelSource.defaultBaseUrl;
+
+    if (!baseUrl) {
+      console.warn(
+        `[LLM Warning] Provider '${providerName}' requires dynamic model fetching but no base_url is configured and no default is available. Skipping provider.`,
+      );
+      return Effect.succeed([]);
+    }
+
+    const apiKey = providerConfig?.api_key;
+
+    return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey);
+  }
+
+  readonly getProvider: LLMService["getProvider"] = (providerName: ProviderName) => {
+    return Effect.gen(this, function* () {
+      const models = yield* this.getProviderModels(providerName);
+
+      const provider: LLMProvider = {
+        name: providerName,
+        supportedModels: models.map((model) => ({ ...model })),
+        defaultModel: models[0]?.id ?? "",
+        authenticate: () =>
+          Effect.try({
+            try: () => {
+              const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig]
+              const apiKey = providerConfig?.api_key;
+
+              if (!apiKey) {
+                // API Key is optional for Ollama
+                if (providerName.toLowerCase() === "ollama") {
+                  return Effect.succeed(void 0);
+                }
+                throw new LLMAuthenticationError({ provider: providerName, message: "API key not configured" });
+              }
+              return Effect.succeed(apiKey);
+            },
+            catch: (error: unknown) =>
+              new LLMAuthenticationError({
+                provider: providerName,
+                message: error instanceof Error ? error.message : String(error),
+              }),
+          }),
+      };
+
+      return provider;
     });
   };
 

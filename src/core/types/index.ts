@@ -152,6 +152,7 @@ export interface AppConfig {
   readonly logging: LoggingConfig;
   readonly google?: GoogleConfig;
   readonly llm?: LLMConfig;
+  readonly contextManagement?: ContextManagementConfig;
   readonly linkup?: LinkupConfig;
   readonly exa?: ExaConfig;
   readonly output?: OutputConfig;
@@ -215,7 +216,6 @@ export interface LLMConfig {
   readonly xai?: XAIProviderConfig;
   readonly deepseek?: DeepSeekProviderConfig;
   readonly ollama?: OllamaProviderConfig;
-  readonly contextManagement?: ContextManagementConfig;
 }
 
 export interface ContextManagementConfig {
