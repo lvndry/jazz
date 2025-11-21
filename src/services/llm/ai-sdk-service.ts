@@ -132,30 +132,6 @@ type ModelName = string;
 type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
 
 /**
- * Extract API key for a provider from LLMConfig
- */
-function getProviderAPIKey(providerName: string, llmConfig?: LLMConfig): string | undefined {
-  if (!llmConfig) return undefined;
-
-  switch (providerName.toLowerCase()) {
-    case "openai":
-      return llmConfig.openai?.api_key;
-    case "anthropic":
-      return llmConfig.anthropic?.api_key;
-    case "google":
-      return llmConfig.google?.api_key;
-    case "mistral":
-      return llmConfig.mistral?.api_key;
-    case "xai":
-      return llmConfig.xai?.api_key;
-    case "deepseek":
-      return llmConfig.deepseek?.api_key;
-    default:
-      return undefined;
-  }
-}
-
-/**
  * Extract all configured providers from LLMConfig
  */
 function getConfiguredProviders(llmConfig?: LLMConfig): readonly string[] {
@@ -168,6 +144,7 @@ function getConfiguredProviders(llmConfig?: LLMConfig): readonly string[] {
   if (llmConfig.mistral?.api_key) providers.push("mistral");
   if (llmConfig.xai?.api_key) providers.push("xai");
   if (llmConfig.deepseek?.api_key) providers.push("deepseek");
+  if (llmConfig.ollama?.api_key) providers.push("ollama");
 
   return providers;
 }
@@ -364,7 +341,8 @@ class AISDKService implements LLMService {
           authenticate: () =>
             Effect.try({
               try: () => {
-                const apiKey = getProviderAPIKey(providerName, this.config.llmConfig);
+                const apiKey = this.config.llmConfig?.[providerName]?.api_key;
+
                 if (!apiKey) {
                   // API Key is optional for Ollama
                   if (providerName.toLowerCase() === "ollama") {
