@@ -74,8 +74,8 @@ describe("WebSearchTool", () => {
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
       getOrElse: vi.fn().mockImplementation((key) => {
-        if (key === "linkup.apiKey") return Effect.succeed("");
-        if (key === "exa.apiKey") return Effect.succeed("");
+        if (key === "linkup.api_key") return Effect.succeed("");
+        if (key === "exa.api_key") return Effect.succeed("");
         return Effect.succeed("default");
       }),
       getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),
@@ -120,8 +120,8 @@ describe("WebSearchTool", () => {
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
       getOrElse: vi.fn().mockImplementation((key) => {
-        if (key === "linkup.apiKey") return Effect.succeed("");
-        if (key === "exa.apiKey") return Effect.succeed("exa-key");
+        if (key === "linkup.api_key") return Effect.succeed("");
+        if (key === "exa.api_key") return Effect.succeed("exa-key");
         return Effect.succeed("default");
       }),
       getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("Linkup API key not found"))),

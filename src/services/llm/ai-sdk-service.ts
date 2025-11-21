@@ -4,7 +4,7 @@ import { google } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
 import { openai, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai } from "@ai-sdk/xai";
-import { ollama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
+import { createOllama, ollama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 
 import {
   generateText,
@@ -31,6 +31,7 @@ import {
   LLMRateLimitError,
   LLMRequestError,
 } from "../../core/types/errors";
+import type { LLMConfig } from "../../core/types/index";
 import { safeParseJson } from "../../core/utils/json";
 import { AgentConfigService, type ConfigService } from "../config";
 import { writeLogToFile } from "../logger";
@@ -41,7 +42,7 @@ import { StreamProcessor } from "./stream-processor";
 import type { StreamEvent, StreamingResult } from "./streaming-types";
 
 interface AISDKConfig {
-  apiKeys: Record<string, string>;
+  llmConfig?: LLMConfig;
 }
 
 function parseToolArguments(input: string): Record<string, unknown> {
@@ -130,7 +131,25 @@ function toCoreMessages(
 type ModelName = string;
 type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
 
-function selectModel(providerName: string, modelId: ModelName): LanguageModel {
+/**
+ * Extract all configured providers from LLMConfig with their API keys
+ */
+function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; apiKey: string }> {
+  if (!llmConfig) return [];
+  const providers: Array<{ name: string; apiKey: string }> = [];
+
+  if (llmConfig.openai?.api_key) providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
+  if (llmConfig.anthropic?.api_key) providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
+  if (llmConfig.google?.api_key) providers.push({ name: "google", apiKey: llmConfig.google.api_key });
+  if (llmConfig.mistral?.api_key) providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
+  if (llmConfig.xai?.api_key) providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
+  if (llmConfig.deepseek?.api_key) providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
+  if (llmConfig.ollama?.api_key) providers.push({ name: "ollama", apiKey: llmConfig.ollama.api_key });
+
+  return providers;
+}
+
+function selectModel(providerName: string, modelId: ModelName, llmConfig?: LLMConfig): LanguageModel {
   switch (providerName.toLowerCase()) {
     case "openai":
       return openai(modelId);
@@ -144,8 +163,14 @@ function selectModel(providerName: string, modelId: ModelName): LanguageModel {
       return xai(modelId);
     case "deepseek":
       return (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
-    case "ollama":
+    case "ollama": {
+      const headers = llmConfig?.ollama?.api_key ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` } : {};
+      if (llmConfig?.ollama?.base_url) {
+        const ollamaInstance = createOllama({ baseURL: llmConfig.ollama.base_url || "http://localhost:11434", headers });
+        return ollamaInstance(modelId);
+      }
       return ollama(modelId);
+    }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
   }
@@ -263,17 +288,20 @@ class AISDKService implements LLMService {
     this.config = config;
 
     // Export API keys to env for providers that read from env
-    Object.entries(this.config.apiKeys).forEach(([provider, apiKey]) => {
-      if (this.isProviderName(provider)) {
-        if (provider === "google") {
-          // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
-          process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
-        } else {
-          process.env[`${provider.toUpperCase()}_API_KEY`] = apiKey;
-        }
-      }
-    });
+    if (this.config.llmConfig) {
+      const providers = getConfiguredProviders(this.config.llmConfig);
 
+      providers.forEach(({ name, apiKey }) => {
+        if (this.isProviderName(name)) {
+          if (name === "google") {
+            // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
+            process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
+          } else {
+            process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
+          }
+        }
+      });
+    }
   }
 
   private isProviderName(name: string): name is keyof typeof this.providerModels {
@@ -291,10 +319,16 @@ class AISDKService implements LLMService {
           authenticate: () =>
             Effect.try({
               try: () => {
-                const apiKey = this.config.apiKeys[providerName];
+                const apiKey = this.config.llmConfig?.[providerName]?.api_key;
+
                 if (!apiKey) {
+                  // API Key is optional for Ollama
+                  if (providerName.toLowerCase() === "ollama") {
+                    return Effect.succeed(void 0);
+                  }
                   throw new LLMAuthenticationError({ provider: providerName, message: "API key not configured" });
                 }
+                return Effect.succeed(apiKey);
               },
               catch: (error: unknown) =>
                 new LLMAuthenticationError({
@@ -302,7 +336,6 @@ class AISDKService implements LLMService {
                   message: error instanceof Error ? error.message : String(error),
                 }),
             }),
-          createChatCompletion: (options) => this.createChatCompletion(providerName, options),
         };
 
         return provider;
@@ -316,8 +349,9 @@ class AISDKService implements LLMService {
   };
 
   listProviders(): Effect.Effect<readonly string[], never> {
-    const configuredProviders = Object.keys(this.config.apiKeys);
-    const intersect = configuredProviders.filter((provider): provider is keyof typeof this.providerModels =>
+    const configuredProviders = getConfiguredProviders(this.config.llmConfig);
+    const providerNames = configuredProviders.map((p) => p.name);
+    const intersect = providerNames.filter((provider): provider is keyof typeof this.providerModels =>
       this.isProviderName(provider),
     );
     return Effect.succeed(intersect);
@@ -329,7 +363,7 @@ class AISDKService implements LLMService {
   ): Effect.Effect<ChatCompletionResponse, LLMError> {
     return Effect.tryPromise({
       try: async () => {
-        const model = selectModel(providerName, options.model);
+        const model = selectModel(providerName, options.model, this.config.llmConfig);
 
         // Prepare tools for AI SDK if present
         let tools: ToolSet | undefined;
@@ -437,7 +471,7 @@ class AISDKService implements LLMService {
     providerName: string,
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
-    const model = selectModel(providerName, options.model);
+    const model = selectModel(providerName, options.model, this.config.llmConfig);
 
     // Prepare tools for AI SDK if present
     let tools: ToolSet | undefined;
@@ -571,25 +605,8 @@ export function createAISDKServiceLayer(): Layer.Layer<
       const configService = yield* AgentConfigService;
       const appConfig = yield* configService.appConfig;
 
-      const apiKeys: Record<string, string> = {};
-
-      const openAIAPIKey = appConfig.llm?.openai?.api_key;
-      if (openAIAPIKey) apiKeys["openai"] = openAIAPIKey;
-
-      const anthropicAPIKey = appConfig.llm?.anthropic?.api_key;
-      if (anthropicAPIKey) apiKeys["anthropic"] = anthropicAPIKey;
-
-      const geminiAPIKey = appConfig.llm?.google?.api_key;
-      if (geminiAPIKey) apiKeys["google"] = geminiAPIKey;
-
-      const mistralAPIKey = appConfig.llm?.mistral?.api_key;
-      if (mistralAPIKey) apiKeys["mistral"] = mistralAPIKey;
-
-      const xaiAPIKey = appConfig.llm?.xai?.api_key;
-      if (xaiAPIKey) apiKeys["xai"] = xaiAPIKey;
-
-      const providers = Object.keys(apiKeys);
-      if (providers.length === 0) {
+      const configuredProviders = getConfiguredProviders(appConfig.llm);
+      if (configuredProviders.length === 0) {
         return yield* Effect.fail(
           new LLMConfigurationError({
             provider: "unknown",
@@ -598,7 +615,9 @@ export function createAISDKServiceLayer(): Layer.Layer<
         );
       }
 
-      const cfg: AISDKConfig = { apiKeys };
+      const cfg: AISDKConfig = {
+        ...(appConfig.llm ? { llmConfig: appConfig.llm } : {}),
+      };
       return new AISDKService(cfg);
     }),
   );

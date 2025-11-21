@@ -84,7 +84,7 @@ export function createWebSearchTool(): ReturnType<
         const logger = yield* LoggerServiceTag;
 
         // Try Linkup if API key is present
-        const linkupKey = yield* config.getOrElse("linkup.apiKey", "");
+        const linkupKey = yield* config.getOrElse("linkup.api_key", "");
         if (linkupKey) {
           yield* logger.info("Attempting search with Linkup provider...");
           const linkupResult = yield* executeLinkupSearch(args, linkupKey).pipe(
@@ -104,7 +104,7 @@ export function createWebSearchTool(): ReturnType<
         }
 
         // Try Exa if API key is present
-        const exaKey = yield* config.getOrElse("exa.apiKey", "");
+        const exaKey = yield* config.getOrElse("exa.api_key", "");
         if (exaKey) {
           yield* logger.info("Attempting search with Exa provider...");
           const exaResult = yield* executeExaSearch(args, exaKey).pipe(
@@ -127,7 +127,7 @@ export function createWebSearchTool(): ReturnType<
           return {
             success: false,
             result: null,
-            error: "No search provider API keys found. Please configure 'linkup.apiKey' or 'exa.apiKey'.",
+            error: "No search provider API keys found. Please configure 'linkup.api_key' or 'exa.api_key'.",
           };
         }
 

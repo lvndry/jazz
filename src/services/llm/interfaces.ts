@@ -13,9 +13,6 @@ export interface LLMProvider {
   readonly supportedModels: ModelInfo[];
   readonly defaultModel: string;
   readonly authenticate: () => Effect.Effect<void, LLMAuthenticationError>;
-  readonly createChatCompletion: (
-    options: ChatCompletionOptions,
-  ) => Effect.Effect<ChatCompletionResponse, LLMError>;
 }
 
 
