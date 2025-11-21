@@ -166,7 +166,7 @@ function selectModel(providerName: string, modelId: ModelName, llmConfig?: LLMCo
       return (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
     case "ollama": {
       const headers = llmConfig?.ollama?.api_key ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` } : {};
-      const ollamaInstance = createOllama({ baseURL: "http://localhost:11434", headers });
+      const ollamaInstance = createOllama({ baseURL: "http://localhost:11434/api", headers });
       return ollamaInstance(modelId);
     }
     default:
