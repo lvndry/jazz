@@ -202,6 +202,11 @@ export interface DeepSeekProviderConfig {
   readonly api_key: string;
 }
 
+export interface OllamaProviderConfig {
+  readonly api_key?: string;
+  readonly baseURL?: string;
+}
+
 export interface LLMConfig {
   readonly openai?: LLMProviderConfig;
   readonly anthropic?: LLMProviderConfig;
@@ -209,6 +214,7 @@ export interface LLMConfig {
   readonly mistral?: LLMProviderConfig;
   readonly xai?: XAIProviderConfig;
   readonly deepseek?: DeepSeekProviderConfig;
+  readonly ollama?: OllamaProviderConfig;
   readonly contextManagement?: ContextManagementConfig;
 }
 
