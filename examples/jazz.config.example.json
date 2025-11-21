@@ -30,6 +30,10 @@
     "apiKey": "your-linkup-api-key-here",
     "baseUrl": "https://api.linkup.so"
   },
+  "exa": {
+    "apiKey": "your-exa-api-key-here",
+    "baseUrl": "https://api.exa.ai"
+  },
   "logging": {
     "level": "info",
     "format": "pretty",

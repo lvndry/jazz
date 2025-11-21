@@ -581,13 +581,12 @@ Search the internet for current information.
 
 #### `web_search`
 
-Search the web via Linkup.
+Search the web via Linkup or Exa.
 
 **Parameters:**
 
 - `query` (required): Search query
 - `depth` (optional): "standard" or "deep" (default: "standard")
-- `outputType` (optional): "sourcedAnswer", "searchResults", or "structured"
 - `includeImages` (optional): Include images in results
 
 **Search Modes:**
@@ -608,7 +607,6 @@ Search the web via Linkup.
 → web_search({
   query: "TypeScript 5.5 new features",
   depth: "deep",
-  outputType: "sourcedAnswer"
 })
 ```
 

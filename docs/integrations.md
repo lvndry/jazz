@@ -6,7 +6,7 @@ Jazz supports various third-party integrations to enhance your agents' capabilit
 
 - [LLM Providers](#llm-providers)
 - [Gmail Integration](#gmail-integration)
-- [Linkup Web Search](#linkup-web-search)
+- [Web Search](#web-search)
 - [Configuration Examples](#configuration-examples)
 
 ---
@@ -305,13 +305,13 @@ Your agents can now:
 
 ---
 
-## Linkup Web Search
+## Web Search
 
 Enable your agents to search the web and get current information.
 
-[Linkup](https://www.linkup.so/) provides high-quality web search optimized for AI agents.
+[Linkup](https://www.linkup.so/) and [Exa](https://exa.ai/) provide high-quality web search optimized for AI agents.
 
-### Why Linkup?
+### Why Linkup/Exa?
 
 - **AI-Optimized Results**: Structured data perfect for agents
 - **Deep Search Mode**: Comprehensive research capabilities
@@ -320,9 +320,9 @@ Enable your agents to search the web and get current information.
 
 ### Setup Steps
 
-#### 1. Get Linkup API Key
+#### 1. Get API Key
 
-1. Visit [linkup.so](https://www.linkup.so/)
+1. Visit [linkup.so](https://www.linkup.so/) or [exa.ai](https://exa.ai/)
 2. Sign up for an account
 3. Navigate to your dashboard
 4. Copy your API key
@@ -335,6 +335,9 @@ Add to your `~/.jazz/config.json`:
 {
   "linkup": {
     "api_key": "your-linkup-api-key"
+  },
+  "exa": {
+    "api_key": "your-exa-api-key"
   }
 }
 ```

@@ -54,7 +54,7 @@ Complete documentation for Jazz - Your AI agent that actually does things.
 5. **[Integrations](integrations.md)** - Set up external services
    - LLM providers (OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama)
    - Gmail integration (OAuth setup)
-   - Linkup web search
+   - Web search
    - Configuration examples
 
 6. **[Security](security.md)** - Security model and best practices
