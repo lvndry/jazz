@@ -52,8 +52,8 @@
         language.
   - [ ] Calendar integration bridge — parse meeting intents and invoke Calendar tooling once
         available.
-  - Add more ready to use agent with specific set of tools ans skills - code agent, fs agent, ...
-- [ ] Ollama - Being able to pass custom baseURL in config
+  - [ ] Add more ready to use agent with specific set of tools ans skills - code agent, fs agent, ...
+- [x] Ollama - Being able to pass custom baseURL in config
 - [ ] Ollama - Fetching available models from baseURL instead of keeping a list of static model
 
 ## Quality, Safety & Testing
@@ -68,10 +68,11 @@
 ## Developer experience
 
 - [ ] Precommit hooks
-- [ ] Easy update - `jazz update`
+- [x] Easy update - `jazz update`
 
 ## Backlog Ideas & Research
 
+- [Explorations](./docs//exploration/)
 - Config-driven agent provisioning, e.g. `jazz agent create --config agent.json`.
 - Per-agent authentication domains to isolate credentials (support multiple Gmail accounts, etc.).
 - Rich workflow memory tuned to personal preferences (favorite folders, project contexts, historical
