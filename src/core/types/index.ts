@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
 /**
- * Core types and interfaces for the Jazz automation CLI
+ * Core types and interfaces
  */
 
 
@@ -153,6 +153,7 @@ export interface AppConfig {
   readonly google?: GoogleConfig;
   readonly llm?: LLMConfig;
   readonly linkup?: LinkupConfig;
+  readonly exa?: ExaConfig;
   readonly output?: OutputConfig;
 }
 
@@ -225,6 +226,10 @@ export interface LinkupConfig {
   readonly apiKey: string;
   readonly baseUrl?: string;
   readonly timeout?: number;
+}
+
+export interface ExaConfig {
+  readonly apiKey: string;
 }
 
 /**
