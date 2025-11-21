@@ -132,19 +132,19 @@ type ModelName = string;
 type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
 
 /**
- * Extract all configured providers from LLMConfig
+ * Extract all configured providers from LLMConfig with their API keys
  */
-function getConfiguredProviders(llmConfig?: LLMConfig): readonly string[] {
+function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; apiKey: string }> {
   if (!llmConfig) return [];
-  const providers: string[] = [];
+  const providers: Array<{ name: string; apiKey: string }> = [];
 
-  if (llmConfig.openai?.api_key) providers.push("openai");
-  if (llmConfig.anthropic?.api_key) providers.push("anthropic");
-  if (llmConfig.google?.api_key) providers.push("google");
-  if (llmConfig.mistral?.api_key) providers.push("mistral");
-  if (llmConfig.xai?.api_key) providers.push("xai");
-  if (llmConfig.deepseek?.api_key) providers.push("deepseek");
-  if (llmConfig.ollama?.api_key) providers.push("ollama");
+  if (llmConfig.openai?.api_key) providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
+  if (llmConfig.anthropic?.api_key) providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
+  if (llmConfig.google?.api_key) providers.push({ name: "google", apiKey: llmConfig.google.api_key });
+  if (llmConfig.mistral?.api_key) providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
+  if (llmConfig.xai?.api_key) providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
+  if (llmConfig.deepseek?.api_key) providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
+  if (llmConfig.ollama?.api_key) providers.push({ name: "ollama", apiKey: llmConfig.ollama.api_key });
 
   return providers;
 }
@@ -289,29 +289,7 @@ class AISDKService implements LLMService {
 
     // Export API keys to env for providers that read from env
     if (this.config.llmConfig) {
-      const providers: Array<{ name: string; apiKey: string }> = [];
-
-      if (this.config.llmConfig.openai?.api_key) {
-        providers.push({ name: "openai", apiKey: this.config.llmConfig.openai.api_key });
-      }
-      if (this.config.llmConfig.anthropic?.api_key) {
-        providers.push({ name: "anthropic", apiKey: this.config.llmConfig.anthropic.api_key });
-      }
-      if (this.config.llmConfig.google?.api_key) {
-        providers.push({ name: "google", apiKey: this.config.llmConfig.google.api_key });
-      }
-      if (this.config.llmConfig.mistral?.api_key) {
-        providers.push({ name: "mistral", apiKey: this.config.llmConfig.mistral.api_key });
-      }
-      if (this.config.llmConfig.xai?.api_key) {
-        providers.push({ name: "xai", apiKey: this.config.llmConfig.xai.api_key });
-      }
-      if (this.config.llmConfig.deepseek?.api_key) {
-        providers.push({ name: "deepseek", apiKey: this.config.llmConfig.deepseek.api_key });
-      }
-      if (this.config.llmConfig.ollama?.api_key) {
-        providers.push({ name: "ollama", apiKey: this.config.llmConfig.ollama.api_key });
-      }
+      const providers = getConfiguredProviders(this.config.llmConfig);
 
       providers.forEach(({ name, apiKey }) => {
         if (this.isProviderName(name)) {
@@ -350,6 +328,7 @@ class AISDKService implements LLMService {
                   }
                   throw new LLMAuthenticationError({ provider: providerName, message: "API key not configured" });
                 }
+                return Effect.succeed(apiKey);
               },
               catch: (error: unknown) =>
                 new LLMAuthenticationError({
@@ -372,7 +351,8 @@ class AISDKService implements LLMService {
 
   listProviders(): Effect.Effect<readonly string[], never> {
     const configuredProviders = getConfiguredProviders(this.config.llmConfig);
-    const intersect = configuredProviders.filter((provider): provider is keyof typeof this.providerModels =>
+    const providerNames = configuredProviders.map((p) => p.name);
+    const intersect = providerNames.filter((provider): provider is keyof typeof this.providerModels =>
       this.isProviderName(provider),
     );
     return Effect.succeed(intersect);
