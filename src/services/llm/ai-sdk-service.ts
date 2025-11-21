@@ -4,7 +4,7 @@ import { google } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
 import { openai, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai } from "@ai-sdk/xai";
-import { createOllama, ollama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
+import { createOllama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 
 import {
   generateText,
@@ -166,11 +166,8 @@ function selectModel(providerName: string, modelId: ModelName, llmConfig?: LLMCo
       return (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
     case "ollama": {
       const headers = llmConfig?.ollama?.api_key ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` } : {};
-      if (llmConfig?.ollama?.base_url) {
-        const ollamaInstance = createOllama({ baseURL: llmConfig.ollama.base_url || "http://localhost:11434", headers });
-        return ollamaInstance(modelId);
-      }
-      return ollama(modelId);
+      const ollamaInstance = createOllama({ baseURL: "http://localhost:11434", headers });
+      return ollamaInstance(modelId);
     }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
@@ -329,15 +326,12 @@ class AISDKService implements LLMService {
       return Effect.succeed(modelSource.models);
     }
 
-    const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig] as
-      | { api_key?: string; base_url?: string }
-      | undefined;
-
-    const baseUrl = providerConfig?.base_url ?? modelSource.defaultBaseUrl;
+    const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
+    const baseUrl = modelSource.defaultBaseUrl;
 
     if (!baseUrl) {
       console.warn(
-        `[LLM Warning] Provider '${providerName}' requires dynamic model fetching but no base_url is configured and no default is available. Skipping provider.`,
+        `[LLM Warning] Provider '${providerName}' requires dynamic model fetching but no defaultBaseUrl is defined. Skipping provider.`,
       );
       return Effect.succeed([]);
     }
@@ -440,30 +434,14 @@ class AISDKService implements LLMService {
 
         // Extract tool calls if present
         if (result.toolCalls && result.toolCalls.length > 0) {
-          toolCalls = result.toolCalls.map((tc: TypedToolCall<ToolSet>) => {
-            // Handle both static and dynamic tool calls
-            if ("dynamic" in tc && tc.dynamic) {
-              // Dynamic tool call
-              return {
-                id: tc.toolCallId,
-                type: "function" as const,
-                function: {
-                  name: tc.toolName,
-                  arguments: JSON.stringify(tc.input ?? {}),
-                },
-              };
-            } else {
-              // Static tool call
-              return {
-                id: tc.toolCallId,
-                type: "function" as const,
-                function: {
-                  name: tc.toolName,
-                  arguments: JSON.stringify(tc.input ?? {}),
-                },
-              };
-            }
-          });
+          toolCalls = result.toolCalls.map((tc: TypedToolCall<ToolSet>) => ({
+            id: tc.toolCallId,
+            type: "function" as const,
+            function: {
+              name: tc.toolName,
+              arguments: JSON.stringify(tc.input ?? {}),
+            },
+          }));
         }
 
         const resultObj: ChatCompletionResponse = {

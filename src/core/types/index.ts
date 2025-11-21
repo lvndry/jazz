@@ -205,7 +205,6 @@ export interface DeepSeekProviderConfig {
 
 export interface OllamaProviderConfig {
   readonly api_key?: string;
-  readonly base_url?: string;
 }
 
 export interface LLMConfig {
