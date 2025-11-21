@@ -166,7 +166,7 @@ function selectModel(providerName: string, modelId: ModelName, llmConfig?: LLMCo
     case "ollama": {
       const headers = llmConfig?.ollama?.api_key ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` } : {};
       if (llmConfig?.ollama?.base_url) {
-        const ollamaInstance = createOllama({ baseURL: llmConfig.ollama.base_url, headers });
+        const ollamaInstance = createOllama({ baseURL: llmConfig.ollama.base_url || "http://localhost:11434", headers });
         return ollamaInstance(modelId);
       }
       return ollama(modelId);
@@ -336,7 +336,6 @@ class AISDKService implements LLMService {
                   message: error instanceof Error ? error.message : String(error),
                 }),
             }),
-          createChatCompletion: (options) => this.createChatCompletion(providerName, options),
         };
 
         return provider;
