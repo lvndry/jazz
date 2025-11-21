@@ -103,7 +103,7 @@ export class AgentPromptBuilder {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
         const template = yield* this.getTemplate(templateName);
-        const { currentDate, systemInfo, userInfo, workingDirectory } = yield* this.getSystemInfo();
+        const { currentDate, systemInfo, userInfo } = yield* this.getSystemInfo();
 
         // Replace placeholders in system prompt
         const systemPrompt = template.systemPrompt
@@ -111,8 +111,7 @@ export class AgentPromptBuilder {
           .replace("{agentDescription}", options.agentDescription)
           .replace("{currentDate}", currentDate)
           .replace("{systemInfo}", systemInfo)
-          .replace("{userInfo}", userInfo)
-          .replace("{workingDirectory}", workingDirectory);
+          .replace("{userInfo}", userInfo);
 
         return systemPrompt;
       }.bind(this),
