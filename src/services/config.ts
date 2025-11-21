@@ -136,8 +136,6 @@ function defaultConfig(): AppConfig {
   const llm: LLMConfig = {};
   const linkup: LinkupConfig = {
     apiKey: "",
-    baseUrl: "https://api.linkup.so",
-    timeout: 30000,
   };
 
   const exa: ExaConfig = {

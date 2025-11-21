@@ -27,12 +27,10 @@
     "clientSecret": "1234567890"
   },
   "linkup": {
-    "apiKey": "your-linkup-api-key-here",
-    "baseUrl": "https://api.linkup.so"
+    "apiKey": "your-linkup-api-key-here"
   },
   "exa": {
-    "apiKey": "your-exa-api-key-here",
-    "baseUrl": "https://api.exa.ai"
+    "apiKey": "your-exa-api-key-here"
   },
   "logging": {
     "level": "info",

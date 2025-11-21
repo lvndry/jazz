@@ -224,8 +224,6 @@ export interface ContextManagementConfig {
 
 export interface LinkupConfig {
   readonly apiKey: string;
-  readonly baseUrl?: string;
-  readonly timeout?: number;
 }
 
 export interface ExaConfig {
