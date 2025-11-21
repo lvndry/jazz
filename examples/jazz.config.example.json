@@ -17,9 +17,6 @@
     },
     "deepseek": {
       "api_key": "sk-..."
-    },
-    "ollama": {
-      "baseURL": "http://localhost:11434"
     }
   },
   "google": {

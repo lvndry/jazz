@@ -53,6 +53,8 @@
   - [ ] Calendar integration bridge — parse meeting intents and invoke Calendar tooling once
         available.
   - Add more ready to use agent with specific set of tools ans skills - code agent, fs agent, ...
+- [ ] Ollama - Being able to pass custom baseURL in config
+- [ ] Ollama - Fetching available models from baseURL instead of keeping a list of static model
 
 ## Quality, Safety & Testing
 

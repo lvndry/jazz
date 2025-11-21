@@ -149,19 +149,7 @@ Jazz supports multiple LLM providers. You need at least one configured to create
 
 1. Install Ollama from [ollama.ai](https://ollama.ai/)
 2. Pull a model: `ollama pull llama3.2`
-3. Add to your config:
-
-```json
-{
-  "llm": {
-    "ollama": {
-      "baseURL": "http://localhost:11434"
-    }
-  }
-}
-```
-
-**Note**: Jazz will auto-detect available models from your Ollama instance.
+3. Jazz will auto-detect available models from your Ollama instance.
 
 ---
 
