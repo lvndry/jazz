@@ -261,7 +261,10 @@ function convertToLLMError(error: unknown, providerName: string): LLMError {
   } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
     llmError = new LLMRequestError({ provider: providerName, message: errorMessage });
   } else if (httpStatus && httpStatus >= 500) {
-    llmError = new LLMRequestError({ provider: providerName, message: `Server error (${httpStatus}): ${errorMessage}` });
+    llmError = new LLMRequestError({
+      provider: providerName,
+      message: `Server error (${httpStatus}): ${errorMessage}`,
+    });
   } else {
     if (
       errorMessage.toLowerCase().includes("authentication") ||
@@ -269,14 +272,15 @@ function convertToLLMError(error: unknown, providerName: string): LLMError {
     ) {
       llmError = new LLMAuthenticationError({ provider: providerName, message: errorMessage });
     } else {
-      llmError = new LLMRequestError({ provider: providerName, message: errorMessage || "Unknown LLM request error" });
+      llmError = new LLMRequestError({
+        provider: providerName,
+        message: errorMessage || "Unknown LLM request error",
+      });
     }
   }
 
   return llmError;
 }
-
-
 
 class AISDKService implements LLMService {
   private config: AISDKConfig;
@@ -352,7 +356,7 @@ class AISDKService implements LLMService {
         authenticate: () =>
           Effect.try({
             try: () => {
-              const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig]
+              const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
               const apiKey = providerConfig?.api_key;
 
               if (!apiKey) {
@@ -360,7 +364,10 @@ class AISDKService implements LLMService {
                 if (providerName.toLowerCase() === "ollama") {
                   return Effect.succeed(void 0);
                 }
-                throw new LLMAuthenticationError({ provider: providerName, message: "API key not configured" });
+                throw new LLMAuthenticationError({
+                  provider: providerName,
+                  message: "API key not configured",
+                });
               }
               return Effect.succeed(apiKey);
             },
@@ -379,8 +386,8 @@ class AISDKService implements LLMService {
   listProviders(): Effect.Effect<readonly string[], never> {
     const configuredProviders = getConfiguredProviders(this.config.llmConfig);
     const providerNames = configuredProviders.map((p) => p.name);
-    const intersect = providerNames.filter((provider): provider is keyof typeof this.providerModels =>
-      this.isProviderName(provider),
+    const intersect = providerNames.filter(
+      (provider): provider is keyof typeof this.providerModels => this.isProviderName(provider),
     );
     return Effect.succeed(intersect);
   }
@@ -464,7 +471,12 @@ class AISDKService implements LLMService {
         };
 
         if (error instanceof Error) {
-          const e = error as Error & { code?: string; status?: number; statusCode?: number; type?: string };
+          const e = error as Error & {
+            code?: string;
+            status?: number;
+            statusCode?: number;
+            type?: string;
+          };
           if (e.code) errorDetails["code"] = e.code;
           if (e.status) errorDetails["status"] = e.status;
           if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
@@ -472,7 +484,11 @@ class AISDKService implements LLMService {
         }
 
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+        void writeLogToFile(
+          "error",
+          `LLM Error: ${llmError._tag} - ${llmError.message}`,
+          errorDetails,
+        );
 
         return llmError;
       },
@@ -506,13 +522,17 @@ class AISDKService implements LLMService {
     const responseDeferred = createDeferred<ChatCompletionResponse>();
 
     const stream = Stream.async<StreamEvent, LLMError>(
-      (emit: (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void) => {
+      (
+        emit: (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void,
+      ) => {
         void (async (): Promise<void> => {
           try {
             const result = streamText({
               model,
               messages: toCoreMessages(options.messages),
-              ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
+              ...(typeof options.temperature === "number"
+                ? { temperature: options.temperature }
+                : {}),
               ...(tools ? { tools } : {}),
               ...(providerOptions ? { providerOptions } : {}),
               abortSignal: abortController.signal,
@@ -523,7 +543,9 @@ class AISDKService implements LLMService {
               {
                 providerName,
                 modelName: options.model,
-                hasReasoningEnabled: !!(options.reasoning_effort && options.reasoning_effort !== "disable"),
+                hasReasoningEnabled: !!(
+                  options.reasoning_effort && options.reasoning_effort !== "disable"
+                ),
                 startTime: Date.now(),
               },
               emit,
@@ -547,7 +569,12 @@ class AISDKService implements LLMService {
             };
 
             if (error instanceof Error) {
-              const e = error as Error & { code?: string; status?: number; statusCode?: number; type?: string };
+              const e = error as Error & {
+                code?: string;
+                status?: number;
+                statusCode?: number;
+                type?: string;
+              };
               if (e.code) errorDetails["code"] = e.code;
               if (e.status) errorDetails["status"] = e.status;
               if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
@@ -564,7 +591,11 @@ class AISDKService implements LLMService {
 
             console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
 
-            void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+            void writeLogToFile(
+              "error",
+              `LLM Error: ${llmError._tag} - ${llmError.message}`,
+              errorDetails,
+            );
             void emit(Effect.fail(Option.some(llmError)));
 
             responseDeferred.reject(llmError);
@@ -598,7 +629,11 @@ class AISDKService implements LLMService {
         }
 
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        void writeLogToFile("error", `LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+        void writeLogToFile(
+          "error",
+          `LLM Error: ${llmError._tag} - ${llmError.message}`,
+          errorDetails,
+        );
 
         return Effect.fail(llmError);
       }),
@@ -622,7 +657,8 @@ export function createAISDKServiceLayer(): Layer.Layer<
         return yield* Effect.fail(
           new LLMConfigurationError({
             provider: "unknown",
-            message: "No LLM API keys configured. Set config.llm.<provider>.api_key or env (e.g., OPENAI_API_KEY).",
+            message:
+              "No LLM API keys configured. Set config.llm.<provider>.api_key or env (e.g., OPENAI_API_KEY).",
           }),
         );
       }
