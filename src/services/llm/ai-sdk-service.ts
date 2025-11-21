@@ -188,8 +188,8 @@ function selectModel(providerName: string, modelId: ModelName, llmConfig?: LLMCo
       return (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
     case "ollama": {
       const headers = llmConfig?.ollama?.api_key ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` } : {};
-      if (llmConfig?.ollama?.baseURL) {
-        const ollamaInstance = createOllama({ baseURL: llmConfig.ollama.baseURL, headers });
+      if (llmConfig?.ollama?.base_url) {
+        const ollamaInstance = createOllama({ baseURL: llmConfig.ollama.base_url, headers });
         return ollamaInstance(modelId);
       }
       return ollama(modelId);

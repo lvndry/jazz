@@ -135,11 +135,11 @@ function defaultConfig(): AppConfig {
 
   const llm: LLMConfig = {};
   const linkup: LinkupConfig = {
-    apiKey: "",
+    api_key: "",
   };
 
   const exa: ExaConfig = {
-    apiKey: "",
+    api_key: "",
   };
 
   return { storage, logging, google, llm, linkup, exa };

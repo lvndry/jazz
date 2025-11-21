@@ -204,7 +204,7 @@ export interface DeepSeekProviderConfig {
 
 export interface OllamaProviderConfig {
   readonly api_key?: string;
-  readonly baseURL?: string;
+  readonly base_url?: string;
 }
 
 export interface LLMConfig {
@@ -229,11 +229,11 @@ export interface ContextManagementConfig {
 }
 
 export interface LinkupConfig {
-  readonly apiKey: string;
+  readonly api_key: string;
 }
 
 export interface ExaConfig {
-  readonly apiKey: string;
+  readonly api_key: string;
 }
 
 /**
