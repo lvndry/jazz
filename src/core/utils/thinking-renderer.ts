@@ -85,7 +85,7 @@ export class ThinkingRenderer {
             shouldClearLines: 0,
           };
         }
-        // No content and no tokens - show minimal completion
+
         this.state = ThinkingState.Complete;
         return {
           output: this.formatCompleteMinimal(),
@@ -190,4 +190,3 @@ export class ThinkingRenderer {
     );
   }
 }
-

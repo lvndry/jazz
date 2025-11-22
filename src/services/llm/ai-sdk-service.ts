@@ -1,9 +1,9 @@
 import { anthropic, AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { deepseek } from "@ai-sdk/deepseek";
-import { google } from "@ai-sdk/google";
+import { google, GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
 import { openai, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
-import { xai } from "@ai-sdk/xai";
+import { xai, XaiProviderOptions } from "@ai-sdk/xai";
 import { createOllama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 
 import {
@@ -207,6 +207,7 @@ function buildProviderOptions(
         return {
           openai: {
             reasoningEffort,
+            reasoningSummary: reasoningEffort === "low" ? "auto" : "detailed",
           } satisfies OpenAIResponsesProviderOptions,
         };
       }
@@ -219,6 +220,30 @@ function buildProviderOptions(
           anthropic: {
             thinking: { type: "enabled" },
           } satisfies AnthropicProviderOptions,
+        };
+      }
+      break;
+    }
+    case "google": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          google: {
+            thinkingConfig: {
+              includeThoughts: true,
+            },
+          } satisfies GoogleGenerativeAIProviderOptions,
+        };
+      }
+      break;
+    }
+    case "xai": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          xai: {
+            reasoningEffort: reasoningEffort === "medium" ? "low" : reasoningEffort,
+          } satisfies XaiProviderOptions,
         };
       }
       break;

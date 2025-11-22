@@ -193,33 +193,18 @@ export class StreamProcessor {
     }
 
     try {
-      // Wait for reasoning text with timeout (5 minutes)
-      const reasoningText = await Promise.race([
-        result.reasoningText,
-        new Promise<string | undefined>((resolve) =>
-          setTimeout(
-            () => {
-              resolve(undefined);
-            },
-            5 * 60 * 1000,
-          ),
+      // Try to get reasoning array first (newer API)
+      const reasoning = await Promise.race([
+        result.reasoning,
+        new Promise<Array<{ type: "reasoning"; text: string }> | undefined>((resolve) =>
+          setTimeout(() => resolve(undefined), 5 * 60 * 1000),
         ),
       ]);
 
-      // Stream reasoning progressively, but only after text stream has started
-      // This ensures ordering while maintaining real-time streaming UX
-      if (reasoningText && reasoningText.length > 0) {
-        // Wait for text stream to start before emitting reasoning
-        // This ensures we don't emit reasoning without a corresponding text output
-        while (!this.state.hasStartedText && !this.state.textStreamCompleted) {
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-
-        // Now emit thinking events - text has started, safe to stream reasoning
-        void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
-        this.recordFirstToken();
-
-        // Stream reasoning chunks progressively
+      // Extract text from reasoning array if available
+      if (reasoning && reasoning.length > 0) {
+        // Concatenate all reasoning text
+        const reasoningText = reasoning.map((r) => r.text).join("");
         const chunkSize = 1000;
         for (let i = 0; i < reasoningText.length; i += chunkSize) {
           const chunk = reasoningText.slice(i, i + chunkSize);
@@ -229,15 +214,16 @@ export class StreamProcessor {
             sequence: this.state.reasoningSequence++,
           });
         }
-
-        // Emit thinking complete
-        void this.emitEvent({
-          type: "thinking_complete",
-          ...(this.state.reasoningTokens !== undefined && {
-            totalTokens: this.state.reasoningTokens,
-          }),
-        });
       }
+
+      // Emit thinking complete regardless of whether we had content
+      // This ensures the UI updates to show reasoning is done
+      void this.emitEvent({
+        type: "thinking_complete",
+        ...(this.state.reasoningTokens !== undefined && {
+          totalTokens: this.state.reasoningTokens,
+        }),
+      });
     } finally {
       this.state.reasoningStreamCompleted = true;
       this.checkCompletion();
@@ -272,6 +258,30 @@ export class StreamProcessor {
               toolCall,
               sequence: this.state.textSequence++,
             });
+            break;
+          }
+
+          case "reasoning-start": {
+            void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+            this.recordFirstToken();
+            break;
+          }
+
+          case "reasoning-delta": {
+            // Handle streaming reasoning chunks in real-time
+            // This provides reasoning text as it's being generated
+            const delta = "textDelta" in part ? (part.textDelta as string) : undefined;
+            if (delta && delta.length > 0) {
+              // Record first token if this is the first reasoning chunk
+              this.recordFirstToken();
+
+              // Emit thinking chunk event
+              void this.emitEvent({
+                type: "thinking_chunk",
+                content: delta,
+                sequence: this.state.reasoningSequence++,
+              });
+            }
             break;
           }
 
