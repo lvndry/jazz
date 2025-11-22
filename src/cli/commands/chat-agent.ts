@@ -168,7 +168,6 @@ export function createAIAgentCommand(): Effect.Effect<
 
     // Build agent configuration
     const config: AgentConfig = {
-      tasks: [],
       agentType: agentAnswers.agentType,
       llmProvider: agentAnswers.llmProvider,
       llmModel: selectedModel,

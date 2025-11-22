@@ -1,5 +1,3 @@
-import { Schema } from "effect";
-
 /**
  * Core types and interfaces
  */
@@ -16,121 +14,12 @@ export interface Agent {
 }
 
 export interface AgentConfig {
-  readonly tasks: readonly Task[];
-  readonly schedule?: Schedule;
   readonly environment?: Record<string, string>;
   readonly agentType: string;
   readonly llmProvider: string;
   readonly llmModel: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   readonly tools?: readonly string[];
-}
-
-// Task Types
-export interface Task {
-  readonly id: string;
-  readonly name: string;
-  readonly description: string;
-  readonly type: TaskType;
-  readonly config: TaskConfig;
-  readonly dependencies?: readonly string[];
-  readonly retryCount?: number;
-  readonly maxRetries?: number;
-}
-
-export type TaskType = "command" | "script" | "api" | "file" | "webhook" | "custom" | "gmail";
-
-export type GmailOperation = "list_emails" | "get_email" | "send_email" | "search_emails";
-
-export interface TaskConfig {
-  readonly command?: string;
-  readonly script?: string;
-  readonly url?: string;
-  readonly method?: "GET" | "POST" | "PUT" | "DELETE";
-  readonly headers?: Record<string, string>;
-  readonly body?: unknown;
-  readonly filePath?: string;
-  readonly workingDirectory?: string;
-  readonly environment?: Record<string, string>;
-  readonly gmailOperation?: GmailOperation;
-  readonly gmailQuery?: string;
-  readonly gmailMaxResults?: number;
-  readonly emailId?: string;
-  readonly to?: string[];
-  readonly subject?: string;
-  readonly cc?: string[];
-  readonly bcc?: string[];
-}
-
-// Automation Types
-export interface Automation {
-  readonly id: string;
-  readonly name: string;
-  readonly description: string;
-  readonly agents: readonly string[];
-  readonly triggers: readonly Trigger[];
-  readonly status: AutomationStatus;
-  readonly createdAt: Date;
-  readonly updatedAt: Date;
-}
-
-export type AutomationStatus = "active" | "inactive" | "paused" | "error";
-
-export interface Trigger {
-  readonly id: string;
-  readonly type: TriggerType;
-  readonly config: TriggerConfig;
-  readonly enabled: boolean;
-}
-
-export type TriggerType = "schedule" | "file" | "webhook" | "manual" | "event";
-
-export interface TriggerConfig {
-  readonly cron?: string;
-  readonly interval?: number;
-  readonly filePath?: string;
-  readonly event?: string;
-  readonly conditions?: readonly Condition[];
-}
-
-export interface Condition {
-  readonly field: string;
-  readonly operator:
-    | "equals"
-    | "not_equals"
-    | "contains"
-    | "not_contains"
-    | "greater_than"
-    | "less_than";
-  readonly value: unknown;
-}
-
-// Schedule Types
-export interface Schedule {
-  readonly type: "cron" | "interval" | "once";
-  readonly value: string | number;
-  readonly timezone?: string;
-  readonly enabled: boolean;
-}
-
-// Result Types
-export interface TaskResult {
-  readonly taskId: string;
-  readonly status: "success" | "failure" | "skipped";
-  readonly output?: string;
-  readonly error?: string;
-  readonly duration: number;
-  readonly timestamp: Date;
-  readonly metadata?: Record<string, unknown>;
-}
-
-export interface AgentResult {
-  readonly agentId: string;
-  readonly status: "success" | "failure" | "partial";
-  readonly taskResults: readonly TaskResult[];
-  readonly duration: number;
-  readonly timestamp: Date;
-  readonly metadata?: Record<string, unknown>;
 }
 
 // Configuration Types
@@ -324,32 +213,3 @@ export interface StreamingConfig {
    */
   readonly textBufferMs?: number;
 }
-
-export const TaskSchema = Schema.Struct({
-  id: Schema.String,
-  name: Schema.String,
-  description: Schema.String,
-  type: Schema.Literal("command", "script", "api", "file", "webhook", "custom", "gmail"),
-  config: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-  dependencies: Schema.optional(Schema.Array(Schema.String)),
-  retryCount: Schema.optional(Schema.Number),
-  maxRetries: Schema.optional(Schema.Number),
-});
-
-export const AutomationSchema = Schema.Struct({
-  id: Schema.String,
-  name: Schema.String,
-  description: Schema.String,
-  agents: Schema.Array(Schema.String),
-  triggers: Schema.Array(
-    Schema.Struct({
-      id: Schema.String,
-      type: Schema.Literal("schedule", "file", "webhook", "manual", "event"),
-      config: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-      enabled: Schema.Boolean,
-    }),
-  ),
-  status: Schema.Literal("active", "inactive", "paused", "error"),
-  createdAt: Schema.Date,
-  updatedAt: Schema.Date,
-});
