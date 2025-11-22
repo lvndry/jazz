@@ -301,8 +301,8 @@ function main(): Effect.Effect<void, never> {
       });
 
     configCommand
-      .command("list")
-      .description("List all configuration values")
+      .command("show")
+      .description("Show all configuration values")
       .action(() => {
         const opts = program.opts();
         runCliEffect(listConfigCommand(), Boolean(opts["debug"]));
