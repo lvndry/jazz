@@ -8,13 +8,7 @@ import packageJson from "../package.json";
 import { gmailLoginCommand, gmailLogoutCommand, gmailStatusCommand } from "./cli/commands/auth";
 import { chatWithAIAgentCommand, createAIAgentCommand } from "./cli/commands/chat-agent";
 import { editAgentCommand } from "./cli/commands/edit-agent";
-import {
-  createAgentCommand,
-  deleteAgentCommand,
-  getAgentCommand,
-  listAgentsCommand,
-  runAgentCommand,
-} from "./cli/commands/task-agent";
+import { deleteAgentCommand, getAgentCommand, listAgentsCommand } from "./cli/commands/task-agent";
 import { updateCommand } from "./cli/commands/update";
 import { createAgentServiceLayer } from "./core/agent/agent-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
@@ -176,9 +170,7 @@ function runCliEffect<R, E extends JazzError | Error>(
  * Main CLI application entry point
  *
  * Sets up the Commander.js CLI program with all available commands including:
- * - Task Agent management (create, list, run, get, delete) - for traditional automation
- * - Chat Agent management (create, chat) - for AI-powered conversational agents
- * - Automation management (list, create, run, delete)
+ * - Agent management (create, list, get, edit, delete, chat)
  * - Configuration management (get, set, list, validate)
  * - Authentication (Gmail login, logout, status)
  * - Logs viewing
@@ -237,35 +229,6 @@ function main(): Effect.Effect<void, never> {
       });
 
     agentCommand
-      .command("create-quick <name>")
-      .description("Create a new agent quickly with command line options")
-      .option("-d, --description <description>", "Agent description")
-      .action(
-        (
-          name: string,
-          options: {
-            description?: string;
-          },
-        ) => {
-          const opts = program.opts();
-          runCliEffect(
-            createAgentCommand(name, options.description || "", options),
-            Boolean(opts["debug"]),
-          );
-        },
-      );
-
-    agentCommand
-      .command("run <agentId>")
-      .description("Run an agent")
-      .option("--watch", "Watch for changes")
-      .option("--dry-run", "Show what would be executed without running")
-      .action((agentId: string, options: { watch?: boolean; dryRun?: boolean }) => {
-        const opts = program.opts();
-        runCliEffect(runAgentCommand(agentId, options), Boolean(opts["debug"]));
-      });
-
-    agentCommand
       .command("get <agentId>")
       .description("Get an agent details")
       .action((agentId: string) => {
@@ -316,43 +279,6 @@ function main(): Effect.Effect<void, never> {
           );
         },
       );
-
-    // Automation commands
-    const automationCommand = program.command("automation").description("Manage automations");
-
-    automationCommand
-      .command("list")
-      .description("List all automations")
-      .action(() => {
-        const opts = program.opts();
-        runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info("Listing automations...");
-            // TODO: Implement automation listing
-          }),
-          Boolean(opts["debug"]),
-        );
-      });
-
-    automationCommand
-      .command("create")
-      .description("Create a new automation")
-      .option("-d, --description <description>", "Automation description")
-      .action((name: string, options: { description?: string }) => {
-        const opts = program.opts();
-        runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info(`Creating automation: ${name}`);
-            if (options.description) {
-              yield* logger.info(`Description: ${options.description}`);
-            }
-            // TODO: Implement automation creation
-          }),
-          Boolean(opts["debug"]),
-        );
-      });
 
     // Config commands
     const configCommand = program.command("config").description("Manage configuration");
