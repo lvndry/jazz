@@ -7,6 +7,7 @@ import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
 import packageJson from "../package.json";
 import { gmailLoginCommand, gmailLogoutCommand, gmailStatusCommand } from "./cli/commands/auth";
 import { chatWithAIAgentCommand, createAIAgentCommand } from "./cli/commands/chat-agent";
+import { getConfigCommand, listConfigCommand, setConfigCommand } from "./cli/commands/config";
 import { editAgentCommand } from "./cli/commands/edit-agent";
 import { deleteAgentCommand, getAgentCommand, listAgentsCommand } from "./cli/commands/task-agent";
 import { updateCommand } from "./cli/commands/update";
@@ -288,29 +289,15 @@ function main(): Effect.Effect<void, never> {
       .description("Get a configuration value")
       .action((key: string) => {
         const opts = program.opts();
-        runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info(`Getting config: ${key}`);
-            // TODO: Implement config retrieval
-          }),
-          Boolean(opts["debug"]),
-        );
+        runCliEffect(getConfigCommand(key), Boolean(opts["debug"]));
       });
 
     configCommand
-      .command("set <key> <value>")
+      .command("set <key> [value]")
       .description("Set a configuration value")
-      .action((key: string, value: string) => {
+      .action((key: string, value?: string) => {
         const opts = program.opts();
-        runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info(`Setting config: ${key} = ${value}`);
-            // TODO: Implement config setting
-          }),
-          Boolean(opts["debug"]),
-        );
+        runCliEffect(setConfigCommand(key, value), Boolean(opts["debug"]));
       });
 
     configCommand
@@ -318,14 +305,7 @@ function main(): Effect.Effect<void, never> {
       .description("List all configuration values")
       .action(() => {
         const opts = program.opts();
-        runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info("Listing configuration...");
-            // TODO: Implement config listing
-          }),
-          Boolean(opts["debug"]),
-        );
+        runCliEffect(listConfigCommand(), Boolean(opts["debug"]));
       });
 
     // Auth commands

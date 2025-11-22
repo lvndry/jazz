@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { Context, Effect, Layer } from "effect";
+import inquirer from "inquirer";
 
 /**
  * Terminal output service for consistent CLI styling
@@ -47,7 +48,25 @@ export interface TerminalService {
   /**
    * Display a formatted list
    */
-  readonly list: (items: string[]) => Effect.Effect<void, never>;
+  /**
+   * Prompt the user for text input
+   */
+  readonly ask: (message: string, defaultValue?: string) => Effect.Effect<string, never>;
+
+  /**
+   * Prompt the user for password input (hidden)
+   */
+  readonly password: (message: string) => Effect.Effect<string, never>;
+
+  /**
+   * Prompt the user to select from a list of options
+   */
+  readonly select: (message: string, choices: string[]) => Effect.Effect<string, never>;
+
+  /**
+   * Prompt the user for confirmation (yes/no)
+   */
+  readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>;
 }
 
 export class TerminalServiceImpl implements TerminalService {
@@ -106,6 +125,61 @@ export class TerminalServiceImpl implements TerminalService {
       for (const item of items) {
         console.log("   • " + item);
       }
+    });
+  }
+
+  ask(message: string, defaultValue?: string): Effect.Effect<string, never> {
+    return Effect.promise(async () => {
+      const answers = await inquirer.prompt([
+        {
+          type: "input",
+          name: "answer",
+          message,
+          ...(defaultValue !== undefined ? { default: defaultValue } : {}),
+        },
+      ]);
+      return answers["answer"] as string;
+    });
+  }
+
+  password(message: string): Effect.Effect<string, never> {
+    return Effect.promise(async () => {
+      const answers = await inquirer.prompt([
+        {
+          type: "password",
+          name: "answer",
+          message,
+        },
+      ]);
+      return answers["answer"] as string;
+    });
+  }
+
+  select(message: string, choices: string[]): Effect.Effect<string, never> {
+    return Effect.promise(async () => {
+      const answers = await inquirer.prompt([
+        {
+          type: "list",
+          name: "answer",
+          message,
+          choices,
+        },
+      ]);
+      return answers["answer"] as string;
+    });
+  }
+
+  confirm(message: string, defaultValue: boolean = false): Effect.Effect<boolean, never> {
+    return Effect.promise(async () => {
+      const answers = await inquirer.prompt([
+        {
+          type: "confirm",
+          name: "answer",
+          message,
+          default: defaultValue,
+        },
+      ]);
+      return answers["answer"] as boolean;
     });
   }
 }

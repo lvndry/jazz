@@ -56,11 +56,6 @@ export interface LoggingConfig {
   readonly showMetrics?: boolean;
 }
 
-export interface RateLimitConfig {
-  readonly requests: number;
-  readonly window: number;
-}
-
 export interface GoogleConfig {
   readonly clientId: string;
   readonly clientSecret: string;
