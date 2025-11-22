@@ -37,6 +37,8 @@ export type StreamEvent =
        */
       metrics?: {
         firstTokenLatencyMs: number;
+        firstTextLatencyMs?: number;
+        firstReasoningLatencyMs?: number;
         tokensPerSecond?: number;
         totalTokens?: number;
       };
@@ -126,4 +128,3 @@ export const DEFAULT_STREAMING_CONFIG: StreamingConfig = {
   enabled: true, // Used internally after auto-detection
   textBufferMs: 50,
 };
-

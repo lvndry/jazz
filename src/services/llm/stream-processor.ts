@@ -55,6 +55,8 @@ interface StreamProcessorState {
 
   // Timing
   firstTokenTime: number | null;
+  firstTextTime: number | null;
+  firstReasoningTime: number | null;
 
   // Completion tracking
   finishEventReceived: boolean;
@@ -73,6 +75,8 @@ function createInitialState(): StreamProcessorState {
     reasoningTokens: undefined,
     collectedToolCalls: [],
     firstTokenTime: null,
+    firstTextTime: null,
+    firstReasoningTime: null,
     finishEventReceived: false,
     finishReason: undefined,
   };
@@ -119,7 +123,7 @@ export class StreamProcessor {
       timestamp: this.config.startTime,
     });
 
-    // Process the full stream which contains all events in order
+    // Start processing stream
     await this.processFullStream(result);
 
     // Wait for completion
@@ -157,15 +161,15 @@ export class StreamProcessor {
 
             // Emit text start on first chunk
             if (!this.state.hasStartedText && textChunk.length > 0) {
-              this.emitEvent({ type: "text_start" });
+              void this.emitEvent({ type: "text_start" });
               this.state.hasStartedText = true;
-              this.recordFirstToken();
+              this.recordFirstToken("text");
             }
 
             // Emit text chunk
             if (textChunk.length > 0) {
               this.state.accumulatedText += textChunk;
-              this.emitEvent({
+              void this.emitEvent({
                 type: "text_chunk",
                 delta: textChunk,
                 accumulated: this.state.accumulatedText,
@@ -175,43 +179,23 @@ export class StreamProcessor {
             break;
           }
 
-          case "tool-call": {
-            const toolCall: ToolCall = {
-              id: part.toolCallId,
-              type: "function",
-              function: {
-                name: part.toolName,
-                arguments: JSON.stringify(part.input),
-              },
-            };
-            this.state.collectedToolCalls.push(toolCall);
-
-            this.emitEvent({
-              type: "tool_call",
-              toolCall,
-              sequence: this.state.textSequence++,
-            });
-            break;
-          }
-
-          case "reasoning-start": {
-            void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
-            this.recordFirstToken();
-            break;
-          }
-
           case "reasoning-delta": {
-            // Handle streaming reasoning chunks in real-time
-            // This provides reasoning text as it's being generated
-            const delta = "textDelta" in part ? (part.textDelta as string) : undefined;
-            if (delta && delta.length > 0) {
-              // Record first token if this is the first reasoning chunk
-              this.recordFirstToken();
+            if (!this.config.hasReasoningEnabled) {
+              break;
+            }
 
-              // Emit thinking chunk event
+            const textDelta = part.text;
+
+            if (textDelta && textDelta.length > 0) {
+              // Emit thinking start if this is the first reasoning chunk
+              if (this.state.reasoningSequence === 0) {
+                void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+                this.recordFirstToken("reasoning");
+              }
+
               void this.emitEvent({
                 type: "thinking_chunk",
-                content: delta,
+                content: textDelta,
                 sequence: this.state.reasoningSequence++,
               });
             }
@@ -235,11 +219,32 @@ export class StreamProcessor {
             }
 
             // Emit thinking complete
+            if (this.config.hasReasoningEnabled && this.state.reasoningSequence > 0) {
+              void this.emitEvent({
+                type: "thinking_complete",
+                ...(this.state.reasoningTokens !== undefined && {
+                  totalTokens: this.state.reasoningTokens,
+                }),
+              });
+            }
+            break;
+          }
+
+          case "tool-call": {
+            const toolCall: ToolCall = {
+              id: part.toolCallId,
+              type: "function",
+              function: {
+                name: part.toolName,
+                arguments: JSON.stringify(part.input),
+              },
+            };
+            this.state.collectedToolCalls.push(toolCall);
+
             void this.emitEvent({
-              type: "thinking_complete",
-              ...(this.state.reasoningTokens !== undefined && {
-                totalTokens: this.state.reasoningTokens,
-              }),
+              type: "tool_call",
+              toolCall,
+              sequence: this.state.textSequence++,
             });
             break;
           }
@@ -257,21 +262,16 @@ export class StreamProcessor {
             ) {
               console.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
             }
-
-            // Don't resolve completion yet - wait for all streams to complete
             break;
           }
 
           case "error": {
             throw part.error;
           }
-
-          default:
-            break;
         }
       }
     } finally {
-      this.checkCompletion();
+      this.resolveCompletion();
     }
   }
 
@@ -324,6 +324,8 @@ export class StreamProcessor {
     let metrics:
       | {
           firstTokenLatencyMs: number;
+          firstTextLatencyMs?: number;
+          firstReasoningLatencyMs?: number;
           tokensPerSecond?: number;
           totalTokens?: number;
         }
@@ -332,6 +334,14 @@ export class StreamProcessor {
     if (this.state.firstTokenTime) {
       const firstTokenLatencyMs = this.state.firstTokenTime - this.config.startTime;
       metrics = { firstTokenLatencyMs };
+
+      if (this.state.firstTextTime) {
+        metrics.firstTextLatencyMs = this.state.firstTextTime - this.config.startTime;
+      }
+
+      if (this.state.firstReasoningTime) {
+        metrics.firstReasoningLatencyMs = this.state.firstReasoningTime - this.config.startTime;
+      }
 
       if (response.usage?.totalTokens) {
         metrics.tokensPerSecond = (response.usage.totalTokens / totalDurationMs) * 1000;
@@ -350,24 +360,16 @@ export class StreamProcessor {
   /**
    * Record first token time
    */
-  private recordFirstToken(): void {
+  private recordFirstToken(type: "text" | "reasoning"): void {
+    const now = Date.now();
     if (!this.state.firstTokenTime) {
-      this.state.firstTokenTime = Date.now();
+      this.state.firstTokenTime = now;
     }
-  }
 
-  /**
-   * Check if we can resolve completion
-   */
-  private checkCompletion(): void {
-    // We only need to check if we received the finish event since we process a single stream
-    if (this.state.finishEventReceived) {
-      // Verify we have a valid finish reason
-      if (!this.state.finishReason) {
-        console.debug("[StreamProcessor] Completing without finish reason");
-      }
-
-      this.resolveCompletion();
+    if (type === "text" && !this.state.firstTextTime) {
+      this.state.firstTextTime = now;
+    } else if (type === "reasoning" && !this.state.firstReasoningTime) {
+      this.state.firstReasoningTime = now;
     }
   }
 
