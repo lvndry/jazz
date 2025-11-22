@@ -8,6 +8,7 @@ import {
 } from "../../core/agent/agent-service";
 import { createCategoryMappings } from "../../core/agent/tools/register-tools";
 import { ToolRegistryTag, type ToolRegistry } from "../../core/agent/tools/tool-registry";
+import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -17,7 +18,8 @@ import {
   ValidationError,
 } from "../../core/types/errors";
 import type { Agent, AgentConfig } from "../../core/types/index";
-import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
+import { LLMService, LLMServiceTag, type LLMProvider } from "../../services/llm/interfaces";
+import type { ProviderName } from "../../services/llm/models";
 import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
@@ -84,9 +86,22 @@ export function editAgentCommand(
     const categoryMappings = createCategoryMappings();
     const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
 
+    // Get current provider info for model selection
+    const currentProviderInfo = yield* llmService
+      .getProvider(agent.config.llmProvider as ProviderName)
+      .pipe(Effect.catchAll(() => Effect.succeed(null as LLMProvider | null)));
+
     // Prompt for updates
     const editAnswers = yield* Effect.promise(() =>
-      promptForAgentUpdates(agent, providers, agentTypes, toolsByCategory, terminal),
+      promptForAgentUpdates(
+        agent,
+        providers,
+        agentTypes,
+        toolsByCategory,
+        terminal,
+        llmService,
+        currentProviderInfo,
+      ),
     );
 
     // Convert selected categories (display names) to category IDs, then get tools
@@ -152,6 +167,8 @@ async function promptForAgentUpdates(
   agentTypes: readonly string[],
   toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
   terminal: TerminalService,
+  llmService: LLMService,
+  currentProviderInfo: LLMProvider | null,
 ): Promise<AgentEditAnswers> {
   const answers: AgentEditAnswers = {};
 
@@ -164,7 +181,6 @@ async function promptForAgentUpdates(
       choices: [
         { name: "Name", value: "name" },
         { name: "Description", value: "description" },
-        { name: "Status", value: "status" },
         { name: "Agent Type", value: "agentType" },
         { name: "LLM Provider", value: "llmProvider" },
         { name: "LLM Model", value: "llmModel" },
@@ -253,18 +269,74 @@ async function promptForAgentUpdates(
     ]);
     answers.llmProvider = llmProvider;
 
-    // Update LLM model based on provider
-    if (fieldsToUpdate.includes("llmModel")) {
-      // Note: This would need to be handled in the Effect context
-      // For now, we'll skip the model selection in the prompt
-      await Effect.runPromise(
-        terminal.info("LLM model selection will be handled during agent update"),
-      );
-    }
+    // When provider is changed, we must also select a model for that provider
+    const providerInfo = await Effect.runPromise(
+      llmService.getProvider(llmProvider as ProviderName),
+    ).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get provider info: ${message}`);
+    });
+
+    const { llmModel } = await inquirer.prompt<{ llmModel: string }>([
+      {
+        type: "list",
+        name: "llmModel",
+        message: `Select model for ${llmProvider}:`,
+        choices: providerInfo.supportedModels.map((model) => ({
+          name: model.displayName || model.id,
+          value: model.id,
+        })),
+        default: providerInfo.defaultModel,
+      },
+    ]);
+    answers.llmModel = llmModel;
+  }
+
+  // Update LLM model (only if provider wasn't already updated)
+  if (fieldsToUpdate.includes("llmModel") && !answers.llmProvider) {
+    // Use current provider to get available models
+    const providerToUse = currentAgent.config.llmProvider;
+    const providerInfo =
+      currentProviderInfo ||
+      (await Effect.runPromise(llmService.getProvider(providerToUse as ProviderName)).catch(
+        (error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`Failed to get provider info: ${message}`);
+        },
+      ));
+
+    const { llmModel } = await inquirer.prompt<{ llmModel: string }>([
+      {
+        type: "list",
+        name: "llmModel",
+        message: `Select model for ${providerToUse}:`,
+        choices: providerInfo.supportedModels.map((model) => ({
+          name: model.displayName || model.id,
+          value: model.id,
+        })),
+        default: currentAgent.config.llmModel || providerInfo.defaultModel,
+      },
+    ]);
+    answers.llmModel = llmModel;
   }
 
   // Update tools
   if (fieldsToUpdate.includes("tools")) {
+    // Get current agent's tool names
+    const currentToolNames = normalizeToolConfig(currentAgent.config.tools, {
+      agentId: currentAgent.id,
+    });
+    const currentToolSet = new Set(currentToolNames);
+
+    // Find which categories contain the agent's current tools
+    const defaultCategories: string[] = [];
+    for (const [category, tools] of Object.entries(toolsByCategory)) {
+      // Check if any of the agent's tools are in this category
+      if (tools.some((tool) => currentToolSet.has(tool))) {
+        defaultCategories.push(category);
+      }
+    }
+
     const { toolCategories } = await inquirer.prompt<{ toolCategories: string[] }>([
       {
         type: "checkbox",
@@ -274,7 +346,7 @@ async function promptForAgentUpdates(
           name: `${category} (${toolsByCategory[category]?.length || 0} tools)`,
           value: category,
         })),
-        default: [],
+        default: defaultCategories,
       },
     ]);
 
