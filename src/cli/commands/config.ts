@@ -68,19 +68,8 @@ export function setConfigCommand(
 
         yield* terminal.info(`Configuring ${provider}...`);
 
-        if (provider === "google") {
-          const apiKey = yield* terminal.password("Enter API Key:");
-          yield* configService.set(`llm.${provider}.api_key`, apiKey);
-        } else if (provider === "ollama") {
-          // Ollama might not need api_key
-          const apiKey = yield* terminal.ask("Enter API Key (optional):");
-          if (apiKey) {
-            yield* configService.set(`llm.${provider}.api_key`, apiKey);
-          }
-        } else {
-          const apiKey = yield* terminal.password("Enter API Key:");
-          yield* configService.set(`llm.${provider}.api_key`, apiKey);
-        }
+        const apiKey = yield* terminal.ask("Enter API Key:");
+        yield* configService.set(`llm.${provider}.api_key`, apiKey);
 
         yield* terminal.success(`Configuration for ${provider} updated.`);
         return;
