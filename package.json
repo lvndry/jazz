@@ -62,6 +62,7 @@
     "@ai-sdk/xai": "^2.0.20",
     "@effect/platform": "^0.90.9",
     "@effect/platform-node": "^0.96.1",
+    "@openrouter/ai-sdk-provider": "^1.2.5",
     "ai": "^5.0.47",
     "chalk": "^5.6.2",
     "commander": "^14.0.1",

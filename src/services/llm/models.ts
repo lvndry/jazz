@@ -86,6 +86,11 @@ export const PROVIDER_MODELS = {
     endpointPath: "/tags",
     defaultBaseUrl: "http://localhost:11434/api",
   },
+  openrouter: {
+    type: "dynamic",
+    endpointPath: "/api/v1/models",
+    defaultBaseUrl: "https://openrouter.ai",
+  },
 } as const satisfies Record<string, ModelSource>;
 
 export type ProviderName = keyof typeof PROVIDER_MODELS;

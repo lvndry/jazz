@@ -4,6 +4,7 @@ import { google, GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
 import { openai, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai, XaiProviderOptions } from "@ai-sdk/xai";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { createOllama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 
 import {
@@ -158,6 +159,9 @@ function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; ap
   if (llmConfig.deepseek?.api_key) {
     providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
   }
+  if (llmConfig.openrouter?.api_key) {
+    providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
+  }
 
   providers.push({ name: "ollama", apiKey: llmConfig.ollama?.api_key ?? "" });
 
@@ -188,6 +192,19 @@ function selectModel(
         : {};
       const ollamaInstance = createOllama({ baseURL: "http://localhost:11434/api", headers });
       return ollamaInstance(modelId);
+    }
+    case "openrouter": {
+      // Use OpenRouter AI SDK provider
+      const apiKey = llmConfig?.openrouter?.api_key;
+      const openrouter = createOpenRouter({
+        ...(apiKey ? { apiKey } : {}),
+        compatibility: "strict",
+        headers: {
+          "HTTP-Referer": "https://github.com/lvndry/jazz",
+          "X-Title": "Jazz CLI",
+        },
+      });
+      return openrouter(modelId);
     }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
@@ -354,6 +371,9 @@ class AISDKService implements LLMService {
           if (name === "google") {
             // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
             process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
+          } else if (name === "openrouter") {
+            // OpenRouter uses OPENROUTER_API_KEY environment variable
+            process.env["OPENROUTER_API_KEY"] = apiKey;
           } else {
             process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
           }
@@ -394,7 +414,10 @@ class AISDKService implements LLMService {
       return Effect.succeed([]);
     }
 
-    const apiKey = providerConfig?.api_key;
+    const apiKey =
+      providerConfig && typeof providerConfig === "object" && "api_key" in providerConfig
+        ? providerConfig.api_key
+        : undefined;
 
     return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey);
   }
@@ -411,7 +434,10 @@ class AISDKService implements LLMService {
           Effect.try({
             try: () => {
               const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
-              const apiKey = providerConfig?.api_key;
+              const apiKey =
+                providerConfig && typeof providerConfig === "object" && "api_key" in providerConfig
+                  ? providerConfig.api_key
+                  : undefined;
 
               if (!apiKey) {
                 // API Key is optional for Ollama
