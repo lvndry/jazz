@@ -35,7 +35,6 @@ import { TerminalServiceTag, type TerminalService } from "../../services/termina
  *
  * @param name - The unique name for the agent
  * @param description - A description of what the agent does
- * @param options - Configuration options including timeout, retry policy settings
  * @returns An Effect that resolves when the agent is created successfully
  *
  * @throws {StorageError} When there's an error saving the agent
@@ -48,7 +47,6 @@ import { TerminalServiceTag, type TerminalService } from "../../services/termina
  * yield* createAgentCommand(
  *   "email-processor",
  *   "Processes incoming emails",
- *   { timeout: 30000, maxRetries: 3, retryDelay: 1000 }
  * );
  * ```
  */
@@ -57,10 +55,6 @@ export function createAgentCommand(
   description: string,
   options: {
     description?: string;
-    timeout?: number;
-    maxRetries?: number;
-    retryDelay?: number;
-    retryBackoff?: "linear" | "exponential" | "fixed";
   },
 ): Effect.Effect<
   void,
@@ -77,22 +71,6 @@ export function createAgentCommand(
     // Build agent configuration from options
     const config: Partial<AgentConfig> = {};
 
-    if (options.timeout) {
-      config.timeout = options.timeout;
-    }
-
-    if (
-      options.maxRetries !== undefined ||
-      options.retryDelay !== undefined ||
-      options.retryBackoff
-    ) {
-      config.retryPolicy = {
-        maxRetries: options.maxRetries || 3,
-        delay: options.retryDelay || 1000,
-        backoff: options.retryBackoff || "exponential",
-      };
-    }
-
     // Create the agent
     const agent = yield* agentService.createAgent(name, agentDescription, config);
 
@@ -101,18 +79,9 @@ export function createAgentCommand(
     yield* terminal.log(`   ID: ${agent.id}`);
     yield* terminal.log(`   Name: ${agent.name}`);
     yield* terminal.log(`   Description: ${agent.description}`);
-    yield* terminal.log(`   Status: ${agent.status}`);
     yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
 
-    if (config.timeout) {
-      yield* terminal.log(`   Timeout: ${config.timeout}ms`);
-    }
-
-    if (config.retryPolicy) {
-      yield* terminal.log(
-        `   Retry Policy: ${config.retryPolicy.maxRetries} retries, ${config.retryPolicy.delay}ms delay, ${config.retryPolicy.backoff} backoff`,
-      );
-    }
+    yield* terminal.log(`   Model: ${agent.model}`);
   });
 }
 
@@ -166,7 +135,6 @@ export function listAgentsCommand(
       if (options.verbose) {
         yield* terminal.log(`   Agent Type: ${agent.config.agentType || "default"}`);
         yield* terminal.log(`   Reasoning Effort: ${agent.config.reasoningEffort || "low"}`);
-        yield* terminal.log(`   Timeout: ${agent.config.timeout || "default"}ms`);
 
         const toolNames = agent.config.tools ?? [];
         if (toolNames.length > 0) {
@@ -174,12 +142,6 @@ export function listAgentsCommand(
           yield* terminal.log(`     ${toolNames.join(", ")}`);
         } else {
           yield* terminal.log(`   Tools: None configured`);
-        }
-
-        if (agent.config.retryPolicy) {
-          yield* terminal.log(
-            `   Retry Policy: ${agent.config.retryPolicy.maxRetries} retries, ${agent.config.retryPolicy.delay}ms delay, ${agent.config.retryPolicy.backoff} backoff`,
-          );
         }
 
         if (agent.config.environment && Object.keys(agent.config.environment).length > 0) {
@@ -226,14 +188,17 @@ export function runAgentCommand(
     watch?: boolean;
     dryRun?: boolean;
   },
-): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService | GmailService | TerminalService> {
+): Effect.Effect<
+  void,
+  StorageError | StorageNotFoundError,
+  AgentService | GmailService | TerminalService
+> {
   return Effect.gen(function* () {
     const agent = yield* getAgentById(agentId);
     const terminal = yield* TerminalServiceTag;
 
     yield* terminal.info(`Running agent: ${agent.name} (${agent.id})`);
     yield* terminal.log(`   Description: ${agent.description}`);
-    yield* terminal.log(`   Status: ${agent.status}`);
     yield* terminal.log(`   Tasks: ${agent.config.tasks.length}`);
 
     if (options.dryRun) {
@@ -359,51 +324,48 @@ export function deleteAgentCommand(
  * Retrieves and displays detailed information about a specific agent including
  * its configuration, tasks, and metadata in a formatted output.
  *
- * @param agentId - The unique identifier of the agent to retrieve
+ * @param agentIdentifier - The agent ID or name to retrieve
  * @returns An Effect that resolves when the agent details are displayed
  *
  * @throws {StorageError} When there's an error accessing storage
- * @throws {StorageNotFoundError} When the agent with the given ID doesn't exist
+ * @throws {StorageNotFoundError} When no agent matches the provided identifier
  *
  * @example
  * ```typescript
  * yield* getAgentCommand("agent-123");
+ * yield* getAgentCommand("email-helper");
  * // Output: Detailed agent information including config and tasks
  * ```
  */
 export function getAgentCommand(
-  agentId: string,
+  agentIdentifier: string,
 ): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService | TerminalService> {
   return Effect.gen(function* () {
-    const agent = yield* getAgentById(agentId);
+    const agent = yield* getAgentByIdentifier(agentIdentifier);
     const terminal = yield* TerminalServiceTag;
 
     yield* terminal.log(`📋 Agent Details:`);
     yield* terminal.log(`   ID: ${agent.id}`);
     yield* terminal.log(`   Name: ${agent.name}`);
     yield* terminal.log(`   Description: ${agent.description}`);
-    yield* terminal.log(`   Status: ${agent.status}`);
+    yield* terminal.log(`   Model: ${agent.model}`);
     yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
     yield* terminal.log(`   Updated: ${agent.updatedAt.toISOString()}`);
     yield* terminal.log("");
 
     yield* terminal.log(`⚙️  Configuration:`);
-    yield* terminal.log(`   Timeout: ${agent.config.timeout || "default"}ms`);
     yield* terminal.log(`   Tasks: ${agent.config.tasks.length}`);
 
-    if (agent.config.retryPolicy) {
-      yield* terminal.log(`   Retry Policy:`);
-      yield* terminal.log(`     Max Retries: ${agent.config.retryPolicy.maxRetries}`);
-      yield* terminal.log(`     Delay: ${agent.config.retryPolicy.delay}ms`);
-      yield* terminal.log(`     Backoff: ${agent.config.retryPolicy.backoff}`);
-    }
-
     if (agent.config.environment && Object.keys(agent.config.environment).length > 0) {
-      yield* terminal.log(`   Environment Variables: ${Object.keys(agent.config.environment).length}`);
+      yield* terminal.log(
+        `   Environment Variables: ${Object.keys(agent.config.environment).length}`,
+      );
     }
 
     if (agent.config.schedule) {
-      yield* terminal.log(`   Schedule: ${agent.config.schedule.type} - ${agent.config.schedule.value}`);
+      yield* terminal.log(
+        `   Schedule: ${agent.config.schedule.type} - ${agent.config.schedule.value}`,
+      );
     }
 
     yield* terminal.log("");
@@ -417,10 +379,6 @@ export function getAgentCommand(
 
         if (task.dependencies && task.dependencies.length > 0) {
           yield* terminal.log(`      Dependencies: ${task.dependencies.join(", ")}`);
-        }
-
-        if (task.maxRetries !== undefined) {
-          yield* terminal.log(`      Max Retries: ${task.maxRetries}`);
         }
 
         // Show task-specific config

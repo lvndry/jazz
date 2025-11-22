@@ -30,7 +30,11 @@ import { createLoggerLayer, LoggerServiceTag } from "./services/logger";
 import { FileStorageService } from "./services/storage/file";
 import { StorageServiceTag } from "./services/storage/service";
 import { resolveStorageDirectory } from "./services/storage/utils";
-import { createTerminalServiceLayer, TerminalServiceImpl, TerminalServiceTag } from "./services/terminal";
+import {
+  createTerminalServiceLayer,
+  TerminalServiceImpl,
+  TerminalServiceTag,
+} from "./services/terminal";
 
 /**
  * Main entry point for the Jazz CLI
@@ -162,7 +166,7 @@ function runCliEffect<R, E extends JazzError | Error>(
     }),
   ).pipe(
     Effect.provide(createAppLayer(debugFlag)),
-    Effect.provideService(TerminalServiceTag, new TerminalServiceImpl())
+    Effect.provideService(TerminalServiceTag, new TerminalServiceImpl()),
   ) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect);
@@ -197,7 +201,9 @@ function main(): Effect.Effect<void, never> {
 
     program
       .name("jazz")
-      .description("Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)")
+      .description(
+        "Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)",
+      )
       .version(packageJson.version);
 
     // Global options
@@ -234,25 +240,11 @@ function main(): Effect.Effect<void, never> {
       .command("create-quick <name>")
       .description("Create a new agent quickly with command line options")
       .option("-d, --description <description>", "Agent description")
-      .option("-t, --timeout <timeout>", "Agent timeout in milliseconds", (value) =>
-        parseInt(value, 10),
-      )
-      .option("-r, --max-retries <retries>", "Maximum number of retries", (value) =>
-        parseInt(value, 10),
-      )
-      .option("--retry-delay <delay>", "Retry delay in milliseconds", (value) =>
-        parseInt(value, 10),
-      )
-      .option("--retry-backoff <backoff>", "Retry backoff strategy", "exponential")
       .action(
         (
           name: string,
           options: {
             description?: string;
-            timeout?: number;
-            maxRetries?: number;
-            retryDelay?: number;
-            retryBackoff?: "linear" | "exponential" | "fixed";
           },
         ) => {
           const opts = program.opts();
@@ -282,6 +274,14 @@ function main(): Effect.Effect<void, never> {
       });
 
     agentCommand
+      .command("edit <agentId>")
+      .description("Edit an existing agent")
+      .action((agentId: string) => {
+        const opts = program.opts();
+        runCliEffect(editAgentCommand(agentId), Boolean(opts["debug"]));
+      });
+
+    agentCommand
       .command("delete <agentId>")
       .alias("remove")
       .alias("rm")
@@ -308,19 +308,14 @@ function main(): Effect.Effect<void, never> {
           const streamOption =
             options.noStream === true ? false : options.stream === true ? true : undefined;
           runCliEffect(
-            chatWithAIAgentCommand(agentIdentifier, streamOption !== undefined ? { stream: streamOption } : {}),
+            chatWithAIAgentCommand(
+              agentIdentifier,
+              streamOption !== undefined ? { stream: streamOption } : {},
+            ),
             Boolean(opts["debug"]),
           );
         },
       );
-
-    agentCommand
-      .command("edit <agentId>")
-      .description("Edit an existing agent (interactive mode)")
-      .action((agentId: string) => {
-        const opts = program.opts();
-        runCliEffect(editAgentCommand(agentId), Boolean(opts["debug"]));
-      });
 
     // Automation commands
     const automationCommand = program.command("automation").description("Manage automations");
