@@ -166,7 +166,6 @@ export class OutputRenderer {
 
       case "usage_update":
         if (this.config.showMetrics) {
-          // Accumulate usage updates instead of rendering them immediately
           this.accumulatedUsage = event.usage;
         }
         return null;
