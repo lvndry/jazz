@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
 import packageJson from "../package.json";
 import { gmailLoginCommand, gmailLogoutCommand, gmailStatusCommand } from "./cli/commands/auth";
-import { chatWithAIAgentCommand, createAIAgentCommand } from "./cli/commands/chat-agent";
+import { chatWithAIAgentCommand, createAgentCommand } from "./cli/commands/chat-agent";
 import { getConfigCommand, listConfigCommand, setConfigCommand } from "./cli/commands/config";
 import { editAgentCommand } from "./cli/commands/edit-agent";
 import { deleteAgentCommand, getAgentCommand, listAgentsCommand } from "./cli/commands/task-agent";
@@ -226,7 +226,7 @@ function main(): Effect.Effect<void, never> {
       .description("Create a new agent (interactive mode)")
       .action(() => {
         const opts = program.opts();
-        runCliEffect(createAIAgentCommand(), Boolean(opts["debug"]));
+        runCliEffect(createAgentCommand(), Boolean(opts["debug"]));
       });
 
     agentCommand

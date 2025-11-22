@@ -35,6 +35,7 @@ import {
 import type { Agent, AgentConfig } from "../../core/types/index";
 import { CommonSuggestions } from "../../core/utils/error-handler";
 import type { ConfigService } from "../../services/config";
+import { AgentConfigService } from "../../services/config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/fs";
 import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
 import { ChatMessage } from "../../services/llm/messages";
@@ -104,14 +105,14 @@ interface AIAgentCreationAnswers {
 /**
  * Interactive AI agent creation command
  */
-export function createAIAgentCommand(): Effect.Effect<
+export function createAgentCommand(): Effect.Effect<
   void,
   | StorageError
   | AgentAlreadyExistsError
   | AgentConfigurationError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry | TerminalService
+  AgentService | LLMService | ToolRegistry | TerminalService | ConfigService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -119,18 +120,13 @@ export function createAIAgentCommand(): Effect.Effect<
     yield* terminal.log("Let's create a new AI agent step by step.");
     yield* terminal.log("");
 
-    // Get available LLM providers and models
     const llmService = yield* LLMServiceTag;
-    const providers = yield* llmService.listProviders();
-
-    // Get available agent types
-    const agentTypes = yield* agentPromptBuilder.listTemplates();
-
-    // Get available tools by category
+    const configService = yield* AgentConfigService;
     const toolRegistry = yield* ToolRegistryTag;
+
+    const agentTypes = yield* agentPromptBuilder.listTemplates();
     const toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
-    // Create mappings between category display names and IDs
     const categoryMappings = createCategoryMappings();
     const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
     const categoryIdToDisplayName: Map<string, string> = categoryMappings.idToDisplayName;
@@ -138,10 +134,10 @@ export function createAIAgentCommand(): Effect.Effect<
     // Get agent basic information
     const agentAnswers = yield* Effect.promise(() =>
       promptForAgentInfo(
-        providers,
         agentTypes,
         toolsByCategory,
         llmService,
+        configService,
         categoryIdToDisplayName,
         terminal,
       ),
@@ -204,16 +200,91 @@ export function createAIAgentCommand(): Effect.Effect<
 }
 
 /**
- * Prompt for basic agent information
+ * Prompt for basic agent information with new flow:
+ * 1. Provider selection
+ * 2. API key check/input if needed
+ * 3. Agent type
+ * 4. Name
+ * 5. Description (if default)
+ * 6. Model selection
+ * 7. Reasoning effort (if applicable)
+ * 8. Tools (if not predefined)
  */
 async function promptForAgentInfo(
-  providers: readonly { name: string; configured: boolean }[],
   agentTypes: readonly string[],
-  toolsByCategory: Record<string, readonly string[]>, //{ displayName: string[] }
+  toolsByCategory: Record<string, readonly string[]>,
   llmService: LLMService,
+  configService: ConfigService,
   categoryIdToDisplayName: Map<string, string>,
   terminal: TerminalService,
 ): Promise<AIAgentCreationAnswers> {
+  const allProviders = await Effect.runPromise(llmService.listProviders());
+
+  const providerQuestion = [
+    {
+      type: "list",
+      name: "llmProvider",
+      message: "Which LLM provider would you like to use?",
+      choices: allProviders.map((p) => ({
+        name: p.name,
+        value: p.name,
+        // Enable all providers regardless of configuration status
+      })),
+      default: allProviders.find((p) => p.configured)?.name || allProviders[0]?.name,
+    },
+  ];
+
+  // @ts-expect-error - inquirer types are not matching correctly
+  const providerAnswer = (await inquirer.prompt(providerQuestion)) as Pick<
+    AIAgentCreationAnswers,
+    "llmProvider"
+  >;
+
+  // STEP 2: Check if API key exists for the selected provider
+  const providerName = providerAnswer.llmProvider;
+  const apiKeyPath = `llm.${providerName}.api_key`;
+  const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
+
+  if (!hasApiKey) {
+    // Show message and prompt for API key
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* terminal.log("");
+        yield* terminal.warn(`API key not set in config file for ${providerName}.`);
+        yield* terminal.log("Please paste your API key below:");
+      }),
+    );
+
+    const apiKeyQuestion = [
+      {
+        type: "input",
+        name: "apiKey",
+        message: `${providerName} API Key:`,
+        mask: "*",
+        validate: (input: string): boolean | string => {
+          if (!input || input.trim().length === 0) {
+            return "API key cannot be empty";
+          }
+          return true;
+        },
+      },
+    ];
+
+    // @ts-expect-error - inquirer types are not matching correctly
+    const apiKeyAnswer = (await inquirer.prompt(apiKeyQuestion)) as { apiKey: string };
+
+    // Update config with the new API key
+    await Effect.runPromise(configService.set(apiKeyPath, apiKeyAnswer.apiKey));
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* terminal.success("API key saved to config file.");
+        yield* terminal.log("");
+      }),
+    );
+  }
+
+  // STEP 3: Ask for agent type
   const agentTypeQuestion = [
     {
       type: "list",
@@ -230,7 +301,7 @@ async function promptForAgentInfo(
     "agentType"
   >;
 
-  // Then ask for name
+  // STEP 4: Ask for name
   const nameQuestion = [
     {
       type: "input",
@@ -254,7 +325,7 @@ async function promptForAgentInfo(
   // @ts-expect-error - inquirer types are not matching correctly
   const nameAnswer = (await inquirer.prompt(nameQuestion)) as Pick<AIAgentCreationAnswers, "name">;
 
-  // ask for description only if agent type is "default"
+  // STEP 5: Ask for description only if agent type is "default"
   let descriptionAnswer: Pick<AIAgentCreationAnswers, "description"> = {};
   if (agentTypeAnswer.agentType === "default") {
     const descriptionQuestion = [
@@ -281,33 +352,12 @@ async function promptForAgentInfo(
     >;
   }
 
-  // Ask for provider
-  const providerQuestion = [
-    {
-      type: "list",
-      name: "llmProvider",
-      message: "Which LLM provider would you like to use?",
-      choices: providers.map((p) => ({
-        name: p.name,
-        value: p.name,
-        disabled: p.configured ? false : "- API key not configured",
-      })),
-      default: providers.find((p) => p.configured)?.name,
-    },
-  ];
-
-  // @ts-expect-error - inquirer types are not matching correctly
-  const providerAnswer = (await inquirer.prompt(providerQuestion)) as Pick<
-    AIAgentCreationAnswers,
-    "llmProvider"
-  >;
-
   // Combine answers so far
   const basicAnswers = {
+    ...providerAnswer,
     ...agentTypeAnswer,
     ...nameAnswer,
     ...descriptionAnswer,
-    ...providerAnswer,
   };
 
   // Now get the models for the chosen provider

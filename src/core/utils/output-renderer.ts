@@ -252,8 +252,7 @@ export class OutputRenderer {
       "\n" +
       colors.toolName(`${icons.tool}  Executing tool: `) +
       colors.toolName(event.toolName) +
-      argsStr +
-      "..."
+      argsStr
     );
   }
 

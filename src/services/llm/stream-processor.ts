@@ -50,8 +50,6 @@ interface StreamProcessorState {
   // Reasoning tracking
   reasoningSequence: number;
   reasoningStreamCompleted: boolean;
-  hasStartedReasoning: boolean;
-  thinkingCompleteEmitted: boolean;
   reasoningTokens: number | undefined;
 
   // Tool calls
@@ -77,8 +75,6 @@ function createInitialState(): StreamProcessorState {
     hasStartedText: false,
     reasoningSequence: 0,
     reasoningStreamCompleted: false,
-    hasStartedReasoning: false,
-    thinkingCompleteEmitted: false,
     reasoningTokens: undefined,
     collectedToolCalls: [],
     firstTokenTime: null,
