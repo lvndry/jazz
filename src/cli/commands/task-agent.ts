@@ -54,9 +54,11 @@ export function listAgentsCommand(
       yield* terminal.log(`   Description: ${agent.description}`);
 
       // Always show LLM provider and model
-      const llmProvider = agent.config.llmProvider || "openai";
-      const llmModel = agent.config.llmModel || "gpt-4o-mini";
-      yield* terminal.log(`   LLM: ${llmProvider}/${llmModel}`);
+      const llmProvider = agent.config.llmProvider;
+      const llmModel = agent.config.llmModel;
+      yield* terminal.log(`   Model: ${llmProvider}/${llmModel}`);
+      yield* terminal.log(`   Reasoning Effort: ${agent.config.reasoningEffort}`);
+      yield* terminal.log(`   Agent Type: ${agent.config.agentType}`);
 
       yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
       yield* terminal.log(`   Updated: ${agent.updatedAt.toISOString()}`);

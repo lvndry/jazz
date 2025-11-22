@@ -7,7 +7,7 @@
       perceived latency.
 - [x] Update system prompt to discorourage usage of tables. They don't render well in terminal
 - [ ] Better colors and themes.
-- [ ] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
+- [x] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
 - [ ] Finish implementation of `jazz create-quick`
 - [ ] Finish implementation of `jazz logs`
 - [ ] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
@@ -35,7 +35,7 @@
       document the flow with examples like
       `jazz agent create --name "deploy-master" --tools git,files`.
 - [ ] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox
-      triage, reporting) with reusable configs.
+      triage, reporting) with reusable configs
 
 ## Integrations
 

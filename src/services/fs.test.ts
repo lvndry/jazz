@@ -1,6 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import { homedir } from "os";
 import { createFileSystemContextServiceLayer, FileSystemContextServiceTag } from "./fs";
 
 describe("FileSystemContextService", () => {
@@ -79,6 +80,38 @@ describe("FileSystemContextService", () => {
       );
 
       expect(result).toBe(`${process.cwd()}/Documents`);
+    });
+
+    it("should expand ~ to home directory", async () => {
+      const testEffect = Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const resolved = yield* shell.resolvePath({ agentId: "test" }, "~", {
+          skipExistenceCheck: true,
+        });
+        return resolved;
+      });
+
+      const result = await Effect.runPromise(
+        testEffect.pipe(Effect.provide(createTestLayer())) as any,
+      );
+
+      expect(result).toBe(homedir());
+    });
+
+    it("should expand ~/ to home directory", async () => {
+      const testEffect = Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const resolved = yield* shell.resolvePath({ agentId: "test" }, "~/Documents", {
+          skipExistenceCheck: true,
+        });
+        return resolved;
+      });
+
+      const result = await Effect.runPromise(
+        testEffect.pipe(Effect.provide(createTestLayer())) as any,
+      );
+
+      expect(result).toBe(`${homedir()}/Documents`);
     });
   });
 

@@ -92,6 +92,10 @@ function toCoreMessages(
         | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
       > = [];
 
+      // IMPORTANT: For reasoning models, we only store/replay the text content,
+      // NOT reasoning items. Reasoning is ephemeral and only for the current turn.
+      // Always send text content - this prevents OpenAI API errors about
+      // "reasoning item without required following item" when replaying history.
       if (m.content && m.content.length > 0) {
         contentParts.push({ type: "text", text: m.content });
       }
@@ -139,18 +143,35 @@ function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; ap
   if (!llmConfig) return [];
   const providers: Array<{ name: string; apiKey: string }> = [];
 
-  if (llmConfig.openai?.api_key) providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
-  if (llmConfig.anthropic?.api_key) providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
-  if (llmConfig.google?.api_key) providers.push({ name: "google", apiKey: llmConfig.google.api_key });
-  if (llmConfig.mistral?.api_key) providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
-  if (llmConfig.xai?.api_key) providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
-  if (llmConfig.deepseek?.api_key) providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
+  if (llmConfig.openai?.api_key) {
+    providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
+  }
+  if (llmConfig.anthropic?.api_key) {
+    providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
+  }
+  if (llmConfig.google?.api_key) {
+    providers.push({ name: "google", apiKey: llmConfig.google.api_key });
+  }
+  if (llmConfig.mistral?.api_key) {
+    providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
+  }
+  if (llmConfig.xai?.api_key) {
+    providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
+  }
+  if (llmConfig.deepseek?.api_key) {
+    providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
+  }
+
   providers.push({ name: "ollama", apiKey: llmConfig.ollama?.api_key ?? "" });
 
   return providers;
 }
 
-function selectModel(providerName: string, modelId: ModelName, llmConfig?: LLMConfig): LanguageModel {
+function selectModel(
+  providerName: string,
+  modelId: ModelName,
+  llmConfig?: LLMConfig,
+): LanguageModel {
   switch (providerName.toLowerCase()) {
     case "openai":
       return openai(modelId);
@@ -165,7 +186,9 @@ function selectModel(providerName: string, modelId: ModelName, llmConfig?: LLMCo
     case "deepseek":
       return (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
     case "ollama": {
-      const headers = llmConfig?.ollama?.api_key ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` } : {};
+      const headers = llmConfig?.ollama?.api_key
+        ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` }
+        : {};
       const ollamaInstance = createOllama({ baseURL: "http://localhost:11434/api", headers });
       return ollamaInstance(modelId);
     }
@@ -387,12 +410,14 @@ class AISDKService implements LLMService {
     const configuredProviders = getConfiguredProviders(this.config.llmConfig);
     const configuredNames = new Set(configuredProviders.map((p) => p.name));
 
-    const allProviders = Object.keys(this.providerModels).filter((provider): provider is keyof typeof this.providerModels =>
-      this.isProviderName(provider)
-    ).map(name => ({
-      name,
-      configured: configuredNames.has(name)
-    }));
+    const allProviders = Object.keys(this.providerModels)
+      .filter((provider): provider is keyof typeof this.providerModels =>
+        this.isProviderName(provider),
+      )
+      .map((name) => ({
+        name,
+        configured: configuredNames.has(name),
+      }));
 
     return Effect.succeed(allProviders);
   }
@@ -525,6 +550,11 @@ class AISDKService implements LLMService {
 
     // Create a deferred to collect final response
     const responseDeferred = createDeferred<ChatCompletionResponse>();
+    // Prevent unhandled promise rejection if the caller never awaits the response effect
+    void responseDeferred.promise.catch((err) => {
+      console.error("[LLM Deferred] Unhandled error:", err);
+      throw err;
+    });
 
     const stream = Stream.async<StreamEvent, LLMError>(
       (

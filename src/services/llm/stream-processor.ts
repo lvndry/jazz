@@ -23,7 +23,9 @@ type StreamTextResult = ReturnType<typeof streamText>;
 /**
  * Emit function type for Effect streams
  */
-type EmitFunction = (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void;
+type EmitFunction = (
+  effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
+) => void;
 
 /**
  * Configuration for stream processor
@@ -51,6 +53,7 @@ interface StreamProcessorState {
   hasStartedReasoning: boolean;
   thinkingCompleteEmitted: boolean;
   reasoningTokens: number | undefined;
+  bufferedReasoning: string | undefined;
 
   // Tool calls
   collectedToolCalls: ToolCall[];
@@ -60,6 +63,8 @@ interface StreamProcessorState {
 
   // Completion tracking
   finishEventReceived: boolean;
+  finishReason: string | undefined;
+  fullStreamCompleted: boolean;
 }
 
 /**
@@ -76,9 +81,12 @@ function createInitialState(): StreamProcessorState {
     hasStartedReasoning: false,
     thinkingCompleteEmitted: false,
     reasoningTokens: undefined,
+    bufferedReasoning: undefined,
     collectedToolCalls: [],
     firstTokenTime: null,
     finishEventReceived: false,
+    finishReason: undefined,
+    fullStreamCompleted: false,
   };
 }
 
@@ -123,15 +131,27 @@ export class StreamProcessor {
       timestamp: this.config.startTime,
     });
 
-    // Start processing streams in parallel
-    await Promise.all([
-      this.processTextStream(result),
-      this.processReasoningText(result),
-      this.processFullStream(result),
-    ]);
+    // Start processing streams in parallel with proper error handling
+    try {
+      await Promise.all([
+        this.processTextStream(result),
+        this.processReasoningText(result),
+        this.processFullStream(result),
+      ]);
+    } catch (error) {
+      console.error("[StreamProcessor] Error processing streams:", error);
+      throw error;
+    }
 
     // Wait for completion
     await this.completionPromise;
+
+    // Validate that we received finish event
+    if (!this.state.finishEventReceived) {
+      const error = new Error("Stream completed without finish event");
+      console.error("[StreamProcessor]", error.message);
+      throw error;
+    }
 
     // Build final response
     const finalResponse = await this.buildFinalResponse(result);
@@ -184,22 +204,33 @@ export class StreamProcessor {
     }
 
     try {
-      // Wait for reasoning text with timeout
+      // Wait for reasoning text with timeout (5 minutes)
       const reasoningText = await Promise.race([
         result.reasoningText,
-        new Promise<string | undefined>((resolve) => setTimeout(() => resolve(undefined), 30 * 60 * 1000)),
+        new Promise<string | undefined>((resolve) =>
+          setTimeout(
+            () => {
+              resolve(undefined);
+            },
+            5 * 60 * 1000,
+          ),
+        ),
       ]);
 
-      // Only emit if we have reasoning content
+      // Stream reasoning progressively, but only after text stream has started
+      // This ensures ordering while maintaining real-time streaming UX
       if (reasoningText && reasoningText.length > 0) {
-        // Emit thinking start
-        if (!this.state.hasStartedReasoning) {
-          void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
-          this.state.hasStartedReasoning = true;
-          this.recordFirstToken();
+        // Wait for text stream to start before emitting reasoning
+        // This ensures we don't emit reasoning without a corresponding text output
+        while (!this.state.hasStartedText && !this.state.textStreamCompleted) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
         }
 
-        // Emit reasoning chunks
+        // Now emit thinking events - text has started, safe to stream reasoning
+        void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+        this.recordFirstToken();
+
+        // Stream reasoning chunks progressively
         const chunkSize = 1000;
         for (let i = 0; i < reasoningText.length; i += chunkSize) {
           const chunk = reasoningText.slice(i, i + chunkSize);
@@ -211,16 +242,16 @@ export class StreamProcessor {
         }
 
         // Emit thinking complete
-        if (!this.state.thinkingCompleteEmitted) {
-          void this.emitEvent({
-            type: "thinking_complete",
-            ...(this.state.reasoningTokens !== undefined && { totalTokens: this.state.reasoningTokens }),
-          });
-          this.state.thinkingCompleteEmitted = true;
-        }
+        void this.emitEvent({
+          type: "thinking_complete",
+          ...(this.state.reasoningTokens !== undefined && {
+            totalTokens: this.state.reasoningTokens,
+          }),
+        });
       }
-    } catch {
-      // Silently handle reasoning errors - they shouldn't block the main response
+    } catch (error) {
+      console.error("[StreamProcessor] Error processing reasoning:", error);
+      // Don't throw - reasoning errors shouldn't block main response
     } finally {
       this.state.reasoningStreamCompleted = true;
       this.checkCompletion();
@@ -231,7 +262,8 @@ export class StreamProcessor {
    * Process full stream for tool calls and metadata
    */
   private async processFullStream(result: StreamTextResult): Promise<void> {
-    for await (const part of result.fullStream) {
+    try {
+      for await (const part of result.fullStream) {
         // Stop if we've finished
         if (this.state.finishEventReceived) {
           break;
@@ -276,12 +308,23 @@ export class StreamProcessor {
           }
 
           case "finish": {
+            const finishReason = part.finishReason || "unknown";
             this.state.finishEventReceived = true;
-            // For non-reasoning models, resolve immediately
-            // For reasoning models, wait for reasoning text to complete
-            if (!this.config.hasReasoningEnabled) {
-              this.resolveCompletion();
+            this.state.finishReason = finishReason;
+
+            // Log finish reason for debugging
+            console.log(`[StreamProcessor] Finish event received: ${finishReason}`);
+
+            // Validate expected finish reasons
+            if (
+              finishReason !== "stop" &&
+              finishReason !== "length" &&
+              finishReason !== "tool-calls"
+            ) {
+              console.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
             }
+
+            // Don't resolve completion yet - wait for all streams to complete
             break;
           }
 
@@ -293,6 +336,13 @@ export class StreamProcessor {
           default:
             break;
         }
+      }
+    } catch (error) {
+      console.error("[StreamProcessor] Error in fullStream:", error);
+      throw error;
+    } finally {
+      this.state.fullStreamCompleted = true;
+      this.checkCompletion();
     }
   }
 
@@ -301,7 +351,8 @@ export class StreamProcessor {
    */
   private async buildFinalResponse(result: StreamTextResult): Promise<ChatCompletionResponse> {
     const finalText = this.state.accumulatedText;
-    const toolCalls = this.state.collectedToolCalls.length > 0 ? this.state.collectedToolCalls : undefined;
+    const toolCalls =
+      this.state.collectedToolCalls.length > 0 ? this.state.collectedToolCalls : undefined;
 
     // Try to get usage quickly (50ms timeout)
     let usage: ChatCompletionResponse["usage"] | undefined;
@@ -380,16 +431,21 @@ export class StreamProcessor {
    * Check if we can resolve completion
    */
   private checkCompletion(): void {
-    // For reasoning models: wait for both text and reasoning streams
-    // For non-reasoning models: wait for text stream only
-    if (this.config.hasReasoningEnabled) {
-      if (this.state.textStreamCompleted && this.state.reasoningStreamCompleted) {
-        this.resolveCompletion();
+    // Check if all required streams have completed
+    const textDone = this.state.textStreamCompleted;
+    const reasoningDone = this.config.hasReasoningEnabled
+      ? this.state.reasoningStreamCompleted
+      : true;
+    const fullStreamDone = this.state.fullStreamCompleted;
+
+    // All streams must complete AND we must have received finish event
+    if (textDone && reasoningDone && fullStreamDone && this.state.finishEventReceived) {
+      // Verify we have a valid finish reason
+      if (!this.state.finishReason) {
+        console.warn("[StreamProcessor] Completing without finish reason");
       }
-    } else {
-      if (this.state.textStreamCompleted) {
-        this.resolveCompletion();
-      }
+
+      this.resolveCompletion();
     }
   }
 
@@ -418,4 +474,3 @@ export class StreamProcessor {
     this.emit(Effect.fail(Option.none()));
   }
 }
-
