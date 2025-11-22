@@ -13,9 +13,9 @@ import {
   GIT_CATEGORY,
   GMAIL_CATEGORY,
   HTTP_CATEGORY,
-  SEARCH_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
-  createCategoryMappings,
+  WEB_SEARCH_CATEGORY,
+  createCategoryMappings
 } from "../../core/agent/tools/register-tools";
 import type { ToolRegistry } from "../../core/agent/tools/tool-registry";
 import { ToolRegistryTag } from "../../core/agent/tools/tool-registry";
@@ -74,7 +74,7 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
       SHELL_COMMANDS_CATEGORY.id,
       GIT_CATEGORY.id,
       HTTP_CATEGORY.id,
-      SEARCH_CATEGORY.id,
+      WEB_SEARCH_CATEGORY.id,
     ],
   },
   gmail: {
@@ -84,7 +84,7 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
     toolCategoryIds: [
       GMAIL_CATEGORY.id,
       HTTP_CATEGORY.id,
-      SEARCH_CATEGORY.id,
+      WEB_SEARCH_CATEGORY.id,
       FILE_MANAGEMENT_CATEGORY.id,
       SHELL_COMMANDS_CATEGORY.id,
     ],

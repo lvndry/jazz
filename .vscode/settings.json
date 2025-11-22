@@ -22,5 +22,8 @@
     "**/dist": true,
     "**/.git": true,
     "bun.lock": true
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   }
 }

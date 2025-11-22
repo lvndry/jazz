@@ -54,7 +54,9 @@ export function createModelFetcher(): ModelFetcherService {
           if (!response.ok) {
             if (response.status === 404) {
               if (providerName === "ollama") {
-                throw new Error("Failed to fetch models: No models found. Pull a model using `ollama pull` first.");
+                throw new Error(
+                  "Failed to fetch models: No models found. Pull a model using `ollama pull` first.",
+                );
               }
             }
 
