@@ -8,10 +8,11 @@
 - [x] Update system prompt to discorourage usage of tables. They don't render well in terminal
 - [ ] Better colors and themes.
 - [x] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
-- [ ] Finish implementation of `jazz create-quick`
 - [ ] Finish implementation of `jazz logs`
 - [ ] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
       more capable or less costly model while keeping the same context
+- [x] Easy update - `jazz update`
+- [ ] Improve `jazz agent create` ergonomics e.g `jazz agent create --name "deploy-master" --tools git,files --description "Deploy master agent"`.
 
 ## Agent Runtime & Automation
 
@@ -31,9 +32,6 @@
 
 ## CLI Feature Depth & Docs
 
-- [ ] Improve `jazz agent create` ergonomics — expand flags (tools, schedule, auth) and inline help;
-      document the flow with examples like
-      `jazz agent create --name "deploy-master" --tools git,files`.
 - [ ] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox
       triage, reporting) with reusable configs
 
@@ -67,7 +65,6 @@
 ## Developer experience
 
 - [ ] Precommit hooks
-- [x] Easy update - `jazz update`
 
 ## Backlog Ideas & Research
 
@@ -76,7 +73,7 @@
 - Per-agent authentication domains to isolate credentials (support multiple Gmail accounts, etc.).
 - Rich workflow memory tuned to personal preferences (favorite folders, project contexts, historical
   decisions).
-- Agent evaludation - When system prompt is evolving, users could create a bunch of tests to be run
+- Agent evaluations - When system prompt is evolving, users could create a bunch of tests to be run
   in a sandbox and evaluate the output. Evals could be executed in a sandbox (docker container), we
   could then evaluate the outcome and the tools/used and suggest improvements to the prompts for
   better/faster task completion
