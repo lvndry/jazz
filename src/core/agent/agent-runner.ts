@@ -110,11 +110,7 @@ interface AgentRunContext {
  */
 function initializeAgentRun(
   options: AgentRunnerOptions,
-): Effect.Effect<
-  AgentRunContext,
-  Error,
-  ToolRegistry | LoggerService | ConfigService
-> {
+): Effect.Effect<AgentRunContext, Error, ToolRegistry | LoggerService | ConfigService> {
   return Effect.gen(function* () {
     const { agent, userInput, conversationId, userId } = options;
     const toolRegistry = yield* ToolRegistryTag;
@@ -159,7 +155,9 @@ function initializeAgentRun(
 
     const expandedToolNames = Array.from(expandedToolNameSet);
     const allTools = yield* toolRegistry.getToolDefinitions();
-    const tools = Array.from(allTools.filter((tool) => expandedToolNames.includes(tool.function.name)));
+    const tools = Array.from(
+      allTools.filter((tool) => expandedToolNames.includes(tool.function.name)),
+    );
 
     // Build tool descriptions map
     const availableTools: Record<string, string> = {};
@@ -338,11 +336,7 @@ function executeToolCalls(
   agentId: string,
   conversationId: string,
   agentName: string,
-): Effect.Effect<
-  Record<string, unknown>,
-  Error,
-  ToolRegistry | LoggerService | ConfigService
-> {
+): Effect.Effect<Record<string, unknown>, Error, ToolRegistry | LoggerService | ConfigService> {
   return Effect.gen(function* () {
     const toolResults: Record<string, unknown> = {};
     const toolNames = toolCalls.map((tc) => tc.function.name);
@@ -494,8 +488,8 @@ export class AgentRunner {
         colorProfile: appConfig.output?.colorProfile,
       };
 
-      // Check if we should show metrics (from logging config)
-      const showMetrics = appConfig.logging?.showMetrics ?? false;
+      // Check if we should show metrics
+      const showMetrics = appConfig.logging?.showMetrics ?? true;
 
       // Get streaming config with defaults (streaming-specific)
       const streamingConfig: StreamingConfig = {
@@ -607,7 +601,11 @@ export class AgentRunner {
               } catch (error) {
                 recordLLMRetry(runTracker, error);
                 // Log LLM error details
-                if (error instanceof LLMRequestError || error instanceof LLMRateLimitError || error instanceof LLMAuthenticationError) {
+                if (
+                  error instanceof LLMRequestError ||
+                  error instanceof LLMRateLimitError ||
+                  error instanceof LLMAuthenticationError
+                ) {
                   yield* logger.error("LLM request error", {
                     provider,
                     model: agent.config.llmModel,
@@ -629,7 +627,11 @@ export class AgentRunner {
             Effect.catchAll((error) =>
               Effect.gen(function* () {
                 // Log the error that caused fallback
-                if (error instanceof LLMRequestError || error instanceof LLMRateLimitError || error instanceof LLMAuthenticationError) {
+                if (
+                  error instanceof LLMRequestError ||
+                  error instanceof LLMRateLimitError ||
+                  error instanceof LLMAuthenticationError
+                ) {
                   yield* logger.error("Streaming failed, falling back to non-streaming mode", {
                     provider,
                     model: agent.config.llmModel,
@@ -676,7 +678,10 @@ export class AgentRunner {
 
                 if (event.type === "error") {
                   // Log the error
-                  const error = event.error as LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+                  const error = event.error as
+                    | LLMAuthenticationError
+                    | LLMRateLimitError
+                    | LLMRequestError;
                   yield* logger.error("Stream event error", {
                     provider,
                     model: agent.config.llmModel,
@@ -886,7 +891,7 @@ export class AgentRunner {
 
           // Create non-streaming completion with retry
           const llmOptions = {
-        model,
+            model,
             messages: messagesToSend,
             tools,
             toolChoice: "auto" as const,
@@ -981,9 +986,12 @@ export class AgentRunner {
           // Show metrics if enabled
           if (showMetrics && completion.usage) {
             const parts: string[] = [];
-            if (completion.usage.totalTokens) parts.push(`Total: ${completion.usage.totalTokens} tokens`);
-            if (completion.usage.promptTokens) parts.push(`Prompt: ${completion.usage.promptTokens}`);
-            if (completion.usage.completionTokens) parts.push(`Completion: ${completion.usage.completionTokens}`);
+            if (completion.usage.totalTokens)
+              parts.push(`Total: ${completion.usage.totalTokens} tokens`);
+            if (completion.usage.promptTokens)
+              parts.push(`Prompt: ${completion.usage.promptTokens}`);
+            if (completion.usage.completionTokens)
+              parts.push(`Completion: ${completion.usage.completionTokens}`);
             if (parts.length > 0) {
               yield* logger.info(`[${parts.join(" | ")}]`);
             }

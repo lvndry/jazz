@@ -83,7 +83,7 @@ export const PROVIDER_MODELS = {
   },
   ollama: {
     type: "dynamic",
-    endpointPath: "/api/tags",
+    endpointPath: "/tags",
     defaultBaseUrl: "http://localhost:11434/api",
   },
 } as const satisfies Record<string, ModelSource>;

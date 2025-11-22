@@ -35,6 +35,11 @@ export interface TerminalService {
   readonly log: (message: string) => Effect.Effect<void, never>;
 
   /**
+   * Display a debug message (only shown in debug mode)
+   */
+  readonly debug: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
+
+  /**
    * Display a section heading
    */
   readonly heading: (message: string) => Effect.Effect<void, never>;
@@ -75,6 +80,16 @@ export class TerminalServiceImpl implements TerminalService {
   log(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
       console.log(message);
+    });
+  }
+
+  debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      if (meta) {
+        console.debug(message, meta);
+      } else {
+        console.debug(message);
+      }
     });
   }
 
