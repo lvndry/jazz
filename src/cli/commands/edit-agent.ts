@@ -18,6 +18,8 @@ import {
   ValidationError,
 } from "../../core/types/errors";
 import type { Agent, AgentConfig } from "../../core/types/index";
+import type { ConfigService } from "../../services/config";
+import { AgentConfigService } from "../../services/config";
 import { LLMService, LLMServiceTag, type LLMProvider } from "../../services/llm/interfaces";
 import type { ProviderName } from "../../services/llm/models";
 import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
@@ -49,7 +51,7 @@ export function editAgentCommand(
   | AgentAlreadyExistsError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry | TerminalService
+  AgentService | LLMService | ToolRegistry | TerminalService | ConfigService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -73,6 +75,7 @@ export function editAgentCommand(
 
     // Get available LLM providers and models
     const llmService = yield* LLMServiceTag;
+    const configService = yield* AgentConfigService;
     const providers = yield* llmService.listProviders();
 
     // Get available agent types
@@ -100,6 +103,7 @@ export function editAgentCommand(
         toolsByCategory,
         terminal,
         llmService,
+        configService,
         currentProviderInfo,
       ),
     );
@@ -150,6 +154,7 @@ export function editAgentCommand(
     yield* terminal.log(`   Type: ${updatedConfig.agentType || "N/A"}`);
     yield* terminal.log(`   LLM Provider: ${updatedConfig.llmProvider || "N/A"}`);
     yield* terminal.log(`   LLM Model: ${updatedConfig.llmModel || "N/A"}`);
+    yield* terminal.log(`   Reasoning Effort: ${updatedConfig.reasoningEffort || "N/A"}`);
     yield* terminal.log(`   Tools: ${updatedConfig.tools ? updatedConfig.tools.length : 0} tools`);
     yield* terminal.log(`   Updated: ${updatedAgent.updatedAt.toISOString()}`);
     yield* terminal.log("");
@@ -168,6 +173,7 @@ async function promptForAgentUpdates(
   toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
   terminal: TerminalService,
   llmService: LLMService,
+  configService: ConfigService,
   currentProviderInfo: LLMProvider | null,
 ): Promise<AgentEditAnswers> {
   const answers: AgentEditAnswers = {};
@@ -262,12 +268,50 @@ async function promptForAgentUpdates(
         choices: providers.map((provider) => ({
           name: provider.name,
           value: provider.name,
-          disabled: provider.configured ? false : "API Key not configured",
         })),
         default: currentAgent.config.llmProvider || providers.find((p) => p.configured)?.name,
       },
     ]);
     answers.llmProvider = llmProvider;
+
+    // Check if API key exists for the selected provider
+    const apiKeyPath = `llm.${llmProvider}.api_key`;
+    const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
+
+    if (!hasApiKey) {
+      // Show message and prompt for API key
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          yield* terminal.log("");
+          yield* terminal.warn(`API key not set in config file for ${llmProvider}.`);
+          yield* terminal.log("Please paste your API key below:");
+        }),
+      );
+
+      const { apiKey } = await inquirer.prompt<{ apiKey: string }>([
+        {
+          type: "input",
+          name: "apiKey",
+          message: `${llmProvider} API Key:`,
+          validate: (input: string): boolean | string => {
+            if (!input || input.trim().length === 0) {
+              return "API key cannot be empty";
+            }
+            return true;
+          },
+        },
+      ]);
+
+      // Update config with the new API key
+      await Effect.runPromise(configService.set(apiKeyPath, apiKey));
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          yield* terminal.success("API key saved to config file.");
+          yield* terminal.log("");
+        }),
+      );
+    }
 
     // When provider is changed, we must also select a model for that provider
     const providerInfo = await Effect.runPromise(
@@ -290,6 +334,34 @@ async function promptForAgentUpdates(
       },
     ]);
     answers.llmModel = llmModel;
+
+    // Check if the selected model is a reasoning model
+    const selectedModelInfo = providerInfo.supportedModels.find((model) => model.id === llmModel);
+    const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
+
+    // If it's a reasoning model, ask for reasoning effort level
+    if (isReasoningModel) {
+      const { reasoningEffort } = await inquirer.prompt<{
+        reasoningEffort: "disable" | "low" | "medium" | "high";
+      }>([
+        {
+          type: "list",
+          name: "reasoningEffort",
+          message: "What reasoning effort level would you like?",
+          choices: [
+            { name: "Low - Faster responses, basic reasoning", value: "low" },
+            {
+              name: "Medium - Balanced speed and reasoning depth (recommended)",
+              value: "medium",
+            },
+            { name: "High - Deep reasoning, slower responses", value: "high" },
+            { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+          ],
+          default: currentAgent.config.reasoningEffort || "medium",
+        },
+      ]);
+      answers.reasoningEffort = reasoningEffort;
+    }
   }
 
   // Update LLM model (only if provider wasn't already updated)
@@ -318,6 +390,34 @@ async function promptForAgentUpdates(
       },
     ]);
     answers.llmModel = llmModel;
+
+    // Check if the selected model is a reasoning model
+    const selectedModelInfo = providerInfo.supportedModels.find((model) => model.id === llmModel);
+    const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
+
+    // If it's a reasoning model, ask for reasoning effort level
+    if (isReasoningModel) {
+      const { reasoningEffort } = await inquirer.prompt<{
+        reasoningEffort: "disable" | "low" | "medium" | "high";
+      }>([
+        {
+          type: "list",
+          name: "reasoningEffort",
+          message: "What reasoning effort level would you like?",
+          choices: [
+            { name: "Low - Faster responses, basic reasoning", value: "low" },
+            {
+              name: "Medium - Balanced speed and reasoning depth (recommended)",
+              value: "medium",
+            },
+            { name: "High - Deep reasoning, slower responses", value: "high" },
+            { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+          ],
+          default: currentAgent.config.reasoningEffort || "medium",
+        },
+      ]);
+      answers.reasoningEffort = reasoningEffort;
+    }
   }
 
   // Update tools

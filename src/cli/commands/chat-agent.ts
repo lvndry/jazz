@@ -239,7 +239,7 @@ async function promptForAgentInfo(
     "llmProvider"
   >;
 
-  // STEP 2: Check if API key exists for the selected provider
+  // STEP 2.A: Check if API key exists for the selected provider
   const providerName = providerAnswer.llmProvider;
   const apiKeyPath = `llm.${providerName}.api_key`;
   const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
@@ -254,15 +254,22 @@ async function promptForAgentInfo(
       }),
     );
 
+    const isOptional = providerName === "ollama";
+
     const apiKeyQuestion = [
       {
         type: "input",
         name: "apiKey",
-        message: `${providerName} API Key:`,
+        message: `${providerName} API Key${isOptional ? " (optional)" : ""} :`,
         validate: (input: string): boolean | string => {
+          if (isOptional) {
+            return true;
+          }
+
           if (!input || input.trim().length === 0) {
             return "API key cannot be empty";
           }
+
           return true;
         },
       },
@@ -281,6 +288,56 @@ async function promptForAgentInfo(
       }),
     );
   }
+
+  // STEP 2.B: Select Model
+  const chosenProviderInfo = await Effect.runPromise(
+    llmService.getProvider(providerAnswer.llmProvider),
+  ).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to get provider info: ${message}`);
+  });
+
+  const modelDefault = chosenProviderInfo.defaultModel;
+
+  const modelQuestions = [
+    {
+      type: "list",
+      name: "llmModel",
+      message: "Which model would you like to use?",
+      choices: chosenProviderInfo.supportedModels.map((model) => ({
+        name: model.displayName || model.id,
+        value: model.id,
+        short: model.displayName || model.id,
+      })) as Array<{ name: string; value: string; short: string }>,
+      default: modelDefault,
+    },
+    {
+      type: "list",
+      name: "reasoningEffort",
+      message: "What reasoning effort level would you like?",
+      choices: [
+        { name: "Low - Faster responses, basic reasoning", value: "low" },
+        {
+          name: "Medium - Balanced speed and reasoning depth (recommended)",
+          value: "medium",
+        },
+        { name: "High - Deep reasoning, slower responses", value: "high" },
+        { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+      ],
+      when: (answers: Partial<AIAgentCreationAnswers>): boolean => {
+        const modelId = answers.llmModel;
+        if (!modelId) return false;
+        const model = chosenProviderInfo.supportedModels.find((m) => m.id === modelId);
+        return model?.isReasoningModel ?? false;
+      },
+    },
+  ];
+
+  // @ts-expect-error - inquirer types are not matching correctly
+  const modelAnswers = (await inquirer.prompt(modelQuestions)) as Pick<
+    AIAgentCreationAnswers,
+    "llmModel" | "reasoningEffort"
+  >;
 
   // STEP 3: Ask for agent type
   const agentTypeQuestion = [
@@ -350,32 +407,9 @@ async function promptForAgentInfo(
     >;
   }
 
-  // Combine answers so far
-  const basicAnswers = {
-    ...providerAnswer,
-    ...agentTypeAnswer,
-    ...nameAnswer,
-    ...descriptionAnswer,
-  };
-
-  // Now get the models for the chosen provider
-  const chosenProviderInfo = await Effect.runPromise(
-    llmService.getProvider(basicAnswers.llmProvider),
-  ).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to get provider info: ${message}`);
-  });
-
-  const modelDefault = chosenProviderInfo.defaultModel;
-
-  // Check if the selected model is a reasoning model
-  const selectedModelInfo = chosenProviderInfo.supportedModels.find(
-    (model) => model.id === modelDefault,
-  );
-  const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
-
+  // STEP 6: Tools selection
   // Check if this is a predefined agent with auto-assigned tools
-  const currentPredefinedAgent = PREDEFINED_AGENTS[basicAnswers.agentType];
+  const currentPredefinedAgent = PREDEFINED_AGENTS[agentTypeAnswer.agentType];
   if (currentPredefinedAgent) {
     // Filter to only categories that exist in toolsByCategory (by checking if display name exists)
     const availableCategoryIds = currentPredefinedAgent.toolCategoryIds.filter((categoryId) => {
@@ -398,73 +432,40 @@ async function promptForAgentInfo(
     );
   }
 
-  const finalQuestions = [
-    {
-      type: "list",
-      name: "llmModel",
-      message: "Which model would you like to use?",
-      choices: chosenProviderInfo.supportedModels.map((model) => ({
-        name: model.displayName || model.id,
-        value: model.id,
-        short: model.displayName || model.id,
-      })) as Array<{ name: string; value: string; short: string }>,
-      default: modelDefault,
-    },
-    // Only show reasoning effort question for reasoning models
-    ...(isReasoningModel
-      ? [
-          {
-            type: "list",
-            name: "reasoningEffort",
-            message: "What reasoning effort level would you like?",
-            choices: [
-              { name: "Low - Faster responses, basic reasoning", value: "low" },
-              {
-                name: "Medium - Balanced speed and reasoning depth (recommended)",
-                value: "medium",
-              },
-              { name: "High - Deep reasoning, slower responses", value: "high" },
-              { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-            ],
-          },
-        ]
-      : []),
-    // Skip tool selection for predefined agents (already auto-selected)
-    ...(!PREDEFINED_AGENTS[basicAnswers.agentType]
-      ? [
-          {
-            type: "checkbox",
-            name: "tools",
-            message: "Which tools should this agent have access to?",
-            choices: Object.entries(toolsByCategory).map(([category, tools]) => ({
-              name: `${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"})`,
-              value: category,
-              short: category,
-            })),
-            default: [],
-          },
-        ]
-      : []),
-  ];
+  let toolAnswers: Pick<AIAgentCreationAnswers, "tools"> = { tools: [] };
 
-  // @ts-expect-error - inquirer types are not matching correctly
-  const finalAnswers = (await inquirer.prompt(finalQuestions)) as Pick<
-    AIAgentCreationAnswers,
-    "llmModel" | "reasoningEffort" | "tools"
-  >;
+  if (!currentPredefinedAgent) {
+    const toolQuestions = [
+      {
+        type: "checkbox",
+        name: "tools",
+        message: "Which tools should this agent have access to?",
+        choices: Object.entries(toolsByCategory).map(([category, tools]) => ({
+          name: `${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"})`,
+          value: category,
+          short: category,
+        })),
+        default: [],
+      },
+    ];
 
-  // Combine all answers
-  // For predefined agents, convert category IDs back to display names for the answer
-  const predefinedAgent = PREDEFINED_AGENTS[basicAnswers.agentType];
-  const finalTools = predefinedAgent
-    ? predefinedAgent.toolCategoryIds
+    // @ts-expect-error - inquirer types are not matching correctly
+    toolAnswers = (await inquirer.prompt(toolQuestions)) as Pick<AIAgentCreationAnswers, "tools">;
+  }
+
+  // Calculate final tools
+  const finalTools = currentPredefinedAgent
+    ? currentPredefinedAgent.toolCategoryIds
         .map((id) => categoryIdToDisplayName.get(id))
         .filter((name): name is string => name !== undefined && name in toolsByCategory)
-    : finalAnswers.tools || [];
+    : toolAnswers.tools || [];
 
   return {
-    ...basicAnswers,
-    ...finalAnswers,
+    ...providerAnswer,
+    ...modelAnswers,
+    ...agentTypeAnswer,
+    ...nameAnswer,
+    ...descriptionAnswer,
     tools: finalTools,
   };
 }
@@ -637,7 +638,7 @@ function handleSpecialCommand(
         yield* terminal.log(`   Conversation ID: ${conversationId || "Not started"}`);
         yield* terminal.log(`   Messages in history: ${conversationHistory.length}`);
         yield* terminal.log(`   Agent type: ${agent.config.agentType}`);
-        yield* terminal.log(`   LLM: ${agent.config.llmProvider}/${agent.config.llmModel}`);
+        yield* terminal.log(`   Model: ${agent.config.llmProvider}/${agent.config.llmModel}`);
         yield* terminal.log(`   Reasoning effort: ${agent.config.reasoningEffort}`);
         const totalTools = agent.config.tools?.length ?? 0;
         yield* terminal.log(`   Tools: ${totalTools} available`);
