@@ -126,16 +126,12 @@ export class StreamProcessor {
     });
 
     // Start processing streams in parallel with proper error handling
-    try {
-      await Promise.all([
-        this.processTextStream(result),
-        this.processReasoningText(result),
-        this.processFullStream(result),
-      ]);
-    } catch (error) {
-      console.error("[StreamProcessor] Error processing streams:", error);
-      throw error;
-    }
+
+    await Promise.all([
+      this.processTextStream(result),
+      this.processReasoningText(result),
+      this.processFullStream(result),
+    ]);
 
     // Wait for completion
     await this.completionPromise;
@@ -143,7 +139,6 @@ export class StreamProcessor {
     // Validate that we received finish event
     if (!this.state.finishEventReceived) {
       const error = new Error("Stream completed without finish event");
-      console.error("[StreamProcessor]", error.message);
       throw error;
     }
 
@@ -243,9 +238,6 @@ export class StreamProcessor {
           }),
         });
       }
-    } catch (error) {
-      console.error("[StreamProcessor] Error processing reasoning:", error);
-      // Don't throw - reasoning errors shouldn't block main response
     } finally {
       this.state.reasoningStreamCompleted = true;
       this.checkCompletion();
@@ -306,9 +298,6 @@ export class StreamProcessor {
             this.state.finishEventReceived = true;
             this.state.finishReason = finishReason;
 
-            // Log finish reason for debugging
-            console.log(`[StreamProcessor] Finish event received: ${finishReason}`);
-
             // Validate expected finish reasons
             if (
               finishReason !== "stop" &&
@@ -331,9 +320,6 @@ export class StreamProcessor {
             break;
         }
       }
-    } catch (error) {
-      console.error("[StreamProcessor] Error in fullStream:", error);
-      throw error;
     } finally {
       this.state.fullStreamCompleted = true;
       this.checkCompletion();

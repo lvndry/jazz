@@ -228,7 +228,6 @@ async function promptForAgentInfo(
       choices: allProviders.map((p) => ({
         name: p.name,
         value: p.name,
-        // Enable all providers regardless of configuration status
       })),
       default: allProviders.find((p) => p.configured)?.name || allProviders[0]?.name,
     },
@@ -260,7 +259,6 @@ async function promptForAgentInfo(
         type: "input",
         name: "apiKey",
         message: `${providerName} API Key:`,
-        mask: "*",
         validate: (input: string): boolean | string => {
           if (!input || input.trim().length === 0) {
             return "API key cannot be empty";
