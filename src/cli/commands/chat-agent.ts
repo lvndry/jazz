@@ -15,7 +15,7 @@ import {
   HTTP_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
-  createCategoryMappings
+  createCategoryMappings,
 } from "../../core/agent/tools/register-tools";
 import type { ToolRegistry } from "../../core/agent/tools/tool-registry";
 import { ToolRegistryTag } from "../../core/agent/tools/tool-registry";
@@ -196,7 +196,6 @@ export function createAIAgentCommand(): Effect.Effect<
     yield* terminal.log(`   LLM Model: ${config.llmModel}`);
     yield* terminal.log(`   Tool Categories: ${agentAnswers.tools.join(", ") || "None"}`);
     yield* terminal.log(`   Total Tools: ${uniqueToolNames.length}`);
-    yield* terminal.log(`   Status: ${agent.status}`);
     yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
     yield* terminal.log("");
     yield* terminal.info("You can now chat with your agent using:");
@@ -373,7 +372,10 @@ async function promptForAgentInfo(
             message: "What reasoning effort level would you like?",
             choices: [
               { name: "Low - Faster responses, basic reasoning", value: "low" },
-              { name: "Medium - Balanced speed and reasoning depth (recommended)", value: "medium" },
+              {
+                name: "Medium - Balanced speed and reasoning depth (recommended)",
+                value: "medium",
+              },
               { name: "High - Deep reasoning, slower responses", value: "high" },
               { name: "Disable - No reasoning effort (fastest)", value: "disable" },
             ],
@@ -409,8 +411,8 @@ async function promptForAgentInfo(
   const predefinedAgent = PREDEFINED_AGENTS[basicAnswers.agentType];
   const finalTools = predefinedAgent
     ? predefinedAgent.toolCategoryIds
-          .map((id) => categoryIdToDisplayName.get(id))
-          .filter((name): name is string => name !== undefined && name in toolsByCategory)
+        .map((id) => categoryIdToDisplayName.get(id))
+        .filter((name): name is string => name !== undefined && name in toolsByCategory)
     : finalAnswers.tools || [];
 
   return {
@@ -479,7 +481,9 @@ export function chatWithAIAgentCommand(
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
           yield* logger.error("Chat loop error", { error });
-          yield* terminal.error(`Chat loop error: ${error instanceof Error ? error.message : String(error)}`);
+          yield* terminal.error(
+            `Chat loop error: ${error instanceof Error ? error.message : String(error)}`,
+          );
           return yield* Effect.void;
         }),
       ),
@@ -694,25 +698,27 @@ function startChatLoop(
     while (chatActive) {
       // Prompt for user input
       const answer = yield* Effect.promise(() =>
-        inquirer.prompt([
-          {
-            type: "input",
-            name: "message",
-            message: "You:",
-          },
-        ]).catch((error: unknown) => {
-          // Handle ExitPromptError from inquirer when user presses Ctrl+C
-          if (
-            error instanceof Error &&
-            (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
-          ) {
-            // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
-            // The exit check below will handle the goodbye message
-            return Promise.resolve({ message: "/exit" });
-          }
-          // Re-throw other errors, ensuring it's an Error instance
-          return Promise.reject(error instanceof Error ? error : new Error(String(error)));
-        }),
+        inquirer
+          .prompt([
+            {
+              type: "input",
+              name: "message",
+              message: "You:",
+            },
+          ])
+          .catch((error: unknown) => {
+            // Handle ExitPromptError from inquirer when user presses Ctrl+C
+            if (
+              error instanceof Error &&
+              (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
+            ) {
+              // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
+              // The exit check below will handle the goodbye message
+              return Promise.resolve({ message: "/exit" });
+            }
+            // Re-throw other errors, ensuring it's an Error instance
+            return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+          }),
       );
 
       const userMessage = answer.message as string;
@@ -788,7 +794,11 @@ function startChatLoop(
                 errorMessage: error instanceof Error ? error.message : String(error),
               };
 
-              if (error instanceof LLMRateLimitError || error instanceof LLMRequestError || error instanceof LLMAuthenticationError) {
+              if (
+                error instanceof LLMRateLimitError ||
+                error instanceof LLMRequestError ||
+                error instanceof LLMAuthenticationError
+              ) {
                 errorDetails["errorType"] = error._tag;
                 errorDetails["provider"] = error.provider;
               }
@@ -840,7 +850,7 @@ function startChatLoop(
 
         // Display is handled entirely by AgentRunner (both streaming and non-streaming)
         // No need to display here - AgentRunner takes care of it
-      })
+      });
     }
   });
 }

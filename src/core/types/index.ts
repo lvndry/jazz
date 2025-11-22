@@ -4,14 +4,13 @@ import { Schema } from "effect";
  * Core types and interfaces
  */
 
-
 // Agent Types
 export interface Agent {
   readonly id: string;
   readonly name: string;
   readonly description?: string;
+  readonly model: `${string}/${string}`;
   readonly config: AgentConfig;
-  readonly status: AgentStatus;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
@@ -19,8 +18,6 @@ export interface Agent {
 export interface AgentConfig {
   readonly tasks: readonly Task[];
   readonly schedule?: Schedule;
-  retryPolicy?: RetryPolicy;
-  timeout?: number;
   readonly environment?: Record<string, string>;
   readonly agentType: string;
   readonly llmProvider: string;
@@ -28,8 +25,6 @@ export interface AgentConfig {
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   readonly tools?: readonly string[];
 }
-
-export type AgentStatus = "idle" | "running" | "paused" | "error" | "completed";
 
 // Task Types
 export interface Task {
@@ -116,14 +111,6 @@ export interface Schedule {
   readonly value: string | number;
   readonly timezone?: string;
   readonly enabled: boolean;
-}
-
-// Retry Policy
-export interface RetryPolicy {
-  readonly maxRetries: number;
-  readonly backoff: "linear" | "exponential" | "fixed";
-  readonly delay: number;
-  readonly maxDelay?: number;
 }
 
 // Result Types

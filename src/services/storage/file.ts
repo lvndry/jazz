@@ -1,8 +1,18 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
 import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
-import { AgentConfigurationError, StorageError, StorageNotFoundError } from "../../core/types/errors";
-import type { Agent, AgentConfig, AgentResult, Automation, TaskResult } from "../../core/types/index";
+import {
+  AgentConfigurationError,
+  StorageError,
+  StorageNotFoundError,
+} from "../../core/types/errors";
+import type {
+  Agent,
+  AgentConfig,
+  AgentResult,
+  Automation,
+  TaskResult,
+} from "../../core/types/index";
 import { parseJson } from "../../core/utils/json";
 import { StorageServiceTag, type StorageService } from "./service";
 
@@ -38,10 +48,7 @@ export class FileStorageService implements StorageService {
     return false;
   }
 
-  private mapReadError(
-    path: string,
-    error: unknown,
-  ): StorageError | StorageNotFoundError {
+  private mapReadError(path: string, error: unknown): StorageError | StorageNotFoundError {
     if (this.isNotFoundError(error)) {
       return new StorageNotFoundError({
         path,
@@ -50,11 +57,7 @@ export class FileStorageService implements StorageService {
     }
 
     const reason =
-      error instanceof Error
-        ? error.message
-        : typeof error === "string"
-          ? error
-          : String(error);
+      error instanceof Error ? error.message : typeof error === "string" ? error : String(error);
 
     return new StorageError({
       operation: "read",
@@ -116,9 +119,9 @@ export class FileStorageService implements StorageService {
   private readJsonFile<T>(path: string): Effect.Effect<T, StorageError | StorageNotFoundError> {
     return Effect.gen(
       function* (this: FileStorageService) {
-        const content = yield* this.fs.readFileString(path).pipe(
-          Effect.mapError((error) => this.mapReadError(path, error)),
-        );
+        const content = yield* this.fs
+          .readFileString(path)
+          .pipe(Effect.mapError((error) => this.mapReadError(path, error)));
         return yield* parseJson<T>(content).pipe(
           Effect.mapError(
             (error) =>
@@ -136,11 +139,13 @@ export class FileStorageService implements StorageService {
   private readAgentFile(path: string): Effect.Effect<Agent, StorageError | StorageNotFoundError> {
     return Effect.gen(
       function* (this: FileStorageService) {
-        const content = yield* this.fs.readFileString(path).pipe(
-          Effect.mapError((error) => this.mapReadError(path, error)),
-        );
+        const content = yield* this.fs
+          .readFileString(path)
+          .pipe(Effect.mapError((error) => this.mapReadError(path, error)));
 
-        const rawData = yield* parseJson<Agent & { createdAt: string; updatedAt: string }>(content).pipe(
+        const rawData = yield* parseJson<Agent & { createdAt: string; updatedAt: string }>(
+          content,
+        ).pipe(
           Effect.mapError(
             (error) =>
               new StorageError({
@@ -173,13 +178,12 @@ export class FileStorageService implements StorageService {
         void _existingTools;
         const baseConfig: AgentConfig = configWithoutTools as AgentConfig;
         const configWithNormalizedTools: AgentConfig =
-          normalizedTools.length > 0
-            ? { ...baseConfig, tools: normalizedTools }
-            : baseConfig;
+          normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
 
         // Convert date strings back to Date objects
         const agent: Agent = {
           ...rawData,
+          model: `${configWithNormalizedTools.llmProvider}/${configWithNormalizedTools.llmModel}`,
           config: configWithNormalizedTools,
           createdAt: new Date(rawData.createdAt),
           updatedAt: new Date(rawData.updatedAt),

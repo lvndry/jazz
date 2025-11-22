@@ -5,7 +5,7 @@ import {
   shouldSummarize,
   summarizeConversation,
 } from "../../services/llm/context-manager";
-import { type ChatMessage } from "../../services/llm/types";
+import type { ChatMessage } from "../../services/llm/messages";
 
 describe("Context Management", () => {
   const createTestMessages = (count: number): ChatMessage[] => {

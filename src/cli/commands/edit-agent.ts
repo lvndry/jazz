@@ -1,7 +1,11 @@
 import { Effect } from "effect";
 import inquirer from "inquirer";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
-import { AgentServiceTag, type AgentService } from "../../core/agent/agent-service";
+import {
+  AgentServiceTag,
+  getAgentByIdentifier,
+  type AgentService,
+} from "../../core/agent/agent-service";
 import { createCategoryMappings } from "../../core/agent/tools/register-tools";
 import { ToolRegistryTag, type ToolRegistry } from "../../core/agent/tools/tool-registry";
 import {
@@ -12,7 +16,7 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "../../core/types/errors";
-import type { Agent, AgentConfig, AgentStatus } from "../../core/types/index";
+import type { Agent, AgentConfig } from "../../core/types/index";
 import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
 import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
@@ -23,23 +27,18 @@ import { TerminalServiceTag, type TerminalService } from "../../services/termina
 interface AgentEditAnswers {
   name?: string;
   description?: string;
-  status?: AgentStatus;
   agentType?: string;
   llmProvider?: string;
   llmModel?: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
   tools?: string[];
-  timeout?: number;
-  maxRetries?: number;
-  retryDelay?: number;
-  retryBackoff?: "linear" | "exponential" | "fixed";
 }
 
 /**
  * Interactive agent edit command
  */
 export function editAgentCommand(
-  agentId: string,
+  agentIdentifier: string,
 ): Effect.Effect<
   void,
   | StorageError
@@ -56,13 +55,12 @@ export function editAgentCommand(
     yield* terminal.log("Let's update your agent step by step.");
     yield* terminal.log("");
 
+    const agent = yield* getAgentByIdentifier(agentIdentifier);
     const agentService = yield* AgentServiceTag;
-    const agent = yield* agentService.getAgent(agentId);
 
     yield* terminal.heading(`📋 Current Agent: ${agent.name}`);
     yield* terminal.log(`   ID: ${agent.id}`);
     yield* terminal.log(`   Description: ${agent.description}`);
-    yield* terminal.log(`   Status: ${agent.status}`);
     yield* terminal.log(`   Type: ${agent.config.agentType || "N/A"}`);
     yield* terminal.log(`   LLM Provider: ${agent.config.llmProvider || "N/A"}`);
     yield* terminal.log(`   LLM Model: ${agent.config.llmModel || "N/A"}`);
@@ -115,39 +113,25 @@ export function editAgentCommand(
       ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
       ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
       ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
-      ...(editAnswers.tools && editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
-      ...(editAnswers.timeout && { timeout: editAnswers.timeout }),
-      ...(editAnswers.maxRetries !== undefined ||
-      editAnswers.retryDelay !== undefined ||
-      editAnswers.retryBackoff
-        ? {
-            retryPolicy: {
-              maxRetries: editAnswers.maxRetries ?? agent.config.retryPolicy?.maxRetries ?? 3,
-              delay: editAnswers.retryDelay ?? agent.config.retryPolicy?.delay ?? 1000,
-              backoff:
-                editAnswers.retryBackoff ?? agent.config.retryPolicy?.backoff ?? "exponential",
-            },
-          }
-        : {}),
+      ...(editAnswers.tools &&
+        editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
     };
 
     // Build update object
     const updates: Partial<Agent> = {
       ...(editAnswers.name && { name: editAnswers.name }),
       ...(editAnswers.description && { description: editAnswers.description }),
-      ...(editAnswers.status && { status: editAnswers.status }),
       config: updatedConfig,
     };
 
     // Update the agent
-    const updatedAgent = yield* agentService.updateAgent(agentId, updates);
+    const updatedAgent = yield* agentService.updateAgent(agent.id, updates);
 
     // Display success message
     yield* terminal.success("Agent updated successfully!");
     yield* terminal.log(`   ID: ${updatedAgent.id}`);
     yield* terminal.log(`   Name: ${updatedAgent.name}`);
     yield* terminal.log(`   Description: ${updatedAgent.description}`);
-    yield* terminal.log(`   Status: ${updatedAgent.status}`);
     yield* terminal.log(`   Type: ${updatedConfig.agentType || "N/A"}`);
     yield* terminal.log(`   LLM Provider: ${updatedConfig.llmProvider || "N/A"}`);
     yield* terminal.log(`   LLM Model: ${updatedConfig.llmModel || "N/A"}`);
@@ -185,8 +169,6 @@ async function promptForAgentUpdates(
         { name: "LLM Provider", value: "llmProvider" },
         { name: "LLM Model", value: "llmModel" },
         { name: "Tools", value: "tools" },
-        { name: "Timeout", value: "timeout" },
-        { name: "Retry Policy", value: "retryPolicy" },
       ],
     },
   ]);
@@ -238,26 +220,6 @@ async function promptForAgentUpdates(
       },
     ]);
     answers.description = description;
-  }
-
-  // Update status
-  if (fieldsToUpdate.includes("status")) {
-    const { status } = await inquirer.prompt<{ status: AgentStatus }>([
-      {
-        type: "list",
-        name: "status",
-        message: "Select new agent status:",
-        choices: [
-          { name: "Idle (ready to run)", value: "idle" },
-          { name: "Running (currently executing)", value: "running" },
-          { name: "Paused (temporarily stopped)", value: "paused" },
-          { name: "Error (failed with error)", value: "error" },
-          { name: "Completed (finished successfully)", value: "completed" },
-        ],
-        default: currentAgent.status,
-      },
-    ]);
-    answers.status = status;
   }
 
   // Update agent type
@@ -318,93 +280,6 @@ async function promptForAgentUpdates(
 
     // Store display names - will be converted to tool names in the calling function
     answers.tools = toolCategories;
-  }
-
-  // Update timeout
-  if (fieldsToUpdate.includes("timeout")) {
-    const { timeout } = await inquirer.prompt<{ timeout: string }>([
-      {
-        type: "input",
-        name: "timeout",
-        message: "Enter timeout in milliseconds (0 for no timeout):",
-        default: String(currentAgent.config.timeout || 30000),
-        validate: (input: string) => {
-          const num = parseInt(input, 10);
-          if (isNaN(num)) {
-            return "Please enter a valid number";
-          }
-          if (num < 0) {
-            return "Timeout must be 0 or greater";
-          }
-          if (num > 300000) {
-            return "Timeout must be 300 seconds or less";
-          }
-          return true;
-        },
-      },
-    ]);
-    answers.timeout = parseInt(timeout, 10);
-  }
-
-  // Update retry policy
-  if (fieldsToUpdate.includes("retryPolicy")) {
-    const { maxRetries } = await inquirer.prompt<{ maxRetries: string }>([
-      {
-        type: "input",
-        name: "maxRetries",
-        message: "Enter maximum retry attempts:",
-        default: String(currentAgent.config.retryPolicy?.maxRetries || 3),
-        validate: (input: string) => {
-          const num = parseInt(input, 10);
-          if (isNaN(num)) {
-            return "Please enter a valid number";
-          }
-          if (num < 0 || num > 10) {
-            return "Max retries must be between 0 and 10";
-          }
-          return true;
-        },
-      },
-    ]);
-
-    const { retryDelay } = await inquirer.prompt<{ retryDelay: string }>([
-      {
-        type: "input",
-        name: "retryDelay",
-        message: "Enter retry delay in milliseconds:",
-        default: String(currentAgent.config.retryPolicy?.delay || 1000),
-        validate: (input: string) => {
-          const num = parseInt(input, 10);
-          if (isNaN(num)) {
-            return "Please enter a valid number";
-          }
-          if (num < 100 || num > 60000) {
-            return "Retry delay must be between 100ms and 60000ms";
-          }
-          return true;
-        },
-      },
-    ]);
-
-    const { retryBackoff } = await inquirer.prompt<{
-      retryBackoff: "linear" | "exponential" | "fixed";
-    }>([
-      {
-        type: "list",
-        name: "retryBackoff",
-        message: "Select retry backoff strategy:",
-        choices: [
-          { name: "Linear (constant delay)", value: "linear" },
-          { name: "Exponential (increasing delay)", value: "exponential" },
-          { name: "Fixed (same delay each time)", value: "fixed" },
-        ],
-        default: currentAgent.config.retryPolicy?.backoff || "exponential",
-      },
-    ]);
-
-    answers.maxRetries = parseInt(maxRetries, 10);
-    answers.retryDelay = parseInt(retryDelay, 10);
-    answers.retryBackoff = retryBackoff;
   }
 
   return answers;
