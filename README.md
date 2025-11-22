@@ -43,9 +43,11 @@ your approval for sensitive operations.
 - **Multi-LLM Support** - OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama
 - **Type-Safe** - 100% TypeScript with Effect-TS for reliability
 
-## Quick Start
+## Getting started
 
-### Installation
+Let's get you up and running with your first Jazz agent in 3 simple steps!
+
+### Step 1: Install Jazz
 
 ```bash
 # Using npm
@@ -61,69 +63,79 @@ pnpm add -g jazz-ai
 yarn global add jazz-ai
 ```
 
-### Create Your First Agent
+### Step 2: Configure Your API Key
+
+Jazz needs an API key from an LLM provider to power your agents. Let's set one up:
 
 ```bash
-# Interactive agent creation wizard
-jazz agent create
-
-# Follow the prompts to:
-# 1. Name your agent
-# 2. Describe what it should do
-# 3. Choose an LLM provider and model
-# 4. Select tools (Gmail, Git, Shell, etc.)
+jazz config set llm
 ```
 
-### Start Chatting
+**Tip:** You can view your current configuration anytime with:
 
 ```bash
-# Chat with your agent by name or ID
-jazz agent chat my-agent
+jazz config show
+```
 
-# Your agent will:
-# ✓ Understand natural language requests
-# ✓ Use tools to accomplish tasks
-# ✓ Ask for approval on sensitive operations
-# ✓ Remember conversation context
+### Step 3: Create Your First Agent
+
+Now let's create an agent! The interactive wizard will guide you through the process:
+
+```bash
+jazz agent create
+```
+
+```bash
+$ jazz agent create
+? What would you like to name your agent? my-assistant
+? What should this agent do? Help me with daily tasks and file management
+? Select LLM provider: OpenAI
+? Select model: gpt-4o
+? Select tools: (Use arrow keys and space to select)
+  ◉ File System
+  ◯ Git
+  ◉ Shell
+  ◯ Gmail
+  ◯ Web Search
+  ◯ HTTP
+```
+
+### Step 4: Start Chatting!
+
+Your agent is ready! Start a conversation:
+
+```bash
+# Chat with your agent by name
+jazz agent chat my-assistant
 ```
 
 ## Configuration
 
-Jazz uses a JSON configuration file for settings and API keys.
+Jazz stores your settings and API keys in a JSON configuration file. You can manage your configuration using the CLI or by editing the file directly.
 
-### Configuration Location
+### Managing Configuration (Recommended)
+
+Use the `jazz config` commands to easily manage your settings:
+
+### Configuration File Location
 
 Jazz looks for configuration in this order:
 
 1. `JAZZ_CONFIG_PATH` environment variable
 2. `./jazz.config.json` (current directory - mostly used in dev)
-3. `~/.jazz/config.json` (home directory)
+3. `~/.jazz/config.json` (home directory - **default**)
 
-### Quick Setup
+### Manual Configuration (Advanced)
 
-Create `~/.jazz/config.json`:
+If you prefer to edit the configuration file directly, create or edit `~/.jazz/config.json`:
 
 ```json
 {
   "llm": {
     "openai": {
       "api_key": "sk-..."
-    },
-    "anthropic": {
-      "api_key": "sk-ant-..."
     }
-  }
-}
-```
-
-**That's it!** You can now create and chat with agents.
-
-### Optional Integrations
-
-Want more capabilities? Add these optional integrations:
-
-```json
-{
+  },
   "google": {
     "clientId": "your-client-id.apps.googleusercontent.com",
     "clientSecret": "your-client-secret"
@@ -134,24 +146,11 @@ Want more capabilities? Add these optional integrations:
 }
 ```
 
+Complete config example [here](./examples)
+
 See [docs/integrations.md](docs/integrations.md) for detailed setup instructions.
 
 ## Real-World Examples
-
-### Email Triage Agent
-
-```bash
-$ jazz agent create --name "email-assistant"
-
-# Then chat:
-You: Show me unread emails from today
-Agent: [Searches and displays results]
-
-You: Label the ones from GitHub as "dev" and archive them
-Agent: [Requires approval] → Add "dev" label to 5 emails and archive?
-You: yes
-Agent: ✓ Done! Labeled and archived 5 emails.
-```
 
 ### Git Assistant
 
@@ -204,6 +203,22 @@ jazz agent chat <id|name>     # Start conversation
 jazz agent edit <id>          # Edit agent configuration
 jazz agent get <id>           # View agent details
 jazz agent delete <id>        # Remove agent
+```
+
+### Configuration Management
+
+```bash
+jazz config set <key>.        # Set a configuration value
+jazz config get <key>         # Get a configuration value
+jazz config list              # View all configuration
+```
+
+**Examples:**
+
+```bash
+jazz config set llm.openai.api_key sk-...
+jazz config set google.clientId your-client-id
+jazz config get llm.openai.api_key
 ```
 
 ### Authentication
