@@ -142,14 +142,8 @@ export class ThinkingRenderer {
    * Format the thinking start header
    */
   private formatStart(): string {
-    const { colors, icons, separatorChar, separatorWidth } = this.theme;
-    return (
-      "\n" +
-      colors.thinking(`${icons.thinking} Agent Reasoning:`) +
-      "\n" +
-      colors.dim(separatorChar.repeat(separatorWidth)) +
-      "\n"
-    );
+    const { colors, icons } = this.theme;
+    return "\n" + colors.thinking(`${icons.thinking} Agent is thinking...`) + "\n";
   }
 
   /**
@@ -163,30 +157,17 @@ export class ThinkingRenderer {
    * Format the completion footer (with optional token count)
    */
   private formatComplete(tokens?: number): string {
-    const { colors, icons, separatorChar, separatorWidth } = this.theme;
+    const { colors, icons } = this.theme;
     const tokenInfo = tokens ? colors.dim(` (${tokens} reasoning tokens)`) : "";
 
-    return (
-      "\n" +
-      colors.dim(separatorChar.repeat(separatorWidth)) +
-      tokenInfo +
-      "\n" +
-      colors.success(`${icons.success} Reasoning complete`) +
-      "\n\n"
-    );
+    return "\n" + tokenInfo + "\n" + colors.success(`${icons.success} Reasoning complete`) + "\n\n";
   }
 
   /**
    * Format minimal completion (no content received)
    */
   private formatCompleteMinimal(): string {
-    const { colors, icons, separatorChar, separatorWidth } = this.theme;
-    return (
-      "\n" +
-      colors.dim(separatorChar.repeat(separatorWidth)) +
-      "\n" +
-      colors.success(`${icons.success} Reasoning complete`) +
-      "\n\n"
-    );
+    const { colors, icons } = this.theme;
+    return colors.success(`${icons.success} Reasoning complete`) + "\n\n";
   }
 }

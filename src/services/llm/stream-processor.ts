@@ -44,12 +44,10 @@ interface StreamProcessorState {
   // Text accumulation
   accumulatedText: string;
   textSequence: number;
-  textStreamCompleted: boolean;
   hasStartedText: boolean;
 
   // Reasoning tracking
   reasoningSequence: number;
-  reasoningStreamCompleted: boolean;
   reasoningTokens: number | undefined;
 
   // Tool calls
@@ -61,10 +59,6 @@ interface StreamProcessorState {
   // Completion tracking
   finishEventReceived: boolean;
   finishReason: string | undefined;
-  fullStreamCompleted: boolean;
-
-  // Event buffering
-  bufferedEvents: StreamEvent[];
 }
 
 /**
@@ -74,17 +68,13 @@ function createInitialState(): StreamProcessorState {
   return {
     accumulatedText: "",
     textSequence: 0,
-    textStreamCompleted: false,
     hasStartedText: false,
     reasoningSequence: 0,
-    reasoningStreamCompleted: false,
     reasoningTokens: undefined,
     collectedToolCalls: [],
     firstTokenTime: null,
     finishEventReceived: false,
     finishReason: undefined,
-    fullStreamCompleted: false,
-    bufferedEvents: [],
   };
 }
 
@@ -129,13 +119,8 @@ export class StreamProcessor {
       timestamp: this.config.startTime,
     });
 
-    // Start processing streams in parallel with proper error handling
-
-    await Promise.all([
-      this.processTextStream(result),
-      this.processReasoningText(result),
-      this.processFullStream(result),
-    ]);
+    // Process the full stream which contains all events in order
+    await this.processFullStream(result);
 
     // Wait for completion
     await this.completionPromise;
@@ -156,87 +141,7 @@ export class StreamProcessor {
   }
 
   /**
-   * Process text stream
-   */
-  private async processTextStream(result: StreamTextResult): Promise<void> {
-    try {
-      for await (const textChunk of result.textStream) {
-        // Emit text start on first chunk
-        if (!this.state.hasStartedText && textChunk.length > 0) {
-          this.emitOrBuffer({ type: "text_start" });
-          this.state.hasStartedText = true;
-          this.recordFirstToken();
-        }
-
-        // Emit text chunk
-        if (textChunk.length > 0) {
-          this.state.accumulatedText += textChunk;
-          this.emitOrBuffer({
-            type: "text_chunk",
-            delta: textChunk,
-            accumulated: this.state.accumulatedText,
-            sequence: this.state.textSequence++,
-          });
-        }
-      }
-    } catch {
-      // Handle stream errors gracefully
-    } finally {
-      this.state.textStreamCompleted = true;
-      this.checkCompletion();
-    }
-  }
-
-  /**
-   * Process reasoning text (for reasoning models)
-   */
-  private async processReasoningText(result: StreamTextResult): Promise<void> {
-    if (!this.config.hasReasoningEnabled) {
-      this.state.reasoningStreamCompleted = true;
-      return;
-    }
-
-    try {
-      // Try to get reasoning array first (newer API)
-      const reasoning = await Promise.race([
-        result.reasoning,
-        new Promise<Array<{ type: "reasoning"; text: string }> | undefined>((resolve) =>
-          setTimeout(() => resolve(undefined), 5 * 60 * 1000),
-        ),
-      ]);
-
-      // Extract text from reasoning array if available
-      if (reasoning && reasoning.length > 0) {
-        // Concatenate all reasoning text
-        const reasoningText = reasoning.map((r) => r.text).join("");
-        const chunkSize = 1000;
-        for (let i = 0; i < reasoningText.length; i += chunkSize) {
-          const chunk = reasoningText.slice(i, i + chunkSize);
-          void this.emitEvent({
-            type: "thinking_chunk",
-            content: chunk,
-            sequence: this.state.reasoningSequence++,
-          });
-        }
-      }
-
-      // Emit thinking complete regardless of whether we had content
-      // This ensures the UI updates to show reasoning is done
-      void this.emitEvent({
-        type: "thinking_complete",
-        ...(this.state.reasoningTokens !== undefined && {
-          totalTokens: this.state.reasoningTokens,
-        }),
-      });
-    } finally {
-      this.state.reasoningStreamCompleted = true;
-      this.flushBufferedEvents();
-      this.checkCompletion();
-    }
-  }
-
-  /**
-   * Process full stream for tool calls and metadata
+   * Process full stream for all events (text, reasoning, tools)
    */
   private async processFullStream(result: StreamTextResult): Promise<void> {
     try {
@@ -247,6 +152,29 @@ export class StreamProcessor {
         }
 
         switch (part.type) {
+          case "text-delta": {
+            const textChunk = part.text;
+
+            // Emit text start on first chunk
+            if (!this.state.hasStartedText && textChunk.length > 0) {
+              this.emitEvent({ type: "text_start" });
+              this.state.hasStartedText = true;
+              this.recordFirstToken();
+            }
+
+            // Emit text chunk
+            if (textChunk.length > 0) {
+              this.state.accumulatedText += textChunk;
+              this.emitEvent({
+                type: "text_chunk",
+                delta: textChunk,
+                accumulated: this.state.accumulatedText,
+                sequence: this.state.textSequence++,
+              });
+            }
+            break;
+          }
+
           case "tool-call": {
             const toolCall: ToolCall = {
               id: part.toolCallId,
@@ -258,7 +186,7 @@ export class StreamProcessor {
             };
             this.state.collectedToolCalls.push(toolCall);
 
-            this.emitOrBuffer({
+            this.emitEvent({
               type: "tool_call",
               toolCall,
               sequence: this.state.textSequence++,
@@ -305,6 +233,14 @@ export class StreamProcessor {
             if (reasoningTokens !== undefined) {
               this.state.reasoningTokens = reasoningTokens;
             }
+
+            // Emit thinking complete
+            void this.emitEvent({
+              type: "thinking_complete",
+              ...(this.state.reasoningTokens !== undefined && {
+                totalTokens: this.state.reasoningTokens,
+              }),
+            });
             break;
           }
 
@@ -330,13 +266,11 @@ export class StreamProcessor {
             throw part.error;
           }
 
-          // Ignore other event types (text-delta, text-start, etc.) - handled by textStream
           default:
             break;
         }
       }
     } finally {
-      this.state.fullStreamCompleted = true;
       this.checkCompletion();
     }
   }
@@ -426,15 +360,8 @@ export class StreamProcessor {
    * Check if we can resolve completion
    */
   private checkCompletion(): void {
-    // Check if all required streams have completed
-    const textDone = this.state.textStreamCompleted;
-    const reasoningDone = this.config.hasReasoningEnabled
-      ? this.state.reasoningStreamCompleted
-      : true;
-    const fullStreamDone = this.state.fullStreamCompleted;
-
-    // All streams must complete AND we must have received finish event
-    if (textDone && reasoningDone && fullStreamDone && this.state.finishEventReceived) {
+    // We only need to check if we received the finish event since we process a single stream
+    if (this.state.finishEventReceived) {
       // Verify we have a valid finish reason
       if (!this.state.finishReason) {
         console.debug("[StreamProcessor] Completing without finish reason");
@@ -459,29 +386,6 @@ export class StreamProcessor {
    */
   private emitEvent(event: StreamEvent): void {
     this.emit(Effect.succeed(Chunk.of(event)));
-  }
-
-  /**
-   * Emit or buffer an event based on reasoning state
-   */
-  private emitOrBuffer(event: StreamEvent): void {
-    if (this.config.hasReasoningEnabled && !this.state.reasoningStreamCompleted) {
-      this.state.bufferedEvents.push(event);
-    } else {
-      this.emitEvent(event);
-    }
-  }
-
-  /**
-   * Flush buffered events
-   */
-  private flushBufferedEvents(): void {
-    if (this.state.bufferedEvents.length > 0) {
-      for (const event of this.state.bufferedEvents) {
-        this.emitEvent(event);
-      }
-      this.state.bufferedEvents = [];
-    }
   }
 
   /**
