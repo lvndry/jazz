@@ -330,13 +330,13 @@ export class OutputRenderer {
       }
 
       if (parts.length > 0) {
-        output += this.theme.colors.dim(`\n[${parts.join(" | ")}]\n`);
+        output += this.theme.colors.dim(`[${parts.join(" | ")}]\n`);
       }
     }
 
     // Include total duration when metrics are enabled
     if (this.config.showMetrics) {
-      output += this.theme.colors.dim(`\n[Total duration: ${event.totalDurationMs}ms]\n`);
+      output += this.theme.colors.dim(`[Total duration: ${event.totalDurationMs}ms]\n`);
     }
 
     // Add final newline for separation

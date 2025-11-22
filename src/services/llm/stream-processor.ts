@@ -62,6 +62,9 @@ interface StreamProcessorState {
   finishEventReceived: boolean;
   finishReason: string | undefined;
   fullStreamCompleted: boolean;
+
+  // Event buffering
+  bufferedEvents: StreamEvent[];
 }
 
 /**
@@ -81,6 +84,7 @@ function createInitialState(): StreamProcessorState {
     finishEventReceived: false,
     finishReason: undefined,
     fullStreamCompleted: false,
+    bufferedEvents: [],
   };
 }
 
@@ -159,7 +163,7 @@ export class StreamProcessor {
       for await (const textChunk of result.textStream) {
         // Emit text start on first chunk
         if (!this.state.hasStartedText && textChunk.length > 0) {
-          void this.emitEvent({ type: "text_start" });
+          this.emitOrBuffer({ type: "text_start" });
           this.state.hasStartedText = true;
           this.recordFirstToken();
         }
@@ -167,7 +171,7 @@ export class StreamProcessor {
         // Emit text chunk
         if (textChunk.length > 0) {
           this.state.accumulatedText += textChunk;
-          void this.emitEvent({
+          this.emitOrBuffer({
             type: "text_chunk",
             delta: textChunk,
             accumulated: this.state.accumulatedText,
@@ -226,6 +230,7 @@ export class StreamProcessor {
       });
     } finally {
       this.state.reasoningStreamCompleted = true;
+      this.flushBufferedEvents();
       this.checkCompletion();
     }
   }
@@ -253,7 +258,7 @@ export class StreamProcessor {
             };
             this.state.collectedToolCalls.push(toolCall);
 
-            void this.emitEvent({
+            this.emitOrBuffer({
               type: "tool_call",
               toolCall,
               sequence: this.state.textSequence++,
@@ -432,7 +437,7 @@ export class StreamProcessor {
     if (textDone && reasoningDone && fullStreamDone && this.state.finishEventReceived) {
       // Verify we have a valid finish reason
       if (!this.state.finishReason) {
-        console.warn("[StreamProcessor] Completing without finish reason");
+        console.debug("[StreamProcessor] Completing without finish reason");
       }
 
       this.resolveCompletion();
@@ -454,6 +459,29 @@ export class StreamProcessor {
    */
   private emitEvent(event: StreamEvent): void {
     this.emit(Effect.succeed(Chunk.of(event)));
+  }
+
+  /**
+   * Emit or buffer an event based on reasoning state
+   */
+  private emitOrBuffer(event: StreamEvent): void {
+    if (this.config.hasReasoningEnabled && !this.state.reasoningStreamCompleted) {
+      this.state.bufferedEvents.push(event);
+    } else {
+      this.emitEvent(event);
+    }
+  }
+
+  /**
+   * Flush buffered events
+   */
+  private flushBufferedEvents(): void {
+    if (this.state.bufferedEvents.length > 0) {
+      for (const event of this.state.bufferedEvents) {
+        this.emitEvent(event);
+      }
+      this.state.bufferedEvents = [];
+    }
   }
 
   /**
