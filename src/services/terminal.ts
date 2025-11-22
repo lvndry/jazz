@@ -74,25 +74,25 @@ export class TerminalServiceImpl implements TerminalService {
 
   info(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      console.log(chalk.cyan("🔍") + " " + message);
+      console.log(chalk.cyan("🔍") + "  " + message);
     });
   }
 
   success(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      console.log(chalk.green("✅") + " " + message);
+      console.log(chalk.green("✅") + "  " + message);
     });
   }
 
   error(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      console.log(chalk.red("❌") + " " + message);
+      console.log(chalk.red("❌") + "  " + message);
     });
   }
 
   warn(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      console.log(chalk.yellow("⚠️") + " " + message);
+      console.log(chalk.yellow("⚠️") + "  " + message);
     });
   }
 
@@ -105,9 +105,9 @@ export class TerminalServiceImpl implements TerminalService {
   debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     return Effect.sync(() => {
       if (meta) {
-        console.debug(message, meta);
+        console.debug(chalk.gray.dim(message), meta);
       } else {
-        console.debug(message);
+        console.debug(chalk.gray.dim(message));
       }
     });
   }

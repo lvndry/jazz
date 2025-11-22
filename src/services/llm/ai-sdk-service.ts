@@ -7,6 +7,7 @@ import { xai } from "@ai-sdk/xai";
 import { createOllama, OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 
 import {
+  APICallError,
   generateText,
   stepCountIs,
   streamText,
@@ -260,6 +261,15 @@ function createDeferred<T>(): {
  * Convert error to LLMError
  */
 function convertToLLMError(error: unknown, providerName: string): LLMError {
+  if (APICallError.isInstance(error)) {
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      return new LLMAuthenticationError({
+        provider: providerName,
+        message: error.responseBody || error.message,
+      });
+    }
+  }
+
   const errorMessage = error instanceof Error ? error.message : String(error);
   let httpStatus: number | undefined;
 
@@ -548,7 +558,6 @@ class AISDKService implements LLMService {
     const responseDeferred = createDeferred<ChatCompletionResponse>();
     // Prevent unhandled promise rejection if the caller never awaits the response effect
     void responseDeferred.promise.catch((err) => {
-      console.error("[LLM Deferred] Unhandled error:", err);
       throw err;
     });
 

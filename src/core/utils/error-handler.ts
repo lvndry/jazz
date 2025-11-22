@@ -536,7 +536,7 @@ export function handleError(error: JazzError | Error): Effect.Effect<void, never
       (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
     ) {
       yield* terminal.log("\n👋 Goodbye!");
-      process.exit(0);
+      return;
     }
 
     // Check if it's a JazzError (has _tag property)
