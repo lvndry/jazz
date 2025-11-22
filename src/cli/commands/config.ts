@@ -116,5 +116,27 @@ export function setConfigCommand(
       yield* terminal.success(`Config set: ${key} = ${answer}`);
       return;
     }
+
+    // Validation: Check if we are trying to overwrite an object with a string
+    const currentValue = yield* configService.getOrElse(key, undefined);
+    if (
+      currentValue !== undefined &&
+      currentValue !== null &&
+      typeof currentValue === "object" &&
+      !Array.isArray(currentValue)
+    ) {
+      return yield* Effect.fail(
+        new ConfigurationValidationError({
+          field: key,
+          expected: "object",
+          actual: "string",
+          suggestion: `Cannot overwrite complex configuration object '${key}' with a string value. Use specific sub-keys (e.g., '${key}.someField') or interactive mode.`,
+        }),
+      );
+    }
+
+    yield* terminal.info(`Setting config: ${key} = ${value}`);
+    yield* configService.set(key, value);
+    yield* terminal.success(`Config set: ${key} = ${value}`);
   });
 }
