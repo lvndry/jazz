@@ -87,36 +87,9 @@ export const PROVIDER_MODELS = {
     defaultBaseUrl: "http://localhost:11434/api",
   },
   openrouter: {
-    type: "static",
-    models: [
-      // OpenAI models via OpenRouter
-      { id: "openai/gpt-4-turbo", displayName: "GPT-4 Turbo", isReasoningModel: false },
-      { id: "openai/gpt-4o", displayName: "GPT-4o", isReasoningModel: false },
-      { id: "openai/gpt-4o-mini", displayName: "GPT-4o Mini", isReasoningModel: false },
-      { id: "openai/o1", displayName: "OpenAI o1", isReasoningModel: true },
-      { id: "openai/o1-mini", displayName: "OpenAI o1 Mini", isReasoningModel: true },
-
-      // Anthropic models via OpenRouter
-      { id: "anthropic/claude-3.5-sonnet", displayName: "Claude 3.5 Sonnet", isReasoningModel: false },
-      { id: "anthropic/claude-3-opus", displayName: "Claude 3 Opus", isReasoningModel: false },
-      { id: "anthropic/claude-3-haiku", displayName: "Claude 3 Haiku", isReasoningModel: false },
-
-      // Google models via OpenRouter
-      { id: "google/gemini-pro-1.5", displayName: "Gemini Pro 1.5", isReasoningModel: false },
-      { id: "google/gemini-flash-1.5", displayName: "Gemini Flash 1.5", isReasoningModel: false },
-
-      // Meta models via OpenRouter
-      { id: "meta-llama/llama-3.1-405b-instruct", displayName: "Llama 3.1 405B", isReasoningModel: false },
-      { id: "meta-llama/llama-3.1-70b-instruct", displayName: "Llama 3.1 70B", isReasoningModel: false },
-
-      // Mistral models via OpenRouter
-      { id: "mistralai/mistral-large", displayName: "Mistral Large", isReasoningModel: false },
-      { id: "mistralai/mixtral-8x22b", displayName: "Mixtral 8x22B", isReasoningModel: false },
-
-      // DeepSeek models via OpenRouter
-      { id: "deepseek/deepseek-chat", displayName: "DeepSeek Chat", isReasoningModel: false },
-      { id: "deepseek/deepseek-r1", displayName: "DeepSeek R1", isReasoningModel: true },
-    ],
+    type: "dynamic",
+    endpointPath: "/api/v1/models",
+    defaultBaseUrl: "https://openrouter.ai",
   },
 } as const satisfies Record<string, ModelSource>;
 
