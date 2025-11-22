@@ -89,3 +89,4 @@ export const PROVIDER_MODELS = {
 } as const satisfies Record<string, ModelSource>;
 
 export type ProviderName = keyof typeof PROVIDER_MODELS;
+export const AVAILABLE_PROVIDERS = Object.keys(PROVIDER_MODELS) as ProviderName[];
