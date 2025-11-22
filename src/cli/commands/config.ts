@@ -68,19 +68,8 @@ export function setConfigCommand(
 
         yield* terminal.info(`Configuring ${provider}...`);
 
-        if (provider === "google") {
-          const apiKey = yield* terminal.password("Enter API Key:");
-          yield* configService.set(`llm.${provider}.api_key`, apiKey);
-        } else if (provider === "ollama") {
-          // Ollama might not need api_key
-          const apiKey = yield* terminal.ask("Enter API Key (optional):");
-          if (apiKey) {
-            yield* configService.set(`llm.${provider}.api_key`, apiKey);
-          }
-        } else {
-          const apiKey = yield* terminal.password("Enter API Key:");
-          yield* configService.set(`llm.${provider}.api_key`, apiKey);
-        }
+        const apiKey = yield* terminal.ask("Enter API Key:");
+        yield* configService.set(`llm.${provider}.api_key`, apiKey);
 
         yield* terminal.success(`Configuration for ${provider} updated.`);
         return;
@@ -127,27 +116,5 @@ export function setConfigCommand(
       yield* terminal.success(`Config set: ${key} = ${answer}`);
       return;
     }
-
-    // Validation: Check if we are trying to overwrite an object with a string
-    const currentValue = yield* configService.getOrElse(key, undefined);
-    if (
-      currentValue !== undefined &&
-      currentValue !== null &&
-      typeof currentValue === "object" &&
-      !Array.isArray(currentValue)
-    ) {
-      return yield* Effect.fail(
-        new ConfigurationValidationError({
-          field: key,
-          expected: "object",
-          actual: "string",
-          suggestion: `Cannot overwrite complex configuration object '${key}' with a string value. Use specific sub-keys (e.g., '${key}.someField') or interactive mode.`,
-        }),
-      );
-    }
-
-    yield* terminal.info(`Setting config: ${key} = ${value}`);
-    yield* configService.set(key, value);
-    yield* terminal.success(`Config set: ${key} = ${value}`);
   });
 }
