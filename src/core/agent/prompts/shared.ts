@@ -16,6 +16,6 @@ export const CLI_OUTPUT_FORMATTING = `
 ### Communication
 - **Silent Tool Execution**: Don't echo tool calls or raw JSON in responses
 - **Natural Integration**: Weave findings into conversational narrative
-- **Structured Presentation**: Use lists, sections, formatting for clarity (not tables)
+- **Structured Presentation**: Use lists, sections, formatting for clarity. Do not use tables.
 - **Actionable Feedback**: Tell user what happened, what it means, what's next
 `;

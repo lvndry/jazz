@@ -46,6 +46,11 @@ export class OutputRenderer {
   private readonly thinkingRenderer: ThinkingRenderer;
   private readonly toolNameMap: Map<string, string> = new Map();
   private readonly mode: OutputMode;
+  private accumulatedUsage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  } | null = null;
 
   constructor(private config: OutputRendererConfig) {
     // Determine output mode
@@ -161,7 +166,8 @@ export class OutputRenderer {
 
       case "usage_update":
         if (this.config.showMetrics) {
-          return this.renderUsageUpdate(event);
+          // Accumulate usage updates instead of rendering them immediately
+          this.accumulatedUsage = event.usage;
         }
         return null;
 
@@ -222,10 +228,7 @@ export class OutputRenderer {
     );
   }
 
-  private renderToolsDetected(event: {
-    toolNames: readonly string[];
-    agentName: string;
-  }): string {
+  private renderToolsDetected(event: { toolNames: readonly string[]; agentName: string }): string {
     const { colors, icons } = this.theme;
     const tools = event.toolNames.join(", ");
     return (
@@ -278,17 +281,6 @@ export class OutputRenderer {
     );
   }
 
-  private renderUsageUpdate(event: {
-    usage: { promptTokens: number; completionTokens: number; totalTokens: number };
-  }): string {
-    const { colors } = this.theme;
-    return (
-      colors.dim(
-        `\n[Tokens: ${event.usage.promptTokens} prompt + ${event.usage.completionTokens} completion = ${event.usage.totalTokens} total]\n`,
-      ) + "\n"
-    );
-  }
-
   private renderError(error: LLMError): string {
     const { colors, icons } = this.theme;
     return "\n" + colors.error(`${icons.error} Error: ${error.message}`) + "\n";
@@ -316,6 +308,13 @@ export class OutputRenderer {
     }
 
     let output = "";
+
+    // Show accumulated usage if available
+    if (this.config.showMetrics && this.accumulatedUsage) {
+      output += this.theme.colors.dim(
+        `\n\n[Tokens: ${this.accumulatedUsage.promptTokens} prompt + ${this.accumulatedUsage.completionTokens} completion = ${this.accumulatedUsage.totalTokens} total]\n`,
+      );
+    }
 
     // Show metrics if enabled and available
     if (this.config.showMetrics && event.metrics) {
@@ -370,6 +369,7 @@ export class OutputRenderer {
     return Effect.sync(() => {
       this.toolNameMap.clear();
       this.thinkingRenderer.reset();
+      this.accumulatedUsage = null;
       MarkdownRenderer.resetStreamingBuffer();
     });
   }
@@ -388,5 +388,3 @@ export class OutputRenderer {
     return this.writer;
   }
 }
-
-
