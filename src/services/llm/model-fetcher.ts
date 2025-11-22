@@ -72,11 +72,19 @@ export function createModelFetcher(): ModelFetcherService {
           }
           return transformer(data);
         },
-        catch: (error) =>
-          new LLMConfigurationError({
+        catch: (error) => {
+          if (providerName === "ollama") {
+            return new LLMConfigurationError({
+              provider: providerName,
+              message: `Model discovery failed: Make sure ollama is running by running 'ollama serve' and have a model pulled using 'ollama pull <model-name>'`,
+            });
+          }
+
+          return new LLMConfigurationError({
             provider: providerName,
             message: `Model discovery failed: ${error instanceof Error ? error.message : String(error)}`,
-          }),
+          });
+        },
       }),
   };
 }

@@ -7,10 +7,11 @@
       perceived latency.
 - [x] Update system prompt to discorourage usage of tables. They don't render well in terminal
 - [ ] Better colors and themes.
-- [ ] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
-- [ ] Finish implementation of `jazz create-quick`
-- [ ] Finish implementation of `jazz logs`
-- [ ] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
+- [x] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
+- [x] Easy update - `jazz update` command
+- [ ] Implementation of inline `jazz create` e.g `jazz create --name "deploy-master" --tools git,files --description "Deploy master branch" --provider openai --model gpt-4`
+- [ ] Implementation of `jazz logs` command
+- [ ] Implementation of `/switch` command to switch agents while in the same conversation. This would allow to switch to a
       more capable or less costly model while keeping the same context
 
 ## Agent Runtime & Automation
@@ -29,11 +30,8 @@
 - [ ] Being able to always approve low stake tools - Give a risk level to tools, being able to say
       if we want to allays authorize a tool so that it don't ask for approval every time
 
-## CLI Feature Depth & Docs
+## Docs
 
-- [ ] Improve `jazz agent create` ergonomics — expand flags (tools, schedule, auth) and inline help;
-      document the flow with examples like
-      `jazz agent create --name "deploy-master" --tools git,files`.
 - [ ] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox
       triage, reporting) with reusable configs.
 
@@ -63,11 +61,11 @@
       adapters, and runtime layers.
 - [ ] readFile tool should only read files 100 lines per 100 lines to avoid loading large files into
       memory all at once
+- [ ] Increase test coverage
 
 ## Developer experience
 
 - [ ] Precommit hooks
-- [x] Easy update - `jazz update`
 
 ## Backlog Ideas & Research
 
