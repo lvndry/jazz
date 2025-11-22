@@ -53,7 +53,6 @@ interface StreamProcessorState {
   hasStartedReasoning: boolean;
   thinkingCompleteEmitted: boolean;
   reasoningTokens: number | undefined;
-  bufferedReasoning: string | undefined;
 
   // Tool calls
   collectedToolCalls: ToolCall[];
@@ -81,7 +80,6 @@ function createInitialState(): StreamProcessorState {
     hasStartedReasoning: false,
     thinkingCompleteEmitted: false,
     reasoningTokens: undefined,
-    bufferedReasoning: undefined,
     collectedToolCalls: [],
     firstTokenTime: null,
     finishEventReceived: false,

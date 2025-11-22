@@ -92,10 +92,6 @@ function toCoreMessages(
         | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
       > = [];
 
-      // IMPORTANT: For reasoning models, we only store/replay the text content,
-      // NOT reasoning items. Reasoning is ephemeral and only for the current turn.
-      // Always send text content - this prevents OpenAI API errors about
-      // "reasoning item without required following item" when replaying history.
       if (m.content && m.content.length > 0) {
         contentParts.push({ type: "text", text: m.content });
       }
