@@ -140,7 +140,6 @@ export class OutputRenderer {
         return this.renderTextChunk(event.delta);
 
       case "tool_call":
-        // Tool call detected - execution will be handled by separate events
         if (this.config.displayConfig.showToolExecution) {
           return this.renderToolCallDetected(event.toolCall);
         }

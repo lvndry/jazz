@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { spawn } from "child_process";
 import { Context, Effect, Layer } from "effect";
+import { homedir } from "os";
 import * as nodePath from "path";
 
 export interface FileSystemContextService {
@@ -47,8 +48,9 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
     FileSystemContextServiceTag,
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
+      const home = homedir();
 
-      // Map key: agentId|conversationId? -> cwd
+      // Map key: agentId.conversationId? -> cwd
       const cwdByKey = new Map<string, string>();
 
       function makeKey(key: { agentId: string; conversationId?: string }): string {
@@ -63,6 +65,12 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
           (normalized.startsWith("'") && normalized.endsWith("'"))
         ) {
           normalized = normalized.slice(1, -1);
+        }
+
+        if (normalized === "~") {
+          normalized = home;
+        } else if (normalized.startsWith("~/")) {
+          normalized = nodePath.join(home, normalized.slice(2));
         }
 
         // Remove shell escaping for all characters (spaces, path separators, etc.)
@@ -323,7 +331,6 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
               return yield* Effect.fail(
                 new Error(
                   `Cannot create directory '${cleanedPath}': '${parentDir}' is not a directory.`,
-
                 ),
               );
             }
