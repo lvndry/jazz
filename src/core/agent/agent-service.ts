@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer } from "effect";
 import shortuuid from "short-uuid";
 import type { StorageService } from "../../services/storage/service";
 import { StorageServiceTag } from "../../services/storage/service";
@@ -9,7 +9,7 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "../types/errors";
-import { type Agent, type AgentConfig, type Task, TaskSchema } from "../types/index";
+import { type Agent, type AgentConfig } from "../types/index";
 import { CommonSuggestions } from "../utils/error-handler";
 import { normalizeToolConfig } from "./utils/tool-config";
 
@@ -33,7 +33,11 @@ export interface AgentService {
     updates: Partial<Agent>,
   ) => Effect.Effect<
     Agent,
-    StorageError | StorageNotFoundError | AgentConfigurationError | AgentAlreadyExistsError | ValidationError
+    | StorageError
+    | StorageNotFoundError
+    | AgentConfigurationError
+    | AgentAlreadyExistsError
+    | ValidationError
   >;
   readonly deleteAgent: (id: string) => Effect.Effect<void, StorageError | StorageNotFoundError>;
   readonly validateAgentConfig: (
@@ -53,7 +57,6 @@ export class DefaultAgentService implements AgentService {
    *
    * @param name - The unique name for the agent (must be alphanumeric with underscores/hyphens)
    * @param description - A description of what the agent does (1-500 characters)
-   * @param config - Optional configuration including timeout, retry policy, and tasks
    * @returns An Effect that resolves to the created Agent or fails with validation/configuration errors
    *
    * @throws {ValidationError} When name or description validation fails
@@ -66,7 +69,6 @@ export class DefaultAgentService implements AgentService {
    * const agent = yield* agentService.createAgent(
    *   "email-processor",
    *   "Processes incoming emails and categorizes them",
-   *   { timeout: 30000, retryPolicy: { maxRetries: 3, delay: 1000, backoff: "exponential" } }
    * );
    * ```
    */
@@ -83,15 +85,13 @@ export class DefaultAgentService implements AgentService {
         // Validate input parameters
         yield* validateAgentName(name);
         if (description !== undefined) {
-        yield* validateAgentDescription(description);
+          yield* validateAgentDescription(description);
         }
 
         const id = shortuuid.generate();
 
         // Create default agent configuration
         const defaultConfig: AgentConfig = {
-          tasks: [],
-          timeout: 30000,
           environment: {},
           agentType: "default",
           llmProvider: "openai",
@@ -103,7 +103,6 @@ export class DefaultAgentService implements AgentService {
         const baseConfig: AgentConfig = {
           ...defaultConfig,
           ...config,
-          tasks: config.tasks ?? [],
           environment: { ...defaultConfig.environment, ...(config.environment ?? {}) },
         };
 
@@ -132,8 +131,8 @@ export class DefaultAgentService implements AgentService {
           id,
           name,
           ...(description !== undefined && { description }),
+          model: `${agentConfig.llmProvider}/${agentConfig.llmModel}`,
           config: agentConfig,
-          status: "idle",
           createdAt: now,
           updatedAt: now,
         };
@@ -201,7 +200,6 @@ export class DefaultAgentService implements AgentService {
    * ```typescript
    * const updatedAgent = yield* agentService.updateAgent("agent-123", {
    *   description: "Updated description",
-   *   config: { timeout: 60000 }
    * });
    * ```
    */
@@ -210,7 +208,11 @@ export class DefaultAgentService implements AgentService {
     updates: Partial<Agent>,
   ): Effect.Effect<
     Agent,
-    StorageError | StorageNotFoundError | AgentConfigurationError | AgentAlreadyExistsError | ValidationError
+    | StorageError
+    | StorageNotFoundError
+    | AgentConfigurationError
+    | AgentAlreadyExistsError
+    | ValidationError
   > {
     return Effect.gen(
       function* (this: DefaultAgentService) {
@@ -237,7 +239,6 @@ export class DefaultAgentService implements AgentService {
         const mergedConfig: AgentConfig = {
           ...existingAgent.config,
           ...updates.config,
-          tasks: updates.config?.tasks ?? existingAgent.config.tasks,
         };
 
         const normalizedTools = normalizeToolConfig(mergedConfig.tools, {
@@ -257,6 +258,7 @@ export class DefaultAgentService implements AgentService {
           id: existingAgent.id, // Ensure ID cannot be changed
           createdAt: existingAgent.createdAt, // Ensure createdAt cannot be changed
           updatedAt: new Date(),
+          model: `${updatedConfig.llmProvider}/${updatedConfig.llmModel}`,
           config: updatedConfig,
         };
 
@@ -291,9 +293,7 @@ export class DefaultAgentService implements AgentService {
    * Validate an agent configuration for correctness
    *
    * Performs comprehensive validation of the agent configuration including:
-   * - Task validation using schemas
-   * - Timeout range validation (1000ms - 3600000ms)
-   * - Retry policy validation (max retries 0-10, delay 100ms-60000ms)
+   * - Tool validation
    *
    * @param config - The agent configuration to validate
    * @returns An Effect that resolves if validation passes or fails with configuration errors
@@ -303,9 +303,10 @@ export class DefaultAgentService implements AgentService {
    * @example
    * ```typescript
    * const config: AgentConfig = {
-   *   tasks: [],
-   *   timeout: 30000,
-   *   retryPolicy: { maxRetries: 3, delay: 1000, backoff: "exponential" }
+   *   agentType: "default",
+   *   llmProvider: "openai",
+   *   llmModel: "gpt-4o",
+   *   environment: {}
    * };
    *
    * yield* agentService.validateAgentConfig(config);
@@ -313,11 +314,6 @@ export class DefaultAgentService implements AgentService {
    */
   validateAgentConfig(config: AgentConfig): Effect.Effect<void, AgentConfigurationError> {
     return Effect.gen(function* (this: DefaultAgentService) {
-      // Validate tasks
-      for (const task of config.tasks) {
-        yield* validateTask(task);
-      }
-
       // Validate tools
       if (config.tools) {
         if (!Array.isArray(config.tools)) {
@@ -341,43 +337,6 @@ export class DefaultAgentService implements AgentService {
               }),
             );
           }
-        }
-      }
-
-      // Validate timeout
-      if (config.timeout && (config.timeout < 1000 || config.timeout > 3600000)) {
-        return yield* Effect.fail(
-          new AgentConfigurationError({
-            agentId: "unknown",
-            field: "timeout",
-            message: "Timeout must be between 1000ms and 3600000ms (1 hour)",
-            suggestion: `Use a timeout between 1000ms and 3600000ms. Current value: ${config.timeout}ms`,
-          }),
-        );
-      }
-
-      // Validate retry policy if provided
-      if (config.retryPolicy) {
-        if (config.retryPolicy.maxRetries < 0 || config.retryPolicy.maxRetries > 10) {
-          return yield* Effect.fail(
-            new AgentConfigurationError({
-              agentId: "unknown",
-              field: "retryPolicy.maxRetries",
-              message: "Max retries must be between 0 and 10",
-              suggestion: `Use a value between 0 and 10. Current value: ${config.retryPolicy.maxRetries}`,
-            }),
-          );
-        }
-
-        if (config.retryPolicy.delay < 100 || config.retryPolicy.delay > 60000) {
-          return yield* Effect.fail(
-            new AgentConfigurationError({
-              agentId: "unknown",
-              field: "retryPolicy.delay",
-              message: "Retry delay must be between 100ms and 60000ms",
-              suggestion: `Use a delay between 100ms and 60000ms. Current value: ${config.retryPolicy.delay}ms`,
-            }),
-          );
         }
       }
     });
@@ -490,113 +449,6 @@ function validateAgentDescription(description: string): Effect.Effect<void, Vali
   }
 
   return Effect.void;
-}
-
-/**
- * Validate a task configuration using its schema
- *
- * Uses the TaskSchema to validate the task structure and properties.
- * This ensures the task meets all required fields and type constraints.
- *
- * @param task - The task to validate
- * @returns An Effect that resolves if validation passes or fails with configuration errors
- *
- * @throws {AgentConfigurationError} When the task configuration is invalid
- *
- * @example
- * ```typescript
- * const task: Task = {
- *   id: "task-1",
- *   name: "Process Email",
- *   type: "gmail",
- *   config: { gmailOperation: "list_emails" }
- * };
- * yield* validateTask(task);
- * ```
- */
-function validateTask(task: Task): Effect.Effect<void, AgentConfigurationError> {
-  return Effect.gen(function* () {
-    // Validate task using schema
-    yield* Effect.try({
-      try: () => Schema.decodeUnknownSync(TaskSchema)(task),
-      catch: (error) =>
-        new AgentConfigurationError({
-          agentId: "unknown",
-          field: `task.${task.id}`,
-          message: `Invalid task structure: ${String(error)}`,
-        }),
-    });
-
-    // Additional business logic validation
-    if (!task.name || task.name.trim().length === 0) {
-      return yield* Effect.fail(
-        new AgentConfigurationError({
-          agentId: "unknown",
-          field: `task.${task.id}.name`,
-          message: "Task name cannot be empty",
-        }),
-      );
-    }
-
-    // Validate task type specific requirements
-    switch (task.type) {
-      case "command":
-        if (!task.config.command || task.config.command.trim().length === 0) {
-          return yield* Effect.fail(
-            new AgentConfigurationError({
-              agentId: "unknown",
-              field: `task.${task.id}.config.command`,
-              message: "Command tasks must have a command specified",
-            }),
-          );
-        }
-        break;
-      case "script":
-        if (!task.config.script || task.config.script.trim().length === 0) {
-          return yield* Effect.fail(
-            new AgentConfigurationError({
-              agentId: "unknown",
-              field: `task.${task.id}.config.script`,
-              message: "Script tasks must have a script specified",
-            }),
-          );
-        }
-        break;
-      case "api":
-        if (!task.config.url || task.config.url.trim().length === 0) {
-          return yield* Effect.fail(
-            new AgentConfigurationError({
-              agentId: "unknown",
-              field: `task.${task.id}.config.url`,
-              message: "API tasks must have a URL specified",
-            }),
-          );
-        }
-        break;
-      case "file":
-        if (!task.config.filePath || task.config.filePath.trim().length === 0) {
-          return yield* Effect.fail(
-            new AgentConfigurationError({
-              agentId: "unknown",
-              field: `task.${task.id}.config.filePath`,
-              message: "File tasks must have a file path specified",
-            }),
-          );
-        }
-        break;
-      case "gmail":
-        if (!task.config.gmailOperation) {
-          return yield* Effect.fail(
-            new AgentConfigurationError({
-              agentId: "unknown",
-              field: `task.${task.id}.config.gmailOperation`,
-              message: "Gmail tasks must have an operation specified",
-            }),
-          );
-        }
-        break;
-    }
-  });
 }
 
 export const AgentServiceTag = Context.GenericTag<AgentService>("AgentService");

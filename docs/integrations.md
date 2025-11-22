@@ -6,7 +6,7 @@ Jazz supports various third-party integrations to enhance your agents' capabilit
 
 - [LLM Providers](#llm-providers)
 - [Gmail Integration](#gmail-integration)
-- [Linkup Web Search](#linkup-web-search)
+- [Web Search](#web-search)
 - [Configuration Examples](#configuration-examples)
 
 ---
@@ -149,19 +149,7 @@ Jazz supports multiple LLM providers. You need at least one configured to create
 
 1. Install Ollama from [ollama.ai](https://ollama.ai/)
 2. Pull a model: `ollama pull llama3.2`
-3. Add to your config:
-
-```json
-{
-  "llm": {
-    "ollama": {
-      "baseURL": "http://localhost:11434"
-    }
-  }
-}
-```
-
-**Note**: Jazz will auto-detect available models from your Ollama instance.
+3. Jazz will auto-detect available models from your Ollama instance.
 
 ---
 
@@ -305,13 +293,13 @@ Your agents can now:
 
 ---
 
-## Linkup Web Search
+## Web Search
 
 Enable your agents to search the web and get current information.
 
-[Linkup](https://www.linkup.so/) provides high-quality web search optimized for AI agents.
+[Linkup](https://www.linkup.so/) and [Exa](https://exa.ai/) provide high-quality web search optimized for AI agents.
 
-### Why Linkup?
+### Why Linkup/Exa?
 
 - **AI-Optimized Results**: Structured data perfect for agents
 - **Deep Search Mode**: Comprehensive research capabilities
@@ -320,9 +308,9 @@ Enable your agents to search the web and get current information.
 
 ### Setup Steps
 
-#### 1. Get Linkup API Key
+#### 1. Get API Key
 
-1. Visit [linkup.so](https://www.linkup.so/)
+1. Visit [linkup.so](https://www.linkup.so/) or [exa.ai](https://exa.ai/)
 2. Sign up for an account
 3. Navigate to your dashboard
 4. Copy your API key
@@ -335,6 +323,9 @@ Add to your `~/.jazz/config.json`:
 {
   "linkup": {
     "api_key": "your-linkup-api-key"
+  },
+  "exa": {
+    "api_key": "your-exa-api-key"
   }
 }
 ```
@@ -363,13 +354,13 @@ Your agents can now:
 
 **Standard Search** (default):
 
-- Fast results (1-2 seconds)
+- Fast results
 - Good for quick lookups
 - 3-5 sources typically
 
 **Deep Search**:
 
-- Comprehensive results (5-10 seconds)
+- Comprehensive results
 - Multiple perspectives
 - 10+ sources
 - Best for research tasks
@@ -381,7 +372,7 @@ jazz agent chat my-agent
 
 You: Search for the latest TypeScript 5.5 features
 
-Agent: [Uses web_search with Linkup]
+Agent: [Uses web_search]
        Based on recent web sources:
 
        TypeScript 5.5 introduces:
@@ -394,126 +385,6 @@ Agent: [Uses web_search with Linkup]
        - GitHub Release Notes
        - Dev.to Articles
 ```
-
-### Fallback Behavior
-
-If Linkup is unavailable or not configured, Jazz automatically falls back to web search options provided by some LLM providers (like Perplexity-style search).
-
----
-
-## Configuration Examples
-
-### Minimal Configuration
-
-Just LLM, no integrations:
-
-```json
-{
-  "llm": {
-    "openai": {
-      "api_key": "sk-..."
-    }
-  }
-}
-```
-
-### Full Configuration
-
-All integrations enabled:
-
-```json
-{
-  "google": {
-    "clientId": "123456789-abc.apps.googleusercontent.com",
-    "clientSecret": "GOCSPX-abc123..."
-  },
-  "linkup": {
-    "api_key": "linkup-key-..."
-  },
-  "llm": {
-    "openai": {
-      "api_key": "sk-..."
-    },
-    "anthropic": {
-      "api_key": "sk-ant-..."
-    },
-    "google": {
-      "api_key": "AIza..."
-    },
-    "mistral": {
-      "api_key": "mist..."
-    },
-    "xai": {
-      "api_key": "xai-..."
-    },
-    "deepseek": {
-      "api_key": "sk-..."
-    },
-    "ollama": {
-      "baseURL": "http://localhost:11434"
-    }
-  },
-  "storage": {
-    "type": "file",
-    "path": "./.jazz"
-  }
-}
-```
-
-### Multiple LLM Providers
-
-Choose the best model for each agent:
-
-```json
-{
-  "llm": {
-    "openai": {
-      "api_key": "sk-..."
-    },
-    "anthropic": {
-      "api_key": "sk-ant-..."
-    },
-    "google": {
-      "api_key": "AIza..."
-    }
-  }
-}
-```
-
-**Use case**:
-
-- **Claude 3.5 Sonnet**: Complex reasoning and analysis
-- **GPT-4o**: General purpose, good balance
-- **Gemini 2.0 Flash**: Fast responses, simple tasks
-- **o3-mini**: Deep thinking for hard problems
-
----
-
-## Environment Variables
-
-You can also use environment variables instead of config file:
-
-```bash
-# LLM Providers
-export OPENAI_API_KEY="sk-..."
-export ANTHROPIC_API_KEY="sk-ant-..."
-export GOOGLE_GENERATIVE_AI_API_KEY="AIza..."
-export MISTRAL_API_KEY="mist..."
-export XAI_API_KEY="xai-..."
-export DEEPSEEK_API_KEY="sk-..."
-
-# Linkup
-export LINKUP_API_KEY="linkup-key-..."
-
-# Google OAuth (less common)
-export GOOGLE_CLIENT_ID="123456789-abc.apps.googleusercontent.com"
-export GOOGLE_CLIENT_SECRET="GOCSPX-abc123..."
-
-# Config file location
-export JAZZ_CONFIG_PATH="/path/to/custom/config.json"
-```
-
-**Note**: Config file values take precedence over environment variables.
 
 ---
 

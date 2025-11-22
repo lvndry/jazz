@@ -2,11 +2,12 @@ import { FileSystem } from "@effect/platform";
 import { Context, Effect, Layer, Option } from "effect";
 import type {
   AppConfig,
+  ExaConfig,
   GoogleConfig,
   LLMConfig,
   LinkupConfig,
   LoggingConfig,
-  StorageConfig
+  StorageConfig,
 } from "../core/types/index";
 import { safeParseJson } from "../core/utils/json";
 import { getDefaultDataDirectory } from "../core/utils/runtime-detection";
@@ -26,8 +27,13 @@ export interface ConfigService {
 
 export class ConfigServiceImpl implements ConfigService {
   private currentConfig: AppConfig;
-  constructor(initialConfig: AppConfig) {
+  private configPath: string | undefined;
+  private fs: FileSystem.FileSystem;
+
+  constructor(initialConfig: AppConfig, configPath: string | undefined, fs: FileSystem.FileSystem) {
     this.currentConfig = initialConfig;
+    this.configPath = configPath;
+    this.fs = fs;
   }
 
   get<A>(key: string): Effect.Effect<A, never> {
@@ -56,9 +62,32 @@ export class ConfigServiceImpl implements ConfigService {
   }
 
   set<A>(key: string, value: A): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      deepSet(this.currentConfig as unknown as Record<string, unknown>, key, value as unknown);
-    });
+    return Effect.gen(
+      function* (this: ConfigServiceImpl) {
+        // Update in-memory config
+        deepSet(this.currentConfig as unknown as Record<string, unknown>, key, value as unknown);
+
+        // Persist to file if we have a config path
+        if (this.configPath) {
+          yield* this.fs.writeFileString(
+            this.configPath,
+            JSON.stringify(this.currentConfig, null, 2),
+          );
+          return;
+        }
+
+        // If no config path exists, create one at the default location
+        const defaultPath = `${expandHome("~/.jazz")}/config.json`;
+        this.configPath = defaultPath;
+
+        // Ensure directory exists
+        const dir = defaultPath.substring(0, defaultPath.lastIndexOf("/"));
+        yield* this.fs
+          .makeDirectory(dir, { recursive: true })
+          .pipe(Effect.catchAll(() => Effect.void));
+        yield* this.fs.writeFileString(defaultPath, JSON.stringify(this.currentConfig, null, 2));
+      }.bind(this),
+    ).pipe(Effect.catchAll(() => Effect.void));
   }
 
   get appConfig(): Effect.Effect<AppConfig, never> {
@@ -91,7 +120,7 @@ export function createConfigLayer(
           })
         : mergeConfig(baseConfig, fileConfig);
 
-      return new ConfigServiceImpl(finalConfig);
+      return new ConfigServiceImpl(finalConfig, loaded.configPath, fs);
     }),
   );
 }
@@ -134,12 +163,14 @@ function defaultConfig(): AppConfig {
 
   const llm: LLMConfig = {};
   const linkup: LinkupConfig = {
-    apiKey: "",
-    baseUrl: "https://api.linkup.so",
-    timeout: 30000,
+    api_key: "",
   };
 
-  return { storage, logging, google, llm, linkup };
+  const exa: ExaConfig = {
+    api_key: "",
+  };
+
+  return { storage, logging, google, llm, linkup, exa };
 }
 
 function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig {
@@ -158,7 +189,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
           ? { showToolExecution: override.output.showToolExecution }
           : {}),
         ...(override.output.mode !== undefined ? { mode: override.output.mode } : {}),
-        ...(override.output.colorProfile !== undefined ? { colorProfile: override.output.colorProfile } : {}),
+        ...(override.output.colorProfile !== undefined
+          ? { colorProfile: override.output.colorProfile }
+          : {}),
         // Merge streaming config
         ...(override.output.streaming && {
           streaming: { ...(base.output?.streaming ?? {}), ...override.output.streaming },
@@ -168,6 +201,7 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     ...(override.google && { google: { ...base.google, ...override.google } }),
     ...(override.llm && { llm: { ...(base.llm ?? {}), ...override.llm } }),
     ...(override.linkup && { linkup: { ...base.linkup, ...override.linkup } }),
+    ...(override.exa && { exa: { ...base.exa, ...override.exa } }),
   };
 }
 

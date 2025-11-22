@@ -1,12 +1,26 @@
-import globals from 'globals';
-
 import js from '@eslint/js';
-import typescript from '@typescript-eslint/eslint-plugin';
-import typescriptParser from '@typescript-eslint/parser';
 import prettierConfig from 'eslint-config-prettier';
+import { defineConfig } from 'eslint/config';
+import globals from 'globals';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import tseslint from 'typescript-eslint';
 
-export default [
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export default defineConfig([
+  {
+    ignores: ['dist/', 'node_modules/'],
+  },
   js.configs.recommended,
+  // Base TS rules (apply to all TS files including tests)
+  ...tseslint.configs.recommended,
+  // Type-checked rules (only for files in tsconfig)
+  ...tseslint.configs.recommendedTypeChecked.map((config) => ({
+    ...config,
+    files: ['**/*.{ts,tsx}'],
+    ignores: ['**/*.test.ts'],
+  })),
   {
     files: ['**/*.{js,mjs}'],
     languageOptions: {
@@ -19,21 +33,15 @@ export default [
     files: ['**/*.{ts,tsx}'],
     ignores: ['**/*.test.ts'],
     languageOptions: {
-      parser: typescriptParser,
       parserOptions: {
         project: './tsconfig.json',
+        tsconfigRootDir: __dirname,
       },
       globals: {
         ...globals.node,
       },
     },
-    plugins: {
-      '@typescript-eslint': typescript,
-    },
     rules: {
-      ...typescript.configs.recommended.rules,
-      ...typescript.configs['recommended-requiring-type-checking'].rules,
-      ...prettierConfig.rules,
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/explicit-function-return-type': 'warn',
@@ -43,7 +51,6 @@ export default [
   {
     files: ['**/*.test.ts'],
     languageOptions: {
-      parser: typescriptParser,
       globals: {
         ...globals.node,
         describe: 'readonly',
@@ -55,18 +62,11 @@ export default [
         afterAll: 'readonly',
       },
     },
-    plugins: {
-      '@typescript-eslint': typescript,
-    },
     rules: {
-      ...typescript.configs.recommended.rules,
-      ...prettierConfig.rules,
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       'no-console': 'off',
     },
   },
-  {
-    ignores: ['dist/', 'node_modules/'],
-  },
-];
+  prettierConfig,
+]);

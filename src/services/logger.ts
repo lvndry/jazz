@@ -16,22 +16,10 @@ import { type ConfigService } from "./config";
  */
 
 export interface LoggerService {
-  readonly debug: (
-    message: string,
-    meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never>;
-  readonly info: (
-    message: string,
-    meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never>;
-  readonly warn: (
-    message: string,
-    meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never>;
-  readonly error: (
-    message: string,
-    meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, never>;
+  readonly debug: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
+  readonly info: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
+  readonly warn: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
+  readonly error: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
   /**
    * Write a log entry to file only (not console)
    * Used for detailed logging that should not clutter console output
@@ -60,10 +48,7 @@ export class LoggerServiceImpl implements LoggerService {
     });
   }
 
-  debug(
-    message: string,
-    meta?: Record<string, unknown>,
-  ): Effect.Effect<void, never> {
+  debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     return Effect.sync(() => {
       writeLogToFileSync("debug", message, meta);
     });
@@ -81,10 +66,7 @@ export class LoggerServiceImpl implements LoggerService {
     });
   }
 
-  error(
-    message: string,
-    meta?: Record<string, unknown>,
-  ): Effect.Effect<void, never> {
+  error(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     return Effect.sync(() => {
       writeLogToFileSync("error", message, meta);
     });
@@ -128,36 +110,6 @@ export function logAgentOperation(
   });
 }
 
-export function logTaskExecution(
-  taskId: string,
-  status: "started" | "completed" | "failed",
-  meta?: Record<string, unknown>,
-): Effect.Effect<void, never, LoggerService | ConfigService> {
-  return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
-    yield* logger.info(`Task ${taskId}: ${status}`, {
-      taskId,
-      status,
-      ...meta,
-    });
-  });
-}
-
-export function logAutomationEvent(
-  automationId: string,
-  event: string,
-  meta?: Record<string, unknown>,
-): Effect.Effect<void, never, LoggerService | ConfigService> {
-  return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
-    yield* logger.info(`Automation ${automationId}: ${event}`, {
-      automationId,
-      event,
-      ...meta,
-    });
-  });
-}
-
 // Tool execution logging helpers
 export function logToolExecutionStart(
   toolName: string,
@@ -191,27 +143,32 @@ export function logToolExecutionSuccess(
     // Log full result to file only (not console) for ALL tools
     if (fullResult !== undefined) {
       try {
-        const resultString = typeof fullResult === "string"
-          ? fullResult
-          : JSON.stringify(fullResult, null, 2);
+        const resultString =
+          typeof fullResult === "string" ? fullResult : JSON.stringify(fullResult, null, 2);
 
         // Truncate very long results to avoid overwhelming logs
         const maxLength = 10000;
-        const truncatedResult = resultString.length > maxLength
-          ? resultString.substring(0, maxLength) + `\n... (truncated, ${resultString.length - maxLength} more characters)`
-          : resultString;
+        const truncatedResult =
+          resultString.length > maxLength
+            ? resultString.substring(0, maxLength) +
+              `\n... (truncated, ${resultString.length - maxLength} more characters)`
+            : resultString;
 
-        yield* logger.writeToFile("info", `Tool result for ${toolName}`, {
-          toolName,
-          resultLength: resultString.length,
-          result: truncatedResult,
-        }).pipe(Effect.catchAll(() => Effect.void));
+        yield* logger
+          .writeToFile("info", `Tool result for ${toolName}`, {
+            toolName,
+            resultLength: resultString.length,
+            result: truncatedResult,
+          })
+          .pipe(Effect.catchAll(() => Effect.void));
       } catch (error) {
         // If serialization fails, log a warning to file
-        yield* logger.writeToFile("warn", `Failed to log full result for ${toolName}`, {
-          toolName,
-          error: error instanceof Error ? error.message : String(error),
-        }).pipe(Effect.catchAll(() => Effect.void));
+        yield* logger
+          .writeToFile("warn", `Failed to log full result for ${toolName}`, {
+            toolName,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          .pipe(Effect.catchAll(() => Effect.void));
       }
     }
   });
@@ -309,9 +266,8 @@ function formatLogLineForFile(
   meta?: Record<string, unknown>,
 ): string {
   const timestamp = new Date().toISOString();
-  const metaText = meta && Object.keys(meta).length > 0
-    ? " " + JSON.stringify(meta, jsonReplacer)
-    : "";
+  const metaText =
+    meta && Object.keys(meta).length > 0 ? " " + JSON.stringify(meta, jsonReplacer) : "";
   return `${timestamp} [${level.toUpperCase()}] ${message}${metaText}\n`;
 }
 

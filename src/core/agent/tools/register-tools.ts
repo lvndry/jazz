@@ -79,7 +79,7 @@ export const HTTP_CATEGORY: ToolCategory = { id: "http", displayName: "HTTP" };
 export const FILE_MANAGEMENT_CATEGORY: ToolCategory = { id: "file_management", displayName: "File Management" };
 export const SHELL_COMMANDS_CATEGORY: ToolCategory = { id: "shell_commands", displayName: "Shell Commands" };
 export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
-export const SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Search" };
+export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Search" };
 
 /**
  * All available tool categories
@@ -89,7 +89,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   SHELL_COMMANDS_CATEGORY,
   GIT_CATEGORY,
   HTTP_CATEGORY,
-  SEARCH_CATEGORY,
+  WEB_SEARCH_CATEGORY,
   GMAIL_CATEGORY,
 ] as const;
 
@@ -288,7 +288,7 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
 export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory(SEARCH_CATEGORY);
+    const registerTool = registry.registerForCategory(WEB_SEARCH_CATEGORY);
 
     const webSearchTool = createWebSearchTool();
 

@@ -23,7 +23,9 @@ type StreamTextResult = ReturnType<typeof streamText>;
 /**
  * Emit function type for Effect streams
  */
-type EmitFunction = (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void;
+type EmitFunction = (
+  effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
+) => void;
 
 /**
  * Configuration for stream processor
@@ -42,14 +44,10 @@ interface StreamProcessorState {
   // Text accumulation
   accumulatedText: string;
   textSequence: number;
-  textStreamCompleted: boolean;
   hasStartedText: boolean;
 
   // Reasoning tracking
   reasoningSequence: number;
-  reasoningStreamCompleted: boolean;
-  hasStartedReasoning: boolean;
-  thinkingCompleteEmitted: boolean;
   reasoningTokens: number | undefined;
 
   // Tool calls
@@ -57,9 +55,12 @@ interface StreamProcessorState {
 
   // Timing
   firstTokenTime: number | null;
+  firstTextTime: number | null;
+  firstReasoningTime: number | null;
 
   // Completion tracking
   finishEventReceived: boolean;
+  finishReason: string | undefined;
 }
 
 /**
@@ -69,16 +70,15 @@ function createInitialState(): StreamProcessorState {
   return {
     accumulatedText: "",
     textSequence: 0,
-    textStreamCompleted: false,
     hasStartedText: false,
     reasoningSequence: 0,
-    reasoningStreamCompleted: false,
-    hasStartedReasoning: false,
-    thinkingCompleteEmitted: false,
     reasoningTokens: undefined,
     collectedToolCalls: [],
     firstTokenTime: null,
+    firstTextTime: null,
+    firstReasoningTime: null,
     finishEventReceived: false,
+    finishReason: undefined,
   };
 }
 
@@ -123,15 +123,17 @@ export class StreamProcessor {
       timestamp: this.config.startTime,
     });
 
-    // Start processing streams in parallel
-    await Promise.all([
-      this.processTextStream(result),
-      this.processReasoningText(result),
-      this.processFullStream(result),
-    ]);
+    // Start processing stream
+    await this.processFullStream(result);
 
     // Wait for completion
     await this.completionPromise;
+
+    // Validate that we received finish event
+    if (!this.state.finishEventReceived) {
+      const error = new Error("Stream completed without finish event");
+      throw error;
+    }
 
     // Build final response
     const finalResponse = await this.buildFinalResponse(result);
@@ -143,101 +145,91 @@ export class StreamProcessor {
   }
 
   /**
-   * Process text stream
-   */
-  private async processTextStream(result: StreamTextResult): Promise<void> {
-    try {
-      for await (const textChunk of result.textStream) {
-        // Emit text start on first chunk
-        if (!this.state.hasStartedText && textChunk.length > 0) {
-          void this.emitEvent({ type: "text_start" });
-          this.state.hasStartedText = true;
-          this.recordFirstToken();
-        }
-
-        // Emit text chunk
-        if (textChunk.length > 0) {
-          this.state.accumulatedText += textChunk;
-          void this.emitEvent({
-            type: "text_chunk",
-            delta: textChunk,
-            accumulated: this.state.accumulatedText,
-            sequence: this.state.textSequence++,
-          });
-        }
-      }
-    } catch {
-      // Handle stream errors gracefully
-    } finally {
-      this.state.textStreamCompleted = true;
-      this.checkCompletion();
-    }
-  }
-
-  /**
-   * Process reasoning text (for reasoning models)
-   */
-  private async processReasoningText(result: StreamTextResult): Promise<void> {
-    if (!this.config.hasReasoningEnabled) {
-      this.state.reasoningStreamCompleted = true;
-      return;
-    }
-
-    try {
-      // Wait for reasoning text with timeout
-      const reasoningText = await Promise.race([
-        result.reasoningText,
-        new Promise<string | undefined>((resolve) => setTimeout(() => resolve(undefined), 30 * 60 * 1000)),
-      ]);
-
-      // Only emit if we have reasoning content
-      if (reasoningText && reasoningText.length > 0) {
-        // Emit thinking start
-        if (!this.state.hasStartedReasoning) {
-          void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
-          this.state.hasStartedReasoning = true;
-          this.recordFirstToken();
-        }
-
-        // Emit reasoning chunks
-        const chunkSize = 1000;
-        for (let i = 0; i < reasoningText.length; i += chunkSize) {
-          const chunk = reasoningText.slice(i, i + chunkSize);
-          void this.emitEvent({
-            type: "thinking_chunk",
-            content: chunk,
-            sequence: this.state.reasoningSequence++,
-          });
-        }
-
-        // Emit thinking complete
-        if (!this.state.thinkingCompleteEmitted) {
-          void this.emitEvent({
-            type: "thinking_complete",
-            ...(this.state.reasoningTokens !== undefined && { totalTokens: this.state.reasoningTokens }),
-          });
-          this.state.thinkingCompleteEmitted = true;
-        }
-      }
-    } catch {
-      // Silently handle reasoning errors - they shouldn't block the main response
-    } finally {
-      this.state.reasoningStreamCompleted = true;
-      this.checkCompletion();
-    }
-  }
-
-  /**
-   * Process full stream for tool calls and metadata
+   * Process full stream for all events (text, reasoning, tools)
    */
   private async processFullStream(result: StreamTextResult): Promise<void> {
-    for await (const part of result.fullStream) {
+    try {
+      for await (const part of result.fullStream) {
         // Stop if we've finished
         if (this.state.finishEventReceived) {
           break;
         }
 
         switch (part.type) {
+          case "text-delta": {
+            const textChunk = part.text;
+
+            // Emit text start on first chunk
+            if (!this.state.hasStartedText && textChunk.length > 0) {
+              void this.emitEvent({ type: "text_start" });
+              this.state.hasStartedText = true;
+              this.recordFirstToken("text");
+            }
+
+            // Emit text chunk
+            if (textChunk.length > 0) {
+              this.state.accumulatedText += textChunk;
+              void this.emitEvent({
+                type: "text_chunk",
+                delta: textChunk,
+                accumulated: this.state.accumulatedText,
+                sequence: this.state.textSequence++,
+              });
+            }
+            break;
+          }
+
+          case "reasoning-delta": {
+            if (!this.config.hasReasoningEnabled) {
+              break;
+            }
+
+            const textDelta = part.text;
+
+            if (textDelta && textDelta.length > 0) {
+              // Emit thinking start if this is the first reasoning chunk
+              if (this.state.reasoningSequence === 0) {
+                void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+                this.recordFirstToken("reasoning");
+              }
+
+              void this.emitEvent({
+                type: "thinking_chunk",
+                content: textDelta,
+                sequence: this.state.reasoningSequence++,
+              });
+            }
+            break;
+          }
+
+          case "reasoning-end": {
+            // Extract reasoning tokens from metadata
+            const totalUsage = "totalUsage" in part ? part.totalUsage : undefined;
+            const usage = "usage" in part ? part.usage : undefined;
+
+            const reasoningTokens =
+              totalUsage && typeof totalUsage === "object" && "reasoningTokens" in totalUsage
+                ? (totalUsage as { reasoningTokens?: number }).reasoningTokens
+                : usage && typeof usage === "object" && "reasoningTokens" in usage
+                  ? (usage as { reasoningTokens?: number }).reasoningTokens
+                  : undefined;
+
+            if (reasoningTokens !== undefined) {
+              this.state.reasoningTokens = reasoningTokens;
+            }
+
+            // Emit thinking complete
+            if (this.config.hasReasoningEnabled && this.state.reasoningSequence > 0) {
+              void this.emitEvent({
+                type: "thinking_complete",
+                ...(this.state.reasoningTokens !== undefined && {
+                  totalTokens: this.state.reasoningTokens,
+                }),
+              });
+            }
+            break;
+          }
+
           case "tool-call": {
             const toolCall: ToolCall = {
               id: part.toolCallId,
@@ -257,30 +249,18 @@ export class StreamProcessor {
             break;
           }
 
-          case "reasoning-end": {
-            // Extract reasoning tokens from metadata
-            const totalUsage = "totalUsage" in part ? part.totalUsage : undefined;
-            const usage = "usage" in part ? part.usage : undefined;
-
-            const reasoningTokens =
-              totalUsage && typeof totalUsage === "object" && "reasoningTokens" in totalUsage
-                ? (totalUsage as { reasoningTokens?: number }).reasoningTokens
-                : usage && typeof usage === "object" && "reasoningTokens" in usage
-                  ? (usage as { reasoningTokens?: number }).reasoningTokens
-                  : undefined;
-
-            if (reasoningTokens !== undefined) {
-              this.state.reasoningTokens = reasoningTokens;
-            }
-            break;
-          }
-
           case "finish": {
+            const finishReason = part.finishReason || "unknown";
             this.state.finishEventReceived = true;
-            // For non-reasoning models, resolve immediately
-            // For reasoning models, wait for reasoning text to complete
-            if (!this.config.hasReasoningEnabled) {
-              this.resolveCompletion();
+            this.state.finishReason = finishReason;
+
+            // Validate expected finish reasons
+            if (
+              finishReason !== "stop" &&
+              finishReason !== "length" &&
+              finishReason !== "tool-calls"
+            ) {
+              console.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
             }
             break;
           }
@@ -288,11 +268,10 @@ export class StreamProcessor {
           case "error": {
             throw part.error;
           }
-
-          // Ignore other event types (text-delta, text-start, etc.) - handled by textStream
-          default:
-            break;
         }
+      }
+    } finally {
+      this.resolveCompletion();
     }
   }
 
@@ -301,7 +280,8 @@ export class StreamProcessor {
    */
   private async buildFinalResponse(result: StreamTextResult): Promise<ChatCompletionResponse> {
     const finalText = this.state.accumulatedText;
-    const toolCalls = this.state.collectedToolCalls.length > 0 ? this.state.collectedToolCalls : undefined;
+    const toolCalls =
+      this.state.collectedToolCalls.length > 0 ? this.state.collectedToolCalls : undefined;
 
     // Try to get usage quickly (50ms timeout)
     let usage: ChatCompletionResponse["usage"] | undefined;
@@ -344,6 +324,8 @@ export class StreamProcessor {
     let metrics:
       | {
           firstTokenLatencyMs: number;
+          firstTextLatencyMs?: number;
+          firstReasoningLatencyMs?: number;
           tokensPerSecond?: number;
           totalTokens?: number;
         }
@@ -352,6 +334,14 @@ export class StreamProcessor {
     if (this.state.firstTokenTime) {
       const firstTokenLatencyMs = this.state.firstTokenTime - this.config.startTime;
       metrics = { firstTokenLatencyMs };
+
+      if (this.state.firstTextTime) {
+        metrics.firstTextLatencyMs = this.state.firstTextTime - this.config.startTime;
+      }
+
+      if (this.state.firstReasoningTime) {
+        metrics.firstReasoningLatencyMs = this.state.firstReasoningTime - this.config.startTime;
+      }
 
       if (response.usage?.totalTokens) {
         metrics.tokensPerSecond = (response.usage.totalTokens / totalDurationMs) * 1000;
@@ -370,26 +360,16 @@ export class StreamProcessor {
   /**
    * Record first token time
    */
-  private recordFirstToken(): void {
+  private recordFirstToken(type: "text" | "reasoning"): void {
+    const now = Date.now();
     if (!this.state.firstTokenTime) {
-      this.state.firstTokenTime = Date.now();
+      this.state.firstTokenTime = now;
     }
-  }
 
-  /**
-   * Check if we can resolve completion
-   */
-  private checkCompletion(): void {
-    // For reasoning models: wait for both text and reasoning streams
-    // For non-reasoning models: wait for text stream only
-    if (this.config.hasReasoningEnabled) {
-      if (this.state.textStreamCompleted && this.state.reasoningStreamCompleted) {
-        this.resolveCompletion();
-      }
-    } else {
-      if (this.state.textStreamCompleted) {
-        this.resolveCompletion();
-      }
+    if (type === "text" && !this.state.firstTextTime) {
+      this.state.firstTextTime = now;
+    } else if (type === "reasoning" && !this.state.firstReasoningTime) {
+      this.state.firstReasoningTime = now;
     }
   }
 
@@ -418,4 +398,3 @@ export class StreamProcessor {
     this.emit(Effect.fail(Option.none()));
   }
 }
-

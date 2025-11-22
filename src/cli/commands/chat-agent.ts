@@ -13,12 +13,13 @@ import {
   GIT_CATEGORY,
   GMAIL_CATEGORY,
   HTTP_CATEGORY,
-  SEARCH_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
+  WEB_SEARCH_CATEGORY,
   createCategoryMappings,
 } from "../../core/agent/tools/register-tools";
 import type { ToolRegistry } from "../../core/agent/tools/tool-registry";
 import { ToolRegistryTag } from "../../core/agent/tools/tool-registry";
+import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -34,6 +35,7 @@ import {
 import type { Agent, AgentConfig } from "../../core/types/index";
 import { CommonSuggestions } from "../../core/utils/error-handler";
 import type { ConfigService } from "../../services/config";
+import { AgentConfigService } from "../../services/config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/fs";
 import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
 import { ChatMessage } from "../../services/llm/messages";
@@ -73,7 +75,7 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
       SHELL_COMMANDS_CATEGORY.id,
       GIT_CATEGORY.id,
       HTTP_CATEGORY.id,
-      SEARCH_CATEGORY.id,
+      WEB_SEARCH_CATEGORY.id,
     ],
   },
   gmail: {
@@ -83,7 +85,7 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
     toolCategoryIds: [
       GMAIL_CATEGORY.id,
       HTTP_CATEGORY.id,
-      SEARCH_CATEGORY.id,
+      WEB_SEARCH_CATEGORY.id,
       FILE_MANAGEMENT_CATEGORY.id,
       SHELL_COMMANDS_CATEGORY.id,
     ],
@@ -103,14 +105,14 @@ interface AIAgentCreationAnswers {
 /**
  * Interactive AI agent creation command
  */
-export function createAIAgentCommand(): Effect.Effect<
+export function createAgentCommand(): Effect.Effect<
   void,
   | StorageError
   | AgentAlreadyExistsError
   | AgentConfigurationError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry | TerminalService
+  AgentService | LLMService | ToolRegistry | TerminalService | ConfigService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -118,27 +120,13 @@ export function createAIAgentCommand(): Effect.Effect<
     yield* terminal.log("Let's create a new AI agent step by step.");
     yield* terminal.log("");
 
-    // Get available LLM providers and models
     const llmService = yield* LLMServiceTag;
-    const providers = yield* llmService.listProviders();
-
-    if (providers.length === 0) {
-      return yield* Effect.fail(
-        new LLMConfigurationError({
-          provider: "no_providers",
-          message: "No LLM providers configured. Set an API key for at least one provider in the config.",
-        }),
-      );
-    }
-
-    // Get available agent types
-    const agentTypes = yield* agentPromptBuilder.listTemplates();
-
-    // Get available tools by category
+    const configService = yield* AgentConfigService;
     const toolRegistry = yield* ToolRegistryTag;
+
+    const agentTypes = yield* agentPromptBuilder.listTemplates();
     const toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
-    // Create mappings between category display names and IDs
     const categoryMappings = createCategoryMappings();
     const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
     const categoryIdToDisplayName: Map<string, string> = categoryMappings.idToDisplayName;
@@ -146,10 +134,10 @@ export function createAIAgentCommand(): Effect.Effect<
     // Get agent basic information
     const agentAnswers = yield* Effect.promise(() =>
       promptForAgentInfo(
-        providers,
         agentTypes,
         toolsByCategory,
         llmService,
+        configService,
         categoryIdToDisplayName,
         terminal,
       ),
@@ -176,7 +164,6 @@ export function createAIAgentCommand(): Effect.Effect<
 
     // Build agent configuration
     const config: AgentConfig = {
-      tasks: [],
       agentType: agentAnswers.agentType,
       llmProvider: agentAnswers.llmProvider,
       llmModel: selectedModel,
@@ -204,7 +191,6 @@ export function createAIAgentCommand(): Effect.Effect<
     yield* terminal.log(`   LLM Model: ${config.llmModel}`);
     yield* terminal.log(`   Tool Categories: ${agentAnswers.tools.join(", ") || "None"}`);
     yield* terminal.log(`   Total Tools: ${uniqueToolNames.length}`);
-    yield* terminal.log(`   Status: ${agent.status}`);
     yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
     yield* terminal.log("");
     yield* terminal.info("You can now chat with your agent using:");
@@ -214,16 +200,146 @@ export function createAIAgentCommand(): Effect.Effect<
 }
 
 /**
- * Prompt for basic agent information
+ * Prompt for basic agent information with new flow:
+ * 1. Provider selection
+ * 2. API key check/input if needed
+ * 3. Agent type
+ * 4. Name
+ * 5. Description (if default)
+ * 6. Model selection
+ * 7. Reasoning effort (if applicable)
+ * 8. Tools (if not predefined)
  */
 async function promptForAgentInfo(
-  providers: readonly string[],
   agentTypes: readonly string[],
-  toolsByCategory: Record<string, readonly string[]>, //{ displayName: string[] }
+  toolsByCategory: Record<string, readonly string[]>,
   llmService: LLMService,
+  configService: ConfigService,
   categoryIdToDisplayName: Map<string, string>,
   terminal: TerminalService,
 ): Promise<AIAgentCreationAnswers> {
+  const allProviders = await Effect.runPromise(llmService.listProviders());
+
+  const providerQuestion = [
+    {
+      type: "list",
+      name: "llmProvider",
+      message: "Which LLM provider would you like to use?",
+      choices: allProviders.map((p) => ({
+        name: p.name,
+        value: p.name,
+      })),
+      default: allProviders.find((p) => p.configured)?.name || allProviders[0]?.name,
+    },
+  ];
+
+  // @ts-expect-error - inquirer types are not matching correctly
+  const providerAnswer = (await inquirer.prompt(providerQuestion)) as Pick<
+    AIAgentCreationAnswers,
+    "llmProvider"
+  >;
+
+  // STEP 2.A: Check if API key exists for the selected provider
+  const providerName = providerAnswer.llmProvider;
+  const apiKeyPath = `llm.${providerName}.api_key`;
+  const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
+
+  if (!hasApiKey) {
+    // Show message and prompt for API key
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* terminal.log("");
+        yield* terminal.warn(`API key not set in config file for ${providerName}.`);
+        yield* terminal.log("Please paste your API key below:");
+      }),
+    );
+
+    const isOptional = providerName === "ollama";
+
+    const apiKeyQuestion = [
+      {
+        type: "input",
+        name: "apiKey",
+        message: `${providerName} API Key${isOptional ? " (optional)" : ""} :`,
+        validate: (input: string): boolean | string => {
+          if (isOptional) {
+            return true;
+          }
+
+          if (!input || input.trim().length === 0) {
+            return "API key cannot be empty";
+          }
+
+          return true;
+        },
+      },
+    ];
+
+    // @ts-expect-error - inquirer types are not matching correctly
+    const apiKeyAnswer = (await inquirer.prompt(apiKeyQuestion)) as { apiKey: string };
+
+    // Update config with the new API key
+    await Effect.runPromise(configService.set(apiKeyPath, apiKeyAnswer.apiKey));
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* terminal.success("API key saved to config file.");
+        yield* terminal.log("");
+      }),
+    );
+  }
+
+  // STEP 2.B: Select Model
+  const chosenProviderInfo = await Effect.runPromise(
+    llmService.getProvider(providerAnswer.llmProvider),
+  ).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to get provider info: ${message}`);
+  });
+
+  const modelDefault = chosenProviderInfo.defaultModel;
+
+  const modelQuestions = [
+    {
+      type: "list",
+      name: "llmModel",
+      message: "Which model would you like to use?",
+      choices: chosenProviderInfo.supportedModels.map((model) => ({
+        name: model.displayName || model.id,
+        value: model.id,
+        short: model.displayName || model.id,
+      })) as Array<{ name: string; value: string; short: string }>,
+      default: modelDefault,
+    },
+    {
+      type: "list",
+      name: "reasoningEffort",
+      message: "What reasoning effort level would you like?",
+      choices: [
+        { name: "Low - Faster responses, basic reasoning", value: "low" },
+        {
+          name: "Medium - Balanced speed and reasoning depth (recommended)",
+          value: "medium",
+        },
+        { name: "High - Deep reasoning, slower responses", value: "high" },
+        { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+      ],
+      when: (answers: Partial<AIAgentCreationAnswers>): boolean => {
+        const modelId = answers.llmModel;
+        if (!modelId) return false;
+        const model = chosenProviderInfo.supportedModels.find((m) => m.id === modelId);
+        return model?.isReasoningModel ?? false;
+      },
+    },
+  ];
+
+  // @ts-expect-error - inquirer types are not matching correctly
+  const modelAnswers = (await inquirer.prompt(modelQuestions)) as Pick<
+    AIAgentCreationAnswers,
+    "llmModel" | "reasoningEffort"
+  >;
+
+  // STEP 3: Ask for agent type
   const agentTypeQuestion = [
     {
       type: "list",
@@ -240,7 +356,7 @@ async function promptForAgentInfo(
     "agentType"
   >;
 
-  // Then ask for name
+  // STEP 4: Ask for name
   const nameQuestion = [
     {
       type: "input",
@@ -264,7 +380,7 @@ async function promptForAgentInfo(
   // @ts-expect-error - inquirer types are not matching correctly
   const nameAnswer = (await inquirer.prompt(nameQuestion)) as Pick<AIAgentCreationAnswers, "name">;
 
-  // ask for description only if agent type is "default"
+  // STEP 5: Ask for description only if agent type is "default"
   let descriptionAnswer: Pick<AIAgentCreationAnswers, "description"> = {};
   if (agentTypeAnswer.agentType === "default") {
     const descriptionQuestion = [
@@ -291,49 +407,9 @@ async function promptForAgentInfo(
     >;
   }
 
-  // Ask for provider
-  const providerQuestion = [
-    {
-      type: "list",
-      name: "llmProvider",
-      message: "Which LLM provider would you like to use?",
-      choices: providers,
-      default: providers[0],
-    },
-  ];
-
-  // @ts-expect-error - inquirer types are not matching correctly
-  const providerAnswer = (await inquirer.prompt(providerQuestion)) as Pick<
-    AIAgentCreationAnswers,
-    "llmProvider"
-  >;
-
-  // Combine answers so far
-  const basicAnswers = {
-    ...agentTypeAnswer,
-    ...nameAnswer,
-    ...descriptionAnswer,
-    ...providerAnswer,
-  };
-
-  // Now get the models for the chosen provider
-  const chosenProviderInfo = await Effect.runPromise(
-    llmService.getProvider(basicAnswers.llmProvider),
-  ).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to get provider info: ${message}`);
-  });
-
-  const modelDefault = chosenProviderInfo.defaultModel;
-
-  // Check if the selected model is a reasoning model
-  const selectedModelInfo = chosenProviderInfo.supportedModels.find(
-    (model) => model.id === modelDefault,
-  );
-  const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
-
+  // STEP 6: Tools selection
   // Check if this is a predefined agent with auto-assigned tools
-  const currentPredefinedAgent = PREDEFINED_AGENTS[basicAnswers.agentType];
+  const currentPredefinedAgent = PREDEFINED_AGENTS[agentTypeAnswer.agentType];
   if (currentPredefinedAgent) {
     // Filter to only categories that exist in toolsByCategory (by checking if display name exists)
     const availableCategoryIds = currentPredefinedAgent.toolCategoryIds.filter((categoryId) => {
@@ -356,70 +432,40 @@ async function promptForAgentInfo(
     );
   }
 
-  const finalQuestions = [
-    {
-      type: "list",
-      name: "llmModel",
-      message: "Which model would you like to use?",
-      choices: chosenProviderInfo.supportedModels.map((model) => ({
-        name: model.displayName || model.id,
-        value: model.id,
-        short: model.displayName || model.id,
-      })) as Array<{ name: string; value: string; short: string }>,
-      default: modelDefault,
-    },
-    // Only show reasoning effort question for reasoning models
-    ...(isReasoningModel
-      ? [
-          {
-            type: "list",
-            name: "reasoningEffort",
-            message: "What reasoning effort level would you like?",
-            choices: [
-              { name: "Low - Faster responses, basic reasoning", value: "low" },
-              { name: "Medium - Balanced speed and reasoning depth (recommended)", value: "medium" },
-              { name: "High - Deep reasoning, slower responses", value: "high" },
-              { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-            ],
-          },
-        ]
-      : []),
-    // Skip tool selection for predefined agents (already auto-selected)
-    ...(!PREDEFINED_AGENTS[basicAnswers.agentType]
-      ? [
-          {
-            type: "checkbox",
-            name: "tools",
-            message: "Which tools should this agent have access to?",
-            choices: Object.entries(toolsByCategory).map(([category, tools]) => ({
-              name: `${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"})`,
-              value: category,
-              short: category,
-            })),
-            default: [],
-          },
-        ]
-      : []),
-  ];
+  let toolAnswers: Pick<AIAgentCreationAnswers, "tools"> = { tools: [] };
 
-  // @ts-expect-error - inquirer types are not matching correctly
-  const finalAnswers = (await inquirer.prompt(finalQuestions)) as Pick<
-    AIAgentCreationAnswers,
-    "llmModel" | "reasoningEffort" | "tools"
-  >;
+  if (!currentPredefinedAgent) {
+    const toolQuestions = [
+      {
+        type: "checkbox",
+        name: "tools",
+        message: "Which tools should this agent have access to?",
+        choices: Object.entries(toolsByCategory).map(([category, tools]) => ({
+          name: `${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"})`,
+          value: category,
+          short: category,
+        })),
+        default: [],
+      },
+    ];
 
-  // Combine all answers
-  // For predefined agents, convert category IDs back to display names for the answer
-  const predefinedAgent = PREDEFINED_AGENTS[basicAnswers.agentType];
-  const finalTools = predefinedAgent
-    ? predefinedAgent.toolCategoryIds
-          .map((id) => categoryIdToDisplayName.get(id))
-          .filter((name): name is string => name !== undefined && name in toolsByCategory)
-    : finalAnswers.tools || [];
+    // @ts-expect-error - inquirer types are not matching correctly
+    toolAnswers = (await inquirer.prompt(toolQuestions)) as Pick<AIAgentCreationAnswers, "tools">;
+  }
+
+  // Calculate final tools
+  const finalTools = currentPredefinedAgent
+    ? currentPredefinedAgent.toolCategoryIds
+        .map((id) => categoryIdToDisplayName.get(id))
+        .filter((name): name is string => name !== undefined && name in toolsByCategory)
+    : toolAnswers.tools || [];
 
   return {
-    ...basicAnswers,
-    ...finalAnswers,
+    ...providerAnswer,
+    ...modelAnswers,
+    ...agentTypeAnswer,
+    ...nameAnswer,
+    ...descriptionAnswer,
     tools: finalTools,
   };
 }
@@ -483,7 +529,9 @@ export function chatWithAIAgentCommand(
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
           yield* logger.error("Chat loop error", { error });
-          yield* terminal.error(`Chat loop error: ${error instanceof Error ? error.message : String(error)}`);
+          yield* terminal.error(
+            `Chat loop error: ${error instanceof Error ? error.message : String(error)}`,
+          );
           return yield* Effect.void;
         }),
       ),
@@ -590,7 +638,7 @@ function handleSpecialCommand(
         yield* terminal.log(`   Conversation ID: ${conversationId || "Not started"}`);
         yield* terminal.log(`   Messages in history: ${conversationHistory.length}`);
         yield* terminal.log(`   Agent type: ${agent.config.agentType}`);
-        yield* terminal.log(`   LLM: ${agent.config.llmProvider}/${agent.config.llmModel}`);
+        yield* terminal.log(`   Model: ${agent.config.llmProvider}/${agent.config.llmModel}`);
         yield* terminal.log(`   Reasoning effort: ${agent.config.reasoningEffort}`);
         const totalTools = agent.config.tools?.length ?? 0;
         yield* terminal.log(`   Tools: ${totalTools} available`);
@@ -600,18 +648,30 @@ function handleSpecialCommand(
 
       case "tools": {
         const toolRegistry = yield* ToolRegistryTag;
-        const toolsByCategory = yield* toolRegistry.listToolsByCategory();
+        const allToolsByCategory = yield* toolRegistry.listToolsByCategory();
 
-        yield* terminal.heading("🔧 Available Tools by Category");
+        const agentToolNames = normalizeToolConfig(agent.config.tools, {
+          agentId: agent.id,
+        });
+        const agentToolSet = new Set(agentToolNames);
 
-        if (Object.keys(toolsByCategory).length === 0) {
-          yield* terminal.warn("No tools available.");
+        const filteredToolsByCategory: Record<string, readonly string[]> = {};
+        for (const [category, tools] of Object.entries(allToolsByCategory)) {
+          const filteredTools = tools.filter((tool) => agentToolSet.has(tool));
+          if (filteredTools.length > 0) {
+            filteredToolsByCategory[category] = filteredTools;
+          }
+        }
+
+        yield* terminal.heading(`🔧 Tools Available to ${agent.name}`);
+
+        if (Object.keys(filteredToolsByCategory).length === 0) {
+          yield* terminal.warn("This agent has no tools configured.");
         } else {
-          // Sort categories alphabetically
-          const sortedCategories = Object.keys(toolsByCategory).sort();
+          const sortedCategories = Object.keys(filteredToolsByCategory).sort();
 
           for (const category of sortedCategories) {
-            const tools = toolsByCategory[category];
+            const tools = filteredToolsByCategory[category];
             if (tools && tools.length > 0) {
               yield* terminal.log(
                 `   📁 ${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"}):`,
@@ -623,15 +683,16 @@ function handleSpecialCommand(
             }
           }
 
-          // Show total count
-          const totalTools = Object.values(toolsByCategory).reduce(
+          const totalTools = Object.values(filteredToolsByCategory).reduce(
             (sum, tools) => sum + (tools?.length || 0),
             0,
           );
+
           yield* terminal.log(
             `   Total: ${totalTools} tools across ${sortedCategories.length} categories`,
           );
         }
+
         yield* terminal.log("");
         return { shouldContinue: true };
       }
@@ -645,7 +706,7 @@ function handleSpecialCommand(
         return { shouldContinue: true };
 
       case "unknown":
-        yield* terminal.warn(`Unknown command: /${command.args.join(" ")}`);
+        yield* terminal.error(`Unknown command: /${command.args.join(" ")}`);
         yield* terminal.info("Type '/help' to see available commands.");
         yield* terminal.log("");
         return { shouldContinue: true };
@@ -685,48 +746,48 @@ function startChatLoop(
     while (chatActive) {
       // Prompt for user input
       const answer = yield* Effect.promise(() =>
-        inquirer.prompt([
-          {
-            type: "input",
-            name: "message",
-            message: "You:",
-          },
-        ]).catch((error: unknown) => {
-          // Handle ExitPromptError from inquirer when user presses Ctrl+C
-          if (
-            error instanceof Error &&
-            (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
-          ) {
-            // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
-            // The exit check below will handle the goodbye message
-            return Promise.resolve({ message: "/exit" });
-          }
-          // Re-throw other errors, ensuring it's an Error instance
-          return Promise.reject(error instanceof Error ? error : new Error(String(error)));
-        }),
+        inquirer
+          .prompt([
+            {
+              type: "input",
+              name: "message",
+              message: "You:",
+            },
+          ])
+          .catch((error: unknown) => {
+            // Handle ExitPromptError from inquirer when user presses Ctrl+C
+            if (
+              error instanceof Error &&
+              (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
+            ) {
+              // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
+              // The exit check below will handle the goodbye message
+              return Promise.resolve({ message: "/exit" });
+            }
+            // Re-throw other errors, ensuring it's an Error instance
+            return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+          }),
       );
 
       const userMessage = answer.message as string;
 
-      // Check if user wants to exit
-      const trimmedMessage = userMessage.trim().toLowerCase();
-      if (trimmedMessage === "/exit" || trimmedMessage === "exit" || trimmedMessage === "quit") {
+      const trimmedMessage = userMessage.trim();
+      const lowerMessage = trimmedMessage.toLowerCase();
+      if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
         yield* terminal.info("👋 Goodbye!");
         chatActive = false;
         continue;
       }
 
-      // Ignore empty messages with a gentle hint
-      if (!userMessage || userMessage.trim().length === 0) {
+      if (!userMessage || trimmedMessage.length === 0) {
         yield* terminal.log(
           "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
         );
         continue;
       }
 
-      // Check for special commands
-      const specialCommand = parseSpecialCommand(userMessage);
-      if (specialCommand.type !== "unknown") {
+      if (trimmedMessage.startsWith("/")) {
+        const specialCommand = parseSpecialCommand(userMessage);
         const commandResult = yield* handleSpecialCommand(
           specialCommand,
           agent,
@@ -781,7 +842,11 @@ function startChatLoop(
                 errorMessage: error instanceof Error ? error.message : String(error),
               };
 
-              if (error instanceof LLMRateLimitError || error instanceof LLMRequestError || error instanceof LLMAuthenticationError) {
+              if (
+                error instanceof LLMRateLimitError ||
+                error instanceof LLMRequestError ||
+                error instanceof LLMAuthenticationError
+              ) {
                 errorDetails["errorType"] = error._tag;
                 errorDetails["provider"] = error.provider;
               }
@@ -833,7 +898,7 @@ function startChatLoop(
 
         // Display is handled entirely by AgentRunner (both streaming and non-streaming)
         // No need to display here - AgentRunner takes care of it
-      })
+      });
     }
   });
 }

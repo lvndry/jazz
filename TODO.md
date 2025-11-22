@@ -5,14 +5,14 @@
 - [x] Make reasoning tokens visible.
 - [x] Stream content in terminal — swap to `streamText` to present incremental LLM output and reduce
       perceived latency.
-- [ ] Reduce length of system prompt.
-- [ ] Update system prompt to discorourage usage of tables. They don't render well in terminal
+- [x] Update system prompt to discorourage usage of tables. They don't render well in terminal
 - [ ] Better colors and themes.
-- [ ] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
-- [ ] Finish implementation of `jazz create-quick`
+- [x] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
 - [ ] Finish implementation of `jazz logs`
 - [ ] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
       more capable or less costly model while keeping the same context
+- [x] Easy update - `jazz update`
+- [ ] Improve `jazz agent create` ergonomics e.g `jazz agent create --name "deploy-master" --tools git,files --description "Deploy master agent"`.
 
 ## Agent Runtime & Automation
 
@@ -32,11 +32,8 @@
 
 ## CLI Feature Depth & Docs
 
-- [ ] Improve `jazz agent create` ergonomics — expand flags (tools, schedule, auth) and inline help;
-      document the flow with examples like
-      `jazz agent create --name "deploy-master" --tools git,files`.
 - [ ] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox
-      triage, reporting) with reusable configs.
+      triage, reporting) with reusable configs
 
 ## Integrations
 
@@ -52,7 +49,9 @@
         language.
   - [ ] Calendar integration bridge — parse meeting intents and invoke Calendar tooling once
         available.
-  - Add more ready to use agent with specific set of tools ans skills - code agent, fs agent, ...
+  - [ ] Add more ready to use agent with specific set of tools ans skills - code agent, fs agent, ...
+- [x] Ollama - Being able to pass custom baseURL in config
+- [x] Ollama - Fetch available models from baseURL instead of keeping a list of static model
 
 ## Quality, Safety & Testing
 
@@ -66,15 +65,15 @@
 ## Developer experience
 
 - [ ] Precommit hooks
-- [ ] Easy update - `jazz update`
 
 ## Backlog Ideas & Research
 
+- [Explorations](./docs//exploration/)
 - Config-driven agent provisioning, e.g. `jazz agent create --config agent.json`.
 - Per-agent authentication domains to isolate credentials (support multiple Gmail accounts, etc.).
 - Rich workflow memory tuned to personal preferences (favorite folders, project contexts, historical
   decisions).
-- Agent evaludation - When system prompt is evolving, users could create a bunch of tests to be run
+- Agent evaluations - When system prompt is evolving, users could create a bunch of tests to be run
   in a sandbox and evaluate the output. Evals could be executed in a sandbox (docker container), we
   could then evaluate the outcome and the tools/used and suggest improvements to the prompts for
   better/faster task completion

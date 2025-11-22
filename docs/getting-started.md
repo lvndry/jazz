@@ -66,17 +66,20 @@ If you want your agents to manage Gmail:
 2. Run `jazz auth gmail login`
 3. Complete the OAuth flow in your browser
 
-### 3. Optional: Configure Linkup (for web search)
+### 3. Optional: Configure for web search
 
 If you want your agents to search the web:
 
-1. Get an API key from [linkup.so](https://www.linkup.so/)
+1. Get an API key from [linkup.so](https://www.linkup.so/) or [exa.ai](https://exa.ai/)
 2. Add to your config:
 
 ```json
 {
   "linkup": {
     "api_key": "your-linkup-api-key"
+  },
+  "exa": {
+    "api_key": "your-exa-api-key"
   }
 }
 ```

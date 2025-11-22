@@ -46,6 +46,11 @@ export class OutputRenderer {
   private readonly thinkingRenderer: ThinkingRenderer;
   private readonly toolNameMap: Map<string, string> = new Map();
   private readonly mode: OutputMode;
+  private accumulatedUsage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  } | null = null;
 
   constructor(private config: OutputRendererConfig) {
     // Determine output mode
@@ -135,7 +140,6 @@ export class OutputRenderer {
         return this.renderTextChunk(event.delta);
 
       case "tool_call":
-        // Tool call detected - execution will be handled by separate events
         if (this.config.displayConfig.showToolExecution) {
           return this.renderToolCallDetected(event.toolCall);
         }
@@ -161,7 +165,7 @@ export class OutputRenderer {
 
       case "usage_update":
         if (this.config.showMetrics) {
-          return this.renderUsageUpdate(event);
+          this.accumulatedUsage = event.usage;
         }
         return null;
 
@@ -222,10 +226,7 @@ export class OutputRenderer {
     );
   }
 
-  private renderToolsDetected(event: {
-    toolNames: readonly string[];
-    agentName: string;
-  }): string {
+  private renderToolsDetected(event: { toolNames: readonly string[]; agentName: string }): string {
     const { colors, icons } = this.theme;
     const tools = event.toolNames.join(", ");
     return (
@@ -251,8 +252,7 @@ export class OutputRenderer {
       "\n" +
       colors.toolName(`${icons.tool}  Executing tool: `) +
       colors.toolName(event.toolName) +
-      argsStr +
-      "..."
+      argsStr
     );
   }
 
@@ -278,17 +278,6 @@ export class OutputRenderer {
     );
   }
 
-  private renderUsageUpdate(event: {
-    usage: { promptTokens: number; completionTokens: number; totalTokens: number };
-  }): string {
-    const { colors } = this.theme;
-    return (
-      colors.dim(
-        `\n[Tokens: ${event.usage.promptTokens} prompt + ${event.usage.completionTokens} completion = ${event.usage.totalTokens} total]\n`,
-      ) + "\n"
-    );
-  }
-
   private renderError(error: LLMError): string {
     const { colors, icons } = this.theme;
     return "\n" + colors.error(`${icons.error} Error: ${error.message}`) + "\n";
@@ -298,6 +287,8 @@ export class OutputRenderer {
     totalDurationMs: number;
     metrics?: {
       firstTokenLatencyMs: number;
+      firstTextLatencyMs?: number;
+      firstReasoningLatencyMs?: number;
       tokensPerSecond?: number;
       totalTokens?: number;
     };
@@ -317,12 +308,27 @@ export class OutputRenderer {
 
     let output = "";
 
+    // Show accumulated usage if available
+    if (this.config.showMetrics && this.accumulatedUsage) {
+      output += this.theme.colors.dim(
+        `\n\n[Tokens: ${this.accumulatedUsage.promptTokens} prompt + ${this.accumulatedUsage.completionTokens} completion = ${this.accumulatedUsage.totalTokens} total]\n`,
+      );
+    }
+
     // Show metrics if enabled and available
     if (this.config.showMetrics && event.metrics) {
       const parts: string[] = [];
 
       if (event.metrics.firstTokenLatencyMs) {
         parts.push(`First token: ${event.metrics.firstTokenLatencyMs}ms`);
+      }
+
+      if (event.metrics.firstReasoningLatencyMs) {
+        parts.push(`Reasoning start: ${event.metrics.firstReasoningLatencyMs}ms`);
+      }
+
+      if (event.metrics.firstTextLatencyMs) {
+        parts.push(`First text token: ${event.metrics.firstTextLatencyMs}ms`);
       }
 
       if (event.metrics.tokensPerSecond) {
@@ -334,13 +340,13 @@ export class OutputRenderer {
       }
 
       if (parts.length > 0) {
-        output += this.theme.colors.dim(`\n[${parts.join(" | ")}]\n`);
+        output += this.theme.colors.dim(`[${parts.join(" | ")}]\n`);
       }
     }
 
     // Include total duration when metrics are enabled
     if (this.config.showMetrics) {
-      output += this.theme.colors.dim(`\n[Total duration: ${event.totalDurationMs}ms]\n`);
+      output += this.theme.colors.dim(`[Total duration: ${event.totalDurationMs}ms]\n`);
     }
 
     // Add final newline for separation
@@ -370,6 +376,7 @@ export class OutputRenderer {
     return Effect.sync(() => {
       this.toolNameMap.clear();
       this.thinkingRenderer.reset();
+      this.accumulatedUsage = null;
       MarkdownRenderer.resetStreamingBuffer();
     });
   }
@@ -388,5 +395,3 @@ export class OutputRenderer {
     return this.writer;
   }
 }
-
-

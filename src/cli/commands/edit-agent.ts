@@ -1,9 +1,14 @@
 import { Effect } from "effect";
 import inquirer from "inquirer";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
-import { AgentServiceTag, type AgentService } from "../../core/agent/agent-service";
+import {
+  AgentServiceTag,
+  getAgentByIdentifier,
+  type AgentService,
+} from "../../core/agent/agent-service";
 import { createCategoryMappings } from "../../core/agent/tools/register-tools";
 import { ToolRegistryTag, type ToolRegistry } from "../../core/agent/tools/tool-registry";
+import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -12,8 +17,11 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "../../core/types/errors";
-import type { Agent, AgentConfig, AgentStatus } from "../../core/types/index";
-import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
+import type { Agent, AgentConfig } from "../../core/types/index";
+import type { ConfigService } from "../../services/config";
+import { AgentConfigService } from "../../services/config";
+import { LLMService, LLMServiceTag, type LLMProvider } from "../../services/llm/interfaces";
+import type { ProviderName } from "../../services/llm/models";
 import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
@@ -23,23 +31,18 @@ import { TerminalServiceTag, type TerminalService } from "../../services/termina
 interface AgentEditAnswers {
   name?: string;
   description?: string;
-  status?: AgentStatus;
   agentType?: string;
   llmProvider?: string;
   llmModel?: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
   tools?: string[];
-  timeout?: number;
-  maxRetries?: number;
-  retryDelay?: number;
-  retryBackoff?: "linear" | "exponential" | "fixed";
 }
 
 /**
  * Interactive agent edit command
  */
 export function editAgentCommand(
-  agentId: string,
+  agentIdentifier: string,
 ): Effect.Effect<
   void,
   | StorageError
@@ -48,7 +51,7 @@ export function editAgentCommand(
   | AgentAlreadyExistsError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry | TerminalService
+  AgentService | LLMService | ToolRegistry | TerminalService | ConfigService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -56,13 +59,12 @@ export function editAgentCommand(
     yield* terminal.log("Let's update your agent step by step.");
     yield* terminal.log("");
 
+    const agent = yield* getAgentByIdentifier(agentIdentifier);
     const agentService = yield* AgentServiceTag;
-    const agent = yield* agentService.getAgent(agentId);
 
     yield* terminal.heading(`📋 Current Agent: ${agent.name}`);
     yield* terminal.log(`   ID: ${agent.id}`);
     yield* terminal.log(`   Description: ${agent.description}`);
-    yield* terminal.log(`   Status: ${agent.status}`);
     yield* terminal.log(`   Type: ${agent.config.agentType || "N/A"}`);
     yield* terminal.log(`   LLM Provider: ${agent.config.llmProvider || "N/A"}`);
     yield* terminal.log(`   LLM Model: ${agent.config.llmModel || "N/A"}`);
@@ -73,6 +75,7 @@ export function editAgentCommand(
 
     // Get available LLM providers and models
     const llmService = yield* LLMServiceTag;
+    const configService = yield* AgentConfigService;
     const providers = yield* llmService.listProviders();
 
     // Get available agent types
@@ -86,9 +89,23 @@ export function editAgentCommand(
     const categoryMappings = createCategoryMappings();
     const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
 
+    // Get current provider info for model selection
+    const currentProviderInfo = yield* llmService
+      .getProvider(agent.config.llmProvider as ProviderName)
+      .pipe(Effect.catchAll(() => Effect.succeed(null as LLMProvider | null)));
+
     // Prompt for updates
     const editAnswers = yield* Effect.promise(() =>
-      promptForAgentUpdates(agent, providers, agentTypes, toolsByCategory, terminal),
+      promptForAgentUpdates(
+        agent,
+        providers,
+        agentTypes,
+        toolsByCategory,
+        terminal,
+        llmService,
+        configService,
+        currentProviderInfo,
+      ),
     );
 
     // Convert selected categories (display names) to category IDs, then get tools
@@ -115,42 +132,29 @@ export function editAgentCommand(
       ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
       ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
       ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
-      ...(editAnswers.tools && editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
-      ...(editAnswers.timeout && { timeout: editAnswers.timeout }),
-      ...(editAnswers.maxRetries !== undefined ||
-      editAnswers.retryDelay !== undefined ||
-      editAnswers.retryBackoff
-        ? {
-            retryPolicy: {
-              maxRetries: editAnswers.maxRetries ?? agent.config.retryPolicy?.maxRetries ?? 3,
-              delay: editAnswers.retryDelay ?? agent.config.retryPolicy?.delay ?? 1000,
-              backoff:
-                editAnswers.retryBackoff ?? agent.config.retryPolicy?.backoff ?? "exponential",
-            },
-          }
-        : {}),
+      ...(editAnswers.tools &&
+        editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
     };
 
     // Build update object
     const updates: Partial<Agent> = {
       ...(editAnswers.name && { name: editAnswers.name }),
       ...(editAnswers.description && { description: editAnswers.description }),
-      ...(editAnswers.status && { status: editAnswers.status }),
       config: updatedConfig,
     };
 
     // Update the agent
-    const updatedAgent = yield* agentService.updateAgent(agentId, updates);
+    const updatedAgent = yield* agentService.updateAgent(agent.id, updates);
 
     // Display success message
     yield* terminal.success("Agent updated successfully!");
     yield* terminal.log(`   ID: ${updatedAgent.id}`);
     yield* terminal.log(`   Name: ${updatedAgent.name}`);
     yield* terminal.log(`   Description: ${updatedAgent.description}`);
-    yield* terminal.log(`   Status: ${updatedAgent.status}`);
     yield* terminal.log(`   Type: ${updatedConfig.agentType || "N/A"}`);
     yield* terminal.log(`   LLM Provider: ${updatedConfig.llmProvider || "N/A"}`);
     yield* terminal.log(`   LLM Model: ${updatedConfig.llmModel || "N/A"}`);
+    yield* terminal.log(`   Reasoning Effort: ${updatedConfig.reasoningEffort || "N/A"}`);
     yield* terminal.log(`   Tools: ${updatedConfig.tools ? updatedConfig.tools.length : 0} tools`);
     yield* terminal.log(`   Updated: ${updatedAgent.updatedAt.toISOString()}`);
     yield* terminal.log("");
@@ -164,10 +168,13 @@ export function editAgentCommand(
  */
 async function promptForAgentUpdates(
   currentAgent: Agent,
-  providers: readonly string[],
+  providers: readonly { name: string; configured: boolean }[],
   agentTypes: readonly string[],
   toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
   terminal: TerminalService,
+  llmService: LLMService,
+  configService: ConfigService,
+  currentProviderInfo: LLMProvider | null,
 ): Promise<AgentEditAnswers> {
   const answers: AgentEditAnswers = {};
 
@@ -180,13 +187,10 @@ async function promptForAgentUpdates(
       choices: [
         { name: "Name", value: "name" },
         { name: "Description", value: "description" },
-        { name: "Status", value: "status" },
         { name: "Agent Type", value: "agentType" },
         { name: "LLM Provider", value: "llmProvider" },
         { name: "LLM Model", value: "llmModel" },
         { name: "Tools", value: "tools" },
-        { name: "Timeout", value: "timeout" },
-        { name: "Retry Policy", value: "retryPolicy" },
       ],
     },
   ]);
@@ -240,26 +244,6 @@ async function promptForAgentUpdates(
     answers.description = description;
   }
 
-  // Update status
-  if (fieldsToUpdate.includes("status")) {
-    const { status } = await inquirer.prompt<{ status: AgentStatus }>([
-      {
-        type: "list",
-        name: "status",
-        message: "Select new agent status:",
-        choices: [
-          { name: "Idle (ready to run)", value: "idle" },
-          { name: "Running (currently executing)", value: "running" },
-          { name: "Paused (temporarily stopped)", value: "paused" },
-          { name: "Error (failed with error)", value: "error" },
-          { name: "Completed (finished successfully)", value: "completed" },
-        ],
-        default: currentAgent.status,
-      },
-    ]);
-    answers.status = status;
-  }
-
   // Update agent type
   if (fieldsToUpdate.includes("agentType")) {
     const { agentType } = await inquirer.prompt<{ agentType: string }>([
@@ -281,24 +265,178 @@ async function promptForAgentUpdates(
         type: "list",
         name: "llmProvider",
         message: "Select LLM provider:",
-        choices: providers.map((provider) => ({ name: provider, value: provider })),
-        default: currentAgent.config.llmProvider || providers[0],
+        choices: providers.map((provider) => ({
+          name: provider.name,
+          value: provider.name,
+        })),
+        default: currentAgent.config.llmProvider || providers.find((p) => p.configured)?.name,
       },
     ]);
     answers.llmProvider = llmProvider;
 
-    // Update LLM model based on provider
-    if (fieldsToUpdate.includes("llmModel")) {
-      // Note: This would need to be handled in the Effect context
-      // For now, we'll skip the model selection in the prompt
+    // Check if API key exists for the selected provider
+    const apiKeyPath = `llm.${llmProvider}.api_key`;
+    const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
+
+    if (!hasApiKey) {
+      // Show message and prompt for API key
       await Effect.runPromise(
-        terminal.info("LLM model selection will be handled during agent update"),
+        Effect.gen(function* () {
+          yield* terminal.log("");
+          yield* terminal.warn(`API key not set in config file for ${llmProvider}.`);
+          yield* terminal.log("Please paste your API key below:");
+        }),
       );
+
+      const { apiKey } = await inquirer.prompt<{ apiKey: string }>([
+        {
+          type: "input",
+          name: "apiKey",
+          message: `${llmProvider} API Key:`,
+          validate: (input: string): boolean | string => {
+            if (!input || input.trim().length === 0) {
+              return "API key cannot be empty";
+            }
+            return true;
+          },
+        },
+      ]);
+
+      // Update config with the new API key
+      await Effect.runPromise(configService.set(apiKeyPath, apiKey));
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          yield* terminal.success("API key saved to config file.");
+          yield* terminal.log("");
+        }),
+      );
+    }
+
+    // When provider is changed, we must also select a model for that provider
+    const providerInfo = await Effect.runPromise(
+      llmService.getProvider(llmProvider as ProviderName),
+    ).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get provider info: ${message}`);
+    });
+
+    const { llmModel } = await inquirer.prompt<{ llmModel: string }>([
+      {
+        type: "list",
+        name: "llmModel",
+        message: `Select model for ${llmProvider}:`,
+        choices: providerInfo.supportedModels.map((model) => ({
+          name: model.displayName || model.id,
+          value: model.id,
+        })),
+        default: providerInfo.defaultModel,
+      },
+    ]);
+    answers.llmModel = llmModel;
+
+    // Check if the selected model is a reasoning model
+    const selectedModelInfo = providerInfo.supportedModels.find((model) => model.id === llmModel);
+    const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
+
+    // If it's a reasoning model, ask for reasoning effort level
+    if (isReasoningModel) {
+      const { reasoningEffort } = await inquirer.prompt<{
+        reasoningEffort: "disable" | "low" | "medium" | "high";
+      }>([
+        {
+          type: "list",
+          name: "reasoningEffort",
+          message: "What reasoning effort level would you like?",
+          choices: [
+            { name: "Low - Faster responses, basic reasoning", value: "low" },
+            {
+              name: "Medium - Balanced speed and reasoning depth (recommended)",
+              value: "medium",
+            },
+            { name: "High - Deep reasoning, slower responses", value: "high" },
+            { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+          ],
+          default: currentAgent.config.reasoningEffort || "medium",
+        },
+      ]);
+      answers.reasoningEffort = reasoningEffort;
+    }
+  }
+
+  // Update LLM model (only if provider wasn't already updated)
+  if (fieldsToUpdate.includes("llmModel") && !answers.llmProvider) {
+    // Use current provider to get available models
+    const providerToUse = currentAgent.config.llmProvider;
+    const providerInfo =
+      currentProviderInfo ||
+      (await Effect.runPromise(llmService.getProvider(providerToUse as ProviderName)).catch(
+        (error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`Failed to get provider info: ${message}`);
+        },
+      ));
+
+    const { llmModel } = await inquirer.prompt<{ llmModel: string }>([
+      {
+        type: "list",
+        name: "llmModel",
+        message: `Select model for ${providerToUse}:`,
+        choices: providerInfo.supportedModels.map((model) => ({
+          name: model.displayName || model.id,
+          value: model.id,
+        })),
+        default: currentAgent.config.llmModel || providerInfo.defaultModel,
+      },
+    ]);
+    answers.llmModel = llmModel;
+
+    // Check if the selected model is a reasoning model
+    const selectedModelInfo = providerInfo.supportedModels.find((model) => model.id === llmModel);
+    const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
+
+    // If it's a reasoning model, ask for reasoning effort level
+    if (isReasoningModel) {
+      const { reasoningEffort } = await inquirer.prompt<{
+        reasoningEffort: "disable" | "low" | "medium" | "high";
+      }>([
+        {
+          type: "list",
+          name: "reasoningEffort",
+          message: "What reasoning effort level would you like?",
+          choices: [
+            { name: "Low - Faster responses, basic reasoning", value: "low" },
+            {
+              name: "Medium - Balanced speed and reasoning depth (recommended)",
+              value: "medium",
+            },
+            { name: "High - Deep reasoning, slower responses", value: "high" },
+            { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+          ],
+          default: currentAgent.config.reasoningEffort || "medium",
+        },
+      ]);
+      answers.reasoningEffort = reasoningEffort;
     }
   }
 
   // Update tools
   if (fieldsToUpdate.includes("tools")) {
+    // Get current agent's tool names
+    const currentToolNames = normalizeToolConfig(currentAgent.config.tools, {
+      agentId: currentAgent.id,
+    });
+    const currentToolSet = new Set(currentToolNames);
+
+    // Find which categories contain the agent's current tools
+    const defaultCategories: string[] = [];
+    for (const [category, tools] of Object.entries(toolsByCategory)) {
+      // Check if any of the agent's tools are in this category
+      if (tools.some((tool) => currentToolSet.has(tool))) {
+        defaultCategories.push(category);
+      }
+    }
+
     const { toolCategories } = await inquirer.prompt<{ toolCategories: string[] }>([
       {
         type: "checkbox",
@@ -308,99 +446,12 @@ async function promptForAgentUpdates(
           name: `${category} (${toolsByCategory[category]?.length || 0} tools)`,
           value: category,
         })),
-        default: [],
+        default: defaultCategories,
       },
     ]);
 
     // Store display names - will be converted to tool names in the calling function
     answers.tools = toolCategories;
-  }
-
-  // Update timeout
-  if (fieldsToUpdate.includes("timeout")) {
-    const { timeout } = await inquirer.prompt<{ timeout: string }>([
-      {
-        type: "input",
-        name: "timeout",
-        message: "Enter timeout in milliseconds (0 for no timeout):",
-        default: String(currentAgent.config.timeout || 30000),
-        validate: (input: string) => {
-          const num = parseInt(input, 10);
-          if (isNaN(num)) {
-            return "Please enter a valid number";
-          }
-          if (num < 0) {
-            return "Timeout must be 0 or greater";
-          }
-          if (num > 300000) {
-            return "Timeout must be 300 seconds or less";
-          }
-          return true;
-        },
-      },
-    ]);
-    answers.timeout = parseInt(timeout, 10);
-  }
-
-  // Update retry policy
-  if (fieldsToUpdate.includes("retryPolicy")) {
-    const { maxRetries } = await inquirer.prompt<{ maxRetries: string }>([
-      {
-        type: "input",
-        name: "maxRetries",
-        message: "Enter maximum retry attempts:",
-        default: String(currentAgent.config.retryPolicy?.maxRetries || 3),
-        validate: (input: string) => {
-          const num = parseInt(input, 10);
-          if (isNaN(num)) {
-            return "Please enter a valid number";
-          }
-          if (num < 0 || num > 10) {
-            return "Max retries must be between 0 and 10";
-          }
-          return true;
-        },
-      },
-    ]);
-
-    const { retryDelay } = await inquirer.prompt<{ retryDelay: string }>([
-      {
-        type: "input",
-        name: "retryDelay",
-        message: "Enter retry delay in milliseconds:",
-        default: String(currentAgent.config.retryPolicy?.delay || 1000),
-        validate: (input: string) => {
-          const num = parseInt(input, 10);
-          if (isNaN(num)) {
-            return "Please enter a valid number";
-          }
-          if (num < 100 || num > 60000) {
-            return "Retry delay must be between 100ms and 60000ms";
-          }
-          return true;
-        },
-      },
-    ]);
-
-    const { retryBackoff } = await inquirer.prompt<{
-      retryBackoff: "linear" | "exponential" | "fixed";
-    }>([
-      {
-        type: "list",
-        name: "retryBackoff",
-        message: "Select retry backoff strategy:",
-        choices: [
-          { name: "Linear (constant delay)", value: "linear" },
-          { name: "Exponential (increasing delay)", value: "exponential" },
-          { name: "Fixed (same delay each time)", value: "fixed" },
-        ],
-        default: currentAgent.config.retryPolicy?.backoff || "exponential",
-      },
-    ]);
-
-    answers.maxRetries = parseInt(maxRetries, 10);
-    answers.retryDelay = parseInt(retryDelay, 10);
-    answers.retryBackoff = retryBackoff;
   }
 
   return answers;

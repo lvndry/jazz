@@ -1,35 +1,19 @@
 import { Effect } from "effect";
+import Exa from "exa-js";
 import {
   LinkupClient,
-  type SearchDepth,
-  type SearchOutputType,
-  type SearchResults,
-  type SourcedAnswer,
+  type SearchDepth
 } from "linkup-sdk";
 import { z } from "zod";
 import { AgentConfigService, type ConfigService } from "../../../services/config";
+import { LoggerServiceTag, type LoggerService } from "../../../services/logger";
 import { defineTool } from "./base-tool";
-import { type ToolExecutionContext, type ToolExecutionResult } from "./tool-registry";
-
-/**
- * Unified web search tool that provides fallback from Linkup to web search options
- * This tool maintains a consistent interface while switching between search providers
- */
+import { type ToolExecutionResult } from "./tool-registry";
 
 export interface WebSearchArgs extends Record<string, unknown> {
   readonly query: string;
   readonly depth?: SearchDepth;
-  readonly outputType?: SearchOutputType;
   readonly includeImages?: boolean;
-}
-
-export interface WebSearchResult {
-  readonly answer?: string;
-  readonly results: readonly WebSearchItem[];
-  readonly totalResults: number;
-  readonly query: string;
-  readonly timestamp: string;
-  readonly provider: "linkup" | "web_search";
 }
 
 export interface WebSearchItem {
@@ -41,38 +25,35 @@ export interface WebSearchItem {
   readonly metadata?: Record<string, unknown>;
 }
 
-export interface LinkupConfig {
-  readonly apiKey: string;
+export interface WebSearchResult {
+  readonly results: readonly WebSearchItem[];
+  readonly totalResults: number;
+  readonly query: string;
+  readonly timestamp: string;
+  readonly provider: "linkup" | "exa";
 }
 
-/**
- * Create a unified web search tool that tries Linkup first, then falls back to web search options
- *
- * @returns A tool that can search the web using Linkup or web search fallback
- */
-export function createWebSearchTool(): ReturnType<typeof defineTool<ConfigService, WebSearchArgs>> {
-  return defineTool<ConfigService, WebSearchArgs>({
+export function createWebSearchTool(): ReturnType<
+  typeof defineTool<ConfigService | LoggerService, WebSearchArgs>
+> {
+  return defineTool<ConfigService | LoggerService, WebSearchArgs>({
     name: "web_search",
     description:
-      "Search the web for current, real-time information using the Linkup search engine (with fallback options). Returns high-quality, factual search results with sources. Supports different search depths (standard/deep) and output formats (sourced answers, raw results, structured data). Use to find current events, recent information, or facts that may have changed since training data. Automatically falls back to alternative search methods if Linkup is unavailable.",
+      "Search the web for current, real-time information using Linkup or Exa search engine. Returns high-quality search results with snippets and sources that you can use to synthesize answers. Supports different search depths (standard/deep). Use to find current events, recent information, or facts that may have changed since training data.",
     tags: ["web", "search"],
     parameters: z
       .object({
         query: z
           .string()
           .min(1, "query cannot be empty")
-          .describe("The search query to execute. Be specific and detailed for better results."),
+          .describe(
+            "The search query to execute. You should refine and improve the user's original query to be as specific as possible. Add context or constraints to narrow down results. Examples: 1. Bad: 'Total' -> Good: 'French energy company Total website'. 2. Bad: 'Python error' -> Good: 'Python TypeError: int object is not iterable solution'. 3. Bad: 'best restaurants' -> Good: 'best Italian restaurants in downtown Chicago 2024'.",
+          ),
         depth: z
           .enum(["standard", "deep"])
           .optional()
           .describe(
             "Search depth - 'standard' for quick results, 'deep' for comprehensive search (default: 'standard')",
-          ),
-        outputType: z
-          .enum(["sourcedAnswer", "searchResults", "structured"])
-          .optional()
-          .describe(
-            "Output format - 'sourcedAnswer' for AI-friendly format, 'searchResults' for raw results, 'structured' for structured data (default: 'sourcedAnswer')",
           ),
         includeImages: z
           .boolean()
@@ -86,7 +67,6 @@ export function createWebSearchTool(): ReturnType<typeof defineTool<ConfigServic
           .object({
             query: z.string().min(1),
             depth: z.enum(["standard", "deep"]).optional(),
-            outputType: z.enum(["sourcedAnswer", "searchResults", "structured"]).optional(),
             includeImages: z.boolean().optional(),
           })
           .strict() as z.ZodType<WebSearchArgs>
@@ -98,43 +78,65 @@ export function createWebSearchTool(): ReturnType<typeof defineTool<ConfigServic
     },
     handler: function webSearchHandler(
       args: WebSearchArgs,
-      context: ToolExecutionContext,
-    ): Effect.Effect<ToolExecutionResult, Error, ConfigService> {
+    ): Effect.Effect<ToolExecutionResult, Error, ConfigService | LoggerService> {
       return Effect.gen(function* () {
         const config = yield* AgentConfigService;
+        const logger = yield* LoggerServiceTag;
 
-        // Try Linkup first
-        const linkupResult = yield* tryLinkupSearch(args, config).pipe(
-          Effect.catchAll((error) => {
-            // Log the error but don't fail - we'll fall back to web search
-            console.warn(`Linkup search failed, falling back to web search: ${error.message}`);
-            return Effect.succeed(null);
-          }),
-        );
+        // Try Linkup if API key is present
+        const linkupKey = yield* config.getOrElse("linkup.api_key", "");
+        if (linkupKey) {
+          yield* logger.info("Attempting search with Linkup provider...");
+          const linkupResult = yield* executeLinkupSearch(args, linkupKey).pipe(
+            Effect.catchAll((error) => {
+              return logger.warn(`Linkup search failed: ${error.message}`).pipe(
+                Effect.map(() => null as WebSearchResult | null)
+              );
+            }),
+          );
 
-        if (linkupResult) {
+          if (linkupResult) {
+            return {
+              success: true,
+              result: linkupResult,
+            };
+          }
+        }
+
+        // Try Exa if API key is present
+        const exaKey = yield* config.getOrElse("exa.api_key", "");
+        if (exaKey) {
+          yield* logger.info("Attempting search with Exa provider...");
+          const exaResult = yield* executeExaSearch(args, exaKey).pipe(
+            Effect.catchAll((error) => {
+              return logger.warn(`Exa search failed: ${error.message}`).pipe(
+                Effect.map(() => null as WebSearchResult | null)
+              );
+            }),
+          );
+
+          if (exaResult) {
+            return {
+              success: true,
+              result: exaResult,
+            };
+          }
+        }
+
+        if (!linkupKey && !exaKey) {
           return {
-            success: true,
-            result: linkupResult,
+            success: false,
+            result: null,
+            error: "No search provider API keys found. Please configure 'linkup.api_key' or 'exa.api_key'.",
           };
         }
 
-        // Fallback to web search options
-        const webSearchResult = yield* performWebSearchFallback(args, context);
-
         return {
-          success: true,
-          result: webSearchResult,
+          success: false,
+          result: null,
+          error: "All search providers failed.",
         };
-      }).pipe(
-        Effect.catchAll((error) =>
-          Effect.succeed({
-            success: false,
-            result: null,
-            error: error.message,
-          }),
-        ),
-      );
+      });
     },
     createSummary: function createSearchSummary(result: ToolExecutionResult): string | undefined {
       if (!result.success || !result.result) return undefined;
@@ -145,187 +147,112 @@ export function createWebSearchTool(): ReturnType<typeof defineTool<ConfigServic
   });
 }
 
-/**
- * Try to perform a Linkup search
- */
-function tryLinkupSearch(
-  args: WebSearchArgs,
-  config: ConfigService,
-): Effect.Effect<WebSearchResult, Error> {
-  return Effect.gen(function* () {
-    // Get Linkup configuration
-    const linkupConfig = yield* getLinkupConfig(config);
+let cachedLinkupClient: LinkupClient | null = null;
+let cachedExaClient: Exa | null = null;
 
-    // Create Linkup client
-    const client = new LinkupClient({
-      apiKey: linkupConfig.apiKey,
+/**
+ * Execute a Linkup search
+ */
+function executeLinkupSearch(
+  args: WebSearchArgs,
+  apiKey: string,
+): Effect.Effect<WebSearchResult, Error, LoggerService> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+
+    if (!cachedLinkupClient) {
+      cachedLinkupClient = new LinkupClient({
+        apiKey: apiKey,
+      });
+    }
+
+    const client = cachedLinkupClient;
+
+    yield* logger.info(
+      `Executing Linkup search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
+    );
+
+    const response = yield* Effect.tryPromise({
+      try: async () => {
+        return await client.search({
+          query: args.query,
+          depth: args.depth ?? "standard",
+          outputType: "searchResults",
+          includeImages: args.includeImages ?? false,
+        });
+      },
+      catch: (error) =>
+        new Error(`Linkup search failed: ${error instanceof Error ? error.message : String(error)}`),
     });
 
-    // Prepare search parameters
-    const searchParams = {
-      query: args.query,
-      depth: args.depth ?? "standard",
-      outputType: args.outputType ?? "sourcedAnswer",
-      includeImages: args.includeImages ?? false,
-    };
+    const results: WebSearchItem[] = response.results.map((result) => ({
+      title: result.name || "",
+      url: result.url || "",
+      snippet: result.type === "text" ? result.content : "",
+      source: result.name,
+    }));
 
-    const searchResult = yield* performLinkupSearch(client, searchParams);
+    yield* logger.info(`Linkup search found ${results.length} results`);
 
     return {
-      ...(searchResult.answer && { answer: searchResult.answer }),
-      results: searchResult.results,
-      totalResults: searchResult.totalResults,
-      query: searchResult.query,
-      timestamp: searchResult.timestamp,
+      results,
+      totalResults: results.length,
+      query: args.query,
+      timestamp: new Date().toISOString(),
       provider: "linkup" as const,
     };
   });
 }
 
 /**
- * Perform web search fallback using web_search_options
- * This function returns a placeholder result since the actual web search
- * is handled by the LLM service with web_search_options
+ * Execute an Exa search
  */
-function performWebSearchFallback(
+function executeExaSearch(
   args: WebSearchArgs,
-  _context: ToolExecutionContext,
-): Effect.Effect<WebSearchResult, Error> {
-  // Return a placeholder result indicating web search fallback
-  // The actual web search is handled by the LLM service with web_search_options
-  const fallbackResult: WebSearchResult = {
-    results: [
-      {
-        title: "Web Search Fallback",
-        url: "https://example.com",
-        snippet: `Web search fallback activated for query: "${args.query}". This indicates that Linkup search was unavailable and the system fell back to web search options.`,
-        source: "web_search_fallback",
-      },
-    ],
-    totalResults: 1,
-    query: args.query,
-    timestamp: new Date().toISOString(),
-    provider: "web_search" as const,
-  };
-
-  return Effect.succeed(fallbackResult);
-}
-
-/**
- * Get Linkup configuration from the config service
- */
-function getLinkupConfig(config: ConfigService): Effect.Effect<LinkupConfig, Error> {
+  apiKey: string,
+): Effect.Effect<WebSearchResult, Error, LoggerService> {
   return Effect.gen(function* () {
-    const apiKey = yield* config
-      .getOrFail("linkup.apiKey")
-      .pipe(
-        Effect.catchAll(() =>
-          Effect.fail(
-            new Error(
-              "Linkup API key is required. Please set linkup.apiKey in your configuration.",
-            ),
-          ),
-        ),
-      );
+    const logger = yield* LoggerServiceTag;
 
-    if (!apiKey || typeof apiKey !== "string") {
-      return yield* Effect.fail(
-        new Error("Linkup API key is required. Please set linkup.apiKey in your configuration."),
-      );
+    if (!cachedExaClient) {
+      cachedExaClient = new Exa(apiKey);
     }
 
+    const exa = cachedExaClient;
+
+    yield* logger.info(
+      `Executing Exa search for query: "${args.query}" with depth: ${args.depth || "standard"}`,
+    );
+
+    const response = yield* Effect.tryPromise({
+      try: async () => {
+        return await exa.search(args.query, {
+          type: "auto",
+          useAutoprompt: true,
+        });
+      },
+      catch: (error) =>
+        new Error(
+          `Exa search failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    });
+
+    const results: WebSearchItem[] = (response.results || []).map((result) => ({
+      title: result.title || "",
+      url: result.url || "",
+      snippet: result.text || "",
+      ...(result.publishedDate ? { publishedDate: result.publishedDate } : {}),
+      source: "exa",
+    }));
+
+    yield* logger.info(`Exa search found ${results.length} results`);
+
     return {
-      apiKey: apiKey,
+      results,
+      totalResults: results.length,
+      query: args.query,
+      timestamp: new Date().toISOString(),
+      provider: "exa" as const,
     };
-  });
-}
-
-function performLinkupSearch(
-  client: LinkupClient,
-  params: {
-    query: string;
-    depth: SearchDepth;
-    outputType: SearchOutputType;
-    includeImages: boolean;
-  },
-): Effect.Effect<
-  {
-    answer?: string;
-    results: readonly WebSearchItem[];
-    totalResults: number;
-    query: string;
-    timestamp: string;
-  },
-  Error
-> {
-  return Effect.tryPromise({
-    try: async () => {
-      const response = await client.search({
-        query: params.query,
-        depth: params.depth,
-        outputType: params.outputType,
-        includeImages: params.includeImages,
-      });
-
-      let searchResult: {
-        answer?: string;
-        results: readonly WebSearchItem[];
-        totalResults: number;
-        query: string;
-        timestamp: string;
-      };
-
-      if (params.outputType === "sourcedAnswer") {
-        const sourcedAnswer = response as SourcedAnswer;
-        searchResult = {
-          answer: sourcedAnswer.answer,
-          results: sourcedAnswer.sources.map((source) => {
-            if ("snippet" in source) {
-              return {
-                title: source.name || "",
-                url: source.url || "",
-                snippet: source.snippet || "",
-                source: source.name,
-              };
-            } else {
-              return {
-                title: source.name || "",
-                url: source.url || "",
-                snippet: source.type === "text" ? source.content : "",
-                source: source.name,
-              };
-            }
-          }),
-          totalResults: sourcedAnswer.sources.length,
-          query: params.query,
-          timestamp: new Date().toISOString(),
-        };
-      } else if (params.outputType === "searchResults") {
-        const searchResults = response as SearchResults;
-
-        searchResult = {
-          results: searchResults.results.map((result) => ({
-            title: result.name || "",
-            url: result.url || "",
-            snippet: result.type === "text" ? result.content : "",
-            source: result.name,
-          })),
-          totalResults: searchResults.results.length,
-          query: params.query,
-          timestamp: new Date().toISOString(),
-        };
-      } else {
-        return {
-          results: [],
-          totalResults: 0,
-          query: params.query,
-          timestamp: new Date().toISOString(),
-        };
-      }
-
-      return searchResult;
-    },
-    catch: (error) =>
-      new Error(`Linkup search failed: ${error instanceof Error ? error.message : String(error)}`),
   });
 }

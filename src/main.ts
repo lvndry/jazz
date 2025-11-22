@@ -6,15 +6,10 @@ import { Command } from "commander";
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
 import packageJson from "../package.json";
 import { gmailLoginCommand, gmailLogoutCommand, gmailStatusCommand } from "./cli/commands/auth";
-import { chatWithAIAgentCommand, createAIAgentCommand } from "./cli/commands/chat-agent";
+import { chatWithAIAgentCommand, createAgentCommand } from "./cli/commands/chat-agent";
+import { getConfigCommand, listConfigCommand, setConfigCommand } from "./cli/commands/config";
 import { editAgentCommand } from "./cli/commands/edit-agent";
-import {
-  createAgentCommand,
-  deleteAgentCommand,
-  getAgentCommand,
-  listAgentsCommand,
-  runAgentCommand,
-} from "./cli/commands/task-agent";
+import { deleteAgentCommand, getAgentCommand, listAgentsCommand } from "./cli/commands/task-agent";
 import { updateCommand } from "./cli/commands/update";
 import { createAgentServiceLayer } from "./core/agent/agent-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
@@ -30,7 +25,11 @@ import { createLoggerLayer, LoggerServiceTag } from "./services/logger";
 import { FileStorageService } from "./services/storage/file";
 import { StorageServiceTag } from "./services/storage/service";
 import { resolveStorageDirectory } from "./services/storage/utils";
-import { createTerminalServiceLayer, TerminalServiceImpl, TerminalServiceTag } from "./services/terminal";
+import {
+  createTerminalServiceLayer,
+  TerminalServiceImpl,
+  TerminalServiceTag,
+} from "./services/terminal";
 
 /**
  * Main entry point for the Jazz CLI
@@ -162,7 +161,7 @@ function runCliEffect<R, E extends JazzError | Error>(
     }),
   ).pipe(
     Effect.provide(createAppLayer(debugFlag)),
-    Effect.provideService(TerminalServiceTag, new TerminalServiceImpl())
+    Effect.provideService(TerminalServiceTag, new TerminalServiceImpl()),
   ) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect);
@@ -172,9 +171,7 @@ function runCliEffect<R, E extends JazzError | Error>(
  * Main CLI application entry point
  *
  * Sets up the Commander.js CLI program with all available commands including:
- * - Task Agent management (create, list, run, get, delete) - for traditional automation
- * - Chat Agent management (create, chat) - for AI-powered conversational agents
- * - Automation management (list, create, run, delete)
+ * - Agent management (create, list, get, edit, delete, chat)
  * - Configuration management (get, set, list, validate)
  * - Authentication (Gmail login, logout, status)
  * - Logs viewing
@@ -197,7 +194,9 @@ function main(): Effect.Effect<void, never> {
 
     program
       .name("jazz")
-      .description("Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)")
+      .description(
+        "Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)",
+      )
       .version(packageJson.version);
 
     // Global options
@@ -224,81 +223,46 @@ function main(): Effect.Effect<void, never> {
 
     agentCommand
       .command("create")
-      .description("Create a new AI chat agent (interactive mode)")
+      .description("Create a new agent (interactive mode)")
       .action(() => {
         const opts = program.opts();
-        runCliEffect(createAIAgentCommand(), Boolean(opts["debug"]));
-      });
-
-    agentCommand
-      .command("create-quick <name>")
-      .description("Create a new task agent quickly with command line options")
-      .option("-d, --description <description>", "Agent description")
-      .option("-t, --timeout <timeout>", "Agent timeout in milliseconds", (value) =>
-        parseInt(value, 10),
-      )
-      .option("-r, --max-retries <retries>", "Maximum number of retries", (value) =>
-        parseInt(value, 10),
-      )
-      .option("--retry-delay <delay>", "Retry delay in milliseconds", (value) =>
-        parseInt(value, 10),
-      )
-      .option("--retry-backoff <backoff>", "Retry backoff strategy", "exponential")
-      .action(
-        (
-          name: string,
-          options: {
-            description?: string;
-            timeout?: number;
-            maxRetries?: number;
-            retryDelay?: number;
-            retryBackoff?: "linear" | "exponential" | "fixed";
-          },
-        ) => {
-          const opts = program.opts();
-          runCliEffect(
-            createAgentCommand(name, options.description || "", options),
-            Boolean(opts["debug"]),
-          );
-        },
-      );
-
-    agentCommand
-      .command("run <agentId>")
-      .description("Run a task agent")
-      .option("--watch", "Watch for changes")
-      .option("--dry-run", "Show what would be executed without running")
-      .action((agentId: string, options: { watch?: boolean; dryRun?: boolean }) => {
-        const opts = program.opts();
-        runCliEffect(runAgentCommand(agentId, options), Boolean(opts["debug"]));
+        runCliEffect(createAgentCommand(), Boolean(opts["debug"]));
       });
 
     agentCommand
       .command("get <agentId>")
-      .description("Get task agent details")
+      .description("Get an agent details")
       .action((agentId: string) => {
         const opts = program.opts();
         runCliEffect(getAgentCommand(agentId), Boolean(opts["debug"]));
       });
 
     agentCommand
+      .command("edit <agentId>")
+      .description("Edit an existing agent")
+      .action((agentId: string) => {
+        const opts = program.opts();
+        runCliEffect(editAgentCommand(agentId), Boolean(opts["debug"]));
+      });
+
+    agentCommand
       .command("delete <agentId>")
       .alias("remove")
       .alias("rm")
-      .description("Delete a task agent")
+      .description("Delete an agent")
       .action((agentId: string) => {
         const opts = program.opts();
         runCliEffect(deleteAgentCommand(agentId), Boolean(opts["debug"]));
       });
 
     agentCommand
-      .command("chat <agentRef>")
+      .command("chat <agentIdentifier>")
       .description("Start a chat with an AI agent by ID or name")
       .option("--stream", "Force streaming mode (real-time output)")
       .option("--no-stream", "Disable streaming mode")
       .action(
         (
-          agentRef: string,
+          agentIdentifier: string,
           options: {
             stream?: boolean;
             noStream?: boolean;
@@ -308,56 +272,14 @@ function main(): Effect.Effect<void, never> {
           const streamOption =
             options.noStream === true ? false : options.stream === true ? true : undefined;
           runCliEffect(
-            chatWithAIAgentCommand(agentRef, streamOption !== undefined ? { stream: streamOption } : {}),
+            chatWithAIAgentCommand(
+              agentIdentifier,
+              streamOption !== undefined ? { stream: streamOption } : {},
+            ),
             Boolean(opts["debug"]),
           );
         },
       );
-
-    agentCommand
-      .command("edit <agentId>")
-      .description("Edit an existing agent (interactive mode)")
-      .action((agentId: string) => {
-        const opts = program.opts();
-        runCliEffect(editAgentCommand(agentId), Boolean(opts["debug"]));
-      });
-
-    // Automation commands
-    const automationCommand = program.command("automation").description("Manage automations");
-
-    automationCommand
-      .command("list")
-      .description("List all automations")
-      .action(() => {
-        const opts = program.opts();
-        runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info("Listing automations...");
-            // TODO: Implement automation listing
-          }),
-          Boolean(opts["debug"]),
-        );
-      });
-
-    automationCommand
-      .command("create")
-      .description("Create a new automation")
-      .option("-d, --description <description>", "Automation description")
-      .action((name: string, options: { description?: string }) => {
-        const opts = program.opts();
-        runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info(`Creating automation: ${name}`);
-            if (options.description) {
-              yield* logger.info(`Description: ${options.description}`);
-            }
-            // TODO: Implement automation creation
-          }),
-          Boolean(opts["debug"]),
-        );
-      });
 
     // Config commands
     const configCommand = program.command("config").description("Manage configuration");
@@ -367,44 +289,23 @@ function main(): Effect.Effect<void, never> {
       .description("Get a configuration value")
       .action((key: string) => {
         const opts = program.opts();
-        runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info(`Getting config: ${key}`);
-            // TODO: Implement config retrieval
-          }),
-          Boolean(opts["debug"]),
-        );
+        runCliEffect(getConfigCommand(key), Boolean(opts["debug"]));
       });
 
     configCommand
-      .command("set <key> <value>")
+      .command("set <key> [value]")
       .description("Set a configuration value")
-      .action((key: string, value: string) => {
+      .action((key: string, value?: string) => {
         const opts = program.opts();
-        runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info(`Setting config: ${key} = ${value}`);
-            // TODO: Implement config setting
-          }),
-          Boolean(opts["debug"]),
-        );
+        runCliEffect(setConfigCommand(key, value), Boolean(opts["debug"]));
       });
 
     configCommand
-      .command("list")
-      .description("List all configuration values")
+      .command("show")
+      .description("Show all configuration values")
       .action(() => {
         const opts = program.opts();
-        runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info("Listing configuration...");
-            // TODO: Implement config listing
-          }),
-          Boolean(opts["debug"]),
-        );
+        runCliEffect(listConfigCommand(), Boolean(opts["debug"]));
       });
 
     // Auth commands

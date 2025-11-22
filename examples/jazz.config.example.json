@@ -17,9 +17,6 @@
     },
     "deepseek": {
       "api_key": "sk-..."
-    },
-    "ollama": {
-      "baseURL": "http://localhost:11434"
     }
   },
   "google": {
@@ -27,8 +24,10 @@
     "clientSecret": "1234567890"
   },
   "linkup": {
-    "apiKey": "your-linkup-api-key-here",
-    "baseUrl": "https://api.linkup.so"
+    "api_key": "your-linkup-api-key-here"
+  },
+  "exa": {
+    "api_key": "your-exa-api-key-here"
   },
   "logging": {
     "level": "info",
