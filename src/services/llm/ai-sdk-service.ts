@@ -2,8 +2,9 @@ import { anthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { deepseek } from "@ai-sdk/deepseek";
 import { google, type GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
-import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
+import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
+import { createOpenRouter, type OpenRouterProviderSettings } from "@openrouter/ai-sdk-provider";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 
 import {
@@ -192,14 +193,22 @@ function selectModel(
       return ollamaInstance(modelId);
     }
     case "openrouter": {
-      // Create OpenRouter provider using OpenAI SDK with custom baseURL
-      const openrouter = createOpenAI({
-        baseURL: "https://openrouter.ai/api/v1",
-        headers: {
-          "HTTP-Referer": "https://github.com/lvndry/jazz",
-          "X-Title": "Jazz CLI",
-        },
-      });
+      const apiKey: string | undefined = llmConfig?.openrouter?.api_key;
+      const headers: Record<string, string> = {
+        "HTTP-Referer": "https://github.com/lvndry/jazz",
+        "X-Title": "Jazz CLI",
+      };
+      const config: OpenRouterProviderSettings = {
+        ...(apiKey ? { apiKey } : {}),
+        compatibility: "strict",
+        headers,
+      };
+
+      const openrouter = (
+        createOpenRouter as (
+          config: OpenRouterProviderSettings,
+        ) => (modelId: ModelName) => LanguageModel
+      )(config);
       return openrouter(modelId);
     }
     default:
@@ -416,7 +425,10 @@ class AISDKService implements LLMService {
       return Effect.succeed([]);
     }
 
-    const apiKey = providerConfig?.api_key;
+    const apiKey =
+      providerConfig && typeof providerConfig === "object" && "api_key" in providerConfig
+        ? providerConfig.api_key
+        : undefined;
 
     return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey);
   }
@@ -433,7 +445,10 @@ class AISDKService implements LLMService {
           Effect.try({
             try: () => {
               const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
-              const apiKey = providerConfig?.api_key;
+              const apiKey =
+                providerConfig && typeof providerConfig === "object" && "api_key" in providerConfig
+                  ? providerConfig.api_key
+                  : undefined;
 
               if (!apiKey) {
                 // API Key is optional for Ollama

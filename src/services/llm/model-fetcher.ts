@@ -30,6 +30,41 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       isReasoningModel: false,
     }));
   },
+  openrouter: (data: unknown) => {
+    // Transform OpenRouter API response
+    // Example: { data: [{ id: "openai/gpt-4o", name: "GPT-4o", ... }] }
+    const response = data as {
+      data?: Array<{
+        id: string;
+        name?: string;
+        description?: string;
+        architecture?: {
+          instruct_type?: string;
+        };
+        [key: string]: unknown;
+      }>;
+    };
+
+    return (response.data ?? []).map((model) => {
+      // Heuristic: Models with "reasoning", "o1", "r1", or "thinking" in ID/name are likely reasoning models
+      const modelIdLower = model.id.toLowerCase();
+      const modelNameLower = (model.name ?? "").toLowerCase();
+      const isReasoningModel =
+        modelIdLower.includes("reasoning") ||
+        modelIdLower.includes("/o1") ||
+        modelIdLower.includes("-o1") ||
+        modelIdLower.includes("r1") ||
+        modelIdLower.includes("thinking") ||
+        modelNameLower.includes("reasoning") ||
+        modelNameLower.includes("thinking");
+
+      return {
+        id: model.id,
+        displayName: model.name ?? model.id,
+        isReasoningModel,
+      };
+    });
+  },
 };
 
 export function createModelFetcher(): ModelFetcherService {
