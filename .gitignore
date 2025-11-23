@@ -20,15 +20,6 @@ logs/
 
 # Test-related files
 coverage/
-*.test.js
-*.test.ts
-*.spec.js
-*.spec.ts
-__tests__/
-test-results/
-.nyc_output/
-junit.xml
-test-report.xml
 
 # Optional npm cache directory
 .npm

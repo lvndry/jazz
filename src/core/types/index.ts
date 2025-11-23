@@ -86,17 +86,6 @@ export interface LLMConfig {
   readonly deepseek?: DeepSeekProviderConfig;
   readonly openrouter?: LLMProviderConfig;
   readonly ollama?: OllamaProviderConfig;
-  readonly contextManagement?: ContextManagementConfig;
-}
-
-export interface ContextManagementConfig {
-  readonly summarizationThreshold?: number; // Percentage of context window (0.0-1.0)
-  readonly targetTokensRatio?: number; // Target tokens as ratio of max context (0.0-1.0)
-  readonly aggressiveThreshold?: number; // Aggressive summarization threshold (0.0-1.0)
-  readonly preserveRecentMessages?: number; // Number of recent messages to always keep
-  readonly maxRecentTokens?: number; // Maximum tokens to preserve in recent messages
-  readonly enableProactiveSummarization?: boolean; // Whether to summarize proactively
-  readonly summarizeToolResults?: boolean; // Whether to summarize large tool call results
 }
 
 export interface LinkupConfig {

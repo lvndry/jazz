@@ -371,9 +371,6 @@ class AISDKService implements LLMService {
           if (name === "google") {
             // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
             process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
-          } else if (name === "openrouter") {
-            // OpenRouter uses OPENROUTER_API_KEY environment variable
-            process.env["OPENROUTER_API_KEY"] = apiKey;
           } else {
             process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
           }
