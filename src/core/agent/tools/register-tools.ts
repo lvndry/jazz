@@ -2,6 +2,8 @@ import { Effect, Layer } from "effect";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import {
   createCdTool,
+  createEditFileTool,
+  createExecuteEditFileTool,
   createExecuteMkdirTool,
   createExecuteRmTool,
   createExecuteWriteFileTool,
@@ -214,6 +216,8 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     const executeRm = createExecuteRmTool();
     const writeFile = createWriteFileTool();
     const executeWriteFile = createExecuteWriteFileTool();
+    const editFile = createEditFileTool();
+    const executeEditFile = createExecuteEditFileTool();
 
     yield* registerTool(pwd);
     yield* registerTool(ls);
@@ -223,6 +227,7 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(head);
     yield* registerTool(tail);
     yield* registerTool(writeFile);
+    yield* registerTool(editFile);
     yield* registerTool(find);
     yield* registerTool(finddir);
     yield* registerTool(findPath);
@@ -232,6 +237,7 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(rm);
     yield* registerTool(executeRm);
     yield* registerTool(executeWriteFile);
+    yield* registerTool(executeEditFile);
   });
 }
 
