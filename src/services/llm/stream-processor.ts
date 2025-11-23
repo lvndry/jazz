@@ -49,6 +49,7 @@ interface StreamProcessorState {
   // Reasoning tracking
   reasoningSequence: number;
   reasoningTokens: number | undefined;
+  reasoningStreamCompleted: boolean;
 
   // Tool calls
   collectedToolCalls: ToolCall[];
@@ -73,6 +74,7 @@ function createInitialState(): StreamProcessorState {
     hasStartedText: false,
     reasoningSequence: 0,
     reasoningTokens: undefined,
+    reasoningStreamCompleted: false,
     collectedToolCalls: [],
     firstTokenTime: null,
     firstTextTime: null,
@@ -219,7 +221,12 @@ export class StreamProcessor {
             }
 
             // Emit thinking complete
-            if (this.config.hasReasoningEnabled && this.state.reasoningSequence > 0) {
+            if (
+              this.config.hasReasoningEnabled &&
+              this.state.reasoningSequence > 0 &&
+              !this.state.reasoningStreamCompleted
+            ) {
+              this.state.reasoningStreamCompleted = true;
               void this.emitEvent({
                 type: "thinking_complete",
                 ...(this.state.reasoningTokens !== undefined && {

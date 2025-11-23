@@ -559,7 +559,7 @@ function initializeSession(
  * Special command types
  */
 type SpecialCommand = {
-  type: "new" | "help" | "status" | "clear" | "tools" | "edit" | "unknown";
+  type: "new" | "help" | "status" | "clear" | "tools" | "agents" | "switch" | "unknown";
   args: string[];
 };
 
@@ -588,6 +588,10 @@ function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "clear", args };
     case "tools":
       return { type: "tools", args };
+    case "agents":
+      return { type: "agents", args };
+    case "switch":
+      return { type: "switch", args };
     default:
       return { type: "unknown", args: [command, ...args] };
   }
@@ -602,9 +606,14 @@ function handleSpecialCommand(
   conversationId: string | undefined,
   conversationHistory: ChatMessage[],
 ): Effect.Effect<
-  { shouldContinue: boolean; newConversationId?: string | undefined; newHistory?: ChatMessage[] },
-  never,
-  ToolRegistry | TerminalService
+  {
+    shouldContinue: boolean;
+    newConversationId?: string | undefined;
+    newHistory?: ChatMessage[];
+    newAgent?: Agent;
+  },
+  StorageError | StorageNotFoundError,
+  ToolRegistry | TerminalService | AgentService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -622,13 +631,16 @@ function handleSpecialCommand(
 
       case "help":
         yield* terminal.heading("📖 Available special commands");
-        yield* terminal.log("   /new     - Start a new conversation (clear context)");
-        yield* terminal.log("   /status  - Show current conversation status");
-        yield* terminal.log("   /tools   - List all available tools by category");
-        yield* terminal.log("   /edit    - Edit this agent's configuration");
-        yield* terminal.log("   /clear   - Clear the screen");
-        yield* terminal.log("   /help    - Show this help message");
-        yield* terminal.log("   /exit    - Exit the chat");
+        yield* terminal.log("   /new             - Start a new conversation (clear context)");
+        yield* terminal.log("   /status          - Show current conversation status");
+        yield* terminal.log("   /tools           - List all agent tools by category");
+        yield* terminal.log("   /agents          - List all available agents");
+        yield* terminal.log(
+          "   /switch [agent]  - Switch to a different agent in the same conversation",
+        );
+        yield* terminal.log("   /clear           - Clear the screen");
+        yield* terminal.log("   /help            - Show this help message");
+        yield* terminal.log("   /exit            - Exit the chat");
         yield* terminal.log("");
         return { shouldContinue: true };
 
@@ -697,6 +709,151 @@ function handleSpecialCommand(
         return { shouldContinue: true };
       }
 
+      case "agents": {
+        const agentService = yield* AgentServiceTag;
+        const allAgents = yield* agentService.listAgents();
+
+        yield* terminal.heading("🤖 Available Agents");
+
+        if (allAgents.length === 0) {
+          yield* terminal.warn("No agents found.");
+          yield* terminal.info("Create one with: jazz agent create");
+        } else {
+          for (const ag of allAgents) {
+            const isCurrent = ag.id === agent.id;
+            const prefix = isCurrent ? "  ➤ " : "    ";
+            const currentMarker = isCurrent ? " (current)" : "";
+
+            yield* terminal.log(`${prefix}${ag.name}${currentMarker}`);
+            yield* terminal.log(`${prefix}  ID: ${ag.id}`);
+            if (ag.description) {
+              const truncatedDesc =
+                ag.description.length > 80
+                  ? ag.description.substring(0, 77) + "..."
+                  : ag.description;
+              yield* terminal.log(`${prefix}  Description: ${truncatedDesc}`);
+            }
+            yield* terminal.log(`${prefix}  Model: ${ag.config.llmProvider}/${ag.config.llmModel}`);
+            if (ag.config.reasoningEffort) {
+              yield* terminal.log(`${prefix}  Reasoning: ${ag.config.reasoningEffort}`);
+            }
+            yield* terminal.log("");
+          }
+
+          yield* terminal.log(
+            `   Total: ${allAgents.length} agent${allAgents.length === 1 ? "" : "s"}`,
+          );
+        }
+
+        yield* terminal.log("");
+        return { shouldContinue: true };
+      }
+
+      case "switch": {
+        const agentService = yield* AgentServiceTag;
+
+        // Check if agent identifier was provided as argument
+        if (command.args.length > 0) {
+          const agentIdentifier = command.args.join(" ").trim();
+
+          // Try to get agent by identifier (name or ID)
+          const switchResult = yield* getAgentByIdentifier(agentIdentifier).pipe(
+            Effect.map((foundAgent) => ({ success: true as const, agent: foundAgent })),
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                if (error._tag === "StorageNotFoundError") {
+                  yield* terminal.error(`Agent not found: ${agentIdentifier}`);
+                  yield* terminal.info("Use '/agents' to see all available agents.");
+                  yield* terminal.log("");
+                } else {
+                  yield* terminal.error(
+                    `Error loading agent: ${error instanceof Error ? error.message : String(error)}`,
+                  );
+                  yield* terminal.log("");
+                }
+                return { success: false as const };
+              }),
+            ),
+          );
+
+          if (switchResult.success) {
+            const newAgent = switchResult.agent;
+            yield* terminal.success(`Switched to agent: ${newAgent.name} (${newAgent.id})`);
+            if (newAgent.description) {
+              yield* terminal.log(`   Description: ${newAgent.description}`);
+            }
+            yield* terminal.log(
+              `   Model: ${newAgent.config.llmProvider}/${newAgent.config.llmModel}`,
+            );
+            yield* terminal.log("");
+            yield* terminal.info("Conversation history preserved.");
+            yield* terminal.log("");
+
+            return { shouldContinue: true, newAgent };
+          }
+
+          return { shouldContinue: true };
+        }
+
+        // Interactive mode - show list of agents
+        const allAgents = yield* agentService.listAgents();
+
+        if (allAgents.length === 0) {
+          yield* terminal.warn("No agents available to switch to.");
+          yield* terminal.info("Create one with: jazz agent create");
+          yield* terminal.log("");
+          return { shouldContinue: true };
+        }
+
+        if (allAgents.length === 1) {
+          yield* terminal.warn("Only one agent available. Cannot switch.");
+          yield* terminal.info("Create more agents with: jazz agent create");
+          yield* terminal.log("");
+          return { shouldContinue: true };
+        }
+
+        // Show interactive prompt
+        const choices = allAgents.map((ag) => ({
+          name: `${ag.name} - ${ag.config.llmProvider}/${ag.config.llmModel}${ag.id === agent.id ? " (current)" : ""}`,
+          value: ag.id,
+          short: ag.name,
+        }));
+
+        const answer = yield* Effect.promise(() =>
+          inquirer.prompt([
+            {
+              type: "list",
+              name: "agentId",
+              message: "Select an agent to switch to:",
+              choices,
+              default: agent.id,
+            },
+          ]),
+        );
+
+        const selectedAgentId = answer.agentId as string;
+
+        // If user selected the same agent, do nothing
+        if (selectedAgentId === agent.id) {
+          yield* terminal.info("Already using this agent.");
+          yield* terminal.log("");
+          return { shouldContinue: true };
+        }
+
+        const newAgent = yield* agentService.getAgent(selectedAgentId);
+
+        yield* terminal.success(`Switched to agent: ${newAgent.name} (${newAgent.id})`);
+        if (newAgent.description) {
+          yield* terminal.log(`   Description: ${newAgent.description}`);
+        }
+        yield* terminal.log(`   Model: ${newAgent.config.llmProvider}/${newAgent.config.llmModel}`);
+        yield* terminal.log("");
+        yield* terminal.info("Conversation history preserved.");
+        yield* terminal.log("");
+
+        return { shouldContinue: true, newAgent };
+      }
+
       case "clear":
         console.clear();
         yield* terminal.info(`Chat with ${agent.name} - Screen cleared`);
@@ -728,6 +885,7 @@ function startChatLoop(
 ): Effect.Effect<
   void,
   Error,
+  | AgentService
   | ConfigService
   | LLMService
   | ToolRegistry
@@ -797,6 +955,9 @@ function startChatLoop(
 
         if (commandResult.newConversationId !== undefined) {
           conversationId = commandResult.newConversationId;
+        }
+        if (commandResult.newAgent !== undefined) {
+          agent = commandResult.newAgent;
         }
         if (commandResult.newHistory !== undefined) {
           conversationHistory = commandResult.newHistory;
