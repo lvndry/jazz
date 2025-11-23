@@ -99,12 +99,13 @@ export const AgentConfigService = Context.GenericTag<ConfigService>("ConfigServi
 
 export function createConfigLayer(
   debug?: boolean,
+  customConfigPath?: string,
 ): Layer.Layer<ConfigService, never, FileSystem.FileSystem> {
   return Layer.effect(
     AgentConfigService,
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const loaded = yield* loadConfigFile(fs);
+      const loaded = yield* loadConfigFile(fs, customConfigPath);
       const baseConfig = defaultConfig();
       const fileConfig = loaded.fileConfig ?? undefined;
 
@@ -213,7 +214,10 @@ function expandHome(p: string): string {
   return p;
 }
 
-function loadConfigFile(fs: FileSystem.FileSystem): Effect.Effect<
+function loadConfigFile(
+  fs: FileSystem.FileSystem,
+  customConfigPath?: string,
+): Effect.Effect<
   {
     configPath?: string;
     fileConfig?: Partial<AppConfig>;
@@ -221,6 +225,58 @@ function loadConfigFile(fs: FileSystem.FileSystem): Effect.Effect<
   never
 > {
   return Effect.gen(function* () {
+    // If custom config path is provided, validate and use it exclusively
+    if (customConfigPath) {
+      const expandedPath = expandHome(customConfigPath);
+      const exists = yield* fs
+        .exists(expandedPath)
+        .pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+      if (!exists) {
+        console.error(`\n❌ Error: Config file not found at: ${expandedPath}`);
+        console.error(`\nPlease ensure the file exists and the path is correct.\n`);
+        process.exit(1);
+      }
+
+      const contentResult = yield* fs.readFileString(expandedPath).pipe(
+        Effect.catchAll((error) =>
+          Effect.sync(() => {
+            console.error(`\n❌ Error: Cannot read config file at: ${expandedPath}`);
+            console.error(`Reason: ${String(error)}\n`);
+            process.exit(1);
+          }),
+        ),
+      );
+
+      const content = contentResult;
+
+      if (!content) {
+        console.error(`\n❌ Error: Config file is empty: ${expandedPath}\n`);
+        process.exit(1);
+      }
+
+      const parsed = safeParseJson<Partial<AppConfig>>(content);
+      if (Option.isNone(parsed)) {
+        console.error(`\n❌ Error: Invalid JSON in config file: ${expandedPath}`);
+        console.error(`\nPlease ensure the file contains valid JSON.`);
+        console.error(`You can validate your JSON at: https://jsonlint.com/\n`);
+        process.exit(1);
+      }
+
+      // Validate that the parsed config matches AppConfig structure
+      const config = parsed.value;
+      if (typeof config !== "object" || config === null) {
+        console.error(
+          `\n❌ Error: Config file must contain a valid configuration object: ${expandedPath}`,
+        );
+        console.error(`\nExpected format: { "llm": {...}, "storage": {...}, ... }\n`);
+        process.exit(1);
+      }
+
+      return { configPath: expandedPath, fileConfig: config };
+    }
+
+    // Otherwise, use the default search order
     const envConfigPath = process.env["JAZZ_CONFIG_PATH"];
     const candidates: readonly string[] = [
       envConfigPath ? expandHome(envConfigPath) : "",

@@ -8,8 +8,7 @@
 - [x] Update system prompt to discorourage usage of tables. They don't render well in terminal
 - [ ] Better colors and themes.
 - [x] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
-- [ ] Finish implementation of `jazz logs`
-- [ ] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
+- [x] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
       more capable or less costly model while keeping the same context
 - [x] Easy update - `jazz update`
 - [ ] Improve `jazz agent create` ergonomics e.g `jazz agent create --name "deploy-master" --tools git,files --description "Deploy master agent"`.

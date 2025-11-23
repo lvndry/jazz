@@ -21,7 +21,7 @@ import { AgentConfigService, createConfigLayer } from "./services/config";
 import { createFileSystemContextServiceLayer } from "./services/fs";
 import { createGmailServiceLayer } from "./services/gmail";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
-import { createLoggerLayer, LoggerServiceTag } from "./services/logger";
+import { createLoggerLayer } from "./services/logger";
 import { FileStorageService } from "./services/storage/file";
 import { StorageServiceTag } from "./services/storage/service";
 import { resolveStorageDirectory } from "./services/storage/utils";
@@ -50,9 +50,9 @@ import {
  * yield* someCommand().pipe(Effect.provide(appLayer));
  * ```
  */
-function createAppLayer(debug?: boolean) {
+function createAppLayer(debug?: boolean, configPath?: string) {
   const fileSystemLayer = NodeFileSystem.layer;
-  const configLayer = createConfigLayer(debug).pipe(Layer.provide(fileSystemLayer));
+  const configLayer = createConfigLayer(debug, configPath).pipe(Layer.provide(fileSystemLayer));
   const loggerLayer = createLoggerLayer();
   const terminalLayer = createTerminalServiceLayer();
 
@@ -110,6 +110,7 @@ function createAppLayer(debug?: boolean) {
 function runCliEffect<R, E extends JazzError | Error>(
   effect: Effect.Effect<void, E, R>,
   debugFlag?: boolean,
+  configPath?: string,
 ): void {
   const managedEffect = Effect.scoped(
     Effect.gen(function* () {
@@ -160,7 +161,7 @@ function runCliEffect<R, E extends JazzError | Error>(
       }
     }),
   ).pipe(
-    Effect.provide(createAppLayer(debugFlag)),
+    Effect.provide(createAppLayer(debugFlag, configPath)),
     Effect.provideService(TerminalServiceTag, new TerminalServiceImpl()),
   ) as Effect.Effect<void, never, never>;
 
@@ -218,6 +219,7 @@ function main(): Effect.Effect<void, never> {
         runCliEffect(
           listAgentsCommand({ verbose: Boolean(opts["verbose"]) }),
           Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
         );
       });
 
@@ -226,7 +228,11 @@ function main(): Effect.Effect<void, never> {
       .description("Create a new agent (interactive mode)")
       .action(() => {
         const opts = program.opts();
-        runCliEffect(createAgentCommand(), Boolean(opts["debug"]));
+        runCliEffect(
+          createAgentCommand(),
+          Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
+        );
       });
 
     agentCommand
@@ -234,7 +240,11 @@ function main(): Effect.Effect<void, never> {
       .description("Get an agent details")
       .action((agentId: string) => {
         const opts = program.opts();
-        runCliEffect(getAgentCommand(agentId), Boolean(opts["debug"]));
+        runCliEffect(
+          getAgentCommand(agentId),
+          Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
+        );
       });
 
     agentCommand
@@ -242,7 +252,11 @@ function main(): Effect.Effect<void, never> {
       .description("Edit an existing agent")
       .action((agentId: string) => {
         const opts = program.opts();
-        runCliEffect(editAgentCommand(agentId), Boolean(opts["debug"]));
+        runCliEffect(
+          editAgentCommand(agentId),
+          Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
+        );
       });
 
     agentCommand
@@ -252,7 +266,11 @@ function main(): Effect.Effect<void, never> {
       .description("Delete an agent")
       .action((agentId: string) => {
         const opts = program.opts();
-        runCliEffect(deleteAgentCommand(agentId), Boolean(opts["debug"]));
+        runCliEffect(
+          deleteAgentCommand(agentId),
+          Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
+        );
       });
 
     agentCommand
@@ -277,6 +295,7 @@ function main(): Effect.Effect<void, never> {
               streamOption !== undefined ? { stream: streamOption } : {},
             ),
             Boolean(opts["debug"]),
+            opts["config"] as string | undefined,
           );
         },
       );
@@ -289,7 +308,11 @@ function main(): Effect.Effect<void, never> {
       .description("Get a configuration value")
       .action((key: string) => {
         const opts = program.opts();
-        runCliEffect(getConfigCommand(key), Boolean(opts["debug"]));
+        runCliEffect(
+          getConfigCommand(key),
+          Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
+        );
       });
 
     configCommand
@@ -297,7 +320,11 @@ function main(): Effect.Effect<void, never> {
       .description("Set a configuration value")
       .action((key: string, value?: string) => {
         const opts = program.opts();
-        runCliEffect(setConfigCommand(key, value), Boolean(opts["debug"]));
+        runCliEffect(
+          setConfigCommand(key, value),
+          Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
+        );
       });
 
     configCommand
@@ -305,7 +332,11 @@ function main(): Effect.Effect<void, never> {
       .description("Show all configuration values")
       .action(() => {
         const opts = program.opts();
-        runCliEffect(listConfigCommand(), Boolean(opts["debug"]));
+        runCliEffect(
+          listConfigCommand(),
+          Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
+        );
       });
 
     // Auth commands
@@ -319,7 +350,11 @@ function main(): Effect.Effect<void, never> {
       .description("Authenticate with Gmail")
       .action(() => {
         const opts = program.opts();
-        runCliEffect(gmailLoginCommand(), Boolean(opts["debug"]));
+        runCliEffect(
+          gmailLoginCommand(),
+          Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
+        );
       });
 
     gmailAuthCommand
@@ -327,7 +362,11 @@ function main(): Effect.Effect<void, never> {
       .description("Logout from Gmail")
       .action(() => {
         const opts = program.opts();
-        runCliEffect(gmailLogoutCommand(), Boolean(opts["debug"]));
+        runCliEffect(
+          gmailLogoutCommand(),
+          Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
+        );
       });
 
     gmailAuthCommand
@@ -335,28 +374,10 @@ function main(): Effect.Effect<void, never> {
       .description("Check Gmail authentication status")
       .action(() => {
         const opts = program.opts();
-        runCliEffect(gmailStatusCommand(), Boolean(opts["debug"]));
-      });
-
-    // Logs command
-    program
-      .command("logs")
-      .description("View logs")
-      .option("-f, --follow", "Follow log output")
-      .option("-l, --level <level>", "Filter by log level", "info")
-      .action((options: { follow?: boolean; level: string }) => {
-        const opts = program.opts();
         runCliEffect(
-          Effect.gen(function* () {
-            const logger = yield* LoggerServiceTag;
-            yield* logger.info("Viewing logs...");
-            if (options.follow) {
-              yield* logger.info("Following log output");
-            }
-            yield* logger.info(`Log level: ${options.level}`);
-            // TODO: Implement log viewing
-          }),
+          gmailStatusCommand(),
           Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
         );
       });
 
@@ -367,7 +388,11 @@ function main(): Effect.Effect<void, never> {
       .option("--check", "Check for updates without installing")
       .action((options: { check?: boolean }) => {
         const opts = program.opts();
-        runCliEffect(updateCommand(options), Boolean(opts["debug"]));
+        runCliEffect(
+          updateCommand(options),
+          Boolean(opts["debug"]),
+          opts["config"] as string | undefined,
+        );
       });
 
     program.parse();
