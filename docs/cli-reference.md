@@ -133,14 +133,16 @@ jazz agent chat 550e8400-e29b-41d4-a716-446655440000
 
 While chatting, use these special commands:
 
-| Command          | Description                            |
-| ---------------- | -------------------------------------- |
-| `/new`           | Start new conversation (clear context) |
-| `/status`        | Show conversation status               |
-| `/tools`         | List available tools                   |
-| `/clear`         | Clear screen                           |
-| `/help`          | Show help                              |
-| `exit` or `quit` | End conversation                       |
+| Command              | Description                            |
+| -------------------- | -------------------------------------- |
+| `/new`               | Start new conversation (clear context) |
+| `/status`            | Show conversation status               |
+| `/tools`             | List available agent tools             |
+| `/agents`            | List all available agents              |
+| `/switch [agentRef]` | Switch to a different agent            |
+| `/clear`             | Clear screen                           |
+| `/help`              | Show help                              |
+| `exit` or `quit`     | End conversation                       |
 
 **Example conversation:**
 
