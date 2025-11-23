@@ -1,29 +1,25 @@
-import chalk from "chalk";
 import { Cause, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
 
-import { MarkdownRenderer } from "../../cli/presentation/markdown-renderer";
-import {
-  OutputRenderer,
-  type DisplayConfig,
-  type OutputRendererConfig,
-} from "../../cli/presentation/output-renderer";
-import { AgentConfigService, type ConfigService } from "../../services/config";
-import { type ChatCompletionResponse } from "../../services/llm/chat";
-import { LLMServiceTag, type LLMService } from "../../services/llm/interfaces";
-import { shouldEnableStreaming } from "../../services/llm/stream-detector";
-import type { StreamEvent } from "../../services/llm/streaming-types";
-import { type ToolCall, type ToolDefinition } from "../../services/llm/tools";
-import { LoggerServiceTag, type LoggerService } from "../../services/logger";
 import { MAX_AGENT_STEPS } from "../constants/agent";
-import type { StreamingConfig } from "../types";
+import type { ProviderName } from "../constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "../interfaces/agent-config";
+import { LLMServiceTag, type LLMService } from "../interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
+import type { PresentationService, StreamingRenderer } from "../interfaces/presentation";
+import { PresentationServiceTag } from "../interfaces/presentation";
+import { ToolRegistryTag } from "../interfaces/tool-registry";
 import { type Agent } from "../types";
+import { type ChatCompletionResponse } from "../types/chat";
 import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "../types/errors";
 import { type ChatMessage } from "../types/message";
+import type { DisplayConfig, StreamingConfig } from "../types/output";
+import type { StreamEvent } from "../types/streaming";
+import { type ToolCall, type ToolDefinition } from "../types/tools";
+import { shouldEnableStreaming } from "../utils/stream-detector";
 import { formatToolArguments } from "../utils/tool-formatter";
 import { agentPromptBuilder } from "./agent-prompt";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import {
-  ToolRegistryTag,
   type ToolExecutionContext,
   type ToolExecutionResult,
   type ToolRegistry,
@@ -101,7 +97,7 @@ interface AgentRunContext {
   readonly expandedToolNames: readonly string[];
   readonly messages: ChatMessage[];
   readonly runTracker: ReturnType<typeof createAgentRunTracker>;
-  readonly provider: string;
+  readonly provider: ProviderName;
   readonly model: string;
 }
 
@@ -110,7 +106,7 @@ interface AgentRunContext {
  */
 function initializeAgentRun(
   options: AgentRunnerOptions,
-): Effect.Effect<AgentRunContext, Error, ToolRegistry | LoggerService | ConfigService> {
+): Effect.Effect<AgentRunContext, Error, ToolRegistry | LoggerService | AgentConfigService> {
   return Effect.gen(function* () {
     const { agent, userInput, conversationId, userId } = options;
     const toolRegistry = yield* ToolRegistryTag;
@@ -118,7 +114,7 @@ function initializeAgentRun(
     const actualConversationId = conversationId || `conv-${Date.now()}`;
     const history: ChatMessage[] = options.conversationHistory || [];
     const agentType = agent.config.agentType;
-    const provider = agent.config.llmProvider;
+    const provider: ProviderName = agent.config.llmProvider;
     const model = agent.config.llmModel;
 
     const runTracker = createAgentRunTracker({
@@ -222,7 +218,7 @@ function executeTool(
   name: string,
   args: Record<string, unknown>,
   context: ToolExecutionContext,
-): Effect.Effect<ToolExecutionResult, Error, ToolRegistry | LoggerService | ConfigService> {
+): Effect.Effect<ToolExecutionResult, Error, ToolRegistry | LoggerService | AgentConfigService> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
     return yield* registry.executeTool(name, args, context);
@@ -236,7 +232,8 @@ function executeToolCall(
   toolCall: ToolCall,
   context: ToolExecutionContext,
   displayConfig: DisplayConfig,
-  renderer: OutputRenderer | null,
+  renderer: StreamingRenderer | null,
+  presentationService: PresentationService,
   runTracker: ReturnType<typeof createAgentRunTracker>,
   logger: LoggerService,
   agentId: string,
@@ -244,7 +241,7 @@ function executeToolCall(
 ): Effect.Effect<
   { result: unknown; success: boolean },
   Error,
-  ToolRegistry | LoggerService | ConfigService
+  ToolRegistry | LoggerService | AgentConfigService
 > {
   return Effect.gen(function* () {
     if (toolCall.type !== "function") {
@@ -281,10 +278,8 @@ function executeToolCall(
             arguments: args,
           });
         } else {
-          const argsStr = OutputRenderer.formatToolArguments(name, args);
-          process.stdout.write(
-            `\n${chalk.cyan("⚙️")}  Executing tool: ${chalk.cyan(name)}${argsStr}...`,
-          );
+          const message = yield* presentationService.formatToolExecutionStart(name, args);
+          yield* presentationService.writeOutput(message);
         }
       }
 
@@ -304,15 +299,19 @@ function executeToolCall(
           });
         } else {
           if (result.success) {
-            const summary = OutputRenderer.formatToolResult(name, resultString);
-            process.stdout.write(
-              ` ${chalk.green("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
+            const summary = presentationService.formatToolResult(name, resultString);
+            const message = yield* presentationService.formatToolExecutionComplete(
+              summary,
+              toolDuration,
             );
+            yield* presentationService.writeOutput(message);
           } else {
             const errorMsg = result.error || "Tool execution failed";
-            process.stdout.write(
-              ` ${chalk.red("✗")} ${chalk.red(`(${errorMsg})`)} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
+            const message = yield* presentationService.formatToolExecutionError(
+              errorMsg,
+              toolDuration,
             );
+            yield* presentationService.writeOutput(message);
           }
         }
       }
@@ -337,9 +336,11 @@ function executeToolCall(
             durationMs: toolDuration,
           });
         } else {
-          process.stdout.write(
-            ` ${chalk.red("✗")} ${chalk.red(`(${errorMessage})`)} ${chalk.dim(`(${toolDuration}ms)`)}\n`,
+          const message = yield* presentationService.formatToolExecutionError(
+            errorMessage,
+            toolDuration,
           );
+          yield* presentationService.writeOutput(message);
         }
       }
 
@@ -364,13 +365,18 @@ function executeToolCalls(
   toolCalls: readonly ToolCall[],
   context: ToolExecutionContext,
   displayConfig: DisplayConfig,
-  renderer: OutputRenderer | null,
+  renderer: StreamingRenderer | null,
+  presentationService: PresentationService,
   runTracker: ReturnType<typeof createAgentRunTracker>,
   logger: LoggerService,
   agentId: string,
   conversationId: string,
   agentName: string,
-): Effect.Effect<Record<string, unknown>, Error, ToolRegistry | LoggerService | ConfigService> {
+): Effect.Effect<
+  Record<string, unknown>,
+  Error,
+  ToolRegistry | LoggerService | AgentConfigService
+> {
   return Effect.gen(function* () {
     const toolResults: Record<string, unknown> = {};
     const toolNames = toolCalls.map((tc) => tc.function.name);
@@ -384,10 +390,8 @@ function executeToolCalls(
           agentName,
         });
       } else {
-        const tools = toolNames.join(", ");
-        console.log(
-          `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${chalk.cyan(tools)}\n`,
-        );
+        const message = yield* presentationService.formatToolsDetected(agentName, toolNames);
+        yield* presentationService.writeOutput(message);
       }
     }
 
@@ -419,6 +423,7 @@ function executeToolCalls(
         context,
         displayConfig,
         renderer,
+        presentationService,
         runTracker,
         logger,
         agentId,
@@ -441,7 +446,7 @@ function ensureMessagesNotEmpty(
   agentId: string,
   conversationId: string,
   iteration: number,
-): Effect.Effect<ChatMessage[], never, LoggerService | ConfigService> {
+): Effect.Effect<ChatMessage[], never, LoggerService | AgentConfigService> {
   if (messages.length === 0) {
     return Effect.gen(function* () {
       yield* logger.warn("messagesToSend was empty; using fallback single user message", {
@@ -469,11 +474,11 @@ export class AgentRunner {
   ): Effect.Effect<
     AgentResponse,
     LLMRateLimitError | Error,
-    LLMService | ToolRegistry | LoggerService | ConfigService
+    LLMService | ToolRegistry | LoggerService | AgentConfigService | PresentationService
   > {
     return Effect.gen(function* () {
       // Get services
-      const configService = yield* AgentConfigService;
+      const configService = yield* AgentConfigServiceTag;
       const appConfig = yield* configService.appConfig;
 
       // Determine if streaming should be enabled
@@ -528,12 +533,13 @@ export class AgentRunner {
   ): Effect.Effect<
     AgentResponse,
     LLMRateLimitError | Error,
-    LLMService | ToolRegistry | LoggerService | ConfigService
+    LLMService | ToolRegistry | LoggerService | AgentConfigService | PresentationService
   > {
     return Effect.gen(function* () {
       const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
       const llmService = yield* LLMServiceTag;
       const logger = yield* LoggerServiceTag;
+      const presentationService = yield* PresentationServiceTag;
 
       // Initialize common context
       const runContext = yield* initializeAgentRun(options);
@@ -547,14 +553,14 @@ export class AgentRunner {
           textBufferMs: streamingConfig.textBufferMs,
         }),
       };
-      const rendererConfig: OutputRendererConfig = {
+
+      const renderer = yield* presentationService.createStreamingRenderer({
         displayConfig,
         streamingConfig: normalizedStreamingConfig,
         showMetrics,
         agentName: agent.name,
         reasoningEffort: agent.config.reasoningEffort,
-      };
-      const renderer = new OutputRenderer(rendererConfig);
+      });
 
       // Run agent loop
       const currentMessages = [...messages];
@@ -570,9 +576,11 @@ export class AgentRunner {
         try {
           // Log thinking indicator
           if (i === 0) {
-            yield* logger.info(MarkdownRenderer.formatThinking(agent.name, true));
+            const thinkingMsg = yield* presentationService.formatThinking(agent.name, true);
+            yield* logger.info(thinkingMsg);
           } else {
-            yield* logger.info(MarkdownRenderer.formatThinking(agent.name, false));
+            const thinkingMsg = yield* presentationService.formatThinking(agent.name, false);
+            yield* logger.info(thinkingMsg);
           }
 
           // Ensure messages are not empty
@@ -783,6 +791,7 @@ export class AgentRunner {
               context,
               displayConfig,
               renderer,
+              presentationService,
               runTracker,
               logger,
               agent.id,
@@ -809,7 +818,8 @@ export class AgentRunner {
 
           // No tool calls - final response
           response = { ...response, content: completion.content };
-          yield* logger.info(MarkdownRenderer.formatCompletion(agent.name));
+          const completionMsg = yield* presentationService.formatCompletion(agent.name);
+          yield* logger.info(completionMsg);
 
           iterationsUsed = i + 1;
           finished = true;
@@ -822,22 +832,22 @@ export class AgentRunner {
       // Post-loop cleanup
       if (!finished) {
         iterationsUsed = maxIterations;
-        const warningMessage = MarkdownRenderer.formatWarning(
+        const warningMessage = yield* presentationService.formatWarning(
           agent.name,
           `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
         );
-        console.log();
-        console.log(warningMessage);
-        console.log();
+        yield* presentationService.writeBlankLine();
+        yield* presentationService.writeOutput(warningMessage);
+        yield* presentationService.writeBlankLine();
         yield* logger.warn(warningMessage);
       } else if (!response.content?.trim() && !response.toolCalls) {
-        const warningMessage = MarkdownRenderer.formatWarning(
+        const warningMessage = yield* presentationService.formatWarning(
           agent.name,
           "model returned an empty response",
         );
-        console.log();
-        console.log(warningMessage);
-        console.log();
+        yield* presentationService.writeBlankLine();
+        yield* presentationService.writeOutput(warningMessage);
+        yield* presentationService.writeBlankLine();
         yield* logger.warn(warningMessage);
       }
 
@@ -864,12 +874,13 @@ export class AgentRunner {
   ): Effect.Effect<
     AgentResponse,
     LLMRateLimitError | Error,
-    LLMService | ToolRegistry | LoggerService | ConfigService
+    LLMService | ToolRegistry | LoggerService | AgentConfigService | PresentationService
   > {
     return Effect.gen(function* () {
       const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
       const llmService = yield* LLMServiceTag;
       const logger = yield* LoggerServiceTag;
+      const presentationService = yield* PresentationServiceTag;
 
       // Initialize common context
       const runContext = yield* initializeAgentRun(options);
@@ -891,9 +902,11 @@ export class AgentRunner {
           // Log thinking indicator
           if (displayConfig.showThinking) {
             if (i === 0) {
-              yield* logger.info(MarkdownRenderer.formatThinking(agent.name, true));
+              const thinkingMsg = yield* presentationService.formatThinking(agent.name, true);
+              yield* logger.info(thinkingMsg);
             } else {
-              yield* logger.info(MarkdownRenderer.formatThinking(agent.name, false));
+              const thinkingMsg = yield* presentationService.formatThinking(agent.name, false);
+              yield* logger.info(thinkingMsg);
             }
           }
 
@@ -962,7 +975,7 @@ export class AgentRunner {
           // Format content - always use markdown since LLMs output markdown
           let formattedContent = completion.content;
           if (formattedContent) {
-            formattedContent = MarkdownRenderer.render(formattedContent);
+            formattedContent = yield* presentationService.renderMarkdown(formattedContent);
           }
 
           // Handle tool calls
@@ -972,6 +985,7 @@ export class AgentRunner {
               context,
               displayConfig,
               null, // No renderer for non-streaming
+              presentationService,
               runTracker,
               logger,
               agent.id,
@@ -1001,12 +1015,17 @@ export class AgentRunner {
 
           // Display final response
           if (formattedContent && formattedContent.trim().length > 0) {
-            console.log();
-            console.log(MarkdownRenderer.formatAgentResponse(agent.name, formattedContent));
-            console.log();
+            const formattedResponse = yield* presentationService.formatAgentResponse(
+              agent.name,
+              formattedContent,
+            );
+            yield* presentationService.writeBlankLine();
+            yield* presentationService.writeOutput(formattedResponse);
+            yield* presentationService.writeBlankLine();
           }
 
-          yield* logger.info(MarkdownRenderer.formatCompletion(agent.name));
+          const completionMsg = yield* presentationService.formatCompletion(agent.name);
+          yield* logger.info(completionMsg);
 
           // Show metrics if enabled
           if (showMetrics && completion.usage) {
@@ -1033,16 +1052,17 @@ export class AgentRunner {
       // Post-loop cleanup
       if (!finished) {
         iterationsUsed = maxIterations;
-        yield* logger.warn(
-          MarkdownRenderer.formatWarning(
-            agent.name,
-            `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
-          ),
+        const warningMsg = yield* presentationService.formatWarning(
+          agent.name,
+          `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
         );
+        yield* logger.warn(warningMsg);
       } else if (!response.content?.trim() && !response.toolCalls) {
-        yield* logger.warn(
-          MarkdownRenderer.formatWarning(agent.name, "model returned an empty response"),
+        const warningMsg = yield* presentationService.formatWarning(
+          agent.name,
+          "model returned an empty response",
         );
+        yield* logger.warn(warningMsg);
       }
 
       // Finalize run asynchronously

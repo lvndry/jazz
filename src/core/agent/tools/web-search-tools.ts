@@ -1,12 +1,9 @@
 import { Effect } from "effect";
 import Exa from "exa-js";
-import {
-  LinkupClient,
-  type SearchDepth
-} from "linkup-sdk";
+import { LinkupClient, type SearchDepth } from "linkup-sdk";
 import { z } from "zod";
-import { AgentConfigService, type ConfigService } from "../../../services/config";
-import { LoggerServiceTag, type LoggerService } from "../../../services/logger";
+import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import { defineTool } from "./base-tool";
 import { type ToolExecutionResult } from "./tool-registry";
 
@@ -34,9 +31,9 @@ export interface WebSearchResult {
 }
 
 export function createWebSearchTool(): ReturnType<
-  typeof defineTool<ConfigService | LoggerService, WebSearchArgs>
+  typeof defineTool<AgentConfigService | LoggerService, WebSearchArgs>
 > {
-  return defineTool<ConfigService | LoggerService, WebSearchArgs>({
+  return defineTool<AgentConfigService | LoggerService, WebSearchArgs>({
     name: "web_search",
     description:
       "Search the web for current, real-time information using Linkup or Exa search engine. Returns high-quality search results with snippets and sources that you can use to synthesize answers. Supports different search depths (standard/deep). Use to find current events, recent information, or facts that may have changed since training data.",
@@ -78,9 +75,9 @@ export function createWebSearchTool(): ReturnType<
     },
     handler: function webSearchHandler(
       args: WebSearchArgs,
-    ): Effect.Effect<ToolExecutionResult, Error, ConfigService | LoggerService> {
+    ): Effect.Effect<ToolExecutionResult, Error, AgentConfigService | LoggerService> {
       return Effect.gen(function* () {
-        const config = yield* AgentConfigService;
+        const config = yield* AgentConfigServiceTag;
         const logger = yield* LoggerServiceTag;
 
         // Try Linkup if API key is present
@@ -89,9 +86,9 @@ export function createWebSearchTool(): ReturnType<
           yield* logger.info("Attempting search with Linkup provider...");
           const linkupResult = yield* executeLinkupSearch(args, linkupKey).pipe(
             Effect.catchAll((error) => {
-              return logger.warn(`Linkup search failed: ${error.message}`).pipe(
-                Effect.map(() => null as WebSearchResult | null)
-              );
+              return logger
+                .warn(`Linkup search failed: ${error.message}`)
+                .pipe(Effect.map(() => null as WebSearchResult | null));
             }),
           );
 
@@ -109,9 +106,9 @@ export function createWebSearchTool(): ReturnType<
           yield* logger.info("Attempting search with Exa provider...");
           const exaResult = yield* executeExaSearch(args, exaKey).pipe(
             Effect.catchAll((error) => {
-              return logger.warn(`Exa search failed: ${error.message}`).pipe(
-                Effect.map(() => null as WebSearchResult | null)
-              );
+              return logger
+                .warn(`Exa search failed: ${error.message}`)
+                .pipe(Effect.map(() => null as WebSearchResult | null));
             }),
           );
 
@@ -127,7 +124,8 @@ export function createWebSearchTool(): ReturnType<
           return {
             success: false,
             result: null,
-            error: "No search provider API keys found. Please configure 'linkup.api_key' or 'exa.api_key'.",
+            error:
+              "No search provider API keys found. Please configure 'linkup.api_key' or 'exa.api_key'.",
           };
         }
 
@@ -182,7 +180,9 @@ function executeLinkupSearch(
         });
       },
       catch: (error) =>
-        new Error(`Linkup search failed: ${error instanceof Error ? error.message : String(error)}`),
+        new Error(
+          `Linkup search failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
     });
 
     const results: WebSearchItem[] = response.results.map((result) => ({
@@ -232,9 +232,7 @@ function executeExaSearch(
         });
       },
       catch: (error) =>
-        new Error(
-          `Exa search failed: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+        new Error(`Exa search failed: ${error instanceof Error ? error.message : String(error)}`),
     });
 
     const results: WebSearchItem[] = (response.results || []).map((result) => ({

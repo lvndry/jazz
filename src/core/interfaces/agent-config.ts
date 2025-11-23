@@ -1,7 +1,7 @@
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import type { AppConfig } from "../types/index";
 
-export interface ConfigService {
+export interface AgentConfigService {
   readonly get: <A>(key: string) => Effect.Effect<A, never>;
   readonly getOrElse: <A>(key: string, fallback: A) => Effect.Effect<A, never>;
   readonly getOrFail: <A>(key: string) => Effect.Effect<A, never>;
@@ -9,3 +9,5 @@ export interface ConfigService {
   readonly set: <A>(key: string, value: A) => Effect.Effect<void, never>;
   readonly appConfig: Effect.Effect<AppConfig, never>;
 }
+
+export const AgentConfigServiceTag = Context.GenericTag<AgentConfigService>("AgentConfigService");

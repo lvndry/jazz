@@ -102,42 +102,42 @@ export class MarkdownRenderer {
    */
   static formatThinking(agentName: string, isFirstIteration: boolean = false): string {
     const message = isFirstIteration ? "thinking..." : "processing results...";
-    return chalk.cyan(`🤖 ${agentName} is ${message}`);
+    return chalk.cyan(`🤖  ${agentName} is ${message}`);
   }
 
   /**
    * Format completion message with styling
    */
   static formatCompletion(agentName: string): string {
-    return chalk.green(`✅ ${agentName} completed successfully`);
+    return chalk.green(`✅  ${agentName} completed successfully`);
   }
 
   /**
    * Format warning message with styling
    */
   static formatWarning(agentName: string, message: string): string {
-    return chalk.yellow(`⚠️ ${agentName}: ${message}`);
+    return chalk.yellow(`⚠️  ${agentName}: ${message}`);
   }
 
   /**
    * Format error message with styling
    */
   static formatError(message: string): string {
-    return chalk.red(`❌ ${message}`);
+    return chalk.red(`❌  ${message}`);
   }
 
   /**
    * Format info message with styling
    */
   static formatInfo(message: string): string {
-    return chalk.blue(`ℹ️ ${message}`);
+    return chalk.blue(`ℹ️  ${message}`);
   }
 
   /**
    * Format success message with styling
    */
   static formatSuccess(message: string): string {
-    return chalk.green(`✅ ${message}`);
+    return chalk.green(`✅  ${message}`);
   }
 
   /**

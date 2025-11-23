@@ -1,97 +1,49 @@
 # Contributing to Jazz
 
-Thanks for your interest in contributing to Jazz! We're excited to have you here. This guide explains how to set up your environment, follow the code style, write tests, and submit changes.
+Thanks for wanting to contribute! This document gives a quick set of guidelines and pointers to help new contributors get productive fast.
 
-## 🎯 Where to Start
+1. Read the READMEs
 
-Jazz is actively developed with many opportunities to contribute:
+- We have short READMEs in three primary layers to help you understand the code layout and responsibilities:
+  - `src/core/README.md` - business logic, domain types, and contracts
+  - `src/services/README.md` - implementations/adapters and example patterns
+  - `src/cli/README.md` - CLI commands, presentation, and entrypoint
 
-### Ready-to-Work Tasks
+2. Development checklist
 
-- **[TODO.md](./TODO.md)** - Feature roadmap with planned enhancements
-- **[Open Issues](https://github.com/lvndry/jazz/issues)** - Bug reports and feature requests
-- **[Discussions](https://discord.gg/yBDbS2NZju)** - Ideas and questions
+- Fork the repository and create a feature branch
+- Run the full checks locally:
+  - Type check: `pnpm run build` or `npm run build`
+  - Lint: `pnpm run lint` or `npm run lint`
+  - Tests: `bun test` (project uses Bun for tests) or `npm test`
+- Keep your changes small & focused. If adding an interface, add both: `src/core/interfaces/<name>.ts` and `src/services/<name>.ts` implementation.
 
-### Contribution Ideas
+3. Code style & tests
 
-- 🐛 **Fix Bugs** - Check issues labeled `bug` or `good first issue`
-- ✨ **Add Features** - Pick from TODO.md or propose your own
-- 📚 **Improve Docs** - Make Jazz easier to understand and use
-- 🧪 **Write Tests** - Increase test coverage (see TODO.md)
-- 🔧 **Add Integrations** - Google Calendar, Slack, Notion, and more!
-- 🎨 **Enhance UX** - Better colors, streaming output, error messages
+- New behavior must include tests when possible
+- Unit test guidelines:
+  - Mock interfaces with `Layer.succeed(TAG, mock)`
+  - Prefer mocking services for isolated unit tests and use small integration tests to validate wiring
+- Use project linting rules before committing
 
-**First-time contributor?** Look for issues labeled `good first issue` or start with documentation improvements!
+4. How to add a new service or adapter
 
-## Prerequisites
+- Add the interface to `src/core/interfaces` (include a Context tag)
+- Implement the service in `src/services` and expose a Layer
+- Add the Layer to `createAppLayer` in `src/main.ts` (if needed at runtime)
+- Add tests with mocked and, where appropriate, integration-level tests
 
-- Bun 1.x
-- Node.js >= 18
+5. Documentation
 
-## Getting started
+- Update the appropriate README (core/services/cli) when you add features or change interfaces
 
-1. Fork the repo and clone your fork
-2. Create a branch from `main`:
-   - Features: `feat/<topic>`
-   - Fixes: `fix/<topic>`
-   - Docs/Chores: `docs/<topic>` or `chore/<topic>`
-3. Install dependencies: `bun install`
-4. Develop using: `bun run dev agent [command]`
-5. Run checks locally: `bun run lint && bun run build && bun test`
+6. Pull request checklist
 
-## Project standards
+- [ ] Branch from main
+- [ ] Build passes locally
+- [ ] Lint passes locally
+- [ ] Tests pass locally
+- [ ] README/ARCHITECTURE updated (if applicable)
+- [ ] Short description of the change + motivation in PR description
 
-This codebase is 100% TypeScript and uses Effect-TS. Follow these critical patterns:
-
-- Use `Data.TaggedError` for all error types (see `src/core/types/errors.ts` for examples)
-- Always use `Effect.gen` for async workflows, never async/await
-- Use `yield*` to unwrap Effects inside `Effect.gen` blocks
-- Services are provided via `Effect.Layer`, never imported directly
-- Access services with `yield* ServiceTag` inside `Effect.gen`
-- Use `Effect.catchAll` to handle errors, never try/catch
-- Use `Schema` from `@effect/schema` to validate all external inputs at boundaries
-- Always specify return types for public APIs
-
-## Build and run
-
-- `bun run build` — typecheck + emit to `dist/`
-- `bun run start` — run compiled CLI from `dist/main.js`
-- `bun run dev` — watch mode for development
-
-## Testing
-
-- Use `bun test`
-- Co-locate tests or use `__tests__` directories
-- Test both success and error scenarios
-- Prefer deterministic tests; mock external services with layers
-
-Examples:
-
-```
-bun test
-bun test --watch
-```
-
-## Pull requests
-
-Before opening a PR:
-
-- All checks pass: `bun run lint && bun run build && bun test`
-- Public APIs are typed and documented
-- Update docs where needed (`README.md`, `docs/`)
-- Avoid unrelated refactors; keep PRs focused and small
-- Include screenshots/logs for UX/CLI changes when helpful
-
-Target branch: `main`. Describe the problem, solution, and trade-offs.
-
-## Security
-
-- Do not commit secrets; use env vars locally
-- Sanitize inputs and file paths
-- Use least privilege for external APIs
-
-## License
-
-By contributing, you agree that your contributions are licensed under the MIT License included in this repository.
-
-Thanks again for helping improve jazz! If you have questions, open an issue or discussion.
+If you want help writing a test or a service implementation for your change, open a draft PR and ask — maintainers will review and help iterate.

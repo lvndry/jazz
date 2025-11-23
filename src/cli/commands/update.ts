@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import packageJson from "../../../package.json";
+import { type AgentConfigService } from "../../core/interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import { UpdateCheckError, UpdateInstallError } from "../../core/types/errors";
-import type { ConfigService } from "../../services/config";
-import { LoggerServiceTag, type LoggerService } from "../../services/logger";
-import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
  * CLI command for updating Jazz to the latest version
@@ -162,9 +162,7 @@ function findJazzInstallationPath(): Effect.Effect<string | null, never> {
  * Detect which package manager was used to install Jazz based on installation path
  * Returns the package manager name or null if cannot be determined
  */
-function detectInstalledPackageManager(
-  installPath: string,
-): Effect.Effect<string | null, never> {
+function detectInstalledPackageManager(installPath: string): Effect.Effect<string | null, never> {
   return Effect.gen(function* () {
     const fs = yield* Effect.promise(() => import("fs"));
 
@@ -346,7 +344,10 @@ function detectPackageManager(): Effect.Effect<PackageManagerInfo, UpdateInstall
 /**
  * Install the latest version using the detected package manager
  */
-function installUpdate(packageName: string, terminal: TerminalService): Effect.Effect<void, UpdateInstallError> {
+function installUpdate(
+  packageName: string,
+  terminal: TerminalService,
+): Effect.Effect<void, UpdateInstallError> {
   return Effect.gen(function* () {
     const { spawn } = yield* Effect.promise(() => import("child_process"));
 
@@ -401,7 +402,7 @@ function installUpdate(packageName: string, terminal: TerminalService): Effect.E
  */
 export function updateCommand(options?: {
   check?: boolean;
-}): Effect.Effect<void, never, LoggerService | ConfigService | TerminalService> {
+}): Effect.Effect<void, never, LoggerService | AgentConfigService | TerminalService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const terminal = yield* TerminalServiceTag;
@@ -422,7 +423,13 @@ export function updateCommand(options?: {
           return yield* Effect.fail(checkError);
         });
       }),
-      Effect.catchAll(() => Effect.succeed({ hasUpdate: false, currentVersion: packageJson.version, latestVersion: packageJson.version })),
+      Effect.catchAll(() =>
+        Effect.succeed({
+          hasUpdate: false,
+          currentVersion: packageJson.version,
+          latestVersion: packageJson.version,
+        }),
+      ),
     );
 
     yield* terminal.log(`📦 Current version: ${versionInfo.currentVersion}`);

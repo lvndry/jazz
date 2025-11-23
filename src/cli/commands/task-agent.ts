@@ -1,12 +1,8 @@
 import { Effect } from "effect";
-import {
-  AgentServiceTag,
-  getAgentByIdentifier,
-  listAllAgents,
-  type AgentService,
-} from "../../core/agent/agent-service";
+import { getAgentByIdentifier, listAllAgents } from "../../core/agent/agent-service";
+import { AgentServiceTag, type AgentService } from "../../core/interfaces/agent-service";
+import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import { StorageError, StorageNotFoundError } from "../../core/types/errors";
-import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
  * CLI commands for agent management

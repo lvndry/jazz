@@ -2,20 +2,17 @@ import { FileSystem } from "@effect/platform";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Either } from "effect";
 import { google, type gmail_v1 } from "googleapis";
-import type {
-  GmailService,
-} from "./gmail";
-import {
-  GmailAuthenticationError,
-  GmailOperationError,
-  GmailServiceResource,
-} from "./gmail";
+import type { TerminalService } from "../core/interfaces/terminal";
+import { GmailAuthenticationError, GmailOperationError } from "../core/types";
+import { GmailService } from "./../core/interfaces/gmail";
+import { GmailServiceResource } from "./gmail";
 
 describe("GmailService", () => {
   let mockFileSystem: FileSystem.FileSystem;
   let mockGmail: gmail_v1.Gmail;
   let mockOAuthClient: InstanceType<typeof google.auth.OAuth2>;
   let mockRequireCredentials: () => Effect.Effect<void, GmailAuthenticationError>;
+  let mockTerminal: TerminalService;
   let gmailService: GmailService;
 
   beforeEach(() => {
@@ -62,6 +59,22 @@ describe("GmailService", () => {
     // Mock requireCredentials to always succeed
     mockRequireCredentials = mock(() => Effect.void);
 
+    // Mock Terminal service
+    mockTerminal = {
+      info: mock(() => Effect.void),
+      success: mock(() => Effect.void),
+      error: mock(() => Effect.void),
+      warn: mock(() => Effect.void),
+      log: mock(() => Effect.void),
+      debug: mock(() => Effect.void),
+      heading: mock(() => Effect.void),
+      list: mock(() => Effect.void),
+      ask: mock(() => Effect.succeed("")),
+      password: mock(() => Effect.succeed("")),
+      select: mock(() => Effect.succeed("")),
+      confirm: mock(() => Effect.succeed(true)),
+    } as TerminalService;
+
     // Create service instance
     gmailService = new GmailServiceResource(
       mockFileSystem,
@@ -69,6 +82,7 @@ describe("GmailService", () => {
       mockOAuthClient,
       mockGmail,
       mockRequireCredentials,
+      mockTerminal,
     );
   });
 
@@ -188,9 +202,7 @@ describe("GmailService", () => {
 
       (mockGmail.users.messages.list as ReturnType<typeof mock>).mockRejectedValue(createError());
 
-      const result = await Effect.runPromise(
-        gmailService.listEmails(10).pipe(Effect.either),
-      );
+      const result = await Effect.runPromise(gmailService.listEmails(10).pipe(Effect.either));
 
       expect(Either.isLeft(result)).toBe(true);
       if (Either.isLeft(result)) {
@@ -205,7 +217,7 @@ describe("GmailService", () => {
 
     it("should require credentials before authentication", async () => {
       const failingRequireCredentials = mock(() =>
-        Effect.fail(new GmailAuthenticationError("Missing credentials")),
+        Effect.fail(new GmailAuthenticationError({ message: "Missing credentials" })),
       );
 
       const serviceWithFailingCreds = new GmailServiceResource(
@@ -214,6 +226,7 @@ describe("GmailService", () => {
         mockOAuthClient,
         mockGmail,
         failingRequireCredentials,
+        mockTerminal,
       );
 
       const result = await Effect.runPromise(
@@ -322,20 +335,14 @@ describe("GmailService", () => {
       (mockGmail.users.drafts.create as ReturnType<typeof mock>).mockResolvedValue({});
 
       await Effect.runPromise(
-        gmailService.sendEmail(
-          ["to@example.com"],
-          "Subject",
-          "Body",
-          {
-            cc: ["cc@example.com"],
-            bcc: ["bcc@example.com"],
-          },
-        ),
+        gmailService.sendEmail(["to@example.com"], "Subject", "Body", {
+          cc: ["cc@example.com"],
+          bcc: ["bcc@example.com"],
+        }),
       );
 
       expect(mockGmail.users.drafts.create).toHaveBeenCalled();
-      const callArgs = (mockGmail.users.drafts.create as ReturnType<typeof mock>).mock
-        .calls[0][0];
+      const callArgs = (mockGmail.users.drafts.create as ReturnType<typeof mock>).mock.calls[0][0];
       expect(callArgs.requestBody?.message?.raw).toBeDefined();
     });
 
@@ -626,9 +633,7 @@ describe("GmailService", () => {
         data: mockMessage as gmail_v1.Schema$Message,
       });
 
-      await Effect.runPromise(
-        gmailService.modifyEmail("msg-1", { removeLabelIds: ["UNREAD"] }),
-      );
+      await Effect.runPromise(gmailService.modifyEmail("msg-1", { removeLabelIds: ["UNREAD"] }));
 
       expect(mockGmail.users.messages.modify).toHaveBeenCalledWith({
         userId: "me",
@@ -713,9 +718,7 @@ describe("GmailService", () => {
 
       (mockGmail.users.messages.list as ReturnType<typeof mock>).mockRejectedValue(error);
 
-      const result = await Effect.runPromise(
-        gmailService.listEmails(10).pipe(Effect.either),
-      );
+      const result = await Effect.runPromise(gmailService.listEmails(10).pipe(Effect.either));
 
       expect(Either.isLeft(result)).toBe(true);
       if (Either.isLeft(result)) {
@@ -734,9 +737,7 @@ describe("GmailService", () => {
 
       (mockGmail.users.messages.list as ReturnType<typeof mock>).mockRejectedValue(error);
 
-      const result = await Effect.runPromise(
-        gmailService.listEmails(10).pipe(Effect.either),
-      );
+      const result = await Effect.runPromise(gmailService.listEmails(10).pipe(Effect.either));
 
       expect(Either.isLeft(result)).toBe(true);
       if (Either.isLeft(result)) {
@@ -856,4 +857,3 @@ describe("GmailService", () => {
     });
   });
 });
-

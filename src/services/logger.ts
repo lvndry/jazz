@@ -1,11 +1,12 @@
-import { Context, Effect, Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { type AgentConfigService } from "../core/interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "../core/interfaces/logger";
 import { isInstalledGlobally } from "../core/utils/runtime-detection";
 import { formatToolArguments } from "../core/utils/tool-formatter";
-import { type ConfigService } from "./config";
 
 /**
  * Structured logging service using Effect's Logger API
@@ -15,8 +16,6 @@ import { type ConfigService } from "./config";
  * including automatic context propagation, fiber IDs, and log level management.
  */
 
-import { type LoggerService } from "../core/interfaces/logger";
-
 /**
  * Structured logging service using Effect's Logger API
  *
@@ -24,8 +23,6 @@ import { type LoggerService } from "../core/interfaces/logger";
  * (colors, emojis) while leveraging Effect's built-in logging capabilities
  * including automatic context propagation, fiber IDs, and log level management.
  */
-
-export { type LoggerService };
 
 export class LoggerServiceImpl implements LoggerService {
   constructor() {}
@@ -79,8 +76,6 @@ function jsonReplacer(_key: string, value: unknown): unknown {
   return value;
 }
 
-export const LoggerServiceTag = Context.GenericTag<LoggerService>("LoggerService");
-
 /**
  * Create the logger layer
  *
@@ -95,7 +90,7 @@ export function logAgentOperation(
   agentId: string,
   operation: string,
   meta?: Record<string, unknown>,
-): Effect.Effect<void, never, LoggerService | ConfigService> {
+): Effect.Effect<void, never, LoggerService | AgentConfigService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     yield* logger.info(`Agent ${agentId}: ${operation}`, {
@@ -110,7 +105,7 @@ export function logAgentOperation(
 export function logToolExecutionStart(
   toolName: string,
   args?: Record<string, unknown>,
-): Effect.Effect<void, never, LoggerService | ConfigService> {
+): Effect.Effect<void, never, LoggerService | AgentConfigService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const toolEmoji = getToolEmoji(toolName);
@@ -125,7 +120,7 @@ export function logToolExecutionSuccess(
   durationMs: number,
   resultSummary?: string,
   fullResult?: unknown,
-): Effect.Effect<void, never, LoggerService | ConfigService> {
+): Effect.Effect<void, never, LoggerService | AgentConfigService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const toolEmoji = getToolEmoji(toolName);
@@ -174,7 +169,7 @@ export function logToolExecutionError(
   toolName: string,
   durationMs: number,
   error: string,
-): Effect.Effect<void, never, LoggerService | ConfigService> {
+): Effect.Effect<void, never, LoggerService | AgentConfigService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const toolEmoji = getToolEmoji(toolName);
@@ -189,7 +184,7 @@ export function logToolExecutionApproval(
   toolName: string,
   durationMs: number,
   approvalMessage: string,
-): Effect.Effect<void, never, LoggerService | ConfigService> {
+): Effect.Effect<void, never, LoggerService | AgentConfigService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const toolEmoji = getToolEmoji(toolName);

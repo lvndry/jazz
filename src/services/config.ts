@@ -1,5 +1,5 @@
 import { FileSystem } from "@effect/platform";
-import { Context, Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option } from "effect";
 import type {
   AppConfig,
   ExaConfig,
@@ -16,11 +16,9 @@ import { getDefaultDataDirectory } from "../core/utils/runtime-detection";
  * Configuration service using Effect's Config module
  */
 
-import { type ConfigService } from "../core/interfaces/config";
+import { AgentConfigServiceTag, type AgentConfigService } from "../core/interfaces/agent-config";
 
-export { type ConfigService };
-
-export class ConfigServiceImpl implements ConfigService {
+export class ConfigServiceImpl implements AgentConfigService {
   private currentConfig: AppConfig;
   private configPath: string | undefined;
   private fs: FileSystem.FileSystem;
@@ -90,14 +88,12 @@ export class ConfigServiceImpl implements ConfigService {
   }
 }
 
-export const AgentConfigService = Context.GenericTag<ConfigService>("ConfigService");
-
 export function createConfigLayer(
   debug?: boolean,
   customConfigPath?: string,
-): Layer.Layer<ConfigService, never, FileSystem.FileSystem> {
+): Layer.Layer<AgentConfigService, never, FileSystem.FileSystem> {
   return Layer.effect(
-    AgentConfigService,
+    AgentConfigServiceTag,
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const loaded = yield* loadConfigFile(fs, customConfigPath);
@@ -124,17 +120,17 @@ export function createConfigLayer(
 export function getConfigValue<T>(
   key: string,
   defaultValue: T,
-): Effect.Effect<T, never, ConfigService> {
+): Effect.Effect<T, never, AgentConfigService> {
   return Effect.gen(function* () {
-    const config = yield* AgentConfigService;
+    const config = yield* AgentConfigServiceTag;
     const result = yield* config.getOrElse(key, defaultValue);
     return result;
   });
 }
 
-export function requireConfigValue<T>(key: string): Effect.Effect<T, never, ConfigService> {
+export function requireConfigValue<T>(key: string): Effect.Effect<T, never, AgentConfigService> {
   return Effect.gen(function* () {
-    const config = yield* AgentConfigService;
+    const config = yield* AgentConfigServiceTag;
     const result = yield* config.getOrFail(key);
     return result as T;
   });

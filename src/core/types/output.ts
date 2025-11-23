@@ -104,3 +104,14 @@ export interface StreamingConfig {
    */
   readonly textBufferMs?: number;
 }
+
+/**
+ * Display configuration for rendering output
+ * This is a core type that can be used by presentation services
+ */
+export interface DisplayConfig {
+  readonly showThinking: boolean;
+  readonly showToolExecution: boolean;
+  readonly mode: OutputMode;
+  readonly colorProfile?: ColorProfile | undefined; // Auto-detect if not specified
+}

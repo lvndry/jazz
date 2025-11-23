@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import type { ConfigService } from "../../services/config";
-import type { LoggerService } from "../../services/logger";
+import type { AgentConfigService } from "../interfaces/agent-config";
+import type { LoggerService } from "../interfaces/logger";
 import type { ChatMessage } from "../types/message";
 
 /**
@@ -39,7 +39,7 @@ export class ContextWindowManager {
     logger: LoggerService,
     agentId: string,
     conversationId: string,
-  ): Effect.Effect<TrimResult | void, never, LoggerService | ConfigService> {
+  ): Effect.Effect<TrimResult | void, never, LoggerService | AgentConfigService> {
     if (messages.length <= this.config.maxMessages) {
       return Effect.void;
     }

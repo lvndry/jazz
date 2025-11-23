@@ -1,4 +1,5 @@
 import { Effect, Layer } from "effect";
+import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import {
   createCdTool,
   createExecuteMkdirTool,
@@ -8,12 +9,14 @@ import {
   createFindPathTool,
   createFindTool,
   createGrepTool,
+  createHeadTool,
   createLsTool,
   createMkdirTool,
   createPwdTool,
   createReadFileTool,
   createRmTool,
   createStatTool,
+  createTailTool,
   createWriteFileTool,
 } from "./fs-tools";
 import {
@@ -52,7 +55,7 @@ import {
 } from "./gmail-tools";
 import { createHttpRequestTool } from "./http-tools";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
-import { ToolRegistryTag, type ToolCategory, type ToolRegistry } from "./tool-registry";
+import { type ToolCategory, type ToolRegistry } from "./tool-registry";
 import { createWebSearchTool } from "./web-search-tools";
 
 /**
@@ -76,8 +79,14 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
 
 export const GMAIL_CATEGORY: ToolCategory = { id: "gmail", displayName: "Gmail" };
 export const HTTP_CATEGORY: ToolCategory = { id: "http", displayName: "HTTP" };
-export const FILE_MANAGEMENT_CATEGORY: ToolCategory = { id: "file_management", displayName: "File Management" };
-export const SHELL_COMMANDS_CATEGORY: ToolCategory = { id: "shell_commands", displayName: "Shell Commands" };
+export const FILE_MANAGEMENT_CATEGORY: ToolCategory = {
+  id: "file_management",
+  displayName: "File Management",
+};
+export const SHELL_COMMANDS_CATEGORY: ToolCategory = {
+  id: "shell_commands",
+  displayName: "Shell Commands",
+};
 export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
 export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Search" };
 
@@ -193,6 +202,8 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     const cd = createCdTool();
     const grep = createGrepTool();
     const readFile = createReadFileTool();
+    const head = createHeadTool();
+    const tail = createTailTool();
     const find = createFindTool();
     const finddir = createFindDirTool();
     const findPath = createFindPathTool();
@@ -209,6 +220,8 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(cd);
     yield* registerTool(grep);
     yield* registerTool(readFile);
+    yield* registerTool(head);
+    yield* registerTool(tail);
     yield* registerTool(writeFile);
     yield* registerTool(find);
     yield* registerTool(finddir);

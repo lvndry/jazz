@@ -1,9 +1,8 @@
 import { Effect } from "effect";
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir } from "node:fs/promises";
-import path from "node:path";
 
-import { getLogsDirectory } from "../../../services/logger";
+import type { LoggerService } from "../../interfaces/logger";
+import { LoggerServiceTag } from "../../interfaces/logger";
 import { type Agent } from "../../types";
 
 export interface AgentRunTrackerContext {
@@ -151,7 +150,7 @@ export function finalizeAgentRun(
     readonly iterationsUsed: number;
     readonly finished: boolean;
   },
-): Effect.Effect<void, Error> {
+): Effect.Effect<void, Error, LoggerService> {
   const endedAt = new Date();
   const durationMs = endedAt.getTime() - tracker.startedAt.getTime();
   const totalTokens = tracker.totalPromptTokens + tracker.totalCompletionTokens;
@@ -247,39 +246,45 @@ interface TokenUsageLogPayload {
   readonly firstTokenLatencyMs?: number;
 }
 
-function writeTokenUsageLog(payload: TokenUsageLogPayload): Effect.Effect<void, Error> {
-  return Effect.tryPromise({
-    try: async () => {
-      const logsDir = getLogsDirectory();
-      await mkdir(logsDir, { recursive: true });
-      const logFilePath = path.join(logsDir, "agent-token-usage.log");
-      const timestamp = new Date().toISOString();
-      const safeAgentName = payload.agentName.replace(/"/g, '\\"');
-      const safeLastError = payload.lastError ? payload.lastError.replace(/"/g, '\\"') : "none";
-      const safeToolsUsed = `[${payload.toolsUsed.join(",")}]`;
-      const safeToolCallCounts = JSON.stringify(payload.toolCallCounts);
-      const safeToolInvocationSequence = JSON.stringify(payload.toolInvocationSequence);
-      const safeErrors = JSON.stringify(payload.errors);
-      const safeIterationSummaries = JSON.stringify(payload.iterationSummaries);
-      const firstTokenLatency =
-        payload.firstTokenLatencyMs !== undefined ? ` firstTokenLatencyMs=${payload.firstTokenLatencyMs}` : "";
-      const line = `${timestamp} runId=${payload.runId} agentId=${payload.agentId} agentName="${safeAgentName}" agentType=${payload.agentType} agentUpdatedAt=${payload.agentUpdatedAt.toISOString()} conversationId=${payload.conversationId} userId=${
-        payload.userId ?? "anonymous"
-      } provider=${payload.provider ?? "unknown"} model=${payload.model ?? "unknown"} reasoningEffort=${
-        payload.reasoningEffort ?? "disable"
-      } iterations=${payload.iterations} maxIterations=${payload.maxIterations} finished=${payload.finished} retryCount=${
-        payload.retryCount
-      } lastError="${safeLastError}" promptTokens=${payload.promptTokens} completionTokens=${
-        payload.completionTokens
-      } totalTokens=${payload.totalTokens}${firstTokenLatency} toolCalls=${payload.toolCalls} toolErrors=${
-        payload.toolErrors
-      } toolsUsed=${safeToolsUsed} toolCallCounts=${safeToolCallCounts} toolInvocationSequence=${safeToolInvocationSequence} errors=${safeErrors} iterationSummaries=${safeIterationSummaries} startedAt=${payload.startedAt.toISOString()} endedAt=${payload.endedAt.toISOString()} durationMs=${payload.durationMs}\n`;
-      await appendFile(logFilePath, line, { encoding: "utf8" });
-    },
-    catch: (error: unknown) =>
-      new Error(
-        `Failed to write token usage log: ${error instanceof Error ? error.message : String(error)}`,
-      ),
+function writeTokenUsageLog(
+  payload: TokenUsageLogPayload,
+): Effect.Effect<void, Error, LoggerService> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+
+    yield* logger.writeToFile("info", "Agent token usage", {
+      runId: payload.runId,
+      agentId: payload.agentId,
+      agentName: payload.agentName,
+      agentType: payload.agentType,
+      agentUpdatedAt: payload.agentUpdatedAt.toISOString(),
+      conversationId: payload.conversationId,
+      userId: payload.userId ?? "anonymous",
+      provider: payload.provider ?? "unknown",
+      model: payload.model ?? "unknown",
+      reasoningEffort: payload.reasoningEffort ?? "disable",
+      iterations: payload.iterations,
+      maxIterations: payload.maxIterations,
+      finished: payload.finished,
+      retryCount: payload.retryCount,
+      ...(payload.lastError ? { lastError: payload.lastError } : {}),
+      promptTokens: payload.promptTokens,
+      completionTokens: payload.completionTokens,
+      totalTokens: payload.totalTokens,
+      ...(payload.firstTokenLatencyMs !== undefined
+        ? { firstTokenLatencyMs: payload.firstTokenLatencyMs }
+        : {}),
+      toolCalls: payload.toolCalls,
+      toolErrors: payload.toolErrors,
+      toolsUsed: payload.toolsUsed,
+      toolCallCounts: payload.toolCallCounts,
+      toolInvocationSequence: payload.toolInvocationSequence,
+      errors: payload.errors,
+      iterationSummaries: payload.iterationSummaries,
+      startedAt: payload.startedAt.toISOString(),
+      endedAt: payload.endedAt.toISOString(),
+      durationMs: payload.durationMs,
+    });
   });
 }
 
@@ -297,4 +302,3 @@ function pushError(tracker: AgentRunTracker, error: unknown, context?: string): 
   }
   return contextualized;
 }
-

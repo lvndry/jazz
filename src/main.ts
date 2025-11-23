@@ -12,24 +12,23 @@ import { editAgentCommand } from "./cli/commands/edit-agent";
 import { deleteAgentCommand, getAgentCommand, listAgentsCommand } from "./cli/commands/task-agent";
 import { updateCommand } from "./cli/commands/update";
 import { MarkdownRenderer } from "./cli/presentation/markdown-renderer";
-import { createAgentServiceLayer } from "./core/agent/agent-service";
+import { CLIPresentationServiceLayer } from "./cli/presentation/presentation-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
+import { AgentConfigServiceTag } from "./core/interfaces/agent-config";
+import { StorageServiceTag } from "./core/interfaces/storage";
+import { TerminalServiceTag } from "./core/interfaces/terminal";
 import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
-import { AgentConfigService, createConfigLayer } from "./services/config";
+import { createAgentServiceLayer } from "./services/agent-service";
+import { createConfigLayer } from "./services/config";
 import { createFileSystemContextServiceLayer } from "./services/fs";
 import { createGmailServiceLayer } from "./services/gmail";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer } from "./services/logger";
 import { FileStorageService } from "./services/storage/file";
-import { StorageServiceTag } from "./services/storage/service";
 import { resolveStorageDirectory } from "./services/storage/utils";
-import {
-  createTerminalServiceLayer,
-  TerminalServiceImpl,
-  TerminalServiceTag,
-} from "./services/terminal";
+import { createTerminalServiceLayer, TerminalServiceImpl } from "./services/terminal";
 
 /**
  * Main entry point for the Jazz CLI
@@ -59,7 +58,7 @@ function createAppLayer(debug?: boolean, configPath?: string) {
   const storageLayer = Layer.effect(
     StorageServiceTag,
     Effect.gen(function* () {
-      const config = yield* AgentConfigService;
+      const config = yield* AgentConfigServiceTag;
       const { storage } = yield* config.appConfig;
       const basePath = resolveStorageDirectory(storage);
       const fs = yield* FileSystem.FileSystem;
@@ -88,6 +87,8 @@ function createAppLayer(debug?: boolean, configPath?: string) {
 
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
 
+  const presentationLayer = CLIPresentationServiceLayer;
+
   // Create a complete layer by providing all dependencies
   return Layer.mergeAll(
     fileSystemLayer,
@@ -101,6 +102,7 @@ function createAppLayer(debug?: boolean, configPath?: string) {
     shellLayer,
     toolRegistrationLayer,
     agentLayer,
+    presentationLayer,
   );
 }
 

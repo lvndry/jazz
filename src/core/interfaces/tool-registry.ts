@@ -1,7 +1,7 @@
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import type z from "zod";
 import type { ToolDefinition, ToolExecutionResult } from "../types/tools";
-import type { ConfigService } from "./config";
+import type { AgentConfigService } from "./agent-config";
 import type { LoggerService } from "./logger";
 
 export interface ToolCategory {
@@ -54,5 +54,7 @@ export interface ToolRegistry {
     name: string,
     args: Record<string, unknown>,
     context: ToolExecutionContext,
-  ) => Effect.Effect<ToolExecutionResult, Error, ToolRegistry | LoggerService | ConfigService>;
+  ) => Effect.Effect<ToolExecutionResult, Error, ToolRegistry | LoggerService | AgentConfigService>;
 }
+
+export const ToolRegistryTag = Context.GenericTag<ToolRegistry>("ToolRegistry");

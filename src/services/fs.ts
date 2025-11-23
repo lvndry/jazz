@@ -1,39 +1,9 @@
 import { FileSystem } from "@effect/platform";
 import { spawn } from "child_process";
-import { Context, Effect, Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { homedir } from "os";
 import * as nodePath from "path";
-
-export interface FileSystemContextService {
-  readonly getCwd: (key: { agentId: string; conversationId?: string }) => Effect.Effect<string>;
-  readonly setCwd: (
-    key: { agentId: string; conversationId?: string },
-    path: string,
-  ) => Effect.Effect<void, Error, FileSystem.FileSystem>;
-  readonly resolvePath: (
-    key: { agentId: string; conversationId?: string },
-    path: string,
-    options?: { skipExistenceCheck?: boolean },
-  ) => Effect.Effect<string, Error, FileSystem.FileSystem>;
-  readonly findDirectory: (
-    key: { agentId: string; conversationId?: string },
-    name: string,
-    maxDepth?: number,
-  ) => Effect.Effect<
-    { results: readonly string[]; warnings?: readonly string[] },
-    Error,
-    FileSystem.FileSystem
-  >;
-  readonly resolvePathForMkdir: (
-    key: { agentId: string; conversationId?: string },
-    path: string,
-  ) => Effect.Effect<string, Error, FileSystem.FileSystem>;
-  readonly escapePath: (path: string) => string;
-}
-
-export const FileSystemContextServiceTag = Context.GenericTag<FileSystemContextService>(
-  "FileSystemContextService",
-);
+import { type FileSystemContextService, FileSystemContextServiceTag } from "../core/interfaces/fs";
 
 /**
  * filesystem context service that tracks a working directory per agent/conversation.

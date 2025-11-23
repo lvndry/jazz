@@ -2,6 +2,8 @@
  * Agent types
  */
 
+import type { ProviderName } from "../constants/models";
+
 export interface Agent {
   readonly id: string;
   readonly name: string;
@@ -15,7 +17,7 @@ export interface Agent {
 export interface AgentConfig {
   readonly environment?: Record<string, string>;
   readonly agentType: string;
-  readonly llmProvider: string;
+  readonly llmProvider: ProviderName;
   readonly llmModel: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   readonly tools?: readonly string[];

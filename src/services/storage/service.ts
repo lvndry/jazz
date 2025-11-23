@@ -1,17 +1,7 @@
-import { Context, Effect } from "effect";
-
+import { Effect } from "effect";
+import { StorageServiceTag, type StorageService } from "../../core/interfaces/storage";
 import type { Agent } from "../../core/types";
-
 import type { StorageError, StorageNotFoundError } from "../../core/types/errors";
-
-export interface StorageService {
-  readonly saveAgent: (agent: Agent) => Effect.Effect<void, StorageError>;
-  readonly getAgent: (id: string) => Effect.Effect<Agent, StorageError | StorageNotFoundError>;
-  readonly listAgents: () => Effect.Effect<readonly Agent[], StorageError>;
-  readonly deleteAgent: (id: string) => Effect.Effect<void, StorageError | StorageNotFoundError>;
-}
-
-export const StorageServiceTag = Context.GenericTag<StorageService>("StorageService");
 
 export function saveAgent(agent: Agent): Effect.Effect<void, StorageError, StorageService> {
   return Effect.gen(function* () {

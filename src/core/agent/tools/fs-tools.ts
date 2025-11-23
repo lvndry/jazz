@@ -2,10 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { spawn } from "child_process";
 import { Effect } from "effect";
 import { z } from "zod";
-import {
-  type FileSystemContextService,
-  FileSystemContextServiceTag,
-} from "../../../services/fs";
+import { type FileSystemContextService, FileSystemContextServiceTag } from "../../interfaces/fs";
 import { defineTool } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 import { type Tool } from "./tool-registry";
@@ -79,7 +76,8 @@ export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemCon
     { name: string; maxDepth?: number; type?: "directory" | "file" | "both"; searchPath?: string }
   >({
     name: "find_path",
-    description: "Quick search for files or directories by name with shallow depth (default 3 levels). Use when you need to quickly locate a specific file or directory by name without deep traversal.",
+    description:
+      "Quick search for files or directories by name with shallow depth (default 3 levels). Use when you need to quickly locate a specific file or directory by name without deep traversal.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {
@@ -274,7 +272,8 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
     }
   >({
     name: "ls",
-    description: "List files and directories within a specified path. Supports recursive traversal, filtering by name patterns (substring or regex), showing hidden files, and limiting results. Returns file/directory names, paths, and types.",
+    description:
+      "List files and directories within a specified path. Supports recursive traversal, filtering by name patterns (substring or regex), showing hidden files, and limiting results. Returns file/directory names, paths, and types.",
     tags: ["filesystem", "listing"],
     parameters,
     validate: (args) => {
@@ -466,7 +465,8 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     { path: string; startLine?: number; endLine?: number; maxBytes?: number; encoding?: string }
   >({
     name: "read_file",
-    description: "Read the contents of a text file with optional line range selection (startLine/endLine). Automatically handles UTF-8 BOM, enforces size limits to prevent memory issues (default 128KB), and reports truncation. Returns file content, encoding, line counts, and range information.",
+    description:
+      "Read the contents of a text file with optional line range selection (startLine/endLine). Automatically handles UTF-8 BOM, enforces size limits to prevent memory issues (default 128KB), and reports truncation. Returns file content, encoding, line counts, and range information.",
     tags: ["filesystem", "read"],
     parameters,
     validate: (args) => {
@@ -579,6 +579,251 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
   });
 }
 
+// head
+export function createHeadTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+  const parameters = z
+    .object({
+      path: z.string().min(1).describe("File path to read (relative to cwd allowed)"),
+      lines: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Number of lines to return from the beginning (default: 10)"),
+      maxBytes: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Maximum number of bytes to read (content is truncated if exceeded)"),
+    })
+    .strict();
+
+  return defineTool<
+    FileSystem.FileSystem | FileSystemContextService,
+    { path: string; lines?: number; maxBytes?: number }
+  >({
+    name: "head",
+    description:
+      "Read the first N lines of a file (default: 10). Useful for quickly viewing the beginning of a file without reading the entire contents. Returns file content, line counts, and metadata.",
+    tags: ["filesystem", "read"],
+    parameters,
+    validate: (args) => {
+      const result = parameters.safeParse(args);
+      return result.success
+        ? ({
+            valid: true,
+            value: result.data as unknown as {
+              path: string;
+              lines?: number;
+              maxBytes?: number;
+            },
+          } as const)
+        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+    },
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const shell = yield* FileSystemContextServiceTag;
+        const filePathResult = yield* shell
+          .resolvePath(buildKeyFromContext(context), args.path)
+          .pipe(
+            Effect.catchAll((error) =>
+              Effect.succeed({
+                success: false,
+                result: null,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            ),
+          );
+
+        // If path resolution failed, return the error with suggestions
+        if (
+          typeof filePathResult === "object" &&
+          "success" in filePathResult &&
+          !filePathResult.success
+        ) {
+          return filePathResult;
+        }
+
+        const filePath = filePathResult as string;
+
+        try {
+          const stat = yield* fs.stat(filePath);
+          if (stat.type === "Directory") {
+            return { success: false, result: null, error: `Not a file: ${filePath}` };
+          }
+
+          let content = yield* fs.readFileString(filePath);
+
+          // Strip UTF-8 BOM if present
+          if (content.length > 0 && content.charCodeAt(0) === 0xfeff) {
+            content = content.slice(1);
+          }
+
+          const lines = content.split(/\r?\n/);
+          const totalLines = lines.length;
+          const requestedLines = args.lines ?? 10;
+          const returnedLines = Math.min(requestedLines, totalLines);
+
+          // Enforce maxBytes safeguard (approximate by string length)
+          const maxBytes =
+            typeof args.maxBytes === "number" && args.maxBytes > 0 ? args.maxBytes : 131072;
+          let truncated = false;
+          let headContent = lines.slice(0, returnedLines).join("\n");
+
+          if (headContent.length > maxBytes) {
+            headContent = headContent.slice(0, maxBytes);
+            truncated = true;
+          }
+
+          return {
+            success: true,
+            result: {
+              path: filePath,
+              content: headContent,
+              truncated,
+              totalLines,
+              returnedLines,
+              requestedLines,
+            },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            result: null,
+            error: `head failed: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
+      }),
+  });
+}
+
+// tail
+export function createTailTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+  const parameters = z
+    .object({
+      path: z.string().min(1).describe("File path to read (relative to cwd allowed)"),
+      lines: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Number of lines to return from the end (default: 10)"),
+      maxBytes: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Maximum number of bytes to read (content is truncated if exceeded)"),
+    })
+    .strict();
+
+  return defineTool<
+    FileSystem.FileSystem | FileSystemContextService,
+    { path: string; lines?: number; maxBytes?: number }
+  >({
+    name: "tail",
+    description:
+      "Read the last N lines of a file (default: 10). Useful for quickly viewing the end of a file, such as log files or recent entries. Returns file content, line counts, and metadata.",
+    tags: ["filesystem", "read"],
+    parameters,
+    validate: (args) => {
+      const result = parameters.safeParse(args);
+      return result.success
+        ? ({
+            valid: true,
+            value: result.data as unknown as {
+              path: string;
+              lines?: number;
+              maxBytes?: number;
+            },
+          } as const)
+        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+    },
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const shell = yield* FileSystemContextServiceTag;
+        const filePathResult = yield* shell
+          .resolvePath(buildKeyFromContext(context), args.path)
+          .pipe(
+            Effect.catchAll((error) =>
+              Effect.succeed({
+                success: false,
+                result: null,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            ),
+          );
+
+        // If path resolution failed, return the error with suggestions
+        if (
+          typeof filePathResult === "object" &&
+          "success" in filePathResult &&
+          !filePathResult.success
+        ) {
+          return filePathResult;
+        }
+
+        const filePath = filePathResult as string;
+
+        try {
+          const stat = yield* fs.stat(filePath);
+          if (stat.type === "Directory") {
+            return { success: false, result: null, error: `Not a file: ${filePath}` };
+          }
+
+          let content = yield* fs.readFileString(filePath);
+
+          // Strip UTF-8 BOM if present
+          if (content.length > 0 && content.charCodeAt(0) === 0xfeff) {
+            content = content.slice(1);
+          }
+
+          const lines = content.split(/\r?\n/);
+          const totalLines = lines.length;
+          const requestedLines = args.lines ?? 10;
+          const returnedLines = Math.min(requestedLines, totalLines);
+
+          // Get the last N lines
+          const startIndex = Math.max(0, totalLines - returnedLines);
+          let tailContent = lines.slice(startIndex).join("\n");
+
+          // Enforce maxBytes safeguard (approximate by string length)
+          const maxBytes =
+            typeof args.maxBytes === "number" && args.maxBytes > 0 ? args.maxBytes : 131072;
+          let truncated = false;
+
+          if (tailContent.length > maxBytes) {
+            tailContent = tailContent.slice(-maxBytes);
+            truncated = true;
+          }
+
+          return {
+            success: true,
+            result: {
+              path: filePath,
+              content: tailContent,
+              truncated,
+              totalLines,
+              returnedLines,
+              requestedLines,
+              startLine: startIndex + 1, // 1-based line number
+              endLine: totalLines,
+            },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            result: null,
+            error: `tail failed: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
+      }),
+  });
+}
+
 // writeFile (approval required)
 type WriteFileArgs = { path: string; content: string; encoding?: string; createDirs?: boolean };
 
@@ -651,7 +896,8 @@ export function createExecuteWriteFileTool(): Tool<
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, WriteFileArgs>({
     name: "execute_write_file",
-    description: "Internal tool that performs the actual file write operation after user has approved the write_file request. Creates or overwrites the file at the specified path with the provided content.",
+    description:
+      "Internal tool that performs the actual file write operation after user has approved the write_file request. Creates or overwrites the file at the specified path with the provided content.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -722,7 +968,8 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     }
   >({
     name: "grep",
-    description: "Search for text patterns within file contents using grep. Supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers.",
+    description:
+      "Search for text patterns within file contents using grep. Supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers.",
     tags: ["search", "text"],
     parameters,
     validate: (args) => {
@@ -1198,7 +1445,8 @@ export function createExecuteMkdirTool(): Tool<FileSystem.FileSystem | FileSyste
     { path: string; recursive?: boolean }
   >({
     name: "execute_mkdir",
-    description: "Internal tool that performs the actual directory creation after user has approved the mkdir request. Creates the directory at the specified path, optionally creating parent directories.",
+    description:
+      "Internal tool that performs the actual directory creation after user has approved the mkdir request. Creates the directory at the specified path, optionally creating parent directories.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -1255,7 +1503,8 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, { path: string }>({
     name: "stat",
-    description: "Check if a file or directory exists and retrieve its metadata (type, size, modification time, access time). Use this to verify existence before operations or to get file information without reading contents.",
+    description:
+      "Check if a file or directory exists and retrieve its metadata (type, size, modification time, access time). Use this to verify existence before operations or to get file information without reading contents.",
     tags: ["filesystem", "info"],
     parameters,
     validate: (args) => {
@@ -1381,7 +1630,8 @@ export function createExecuteRmTool(): Tool<FileSystem.FileSystem | FileSystemCo
     { path: string; recursive?: boolean; force?: boolean }
   >({
     name: "execute_rm",
-    description: "Internal tool that performs the actual file/directory removal after user has approved the rm request. Deletes the specified path, optionally recursively for directories.",
+    description:
+      "Internal tool that performs the actual file/directory removal after user has approved the rm request. Deletes the specified path, optionally recursively for directories.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -1467,7 +1717,8 @@ export function createFindDirTool(): Tool<FileSystem.FileSystem | FileSystemCont
     { name: string; path?: string; maxDepth?: number }
   >({
     name: "find_dir",
-    description: "Search specifically for directories by name with partial matching support. Specialized version of find_path that only returns directories. Use when you need to locate a directory and want to filter out files from results.",
+    description:
+      "Search specifically for directories by name with partial matching support. Specialized version of find_path that only returns directories. Use when you need to locate a directory and want to filter out files from results.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {

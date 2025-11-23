@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { type TerminalService, TerminalServiceTag } from "../../services/terminal";
+import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import type { JazzError } from "../types/errors";
 
 /**

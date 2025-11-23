@@ -1,7 +1,13 @@
 import { Effect } from "effect";
-import type { ColorProfile, OutputMode, RenderTheme, StreamingConfig } from "../../core/types";
 import { type LLMError } from "../../core/types/errors";
 import type { StreamEvent } from "../../core/types/llm";
+import type {
+  ColorProfile,
+  DisplayConfig,
+  OutputMode,
+  RenderTheme,
+  StreamingConfig,
+} from "../../core/types/output";
 import type { ToolCall } from "../../core/types/tools";
 import {
   formatToolArguments as formatToolArgumentsShared,
@@ -13,16 +19,8 @@ import type { OutputWriter } from "./output-writer";
 import { JSONWriter, TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
 
-/**
- * Display configuration for rendering
- * Simplified - removed format field since LLMs always output markdown
- */
-export interface DisplayConfig {
-  readonly showThinking: boolean;
-  readonly showToolExecution: boolean;
-  readonly mode: OutputMode;
-  readonly colorProfile?: ColorProfile | undefined; // Auto-detect if not specified
-}
+// Re-export DisplayConfig for backward compatibility
+export type { DisplayConfig } from "../../core/types/output";
 
 /**
  * Output renderer configuration

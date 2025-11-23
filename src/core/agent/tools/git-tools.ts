@@ -1,10 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import {
-  type FileSystemContextService,
-  FileSystemContextServiceTag,
-} from "../../../services/fs";
+import { type FileSystemContextService, FileSystemContextServiceTag } from "../../interfaces/fs";
 import { defineTool } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 import { createSanitizedEnv } from "./env-utils";
@@ -163,7 +160,8 @@ export function createGitStatusTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitStatusArgs>({
     name: "git_status",
-    description: "Display the current status of a Git repository's working tree. Shows modified files, untracked files, staged changes, and current branch information. Use this to understand what changes exist before committing or to check repository state.",
+    description:
+      "Display the current status of a Git repository's working tree. Shows modified files, untracked files, staged changes, and current branch information. Use this to understand what changes exist before committing or to check repository state.",
     tags: ["git", "status"],
     parameters,
     validate: (args) => {
@@ -185,7 +183,11 @@ export function createGitStatusTool(): ReturnType<typeof defineTool> {
         const typedArgs = args as GitStatusArgs;
 
         // Catch errors from path resolution and return them as ToolExecutionResult
-        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+        const workingDirResult = yield* resolveWorkingDirectory(
+          shell,
+          context,
+          typedArgs.path,
+        ).pipe(
           Effect.catchAll((error) =>
             Effect.succeed({
               success: false,
@@ -216,8 +218,7 @@ export function createGitStatusTool(): ReturnType<typeof defineTool> {
             success: false,
             result: null,
             error:
-              commandResult.stderr ||
-              `git status failed with exit code ${commandResult.exitCode}`,
+              commandResult.stderr || `git status failed with exit code ${commandResult.exitCode}`,
           };
         }
 
@@ -270,7 +271,8 @@ export function createGitLogTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitLogArgs>({
     name: "git_log",
-    description: "Display commit history of a Git repository. Shows commit hashes, authors, dates, and messages. Supports limiting results and one-line format for quick overview. Use to review recent changes, find specific commits, or understand repository evolution.",
+    description:
+      "Display commit history of a Git repository. Shows commit hashes, authors, dates, and messages. Supports limiting results and one-line format for quick overview. Use to review recent changes, find specific commits, or understand repository evolution.",
     tags: ["git", "history"],
     parameters,
     validate: (args) => {
@@ -285,7 +287,11 @@ export function createGitLogTool(): ReturnType<typeof defineTool> {
         const typedArgs = args as GitLogArgs;
 
         // Catch errors from path resolution and return them as ToolExecutionResult
-        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+        const workingDirResult = yield* resolveWorkingDirectory(
+          shell,
+          context,
+          typedArgs.path,
+        ).pipe(
           Effect.catchAll((error) =>
             Effect.succeed({
               success: false,
@@ -322,7 +328,8 @@ export function createGitLogTool(): ReturnType<typeof defineTool> {
           return {
             success: false,
             result: null,
-            error: commandResult.stderr || `git log failed with exit code ${commandResult.exitCode}`,
+            error:
+              commandResult.stderr || `git log failed with exit code ${commandResult.exitCode}`,
           };
         }
 
@@ -377,7 +384,8 @@ export function createGitDiffTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
     name: "git_diff",
-    description: "Display differences between commits, branches, or working tree. Shows what has changed in files (additions, deletions, modifications). Use to review changes before committing, compare branches, or see what differs from a specific commit. Supports staged changes and branch comparisons.",
+    description:
+      "Display differences between commits, branches, or working tree. Shows what has changed in files (additions, deletions, modifications). Use to review changes before committing, compare branches, or see what differs from a specific commit. Supports staged changes and branch comparisons.",
     tags: ["git", "diff"],
     parameters,
     validate: (args) => {
@@ -392,7 +400,11 @@ export function createGitDiffTool(): ReturnType<typeof defineTool> {
         const typedArgs = args as GitDiffArgs;
 
         // Catch errors from path resolution and return them as ToolExecutionResult
-        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+        const workingDirResult = yield* resolveWorkingDirectory(
+          shell,
+          context,
+          typedArgs.path,
+        ).pipe(
           Effect.catchAll((error) =>
             Effect.succeed({
               success: false,
@@ -433,7 +445,8 @@ export function createGitDiffTool(): ReturnType<typeof defineTool> {
           return {
             success: false,
             result: null,
-            error: commandResult.stderr || `git diff failed with exit code ${commandResult.exitCode}`,
+            error:
+              commandResult.stderr || `git diff failed with exit code ${commandResult.exitCode}`,
           };
         }
 
@@ -479,7 +492,8 @@ export function createGitBranchTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitBranchArgs>({
     name: "git_branch",
-    description: "List Git branches (local, remote, or both). Shows all available branches and identifies the current branch. Use to see what branches exist, check which branch you're on, or discover remote branches. Note: This tool only lists branches; use git_checkout to switch branches.",
+    description:
+      "List Git branches (local, remote, or both). Shows all available branches and identifies the current branch. Use to see what branches exist, check which branch you're on, or discover remote branches. Note: This tool only lists branches; use git_checkout to switch branches.",
     tags: ["git", "branch"],
     parameters,
     validate: (args) => {
@@ -494,7 +508,11 @@ export function createGitBranchTool(): ReturnType<typeof defineTool> {
         const typedArgs = args as GitBranchArgs;
 
         // Catch errors from path resolution and return them as ToolExecutionResult
-        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+        const workingDirResult = yield* resolveWorkingDirectory(
+          shell,
+          context,
+          typedArgs.path,
+        ).pipe(
           Effect.catchAll((error) =>
             Effect.succeed({
               success: false,
@@ -588,7 +606,8 @@ export function createGitAddTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitAddArgs>({
     name: "git_add",
-    description: "Stage files for commit by adding them to Git's index. Prepares changes to be included in the next commit. Can stage specific files or all changes. Requires user approval before execution.",
+    description:
+      "Stage files for commit by adding them to Git's index. Prepares changes to be included in the next commit. Can stage specific files or all changes. Requires user approval before execution.",
     tags: ["git", "index"],
     parameters,
     validate: (args) => {
@@ -676,7 +695,11 @@ export function createExecuteGitAddTool(): ReturnType<typeof defineTool> {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitAddArgs;
 
-        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+        const workingDirResult = yield* resolveWorkingDirectory(
+          shell,
+          context,
+          typedArgs.path,
+        ).pipe(
           Effect.catchAll((error) =>
             Effect.succeed({
               success: false,
@@ -750,7 +773,8 @@ export function createGitCommitTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCommitArgs>({
     name: "git_commit",
-    description: "Create a commit to permanently record staged changes in the repository history. Requires a commit message describing the changes. Can commit all staged changes or all working directory changes. Requires user approval before execution.",
+    description:
+      "Create a commit to permanently record staged changes in the repository history. Requires a commit message describing the changes. Can commit all staged changes or all working directory changes. Requires user approval before execution.",
     tags: ["git", "commit"],
     parameters,
     validate: (args) => {
@@ -837,7 +861,11 @@ export function createExecuteGitCommitTool(): ReturnType<typeof defineTool> {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitCommitArgs;
 
-        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+        const workingDirResult = yield* resolveWorkingDirectory(
+          shell,
+          context,
+          typedArgs.path,
+        ).pipe(
           Effect.catchAll((error) =>
             Effect.succeed({
               success: false,
@@ -918,7 +946,8 @@ export function createGitPushTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPushArgs>({
     name: "git_push",
-    description: "Upload local commits to a remote repository. Pushes the current branch (or specified branch) to the remote (default: origin). Supports force push to overwrite remote history (use with caution). Requires user approval before execution.",
+    description:
+      "Upload local commits to a remote repository. Pushes the current branch (or specified branch) to the remote (default: origin). Supports force push to overwrite remote history (use with caution). Requires user approval before execution.",
     tags: ["git", "push"],
     parameters,
     validate: (args) => {
@@ -1073,7 +1102,8 @@ export function createGitCheckoutTool(): ReturnType<typeof defineTool> {
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
     name: "git_checkout",
-    description: "Switch to a different branch or create a new branch. Changes the working directory to match the specified branch. Can create new branches or force checkout (discarding local changes). Use to navigate between branches or start work on a new feature branch. Requires user approval before execution.",
+    description:
+      "Switch to a different branch or create a new branch. Changes the working directory to match the specified branch. Can create new branches or force checkout (discarding local changes). Use to navigate between branches or start work on a new feature branch. Requires user approval before execution.",
     tags: ["git", "checkout"],
     parameters,
     validate: (args) => {
@@ -1164,7 +1194,11 @@ export function createExecuteGitPushTool(): ReturnType<typeof defineTool> {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitPushArgs;
 
-        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+        const workingDirResult = yield* resolveWorkingDirectory(
+          shell,
+          context,
+          typedArgs.path,
+        ).pipe(
           Effect.catchAll((error) =>
             Effect.succeed({
               success: false,
@@ -1262,7 +1296,11 @@ export function createExecuteGitPullTool(): ReturnType<typeof defineTool> {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitPullArgs;
 
-        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+        const workingDirResult = yield* resolveWorkingDirectory(
+          shell,
+          context,
+          typedArgs.path,
+        ).pipe(
           Effect.catchAll((error) =>
             Effect.succeed({
               success: false,
@@ -1360,7 +1398,11 @@ export function createExecuteGitCheckoutTool(): ReturnType<typeof defineTool> {
         const shell = yield* FileSystemContextServiceTag;
         const typedArgs = args as GitCheckoutArgs;
 
-        const workingDirResult = yield* resolveWorkingDirectory(shell, context, typedArgs.path).pipe(
+        const workingDirResult = yield* resolveWorkingDirectory(
+          shell,
+          context,
+          typedArgs.path,
+        ).pipe(
           Effect.catchAll((error) =>
             Effect.succeed({
               success: false,

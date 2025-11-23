@@ -1,5 +1,6 @@
 import { Effect, Stream } from "effect";
-import type { LLMError } from "./errors";
+import type { ProviderName } from "../constants/models";
+import type { LLMAuthenticationError, LLMError } from "./errors";
 import type { ChatMessage } from "./message";
 import type { ToolCall, ToolDefinition } from "./tools";
 
@@ -12,14 +13,16 @@ export interface ModelInfo {
   readonly isReasoningModel?: boolean;
 }
 
-export type ProviderName =
-  | "openai"
-  | "anthropic"
-  | "google"
-  | "mistral"
-  | "xai"
-  | "deepseek"
-  | "ollama";
+/**
+ * LLM Provider
+ * Represents a configured LLM provider with its capabilities
+ */
+export interface LLMProvider {
+  readonly name: ProviderName;
+  readonly supportedModels: ModelInfo[];
+  readonly defaultModel: string;
+  readonly authenticate: () => Effect.Effect<void, LLMAuthenticationError>;
+}
 
 /**
  * Chat Completion Types

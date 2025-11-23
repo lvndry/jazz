@@ -1,5 +1,6 @@
 import { Effect } from "effect";
-import type { ModelInfo, ProviderName } from "../../core/types";
+import type { ProviderName } from "../../core/constants/models";
+import type { ModelInfo } from "../../core/types";
 import { LLMConfigurationError } from "../../core/types/errors";
 
 export interface ModelFetcherService {
@@ -24,10 +25,21 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       }>;
     };
 
+    const ollamaReasoningModels: string[] = [
+      "gpt-oss",
+      "gpt-oss-safeguard",
+      "deepseek-r1",
+      "deepseek-v3.1",
+      "qwen3",
+      "magistral",
+    ];
+
     return (response.models ?? []).map((model) => ({
       id: model.name,
       displayName: model.name,
-      isReasoningModel: false,
+      isReasoningModel: ollamaReasoningModels.some((reasoningModel) =>
+        model.name.includes(reasoningModel),
+      ),
     }));
   },
 };

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { Effect, Layer } from "effect";
 import type { AppConfig } from "../../../core/types";
-import { AgentConfigService } from "../../../services/config";
-import { LoggerServiceTag } from "../../../services/logger";
+import { AgentConfigServiceTag } from "../../interfaces/agent-config";
+import { LoggerServiceTag } from "../../interfaces/logger";
 import { createWebSearchTool } from "./web-search-tools";
 
 // Mock the linkup-sdk
@@ -93,7 +93,7 @@ describe("WebSearchTool", () => {
     };
 
     const mockLayer = Layer.merge(
-      Layer.succeed(AgentConfigService, mockConfigService),
+      Layer.succeed(AgentConfigServiceTag, mockConfigService),
       Layer.succeed(LoggerServiceTag, mockLoggerService),
     );
 
@@ -139,7 +139,7 @@ describe("WebSearchTool", () => {
     };
 
     const mockLayer = Layer.merge(
-      Layer.succeed(AgentConfigService, mockConfigService),
+      Layer.succeed(AgentConfigServiceTag, mockConfigService),
       Layer.succeed(LoggerServiceTag, mockLoggerService),
     );
 

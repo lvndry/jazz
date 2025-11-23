@@ -1,14 +1,15 @@
 import { checkbox, input, select } from "@inquirer/prompts";
 import { Effect } from "effect";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
-import {
-  AgentServiceTag,
-  getAgentByIdentifier,
-  type AgentService,
-} from "../../core/agent/agent-service";
+import { getAgentByIdentifier } from "../../core/agent/agent-service";
 import { createCategoryMappings } from "../../core/agent/tools/register-tools";
-import { ToolRegistryTag, type ToolRegistry } from "../../core/agent/tools/tool-registry";
 import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
+import type { ProviderName } from "../../core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
+import { AgentServiceTag, type AgentService } from "../../core/interfaces/agent-service";
+import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
+import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
+import { ToolRegistryTag, type ToolRegistry } from "../../core/interfaces/tool-registry";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -18,11 +19,7 @@ import {
   ValidationError,
 } from "../../core/types/errors";
 import type { Agent, AgentConfig } from "../../core/types/index";
-import type { ProviderName } from "../../core/types/llm";
-import type { ConfigService } from "../../services/config";
-import { AgentConfigService } from "../../services/config";
-import { LLMServiceTag, type LLMProvider, type LLMService } from "../../services/llm/interfaces";
-import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
+import type { LLMProvider } from "../../core/types/llm";
 
 /**
  * CLI commands for editing existing agents
@@ -32,7 +29,7 @@ interface AgentEditAnswers {
   name?: string;
   description?: string;
   agentType?: string;
-  llmProvider?: string;
+  llmProvider?: ProviderName;
   llmModel?: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
   tools?: string[];
@@ -51,7 +48,7 @@ export function editAgentCommand(
   | AgentAlreadyExistsError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry | TerminalService | ConfigService
+  AgentService | LLMService | ToolRegistry | TerminalService | AgentConfigService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -75,7 +72,7 @@ export function editAgentCommand(
 
     // Get available LLM providers and models
     const llmService = yield* LLMServiceTag;
-    const configService = yield* AgentConfigService;
+    const configService = yield* AgentConfigServiceTag;
     const providers = yield* llmService.listProviders();
 
     // Get available agent types
@@ -91,7 +88,7 @@ export function editAgentCommand(
 
     // Get current provider info for model selection
     const currentProviderInfo = yield* llmService
-      .getProvider(agent.config.llmProvider as ProviderName)
+      .getProvider(agent.config.llmProvider)
       .pipe(Effect.catchAll(() => Effect.succeed(null as LLMProvider | null)));
 
     // Prompt for updates
@@ -168,12 +165,12 @@ export function editAgentCommand(
  */
 async function promptForAgentUpdates(
   currentAgent: Agent,
-  providers: readonly { name: string; configured: boolean }[],
+  providers: readonly { name: ProviderName; configured: boolean }[],
   agentTypes: readonly string[],
   toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
   terminal: TerminalService,
   llmService: LLMService,
-  configService: ConfigService,
+  configService: AgentConfigService,
   currentProviderInfo: LLMProvider | null,
 ): Promise<AgentEditAnswers> {
   const answers: AgentEditAnswers = {};
@@ -244,7 +241,7 @@ async function promptForAgentUpdates(
 
   // Update LLM provider
   if (fieldsToUpdate.includes("llmProvider")) {
-    const llmProvider = await select<string>({
+    const llmProvider = await select<ProviderName>({
       message: "Select LLM provider:",
       choices: providers.map((provider) => ({
         name: provider.name,
@@ -252,6 +249,7 @@ async function promptForAgentUpdates(
       })),
       default: currentAgent.config.llmProvider || providers.find((p) => p.configured)?.name,
     });
+
     answers.llmProvider = llmProvider;
 
     // Check if API key exists for the selected provider
@@ -290,12 +288,12 @@ async function promptForAgentUpdates(
     }
 
     // When provider is changed, we must also select a model for that provider
-    const providerInfo = await Effect.runPromise(
-      llmService.getProvider(llmProvider as ProviderName),
-    ).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to get provider info: ${message}`);
-    });
+    const providerInfo = await Effect.runPromise(llmService.getProvider(llmProvider)).catch(
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to get provider info: ${message}`);
+      },
+    );
 
     const llmModel = await select<string>({
       message: `Select model for ${llmProvider}:`,
@@ -336,12 +334,10 @@ async function promptForAgentUpdates(
     const providerToUse = currentAgent.config.llmProvider;
     const providerInfo =
       currentProviderInfo ||
-      (await Effect.runPromise(llmService.getProvider(providerToUse as ProviderName)).catch(
-        (error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`Failed to get provider info: ${message}`);
-        },
-      ));
+      (await Effect.runPromise(llmService.getProvider(providerToUse)).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to get provider info: ${message}`);
+      }));
 
     const llmModel = await select<string>({
       message: `Select model for ${providerToUse}:`,

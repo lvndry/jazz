@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 
 export interface LoggerService {
   readonly debug: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
@@ -15,3 +15,5 @@ export interface LoggerService {
     meta?: Record<string, unknown>,
   ) => Effect.Effect<void, Error>;
 }
+
+export const LoggerServiceTag = Context.GenericTag<LoggerService>("LoggerService");
