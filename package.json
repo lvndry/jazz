@@ -42,7 +42,7 @@
   },
   "scripts": {
     "build": "bun build src/main.ts --outfile dist/main.js --target node --packages external && tsc --emitDeclarationOnly",
-    "tsc": "bun run tsc --noEmit",
+    "typecheck": "bun run tsc --noEmit",
     "dev": "bun --watch src/main.ts",
     "start": "bun dist/main.js",
     "cli": "bun src/main.ts",
@@ -51,7 +51,7 @@
     "format": "bun prettier --write src/**/*.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "test:tsc": "bunx tsc --project tsconfig.test.json",
+    "test:typecheck": "bunx tsc --project tsconfig.test.json",
     "clean": "rm -rf dist",
     "prebuild": "bun run clean",
     "prepublishOnly": "bun run build"
