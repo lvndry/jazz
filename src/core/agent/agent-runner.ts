@@ -811,16 +811,23 @@ export class AgentRunner {
       // Post-loop cleanup
       if (!finished) {
         iterationsUsed = maxIterations;
-        yield* logger.warn(
-          MarkdownRenderer.formatWarning(
-            agent.name,
-            `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
-          ),
+        const warningMessage = MarkdownRenderer.formatWarning(
+          agent.name,
+          `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
         );
+        console.log();
+        console.log(warningMessage);
+        console.log();
+        yield* logger.warn(warningMessage);
       } else if (!response.content?.trim() && !response.toolCalls) {
-        yield* logger.warn(
-          MarkdownRenderer.formatWarning(agent.name, "model returned an empty response"),
+        const warningMessage = MarkdownRenderer.formatWarning(
+          agent.name,
+          "model returned an empty response",
         );
+        console.log();
+        console.log(warningMessage);
+        console.log();
+        yield* logger.warn(warningMessage);
       }
 
       // Finalize run asynchronously
