@@ -24,7 +24,8 @@ import {
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import shortUUID from "short-uuid";
 import { z } from "zod";
-import { MAX_AGENT_STEPS } from "../../constants/agent";
+import { MAX_AGENT_STEPS } from "../../core/constants/agent";
+import type { LLMConfig, ModelInfo, ProviderName } from "../../core/types";
 import {
   LLMAuthenticationError,
   LLMConfigurationError,
@@ -32,19 +33,13 @@ import {
   LLMRequestError,
   type LLMError,
 } from "../../core/types/errors";
-import type { LLMConfig } from "../../core/types/index";
 import { safeParseJson } from "../../core/utils/json";
 import { AgentConfigService, type ConfigService } from "../config";
 import { LoggerServiceTag, type LoggerService } from "../logger";
 import { type ChatCompletionOptions, type ChatCompletionResponse } from "./chat";
 import { LLMServiceTag, type LLMProvider, type LLMService } from "./interfaces";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
-import {
-  DEFAULT_OLLAMA_BASE_URL,
-  PROVIDER_MODELS,
-  type ModelInfo,
-  type ProviderName,
-} from "./models";
+import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
 import { StreamProcessor } from "./stream-processor";
 import type { StreamEvent, StreamingResult } from "./streaming-types";
 

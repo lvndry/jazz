@@ -1,4 +1,4 @@
-import type { ChatMessage } from "./messages";
+import type { ChatMessage } from "../../core/types/message";
 import type { ToolCall, ToolDefinition } from "./tools";
 
 export interface ChatCompletionResponse {

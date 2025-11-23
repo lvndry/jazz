@@ -15,21 +15,17 @@ import { type ConfigService } from "./config";
  * including automatic context propagation, fiber IDs, and log level management.
  */
 
-export interface LoggerService {
-  readonly debug: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
-  readonly info: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
-  readonly warn: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
-  readonly error: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
-  /**
-   * Write a log entry to file only (not console)
-   * Used for detailed logging that should not clutter console output
-   */
-  readonly writeToFile: (
-    level: "debug" | "info" | "warn" | "error",
-    message: string,
-    meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, Error>;
-}
+import { type LoggerService } from "../core/interfaces/logger";
+
+/**
+ * Structured logging service using Effect's Logger API
+ *
+ * Provides a custom logger implementation that maintains pretty formatting
+ * (colors, emojis) while leveraging Effect's built-in logging capabilities
+ * including automatic context propagation, fiber IDs, and log level management.
+ */
+
+export { type LoggerService };
 
 export class LoggerServiceImpl implements LoggerService {
   constructor() {}

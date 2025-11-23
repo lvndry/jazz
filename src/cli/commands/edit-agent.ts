@@ -18,10 +18,10 @@ import {
   ValidationError,
 } from "../../core/types/errors";
 import type { Agent, AgentConfig } from "../../core/types/index";
+import type { ProviderName } from "../../core/types/llm";
 import type { ConfigService } from "../../services/config";
 import { AgentConfigService } from "../../services/config";
 import { LLMServiceTag, type LLMProvider, type LLMService } from "../../services/llm/interfaces";
-import type { ProviderName } from "../../services/llm/models";
 import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**

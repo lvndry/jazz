@@ -1,8 +1,4 @@
-export interface ModelInfo {
-  readonly id: string;
-  readonly displayName?: string;
-  readonly isReasoningModel?: boolean;
-}
+import type { ModelInfo, ProviderName } from "../../core/types/llm";
 
 export type ModelSource =
   | { type: "static"; models: readonly ModelInfo[] }
@@ -90,5 +86,4 @@ export const PROVIDER_MODELS = {
   },
 } as const satisfies Record<string, ModelSource>;
 
-export type ProviderName = keyof typeof PROVIDER_MODELS;
 export const AVAILABLE_PROVIDERS = Object.keys(PROVIDER_MODELS) as ProviderName[];

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
+import type { ModelInfo, ProviderName } from "../../core/types";
 import { LLMConfigurationError } from "../../core/types/errors";
-import type { ModelInfo, ProviderName } from "./models";
 
 export interface ModelFetcherService {
   fetchModels(

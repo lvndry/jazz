@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { type ColorProfile, type RenderTheme } from "../types";
+import type { ColorProfile, RenderTheme } from "../../core/types";
 
 /**
  * ANSI escape sequences

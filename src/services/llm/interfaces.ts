@@ -1,49 +1,12 @@
-import { Context, Effect } from "effect";
-import {
-  LLMAuthenticationError,
-  LLMConfigurationError,
-  type LLMError,
-} from "../../core/types/errors";
-import type { ChatCompletionOptions, ChatCompletionResponse } from "./chat";
-import type { ModelInfo, ProviderName } from "./models";
-import type { StreamingResult } from "./streaming-types";
+import { Context } from "effect";
 
 /**
  * LLM Provider and Service interfaces
  */
 
-export interface LLMProvider {
-  readonly name: string;
-  readonly supportedModels: ModelInfo[];
-  readonly defaultModel: string;
-  readonly authenticate: () => Effect.Effect<void, LLMAuthenticationError>;
-}
+import type { LLMProvider, LLMService } from "../../core/interfaces/llm";
 
-export interface LLMService {
-  readonly getProvider: (
-    providerName: ProviderName,
-  ) => Effect.Effect<LLMProvider, LLMConfigurationError>;
-  readonly listProviders: () => Effect.Effect<
-    readonly { name: string; configured: boolean }[],
-    never
-  >;
-
-  /**
-   * Create a non-streaming chat completion
-   */
-  readonly createChatCompletion: (
-    providerName: string,
-    options: ChatCompletionOptions,
-  ) => Effect.Effect<ChatCompletionResponse, LLMError>;
-
-  /**
-   * Create a streaming chat completion
-   */
-  readonly createStreamingChatCompletion: (
-    providerName: string,
-    options: ChatCompletionOptions,
-  ) => Effect.Effect<StreamingResult, LLMError>;
-}
+export { type LLMProvider, type LLMService };
 
 // Service tag for dependency injection
 export const LLMServiceTag = Context.GenericTag<LLMService>("LLMService");

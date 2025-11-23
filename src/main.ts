@@ -11,12 +11,12 @@ import { getConfigCommand, listConfigCommand, setConfigCommand } from "./cli/com
 import { editAgentCommand } from "./cli/commands/edit-agent";
 import { deleteAgentCommand, getAgentCommand, listAgentsCommand } from "./cli/commands/task-agent";
 import { updateCommand } from "./cli/commands/update";
+import { MarkdownRenderer } from "./cli/presentation/markdown-renderer";
 import { createAgentServiceLayer } from "./core/agent/agent-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
 import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
-import { MarkdownRenderer } from "./core/utils/markdown-renderer";
 import { AgentConfigService, createConfigLayer } from "./services/config";
 import { createFileSystemContextServiceLayer } from "./services/fs";
 import { createGmailServiceLayer } from "./services/gmail";

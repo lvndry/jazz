@@ -1,24 +1,24 @@
 import chalk from "chalk";
 import { Cause, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
 
-import { MAX_AGENT_STEPS } from "../../constants/agent";
-import { AgentConfigService, type ConfigService } from "../../services/config";
-import { type ChatCompletionResponse } from "../../services/llm/chat";
-import { LLMServiceTag, type LLMService } from "../../services/llm/interfaces";
-import { type ChatMessage } from "../../services/llm/messages";
-import { shouldEnableStreaming } from "../../services/llm/stream-detector";
-import type { StreamEvent } from "../../services/llm/streaming-types";
-import { type ToolCall, type ToolDefinition } from "../../services/llm/tools";
-import { LoggerServiceTag, type LoggerService } from "../../services/logger";
-import type { StreamingConfig } from "../types";
-import { type Agent } from "../types";
-import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "../types/errors";
-import { MarkdownRenderer } from "../utils/markdown-renderer";
+import { MarkdownRenderer } from "../../cli/presentation/markdown-renderer";
 import {
   OutputRenderer,
   type DisplayConfig,
   type OutputRendererConfig,
-} from "../utils/output-renderer";
+} from "../../cli/presentation/output-renderer";
+import { AgentConfigService, type ConfigService } from "../../services/config";
+import { type ChatCompletionResponse } from "../../services/llm/chat";
+import { LLMServiceTag, type LLMService } from "../../services/llm/interfaces";
+import { shouldEnableStreaming } from "../../services/llm/stream-detector";
+import type { StreamEvent } from "../../services/llm/streaming-types";
+import { type ToolCall, type ToolDefinition } from "../../services/llm/tools";
+import { LoggerServiceTag, type LoggerService } from "../../services/logger";
+import { MAX_AGENT_STEPS } from "../constants/agent";
+import type { StreamingConfig } from "../types";
+import { type Agent } from "../types";
+import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "../types/errors";
+import { type ChatMessage } from "../types/message";
 import { formatToolArguments } from "../utils/tool-formatter";
 import { agentPromptBuilder } from "./agent-prompt";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";

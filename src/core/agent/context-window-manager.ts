@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { ConfigService } from "../../services/config";
-import type { ChatMessage } from "../../services/llm/messages";
 import type { LoggerService } from "../../services/logger";
+import type { ChatMessage } from "../types/message";
 
 /**
  * Configuration for context window management

@@ -33,13 +33,13 @@ import {
   ValidationError,
 } from "../../core/types/errors";
 import type { Agent, AgentConfig } from "../../core/types/index";
+import type { ProviderName } from "../../core/types/llm";
+import { type ChatMessage } from "../../core/types/message";
 import { CommonSuggestions } from "../../core/utils/error-handler";
 import type { ConfigService } from "../../services/config";
 import { AgentConfigService } from "../../services/config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/fs";
 import { LLMServiceTag, type LLMService } from "../../services/llm/interfaces";
-import { type ChatMessage } from "../../services/llm/messages";
-import { type ProviderName } from "../../services/llm/models";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
 import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
