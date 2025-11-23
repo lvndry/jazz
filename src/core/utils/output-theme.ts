@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { ColorProfile, RenderTheme } from "../types";
+import { type ColorProfile, type RenderTheme } from "../types";
 
 /**
  * ANSI escape sequences
@@ -136,7 +136,7 @@ function createNoColorTheme(): RenderTheme {
  */
 export function detectColorProfile(): ColorProfile {
   // Check if colors are disabled
-  if (process.env['NO_COLOR'] || process.env['NODE_DISABLE_COLORS']) {
+  if (process.env["NO_COLOR"] || process.env["NODE_DISABLE_COLORS"]) {
     return "none";
   }
 
@@ -157,4 +157,3 @@ export function detectColorProfile(): ColorProfile {
   // Full color support (256 colors or truecolor)
   return "full";
 }
-

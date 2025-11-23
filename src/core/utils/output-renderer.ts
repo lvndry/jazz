@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import type { StreamEvent } from "../../services/llm/streaming-types";
-import { ToolCall } from "../../services/llm/tools";
+import { type ToolCall } from "../../services/llm/tools";
 import type { ColorProfile, OutputMode, RenderTheme, StreamingConfig } from "../types";
-import { LLMError } from "../types/errors";
+import { type LLMError } from "../types/errors";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";

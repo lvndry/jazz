@@ -1,5 +1,9 @@
 import { Context, Effect } from "effect";
-import { LLMAuthenticationError, LLMConfigurationError, LLMError } from "../../core/types/errors";
+import {
+  LLMAuthenticationError,
+  LLMConfigurationError,
+  type LLMError,
+} from "../../core/types/errors";
 import type { ChatCompletionOptions, ChatCompletionResponse } from "./chat";
 import type { ModelInfo, ProviderName } from "./models";
 import type { StreamingResult } from "./streaming-types";
@@ -15,10 +19,14 @@ export interface LLMProvider {
   readonly authenticate: () => Effect.Effect<void, LLMAuthenticationError>;
 }
 
-
 export interface LLMService {
-  readonly getProvider: (providerName: ProviderName) => Effect.Effect<LLMProvider, LLMConfigurationError>;
-  readonly listProviders: () => Effect.Effect<readonly { name: string; configured: boolean }[], never>;
+  readonly getProvider: (
+    providerName: ProviderName,
+  ) => Effect.Effect<LLMProvider, LLMConfigurationError>;
+  readonly listProviders: () => Effect.Effect<
+    readonly { name: string; configured: boolean }[],
+    never
+  >;
 
   /**
    * Create a non-streaming chat completion

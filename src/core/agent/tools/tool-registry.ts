@@ -1,7 +1,7 @@
 import { Context, Effect, Layer } from "effect";
 import type z from "zod";
 import type { ConfigService } from "../../../services/config";
-import { ToolDefinition } from "../../../services/llm/tools";
+import { type ToolDefinition } from "../../../services/llm/tools";
 import {
   type LoggerService,
   logToolExecutionApproval,
@@ -53,7 +53,10 @@ export interface Tool<R = never> {
 }
 
 export interface ToolRegistry {
-  readonly registerTool: (tool: Tool<unknown>, category?: ToolCategory) => Effect.Effect<void, never>;
+  readonly registerTool: (
+    tool: Tool<unknown>,
+    category?: ToolCategory,
+  ) => Effect.Effect<void, never>;
   readonly registerForCategory: (
     category: ToolCategory,
   ) => (tool: Tool<unknown>) => Effect.Effect<void, never>;
@@ -220,14 +223,13 @@ class DefaultToolRegistry implements ToolRegistry {
     args: Record<string, unknown>,
     context: ToolExecutionContext,
   ): Effect.Effect<ToolExecutionResult, Error, ToolRegistry | LoggerService | ConfigService> {
-    return Effect.gen(function* (this: DefaultToolRegistry) {
+    return Effect.gen(
+      function* (this: DefaultToolRegistry) {
         const start = Date.now();
         const tool = yield* this.getTool(name);
 
         // Log tool execution start
-        yield* logToolExecutionStart(name, args).pipe(
-          Effect.catchAll(() => Effect.void),
-        );
+        yield* logToolExecutionStart(name, args).pipe(Effect.catchAll(() => Effect.void));
 
         try {
           const exec = tool.execute as (
@@ -242,12 +244,9 @@ class DefaultToolRegistry implements ToolRegistry {
             const resultSummary = tool.createSummary?.(result);
 
             // Log successful execution with improved formatting
-            yield* logToolExecutionSuccess(
-              name,
-              durationMs,
-              resultSummary,
-              result.result,
-            ).pipe(Effect.catchAll(() => Effect.void));
+            yield* logToolExecutionSuccess(name, durationMs, resultSummary, result.result).pipe(
+              Effect.catchAll(() => Effect.void),
+            );
           } else {
             // If this is an approval-required response, log as warning with special label
             const resultObj = result.result as
@@ -256,18 +255,14 @@ class DefaultToolRegistry implements ToolRegistry {
             const isApproval = resultObj?.approvalRequired === true;
             if (isApproval) {
               const approvalMsg = resultObj?.message || result.error || "Approval required";
-              yield* logToolExecutionApproval(
-                name,
-                durationMs,
-                approvalMsg,
-              ).pipe(Effect.catchAll(() => Effect.void));
+              yield* logToolExecutionApproval(name, durationMs, approvalMsg).pipe(
+                Effect.catchAll(() => Effect.void),
+              );
             } else {
               const errorMessage = result.error || "Tool returned success=false";
-              yield* logToolExecutionError(
-                name,
-                durationMs,
-                errorMessage,
-              ).pipe(Effect.catchAll(() => Effect.void));
+              yield* logToolExecutionError(name, durationMs, errorMessage).pipe(
+                Effect.catchAll(() => Effect.void),
+              );
             }
           }
 
@@ -277,11 +272,9 @@ class DefaultToolRegistry implements ToolRegistry {
           const errorMessage = err instanceof Error ? err.message : String(err);
 
           // Log error with improved formatting
-          yield* logToolExecutionError(
-            name,
-            durationMs,
-            errorMessage,
-          ).pipe(Effect.catchAll(() => Effect.void));
+          yield* logToolExecutionError(name, durationMs, errorMessage).pipe(
+            Effect.catchAll(() => Effect.void),
+          );
 
           throw err as Error;
         }

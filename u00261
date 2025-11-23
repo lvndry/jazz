@@ -1,4 +1,0 @@
-$ bun run clean
-$ rm -rf dist
-$ bun run tsc
-error: "tsc" exited with code 2

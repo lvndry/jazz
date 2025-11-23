@@ -1,7 +1,7 @@
 import { Effect, Stream } from "effect";
-import { LLMError } from "../../core/types/errors";
-import { ChatCompletionResponse } from "./chat";
-import { ToolCall } from "./tools";
+import { type LLMError } from "../../core/types/errors";
+import { type ChatCompletionResponse } from "./chat";
+import { type ToolCall } from "./tools";
 
 /**
  * Streaming LLM types and interfaces

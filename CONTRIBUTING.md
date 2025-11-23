@@ -23,7 +23,7 @@ Jazz is actively developed with many opportunities to contribute:
 
 **First-time contributor?** Look for issues labeled `good first issue` or start with documentation improvements!
 
-## Quick start
+## Prerequisites
 
 - Bun 1.x
 - Node.js >= 18
