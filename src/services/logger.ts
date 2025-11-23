@@ -50,25 +50,25 @@ export class LoggerServiceImpl implements LoggerService {
 
   debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      writeLogToFileSync("debug", message, meta);
+      void writeLogToFile("debug", message, meta);
     });
   }
 
   info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      writeLogToFileSync("info", message, meta);
+      void writeLogToFile("info", message, meta);
     });
   }
 
   warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      writeLogToFileSync("warn", message, meta);
+      void writeLogToFile("warn", message, meta);
     });
   }
 
   error(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      writeLogToFileSync("error", message, meta);
+      void writeLogToFile("error", message, meta);
     });
   }
 }

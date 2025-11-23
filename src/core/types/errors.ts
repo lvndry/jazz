@@ -236,13 +236,11 @@ export class LLMConfigurationError extends Data.TaggedError("LLMConfigurationErr
   readonly suggestion?: string;
 }> {}
 
-
 export type LLMError =
   | LLMAuthenticationError
   | LLMRequestError
   | LLMRateLimitError
   | LLMConfigurationError;
-
 
 export type JazzError =
   | AgentNotFoundError

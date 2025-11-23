@@ -703,14 +703,15 @@ export class AgentRunner {
           // so the fiber should complete naturally without needing a timeout
           const streamExit = yield* Fiber.await(streamFiber);
 
-          // Get completion from stream or fallback
           let completion: ChatCompletionResponse;
           if (Exit.isFailure(streamExit)) {
             yield* streamingResult.cancel;
             const error = Cause.failureOption(streamExit.cause);
             if (Option.isSome(error)) {
-              yield* logger.warn("Stream processing failed, using fallback");
-              completion = yield* llmService.createChatCompletion(provider, llmOptions);
+              yield* logger.error("Stream processing failed", {
+                error: error.value instanceof Error ? error.value.message : String(error.value),
+              });
+              return yield* Effect.fail(error.value);
             } else {
               const fromRef = yield* Ref.get(completionRef);
               if (fromRef) {
@@ -749,8 +750,8 @@ export class AgentRunner {
           }
 
           // Add assistant response to conversation
-          currentMessages.push({
-            role: "assistant",
+          const assistantMessage = {
+            role: "assistant" as const,
             content: completion.content,
             ...(completion.toolCalls
               ? {
@@ -761,7 +762,9 @@ export class AgentRunner {
                   })),
                 }
               : {}),
-          });
+          };
+
+          currentMessages.push(assistantMessage);
 
           yield* trimMessages(currentMessages, logger, agent.id, actualConversationId);
 
@@ -925,8 +928,8 @@ export class AgentRunner {
           }
 
           // Add assistant response to conversation
-          currentMessages.push({
-            role: "assistant",
+          const assistantMessage = {
+            role: "assistant" as const,
             content: completion.content,
             ...(completion.toolCalls
               ? {
@@ -937,7 +940,9 @@ export class AgentRunner {
                   })),
                 }
               : {}),
-          });
+          };
+
+          currentMessages.push(assistantMessage);
 
           yield* trimMessages(currentMessages, logger, agent.id, actualConversationId);
 

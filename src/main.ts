@@ -73,7 +73,10 @@ function createAppLayer(debug?: boolean, configPath?: string) {
     Layer.provide(loggerLayer),
   );
 
-  const llmLayer = createAISDKServiceLayer().pipe(Layer.provide(configLayer));
+  const llmLayer = createAISDKServiceLayer().pipe(
+    Layer.provide(configLayer),
+    Layer.provide(loggerLayer),
+  );
   const toolRegistryLayer = createToolRegistryLayer();
 
   const shellLayer = createFileSystemContextServiceLayer().pipe(Layer.provide(fileSystemLayer));
