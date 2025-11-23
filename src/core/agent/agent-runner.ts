@@ -21,6 +21,7 @@ import {
 } from "../utils/output-renderer";
 import { formatToolArguments } from "../utils/tool-formatter";
 import { agentPromptBuilder } from "./agent-prompt";
+import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import {
   ToolRegistryTag,
   type ToolExecutionContext,
@@ -40,7 +41,6 @@ import {
 } from "./tracking/agent-run-tracker";
 import { normalizeToolConfig } from "./utils/tool-config";
 
-const MAX_MESSAGES = 100;
 const MAX_RETRIES = 3;
 const STREAM_CREATION_TIMEOUT = Duration.minutes(2);
 const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
@@ -192,6 +192,40 @@ function initializeAgentRun(
       provider,
       model,
     };
+  });
+}
+
+/**
+ * Execute a tool by name with the provided arguments
+ *
+ * Finds the specified tool in the registry and executes it with the given arguments
+ * and context. Provides comprehensive logging of the execution process including
+ * start, success, and error states.
+ *
+ * @param name - The name of the tool to execute
+ * @param args - The arguments to pass to the tool
+ * @param context - The execution context containing agent and conversation information
+ * @returns An Effect that resolves to the tool execution result
+ *
+ * @throws {Error} When the tool is not found or execution fails
+ *
+ * @example
+ * ```typescript
+ * const result = yield* executeTool(
+ *   "gmail_list_emails",
+ *   { query: "is:unread" },
+ *   { agentId: "agent-123", conversationId: "conv-456" }
+ * );
+ * ```
+ */
+function executeTool(
+  name: string,
+  args: Record<string, unknown>,
+  context: ToolExecutionContext,
+): Effect.Effect<ToolExecutionResult, Error, ToolRegistry | LoggerService | ConfigService> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    return yield* registry.executeTool(name, args, context);
   });
 }
 
@@ -395,37 +429,6 @@ function executeToolCalls(
 
     return toolResults;
   });
-}
-
-/**
- * Trim message history to prevent unbounded growth.
- * Always preserves the system message (first message) and keeps the most recent messages.
- */
-function trimMessages(
-  messages: ChatMessage[],
-  logger: LoggerService,
-  agentId: string,
-  conversationId: string,
-): Effect.Effect<void, never, LoggerService | ConfigService> {
-  if (messages.length > MAX_MESSAGES) {
-    // Always preserve the system message (first message) as it contains important context
-    const systemMessage = messages[0];
-    if (systemMessage) {
-      // Keep system message + most recent (MAX_MESSAGES - 1) messages
-      const recentMessages = messages.slice(-(MAX_MESSAGES - 1));
-      messages.length = 0;
-      messages.push(systemMessage, ...recentMessages);
-    }
-
-    return logger.warn("Message history trimmed to prevent memory issues", {
-      agentId,
-      conversationId,
-      maxMessages: MAX_MESSAGES,
-      trimmedCount: messages.length,
-    });
-  }
-
-  return Effect.void;
 }
 
 /**
@@ -766,7 +769,12 @@ export class AgentRunner {
 
           currentMessages.push(assistantMessage);
 
-          yield* trimMessages(currentMessages, logger, agent.id, actualConversationId);
+          yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
+            currentMessages,
+            logger,
+            agent.id,
+            actualConversationId,
+          );
 
           // Handle tool calls
           if (completion.toolCalls && completion.toolCalls.length > 0) {
@@ -944,7 +952,12 @@ export class AgentRunner {
 
           currentMessages.push(assistantMessage);
 
-          yield* trimMessages(currentMessages, logger, agent.id, actualConversationId);
+          yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
+            currentMessages,
+            logger,
+            agent.id,
+            actualConversationId,
+          );
 
           // Format content - always use markdown since LLMs output markdown
           let formattedContent = completion.content;
@@ -1044,38 +1057,4 @@ export class AgentRunner {
       return { ...response, messages: currentMessages };
     });
   }
-}
-
-/**
- * Execute a tool by name with the provided arguments
- *
- * Finds the specified tool in the registry and executes it with the given arguments
- * and context. Provides comprehensive logging of the execution process including
- * start, success, and error states.
- *
- * @param name - The name of the tool to execute
- * @param args - The arguments to pass to the tool
- * @param context - The execution context containing agent and conversation information
- * @returns An Effect that resolves to the tool execution result
- *
- * @throws {Error} When the tool is not found or execution fails
- *
- * @example
- * ```typescript
- * const result = yield* executeTool(
- *   "gmail_list_emails",
- *   { query: "is:unread" },
- *   { agentId: "agent-123", conversationId: "conv-456" }
- * );
- * ```
- */
-export function executeTool(
-  name: string,
-  args: Record<string, unknown>,
-  context: ToolExecutionContext,
-): Effect.Effect<ToolExecutionResult, Error, ToolRegistry | LoggerService | ConfigService> {
-  return Effect.gen(function* () {
-    const registry = yield* ToolRegistryTag;
-    return yield* registry.executeTool(name, args, context);
-  });
 }
