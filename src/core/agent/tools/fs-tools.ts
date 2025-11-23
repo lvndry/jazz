@@ -915,10 +915,13 @@ export function createExecuteWriteFileTool(): Tool<
         });
 
         try {
-          // Create parent directories if requested
-          if (args.createDirs === true) {
-            const parentDir = target.substring(0, target.lastIndexOf("/"));
-            if (parentDir && parentDir !== target) {
+          const parentDir = target.substring(0, target.lastIndexOf("/"));
+          if (parentDir && parentDir !== target) {
+            const parentExists = yield* fs
+              .exists(parentDir)
+              .pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+            if (!parentExists) {
               yield* fs.makeDirectory(parentDir, { recursive: true });
             }
           }

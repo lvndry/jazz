@@ -19,9 +19,6 @@ import type { OutputWriter } from "./output-writer";
 import { JSONWriter, TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
 
-// Re-export DisplayConfig for backward compatibility
-export type { DisplayConfig } from "../../core/types/output";
-
 /**
  * Output renderer configuration
  */
