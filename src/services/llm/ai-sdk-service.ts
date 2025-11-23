@@ -35,11 +35,16 @@ import {
 import type { LLMConfig } from "../../core/types/index";
 import { safeParseJson } from "../../core/utils/json";
 import { AgentConfigService, type ConfigService } from "../config";
-import { writeLogToFile } from "../logger";
+import { LoggerService, LoggerServiceTag } from "../logger";
 import { ChatCompletionOptions, ChatCompletionResponse } from "./chat";
 import { LLMProvider, LLMService, LLMServiceTag } from "./interfaces";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
-import { PROVIDER_MODELS, type ModelInfo, type ProviderName } from "./models";
+import {
+  DEFAULT_OLLAMA_BASE_URL,
+  PROVIDER_MODELS,
+  type ModelInfo,
+  type ProviderName,
+} from "./models";
 import { StreamProcessor } from "./stream-processor";
 import type { StreamEvent, StreamingResult } from "./streaming-types";
 
@@ -78,7 +83,6 @@ function toCoreMessages(
       } as SystemModelMessage;
     }
 
-    // User messages - simple string content
     if (role === "user") {
       return {
         role: "user",
@@ -86,7 +90,6 @@ function toCoreMessages(
       } as UserModelMessage;
     }
 
-    // Assistant messages (may include tool calls)
     if (role === "assistant") {
       const contentParts: Array<
         | { type: "text"; text: string }
@@ -111,7 +114,6 @@ function toCoreMessages(
       return { role: "assistant", content: contentParts } as AssistantModelMessage;
     }
 
-    // Tool messages (tool results)
     if (role === "tool") {
       const contentParts: ToolModelMessage["content"] = [];
 
@@ -186,7 +188,7 @@ function selectModel(
       const headers = llmConfig?.ollama?.api_key
         ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` }
         : {};
-      const ollamaInstance = createOllama({ baseURL: "http://localhost:11434/api", headers });
+      const ollamaInstance = createOllama({ baseURL: DEFAULT_OLLAMA_BASE_URL, headers });
       return ollamaInstance(modelId);
     }
     default:
@@ -207,7 +209,8 @@ function buildProviderOptions(
         return {
           openai: {
             reasoningEffort,
-            reasoningSummary: reasoningEffort === "low" ? "auto" : "detailed",
+            store: false,
+            include: ["reasoning.encrypted_content"],
           } satisfies OpenAIResponsesProviderOptions,
         };
       }
@@ -295,7 +298,12 @@ function convertToLLMError(error: unknown, providerName: string): LLMError {
     }
   }
 
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorMessage =
+    error instanceof Error
+      ? typeof error.message === "object"
+        ? JSON.stringify(error.message)
+        : error.message
+      : String(error);
   let httpStatus: number | undefined;
 
   if (error instanceof Error) {
@@ -341,7 +349,10 @@ class AISDKService implements LLMService {
   private readonly providerModels = PROVIDER_MODELS;
   private readonly modelFetcher: ModelFetcherService;
 
-  constructor(config: AISDKConfig) {
+  constructor(
+    config: AISDKConfig,
+    private readonly logger: LoggerService,
+  ) {
     this.config = config;
     this.modelFetcher = createModelFetcher();
 
@@ -545,10 +556,8 @@ class AISDKService implements LLMService {
         }
 
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        void writeLogToFile(
-          "error",
-          `LLM Error: ${llmError._tag} - ${llmError.message}`,
-          errorDetails,
+        void Effect.runPromise(
+          this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails),
         );
 
         return llmError;
@@ -656,10 +665,8 @@ class AISDKService implements LLMService {
 
             console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
 
-            void writeLogToFile(
-              "error",
-              `LLM Error: ${llmError._tag} - ${llmError.message}`,
-              errorDetails,
+            Effect.runSync(
+              this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails),
             );
             void emit(Effect.fail(Option.some(llmError)));
 
@@ -694,10 +701,8 @@ class AISDKService implements LLMService {
         }
 
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        void writeLogToFile(
-          "error",
-          `LLM Error: ${llmError._tag} - ${llmError.message}`,
-          errorDetails,
+        Effect.runSync(
+          this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails),
         );
 
         return Effect.fail(llmError);
@@ -709,12 +714,13 @@ class AISDKService implements LLMService {
 export function createAISDKServiceLayer(): Layer.Layer<
   LLMService,
   LLMConfigurationError,
-  ConfigService
+  ConfigService | LoggerService
 > {
   return Layer.effect(
     LLMServiceTag,
     Effect.gen(function* () {
       const configService = yield* AgentConfigService;
+      const logger = yield* LoggerServiceTag;
       const appConfig = yield* configService.appConfig;
 
       const configuredProviders = getConfiguredProviders(appConfig.llm);
@@ -731,7 +737,7 @@ export function createAISDKServiceLayer(): Layer.Layer<
       const cfg: AISDKConfig = {
         ...(appConfig.llm ? { llmConfig: appConfig.llm } : {}),
       };
-      return new AISDKService(cfg);
+      return new AISDKService(cfg, logger);
     }),
   );
 }

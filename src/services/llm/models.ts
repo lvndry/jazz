@@ -8,6 +8,8 @@ export type ModelSource =
   | { type: "static"; models: readonly ModelInfo[] }
   | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
 
+export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api";
+
 export const PROVIDER_MODELS = {
   openai: {
     type: "static",
@@ -84,7 +86,7 @@ export const PROVIDER_MODELS = {
   ollama: {
     type: "dynamic",
     endpointPath: "/tags",
-    defaultBaseUrl: "http://localhost:11434/api",
+    defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL,
   },
 } as const satisfies Record<string, ModelSource>;
 

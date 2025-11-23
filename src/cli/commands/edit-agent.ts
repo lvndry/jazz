@@ -196,7 +196,7 @@ async function promptForAgentUpdates(
   ]);
 
   if (fieldsToUpdate.length === 0) {
-    await Effect.runPromise(terminal.warn("No fields selected for update. Exiting..."));
+    terminal.warn("No fields selected for update. Exiting...");
     return answers;
   }
 
