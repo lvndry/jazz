@@ -259,7 +259,6 @@ function loadConfigFile(
       if (Option.isNone(parsed)) {
         console.error(`\n❌ Error: Invalid JSON in config file: ${expandedPath}`);
         console.error(`\nPlease ensure the file contains valid JSON.`);
-        console.error(`You can validate your JSON at: https://jsonlint.com/\n`);
         process.exit(1);
       }
 

@@ -1,6 +1,11 @@
+import {
+  confirm as confirmPrompt,
+  input,
+  password as passwordPrompt,
+  select as selectPrompt,
+} from "@inquirer/prompts";
 import chalk from "chalk";
 import { Context, Effect, Layer } from "effect";
-import inquirer from "inquirer";
 
 /**
  * Terminal output service for consistent CLI styling
@@ -130,56 +135,40 @@ export class TerminalServiceImpl implements TerminalService {
 
   ask(message: string, defaultValue?: string): Effect.Effect<string, never> {
     return Effect.promise(async () => {
-      const answers = await inquirer.prompt([
-        {
-          type: "input",
-          name: "answer",
-          message,
-          ...(defaultValue !== undefined ? { default: defaultValue } : {}),
-        },
-      ]);
-      return answers["answer"] as string;
+      const answer = await input({
+        message,
+        ...(defaultValue !== undefined ? { default: defaultValue } : {}),
+      });
+      return answer;
     });
   }
 
   password(message: string): Effect.Effect<string, never> {
     return Effect.promise(async () => {
-      const answers = await inquirer.prompt([
-        {
-          type: "password",
-          name: "answer",
-          message,
-        },
-      ]);
-      return answers["answer"] as string;
+      const answer = await passwordPrompt({
+        message,
+      });
+      return answer;
     });
   }
 
   select(message: string, choices: string[]): Effect.Effect<string, never> {
     return Effect.promise(async () => {
-      const answers = await inquirer.prompt([
-        {
-          type: "list",
-          name: "answer",
-          message,
-          choices,
-        },
-      ]);
-      return answers["answer"] as string;
+      const answer = await selectPrompt<string>({
+        message,
+        choices,
+      });
+      return answer;
     });
   }
 
   confirm(message: string, defaultValue: boolean = false): Effect.Effect<boolean, never> {
     return Effect.promise(async () => {
-      const answers = await inquirer.prompt([
-        {
-          type: "confirm",
-          name: "answer",
-          message,
-          default: defaultValue,
-        },
-      ]);
-      return answers["answer"] as boolean;
+      const answer = await confirmPrompt({
+        message,
+        default: defaultValue,
+      });
+      return answer;
     });
   }
 }

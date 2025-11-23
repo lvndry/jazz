@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform";
+import { checkbox, input, select } from "@inquirer/prompts";
 import { Effect } from "effect";
-import inquirer from "inquirer";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
 import { AgentRunner, type AgentRunnerOptions } from "../../core/agent/agent-runner";
 import {
@@ -220,27 +220,19 @@ async function promptForAgentInfo(
 ): Promise<AIAgentCreationAnswers> {
   const allProviders = await Effect.runPromise(llmService.listProviders());
 
-  const providerQuestion = [
-    {
-      type: "list",
-      name: "llmProvider",
-      message: "Which LLM provider would you like to use?",
-      choices: allProviders.map((p) => ({
-        name: p.name,
-        value: p.name,
-      })),
-      default: allProviders.find((p) => p.configured)?.name || allProviders[0]?.name,
-    },
-  ];
-
-  // @ts-expect-error - inquirer types are not matching correctly
-  const providerAnswer = (await inquirer.prompt(providerQuestion)) as Pick<
-    AIAgentCreationAnswers,
-    "llmProvider"
-  >;
+  const llmProvider = await select<ProviderName>({
+    message: "Which LLM provider would you like to use?",
+    choices: allProviders.map((p) => ({
+      name: p.name,
+      value: p.name as ProviderName,
+    })),
+    default:
+      (allProviders.find((p) => p.configured)?.name as ProviderName) ||
+      (allProviders[0]?.name as ProviderName),
+  });
 
   // STEP 2.A: Check if API key exists for the selected provider
-  const providerName = providerAnswer.llmProvider;
+  const providerName = llmProvider;
   const apiKeyPath = `llm.${providerName}.api_key`;
   const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
 
@@ -256,30 +248,23 @@ async function promptForAgentInfo(
 
     const isOptional = providerName === "ollama";
 
-    const apiKeyQuestion = [
-      {
-        type: "input",
-        name: "apiKey",
-        message: `${providerName} API Key${isOptional ? " (optional)" : ""} :`,
-        validate: (input: string): boolean | string => {
-          if (isOptional) {
-            return true;
-          }
-
-          if (!input || input.trim().length === 0) {
-            return "API key cannot be empty";
-          }
-
+    const apiKey = await input({
+      message: `${providerName} API Key${isOptional ? " (optional)" : ""} :`,
+      validate: (inputValue: string): boolean | string => {
+        if (isOptional) {
           return true;
-        },
-      },
-    ];
+        }
 
-    // @ts-expect-error - inquirer types are not matching correctly
-    const apiKeyAnswer = (await inquirer.prompt(apiKeyQuestion)) as { apiKey: string };
+        if (!inputValue || inputValue.trim().length === 0) {
+          return "API key cannot be empty";
+        }
+
+        return true;
+      },
+    });
 
     // Update config with the new API key
-    await Effect.runPromise(configService.set(apiKeyPath, apiKeyAnswer.apiKey));
+    await Effect.runPromise(configService.set(apiKeyPath, apiKey));
 
     await Effect.runPromise(
       Effect.gen(function* () {
@@ -290,30 +275,29 @@ async function promptForAgentInfo(
   }
 
   // STEP 2.B: Select Model
-  const chosenProviderInfo = await Effect.runPromise(
-    llmService.getProvider(providerAnswer.llmProvider),
-  ).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to get provider info: ${message}`);
-  });
+  const chosenProviderInfo = await Effect.runPromise(llmService.getProvider(llmProvider)).catch(
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get provider info: ${message}`);
+    },
+  );
 
   const modelDefault = chosenProviderInfo.defaultModel;
 
-  const modelQuestions = [
-    {
-      type: "list",
-      name: "llmModel",
-      message: "Which model would you like to use?",
-      choices: chosenProviderInfo.supportedModels.map((model) => ({
-        name: model.displayName || model.id,
-        value: model.id,
-        short: model.displayName || model.id,
-      })) as Array<{ name: string; value: string; short: string }>,
-      default: modelDefault,
-    },
-    {
-      type: "list",
-      name: "reasoningEffort",
+  const llmModel = await select<string>({
+    message: "Which model would you like to use?",
+    choices: chosenProviderInfo.supportedModels.map((model) => ({
+      name: model.displayName || model.id,
+      value: model.id,
+    })),
+    default: modelDefault,
+  });
+
+  // Check if it's a reasoning model and ask for effort if needed
+  const selectedModel = chosenProviderInfo.supportedModels.find((m) => m.id === llmModel);
+  let reasoningEffort: "disable" | "low" | "medium" | "high" | undefined;
+  if (selectedModel?.isReasoningModel) {
+    reasoningEffort = await select<"disable" | "low" | "medium" | "high">({
       message: "What reasoning effort level would you like?",
       choices: [
         { name: "Low - Faster responses, basic reasoning", value: "low" },
@@ -324,92 +308,54 @@ async function promptForAgentInfo(
         { name: "High - Deep reasoning, slower responses", value: "high" },
         { name: "Disable - No reasoning effort (fastest)", value: "disable" },
       ],
-      when: (answers: Partial<AIAgentCreationAnswers>): boolean => {
-        const modelId = answers.llmModel;
-        if (!modelId) return false;
-        const model = chosenProviderInfo.supportedModels.find((m) => m.id === modelId);
-        return model?.isReasoningModel ?? false;
-      },
-    },
-  ];
-
-  // @ts-expect-error - inquirer types are not matching correctly
-  const modelAnswers = (await inquirer.prompt(modelQuestions)) as Pick<
-    AIAgentCreationAnswers,
-    "llmModel" | "reasoningEffort"
-  >;
+      default: "medium",
+    });
+  }
 
   // STEP 3: Ask for agent type
-  const agentTypeQuestion = [
-    {
-      type: "list",
-      name: "agentType",
-      message: "What type of agent would you like to create?",
-      choices: agentTypes,
-      default: "default",
-    },
-  ];
-
-  // @ts-expect-error - inquirer types are not matching correctly
-  const agentTypeAnswer = (await inquirer.prompt(agentTypeQuestion)) as Pick<
-    AIAgentCreationAnswers,
-    "agentType"
-  >;
+  const agentType = await select<string>({
+    message: "What type of agent would you like to create?",
+    choices: agentTypes,
+    default: "default",
+  });
 
   // STEP 4: Ask for name
-  const nameQuestion = [
-    {
-      type: "input",
-      name: "name",
-      message: "What would you like to name your AI agent?",
-      validate: (input: string): boolean | string => {
-        if (!input || input.trim().length === 0) {
-          return "Agent name cannot be empty";
+  const name = await input({
+    message: "What would you like to name your AI agent?",
+    validate: (inputValue: string): boolean | string => {
+      if (!inputValue || inputValue.trim().length === 0) {
+        return "Agent name cannot be empty";
+      }
+      if (inputValue.length > 100) {
+        return "Agent name cannot exceed 100 characters";
+      }
+      if (!/^[a-zA-Z0-9_-]+$/.test(inputValue)) {
+        return "Agent name can only contain letters, numbers, underscores, and hyphens";
+      }
+      return true;
+    },
+  });
+
+  // STEP 5: Ask for description only if agent type is "default"
+  let description: string | undefined;
+  if (agentType === "default") {
+    description = await input({
+      message: "Describe what this AI agent will do:",
+      validate: (inputValue: string): boolean | string => {
+        if (!inputValue || inputValue.trim().length === 0) {
+          return "Agent description cannot be empty";
         }
-        if (input.length > 100) {
-          return "Agent name cannot exceed 100 characters";
-        }
-        if (!/^[a-zA-Z0-9_-]+$/.test(input)) {
-          return "Agent name can only contain letters, numbers, underscores, and hyphens";
+        if (inputValue.length > 500) {
+          return "Agent description cannot exceed 500 characters";
         }
         return true;
       },
-    },
-  ];
-
-  // @ts-expect-error - inquirer types are not matching correctly
-  const nameAnswer = (await inquirer.prompt(nameQuestion)) as Pick<AIAgentCreationAnswers, "name">;
-
-  // STEP 5: Ask for description only if agent type is "default"
-  let descriptionAnswer: Pick<AIAgentCreationAnswers, "description"> = {};
-  if (agentTypeAnswer.agentType === "default") {
-    const descriptionQuestion = [
-      {
-        type: "input",
-        name: "description",
-        message: "Describe what this AI agent will do:",
-        validate: (input: string): boolean | string => {
-          if (!input || input.trim().length === 0) {
-            return "Agent description cannot be empty";
-          }
-          if (input.length > 500) {
-            return "Agent description cannot exceed 500 characters";
-          }
-          return true;
-        },
-      },
-    ];
-
-    // @ts-expect-error - inquirer types are not matching correctly
-    descriptionAnswer = (await inquirer.prompt(descriptionQuestion)) as Pick<
-      AIAgentCreationAnswers,
-      "description"
-    >;
+    });
   }
 
   // STEP 6: Tools selection
   // Check if this is a predefined agent with auto-assigned tools
-  const currentPredefinedAgent = PREDEFINED_AGENTS[agentTypeAnswer.agentType];
+  const currentPredefinedAgent = PREDEFINED_AGENTS[agentType];
   if (currentPredefinedAgent) {
     // Filter to only categories that exist in toolsByCategory (by checking if display name exists)
     const availableCategoryIds = currentPredefinedAgent.toolCategoryIds.filter((categoryId) => {
@@ -432,25 +378,16 @@ async function promptForAgentInfo(
     );
   }
 
-  let toolAnswers: Pick<AIAgentCreationAnswers, "tools"> = { tools: [] };
+  let tools: string[] = [];
 
   if (!currentPredefinedAgent) {
-    const toolQuestions = [
-      {
-        type: "checkbox",
-        name: "tools",
-        message: "Which tools should this agent have access to?",
-        choices: Object.entries(toolsByCategory).map(([category, tools]) => ({
-          name: `${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"})`,
-          value: category,
-          short: category,
-        })),
-        default: [],
-      },
-    ];
-
-    // @ts-expect-error - inquirer types are not matching correctly
-    toolAnswers = (await inquirer.prompt(toolQuestions)) as Pick<AIAgentCreationAnswers, "tools">;
+    tools = await checkbox<string>({
+      message: "Which tools should this agent have access to?",
+      choices: Object.entries(toolsByCategory).map(([category, toolsInCategory]) => ({
+        name: `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`,
+        value: category,
+      })),
+    });
   }
 
   // Calculate final tools
@@ -458,14 +395,15 @@ async function promptForAgentInfo(
     ? currentPredefinedAgent.toolCategoryIds
         .map((id) => categoryIdToDisplayName.get(id))
         .filter((name): name is string => name !== undefined && name in toolsByCategory)
-    : toolAnswers.tools || [];
+    : tools;
 
   return {
-    ...providerAnswer,
-    ...modelAnswers,
-    ...agentTypeAnswer,
-    ...nameAnswer,
-    ...descriptionAnswer,
+    llmProvider,
+    llmModel,
+    ...(reasoningEffort && { reasoningEffort }),
+    agentType,
+    name,
+    ...(description && { description }),
     tools: finalTools,
   };
 }
@@ -816,22 +754,15 @@ function handleSpecialCommand(
         const choices = allAgents.map((ag) => ({
           name: `${ag.name} - ${ag.config.llmProvider}/${ag.config.llmModel}${ag.id === agent.id ? " (current)" : ""}`,
           value: ag.id,
-          short: ag.name,
         }));
 
-        const answer = yield* Effect.promise(() =>
-          inquirer.prompt([
-            {
-              type: "list",
-              name: "agentId",
-              message: "Select an agent to switch to:",
-              choices,
-              default: agent.id,
-            },
-          ]),
+        const selectedAgentId = yield* Effect.promise(() =>
+          select<string>({
+            message: "Select an agent to switch to:",
+            choices,
+            default: agent.id,
+          }),
         );
-
-        const selectedAgentId = answer.agentId as string;
 
         // If user selected the same agent, do nothing
         if (selectedAgentId === agent.id) {
@@ -903,31 +834,23 @@ function startChatLoop(
 
     while (chatActive) {
       // Prompt for user input
-      const answer = yield* Effect.promise(() =>
-        inquirer
-          .prompt([
-            {
-              type: "input",
-              name: "message",
-              message: "You:",
-            },
-          ])
-          .catch((error: unknown) => {
-            // Handle ExitPromptError from inquirer when user presses Ctrl+C
-            if (
-              error instanceof Error &&
-              (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
-            ) {
-              // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
-              // The exit check below will handle the goodbye message
-              return Promise.resolve({ message: "/exit" });
-            }
-            // Re-throw other errors, ensuring it's an Error instance
-            return Promise.reject(error instanceof Error ? error : new Error(String(error)));
-          }),
+      const userMessage = yield* Effect.promise(() =>
+        input({
+          message: "You:",
+        }).catch((error: unknown) => {
+          // Handle ExitPromptError from inquirer when user presses Ctrl+C
+          if (
+            error instanceof Error &&
+            (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
+          ) {
+            // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
+            // The exit check below will handle the goodbye message
+            return "/exit";
+          }
+          // Re-throw other errors, ensuring it's an Error instance
+          throw error instanceof Error ? error : new Error(String(error));
+        }),
       );
-
-      const userMessage = answer.message as string;
 
       const trimmedMessage = userMessage.trim();
       const lowerMessage = trimmedMessage.toLowerCase();

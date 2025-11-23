@@ -1,5 +1,5 @@
+import { checkbox, input, select } from "@inquirer/prompts";
 import { Effect } from "effect";
-import inquirer from "inquirer";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
 import {
   AgentServiceTag,
@@ -179,21 +179,17 @@ async function promptForAgentUpdates(
   const answers: AgentEditAnswers = {};
 
   // Ask what to update
-  const { fieldsToUpdate } = await inquirer.prompt<{ fieldsToUpdate: string[] }>([
-    {
-      type: "checkbox",
-      name: "fieldsToUpdate",
-      message: "What would you like to update?",
-      choices: [
-        { name: "Name", value: "name" },
-        { name: "Description", value: "description" },
-        { name: "Agent Type", value: "agentType" },
-        { name: "LLM Provider", value: "llmProvider" },
-        { name: "LLM Model", value: "llmModel" },
-        { name: "Tools", value: "tools" },
-      ],
-    },
-  ]);
+  const fieldsToUpdate: string[] = await checkbox<string>({
+    message: "What would you like to update?",
+    choices: [
+      { name: "Name", value: "name" },
+      { name: "Description", value: "description" },
+      { name: "Agent Type", value: "agentType" },
+      { name: "LLM Provider", value: "llmProvider" },
+      { name: "LLM Model", value: "llmModel" },
+      { name: "Tools", value: "tools" },
+    ],
+  });
 
   if (fieldsToUpdate.length === 0) {
     terminal.warn("No fields selected for update. Exiting...");
@@ -202,76 +198,60 @@ async function promptForAgentUpdates(
 
   // Update name
   if (fieldsToUpdate.includes("name")) {
-    const { name } = await inquirer.prompt<{ name: string }>([
-      {
-        type: "input",
-        name: "name",
-        message: "Enter new agent name:",
-        default: currentAgent.name,
-        validate: (input: string) => {
-          if (!input.trim()) {
-            return "Agent name cannot be empty";
-          }
-          if (input.length > 100) {
-            return "Agent name must be 100 characters or less";
-          }
-          return true;
-        },
+    const name = await input({
+      message: "Enter new agent name:",
+      default: currentAgent.name,
+      validate: (inputValue: string) => {
+        if (!inputValue.trim()) {
+          return "Agent name cannot be empty";
+        }
+        if (inputValue.length > 100) {
+          return "Agent name must be 100 characters or less";
+        }
+        return true;
       },
-    ]);
+    });
     answers.name = name;
   }
 
   // Update description
   if (fieldsToUpdate.includes("description")) {
-    const { description } = await inquirer.prompt<{ description: string }>([
-      {
-        type: "input",
-        name: "description",
-        message: "Enter new agent description:",
-        default: currentAgent.description || "",
-        validate: (input: string) => {
-          if (!input.trim()) {
-            return "Agent description cannot be empty";
-          }
-          if (input.length > 500) {
-            return "Agent description must be 500 characters or less";
-          }
-          return true;
-        },
+    const description = await input({
+      message: "Enter new agent description:",
+      default: currentAgent.description || "",
+      validate: (inputValue: string) => {
+        if (!inputValue.trim()) {
+          return "Agent description cannot be empty";
+        }
+        if (inputValue.length > 500) {
+          return "Agent description must be 500 characters or less";
+        }
+        return true;
       },
-    ]);
+    });
     answers.description = description;
   }
 
   // Update agent type
   if (fieldsToUpdate.includes("agentType")) {
-    const { agentType } = await inquirer.prompt<{ agentType: string }>([
-      {
-        type: "list",
-        name: "agentType",
-        message: "Select agent type:",
-        choices: agentTypes.map((type) => ({ name: type, value: type })),
-        default: currentAgent.config.agentType || agentTypes[0],
-      },
-    ]);
+    const agentType = await select<string>({
+      message: "Select agent type:",
+      choices: agentTypes.map((type) => ({ name: type, value: type })),
+      default: currentAgent.config.agentType || agentTypes[0],
+    });
     answers.agentType = agentType;
   }
 
   // Update LLM provider
   if (fieldsToUpdate.includes("llmProvider")) {
-    const { llmProvider } = await inquirer.prompt<{ llmProvider: string }>([
-      {
-        type: "list",
-        name: "llmProvider",
-        message: "Select LLM provider:",
-        choices: providers.map((provider) => ({
-          name: provider.name,
-          value: provider.name,
-        })),
-        default: currentAgent.config.llmProvider || providers.find((p) => p.configured)?.name,
-      },
-    ]);
+    const llmProvider = await select<string>({
+      message: "Select LLM provider:",
+      choices: providers.map((provider) => ({
+        name: provider.name,
+        value: provider.name,
+      })),
+      default: currentAgent.config.llmProvider || providers.find((p) => p.configured)?.name,
+    });
     answers.llmProvider = llmProvider;
 
     // Check if API key exists for the selected provider
@@ -288,19 +268,15 @@ async function promptForAgentUpdates(
         }),
       );
 
-      const { apiKey } = await inquirer.prompt<{ apiKey: string }>([
-        {
-          type: "input",
-          name: "apiKey",
-          message: `${llmProvider} API Key:`,
-          validate: (input: string): boolean | string => {
-            if (!input || input.trim().length === 0) {
-              return "API key cannot be empty";
-            }
-            return true;
-          },
+      const apiKey = await input({
+        message: `${llmProvider} API Key:`,
+        validate: (inputValue: string): boolean | string => {
+          if (!inputValue || inputValue.trim().length === 0) {
+            return "API key cannot be empty";
+          }
+          return true;
         },
-      ]);
+      });
 
       // Update config with the new API key
       await Effect.runPromise(configService.set(apiKeyPath, apiKey));
@@ -321,18 +297,14 @@ async function promptForAgentUpdates(
       throw new Error(`Failed to get provider info: ${message}`);
     });
 
-    const { llmModel } = await inquirer.prompt<{ llmModel: string }>([
-      {
-        type: "list",
-        name: "llmModel",
-        message: `Select model for ${llmProvider}:`,
-        choices: providerInfo.supportedModels.map((model) => ({
-          name: model.displayName || model.id,
-          value: model.id,
-        })),
-        default: providerInfo.defaultModel,
-      },
-    ]);
+    const llmModel = await select<string>({
+      message: `Select model for ${llmProvider}:`,
+      choices: providerInfo.supportedModels.map((model) => ({
+        name: model.displayName || model.id,
+        value: model.id,
+      })),
+      default: providerInfo.defaultModel,
+    });
     answers.llmModel = llmModel;
 
     // Check if the selected model is a reasoning model
@@ -341,25 +313,19 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      const { reasoningEffort } = await inquirer.prompt<{
-        reasoningEffort: "disable" | "low" | "medium" | "high";
-      }>([
-        {
-          type: "list",
-          name: "reasoningEffort",
-          message: "What reasoning effort level would you like?",
-          choices: [
-            { name: "Low - Faster responses, basic reasoning", value: "low" },
-            {
-              name: "Medium - Balanced speed and reasoning depth (recommended)",
-              value: "medium",
-            },
-            { name: "High - Deep reasoning, slower responses", value: "high" },
-            { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-          ],
-          default: currentAgent.config.reasoningEffort || "medium",
-        },
-      ]);
+      const reasoningEffort = await select<"disable" | "low" | "medium" | "high">({
+        message: "What reasoning effort level would you like?",
+        choices: [
+          { name: "Low - Faster responses, basic reasoning", value: "low" },
+          {
+            name: "Medium - Balanced speed and reasoning depth (recommended)",
+            value: "medium",
+          },
+          { name: "High - Deep reasoning, slower responses", value: "high" },
+          { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+        ],
+        default: currentAgent.config.reasoningEffort || "medium",
+      });
       answers.reasoningEffort = reasoningEffort;
     }
   }
@@ -377,18 +343,14 @@ async function promptForAgentUpdates(
         },
       ));
 
-    const { llmModel } = await inquirer.prompt<{ llmModel: string }>([
-      {
-        type: "list",
-        name: "llmModel",
-        message: `Select model for ${providerToUse}:`,
-        choices: providerInfo.supportedModels.map((model) => ({
-          name: model.displayName || model.id,
-          value: model.id,
-        })),
-        default: currentAgent.config.llmModel || providerInfo.defaultModel,
-      },
-    ]);
+    const llmModel = await select<string>({
+      message: `Select model for ${providerToUse}:`,
+      choices: providerInfo.supportedModels.map((model) => ({
+        name: model.displayName || model.id,
+        value: model.id,
+      })),
+      default: currentAgent.config.llmModel || providerInfo.defaultModel,
+    });
     answers.llmModel = llmModel;
 
     // Check if the selected model is a reasoning model
@@ -397,25 +359,19 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      const { reasoningEffort } = await inquirer.prompt<{
-        reasoningEffort: "disable" | "low" | "medium" | "high";
-      }>([
-        {
-          type: "list",
-          name: "reasoningEffort",
-          message: "What reasoning effort level would you like?",
-          choices: [
-            { name: "Low - Faster responses, basic reasoning", value: "low" },
-            {
-              name: "Medium - Balanced speed and reasoning depth (recommended)",
-              value: "medium",
-            },
-            { name: "High - Deep reasoning, slower responses", value: "high" },
-            { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-          ],
-          default: currentAgent.config.reasoningEffort || "medium",
-        },
-      ]);
+      const reasoningEffort = await select<"disable" | "low" | "medium" | "high">({
+        message: "What reasoning effort level would you like?",
+        choices: [
+          { name: "Low - Faster responses, basic reasoning", value: "low" },
+          {
+            name: "Medium - Balanced speed and reasoning depth (recommended)",
+            value: "medium",
+          },
+          { name: "High - Deep reasoning, slower responses", value: "high" },
+          { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+        ],
+        default: currentAgent.config.reasoningEffort || "medium",
+      });
       answers.reasoningEffort = reasoningEffort;
     }
   }
@@ -437,18 +393,13 @@ async function promptForAgentUpdates(
       }
     }
 
-    const { toolCategories } = await inquirer.prompt<{ toolCategories: string[] }>([
-      {
-        type: "checkbox",
-        name: "toolCategories",
-        message: "Select tool categories:",
-        choices: Object.keys(toolsByCategory).map((category) => ({
-          name: `${category} (${toolsByCategory[category]?.length || 0} tools)`,
-          value: category,
-        })),
-        default: defaultCategories,
-      },
-    ]);
+    const toolCategories = await checkbox<string>({
+      message: "Select tool categories:",
+      choices: Object.keys(toolsByCategory).map((category) => ({
+        name: `${category} (${toolsByCategory[category]?.length || 0} tools)`,
+        value: category,
+      })),
+    });
 
     // Store display names - will be converted to tool names in the calling function
     answers.tools = toolCategories;
