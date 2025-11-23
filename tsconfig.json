@@ -1,15 +1,13 @@
 {
   "compilerOptions": {
-    // runtime + module
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
+    "lib": ["ES2022"],
 
-    // compile time
     "outDir": "./dist",
     "rootDir": "./src",
 
-    // runtime
     "sourceMap": true,
     "declarationMap": true,
     "declaration": true,
@@ -36,10 +34,10 @@
     "skipLibCheck": true,
     "removeComments": true,
     "allowJs": false,
+    "checkJs": false,
 
     "isolatedModules": true,
-    "verbatimModuleSyntax": true,
-    "checkJs": false
+    "verbatimModuleSyntax": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]

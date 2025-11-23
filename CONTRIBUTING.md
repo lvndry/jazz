@@ -26,7 +26,7 @@ Jazz is actively developed with many opportunities to contribute:
 ## Prerequisites
 
 - Bun 1.x
-- Node.js >= 20
+- Node.js >= 18
 
 ## Getting started
 
