@@ -1,38 +1,46 @@
 {
   "compilerOptions": {
+    // runtime + module
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "allowJs": false,
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitAny": true,
-    "noImplicitThis": true,
-    "alwaysStrict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitOverride": true,
-    "noPropertyAccessFromIndexSignature": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
+
+    // compile time
     "outDir": "./dist",
     "rootDir": "./src",
-    "removeComments": true,
-    "importHelpers": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
+
+    // runtime
+    "sourceMap": true,
+    "declarationMap": true,
+    "declaration": true,
+
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
-    "isolatedModules": true
+
+    "strict": true,
+    "alwaysStrict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitThis": true,
+    "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    "importHelpers": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "removeComments": true,
+    "allowJs": false,
+
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "checkJs": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"],
-  "ts-node": {
-    "esm": true
-  }
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

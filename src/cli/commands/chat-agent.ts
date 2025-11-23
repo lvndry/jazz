@@ -37,9 +37,9 @@ import { CommonSuggestions } from "../../core/utils/error-handler";
 import type { ConfigService } from "../../services/config";
 import { AgentConfigService } from "../../services/config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/fs";
-import { LLMService, LLMServiceTag } from "../../services/llm/interfaces";
-import { ChatMessage } from "../../services/llm/messages";
-import { ProviderName } from "../../services/llm/models";
+import { LLMServiceTag, type LLMService } from "../../services/llm/interfaces";
+import { type ChatMessage } from "../../services/llm/messages";
+import { type ProviderName } from "../../services/llm/models";
 import { LoggerServiceTag, type LoggerService } from "../../services/logger";
 import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 

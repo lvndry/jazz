@@ -4,6 +4,8 @@
   "description": "Create autonomous AI agents that actually execute tasks—read emails, manage git, run commands, search the web, and orchestrate workflows through natural conversation",
   "license": "MIT",
   "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "type": "module",
   "bin": {
     "jazz": "./dist/main.js"
   },
@@ -39,7 +41,8 @@
     "url": "https://github.com/lvndry/jazz/issues"
   },
   "scripts": {
-    "build": "bun run tsc",
+    "build": "bun build src/main.ts --outfile dist/main.js --target node --packages external && tsc --emitDeclarationOnly",
+    "tsc": "bun run tsc --noEmit",
     "dev": "bun --watch src/main.ts",
     "start": "bun dist/main.js",
     "cli": "bun src/main.ts",
@@ -48,7 +51,7 @@
     "format": "bun prettier --write src/**/*.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "test:type-check": "bunx tsc --project tsconfig.test.json",
+    "test:tsc": "bunx tsc --project tsconfig.test.json",
     "clean": "rm -rf dist",
     "prebuild": "bun run clean",
     "prepublishOnly": "bun run build"

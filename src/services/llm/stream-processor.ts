@@ -10,10 +10,10 @@
 
 import type { streamText } from "ai";
 import { Chunk, Effect, Option } from "effect";
-import { LLMError } from "../../core/types/errors";
-import { ChatCompletionResponse } from "./chat";
+import { type LLMError } from "../../core/types/errors";
+import { type ChatCompletionResponse } from "./chat";
 import type { StreamEvent } from "./streaming-types";
-import { ToolCall } from "./tools";
+import { type ToolCall } from "./tools";
 
 /**
  * Type for AI SDK StreamText result
