@@ -64,6 +64,14 @@ Complete documentation for Jazz - Your AI agent that actually does things.
    - Best practices
    - Incident response
 
+7. **[FAQ](FAQ.md)** - Frequently asked questions for developers
+   - Architecture and design decisions
+   - Service implementation patterns
+   - Effect-TS usage and patterns
+   - Development workflow
+   - Testing strategies
+   - Common pitfalls and solutions
+
 ## 🗺️ Navigation Guide
 
 ### By Task
@@ -92,6 +100,8 @@ Complete documentation for Jazz - Your AI agent that actually does things.
 **For Developers:**
 
 - [Examples & Use Cases](examples.md) - Advanced automation patterns
+- [FAQ](FAQ.md) - Common developer questions and answers
+- [Architecture](ARCHITECTURE.md) - Code organization and conventions
 - [Integrations](integrations.md) - API keys and setup
 - [CLI Reference](cli-reference.md) - Command details
 - [../CONTRIBUTING.md](../CONTRIBUTING.md) - Contributing guide
@@ -99,49 +109,27 @@ Complete documentation for Jazz - Your AI agent that actually does things.
 
 ## 📖 Reading Order
 
-### Beginner Path
-
-1. Start with [Getting Started](getting-started.md)
-2. Explore [Examples & Use Cases](examples.md) for inspiration
-3. Read [Tools Reference](tools-reference.md) to understand capabilities
-4. Review [Security](security.md) for safe usage
-5. Set up [Integrations](integrations.md) as needed
-
 ### Advanced Path
 
-1. Study [Examples & Use Cases](examples.md) for complex workflows
-2. [CLI Reference](cli-reference.md) for command details
-3. [Tools Reference](tools-reference.md) for deep tool knowledge
-4. [Integrations](integrations.md) for multi-provider setup
-5. [Security](security.md) for advanced security practices
-
-## 🔍 Quick Reference
-
-### Configuration
-
-**Minimal setup:**
-
-```json
-{
-  "llm": {
-    "openai": {
-      "api_key": "sk-..."
-    }
-  }
-}
-```
-
-**Full setup:**
-
-See [Integrations > Configuration Examples](integrations.md#configuration-examples)
+1. Start with [Getting Started](getting-started.md)
+2. Explore [Examples & Use Cases](examples.md) for complex workflows
+3. [Architecture](ARCHITECTURE.md) for code organization
+4. [CLI Reference](cli-reference.md) for command details
+5. [Tools Reference](tools-reference.md) for deep tool knowledge
+6. [Integrations](integrations.md) for multi-provider setup
+7. [Security](security.md) for advanced security practices
 
 ### Common Commands
 
 ```bash
 # Agent Management
-jazz agent create              # Create agent
+jazz agent create             # Create agent
 jazz agent list               # List agents
 jazz agent chat <name>        # Chat with agent
+
+# Config
+jazz config set llm           # configure an api key for a provider
+jazz config show              # Show current config being used
 
 # Authentication
 jazz auth gmail login         # Connect Gmail
@@ -173,15 +161,6 @@ If something in the docs is unclear:
 1. Check [GitHub Issues](https://github.com/lvndry/jazz/issues)
 2. Join [Discord](https://discord.gg/yBDbS2NZju)
 3. Open a documentation issue
-
-### Usage Questions
-
-For help using Jazz:
-
-1. Check [Getting Started](getting-started.md)
-2. See [CLI Reference > Troubleshooting](cli-reference.md#troubleshooting)
-3. Ask in [Discord](https://discord.gg/yBDbS2NZju)
-4. Search [GitHub Discussions](https://github.com/lvndry/jazz/discussions)
 
 ### Bug Reports
 
