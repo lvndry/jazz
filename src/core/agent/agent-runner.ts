@@ -146,10 +146,21 @@ function initializeAgentRun(
 
     // Expand tool names to include approval execute tools
     const expandedToolNameSet = new Set(agentToolNames);
-    for (const toolName of agentToolNames) {
-      const tool = yield* toolRegistry.getTool(toolName);
-      if (tool.approvalExecuteToolName) {
-        expandedToolNameSet.add(tool.approvalExecuteToolName);
+    const toolsWithApproval = yield* Effect.all(
+      agentToolNames.map((toolName) =>
+        toolRegistry.getTool(toolName).pipe(
+          Effect.map((tool) => ({
+            toolName,
+            approvalExecuteToolName: tool.approvalExecuteToolName,
+          })),
+        ),
+      ),
+      { concurrency: "unbounded" },
+    );
+
+    for (const { approvalExecuteToolName } of toolsWithApproval) {
+      if (approvalExecuteToolName) {
+        expandedToolNameSet.add(approvalExecuteToolName);
       }
     }
 
@@ -566,7 +577,7 @@ export class AgentRunner {
 
       // Create renderer
       const normalizedStreamingConfig: StreamingConfig = {
-        enabled: true, // Always enabled in streaming mode
+        enabled: true,
         ...(streamingConfig.textBufferMs !== undefined && {
           textBufferMs: streamingConfig.textBufferMs,
         }),

@@ -33,7 +33,7 @@ export function gmailLoginCommand(): Effect.Effect<
     const terminal = yield* TerminalServiceTag;
 
     yield* logger.info("Starting Gmail authentication...");
-    yield* terminal.info("Starting Gmail authentication process...");
+    yield* terminal.info("Starting Gmail authentication...");
 
     yield* gmailService.authenticate();
     yield* logger.info("Gmail authentication completed successfully");

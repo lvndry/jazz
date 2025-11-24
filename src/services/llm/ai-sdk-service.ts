@@ -6,7 +6,6 @@ import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import { createOpenRouter, type OpenRouterProviderSettings } from "@openrouter/ai-sdk-provider";
 import {
-  APICallError,
   generateText,
   stepCountIs,
   streamText,
@@ -29,20 +28,25 @@ import type { ProviderName } from "../../core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
-import type { LLMConfig, LLMProvider, ModelInfo } from "../../core/types";
+import type {
+  LLMConfig,
+  LLMProvider,
+  ModelInfo,
+  StreamEvent,
+  StreamingResult,
+} from "../../core/types";
 import {
   LLMAuthenticationError,
   LLMConfigurationError,
-  LLMRateLimitError,
-  LLMRequestError,
   type LLMError,
 } from "../../core/types/errors";
 import { safeParseJson } from "../../core/utils/json";
+import { convertToLLMError } from "../../core/utils/llm-error";
+import { createDeferred } from "../../core/utils/promise";
 import { type ChatCompletionOptions, type ChatCompletionResponse } from "./chat";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
 import { StreamProcessor } from "./stream-processor";
-import type { StreamEvent, StreamingResult } from "./streaming-types";
 
 interface AISDKConfig {
   llmConfig?: LLMConfig;
@@ -170,25 +174,39 @@ function selectModel(
   modelId: ModelName,
   llmConfig?: LLMConfig,
 ): LanguageModel {
+  const cacheKey = `${providerName}:${modelId}`;
+  const cached = AISDKService.modelCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  let model: LanguageModel;
   switch (providerName.toLowerCase()) {
     case "openai":
-      return openai(modelId);
+      model = openai(modelId);
+      break;
     case "anthropic":
-      return anthropic(modelId);
+      model = anthropic(modelId);
+      break;
     case "google":
-      return google(modelId);
+      model = google(modelId);
+      break;
     case "mistral":
-      return mistral(modelId);
+      model = mistral(modelId);
+      break;
     case "xai":
-      return xai(modelId);
+      model = xai(modelId);
+      break;
     case "deepseek":
-      return (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+      model = (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+      break;
     case "ollama": {
       const headers = llmConfig?.ollama?.api_key
         ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` }
         : {};
       const ollamaInstance = createOllama({ baseURL: DEFAULT_OLLAMA_BASE_URL, headers });
-      return ollamaInstance(modelId);
+      model = ollamaInstance(modelId);
+      break;
     }
     case "openrouter": {
       const apiKey: string | undefined = llmConfig?.openrouter?.api_key;
@@ -207,11 +225,16 @@ function selectModel(
           config: OpenRouterProviderSettings,
         ) => (modelId: ModelName) => LanguageModel
       )(config);
-      return openrouter(modelId);
+      model = openrouter(modelId);
+      break;
     }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
   }
+
+  // Cache the model instance
+  AISDKService.modelCache.set(cacheKey, model);
+  return model;
 }
 
 function buildProviderOptions(
@@ -286,86 +309,11 @@ function buildProviderOptions(
   return undefined;
 }
 
-/**
- * Promise.withResolvers polyfill for older Node.js versions
- */
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (reason?: unknown) => void;
-} {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-/**
- * Convert error to LLMError
- */
-function convertToLLMError(error: unknown, providerName: ProviderName): LLMError {
-  if (APICallError.isInstance(error)) {
-    if (error.statusCode === 401 || error.statusCode === 403) {
-      return new LLMAuthenticationError({
-        provider: providerName,
-        message: error.responseBody || error.message,
-      });
-    }
-  }
-
-  const errorMessage =
-    error instanceof Error
-      ? typeof error.message === "object"
-        ? JSON.stringify(error.message)
-        : error.message
-      : String(error);
-  let httpStatus: number | undefined;
-
-  if (error instanceof Error) {
-    const e = error as Error & { status?: number; statusCode?: number };
-    httpStatus = e.status || e.statusCode;
-    if (!httpStatus) {
-      const m = errorMessage.match(/(\d{3})\s/);
-      if (m && m[1]) httpStatus = parseInt(m[1], 10);
-    }
-  }
-
-  let llmError: LLMError;
-  if (httpStatus === 401 || httpStatus === 403) {
-    llmError = new LLMAuthenticationError({ provider: providerName, message: errorMessage });
-  } else if (httpStatus === 429) {
-    llmError = new LLMRateLimitError({ provider: providerName, message: errorMessage });
-  } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
-    llmError = new LLMRequestError({ provider: providerName, message: errorMessage });
-  } else if (httpStatus && httpStatus >= 500) {
-    llmError = new LLMRequestError({
-      provider: providerName,
-      message: `Server error (${httpStatus}): ${errorMessage}`,
-    });
-  } else {
-    if (
-      errorMessage.toLowerCase().includes("authentication") ||
-      errorMessage.toLowerCase().includes("api key")
-    ) {
-      llmError = new LLMAuthenticationError({ provider: providerName, message: errorMessage });
-    } else {
-      llmError = new LLMRequestError({
-        provider: providerName,
-        message: errorMessage || "Unknown LLM request error",
-      });
-    }
-  }
-
-  return llmError;
-}
-
 class AISDKService implements LLMService {
   private config: AISDKConfig;
   private readonly providerModels = PROVIDER_MODELS;
   private readonly modelFetcher: ModelFetcherService;
+  static modelCache = new Map<string, LanguageModel>();
 
   constructor(
     config: AISDKConfig,
@@ -374,7 +322,6 @@ class AISDKService implements LLMService {
     this.config = config;
     this.modelFetcher = createModelFetcher();
 
-    // Export API keys to env for providers that read from env
     if (this.config.llmConfig) {
       const providers = getConfiguredProviders(this.config.llmConfig);
 
@@ -502,7 +449,7 @@ class AISDKService implements LLMService {
         const result = await generateText({
           model,
           messages: toCoreMessages(options.messages),
-          ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
+          temperature: options.temperature ?? 1.0,
           ...(tools ? { tools } : {}),
           ...(providerOptions ? { providerOptions } : {}),
           stopWhen: stepCountIs(MAX_AGENT_STEPS),
@@ -614,9 +561,7 @@ class AISDKService implements LLMService {
             const result = streamText({
               model,
               messages: toCoreMessages(options.messages),
-              ...(typeof options.temperature === "number"
-                ? { temperature: options.temperature }
-                : {}),
+              temperature: options.temperature ?? 1.0,
               ...(tools ? { tools } : {}),
               ...(providerOptions ? { providerOptions } : {}),
               abortSignal: abortController.signal,

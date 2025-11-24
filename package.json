@@ -74,7 +74,7 @@
     "exa-js": "^2.0.6",
     "googleapis": "^159.0.0",
     "linkup-sdk": "^2.3.0",
-    "marked": "^16.3.0",
+    "marked": "^17.0.1",
     "marked-terminal": "^7.3.0",
     "ollama-ai-provider-v2": "^1.5.4",
     "open": "^10.2.0",
