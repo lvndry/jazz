@@ -22,7 +22,7 @@ Turn plain language into **safe, auditable actions**. Jazz agents read email, ru
 - **Email Management** — Summarize and triage your inbox, draft replies, and label messages
 - **Git Operations** — Inspect repos, propose and create commits, push changes when you approve
 - **Web Research** — Search the web for up-to-date answers and synthesize sources into a brief
-- **Shell & Files** — Run shell commands and make targeted file edits after showing a preview
+- **Shell & Files** — Run shell commands, read and edit files
 - **API Integration** — Call remote APIs (HTTP) and combine results into reports or automation flows
 
 </details>
@@ -190,7 +190,7 @@ Ask: _"Audit my dependencies for vulnerabilities and fix them"_
 **Documentation:**
 
 - **Full Documentation** — [`docs/README.md`](docs/README.md)
-- **Getting Started & Examples** — [`docs/getting-started.md`](docs/getting-started.md), [`examples/`](examples/)
+- **Examples** — [`examples/`](examples/)
 - **Tools Reference** — [`docs/tools-reference.md`](docs/tools-reference.md)
 - **Exploration** — [`exploration/`](exploration/) for future features and ideas that require research
 
@@ -207,13 +207,6 @@ Ask: _"Audit my dependencies for vulnerabilities and fix them"_
 We welcome contributions of all kinds: bug fixes, docs, tests, and features.
 
 - See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the contributor guide and PR process
-
----
-
-## 🔒 Security & Safety
-
-- Dangerous or irreversible operations require **explicit user approval**
-- Audit logs available in `~/.jazz/logs/` for transparency
 
 ---
 
