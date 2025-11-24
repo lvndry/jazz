@@ -1,27 +1,9 @@
-import type z from "zod";
+// Re-export types from core - core owns the contract, services implement it
+export type { ToolDefinition, ToolCall } from "../../core/types/tools";
 
 /**
- * Tool/Function calling types
+ * Tool call result (service-specific, not part of core contract)
  */
-
-export interface ToolDefinition {
-  type: "function";
-  function: {
-    name: string;
-    description: string;
-    parameters: z.ZodTypeAny;
-  };
-}
-
-export interface ToolCall {
-  id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string;
-  };
-}
-
 export interface ToolCallResult {
   toolCallId: string;
   role: "tool";

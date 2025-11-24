@@ -3,11 +3,7 @@ import { checkbox, input, search, select } from "@inquirer/prompts";
 import { Effect } from "effect";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
 import { AgentRunner, type AgentRunnerOptions } from "../../core/agent/agent-runner";
-import {
-  AgentServiceTag,
-  getAgentByIdentifier,
-  type AgentService,
-} from "../../core/agent/agent-service";
+import { getAgentByIdentifier } from "../../core/agent/agent-service";
 import {
   FILE_MANAGEMENT_CATEGORY,
   GIT_CATEGORY,
@@ -17,9 +13,18 @@ import {
   WEB_SEARCH_CATEGORY,
   createCategoryMappings,
 } from "../../core/agent/tools/register-tools";
-import type { ToolRegistry } from "../../core/agent/tools/tool-registry";
-import { ToolRegistryTag } from "../../core/agent/tools/tool-registry";
 import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
+import type { ProviderName } from "../../core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
+import { AgentServiceTag, type AgentService } from "../../core/interfaces/agent-service";
+import {
+  FileSystemContextServiceTag,
+  type FileSystemContextService,
+} from "../../core/interfaces/fs";
+import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
+import { ToolRegistryTag, type ToolRegistry } from "../../core/interfaces/tool-registry";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -33,15 +38,8 @@ import {
   ValidationError,
 } from "../../core/types/errors";
 import type { Agent, AgentConfig } from "../../core/types/index";
+import { type ChatMessage } from "../../core/types/message";
 import { CommonSuggestions } from "../../core/utils/error-handler";
-import type { ConfigService } from "../../services/config";
-import { AgentConfigService } from "../../services/config";
-import { FileSystemContextServiceTag, type FileSystemContextService } from "../../services/fs";
-import { LLMServiceTag, type LLMService } from "../../services/llm/interfaces";
-import { type ChatMessage } from "../../services/llm/messages";
-import { type ProviderName } from "../../services/llm/models";
-import { LoggerServiceTag, type LoggerService } from "../../services/logger";
-import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
  * CLI commands for AI-powered chat agent management
@@ -112,7 +110,7 @@ export function createAgentCommand(): Effect.Effect<
   | AgentConfigurationError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry | TerminalService | ConfigService
+  AgentService | LLMService | ToolRegistry | TerminalService | AgentConfigService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -121,7 +119,7 @@ export function createAgentCommand(): Effect.Effect<
     yield* terminal.log("");
 
     const llmService = yield* LLMServiceTag;
-    const configService = yield* AgentConfigService;
+    const configService = yield* AgentConfigServiceTag;
     const toolRegistry = yield* ToolRegistryTag;
 
     const agentTypes = yield* agentPromptBuilder.listTemplates();
@@ -214,7 +212,7 @@ async function promptForAgentInfo(
   agentTypes: readonly string[],
   toolsByCategory: Record<string, readonly string[]>,
   llmService: LLMService,
-  configService: ConfigService,
+  configService: AgentConfigService,
   categoryIdToDisplayName: Map<string, string>,
   terminal: TerminalService,
 ): Promise<AIAgentCreationAnswers> {
@@ -225,7 +223,7 @@ async function promptForAgentInfo(
     source: (term) => {
       const choices = allProviders.map((p) => ({
         name: p.name,
-        value: p.name as ProviderName,
+        value: p.name,
       }));
 
       if (!term) {
@@ -431,18 +429,7 @@ export function chatWithAIAgentCommand(
   options?: {
     stream?: boolean;
   },
-): Effect.Effect<
-  void,
-  StorageError | StorageNotFoundError | AgentNotFoundError,
-  | AgentService
-  | ConfigService
-  | LLMService
-  | ToolRegistry
-  | LoggerService
-  | FileSystemContextService
-  | FileSystem.FileSystem
-  | TerminalService
-> {
+) {
   return Effect.gen(function* () {
     const normalizedIdentifier = agentIdentifier.trim();
 
@@ -498,7 +485,7 @@ function initializeSession(
 ): Effect.Effect<
   void,
   Error,
-  FileSystemContextService | LoggerService | FileSystem.FileSystem | ConfigService
+  FileSystemContextService | LoggerService | FileSystem.FileSystem | AgentConfigService
 > {
   return Effect.gen(function* () {
     const agentKey = { agentId: agent.id, conversationId };
@@ -828,18 +815,7 @@ function startChatLoop(
   loopOptions?: {
     stream?: boolean;
   },
-): Effect.Effect<
-  void,
-  Error,
-  | AgentService
-  | ConfigService
-  | LLMService
-  | ToolRegistry
-  | LoggerService
-  | FileSystemContextService
-  | FileSystem.FileSystem
-  | TerminalService
-> {
+) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     let chatActive = true;

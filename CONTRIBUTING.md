@@ -1,97 +1,69 @@
 # Contributing to Jazz
 
-Thanks for your interest in contributing to Jazz! We're excited to have you here. This guide explains how to set up your environment, follow the code style, write tests, and submit changes.
+## Quick Start
 
-## 🎯 Where to Start
-
-Jazz is actively developed with many opportunities to contribute:
-
-### Ready-to-Work Tasks
-
-- **[TODO.md](./TODO.md)** - Feature roadmap with planned enhancements
-- **[Open Issues](https://github.com/lvndry/jazz/issues)** - Bug reports and feature requests
-- **[Discussions](https://discord.gg/yBDbS2NZju)** - Ideas and questions
-
-### Contribution Ideas
-
-- 🐛 **Fix Bugs** - Check issues labeled `bug` or `good first issue`
-- ✨ **Add Features** - Pick from TODO.md or propose your own
-- 📚 **Improve Docs** - Make Jazz easier to understand and use
-- 🧪 **Write Tests** - Increase test coverage (see TODO.md)
-- 🔧 **Add Integrations** - Google Calendar, Slack, Notion, and more!
-- 🎨 **Enhance UX** - Better colors, streaming output, error messages
-
-**First-time contributor?** Look for issues labeled `good first issue` or start with documentation improvements!
-
-## Prerequisites
-
-- Bun 1.x
-- Node.js >= 18
-
-## Getting started
-
-1. Fork the repo and clone your fork
-2. Create a branch from `main`:
-   - Features: `feat/<topic>`
-   - Fixes: `fix/<topic>`
-   - Docs/Chores: `docs/<topic>` or `chore/<topic>`
-3. Install dependencies: `bun install`
-4. Develop using: `bun run dev agent [command]`
-5. Run checks locally: `bun run lint && bun run build && bun test`
-
-## Project standards
-
-This codebase is 100% TypeScript and uses Effect-TS. Follow these critical patterns:
-
-- Use `Data.TaggedError` for all error types (see `src/core/types/errors.ts` for examples)
-- Always use `Effect.gen` for async workflows, never async/await
-- Use `yield*` to unwrap Effects inside `Effect.gen` blocks
-- Services are provided via `Effect.Layer`, never imported directly
-- Access services with `yield* ServiceTag` inside `Effect.gen`
-- Use `Effect.catchAll` to handle errors, never try/catch
-- Use `Schema` from `@effect/schema` to validate all external inputs at boundaries
-- Always specify return types for public APIs
-
-## Build and run
-
-- `bun run build` — typecheck + emit to `dist/`
-- `bun run start` — run compiled CLI from `dist/main.js`
-- `bun run dev` — watch mode for development
-
-## Testing
-
-- Use `bun test`
-- Co-locate tests or use `__tests__` directories
-- Test both success and error scenarios
-- Prefer deterministic tests; mock external services with layers
-
-Examples:
-
-```
+```bash
+bun install
+bun run build
 bun test
-bun test --watch
+bun run lint
+bun run cli
 ```
 
-## Pull requests
+## Project Structure
 
-Before opening a PR:
+Jazz uses clean architecture with strict dependency rules:
 
-- All checks pass: `bun run lint && bun run build && bun test`
-- Public APIs are typed and documented
-- Update docs where needed (`README.md`, `docs/`)
-- Avoid unrelated refactors; keep PRs focused and small
-- Include screenshots/logs for UX/CLI changes when helpful
+- **`src/core/`** - Business logic, interfaces, types (no I/O)
+- **`src/services/`** - Service implementations
+- **`src/cli/`** - CLI commands and presentation
 
-Target branch: `main`. Describe the problem, solution, and trade-offs.
+**Critical rule**: `core/` must **never** import from `services/` or `cli/`. Dependencies flow inward only.
 
-## Security
+Read the READMEs:
 
-- Do not commit secrets; use env vars locally
-- Sanitize inputs and file paths
-- Use least privilege for external APIs
+- `src/core/README.md` - Core layer patterns
+- `src/services/README.md` - Service implementations
+- `src/cli/README.md` - CLI commands
+- `docs/ARCHITECTURE.md` - System architecture
+- `docs/FAQ.md` - Common patterns
 
-## License
+## Key Best Practices
 
-By contributing, you agree that your contributions are licensed under the MIT License included in this repository.
+### Code Style
 
-Thanks again for helping improve jazz! If you have questions, open an issue or discussion.
+- **Function declarations** (not arrow functions) for top-level functions
+- **Effect-TS** for all async operations - use `Effect.gen`, not `async/await`
+- **Interfaces** (not types) for object shapes
+- **Tagged errors** using `Data.TaggedError` for error handling
+- **Always specify return types** for public functions
+
+### Architecture
+
+When adding features:
+
+- **New service**: Add interface to `src/core/interfaces/<name>.ts` and implementation to `src/services/<name>.ts`
+- **Business logic**: Add to `src/core/agent/` or `src/core/utils/` (keep it pure, no I/O)
+- **CLI command**: Add to `src/cli/commands/<name>.ts` and register in `src/cli/commands/index.ts`
+
+### Testing
+
+- Tests use `.test.ts` extension in the same directory
+- Use Effect's `Layer` for dependency injection in tests
+- Mock external dependencies (no real API calls)
+
+## Before Submitting PR
+
+- [ ] `bun run typecheck` passes
+- [ ] `bun run lint` passes
+- [ ] `bun test` passes
+- [ ] `bun run build` succeeds
+- [ ] Update relevant READMEs if interfaces change
+
+## Getting Help
+
+- **Issues**: [GitHub Issues](https://github.com/lvndry/jazz/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/lvndry/jazz/discussions)
+- **Discord**: [Join our community](https://discord.gg/yBDbS2NZju)
+
+Need help with a PR? Open a draft PR and ask - maintainers will help iterate.

@@ -1,10 +1,11 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
-import { AgentConfigService, type ConfigService } from "../../services/config";
-import { GmailAuthenticationError, GmailServiceTag, type GmailService } from "../../services/gmail";
-import { LoggerServiceTag, type LoggerService } from "../../services/logger";
+import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
+import { GmailServiceTag, type GmailService } from "../../core/interfaces/gmail";
+import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
+import { GmailAuthenticationError } from "../../core/types/errors";
 import { resolveStorageDirectory } from "../../services/storage/utils";
-import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
 
 /**
  * CLI commands for authentication management
@@ -24,7 +25,7 @@ interface GoogleOAuthToken {
 export function gmailLoginCommand(): Effect.Effect<
   void,
   GmailAuthenticationError,
-  GmailService | LoggerService | ConfigService | TerminalService
+  GmailService | LoggerService | AgentConfigService | TerminalService
 > {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -47,12 +48,12 @@ export function gmailLoginCommand(): Effect.Effect<
 export function gmailLogoutCommand(): Effect.Effect<
   void,
   never,
-  FileSystem.FileSystem | ConfigService | LoggerService | TerminalService
+  FileSystem.FileSystem | AgentConfigService | LoggerService | TerminalService
 > {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const fs = yield* FileSystem.FileSystem;
-    const config = yield* AgentConfigService;
+    const config = yield* AgentConfigServiceTag;
     const terminal = yield* TerminalServiceTag;
 
     yield* logger.info("Starting Gmail logout process...");
@@ -97,12 +98,12 @@ export function gmailLogoutCommand(): Effect.Effect<
 export function gmailStatusCommand(): Effect.Effect<
   void,
   never,
-  FileSystem.FileSystem | ConfigService | LoggerService | TerminalService
+  FileSystem.FileSystem | AgentConfigService | LoggerService | TerminalService
 > {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const fs = yield* FileSystem.FileSystem;
-    const config = yield* AgentConfigService;
+    const config = yield* AgentConfigServiceTag;
     const terminal = yield* TerminalServiceTag;
 
     yield* logger.info("Checking Gmail authentication status...");

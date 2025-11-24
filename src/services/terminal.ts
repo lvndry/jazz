@@ -5,75 +5,15 @@ import {
   select as selectPrompt,
 } from "@inquirer/prompts";
 import chalk from "chalk";
-import { Context, Effect, Layer } from "effect";
+import { Effect, Layer } from "effect";
+import { TerminalServiceTag, type TerminalService } from "../core/interfaces/terminal";
 
 /**
- * Terminal output service for consistent CLI styling
+ * Terminal output service implementation for consistent CLI styling
  *
  * Provides a unified interface for terminal output with automatic
  * emoji prefixes, color coding, and formatting.
  */
-
-export interface TerminalService {
-  /**
-   * Display an informational message
-   */
-  readonly info: (message: string) => Effect.Effect<void, never>;
-
-  /**
-   * Display a success message
-   */
-  readonly success: (message: string) => Effect.Effect<void, never>;
-
-  /**
-   * Display an error message
-   */
-  readonly error: (message: string) => Effect.Effect<void, never>;
-
-  /**
-   * Display a warning message
-   */
-  readonly warn: (message: string) => Effect.Effect<void, never>;
-
-  /**
-   * Display a plain message without styling
-   */
-  readonly log: (message: string) => Effect.Effect<void, never>;
-
-  /**
-   * Display a debug message (only shown in debug mode)
-   */
-  readonly debug: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
-
-  /**
-   * Display a section heading
-   */
-  readonly heading: (message: string) => Effect.Effect<void, never>;
-
-  /**
-   * Display a formatted list
-   */
-  /**
-   * Prompt the user for text input
-   */
-  readonly ask: (message: string, defaultValue?: string) => Effect.Effect<string, never>;
-
-  /**
-   * Prompt the user for password input (hidden)
-   */
-  readonly password: (message: string) => Effect.Effect<string, never>;
-
-  /**
-   * Prompt the user to select from a list of options
-   */
-  readonly select: (message: string, choices: string[]) => Effect.Effect<string, never>;
-
-  /**
-   * Prompt the user for confirmation (yes/no)
-   */
-  readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>;
-}
-
 export class TerminalServiceImpl implements TerminalService {
   constructor() {}
 
@@ -172,8 +112,6 @@ export class TerminalServiceImpl implements TerminalService {
     });
   }
 }
-
-export const TerminalServiceTag = Context.GenericTag<TerminalService>("TerminalService");
 
 /**
  * Create the terminal service layer

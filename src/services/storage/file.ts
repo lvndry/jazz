@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
 import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
+import { StorageServiceTag, type StorageService } from "../../core/interfaces/storage";
 import {
   AgentConfigurationError,
   StorageError,
@@ -8,7 +9,6 @@ import {
 } from "../../core/types/errors";
 import type { Agent, AgentConfig } from "../../core/types/index";
 import { parseJson } from "../../core/utils/json";
-import { StorageServiceTag, type StorageService } from "./service";
 
 export class FileStorageService implements StorageService {
   constructor(

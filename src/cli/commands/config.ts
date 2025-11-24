@@ -1,8 +1,9 @@
 import { Effect } from "effect";
+import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
 import { ConfigurationValidationError } from "../../core/types/errors";
-import { AgentConfigService, type ConfigService } from "../../services/config";
-import { AVAILABLE_PROVIDERS } from "../../services/llm/models";
-import { TerminalServiceTag, type TerminalService } from "../../services/terminal";
+
+import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
+import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 
 /**
  * CLI commands for configuration management
@@ -11,10 +12,14 @@ import { TerminalServiceTag, type TerminalService } from "../../services/termina
 /**
  * List all configuration values
  */
-export function listConfigCommand(): Effect.Effect<void, never, ConfigService | TerminalService> {
+export function listConfigCommand(): Effect.Effect<
+  void,
+  never,
+  AgentConfigService | TerminalService
+> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const configService = yield* AgentConfigService;
+    const configService = yield* AgentConfigServiceTag;
     const config = yield* configService.appConfig;
     yield* terminal.heading("Current Configuration");
     yield* terminal.log(JSON.stringify(config, null, 2));
@@ -27,11 +32,11 @@ export function listConfigCommand(): Effect.Effect<void, never, ConfigService | 
  */
 export function getConfigCommand(
   key: string,
-): Effect.Effect<void, never, ConfigService | TerminalService> {
+): Effect.Effect<void, never, AgentConfigService | TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     yield* terminal.info(`Getting config: ${key}`);
-    const configService = yield* AgentConfigService;
+    const configService = yield* AgentConfigServiceTag;
     const config = yield* configService.appConfig;
 
     const parts = key.split(".");
@@ -57,10 +62,10 @@ export function getConfigCommand(
 export function setConfigCommand(
   key: string,
   value?: string,
-): Effect.Effect<void, ConfigurationValidationError, ConfigService | TerminalService> {
+): Effect.Effect<void, ConfigurationValidationError, AgentConfigService | TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const configService = yield* AgentConfigService;
+    const configService = yield* AgentConfigServiceTag;
 
     if (value === undefined) {
       if (key === "llm") {

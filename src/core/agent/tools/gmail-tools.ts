@@ -1,13 +1,9 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import {
-  GmailServiceTag,
-  type GmailEmail,
-  type GmailLabel,
-  type GmailService,
-} from "../../../services/gmail";
+import { GmailServiceTag, type GmailService } from "../../interfaces/gmail";
+import type { Tool } from "../../interfaces/tool-registry";
+import type { GmailEmail, GmailLabel } from "../../types/gmail";
 import { defineTool } from "./base-tool";
-import { type Tool } from "./tool-registry";
 
 // Gmail allowed label colors
 const ALLOWED_LABEL_COLORS = [
@@ -130,7 +126,8 @@ export function createListEmailsTool(): Tool<GmailService> {
 
   return defineTool<GmailService, { maxResults?: number; query?: string }>({
     name: "list_emails",
-    description: "List emails from the user's Gmail inbox with optional search query filtering. Returns email metadata (subject, sender, date, snippet, labels). Supports Gmail search syntax (e.g., 'in:inbox newer_than:7d'). Use to browse emails or find specific messages.",
+    description:
+      "List emails from the user's Gmail inbox with optional search query filtering. Returns email metadata (subject, sender, date, snippet, labels). Supports Gmail search syntax (e.g., 'in:inbox newer_than:7d'). Use to browse emails or find specific messages.",
     tags: ["gmail", "list"],
     parameters,
     validate: (args) => {
@@ -174,7 +171,8 @@ export function createGetEmailTool(): Tool<GmailService> {
 
   return defineTool<GmailService, { emailId: string }>({
     name: "get_email",
-    description: "Retrieve the complete content of a specific email by its ID. Returns full email body, headers, recipients, attachments metadata, and labels. Use after list_emails or search_emails to read the full content of a specific message.",
+    description:
+      "Retrieve the complete content of a specific email by its ID. Returns full email body, headers, recipients, attachments metadata, and labels. Use after list_emails or search_emails to read the full content of a specific message.",
     tags: ["gmail", "read"],
     parameters,
     validate: (args) => {
@@ -203,7 +201,8 @@ export function createSearchEmailsTool(): Tool<GmailService> {
 
   return defineTool<GmailService, { query: string; maxResults?: number }>({
     name: "search_emails",
-    description: "Search Gmail using Gmail search query syntax. Supports advanced filters like 'from:', 'subject:', 'has:attachment', 'newer_than:', etc. Returns matching emails with metadata. More powerful than list_emails for finding specific emails.",
+    description:
+      "Search Gmail using Gmail search query syntax. Supports advanced filters like 'from:', 'subject:', 'has:attachment', 'newer_than:', etc. Returns matching emails with metadata. More powerful than list_emails for finding specific emails.",
     tags: ["gmail", "search"],
     parameters,
     validate: (args) => {
@@ -243,7 +242,8 @@ export function createSendEmailTool(): Tool<GmailService> {
     { to: string[]; subject: string; body: string; cc?: string[]; bcc?: string[] }
   >({
     name: "send_email",
-    description: "Compose an email and create a draft in Gmail. The email is saved as a draft (not sent immediately) with specified recipients (to, cc, bcc), subject, and body. The user can review and send the draft from their Gmail interface. Use to prepare emails for the user to review and send.",
+    description:
+      "Compose an email and create a draft in Gmail. The email is saved as a draft (not sent immediately) with specified recipients (to, cc, bcc), subject, and body. The user can review and send the draft from their Gmail interface. Use to prepare emails for the user to review and send.",
     tags: ["gmail", "compose"],
     parameters,
     validate: (args) => {
@@ -280,7 +280,8 @@ export function createListLabelsTool(): Tool<GmailService> {
 
   return defineTool<GmailService, Record<string, never>>({
     name: "list_labels",
-    description: "List all available Gmail labels including system labels (INBOX, SENT, TRASH, etc.) and user-created labels. Returns label IDs, names, types, message counts, and color settings. Use to discover available labels before applying them to emails.",
+    description:
+      "List all available Gmail labels including system labels (INBOX, SENT, TRASH, etc.) and user-created labels. Returns label IDs, names, types, message counts, and color settings. Use to discover available labels before applying them to emails.",
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
@@ -341,7 +342,8 @@ export function createCreateLabelTool(): Tool<GmailService> {
     }
   >({
     name: "create_label",
-    description: "Create a new custom Gmail label with optional visibility settings and color customization. Labels help organize emails. Supports controlling whether the label appears in the label list and message list. Returns the created label with its ID.",
+    description:
+      "Create a new custom Gmail label with optional visibility settings and color customization. Labels help organize emails. Supports controlling whether the label appears in the label list and message list. Returns the created label with its ID.",
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
@@ -374,9 +376,11 @@ export function createCreateLabelTool(): Tool<GmailService> {
         const createResult = yield* gmailService.createLabel(name, options).pipe(
           Effect.catchAll((error) => {
             // Check if it's a 409 conflict error (label already exists)
-            if (error instanceof Error && "status" in error && error.status === 409) {
-              // Return a special marker to indicate the label already exists
-              return Effect.succeed("LABEL_EXISTS" as const);
+            if (error._tag === "GmailOperationError" && "status" in error) {
+              if (error.status === 409) {
+                // Return a special marker to indicate the label already exists
+                return Effect.succeed("LABEL_EXISTS" as const);
+              }
             }
             return Effect.fail(error);
           }),
@@ -434,7 +438,8 @@ export function createUpdateLabelTool(): Tool<GmailService> {
     }
   >({
     name: "update_label",
-    description: "Modify an existing Gmail label's properties including name, visibility settings, and colors. Use to rename labels, change their appearance, or adjust visibility. Only works on user-created labels (system labels cannot be modified).",
+    description:
+      "Modify an existing Gmail label's properties including name, visibility settings, and colors. Use to rename labels, change their appearance, or adjust visibility. Only works on user-created labels (system labels cannot be modified).",
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
@@ -618,7 +623,8 @@ export function createExecuteTrashEmailTool(): Tool<GmailService> {
 
   return defineTool<GmailService, { emailId: string }>({
     name: "execute_trash_email",
-    description: "Internal tool that moves an email to trash after user approval. Emails in trash can be recovered. This is the execution tool called automatically after the user approves trash_email.",
+    description:
+      "Internal tool that moves an email to trash after user approval. Emails in trash can be recovered. This is the execution tool called automatically after the user approves trash_email.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -646,7 +652,8 @@ export function createExecuteDeleteEmailTool(): Tool<GmailService> {
 
   return defineTool<GmailService, { emailId: string }>({
     name: "execute_delete_email",
-    description: "Internal tool that permanently deletes an email after user approval. This action cannot be undone. This is the execution tool called automatically after the user approves delete_email.",
+    description:
+      "Internal tool that permanently deletes an email after user approval. This action cannot be undone. This is the execution tool called automatically after the user approves delete_email.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -677,7 +684,8 @@ export function createExecuteDeleteLabelTool(): Tool<GmailService> {
 
   return defineTool<GmailService, { labelId: string }>({
     name: "execute_delete_label",
-    description: "Internal tool that permanently deletes a Gmail label after user approval. Only user-created labels can be deleted (system labels are protected). This is the execution tool called automatically after the user approves delete_label.",
+    description:
+      "Internal tool that permanently deletes a Gmail label after user approval. Only user-created labels can be deleted (system labels are protected). This is the execution tool called automatically after the user approves delete_label.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -709,7 +717,8 @@ export function createAddLabelsToEmailTool(): Tool<GmailService> {
 
   return defineTool<GmailService, { emailId: string; labelIds: string[] }>({
     name: "add_labels_to_email",
-    description: "Apply one or more labels to a specific email. Labels help organize and categorize emails. Use list_labels to find available label IDs. Multiple labels can be added in a single operation.",
+    description:
+      "Apply one or more labels to a specific email. Labels help organize and categorize emails. Use list_labels to find available label IDs. Multiple labels can be added in a single operation.",
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -745,7 +754,8 @@ export function createRemoveLabelsFromEmailTool(): Tool<GmailService> {
 
   return defineTool<GmailService, { emailId: string; labelIds: string[] }>({
     name: "remove_labels_from_email",
-    description: "Remove one or more labels from a specific email. Use to un-categorize emails or clean up label assignments. Multiple labels can be removed in a single operation.",
+    description:
+      "Remove one or more labels from a specific email. Use to un-categorize emails or clean up label assignments. Multiple labels can be removed in a single operation.",
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -789,7 +799,8 @@ export function createBatchModifyEmailsTool(): Tool<GmailService> {
     }
   >({
     name: "batch_modify_emails",
-    description: "Apply label operations to multiple emails simultaneously (up to 1000 emails). Efficiently add or remove labels across many emails in a single operation. Use for bulk email organization tasks.",
+    description:
+      "Apply label operations to multiple emails simultaneously (up to 1000 emails). Efficiently add or remove labels across many emails in a single operation. Use for bulk email organization tasks.",
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);

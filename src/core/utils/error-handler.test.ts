@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
-import { Effect } from "effect";
-import { createTerminalServiceLayer } from "../../services/terminal";
+import { describe, expect, it, vi } from "bun:test";
+import { Effect, Layer } from "effect";
+import { TerminalServiceTag, type TerminalService } from "../interfaces/terminal";
 import {
   AgentAlreadyExistsError,
   AgentNotFoundError,
@@ -78,7 +78,22 @@ describe("Error Handler", () => {
       agentId: "test-agent",
     });
 
-    const terminalLayer = createTerminalServiceLayer();
+    const mockTerminalService: TerminalService = {
+      info: vi.fn().mockReturnValue(Effect.void),
+      success: vi.fn().mockReturnValue(Effect.void),
+      error: vi.fn().mockReturnValue(Effect.void),
+      warn: vi.fn().mockReturnValue(Effect.void),
+      log: vi.fn().mockReturnValue(Effect.void),
+      debug: vi.fn().mockReturnValue(Effect.void),
+      heading: vi.fn().mockReturnValue(Effect.void),
+      list: vi.fn().mockReturnValue(Effect.void),
+      ask: vi.fn().mockReturnValue(Effect.succeed("")),
+      password: vi.fn().mockReturnValue(Effect.succeed("")),
+      select: vi.fn().mockReturnValue(Effect.succeed("")),
+      confirm: vi.fn().mockReturnValue(Effect.succeed(true)),
+    };
+
+    const terminalLayer = Layer.succeed(TerminalServiceTag, mockTerminalService);
 
     // This should not throw
     await Effect.runPromise(handleError(error).pipe(Effect.provide(terminalLayer)));

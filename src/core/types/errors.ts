@@ -187,8 +187,9 @@ export class GmailAuthenticationError extends Data.TaggedError("GmailAuthenticat
 }> {}
 
 export class GmailOperationError extends Data.TaggedError("GmailOperationError")<{
-  readonly operation: string;
+  readonly operation?: string;
   readonly message: string;
+  readonly status?: number;
   readonly suggestion?: string;
 }> {}
 

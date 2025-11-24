@@ -1,4 +1,4 @@
-import type { AppConfig } from "../../core/types";
+import type { AppConfig } from "../types";
 
 /**
  * Stream detection utility

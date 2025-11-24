@@ -24,7 +24,12 @@ import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { z } from "zod";
-import { MAX_AGENT_STEPS } from "../../constants/agent";
+import { MAX_AGENT_STEPS } from "../../core/constants/agent";
+import type { ProviderName } from "../../core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
+import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
+import type { LLMConfig, LLMProvider, ModelInfo } from "../../core/types";
 import {
   LLMAuthenticationError,
   LLMConfigurationError,
@@ -32,19 +37,10 @@ import {
   LLMRequestError,
   type LLMError,
 } from "../../core/types/errors";
-import type { LLMConfig } from "../../core/types/index";
 import { safeParseJson } from "../../core/utils/json";
-import { AgentConfigService, type ConfigService } from "../config";
-import { LoggerServiceTag, type LoggerService } from "../logger";
 import { type ChatCompletionOptions, type ChatCompletionResponse } from "./chat";
-import { LLMServiceTag, type LLMProvider, type LLMService } from "./interfaces";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
-import {
-  DEFAULT_OLLAMA_BASE_URL,
-  PROVIDER_MODELS,
-  type ModelInfo,
-  type ProviderName,
-} from "./models";
+import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
 import { StreamProcessor } from "./stream-processor";
 import type { StreamEvent, StreamingResult } from "./streaming-types";
 
@@ -170,7 +166,7 @@ function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; ap
 }
 
 function selectModel(
-  providerName: string,
+  providerName: ProviderName,
   modelId: ModelName,
   llmConfig?: LLMConfig,
 ): LanguageModel {
@@ -219,7 +215,7 @@ function selectModel(
 }
 
 function buildProviderOptions(
-  providerName: string,
+  providerName: ProviderName,
   options: ChatCompletionOptions,
 ): ProviderOptions | undefined {
   const normalizedProvider = providerName.toLowerCase();
@@ -310,7 +306,7 @@ function createDeferred<T>(): {
 /**
  * Convert error to LLMError
  */
-function convertToLLMError(error: unknown, providerName: string): LLMError {
+function convertToLLMError(error: unknown, providerName: ProviderName): LLMError {
   if (APICallError.isInstance(error)) {
     if (error.statusCode === 401 || error.statusCode === 403) {
       return new LLMAuthenticationError({
@@ -395,7 +391,7 @@ class AISDKService implements LLMService {
     }
   }
 
-  private isProviderName(name: string): name is keyof typeof this.providerModels {
+  private isProviderName(name: string): name is ProviderName {
     return Object.hasOwn(this.providerModels, name);
   }
 
@@ -432,46 +428,46 @@ class AISDKService implements LLMService {
     return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey);
   }
 
-  readonly getProvider: LLMService["getProvider"] = (providerName: ProviderName) => {
-    return Effect.gen(this, function* () {
-      const models = yield* this.getProviderModels(providerName);
+  readonly getProvider = (
+    providerName: ProviderName,
+  ): Effect.Effect<LLMProvider, LLMConfigurationError, never> => {
+    return this.getProviderModels(providerName).pipe(
+      Effect.map((models) => {
+        const provider: LLMProvider = {
+          name: providerName,
+          supportedModels: models.map((model) => model),
+          defaultModel: models[0]?.id ?? "",
+          authenticate: () => {
+            const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
+            const apiKey = providerConfig?.api_key;
 
-      const provider: LLMProvider = {
-        name: providerName,
-        supportedModels: models.map((model) => ({ ...model })),
-        defaultModel: models[0]?.id ?? "",
-        authenticate: () => {
-          const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
-          const apiKey = providerConfig?.api_key;
-
-          if (!apiKey) {
-            // API Key is optional for Ollama
-            if (providerName.toLowerCase() === "ollama") {
-              return Effect.succeed(void 0);
+            if (!apiKey) {
+              // API Key is optional for Ollama
+              if (providerName.toLowerCase() === "ollama") {
+                return Effect.succeed(void 0);
+              }
+              return Effect.fail(
+                new LLMAuthenticationError({
+                  provider: providerName,
+                  message: "API key not configured",
+                }),
+              );
             }
-            return Effect.fail(
-              new LLMAuthenticationError({
-                provider: providerName,
-                message: "API key not configured",
-              }),
-            );
-          }
-          return Effect.succeed(apiKey);
-        },
-      };
+            return Effect.succeed(apiKey);
+          },
+        };
 
-      return provider;
-    });
+        return provider;
+      }),
+    );
   };
 
-  listProviders(): Effect.Effect<readonly { name: string; configured: boolean }[], never> {
+  listProviders(): Effect.Effect<readonly { name: ProviderName; configured: boolean }[], never> {
     const configuredProviders = getConfiguredProviders(this.config.llmConfig);
     const configuredNames = new Set(configuredProviders.map((p) => p.name));
 
     const allProviders = Object.keys(this.providerModels)
-      .filter((provider): provider is keyof typeof this.providerModels =>
-        this.isProviderName(provider),
-      )
+      .filter((provider): provider is ProviderName => this.isProviderName(provider))
       .map((name) => ({
         name,
         configured: configuredNames.has(name),
@@ -481,7 +477,7 @@ class AISDKService implements LLMService {
   }
 
   createChatCompletion(
-    providerName: string,
+    providerName: ProviderName,
     options: ChatCompletionOptions,
   ): Effect.Effect<ChatCompletionResponse, LLMError> {
     return Effect.tryPromise({
@@ -580,7 +576,7 @@ class AISDKService implements LLMService {
   }
 
   createStreamingChatCompletion(
-    providerName: string,
+    providerName: ProviderName,
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
     const model = selectModel(providerName, options.model, this.config.llmConfig);
@@ -729,12 +725,12 @@ class AISDKService implements LLMService {
 export function createAISDKServiceLayer(): Layer.Layer<
   LLMService,
   LLMConfigurationError,
-  ConfigService | LoggerService
+  AgentConfigService | LoggerService
 > {
   return Layer.effect(
     LLMServiceTag,
     Effect.gen(function* () {
-      const configService = yield* AgentConfigService;
+      const configService = yield* AgentConfigServiceTag;
       const logger = yield* LoggerServiceTag;
       const appConfig = yield* configService.appConfig;
 

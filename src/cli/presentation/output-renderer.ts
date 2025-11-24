@@ -1,28 +1,23 @@
 import { Effect } from "effect";
-import type { StreamEvent } from "../../services/llm/streaming-types";
-import { type ToolCall } from "../../services/llm/tools";
-import type { ColorProfile, OutputMode, RenderTheme, StreamingConfig } from "../types";
-import { type LLMError } from "../types/errors";
+import { type LLMError } from "../../core/types/errors";
+import type { StreamEvent } from "../../core/types/llm";
+import type {
+  ColorProfile,
+  DisplayConfig,
+  OutputMode,
+  RenderTheme,
+  StreamingConfig,
+} from "../../core/types/output";
+import type { ToolCall } from "../../core/types/tools";
+import {
+  formatToolArguments as formatToolArgumentsShared,
+  formatToolResult as formatToolResultShared,
+} from "../../core/utils/tool-formatter";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
 import { JSONWriter, TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
-import {
-  formatToolArguments as formatToolArgumentsShared,
-  formatToolResult as formatToolResultShared,
-} from "./tool-formatter";
-
-/**
- * Display configuration for rendering
- * Simplified - removed format field since LLMs always output markdown
- */
-export interface DisplayConfig {
-  readonly showThinking: boolean;
-  readonly showToolExecution: boolean;
-  readonly mode: OutputMode;
-  readonly colorProfile?: ColorProfile | undefined; // Auto-detect if not specified
-}
 
 /**
  * Output renderer configuration

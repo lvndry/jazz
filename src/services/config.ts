@@ -1,5 +1,5 @@
 import { FileSystem } from "@effect/platform";
-import { Context, Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option } from "effect";
 import type {
   AppConfig,
   ExaConfig,
@@ -16,16 +16,9 @@ import { getDefaultDataDirectory } from "../core/utils/runtime-detection";
  * Configuration service using Effect's Config module
  */
 
-export interface ConfigService {
-  readonly get: <A>(key: string) => Effect.Effect<A, never>;
-  readonly getOrElse: <A>(key: string, fallback: A) => Effect.Effect<A, never>;
-  readonly getOrFail: <A>(key: string) => Effect.Effect<A, never>;
-  readonly has: (key: string) => Effect.Effect<boolean, never>;
-  readonly set: <A>(key: string, value: A) => Effect.Effect<void, never>;
-  readonly appConfig: Effect.Effect<AppConfig, never>;
-}
+import { AgentConfigServiceTag, type AgentConfigService } from "../core/interfaces/agent-config";
 
-export class ConfigServiceImpl implements ConfigService {
+export class AgentConfigServiceImpl implements AgentConfigService {
   private currentConfig: AppConfig;
   private configPath: string | undefined;
   private fs: FileSystem.FileSystem;
@@ -63,7 +56,7 @@ export class ConfigServiceImpl implements ConfigService {
 
   set<A>(key: string, value: A): Effect.Effect<void, never> {
     return Effect.gen(
-      function* (this: ConfigServiceImpl) {
+      function* (this: AgentConfigServiceImpl) {
         // Update in-memory config
         deepSet(this.currentConfig as unknown as Record<string, unknown>, key, value as unknown);
 
@@ -95,14 +88,12 @@ export class ConfigServiceImpl implements ConfigService {
   }
 }
 
-export const AgentConfigService = Context.GenericTag<ConfigService>("ConfigService");
-
 export function createConfigLayer(
   debug?: boolean,
   customConfigPath?: string,
-): Layer.Layer<ConfigService, never, FileSystem.FileSystem> {
+): Layer.Layer<AgentConfigService, never, FileSystem.FileSystem> {
   return Layer.effect(
-    AgentConfigService,
+    AgentConfigServiceTag,
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const loaded = yield* loadConfigFile(fs, customConfigPath);
@@ -121,7 +112,7 @@ export function createConfigLayer(
           })
         : mergeConfig(baseConfig, fileConfig);
 
-      return new ConfigServiceImpl(finalConfig, loaded.configPath, fs);
+      return new AgentConfigServiceImpl(finalConfig, loaded.configPath, fs);
     }),
   );
 }
@@ -129,17 +120,17 @@ export function createConfigLayer(
 export function getConfigValue<T>(
   key: string,
   defaultValue: T,
-): Effect.Effect<T, never, ConfigService> {
+): Effect.Effect<T, never, AgentConfigService> {
   return Effect.gen(function* () {
-    const config = yield* AgentConfigService;
+    const config = yield* AgentConfigServiceTag;
     const result = yield* config.getOrElse(key, defaultValue);
     return result;
   });
 }
 
-export function requireConfigValue<T>(key: string): Effect.Effect<T, never, ConfigService> {
+export function requireConfigValue<T>(key: string): Effect.Effect<T, never, AgentConfigService> {
   return Effect.gen(function* () {
-    const config = yield* AgentConfigService;
+    const config = yield* AgentConfigServiceTag;
     const result = yield* config.getOrFail(key);
     return result as T;
   });

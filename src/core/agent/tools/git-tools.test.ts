@@ -1,8 +1,9 @@
+import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { exec } from "node:child_process";
-import { createFileSystemContextServiceLayer } from "../../../services/fs";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 import {
   createGitAddTool,
   createGitBranchTool,
@@ -32,7 +33,34 @@ function getCurrentBranch(): Effect.Effect<string, Error> {
 
 describe("Git Tools", () => {
   const createTestLayer = () => {
-    const shellLayer = createFileSystemContextServiceLayer();
+    const mockFileSystemContextService: FileSystemContextService = {
+      getCwd: (_key) => Effect.succeed(process.cwd()),
+      setCwd: (_key, _path) => Effect.void,
+      resolvePath: (_key, path, _options) =>
+        Effect.gen(function* () {
+          yield* FileSystem.FileSystem; // Required dependency, but not used in mock
+          // Simple path resolution - just return the path if absolute, otherwise join with cwd
+          if (path.startsWith("/")) {
+            return path;
+          }
+          const cwd = process.cwd();
+          return `${cwd}/${path}`;
+        }),
+      findDirectory: (_key, _name, _maxDepth) =>
+        Effect.succeed({ results: [] as readonly string[] }),
+      resolvePathForMkdir: (_key, path) =>
+        Effect.gen(function* () {
+          yield* FileSystem.FileSystem; // Required dependency, but not used in mock
+          if (path.startsWith("/")) {
+            return path;
+          }
+          const cwd = process.cwd();
+          return `${cwd}/${path}`;
+        }),
+      escapePath: (path) => path,
+    };
+
+    const shellLayer = Layer.succeed(FileSystemContextServiceTag, mockFileSystemContextService);
     const toolRegistryLayer = createToolRegistryLayer();
     return Layer.mergeAll(
       toolRegistryLayer,
@@ -146,10 +174,11 @@ describe("Git Tools", () => {
 
       // Try to execute with valid args but without approval - should require approval
       const result = await Effect.runPromise(
-        Effect.provide(
-          tool.execute(validArgs, context),
-          createTestLayer(),
-        ) as Effect.Effect<ToolExecutionResult, Error, never>,
+        Effect.provide(tool.execute(validArgs, context), createTestLayer()) as Effect.Effect<
+          ToolExecutionResult,
+          Error,
+          never
+        >,
       );
 
       // Tools with approval should return approval required
