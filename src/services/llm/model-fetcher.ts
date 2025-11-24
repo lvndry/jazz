@@ -37,26 +37,14 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       data?: Array<{
         id: string;
         name?: string;
-        description?: string;
-        architecture?: {
-          instruct_type?: string;
-        };
-        [key: string]: unknown;
+        supported_parameters: string[];
       }>;
     };
 
     return (response.data ?? []).map((model) => {
-      // Heuristic: Models with "reasoning", "o1", "r1", or "thinking" in ID/name are likely reasoning models
-      const modelIdLower = model.id.toLowerCase();
-      const modelNameLower = (model.name ?? "").toLowerCase();
       const isReasoningModel =
-        modelIdLower.includes("reasoning") ||
-        modelIdLower.includes("/o1") ||
-        modelIdLower.includes("-o1") ||
-        modelIdLower.includes("r1") ||
-        modelIdLower.includes("thinking") ||
-        modelNameLower.includes("reasoning") ||
-        modelNameLower.includes("thinking");
+        model.supported_parameters.includes("reasoning") ||
+        model.supported_parameters.includes("include_reasoning");
 
       return {
         id: model.id,
