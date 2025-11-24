@@ -1,128 +1,171 @@
 # Core Layer (`src/core`)
 
-## Purpose
+## Overview
 
-The **Core** layer contains the **business logic, domain models, and application use cases**. It is the heart of the application and has **zero dependencies** on external libraries or infrastructure. This layer defines **what** the application does, not **how** it does it.
+The **Core layer** is the **heart of the application** - it contains all business logic, domain models, and application use cases. This layer has **zero dependencies** on external libraries or infrastructure, making it framework-agnostic and highly testable.
 
-## Architecture Principles
+**Key Responsibilities**:
 
-Following **Clean Architecture** and **Hexagonal Architecture** (Ports & Adapters):
+- Business logic and domain rules
+- Agent execution and orchestration
+- Domain models and data structures
+- Service contracts (interfaces) that infrastructure must implement
+
+## Architecture
+
+### Role in the System
+
+The Core layer follows **Clean Architecture** and **Hexagonal Architecture** (Ports & Adapters):
+
+```
+┌─────────────────────────────────────────┐
+│  Core Layer (src/core)                  │
+│  - Business logic                       │
+│  - Domain models                        │
+│  - Service interfaces (ports)           │
+│  - Agent execution                      │
+└──────┬──────────────────────────────────┘
+       │ defines contracts
+       │
+┌──────▼──────────────────────────────────┐
+│  Services Layer (src/services)          │
+│  - Implements interfaces                │
+│  - External APIs                       │
+│  - Infrastructure                      │
+└────────────────────────────────────────┘
+```
+
+### Design Principles
 
 1. **Dependency Rule**: Core depends on nothing outside itself. All dependencies point inward.
-2. **Interfaces (Ports)**: Core defines contracts that the infrastructure must implement.
-3. **Domain Logic**: Business rules and use cases live here, independent of frameworks.
+2. **Interfaces (Ports)**: Core defines contracts that infrastructure must implement.
+3. **Domain Logic**: Business rules live here, independent of frameworks or external libraries.
 
-## Key Concepts
+## Key Components
 
-### Why Separate `interfaces/` and `types/`?
+The Core layer is organized into several key directories:
 
-**`types/`** - **Data Structures** (Domain Models)
+- **`agent/`** - Agent execution logic, context management, prompts, tools, and tracking
+- **`interfaces/`** - Service contracts (ports) that define what infrastructure must implement
+- **`types/`** - Domain models and data structures representing core concepts
+- **`constants/`** - Application-wide constants
+- **`utils/`** - Shared utility functions used across the core layer
 
-- Define the _shape_ of data
+### Interfaces vs Types
+
+**`interfaces/`** - **Service Contracts** (Ports)
+
+- Define _behavior_ contracts that infrastructure must implement
+- Examples: `LLMService`, `StorageService`, `LoggerService`
+- Located in `src/core/interfaces/`
+
+**`types/`** - **Domain Models** (Data Structures)
+
+- Define the _shape_ of domain data
 - Examples: `Agent`, `ChatMessage`, `ToolCall`
-- Purpose: Represent domain concepts
+- Located in `src/core/types/`
 
-**`interfaces/`** - **Contracts** (Ports)
-
-- Define _behavior_ contracts
-- Examples: `LLMService`, `LoggerService`, `ToolRegistry`
-- Purpose: Abstract external dependencies
-
-This separation enforces:
+**Why Separate?**
 
 - **Single Responsibility**: Types describe data, interfaces describe capabilities
 - **Dependency Inversion**: Infrastructure implements interfaces, core defines them
 - **Testability**: Easy to mock interfaces without touching domain models
 
-### Example: LLM Service
+### Agent Execution
 
-**Interface (Port)** - `core/interfaces/llm.ts`:
+The agent execution logic (`src/core/agent/`) handles:
 
-```typescript
-export interface LLMService {
-  readonly createChatCompletion: (
-    provider: string,
-    options: ChatCompletionOptions,
-  ) => Effect.Effect<ChatCompletionResponse, LLMError>;
-}
-```
+- **Agent Runner** (`agent-runner.ts`) - Main execution engine that orchestrates agent interactions
+- **Context Management** (`context-window-manager.ts`) - Manages conversation history and context windows
+- **Tool Registry** (`tools/tool-registry.ts`) - Manages available tools and their execution
+- **Prompt Templates** (`prompts/`) - Agent-specific prompt configurations
 
-**Types (Domain)** - `core/types/llm.ts`:
-
-```typescript
-export interface ChatCompletionResponse {
-  id: string;
-  model: string;
-  content: string;
-  toolCalls?: ToolCall[];
-}
-```
-
-**Implementation (Adapter)** - `services/llm/ai-sdk-service.ts`:
-
-```typescript
-class AISDKService implements LLMService {
-  createChatCompletion(...) { /* uses AI SDK */ }
-}
-```
-
-## Guidelines for Maintainers
+## Development Guide
 
 ### Adding New Features
 
-#### 1. **New Domain Type**
+#### 1. New Domain Type
 
-- Add to appropriate file in `types/`
-- Example: Adding a new skill type → `types/skill.ts`
+Add to `src/core/types/`:
 
-#### 2. **New Service Contract**
+```typescript
+// types/my-type.ts
+export interface MyDomainType {
+  id: string;
+  // ... domain properties
+}
+```
 
-- Add interface to `interfaces/`
-- Implement in `services/`
-- Example: Adding a database → `interfaces/database.ts`, `services/postgres.ts`
+#### 2. New Service Contract
 
-#### 3. **New Business Logic**
+Define interface in `src/core/interfaces/`, implement in `src/services/`:
 
-- Add to `agent/` subdirectories
+```typescript
+// interfaces/my-service.ts
+export interface MyService {
+  doSomething(): Effect.Effect<Result, Error>;
+}
+
+// services/my-service.ts (implementation)
+class MyServiceImpl implements MyService {
+  doSomething() {
+    /* implementation */
+  }
+}
+```
+
+#### 3. New Business Logic
+
+Add to `src/core/agent/`:
+
 - Keep it pure - no direct I/O or external calls
 - Use dependency injection via interfaces
+- Example: New workflow → `agent/workflows/my-workflow.ts`
 
 ### What Belongs in Core?
 
 ✅ **YES** - Pure business logic and domain models
 
-- Agent execution flow
-- Context window management
-- Domain types (Agent, Message, Tool)
-- Service interfaces (contracts)
+- Agent execution flow (`agent/agent-runner.ts`)
+- Context window management (`agent/context-window-manager.ts`)
+- Domain types (`types/`)
+- Service interfaces (`interfaces/`)
+- Business rules and use cases
 
 ❌ **NO** - Infrastructure and UI concerns
 
-- API clients (OpenAI SDK, Anthropic SDK)
-- Database connections
-- File system operations
-- Terminal rendering (belongs in CLI layer)
-- HTTP requests
+- API clients → `src/services/`
+- Database connections → `src/services/`
+- File system operations → `src/services/`
+- Terminal rendering → `src/cli/`
+- HTTP requests → `src/services/`
 
-### Testing Philosophy
+### Testing
 
 Core should be **highly testable**:
 
 - Mock interfaces, not implementations
 - Test business logic without I/O
-- Example: Test agent-runner by mocking `LLMService` interface
+- Use Effect's testing utilities for dependency injection
+
+```typescript
+// Test agent-runner by mocking LLMService
+const mockLLM = Layer.succeed(LLMServiceTag, {
+  createChatCompletion: () => Effect.succeed(mockResponse),
+});
+```
 
 ## Common Patterns
 
-### Effect-TS
+### Effect-TS Usage
 
-We use Effect for:
+Core uses Effect-TS for:
 
-- Async operations
-- Error handling (typed errors)
-- Dependency injection (via Context)
+- **Async Operations**: Effect.gen for async workflows
+- **Error Handling**: Tagged errors with recovery strategies
+- **Dependency Injection**: Effect Context for services
 
-### Dependency Injection
+### Dependency Injection Pattern
 
 ```typescript
 function myLogic(): Effect.Effect<Result, Error, LLMService | LoggerService> {
@@ -134,15 +177,22 @@ function myLogic(): Effect.Effect<Result, Error, LLMService | LoggerService> {
 }
 ```
 
-Services are provided at runtime via Effect's Layer system.
+Services are provided at runtime via Effect's Layer system (wired in `src/main.ts`).
 
-## Future Scalability
+## Key Files
 
-This architecture makes it easy to add:
+- **`agent/agent-runner.ts`** - Main agent execution engine
+- **`agent/context-window-manager.ts`** - Context window management
+- **`agent/tools/tool-registry.ts`** - Tool registration and execution
+- **`interfaces/llm.ts`** - LLM service contract
+- **`interfaces/storage.ts`** - Storage service contract
+- **`types/agent.ts`** - Agent domain model
+- **`types/llm.ts`** - LLM-related domain types
 
-- **Skills/Capabilities**: New domain types in `types/skills.ts`
-- **Workflows**: New logic in `agent/workflows/`
-- **Complex Context Management**: New modules in `agent/context/`
-- **Custom Strategies**: Pluggable via interfaces
+## Related Documentation
 
-The key is maintaining the **Dependency Rule**: Core never imports from `services` or `cli`.
+- **CLI Layer**: See `src/cli/README.md` for how commands use core
+- **Services**: See `src/services/README.md` for interface implementations
+- **Architecture**: See `docs/ARCHITECTURE.md` for system-wide architecture
+
+**Critical Rule**: Core never imports from `services/` or `cli/`. All dependencies point inward.
