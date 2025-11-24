@@ -3,12 +3,14 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { APICallError } from "ai";
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import { ProviderName } from "../../core/constants/models";
+import { AgentConfigService, AgentConfigServiceTag } from "../../core/interfaces/agent-config";
+import { LLMServiceTag } from "../../core/interfaces/llm";
 import { LLMAuthenticationError, LLMConfigurationError } from "../../core/types/errors";
 import type { AppConfig, LLMConfig } from "../../core/types/index";
-import { AgentConfigService, ConfigServiceImpl, type ConfigService } from "../config";
+import { AgentConfigServiceImpl } from "../../services/config";
 import { createLoggerLayer } from "../logger";
 import { createAISDKServiceLayer } from "./ai-sdk-service";
-import { LLMServiceTag } from "./interfaces";
 import { PROVIDER_MODELS } from "./models";
 
 describe("AI SDK Service - Unit Tests", () => {
@@ -17,7 +19,7 @@ describe("AI SDK Service - Unit Tests", () => {
    */
   function createTestConfigLayer(
     llmConfig: LLMConfig,
-  ): Layer.Layer<ConfigService, never, FileSystem.FileSystem> {
+  ): Layer.Layer<AgentConfigService, never, FileSystem.FileSystem> {
     const appConfig: AppConfig = {
       storage: { type: "file", path: "/tmp/test" },
       logging: { level: "info", format: "pretty", output: "console" },
@@ -25,10 +27,10 @@ describe("AI SDK Service - Unit Tests", () => {
     };
 
     return Layer.effect(
-      AgentConfigService,
+      AgentConfigServiceTag,
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        return new ConfigServiceImpl(appConfig, undefined, fs);
+        return new AgentConfigServiceImpl(appConfig, undefined, fs);
       }),
     );
   }
@@ -586,7 +588,7 @@ describe("AI SDK Service - Unit Tests", () => {
       );
 
       // Check that all providers from PROVIDER_MODELS are listed
-      const expectedProviders = Object.keys(PROVIDER_MODELS);
+      const expectedProviders = Object.keys(PROVIDER_MODELS) as ProviderName[];
       for (const expectedProvider of expectedProviders) {
         expect(result).toContain(expectedProvider);
       }

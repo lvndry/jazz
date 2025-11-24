@@ -18,7 +18,7 @@ import { getDefaultDataDirectory } from "../core/utils/runtime-detection";
 
 import { AgentConfigServiceTag, type AgentConfigService } from "../core/interfaces/agent-config";
 
-export class ConfigServiceImpl implements AgentConfigService {
+export class AgentConfigServiceImpl implements AgentConfigService {
   private currentConfig: AppConfig;
   private configPath: string | undefined;
   private fs: FileSystem.FileSystem;
@@ -56,7 +56,7 @@ export class ConfigServiceImpl implements AgentConfigService {
 
   set<A>(key: string, value: A): Effect.Effect<void, never> {
     return Effect.gen(
-      function* (this: ConfigServiceImpl) {
+      function* (this: AgentConfigServiceImpl) {
         // Update in-memory config
         deepSet(this.currentConfig as unknown as Record<string, unknown>, key, value as unknown);
 
@@ -112,7 +112,7 @@ export function createConfigLayer(
           })
         : mergeConfig(baseConfig, fileConfig);
 
-      return new ConfigServiceImpl(finalConfig, loaded.configPath, fs);
+      return new AgentConfigServiceImpl(finalConfig, loaded.configPath, fs);
     }),
   );
 }
