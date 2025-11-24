@@ -5,8 +5,6 @@ import { mistral } from "@ai-sdk/mistral";
 import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import { createOpenRouter, type OpenRouterProviderSettings } from "@openrouter/ai-sdk-provider";
-import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
-
 import {
   APICallError,
   generateText,
@@ -23,6 +21,7 @@ import {
   type UserModelMessage,
 } from "ai";
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
+import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { z } from "zod";
 import { MAX_AGENT_STEPS } from "../../constants/agent";
@@ -160,6 +159,9 @@ function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; ap
   }
   if (llmConfig.deepseek?.api_key) {
     providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
+  }
+  if (llmConfig.openrouter?.api_key) {
+    providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
   }
 
   providers.push({ name: "ollama", apiKey: llmConfig.ollama?.api_key ?? "" });
@@ -425,10 +427,7 @@ class AISDKService implements LLMService {
       return Effect.succeed([]);
     }
 
-    const apiKey =
-      providerConfig && typeof providerConfig === "object" && "api_key" in providerConfig
-        ? providerConfig.api_key
-        : undefined;
+    const apiKey = providerConfig?.api_key;
 
     return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey);
   }
@@ -445,10 +444,7 @@ class AISDKService implements LLMService {
           Effect.try({
             try: () => {
               const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
-              const apiKey =
-                providerConfig && typeof providerConfig === "object" && "api_key" in providerConfig
-                  ? providerConfig.api_key
-                  : undefined;
+              const apiKey = providerConfig?.api_key;
 
               if (!apiKey) {
                 // API Key is optional for Ollama

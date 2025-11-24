@@ -141,49 +141,11 @@ If you prefer to edit the configuration file directly, create or edit `~/.jazz/c
 
 **That's it!** You can now create and chat with agents.
 
-#### OpenRouter Support
+### Other Integrations
 
-Jazz supports [OpenRouter](https://openrouter.ai) for access to 200+ models from multiple providers through a single API:
-
-```json
-{
-  "llm": {
-    "openrouter": {
-      "api_key": "sk-or-v1-..."
-    }
-  }
-}
-```
-
-When creating an agent, select OpenRouter as the provider and choose from models like:
-
-- `openai/gpt-4-turbo`
-- `anthropic/claude-3.5-sonnet`
-- `google/gemini-pro-1.5`
-- `meta-llama/llama-3.1-405b`
-- And 200+ more
-
-OpenRouter provides unified access, competitive pricing, and automatic fallbacks across providers.
-
-### Optional Integrations
-
-Want more capabilities? Add these optional integrations:
-
-```json
-{
-  "google": {
-    "clientId": "your-client-id.apps.googleusercontent.com",
-    "clientSecret": "your-client-secret"
-  },
-  "linkup": {
-    "api_key": "your-linkup-api-key"
-  }
-}
-```
+See [docs/integrations.md](docs/integrations.md) for more details.
 
 Complete config example [here](./examples)
-
-See [docs/integrations.md](docs/integrations.md) for detailed setup instructions.
 
 ## Real-World Examples
 

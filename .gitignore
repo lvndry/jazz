@@ -39,6 +39,7 @@ data/
 .jazz/
 jazz.config.json
 jazz.config.*.json
+
+# IDE
 CLAUDE.md
-.history/
 .kiro/
