@@ -34,7 +34,7 @@ Jazz supports multiple LLM providers. You need at least one configured to create
 }
 ```
 
-[Supported Models](https://github.com/lvndry/jazz/blob/d1665fcb5c373362483d52744224d88a11ba170e/src/services/llm/ai-sdk-service.ts#L218)
+**Supported Models:** [`src/core/constants/models.ts`](../src/core/constants/models.ts#L13-L27)
 
 ### Anthropic
 
@@ -55,7 +55,7 @@ Jazz supports multiple LLM providers. You need at least one configured to create
 }
 ```
 
-[Supported Models](https://github.com/lvndry/jazz/blob/d1665fcb5c373362483d52744224d88a11ba170e/src/services/llm/ai-sdk-service.ts#L230)
+**Supported Models:** [`src/core/constants/models.ts`](../src/core/constants/models.ts#L28-L32)
 
 ### Google Gemini
 
@@ -76,7 +76,7 @@ Jazz supports multiple LLM providers. You need at least one configured to create
 }
 ```
 
-[Supported Models](https://github.com/lvndry/jazz/blob/d1665fcb5c373362483d52744224d88a11ba170e/src/services/llm/ai-sdk-service.ts#L235)
+**Supported Models:** [`src/core/constants/models.ts`](../src/core/constants/models.ts#L33-L42)
 
 ### Mistral AI
 
@@ -97,7 +97,7 @@ Jazz supports multiple LLM providers. You need at least one configured to create
 }
 ```
 
-[Supported Models](https://github.com/lvndry/jazz/blob/d1665fcb5c373362483d52744224d88a11ba170e/src/services/llm/ai-sdk-service.ts#L245)
+**Supported Models:** [`src/core/constants/models.ts`](../src/core/constants/models.ts#L43-L49)
 
 ### xAI (Grok)
 
@@ -118,7 +118,7 @@ Jazz supports multiple LLM providers. You need at least one configured to create
 }
 ```
 
-[Supported Models](https://github.com/lvndry/jazz/blob/d1665fcb5c373362483d52744224d88a11ba170e/src/services/llm/ai-sdk-service.ts#L252)
+**Supported Models:** [`src/core/constants/models.ts`](../src/core/constants/models.ts#L50-L65)
 
 ### DeepSeek
 
@@ -139,7 +139,7 @@ Jazz supports multiple LLM providers. You need at least one configured to create
 }
 ```
 
-[Supported Models](https://github.com/lvndry/jazz/blob/d1665fcb5c373362483d52744224d88a11ba170e/src/services/llm/ai-sdk-service.ts#L268)
+**Supported Models:** [`src/core/constants/models.ts`](../src/core/constants/models.ts#L66)
 
 ### Ollama (Local Models)
 
@@ -217,16 +217,13 @@ Enable your agents to manage Gmail: read, search, send emails, manage labels, an
 
 #### 5. Add to Jazz Configuration
 
-Add to your `~/.jazz/config.json`:
+To setup the configuration, run:
 
-```json
-{
-  "google": {
-    "clientId": "123456789-abc.apps.googleusercontent.com",
-    "clientSecret": "GOCSPX-abc123..."
-  }
-}
+```bash
+jazz config set google.
 ```
+
+And paste your client id and client secret when prompted.
 
 #### 6. Authenticate
 
@@ -317,27 +314,9 @@ Enable your agents to search the web and get current information.
 
 #### 2. Add to Jazz Configuration
 
-Add to your `~/.jazz/config.json`:
-
-```json
-{
-  "linkup": {
-    "api_key": "your-linkup-api-key"
-  },
-  "exa": {
-    "api_key": "your-exa-api-key"
-  }
-}
-```
-
-#### 3. Create an Agent with Web Search
-
-```bash
-jazz agent create
-
-# During creation:
-# - Choose tools → Select "Web Search" category
-# - This gives your agent access to web_search tool
+```sh
+jazz config set linkup # jazz config set linkup.api_key <YOUR_LINKUP_API_KEY>
+jazz config set exa # jazz config set exa.api_key <YOUR_EXA_API_KEY>
 ```
 
 ### Web Search Capabilities
@@ -349,21 +328,6 @@ Your agents can now:
 - **Sourced Answers**: AI-friendly format with citations
 - **Raw Results**: Direct search results for parsing
 - **Image Search**: Optional image results
-
-### Search Modes
-
-**Standard Search** (default):
-
-- Fast results
-- Good for quick lookups
-- 3-5 sources typically
-
-**Deep Search**:
-
-- Comprehensive results
-- Multiple perspectives
-- 10+ sources
-- Best for research tasks
 
 ### Usage Example
 
@@ -385,22 +349,3 @@ Agent: [Uses web_search]
        - GitHub Release Notes
        - Dev.to Articles
 ```
-
----
-
-## Next Steps
-
-- [Create your first agent](agent-development.md)
-- [Explore example workflows](examples.md)
-- [Learn about available tools](task-types.md)
-- [Understand the architecture](architecture.md)
-
----
-
-## Support
-
-Having trouble with integrations?
-
-- Check [Issue Tracker](https://github.com/lvndry/jazz/issues)
-- Join [Discord Community](https://discord.gg/yBDbS2NZju)
-- Read [Troubleshooting Guide](cli-reference.md#troubleshooting)

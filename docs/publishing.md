@@ -15,8 +15,7 @@ checklist any time you cut a new version.
 
 ### 2. Push the commit and tag
 
-- Push both the commit and the tag: `git push origin main && git push origin vX.Y.Z` (or
-  `git push --follow-tags`).
+- Push both the commit and the tag: `git push --follow-tags`.
 - Verify the tag exists on GitHub before proceeding.
 
 ### 3. Create the GitHub release

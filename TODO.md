@@ -11,28 +11,24 @@
 - [x] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
       more capable or less costly model while keeping the same context
 - [x] Easy update - `jazz update`
-- [ ] Improve `jazz agent create` ergonomics e.g `jazz agent create --name "deploy-master" --tools git,files --description "Deploy master agent"`.
 
 ## Agent Runtime & Automation
 
-- [ ] Summarize context near window limits — add automatic context compression that preserves action
-      history when tokens spike.
-- [ ] Explore sub-agent triggers — design trigger taxonomy (event, schedule, manual) and PoC
-      orchestration primitives.
-- [ ] Trigger system (schedule, file, webhook, manual) — implement unified trigger dispatcher with
-      persistence and retry policies.
-- [ ] Memory architecture — define long-term memory spec (storage backend, schema, retrieval) for
-      agent personalization.
-- [ ] Skills management — build discovery/registration mechanism so agents can opt into capabilities
-      with explicit contracts.
 - [ ] Dynamic tool loading - dynamically load only relevant tools based on context/user query
 - [ ] Being able to always approve low stake tools - Give a risk level to tools, being able to say
       if we want to allays authorize a tool so that it don't ask for approval every time
+- [ ] Summarize context near window limits — add automatic context compression that preserves action
+      history when tokens spike.
+- [ ] Explore sub-agent triggers — PoC orchestration primitives.
+- [ ] Trigger system (schedule, file, webhook, manual) — hooks/cronjobs. Might require being able to execute jazz tasks
+- [ ] Memory architecture — define long-term memory (storage, schema, retrieval) for
+      agent personalization.
+- [ ] Skills - Similar to Claude Skills, but for Jazz
 
 ## CLI Feature Depth & Docs
 
-- [ ] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox
-      triage, reporting) with reusable configs
+- [x] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox
+      triage, reporting)
 
 ## Integrations
 
@@ -48,7 +44,6 @@
         language.
   - [ ] Calendar integration bridge — parse meeting intents and invoke Calendar tooling once
         available.
-  - [ ] Add more ready to use agent with specific set of tools ans skills - code agent, fs agent, ...
 - [x] Ollama - Being able to pass custom baseURL in config
 - [x] Ollama - Fetch available models from baseURL instead of keeping a list of static model
 
@@ -56,19 +51,15 @@
 
 - [ ] Security tests — build suites covering command injection, privilege escalation, sandbox
       escapes, and malicious tool payloads.
-- [ ] Broaden automated test coverage — prioritize Effect-based unit tests for CLI commands, tool
-      adapters, and runtime layers.
-- [ ] readFile tool should only read files 100 lines per 100 lines to avoid loading large files into
-      memory all at once
+- [ ] More unit tests
 
 ## Developer experience
 
 - [ ] Precommit hooks
 
-## Backlog Ideas & Research
+## Ideas & Research
 
 - [Explorations](./docs//exploration/)
-- Config-driven agent provisioning, e.g. `jazz agent create --config agent.json`.
 - Per-agent authentication domains to isolate credentials (support multiple Gmail accounts, etc.).
 - Rich workflow memory tuned to personal preferences (favorite folders, project contexts, historical
   decisions).

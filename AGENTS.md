@@ -79,7 +79,7 @@ When building features for Jazz, think like a **product engineer** who understan
 **🔬 AI/ML Research First:**
 
 - **Use Exploration Docs**: Reference [docs/exploration/](../docs/exploration/) for research-inspired patterns (verification-refinement pipelines, agent skills, token-efficient formats, etc.)
-- **Apply Research Patterns**: When implementing features, consider research-backed approaches documented in the exploration folder
+- **Apply Research Patterns**: When implementing features, consider research-backed approaches
 - **Experiment Boldly**: Don't be afraid to implement cutting-edge patterns from the exploration docs (speculative execution, agent skills, verification-refinement, etc.)
 - **Measure Everything**: Benchmark improvements, track metrics, validate hypotheses when implementing research-inspired features
 - **Think Research-Inspired**: When designing new features, consider how research patterns (multi-model consensus, semantic search, agent orchestration) could apply
@@ -116,7 +116,7 @@ When building features for Jazz, think like a **product engineer** who understan
 - **Think Multiple Solutions**: Always consider 3-5 alternatives, choose the best one
 - **Break When Needed**: Don't hesitate to make breaking changes if they lead to better solutions
 
-### 🔒 Security (100% Critical)
+### 🔒 Security
 
 - **Security-First Design**: Every feature must consider security implications from day one
 - **Input Validation**: All external inputs validated using Schema, sanitized, and validated again
@@ -126,7 +126,7 @@ When building features for Jazz, think like a **product engineer** who understan
 - **Regular Audits**: Review security practices, update dependencies, patch vulnerabilities
 - **Zero Trust**: Assume nothing is safe, validate everything, require explicit approval for dangerous operations
 
-### 📖 Documentation (100% Critical)
+### 📖 Documentation
 
 - **Comprehensive Coverage**: Every public API, every feature, every pattern must be documented
 - **Document Everything**: Code, APIs, decisions, trade-offs, future ideas
@@ -136,7 +136,7 @@ When building features for Jazz, think like a **product engineer** who understan
 - **Accessibility**: Documentation should be discoverable, searchable, and easy to navigate
 - **Error Documentation**: Document all error scenarios, recovery strategies, and troubleshooting steps
 
-### 🧪 Testing (100% Critical)
+### 🧪 Testing
 
 - **Comprehensive Test Coverage**: Unit tests, integration tests, end-to-end tests
 - **Property-Based Testing**: Use Effect's testing patterns for robust validation
@@ -144,7 +144,7 @@ When building features for Jazz, think like a **product engineer** who understan
 - **Performance Tests**: Benchmark critical paths, track regressions
 - **Security Tests**: Test input validation, credential handling, permission checks
 
-### ⚡ Performance (100% Critical)
+### ⚡ Performance
 
 - **Measure Everything**: Profile code, track metrics, identify bottlenecks, optimize continuously
 - **Optimize Aggressively**: Cache expensive operations, parallelize where possible, lazy evaluation
@@ -214,55 +214,6 @@ When building features for Jazz, think like a **product engineer** who understan
 - Chain operations using pipe() for better composition
 - Use Effect.all for parallel operations
 - Implement proper timeout and retry logic
-
-### Configuration Management
-
-- Use Effect's Config module for environment variables
-- Implement hierarchical configuration (CLI args > env vars > config file > defaults)
-- Validate configuration using Schema
-- Support both JSON and YAML configuration files
-
-## Development Workflow
-
-- Use incremental TypeScript compilation
-- Implement hot reload for development
-- Use ESLint with TypeScript and Effect rules
-- Format code with Prettier
-- Pre-commit hooks for linting and testing
-- Regular dependency updates and security audits
-- Continuous performance profiling
-- Regular architecture reviews
-
-## Dependencies Management
-
-- Minimize external dependencies
-- Prefer Effect ecosystem libraries when available
-- Pin dependency versions in package.json
-- Regular security audits of dependencies
-- Keep dependencies up to date
-- Document why each dependency is needed
-
-### File Organization
-
-```
-src/
-├── cli/
-│   ├── commands/
-│   │   ├── agent.ts
-│   │   └── index.ts
-│   ├── index.ts
-│   └── utils.ts
-├── core/
-│   ├── agent/
-│   ├── automation/
-│   ├── config/
-│   └── types/
-├── services/
-│   ├── logger.ts
-│   ├── storage.ts
-│   └── scheduler.ts
-└── main.ts
-```
 
 ---
 
