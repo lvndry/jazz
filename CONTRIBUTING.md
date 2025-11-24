@@ -33,6 +33,8 @@ Thanks for wanting to contribute! This document gives a quick set of guidelines 
 - Add the Layer to `createAppLayer` in `src/main.ts` (if needed at runtime)
 - Add tests with mocked and, where appropriate, integration-level tests
 
+- Example template: We provide a ready-to-use example template under `examples/feature-flag/README.md` showing a minimal end-to-end pattern for adding a new service: core contract (interface + Tag), a sample HTTP-backed adapter that reads config and exposes a Layer, wiring guidance for `createAppLayer`, and a unit test that demonstrates using `Layer.succeed` to mock the service. Use this example as a starting point when creating new services or adapters.
+
 5. Documentation
 
 - Update the appropriate README (core/services/cli) when you add features or change interfaces

@@ -171,18 +171,6 @@ const agentId = await select({
 - LLM API calls → `services/llm/`
 - Storage operations → `services/storage/`
 
-### Presentation Components
-
-> **Note**: Presentation utilities currently in `core/utils/` should be moved to `cli/presentation/`:
->
-> - `output-renderer.ts`
-> - `markdown-renderer.ts`
-> - `thinking-renderer.ts`
-> - `output-theme.ts`
-> - `output-writer.ts`
-
-These handle terminal-specific formatting and are UI concerns, not business logic.
-
 ## Application Bootstrap
 
 ### Main Entry (`src/main.ts`)

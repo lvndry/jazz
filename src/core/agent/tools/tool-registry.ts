@@ -29,23 +29,6 @@ export type {
 } from "../../interfaces/tool-registry";
 export type { ToolExecutionResult } from "../../types/tools";
 
-/**
- * Helper function to ignore errors while preserving requirements type.
- *
- * This is necessary because when piping `Effect.catchAll(() => Effect.void)`,
- * TypeScript's type inference for `Effect.gen` can lose track of the requirements
- * union. By using a helper function with explicit type parameters, we ensure
- * the requirements are preserved in the type system.
- *
- * @param effect - The effect to execute, ignoring any errors
- * @returns An effect that never fails but preserves the original requirements
- */
-function ignoreLogErrors<R>(
-  effect: Effect.Effect<void, unknown, R>,
-): Effect.Effect<void, never, R> {
-  return effect.pipe(Effect.catchAll(() => Effect.void));
-}
-
 class DefaultToolRegistry implements ToolRegistry {
   private tools: Map<string, Tool<unknown>>;
   private toolCategories: Map<string, string>; // tool name -> category id
@@ -201,7 +184,7 @@ class DefaultToolRegistry implements ToolRegistry {
       const tool = yield* this.getTool(name);
 
       // Log tool execution start (ignore errors to avoid breaking tool execution)
-      yield* ignoreLogErrors(logToolExecutionStart(name, args));
+      yield* logToolExecutionStart(name, args);
 
       try {
         // Note: tool.execute returns Effect<..., Error, unknown> because tools are stored as Tool<unknown>.
@@ -220,9 +203,7 @@ class DefaultToolRegistry implements ToolRegistry {
           const resultSummary = tool.createSummary?.(result);
 
           // Log successful execution with improved formatting
-          yield* ignoreLogErrors(
-            logToolExecutionSuccess(name, durationMs, resultSummary, result.result),
-          );
+          yield* logToolExecutionSuccess(name, durationMs, resultSummary, result.result);
         } else {
           // If this is an approval-required response, log as warning with special label
           const resultObj = result.result as
@@ -231,10 +212,10 @@ class DefaultToolRegistry implements ToolRegistry {
           const isApproval = resultObj?.approvalRequired === true;
           if (isApproval) {
             const approvalMsg = resultObj?.message || result.error || "Approval required";
-            yield* ignoreLogErrors(logToolExecutionApproval(name, durationMs, approvalMsg));
+            yield* logToolExecutionApproval(name, durationMs, approvalMsg);
           } else {
             const errorMessage = result.error || "Tool returned success=false";
-            yield* ignoreLogErrors(logToolExecutionError(name, durationMs, errorMessage));
+            yield* logToolExecutionError(name, durationMs, errorMessage);
           }
         }
 
@@ -244,7 +225,7 @@ class DefaultToolRegistry implements ToolRegistry {
         const errorMessage = err instanceof Error ? err.message : String(err);
 
         // Log error with improved formatting
-        yield* ignoreLogErrors(logToolExecutionError(name, durationMs, errorMessage));
+        yield* logToolExecutionError(name, durationMs, errorMessage);
 
         throw err as Error;
       }

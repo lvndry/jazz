@@ -252,7 +252,7 @@ function writeTokenUsageLog(
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
 
-    yield* logger.writeToFile("info", "Agent token usage", {
+    yield* logger.info("Agent token usage", {
       runId: payload.runId,
       agentId: payload.agentId,
       agentName: payload.agentName,
