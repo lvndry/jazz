@@ -135,20 +135,17 @@ If you prefer to edit the configuration file directly, create or edit `~/.jazz/c
     "openai": {
       "api_key": "sk-..."
     }
-  },
-  "google": {
-    "clientId": "your-client-id.apps.googleusercontent.com",
-    "clientSecret": "your-client-secret"
-  },
-  "linkup": {
-    "api_key": "your-linkup-api-key"
   }
 }
 ```
 
-Complete config example [here](./examples)
+**That's it!** You can now create and chat with agents.
 
-See [docs/integrations.md](docs/integrations.md) for detailed setup instructions.
+### Other Integrations
+
+See [docs/integrations.md](docs/integrations.md) for more details.
+
+Complete config example [here](./examples)
 
 ## Real-World Examples
 

@@ -64,7 +64,8 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "grok-3-mini", displayName: "Grok 3 Mini", isReasoningModel: true },
   ],
   deepseek: [{ id: "deepseek-chat", displayName: "DeepSeek Chat", isReasoningModel: false }],
-  ollama: [], // Ollama models are fetched dynamically
+  ollama: [],
+  openrouter: [],
 } as const satisfies Record<string, readonly ModelInfo[]>;
 
 /**

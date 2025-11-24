@@ -46,14 +46,6 @@ export interface LLMProviderConfig {
   readonly api_key: string;
 }
 
-export interface XAIProviderConfig {
-  readonly api_key: string;
-}
-
-export interface DeepSeekProviderConfig {
-  readonly api_key: string;
-}
-
 export interface OllamaProviderConfig {
   readonly api_key?: string;
 }
@@ -63,8 +55,8 @@ export interface LLMConfig {
   readonly anthropic?: LLMProviderConfig;
   readonly google?: LLMProviderConfig;
   readonly mistral?: LLMProviderConfig;
-  readonly xai?: XAIProviderConfig;
-  readonly deepseek?: DeepSeekProviderConfig;
+  readonly xai?: LLMProviderConfig;
+  readonly deepseek?: LLMProviderConfig;
   readonly ollama?: OllamaProviderConfig;
 }
 

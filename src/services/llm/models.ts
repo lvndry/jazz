@@ -1,5 +1,4 @@
-import type { ProviderName } from "../../core/constants/models";
-import { STATIC_PROVIDER_MODELS } from "../../core/constants/models";
+import { STATIC_PROVIDER_MODELS, type ProviderName } from "../../core/constants/models";
 import type { ModelInfo } from "../../core/types";
 
 /**
@@ -53,4 +52,9 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/tags",
     defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL,
   },
-};
+  openrouter: {
+    type: "dynamic",
+    endpointPath: "/api/v1/models",
+    defaultBaseUrl: "https://openrouter.ai",
+  },
+} as const;

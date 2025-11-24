@@ -1,5 +1,5 @@
 import { FileSystem } from "@effect/platform";
-import { checkbox, input, select } from "@inquirer/prompts";
+import { checkbox, input, search, select } from "@inquirer/prompts";
 import { Effect } from "effect";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
 import { AgentRunner, type AgentRunnerOptions } from "../../core/agent/agent-runner";
@@ -219,13 +219,20 @@ async function promptForAgentInfo(
 ): Promise<AIAgentCreationAnswers> {
   const allProviders = await Effect.runPromise(llmService.listProviders());
 
-  const llmProvider = await select<ProviderName>({
+  const llmProvider = await search<ProviderName>({
     message: "Which LLM provider would you like to use?",
-    choices: allProviders.map((p) => ({
-      name: p.name,
-      value: p.name,
-    })),
-    default: allProviders.find((p) => p.configured)?.name || allProviders[0]?.name,
+    source: (term) => {
+      const choices = allProviders.map((p) => ({
+        name: p.name,
+        value: p.name,
+      }));
+
+      if (!term) {
+        return choices;
+      }
+
+      return choices.filter((choice) => choice.name.toLowerCase().includes(term.toLowerCase()));
+    },
   });
 
   // STEP 2.A: Check if API key exists for the selected provider
@@ -279,15 +286,25 @@ async function promptForAgentInfo(
     },
   );
 
-  const modelDefault = chosenProviderInfo.defaultModel;
-
-  const llmModel = await select<string>({
+  const llmModel = await search<string>({
     message: "Which model would you like to use?",
-    choices: chosenProviderInfo.supportedModels.map((model) => ({
-      name: model.displayName || model.id,
-      value: model.id,
-    })),
-    default: modelDefault,
+    source: (term) => {
+      const allModels = chosenProviderInfo.supportedModels.map((model) => ({
+        name: model.displayName || model.id,
+        description: model.displayName || model.id,
+        value: model.id,
+      }));
+
+      if (!term) {
+        return allModels;
+      }
+
+      return allModels.filter(
+        (choice) =>
+          choice.name.toLowerCase().includes(term.toLowerCase()) ||
+          choice.value.toLowerCase().includes(term.toLowerCase()),
+      );
+    },
   });
 
   // Check if it's a reasoning model and ask for effort if needed

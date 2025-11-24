@@ -9,7 +9,7 @@ export interface ModelFetcherService {
     baseUrl: string,
     endpointPath: string,
     apiKey?: string,
-  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError>;
+  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never>;
 }
 
 // Provider-specific response transformers
@@ -41,6 +41,29 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
         model.name.includes(reasoningModel),
       ),
     }));
+  },
+  openrouter: (data: unknown) => {
+    // Transform OpenRouter API response
+    // Example: { data: [{ id: "openai/gpt-4o", name: "GPT-4o", ... }] }
+    const response = data as {
+      data?: Array<{
+        id: string;
+        name?: string;
+        supported_parameters: string[];
+      }>;
+    };
+
+    return (response.data ?? []).map((model) => {
+      const isReasoningModel =
+        model.supported_parameters.includes("reasoning") ||
+        model.supported_parameters.includes("include_reasoning");
+
+      return {
+        id: model.id,
+        displayName: model.name ?? model.id,
+        isReasoningModel,
+      };
+    });
   },
 };
 
