@@ -1,4 +1,4 @@
-import { checkbox, input, select } from "@inquirer/prompts";
+import { checkbox, input, search, select } from "@inquirer/prompts";
 import { Effect } from "effect";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
 import {
@@ -244,13 +244,20 @@ async function promptForAgentUpdates(
 
   // Update LLM provider
   if (fieldsToUpdate.includes("llmProvider")) {
-    const llmProvider = await select<string>({
+    const llmProvider = await search<string>({
       message: "Select LLM provider:",
-      choices: providers.map((provider) => ({
-        name: provider.name,
-        value: provider.name,
-      })),
-      default: currentAgent.config.llmProvider || providers.find((p) => p.configured)?.name,
+      source: (term) => {
+        const choices = providers.map((provider) => ({
+          name: provider.name,
+          value: provider.name,
+        }));
+
+        if (!term) {
+          return choices;
+        }
+
+        return choices.filter((choice) => choice.name.toLowerCase().includes(term.toLowerCase()));
+      },
     });
     answers.llmProvider = llmProvider;
 
@@ -297,13 +304,24 @@ async function promptForAgentUpdates(
       throw new Error(`Failed to get provider info: ${message}`);
     });
 
-    const llmModel = await select<string>({
+    const llmModel = await search<string>({
       message: `Select model for ${llmProvider}:`,
-      choices: providerInfo.supportedModels.map((model) => ({
-        name: model.displayName || model.id,
-        value: model.id,
-      })),
-      default: providerInfo.defaultModel,
+      source: (term) => {
+        const choices = providerInfo.supportedModels.map((model) => ({
+          name: model.displayName || model.id,
+          value: model.id,
+        }));
+
+        if (!term) {
+          return choices;
+        }
+
+        return choices.filter(
+          (choice) =>
+            choice.name.toLowerCase().includes(term.toLowerCase()) ||
+            choice.value.toLowerCase().includes(term.toLowerCase()),
+        );
+      },
     });
     answers.llmModel = llmModel;
 
@@ -343,13 +361,24 @@ async function promptForAgentUpdates(
         },
       ));
 
-    const llmModel = await select<string>({
+    const llmModel = await search<string>({
       message: `Select model for ${providerToUse}:`,
-      choices: providerInfo.supportedModels.map((model) => ({
-        name: model.displayName || model.id,
-        value: model.id,
-      })),
-      default: currentAgent.config.llmModel || providerInfo.defaultModel,
+      source: (term) => {
+        const choices = providerInfo.supportedModels.map((model) => ({
+          name: model.displayName || model.id,
+          value: model.id,
+        }));
+
+        if (!term) {
+          return choices;
+        }
+
+        return choices.filter(
+          (choice) =>
+            choice.name.toLowerCase().includes(term.toLowerCase()) ||
+            choice.value.toLowerCase().includes(term.toLowerCase()),
+        );
+      },
     });
     answers.llmModel = llmModel;
 

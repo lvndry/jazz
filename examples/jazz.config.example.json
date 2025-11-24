@@ -17,6 +17,12 @@
     },
     "deepseek": {
       "api_key": "sk-..."
+    },
+    "ollama": {
+      "api_key": "ollama-..."
+    },
+    "openrouter": {
+      "api_key": "sk-or-v1-..."
     }
   },
   "google": {

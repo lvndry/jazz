@@ -4,8 +4,7 @@ import { google, type GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
 import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
-import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
-
+import { createOpenRouter, type OpenRouterProviderSettings } from "@openrouter/ai-sdk-provider";
 import {
   APICallError,
   generateText,
@@ -22,6 +21,7 @@ import {
   type UserModelMessage,
 } from "ai";
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
+import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { z } from "zod";
 import { MAX_AGENT_STEPS } from "../../constants/agent";
@@ -160,6 +160,9 @@ function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; ap
   if (llmConfig.deepseek?.api_key) {
     providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
   }
+  if (llmConfig.openrouter?.api_key) {
+    providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
+  }
 
   providers.push({ name: "ollama", apiKey: llmConfig.ollama?.api_key ?? "" });
 
@@ -190,6 +193,25 @@ function selectModel(
         : {};
       const ollamaInstance = createOllama({ baseURL: DEFAULT_OLLAMA_BASE_URL, headers });
       return ollamaInstance(modelId);
+    }
+    case "openrouter": {
+      const apiKey: string | undefined = llmConfig?.openrouter?.api_key;
+      const headers: Record<string, string> = {
+        "HTTP-Referer": "https://github.com/lvndry/jazz",
+        "X-Title": "Jazz CLI",
+      };
+      const config: OpenRouterProviderSettings = {
+        ...(apiKey ? { apiKey } : {}),
+        compatibility: "strict",
+        headers,
+      };
+
+      const openrouter = (
+        createOpenRouter as (
+          config: OpenRouterProviderSettings,
+        ) => (modelId: ModelName) => LanguageModel
+      )(config);
+      return openrouter(modelId);
     }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
@@ -379,7 +401,7 @@ class AISDKService implements LLMService {
 
   private getProviderModels(
     providerName: ProviderName,
-  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError> {
+  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never> {
     const modelSource = this.providerModels[providerName];
 
     if (!modelSource) {
@@ -418,30 +440,24 @@ class AISDKService implements LLMService {
         name: providerName,
         supportedModels: models.map((model) => ({ ...model })),
         defaultModel: models[0]?.id ?? "",
-        authenticate: () =>
-          Effect.try({
-            try: () => {
-              const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
-              const apiKey = providerConfig?.api_key;
+        authenticate: () => {
+          const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
+          const apiKey = providerConfig?.api_key;
 
-              if (!apiKey) {
-                // API Key is optional for Ollama
-                if (providerName.toLowerCase() === "ollama") {
-                  return Effect.succeed(void 0);
-                }
-                throw new LLMAuthenticationError({
-                  provider: providerName,
-                  message: "API key not configured",
-                });
-              }
-              return Effect.succeed(apiKey);
-            },
-            catch: (error: unknown) =>
+          if (!apiKey) {
+            // API Key is optional for Ollama
+            if (providerName.toLowerCase() === "ollama") {
+              return Effect.succeed(void 0);
+            }
+            return Effect.fail(
               new LLMAuthenticationError({
                 provider: providerName,
-                message: error instanceof Error ? error.message : String(error),
+                message: "API key not configured",
               }),
-          }),
+            );
+          }
+          return Effect.succeed(apiKey);
+        },
       };
 
       return provider;
@@ -556,9 +572,7 @@ class AISDKService implements LLMService {
         }
 
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        void Effect.runPromise(
-          this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails),
-        );
+        void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
         return llmError;
       },
@@ -665,9 +679,11 @@ class AISDKService implements LLMService {
 
             console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
 
-            Effect.runSync(
-              this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails),
+            void this.logger.error(
+              `LLM Error: ${llmError._tag} - ${llmError.message}`,
+              errorDetails,
             );
+
             void emit(Effect.fail(Option.some(llmError)));
 
             responseDeferred.reject(llmError);
@@ -701,9 +717,8 @@ class AISDKService implements LLMService {
         }
 
         console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        Effect.runSync(
-          this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails),
-        );
+
+        void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
         return Effect.fail(llmError);
       }),
@@ -724,6 +739,7 @@ export function createAISDKServiceLayer(): Layer.Layer<
       const appConfig = yield* configService.appConfig;
 
       const configuredProviders = getConfiguredProviders(appConfig.llm);
+
       if (configuredProviders.length === 0) {
         return yield* Effect.fail(
           new LLMConfigurationError({

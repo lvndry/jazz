@@ -18,7 +18,7 @@ build/
 logs/
 *.log
 
-# Coverage directory used by tools like istanbul
+# Test-related files
 coverage/
 
 # Optional npm cache directory
@@ -38,3 +38,8 @@ coverage/
 data/
 .jazz/
 jazz.config.json
+jazz.config.*.json
+
+# IDE
+CLAUDE.md
+.kiro/
