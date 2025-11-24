@@ -440,30 +440,24 @@ class AISDKService implements LLMService {
         name: providerName,
         supportedModels: models.map((model) => ({ ...model })),
         defaultModel: models[0]?.id ?? "",
-        authenticate: () =>
-          Effect.try({
-            try: () => {
-              const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
-              const apiKey = providerConfig?.api_key;
+        authenticate: () => {
+          const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
+          const apiKey = providerConfig?.api_key;
 
-              if (!apiKey) {
-                // API Key is optional for Ollama
-                if (providerName.toLowerCase() === "ollama") {
-                  return Effect.succeed(void 0);
-                }
-                throw new LLMAuthenticationError({
-                  provider: providerName,
-                  message: "API key not configured",
-                });
-              }
-              return Effect.succeed(apiKey);
-            },
-            catch: (error: unknown) =>
+          if (!apiKey) {
+            // API Key is optional for Ollama
+            if (providerName.toLowerCase() === "ollama") {
+              return Effect.succeed(void 0);
+            }
+            return Effect.fail(
               new LLMAuthenticationError({
                 provider: providerName,
-                message: error instanceof Error ? error.message : String(error),
+                message: "API key not configured",
               }),
-          }),
+            );
+          }
+          return Effect.succeed(apiKey);
+        },
       };
 
       return provider;
