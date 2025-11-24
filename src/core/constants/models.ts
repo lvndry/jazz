@@ -68,11 +68,6 @@ export const STATIC_PROVIDER_MODELS = {
   openrouter: [],
 } as const satisfies Record<string, readonly ModelInfo[]>;
 
-/**
- * Provider name type derived from STATIC_PROVIDER_MODELS keys
- *
- * This ensures the type stays in sync with the actual provider definitions.
- */
 export type ProviderName = keyof typeof STATIC_PROVIDER_MODELS;
 
 /**

@@ -1,6 +1,5 @@
 /**
  * Core types and interfaces
- * Re-exports from individual type files for convenience
  */
 
 export * from "./agent";

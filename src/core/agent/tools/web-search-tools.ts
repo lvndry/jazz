@@ -4,8 +4,8 @@ import { LinkupClient, type SearchDepth } from "linkup-sdk";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
+import type { ToolExecutionResult } from "../../types";
 import { defineTool } from "./base-tool";
-import { type ToolExecutionResult } from "./tool-registry";
 
 export interface WebSearchArgs extends Record<string, unknown> {
   readonly query: string;

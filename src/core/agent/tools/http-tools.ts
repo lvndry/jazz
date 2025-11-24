@@ -1,7 +1,8 @@
 import { Effect } from "effect";
 import { z } from "zod";
+import type { Tool } from "../../interfaces/tool-registry";
+import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
 import { defineTool } from "./base-tool";
-import type { Tool, ToolExecutionContext, ToolExecutionResult } from "./tool-registry";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 const RESPONSE_TYPES = ["json", "text", "bytes"] as const;
@@ -343,7 +344,8 @@ function parseJsonBody(text: string): { data: unknown; error?: string } {
 export function createHttpRequestTool(): Tool<never> {
   return defineTool<never, HttpRequestArgs>({
     name: "http_request",
-    description: "Send HTTP/HTTPS requests to any URL. Supports all HTTP methods (GET, POST, PUT, PATCH, DELETE, etc.), custom headers, query parameters, and request bodies (JSON, text, or form data). Returns response status, headers, body, and timing information. Use to interact with REST APIs, fetch web content, or make API calls. Includes security features like header sanitization and response size limits.",
+    description:
+      "Send HTTP/HTTPS requests to any URL. Supports all HTTP methods (GET, POST, PUT, PATCH, DELETE, etc.), custom headers, query parameters, and request bodies (JSON, text, or form data). Returns response status, headers, body, and timing information. Use to interact with REST APIs, fetch web content, or make API calls. Includes security features like header sanitization and response size limits.",
     tags: ["http", "network", "api"],
     parameters: HttpRequestSchema,
     validate: (args) => {

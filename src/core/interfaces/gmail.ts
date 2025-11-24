@@ -1,62 +1,20 @@
 import { Context, Effect } from "effect";
 import { GmailAuthenticationError, GmailOperationError } from "../types/errors";
+import type { GmailEmail, GmailLabel } from "../types/gmail";
 
-/**
- * Gmail email interface
- */
-export interface GmailEmail {
-  readonly id: string;
-  readonly threadId: string;
-  readonly subject: string;
-  readonly from: string;
-  readonly to: ReadonlyArray<string>;
-  readonly cc?: ReadonlyArray<string> | undefined;
-  readonly bcc?: ReadonlyArray<string> | undefined;
-  readonly date: string;
-  readonly snippet: string;
-  readonly body?: string | undefined;
-  readonly labels?: ReadonlyArray<string> | undefined;
-  readonly attachments?: ReadonlyArray<{
-    readonly filename: string;
-    readonly mimeType: string;
-    readonly size: number;
-  }>;
-}
-
-/**
- * Gmail label interface
- */
-export interface GmailLabel {
-  readonly id: string;
-  readonly name: string;
-  readonly type: "system" | "user";
-  readonly messagesTotal?: number | undefined;
-  readonly messagesUnread?: number | undefined;
-  readonly threadsTotal?: number | undefined;
-  readonly threadsUnread?: number | undefined;
-  readonly color?:
-    | {
-        readonly textColor: string;
-        readonly backgroundColor: string;
-      }
-    | undefined;
-  readonly labelListVisibility?: "labelShow" | "labelHide" | undefined;
-  readonly messageListVisibility?: "show" | "hide" | undefined;
-}
-
-/**
- * Gmail service interface
- * Defines the contract for Gmail operations used by core agent tools
- */
 export interface GmailService {
+  /** Authenticates with Gmail API and initializes the service. */
   readonly authenticate: () => Effect.Effect<void, GmailAuthenticationError>;
+  /** Lists emails from the inbox, optionally filtered by query and limited by maxResults. */
   readonly listEmails: (
     maxResults?: number,
     query?: string,
   ) => Effect.Effect<GmailEmail[], GmailOperationError | GmailAuthenticationError>;
+  /** Retrieves a single email by its ID. */
   readonly getEmail: (
     emailId: string,
   ) => Effect.Effect<GmailEmail, GmailOperationError | GmailAuthenticationError>;
+  /** Sends an email with optional CC, BCC, and attachments. */
   readonly sendEmail: (
     to: ReadonlyArray<string>,
     subject: string,
@@ -71,16 +29,18 @@ export interface GmailService {
       }>;
     },
   ) => Effect.Effect<void, GmailOperationError | GmailAuthenticationError>;
+  /** Searches emails using a Gmail query string. */
   readonly searchEmails: (
     query: string,
     maxResults?: number,
   ) => Effect.Effect<GmailEmail[], GmailOperationError | GmailAuthenticationError>;
 
-  // Label management
+  /** Lists all Gmail labels. */
   readonly listLabels: () => Effect.Effect<
     GmailLabel[],
     GmailOperationError | GmailAuthenticationError
   >;
+  /** Creates a new Gmail label with optional visibility and color settings. */
   readonly createLabel: (
     name: string,
     options?: {
@@ -89,6 +49,7 @@ export interface GmailService {
       readonly color?: { readonly textColor: string; readonly backgroundColor: string };
     },
   ) => Effect.Effect<GmailLabel, GmailOperationError | GmailAuthenticationError>;
+  /** Updates an existing label's properties. */
   readonly updateLabel: (
     labelId: string,
     updates: {
@@ -98,11 +59,12 @@ export interface GmailService {
       readonly color?: { readonly textColor: string; readonly backgroundColor: string };
     },
   ) => Effect.Effect<GmailLabel, GmailOperationError | GmailAuthenticationError>;
+  /** Deletes a label by ID. */
   readonly deleteLabel: (
     labelId: string,
   ) => Effect.Effect<void, GmailOperationError | GmailAuthenticationError>;
 
-  // Email modification
+  /** Adds or removes labels from a single email. */
   readonly modifyEmail: (
     emailId: string,
     options: {
@@ -110,6 +72,7 @@ export interface GmailService {
       readonly removeLabelIds?: ReadonlyArray<string>;
     },
   ) => Effect.Effect<GmailEmail, GmailOperationError | GmailAuthenticationError>;
+  /** Adds or removes labels from multiple emails in a single operation. */
   readonly batchModifyEmails: (
     emailIds: ReadonlyArray<string>,
     options: {
@@ -118,10 +81,11 @@ export interface GmailService {
     },
   ) => Effect.Effect<void, GmailOperationError | GmailAuthenticationError>;
 
-  // Destructive email operations
+  /** Moves an email to trash (can be recovered). */
   readonly trashEmail: (
     emailId: string,
   ) => Effect.Effect<void, GmailOperationError | GmailAuthenticationError>;
+  /** Permanently deletes an email (cannot be recovered). */
   readonly deleteEmail: (
     emailId: string,
   ) => Effect.Effect<void, GmailOperationError | GmailAuthenticationError>;

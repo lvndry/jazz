@@ -3,9 +3,9 @@ import { spawn } from "child_process";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "../../interfaces/fs";
+import type { Tool } from "../../interfaces/tool-registry";
 import { defineTool } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
-import { type Tool } from "./tool-registry";
 
 /**
  * Filesystem and shell tools: pwd, ls, cd, grep, find, mkdir, rm

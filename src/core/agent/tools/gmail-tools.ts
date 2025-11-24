@@ -1,13 +1,9 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import {
-  GmailServiceTag,
-  type GmailEmail,
-  type GmailLabel,
-  type GmailService,
-} from "../../interfaces/gmail";
+import { GmailServiceTag, type GmailService } from "../../interfaces/gmail";
+import type { Tool } from "../../interfaces/tool-registry";
+import type { GmailEmail, GmailLabel } from "../../types/gmail";
 import { defineTool } from "./base-tool";
-import { type Tool } from "./tool-registry";
 
 // Gmail allowed label colors
 const ALLOWED_LABEL_COLORS = [

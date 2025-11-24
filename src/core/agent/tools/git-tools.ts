@@ -2,10 +2,11 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "../../interfaces/fs";
+import type { Tool } from "../../interfaces/tool-registry";
+import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
 import { defineTool } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 import { createSanitizedEnv } from "./env-utils";
-import { type ToolExecutionContext, type ToolExecutionResult } from "./tool-registry";
 
 /**
  * Git command execution tools
@@ -148,7 +149,7 @@ function resolveWorkingDirectory(
 
 // Safe Git operations (no approval needed) \\
 
-export function createGitStatusTool(): ReturnType<typeof defineTool> {
+export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -251,7 +252,7 @@ export function createGitStatusTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createGitLogTool(): ReturnType<typeof defineTool> {
+export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -369,7 +370,7 @@ export function createGitLogTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createGitDiffTool(): ReturnType<typeof defineTool> {
+export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -477,7 +478,7 @@ export function createGitDiffTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createGitBranchTool(): ReturnType<typeof defineTool> {
+export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -592,7 +593,7 @@ export function createGitBranchTool(): ReturnType<typeof defineTool> {
 
 // Potentially destructive operations (approval required)
 
-export function createGitAddTool(): ReturnType<typeof defineTool> {
+export function createGitAddTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -666,7 +667,7 @@ export function createGitAddTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createExecuteGitAddTool(): ReturnType<typeof defineTool> {
+export function createExecuteGitAddTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -759,7 +760,7 @@ export function createExecuteGitAddTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createGitCommitTool(): ReturnType<typeof defineTool> {
+export function createGitCommitTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -832,7 +833,9 @@ export function createGitCommitTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createExecuteGitCommitTool(): ReturnType<typeof defineTool> {
+export function createExecuteGitCommitTool(): Tool<
+  FileSystem.FileSystem | FileSystemContextService
+> {
   const parameters = z
     .object({
       path: z
@@ -931,7 +934,7 @@ export function createExecuteGitCommitTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createGitPushTool(): ReturnType<typeof defineTool> {
+export function createGitPushTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -1009,7 +1012,7 @@ export function createGitPushTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createGitPullTool(): ReturnType<typeof defineTool> {
+export function createGitPullTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -1087,7 +1090,7 @@ export function createGitPullTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createGitCheckoutTool(): ReturnType<typeof defineTool> {
+export function createGitCheckoutTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -1164,7 +1167,7 @@ export function createGitCheckoutTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createExecuteGitPushTool(): ReturnType<typeof defineTool> {
+export function createExecuteGitPushTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -1266,7 +1269,7 @@ export function createExecuteGitPushTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createExecuteGitPullTool(): ReturnType<typeof defineTool> {
+export function createExecuteGitPullTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
@@ -1368,7 +1371,9 @@ export function createExecuteGitPullTool(): ReturnType<typeof defineTool> {
   });
 }
 
-export function createExecuteGitCheckoutTool(): ReturnType<typeof defineTool> {
+export function createExecuteGitCheckoutTool(): Tool<
+  FileSystem.FileSystem | FileSystemContextService
+> {
   const parameters = z
     .object({
       path: z

@@ -13,7 +13,6 @@ import {
   WEB_SEARCH_CATEGORY,
   createCategoryMappings,
 } from "../../core/agent/tools/register-tools";
-import type { ToolRegistry } from "../../core/agent/tools/tool-registry";
 import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
 import type { ProviderName } from "../../core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
@@ -25,7 +24,7 @@ import {
 import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
-import { ToolRegistryTag } from "../../core/interfaces/tool-registry";
+import { ToolRegistryTag, type ToolRegistry } from "../../core/interfaces/tool-registry";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,

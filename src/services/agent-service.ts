@@ -13,39 +13,9 @@ import {
 import { type Agent, type AgentConfig } from "../core/types/index";
 import { CommonSuggestions } from "../core/utils/error-handler";
 
-/**
- * Default implementation of the AgentService interface
- *
- * Provides agent lifecycle management including creation, retrieval, updates,
- * deletion, and validation. Uses StorageService for persistence.
- */
-export class DefaultAgentService implements AgentService {
+export class AgentServiceImpl implements AgentService {
   constructor(private readonly storage: StorageService) {}
 
-  /**
-   * Create a new agent with the specified configuration
-   *
-   * Validates the agent name and description, checks for duplicates, and creates
-   * a new agent with the provided configuration. The agent will be assigned a
-   * unique ID and timestamps for creation and updates.
-   *
-   * @param name - The unique name for the agent (must be alphanumeric with underscores/hyphens)
-   * @param description - A description of what the agent does (1-500 characters)
-   * @returns An Effect that resolves to the created Agent or fails with validation/configuration errors
-   *
-   * @throws {ValidationError} When name or description validation fails
-   * @throws {AgentAlreadyExistsError} When an agent with the same name already exists
-   * @throws {AgentConfigurationError} When the configuration is invalid
-   * @throws {StorageError} When the agent cannot be saved to storage
-   *
-   * @example
-   * ```typescript
-   * const agent = yield* agentService.createAgent(
-   *   "email-processor",
-   *   "Processes incoming emails and categorizes them",
-   * );
-   * ```
-   */
   createAgent(
     name: string,
     description: string | undefined,
@@ -55,7 +25,7 @@ export class DefaultAgentService implements AgentService {
     StorageError | AgentAlreadyExistsError | AgentConfigurationError | ValidationError
   > {
     return Effect.gen(
-      function* (this: DefaultAgentService) {
+      function* (this: AgentServiceImpl) {
         // Validate input parameters
         yield* validateAgentName(name);
         if (description !== undefined) {
@@ -119,64 +89,14 @@ export class DefaultAgentService implements AgentService {
     );
   }
 
-  /**
-   * Retrieve an agent by its unique identifier
-   *
-   * @param id - The unique identifier of the agent to retrieve
-   * @returns An Effect that resolves to the Agent or fails if not found
-   *
-   * @throws {StorageError} When there's an error accessing storage
-   * @throws {StorageNotFoundError} When the agent with the given ID doesn't exist
-   *
-   * @example
-   * ```typescript
-   * const agent = yield* agentService.getAgent("agent-123");
-   * console.log(`Found agent: ${agent.name}`);
-   * ```
-   */
   getAgent(id: string): Effect.Effect<Agent, StorageError | StorageNotFoundError> {
     return this.storage.getAgent(id);
   }
 
-  /**
-   * List all available agents
-   *
-   * @returns An Effect that resolves to an array of all agents in storage
-   *
-   * @throws {StorageError} When there's an error accessing storage
-   *
-   * @example
-   * ```typescript
-   * const agents = yield* agentService.listAgents();
-   * console.log(`Found ${agents.length} agents`);
-   * agents.forEach(agent => console.log(`- ${agent.name}: ${agent.description}`));
-   * ```
-   */
   listAgents(): Effect.Effect<readonly Agent[], StorageError> {
     return this.storage.listAgents();
   }
 
-  /**
-   * Update an existing agent with new data
-   *
-   * Updates the specified agent with the provided changes. The agent's ID and
-   * creation timestamp cannot be changed. The updatedAt timestamp will be
-   * automatically set to the current time.
-   *
-   * @param id - The unique identifier of the agent to update
-   * @param updates - Partial agent data containing the fields to update
-   * @returns An Effect that resolves to the updated Agent or fails if not found
-   *
-   * @throws {StorageError} When there's an error accessing storage
-   * @throws {StorageNotFoundError} When the agent with the given ID doesn't exist
-   *
-   * @example
-   * ```typescript
-   * const updatedAgent = yield* agentService.updateAgent("agent-123", {
-   *   description: "Updated description",
-   * });
-   * ```
-   */
   updateAgent(
     id: string,
     updates: Partial<Agent>,
@@ -189,7 +109,7 @@ export class DefaultAgentService implements AgentService {
     | ValidationError
   > {
     return Effect.gen(
-      function* (this: DefaultAgentService) {
+      function* (this: AgentServiceImpl) {
         const existingAgent = yield* this.storage.getAgent(id);
 
         if (updates.name && updates.name !== existingAgent.name) {
@@ -244,50 +164,12 @@ export class DefaultAgentService implements AgentService {
     );
   }
 
-  /**
-   * Delete an agent by its unique identifier
-   *
-   * @param id - The unique identifier of the agent to delete
-   * @returns An Effect that resolves when the agent is successfully deleted
-   *
-   * @throws {StorageError} When there's an error accessing storage
-   * @throws {StorageNotFoundError} When the agent with the given ID doesn't exist
-   *
-   * @example
-   * ```typescript
-   * yield* agentService.deleteAgent("agent-123");
-   * console.log("Agent deleted successfully");
-   * ```
-   */
   deleteAgent(id: string): Effect.Effect<void, StorageError | StorageNotFoundError> {
     return this.storage.deleteAgent(id);
   }
 
-  /**
-   * Validate an agent configuration for correctness
-   *
-   * Performs comprehensive validation of the agent configuration including:
-   * - Tool validation
-   *
-   * @param config - The agent configuration to validate
-   * @returns An Effect that resolves if validation passes or fails with configuration errors
-   *
-   * @throws {AgentConfigurationError} When any part of the configuration is invalid
-   *
-   * @example
-   * ```typescript
-   * const config: AgentConfig = {
-   *   agentType: "default",
-   *   llmProvider: "openai",
-   *   llmModel: "gpt-4o",
-   *   environment: {}
-   * };
-   *
-   * yield* agentService.validateAgentConfig(config);
-   * ```
-   */
   validateAgentConfig(config: AgentConfig): Effect.Effect<void, AgentConfigurationError> {
-    return Effect.gen(function* (this: DefaultAgentService) {
+    return Effect.gen(function* (this: AgentServiceImpl) {
       // Validate tools
       if (config.tools) {
         if (!Array.isArray(config.tools)) {
@@ -317,29 +199,6 @@ export class DefaultAgentService implements AgentService {
   }
 }
 
-/**
- * Validation helper functions for agent data
- */
-
-/**
- * Validate an agent name for correctness
- *
- * Ensures the agent name meets the following criteria:
- * - Not empty or whitespace-only
- * - Maximum 100 characters
- * - Only contains letters, numbers, underscores, and hyphens
- *
- * @param name - The agent name to validate
- * @returns An Effect that resolves if validation passes or fails with validation errors
- *
- * @throws {ValidationError} When the name doesn't meet the requirements
- *
- * @example
- * ```typescript
- * yield* validateAgentName("my-agent-1"); // ✅ Valid
- * yield* validateAgentName("invalid@name"); // ❌ Throws ValidationError
- * ```
- */
 function validateAgentName(name: string): Effect.Effect<void, ValidationError> {
   if (!name || name.trim().length === 0) {
     return Effect.fail(
@@ -379,25 +238,6 @@ function validateAgentName(name: string): Effect.Effect<void, ValidationError> {
   return Effect.void;
 }
 
-/**
- * Validate an agent description for correctness
- *
- * Ensures the agent description meets the following criteria:
- * - Not empty or whitespace-only (if provided)
- * - Maximum 500 characters (if provided)
- *
- * @param description - The agent description to validate (optional)
- * @returns An Effect that resolves if validation passes or fails with validation errors
- *
- * @throws {ValidationError} When the description doesn't meet the requirements
- *
- * @example
- * ```typescript
- * yield* validateAgentDescription("Processes emails and categorizes them"); // ✅ Valid
- * yield* validateAgentDescription(""); // ❌ Throws ValidationError
- * yield* validateAgentDescription(undefined); // ✅ Valid (optional)
- * ```
- */
 function validateAgentDescription(description: string): Effect.Effect<void, ValidationError> {
   if (!description || description.trim().length === 0) {
     return Effect.fail(
@@ -425,22 +265,9 @@ function validateAgentDescription(description: string): Effect.Effect<void, Vali
   return Effect.void;
 }
 
-/**
- * Create an Effect layer for the AgentService
- *
- * Provides the DefaultAgentService implementation with StorageService as a dependency.
- *
- * @returns A Layer that provides AgentService, requiring StorageService
- *
- * @example
- * ```typescript
- * const agentServiceLayer = createAgentServiceLayer();
- * const appLayer = Layer.mergeAll(storageLayer, agentServiceLayer);
- * ```
- */
 export function createAgentServiceLayer(): Layer.Layer<AgentService, never, StorageService> {
   return Layer.effect(
     AgentServiceTag,
-    Effect.map(StorageServiceTag, (storage) => new DefaultAgentService(storage)),
+    Effect.map(StorageServiceTag, (storage) => new AgentServiceImpl(storage)),
   );
 }

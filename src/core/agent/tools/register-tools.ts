@@ -1,5 +1,7 @@
 import { Effect, Layer } from "effect";
+import type { ToolRegistry } from "../../interfaces/tool-registry";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
+import type { ToolCategory } from "../../types";
 import {
   createCdTool,
   createEditFileTool,
@@ -57,7 +59,6 @@ import {
 } from "./gmail-tools";
 import { createHttpRequestTool } from "./http-tools";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
-import { type ToolCategory, type ToolRegistry } from "./tool-registry";
 import { createWebSearchTool } from "./web-search-tools";
 
 /**

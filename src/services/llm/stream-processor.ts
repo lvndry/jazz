@@ -11,9 +11,9 @@
 import type { streamText } from "ai";
 import { Chunk, Effect, Option } from "effect";
 import { type LLMError } from "../../core/types/errors";
+import type { ToolCall } from "../../core/types/tools";
 import { type ChatCompletionResponse } from "./chat";
 import type { StreamEvent } from "./streaming-types";
-import { type ToolCall } from "./tools";
 
 /**
  * Type for AI SDK StreamText result

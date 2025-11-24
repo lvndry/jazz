@@ -34,3 +34,15 @@ export interface ToolExecutionResult {
   readonly result: unknown;
   readonly error?: string;
 }
+
+export interface ToolCategory {
+  readonly id: string;
+  readonly displayName: string;
+}
+
+export interface ToolExecutionContext {
+  readonly agentId: string;
+  readonly conversationId?: string;
+  readonly userId?: string;
+  readonly [key: string]: unknown;
+}

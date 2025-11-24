@@ -2,26 +2,15 @@ import { STATIC_PROVIDER_MODELS, type ProviderName } from "../../core/constants/
 import type { ModelInfo } from "../../core/types";
 
 /**
- * Infrastructure-specific model source configuration
- *
  * This type represents how models are fetched for each provider.
- * Static models come from core constants, dynamic models require infrastructure config.
+ * Static models come from core constants, dynamic models are fetch from an API endpoint.
  */
 export type ModelSource =
   | { type: "static"; models: readonly ModelInfo[] }
   | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
 
-/**
- * Default base URL for Ollama (infrastructure constant)
- */
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api";
 
-/**
- * Provider model configuration combining static models from core with infrastructure config
- *
- * Static providers use models from core/constants/models.ts
- * Dynamic providers (like Ollama) require endpoint configuration
- */
 export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   openai: {
     type: "static",

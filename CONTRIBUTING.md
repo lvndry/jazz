@@ -1,51 +1,69 @@
 # Contributing to Jazz
 
-Thanks for wanting to contribute! This document gives a quick set of guidelines and pointers to help new contributors get productive fast.
+## Quick Start
 
-1. Read the READMEs
+```bash
+bun install
+bun run build
+bun test
+bun run lint
+bun run cli
+```
 
-- We have short READMEs in three primary layers to help you understand the code layout and responsibilities:
-  - `src/core/README.md` - business logic, domain types, and contracts
-  - `src/services/README.md` - implementations/adapters and example patterns
-  - `src/cli/README.md` - CLI commands, presentation, and entrypoint
+## Project Structure
 
-2. Development checklist
+Jazz uses clean architecture with strict dependency rules:
 
-- Fork the repository and create a feature branch
-- Run the full checks locally:
-  - Type check: `pnpm run build` or `npm run build`
-  - Lint: `pnpm run lint` or `npm run lint`
-  - Tests: `bun test` (project uses Bun for tests) or `npm test`
-- Keep your changes small & focused. If adding an interface, add both: `src/core/interfaces/<name>.ts` and `src/services/<name>.ts` implementation.
+- **`src/core/`** - Business logic, interfaces, types (no I/O)
+- **`src/services/`** - Service implementations
+- **`src/cli/`** - CLI commands and presentation
 
-3. Code style & tests
+**Critical rule**: `core/` must **never** import from `services/` or `cli/`. Dependencies flow inward only.
 
-- New behavior must include tests when possible
-- Unit test guidelines:
-  - Mock interfaces with `Layer.succeed(TAG, mock)`
-  - Prefer mocking services for isolated unit tests and use small integration tests to validate wiring
-- Use project linting rules before committing
+Read the READMEs:
 
-4. How to add a new service or adapter
+- `src/core/README.md` - Core layer patterns
+- `src/services/README.md` - Service implementations
+- `src/cli/README.md` - CLI commands
+- `docs/ARCHITECTURE.md` - System architecture
+- `docs/FAQ.md` - Common patterns
 
-- Add the interface to `src/core/interfaces` (include a Context tag)
-- Implement the service in `src/services` and expose a Layer
-- Add the Layer to `createAppLayer` in `src/main.ts` (if needed at runtime)
-- Add tests with mocked and, where appropriate, integration-level tests
+## Key Best Practices
 
-- Example template: We provide a ready-to-use example template under `examples/feature-flag/README.md` showing a minimal end-to-end pattern for adding a new service: core contract (interface + Tag), a sample HTTP-backed adapter that reads config and exposes a Layer, wiring guidance for `createAppLayer`, and a unit test that demonstrates using `Layer.succeed` to mock the service. Use this example as a starting point when creating new services or adapters.
+### Code Style
 
-5. Documentation
+- **Function declarations** (not arrow functions) for top-level functions
+- **Effect-TS** for all async operations - use `Effect.gen`, not `async/await`
+- **Interfaces** (not types) for object shapes
+- **Tagged errors** using `Data.TaggedError` for error handling
+- **Always specify return types** for public functions
 
-- Update the appropriate README (core/services/cli) when you add features or change interfaces
+### Architecture
 
-6. Pull request checklist
+When adding features:
 
-- [ ] Branch from main
-- [ ] Build passes locally
-- [ ] Lint passes locally
-- [ ] Tests pass locally
-- [ ] README/ARCHITECTURE updated (if applicable)
-- [ ] Short description of the change + motivation in PR description
+- **New service**: Add interface to `src/core/interfaces/<name>.ts` and implementation to `src/services/<name>.ts`
+- **Business logic**: Add to `src/core/agent/` or `src/core/utils/` (keep it pure, no I/O)
+- **CLI command**: Add to `src/cli/commands/<name>.ts` and register in `src/cli/commands/index.ts`
 
-If you want help writing a test or a service implementation for your change, open a draft PR and ask — maintainers will review and help iterate.
+### Testing
+
+- Tests use `.test.ts` extension in the same directory
+- Use Effect's `Layer` for dependency injection in tests
+- Mock external dependencies (no real API calls)
+
+## Before Submitting PR
+
+- [ ] `bun run typecheck` passes
+- [ ] `bun run lint` passes
+- [ ] `bun test` passes
+- [ ] `bun run build` succeeds
+- [ ] Update relevant READMEs if interfaces change
+
+## Getting Help
+
+- **Issues**: [GitHub Issues](https://github.com/lvndry/jazz/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/lvndry/jazz/discussions)
+- **Discord**: [Join our community](https://discord.gg/yBDbS2NZju)
+
+Need help with a PR? Open a draft PR and ask - maintainers will help iterate.

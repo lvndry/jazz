@@ -5,15 +5,11 @@ import { google, type gmail_v1 } from "googleapis";
 import http from "node:http";
 import open from "open";
 import { AgentConfigServiceTag, type AgentConfigService } from "../core/interfaces/agent-config";
-import {
-  GmailServiceTag,
-  type GmailEmail,
-  type GmailLabel,
-  type GmailService,
-} from "../core/interfaces/gmail";
+import { GmailServiceTag, type GmailService } from "../core/interfaces/gmail";
 import type { LoggerService } from "../core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "../core/interfaces/terminal";
 import { GmailAuthenticationError, GmailOperationError } from "../core/types/errors";
+import type { GmailEmail, GmailLabel } from "../core/types/gmail";
 import { resolveStorageDirectory } from "./storage/utils";
 
 // Helper function to extract HTTP status code from gaxios errors

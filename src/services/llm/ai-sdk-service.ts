@@ -428,36 +428,38 @@ class AISDKService implements LLMService {
     return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey);
   }
 
-  readonly getProvider = (providerName: ProviderName) => {
-    return Effect.gen(this, function* () {
-      const models = yield* this.getProviderModels(providerName);
+  readonly getProvider = (
+    providerName: ProviderName,
+  ): Effect.Effect<LLMProvider, LLMConfigurationError, never> => {
+    return this.getProviderModels(providerName).pipe(
+      Effect.map((models) => {
+        const provider: LLMProvider = {
+          name: providerName,
+          supportedModels: models.map((model) => model),
+          defaultModel: models[0]?.id ?? "",
+          authenticate: () => {
+            const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
+            const apiKey = providerConfig?.api_key;
 
-      const provider: LLMProvider = {
-        name: providerName,
-        supportedModels: models.map((model) => ({ ...model })),
-        defaultModel: models[0]?.id ?? "",
-        authenticate: () => {
-          const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
-          const apiKey = providerConfig?.api_key;
-
-          if (!apiKey) {
-            // API Key is optional for Ollama
-            if (providerName.toLowerCase() === "ollama") {
-              return Effect.succeed(void 0);
+            if (!apiKey) {
+              // API Key is optional for Ollama
+              if (providerName.toLowerCase() === "ollama") {
+                return Effect.succeed(void 0);
+              }
+              return Effect.fail(
+                new LLMAuthenticationError({
+                  provider: providerName,
+                  message: "API key not configured",
+                }),
+              );
             }
-            return Effect.fail(
-              new LLMAuthenticationError({
-                provider: providerName,
-                message: "API key not configured",
-              }),
-            );
-          }
-          return Effect.succeed(apiKey);
-        },
-      };
+            return Effect.succeed(apiKey);
+          },
+        };
 
-      return provider;
-    });
+        return provider;
+      }),
+    );
   };
 
   listProviders(): Effect.Effect<readonly { name: ProviderName; configured: boolean }[], never> {

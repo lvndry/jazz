@@ -7,23 +7,27 @@ import { LLMServiceTag, type LLMService } from "../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
 import type { PresentationService, StreamingRenderer } from "../interfaces/presentation";
 import { PresentationServiceTag } from "../interfaces/presentation";
-import { ToolRegistryTag } from "../interfaces/tool-registry";
+import {
+  ToolRegistryTag,
+  type ToolRegistry,
+  type ToolRequirements,
+} from "../interfaces/tool-registry";
 import { type Agent } from "../types";
 import { type ChatCompletionResponse } from "../types/chat";
 import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "../types/errors";
 import { type ChatMessage } from "../types/message";
 import type { DisplayConfig, StreamingConfig } from "../types/output";
 import type { StreamEvent } from "../types/streaming";
-import { type ToolCall, type ToolDefinition } from "../types/tools";
+import {
+  type ToolCall,
+  type ToolDefinition,
+  type ToolExecutionContext,
+  type ToolExecutionResult,
+} from "../types/tools";
 import { shouldEnableStreaming } from "../utils/stream-detector";
 import { formatToolArguments } from "../utils/tool-formatter";
 import { agentPromptBuilder } from "./agent-prompt";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
-import {
-  type ToolExecutionContext,
-  type ToolExecutionResult,
-  type ToolRegistry,
-} from "./tools/tool-registry";
 import {
   beginIteration,
   completeIteration,
@@ -218,7 +222,11 @@ function executeTool(
   name: string,
   args: Record<string, unknown>,
   context: ToolExecutionContext,
-): Effect.Effect<ToolExecutionResult, Error, ToolRegistry | LoggerService | AgentConfigService> {
+): Effect.Effect<
+  ToolExecutionResult,
+  Error,
+  ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
+> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
     return yield* registry.executeTool(name, args, context);
@@ -241,7 +249,7 @@ function executeToolCall(
 ): Effect.Effect<
   { result: unknown; success: boolean },
   Error,
-  ToolRegistry | LoggerService | AgentConfigService
+  ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
 > {
   return Effect.gen(function* () {
     if (toolCall.type !== "function") {
@@ -375,7 +383,7 @@ function executeToolCalls(
 ): Effect.Effect<
   Record<string, unknown>,
   Error,
-  ToolRegistry | LoggerService | AgentConfigService
+  ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
 > {
   return Effect.gen(function* () {
     const toolResults: Record<string, unknown> = {};
@@ -474,7 +482,12 @@ export class AgentRunner {
   ): Effect.Effect<
     AgentResponse,
     LLMRateLimitError | Error,
-    LLMService | ToolRegistry | LoggerService | AgentConfigService | PresentationService
+    | LLMService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | PresentationService
+    | ToolRequirements
   > {
     return Effect.gen(function* () {
       // Get services
@@ -533,7 +546,12 @@ export class AgentRunner {
   ): Effect.Effect<
     AgentResponse,
     LLMRateLimitError | Error,
-    LLMService | ToolRegistry | LoggerService | AgentConfigService | PresentationService
+    | LLMService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | PresentationService
+    | ToolRequirements
   > {
     return Effect.gen(function* () {
       const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
@@ -874,7 +892,12 @@ export class AgentRunner {
   ): Effect.Effect<
     AgentResponse,
     LLMRateLimitError | Error,
-    LLMService | ToolRegistry | LoggerService | AgentConfigService | PresentationService
+    | LLMService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | PresentationService
+    | ToolRequirements
   > {
     return Effect.gen(function* () {
       const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;

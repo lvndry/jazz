@@ -4,11 +4,15 @@ import type { LoggerService } from "../../interfaces/logger";
 import {
   ToolRegistryTag,
   type Tool,
-  type ToolCategory,
-  type ToolExecutionContext,
   type ToolRegistry,
+  type ToolRequirements,
 } from "../../interfaces/tool-registry";
-import type { ToolDefinition, ToolExecutionResult } from "../../types/tools";
+import type {
+  ToolCategory,
+  ToolDefinition,
+  ToolExecutionContext,
+  ToolExecutionResult,
+} from "../../types/tools";
 import {
   logToolExecutionApproval,
   logToolExecutionError,
@@ -20,27 +24,18 @@ import {
  * Tool registry for managing agent tools
  */
 
-// Re-export core interfaces for backward compatibility
-export type {
-  Tool,
-  ToolCategory,
-  ToolExecutionContext,
-  ToolRegistry,
-} from "../../interfaces/tool-registry";
-export type { ToolExecutionResult } from "../../types/tools";
-
 class DefaultToolRegistry implements ToolRegistry {
-  private tools: Map<string, Tool<unknown>>;
+  private tools: Map<string, Tool<ToolRequirements>>;
   private toolCategories: Map<string, string>; // tool name -> category id
   private categories: Map<string, ToolCategory>; // category id -> ToolCategory object
 
   constructor() {
-    this.tools = new Map<string, Tool<unknown>>();
+    this.tools = new Map<string, Tool<ToolRequirements>>();
     this.toolCategories = new Map<string, string>();
     this.categories = new Map<string, ToolCategory>();
   }
 
-  registerTool(tool: Tool<unknown>, category?: ToolCategory): Effect.Effect<void, never> {
+  registerTool(tool: Tool<ToolRequirements>, category?: ToolCategory): Effect.Effect<void, never> {
     return Effect.sync(() => {
       this.tools.set(tool.name, tool);
       if (category) {
@@ -54,11 +49,13 @@ class DefaultToolRegistry implements ToolRegistry {
     });
   }
 
-  registerForCategory(category: ToolCategory): (tool: Tool<unknown>) => Effect.Effect<void, never> {
-    return (tool: Tool<unknown>) => this.registerTool(tool, category);
+  registerForCategory(
+    category: ToolCategory,
+  ): (tool: Tool<ToolRequirements>) => Effect.Effect<void, never> {
+    return (tool: Tool<ToolRequirements>) => this.registerTool(tool, category);
   }
 
-  getTool(name: string): Effect.Effect<Tool<unknown>, Error> {
+  getTool(name: string): Effect.Effect<Tool<ToolRequirements>, Error> {
     return Effect.try({
       try: () => {
         const tool = this.tools.get(name);
@@ -178,24 +175,19 @@ class DefaultToolRegistry implements ToolRegistry {
     name: string,
     args: Record<string, unknown>,
     context: ToolExecutionContext,
-  ): Effect.Effect<ToolExecutionResult, Error, ToolRegistry | LoggerService | AgentConfigService> {
+  ): Effect.Effect<
+    ToolExecutionResult,
+    Error,
+    ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
+  > {
     function* generator(this: DefaultToolRegistry) {
       const start = Date.now();
       const tool = yield* this.getTool(name);
 
-      // Log tool execution start (ignore errors to avoid breaking tool execution)
       yield* logToolExecutionStart(name, args);
 
       try {
-        // Note: tool.execute returns Effect<..., Error, unknown> because tools are stored as Tool<unknown>.
-        // TypeScript cannot properly union 'unknown' with other requirements, so we need to explicitly
-        // provide the requirements type. The actual requirements are ToolRegistry (via this.getTool),
-        // LoggerService, and AgentConfigService (via logging functions).
-        const result = yield* tool.execute(args, context) as Effect.Effect<
-          ToolExecutionResult,
-          Error,
-          ToolRegistry | LoggerService | AgentConfigService
-        >;
+        const result = yield* tool.execute(args, context);
         const durationMs = Date.now() - start;
 
         if (result.success) {
@@ -241,7 +233,9 @@ export function createToolRegistryLayer(): Layer.Layer<ToolRegistry> {
 }
 
 // Helper functions for common tool registry operations
-export function registerTool(tool: Tool<unknown>): Effect.Effect<void, never, ToolRegistry> {
+export function registerTool(
+  tool: Tool<ToolRequirements>,
+): Effect.Effect<void, never, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
     return yield* registry.registerTool(tool);
@@ -267,7 +261,11 @@ export function registerTool(tool: Tool<unknown>): Effect.Effect<void, never, To
  */
 export function registerForCategory(
   category: ToolCategory,
-): Effect.Effect<(tool: Tool<unknown>) => Effect.Effect<void, never>, never, ToolRegistry> {
+): Effect.Effect<
+  (tool: Tool<ToolRequirements>) => Effect.Effect<void, never>,
+  never,
+  ToolRegistry
+> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
     return registry.registerForCategory(category);
