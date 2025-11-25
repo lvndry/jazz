@@ -11,7 +11,6 @@ import { getConfigCommand, listConfigCommand, setConfigCommand } from "./cli/com
 import { editAgentCommand } from "./cli/commands/edit-agent";
 import { deleteAgentCommand, getAgentCommand, listAgentsCommand } from "./cli/commands/task-agent";
 import { updateCommand } from "./cli/commands/update";
-import { MarkdownRenderer } from "./cli/presentation/markdown-renderer";
 import { CLIPresentationServiceLayer } from "./cli/presentation/presentation-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
@@ -194,8 +193,6 @@ function runCliEffect<R, E extends JazzError | Error>(
  */
 function main(): Effect.Effect<void, never> {
   return Effect.sync(() => {
-    MarkdownRenderer.initialize();
-
     const program = new Command();
 
     program
