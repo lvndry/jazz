@@ -65,6 +65,7 @@ export function editAgentCommand(
     yield* terminal.log(`   Type: ${agent.config.agentType || "N/A"}`);
     yield* terminal.log(`   LLM Provider: ${agent.config.llmProvider || "N/A"}`);
     yield* terminal.log(`   LLM Model: ${agent.config.llmModel || "N/A"}`);
+    yield* terminal.log(`   Reasoning: ${agent.config.reasoningEffort || "N/A"}`);
     yield* terminal.log(`   Tools: ${agent.config.tools ? agent.config.tools.length : 0} tools`);
     yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
     yield* terminal.log(`   Updated: ${agent.updatedAt.toISOString()}`);
@@ -151,7 +152,7 @@ export function editAgentCommand(
     yield* terminal.log(`   Type: ${updatedConfig.agentType || "N/A"}`);
     yield* terminal.log(`   LLM Provider: ${updatedConfig.llmProvider || "N/A"}`);
     yield* terminal.log(`   LLM Model: ${updatedConfig.llmModel || "N/A"}`);
-    yield* terminal.log(`   Reasoning Effort: ${updatedConfig.reasoningEffort || "N/A"}`);
+    yield* terminal.log(`   Reasoning: ${updatedConfig.reasoningEffort || "N/A"}`);
     yield* terminal.log(`   Tools: ${updatedConfig.tools ? updatedConfig.tools.length : 0} tools`);
     yield* terminal.log(`   Updated: ${updatedAgent.updatedAt.toISOString()}`);
     yield* terminal.log("");

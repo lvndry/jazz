@@ -53,7 +53,7 @@ export function listAgentsCommand(
       const llmProvider = agent.config.llmProvider;
       const llmModel = agent.config.llmModel;
       yield* terminal.log(`   Model: ${llmProvider}/${llmModel}`);
-      yield* terminal.log(`   Reasoning Effort: ${agent.config.reasoningEffort}`);
+      yield* terminal.log(`   Reasoning: ${agent.config.reasoningEffort}`);
       yield* terminal.log(`   Agent Type: ${agent.config.agentType}`);
 
       yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);

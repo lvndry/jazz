@@ -1,4 +1,3 @@
-import chalk from "chalk";
 import { Effect, Layer } from "effect";
 import type {
   PresentationService,
@@ -7,40 +6,62 @@ import type {
 } from "../../core/interfaces/presentation";
 import { PresentationServiceTag } from "../../core/interfaces/presentation";
 import type { StreamEvent } from "../../core/types/llm";
-import { MarkdownRenderer } from "./markdown-renderer";
-import { OutputRenderer, type OutputRendererConfig } from "./output-renderer";
+import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 
 /**
  * CLI implementation of PresentationService
- * Provides terminal-based presentation for agent output
+ * Provides terminal-based presentation for agent output by delegating to CLIRenderer
  */
 class CLIPresentationService implements PresentationService {
+  private renderer: CLIRenderer | null = null;
+
+  /**
+   * Get or create a singleton CLI renderer for formatting operations
+   * This is used for non-streaming formatting methods
+   */
+  private getRenderer(): CLIRenderer {
+    if (!this.renderer) {
+      const config: CLIRendererConfig = {
+        displayConfig: {
+          mode: "markdown",
+          showThinking: false,
+          showToolExecution: false,
+        },
+        streamingConfig: {},
+        showMetrics: false,
+        agentName: "Agent",
+      };
+      this.renderer = new CLIRenderer(config);
+    }
+    return this.renderer;
+  }
+
   formatThinking(agentName: string, isFirstIteration: boolean): Effect.Effect<string, never> {
-    return Effect.sync(() => MarkdownRenderer.formatThinking(agentName, isFirstIteration));
+    return this.getRenderer().formatThinking(agentName, isFirstIteration);
   }
 
   formatCompletion(agentName: string): Effect.Effect<string, never> {
-    return Effect.sync(() => MarkdownRenderer.formatCompletion(agentName));
+    return this.getRenderer().formatCompletion(agentName);
   }
 
   formatWarning(agentName: string, message: string): Effect.Effect<string, never> {
-    return Effect.sync(() => MarkdownRenderer.formatWarning(agentName, message));
+    return this.getRenderer().formatWarning(agentName, message);
   }
 
   formatAgentResponse(agentName: string, content: string): Effect.Effect<string, never> {
-    return Effect.sync(() => MarkdownRenderer.formatAgentResponse(agentName, content));
+    return this.getRenderer().formatAgentResponse(agentName, content);
   }
 
   renderMarkdown(markdown: string): Effect.Effect<string, never> {
-    return Effect.sync(() => MarkdownRenderer.render(markdown));
+    return this.getRenderer().renderMarkdown(markdown);
   }
 
   formatToolArguments(toolName: string, args?: Record<string, unknown>): string {
-    return OutputRenderer.formatToolArguments(toolName, args);
+    return CLIRenderer.formatToolArguments(toolName, args);
   }
 
   formatToolResult(toolName: string, result: string): string {
-    return OutputRenderer.formatToolResult(toolName, result);
+    return CLIRenderer.formatToolResult(toolName, result);
   }
 
   formatToolExecutionStart(
@@ -49,47 +70,42 @@ class CLIPresentationService implements PresentationService {
   ): Effect.Effect<string, never> {
     return Effect.sync(() => {
       const argsStr = this.formatToolArguments(toolName, args);
-      return `\n${chalk.cyan("⚙️")}  Executing tool: ${chalk.cyan(toolName)}${argsStr}...`;
-    });
+      return argsStr;
+    }).pipe(
+      Effect.flatMap((argsStr) => this.getRenderer().formatToolExecutionStart(toolName, argsStr)),
+    );
   }
 
   formatToolExecutionComplete(
     summary: string | null,
     durationMs: number,
   ): Effect.Effect<string, never> {
-    return Effect.sync(() => {
-      return ` ${chalk.green("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${durationMs}ms)`)}\n`;
-    });
+    return this.getRenderer().formatToolExecutionComplete(summary, durationMs);
   }
 
   formatToolExecutionError(errorMessage: string, durationMs: number): Effect.Effect<string, never> {
-    return Effect.sync(() => {
-      return ` ${chalk.red("✗")} ${chalk.red(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
-    });
+    return this.getRenderer().formatToolExecutionError(errorMessage, durationMs);
   }
 
   formatToolsDetected(
     agentName: string,
     toolNames: readonly string[],
   ): Effect.Effect<string, never> {
-    return Effect.sync(() => {
-      const tools = toolNames.join(", ");
-      return `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${chalk.cyan(tools)}\n`;
-    });
+    return this.getRenderer().formatToolsDetected(agentName, toolNames);
   }
 
   createStreamingRenderer(
     config: StreamingRendererConfig,
   ): Effect.Effect<StreamingRenderer, never> {
     return Effect.sync(() => {
-      const rendererConfig: OutputRendererConfig = {
+      const rendererConfig: CLIRendererConfig = {
         displayConfig: config.displayConfig,
         streamingConfig: config.streamingConfig,
         showMetrics: config.showMetrics,
         agentName: config.agentName,
         reasoningEffort: config.reasoningEffort,
       };
-      const renderer = new OutputRenderer(rendererConfig);
+      const renderer = new CLIRenderer(rendererConfig);
       const streamingRenderer: StreamingRenderer = {
         handleEvent: (event: StreamEvent): Effect.Effect<void, never> =>
           renderer.handleEvent(event),

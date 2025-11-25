@@ -120,11 +120,3 @@ export interface StreamingResult {
    */
   readonly cancel: Effect.Effect<void, never>;
 }
-
-/**
- * Default streaming configuration
- */
-export const DEFAULT_STREAMING_CONFIG: StreamingConfig = {
-  enabled: true,
-  textBufferMs: 10,
-};

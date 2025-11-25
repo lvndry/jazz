@@ -16,16 +16,14 @@ Turn plain language into **safe, auditable actions**. Jazz agents read email, ru
 
 **In short:** Jazz can do literally everything an agent should do for real work and save you the manual steps.
 
-<details>
-<summary><strong>Expand to see what Jazz can do</strong></summary>
+For example:
 
 - **Email Management** — Summarize and triage your inbox, draft replies, and label messages
 - **Git Operations** — Inspect repos, propose and create commits, push changes when you approve
 - **Web Research** — Search the web for up-to-date answers and synthesize sources into a brief
 - **Shell & Files** — Run shell commands, read and edit files
 - **API Integration** — Call remote APIs (HTTP) and combine results into reports or automation flows
-
-</details>
+- **Much more**
 
 ---
 
@@ -37,11 +35,11 @@ Turn plain language into **safe, auditable actions**. Jazz agents read email, ru
 # npm
 npm install -g jazz-ai
 
-# pnpm
-pnpm add -g jazz-ai
-
 # bun
 bun add -g jazz-ai
+
+# pnpm
+pnpm add -g jazz-ai
 
 # yarn
 yarn global add jazz-ai

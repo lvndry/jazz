@@ -296,24 +296,29 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
 
-        const basePath = args.path
-          ? yield* shell.resolvePath(buildKeyFromContext(context), args.path).pipe(
-              Effect.catchAll((error) =>
-                Effect.succeed({
-                  success: false,
-                  result: null,
-                  error: error instanceof Error ? error.message : String(error),
-                }),
-              ),
-            )
-          : yield* shell.getCwd(buildKeyFromContext(context));
+        let resolvedPath: string | null = null;
+        let pathError: string | null = null;
 
-        // If path resolution failed, return the error with suggestions
-        if (typeof basePath === "object" && "success" in basePath && !basePath.success) {
-          return basePath;
+        if (args.path) {
+          const pathResult = yield* shell.resolvePath(buildKeyFromContext(context), args.path).pipe(
+            Effect.catchAll((error: unknown) => {
+              pathError = error instanceof Error ? error.message : String(error);
+              return Effect.succeed(null);
+            }),
+          );
+
+          if (pathResult === null) {
+            return {
+              success: false,
+              result: null,
+              error: pathError || "Failed to resolve path",
+            };
+          }
+
+          resolvedPath = pathResult;
+        } else {
+          resolvedPath = yield* shell.getCwd(buildKeyFromContext(context));
         }
-
-        const resolvedPath = basePath as string;
 
         const includeHidden = args.showHidden === true;
         const recursive = args.recursive === true;
@@ -361,21 +366,43 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
           });
         }
 
-        try {
-          const stat = yield* fs.stat(resolvedPath);
-          if (stat.type !== "Directory") {
-            return { success: false, result: null, error: `Not a directory: ${resolvedPath}` };
-          }
-          yield* walk(resolvedPath);
-          return { success: true, result: results };
-        } catch (error) {
+        // Check if the path exists and is a directory
+        let statError: string | null = null;
+        const statResult = yield* fs.stat(resolvedPath).pipe(
+          Effect.catchAll((error: unknown) => {
+            statError = `Path not found: ${resolvedPath}. ${error instanceof Error ? error.message : String(error)}`;
+            return Effect.succeed(null);
+          }),
+        );
+
+        // If stat failed, return the error
+        if (statResult === null) {
           return {
             success: false,
             result: null,
-            error: `ls failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: statError || `Path not found: ${resolvedPath}`,
           };
         }
-      }),
+
+        // Check if it's a directory
+        if (statResult.type !== "Directory") {
+          return { success: false, result: null, error: `Not a directory: ${resolvedPath}` };
+        }
+
+        // Walk the directory - errors are handled inside walk() for individual entries
+        yield* walk(resolvedPath).pipe(Effect.catchAll(() => Effect.void));
+
+        return { success: true, result: results };
+      }).pipe(
+        // Wrap the entire handler in error handling to catch any unhandled errors
+        Effect.catchAll((error: unknown) =>
+          Effect.succeed({
+            success: false,
+            result: null,
+            error: `ls failed: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+        ),
+      ),
   });
 }
 
@@ -1366,7 +1393,27 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       filePattern: z
         .string()
         .optional()
-        .describe("File pattern to search in (e.g., '*.js', '*.ts')"),
+        .describe("File pattern to search in (e.g., '*.js', '*.ts'). Uses --include flag."),
+      exclude: z
+        .string()
+        .optional()
+        .describe(
+          "Exclude files matching this pattern (e.g., '*.min.js', '*.log'). Uses --exclude flag.",
+        ),
+      excludeDir: z
+        .string()
+        .optional()
+        .describe(
+          "Exclude directories matching this pattern (e.g., 'node_modules', '.git'). Uses --exclude-dir flag.",
+        ),
+      contextLines: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe(
+          "Number of context lines to show above and below each match. Use this to see surrounding content when searching for patterns.",
+        ),
     })
     .strict();
 
@@ -1380,11 +1427,14 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       ignoreCase?: boolean;
       maxResults?: number;
       filePattern?: string;
+      exclude?: string;
+      excludeDir?: string;
+      contextLines?: number;
     }
   >({
     name: "grep",
     description:
-      "Search for text patterns within file contents using grep. Supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers.",
+      "Search for text patterns within file contents using grep. Supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers. **Tip: Use contextLines to see surrounding content for better understanding of matches.**",
     tags: ["search", "text"],
     parameters,
     validate: (args) => {
@@ -1400,6 +1450,9 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
               ignoreCase?: boolean;
               maxResults?: number;
               filePattern?: string;
+              exclude?: string;
+              excludeDir?: string;
+              contextLines?: number;
             },
           } as const)
         : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
@@ -1430,9 +1483,24 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         // Add line numbers
         grepArgs.push("-n");
 
-        // Add file pattern if specified
+        // Add context lines if specified (highly recommended for better code understanding)
+        if (typeof args.contextLines === "number" && args.contextLines > 0) {
+          grepArgs.push("-C", args.contextLines.toString());
+        }
+
+        // Add file pattern if specified (include)
         if (args.filePattern) {
           grepArgs.push("--include", args.filePattern);
+        }
+
+        // Add exclude file pattern if specified
+        if (args.exclude) {
+          grepArgs.push("--exclude", args.exclude);
+        }
+
+        // Add exclude directory pattern if specified
+        if (args.excludeDir) {
+          grepArgs.push("--exclude-dir", args.excludeDir);
         }
 
         // Add max count to limit results
@@ -1514,25 +1582,34 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         }
 
         // Parse results
-        const matches = result.stdout
-          .split("\n")
-          .filter((line) => line.trim())
-          .map((line) => {
-            // Parse format: file:line:content
-            const parts = line.split(":");
-            if (parts.length >= 3 && parts[1]) {
-              const file = parts[0];
-              const lineNum = parseInt(parts[1], 10);
-              const text = parts.slice(2).join(":");
-              return {
+        // When contextLines is used, grep adds "--" separators between match groups
+        const lines = result.stdout.split("\n").filter((line) => line.trim());
+        const matches: Array<{ file: string; line: number; text: string }> = [];
+        const seenMatches = new Set<string>(); // Track unique file:line combinations to avoid duplicates
+
+        for (const line of lines) {
+          // Skip separator lines added by grep -C
+          if (line === "--") continue;
+
+          // Parse format: file:line:content
+          const parts = line.split(":");
+          if (parts.length >= 3 && parts[0] && parts[1]) {
+            const file = parts[0];
+            const lineNum = parseInt(parts[1], 10);
+            const text = parts.slice(2).join(":");
+            const key = `${file}:${lineNum}`;
+
+            // Avoid duplicate matches when context lines are used
+            if (!seenMatches.has(key)) {
+              seenMatches.add(key);
+              matches.push({
                 file,
                 line: lineNum,
                 text,
-              };
+              });
             }
-            return null;
-          })
-          .filter((match): match is { file: string; line: number; text: string } => match !== null);
+          }
+        }
 
         return {
           success: true,
@@ -1543,12 +1620,17 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
             regex: args.regex === true || args.pattern.startsWith("re:"),
             ignoreCase: args.ignoreCase,
             filePattern: args.filePattern,
+            exclude: args.exclude,
+            excludeDir: args.excludeDir,
+            contextLines: args.contextLines,
             matches: matches.slice(0, maxResults),
             totalFound: matches.length,
             message:
               matches.length === 0
                 ? `No matches found for pattern "${args.pattern}"`
-                : `Found ${matches.length} matches for pattern "${args.pattern}"`,
+                : `Found ${matches.length} matches for pattern "${args.pattern}"${
+                    args.contextLines ? ` (with ${args.contextLines} context lines)` : ""
+                  }`,
           },
         };
       }),

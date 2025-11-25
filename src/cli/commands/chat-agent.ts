@@ -187,6 +187,7 @@ export function createAgentCommand(): Effect.Effect<
     yield* terminal.log(`   Type: ${config.agentType}`);
     yield* terminal.log(`   LLM Provider: ${config.llmProvider}`);
     yield* terminal.log(`   LLM Model: ${config.llmModel}`);
+    yield* terminal.log(`   Reasoning: ${config.reasoningEffort}`);
     yield* terminal.log(`   Tool Categories: ${agentAnswers.tools.join(", ") || "None"}`);
     yield* terminal.log(`   Total Tools: ${uniqueToolNames.length}`);
     yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
