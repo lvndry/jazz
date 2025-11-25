@@ -15,7 +15,6 @@ export interface Agent {
 }
 
 export interface AgentConfig {
-  readonly environment?: Record<string, string>;
   readonly agentType: string;
   readonly llmProvider: ProviderName;
   readonly llmModel: string;
