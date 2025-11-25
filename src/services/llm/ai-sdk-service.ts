@@ -169,26 +169,42 @@ function selectModel(
   providerName: ProviderName,
   modelId: ModelName,
   llmConfig?: LLMConfig,
+  cache?: Map<string, LanguageModel>,
 ): LanguageModel {
+  // Check cache first
+  const cacheKey = `${providerName}:${modelId}`;
+  if (cache?.has(cacheKey)) {
+    return cache.get(cacheKey)!;
+  }
+
+  let model: LanguageModel;
+
   switch (providerName.toLowerCase()) {
     case "openai":
-      return openai(modelId);
+      model = openai(modelId);
+      break;
     case "anthropic":
-      return anthropic(modelId);
+      model = anthropic(modelId);
+      break;
     case "google":
-      return google(modelId);
+      model = google(modelId);
+      break;
     case "mistral":
-      return mistral(modelId);
+      model = mistral(modelId);
+      break;
     case "xai":
-      return xai(modelId);
+      model = xai(modelId);
+      break;
     case "deepseek":
-      return (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+      model = (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+      break;
     case "ollama": {
       const headers = llmConfig?.ollama?.api_key
         ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` }
         : {};
       const ollamaInstance = createOllama({ baseURL: DEFAULT_OLLAMA_BASE_URL, headers });
-      return ollamaInstance(modelId);
+      model = ollamaInstance(modelId);
+      break;
     }
     case "openrouter": {
       const apiKey: string | undefined = llmConfig?.openrouter?.api_key;
@@ -207,11 +223,16 @@ function selectModel(
           config: OpenRouterProviderSettings,
         ) => (modelId: ModelName) => LanguageModel
       )(config);
-      return openrouter(modelId);
+      model = openrouter(modelId);
+      break;
     }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
   }
+
+  // Store in cache
+  cache?.set(cacheKey, model);
+  return model;
 }
 
 function buildProviderOptions(
@@ -366,6 +387,8 @@ class AISDKService implements LLMService {
   private config: AISDKConfig;
   private readonly providerModels = PROVIDER_MODELS;
   private readonly modelFetcher: ModelFetcherService;
+  // Model instance cache: key = "provider:modelId"
+  private readonly modelCache = new Map<string, LanguageModel>();
 
   constructor(
     config: AISDKConfig,
@@ -482,11 +505,26 @@ class AISDKService implements LLMService {
   ): Effect.Effect<ChatCompletionResponse, LLMError> {
     return Effect.tryPromise({
       try: async () => {
-        const model = selectModel(providerName, options.model, this.config.llmConfig);
+        const timingStart = Date.now();
+        void this.logger.info(
+          `[LLM Timing] Starting non-streaming completion for ${providerName}:${options.model}`,
+        );
+
+        const modelSelectStart = Date.now();
+        const model = selectModel(
+          providerName,
+          options.model,
+          this.config.llmConfig,
+          this.modelCache,
+        );
+        void this.logger.info(
+          `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
+        );
 
         // Prepare tools for AI SDK if present
         let tools: ToolSet | undefined;
         if (options.tools && options.tools.length > 0) {
+          const toolConversionStart = Date.now();
           tools = {};
 
           for (const toolDef of options.tools) {
@@ -495,18 +533,33 @@ class AISDKService implements LLMService {
               inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
             });
           }
+          void this.logger.info(
+            `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
+          );
         }
 
         const providerOptions = buildProviderOptions(providerName, options);
 
+        const messageConversionStart = Date.now();
+        const coreMessages = toCoreMessages(options.messages);
+        void this.logger.info(
+          `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
+        );
+
+        const generateTextStart = Date.now();
+        void this.logger.info(`[LLM Timing] Calling generateText...`);
         const result = await generateText({
           model,
-          messages: toCoreMessages(options.messages),
+          messages: coreMessages,
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(tools ? { tools } : {}),
           ...(providerOptions ? { providerOptions } : {}),
           stopWhen: stepCountIs(MAX_AGENT_STEPS),
         });
+        void this.logger.info(
+          `[LLM Timing] generateText completed in ${Date.now() - generateTextStart}ms`,
+        );
+        void this.logger.info(`[LLM Timing] Total completion time: ${Date.now() - timingStart}ms`);
 
         const responseModel = options.model;
         const content = result.text ?? "";
@@ -579,11 +632,19 @@ class AISDKService implements LLMService {
     providerName: ProviderName,
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
-    const model = selectModel(providerName, options.model, this.config.llmConfig);
+    const timingStart = Date.now();
+    void this.logger.info(
+      `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
+    );
+
+    const modelSelectStart = Date.now();
+    const model = selectModel(providerName, options.model, this.config.llmConfig, this.modelCache);
+    void this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`);
 
     // Prepare tools for AI SDK if present
     let tools: ToolSet | undefined;
     if (options.tools && options.tools.length > 0) {
+      const toolConversionStart = Date.now();
       tools = {};
       for (const toolDef of options.tools) {
         tools[toolDef.function.name] = tool({
@@ -591,9 +652,19 @@ class AISDKService implements LLMService {
           inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
         });
       }
+      void this.logger.info(
+        `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
+      );
     }
 
     const providerOptions = buildProviderOptions(providerName, options);
+
+    // Message conversion timing
+    const messageConversionStart = Date.now();
+    const coreMessages = toCoreMessages(options.messages);
+    void this.logger.info(
+      `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
+    );
 
     // Create AbortController for cancellation
     const abortController = new AbortController();
@@ -611,9 +682,14 @@ class AISDKService implements LLMService {
       ) => {
         void (async (): Promise<void> => {
           try {
+            const streamTextStart = Date.now();
+            void this.logger.info(
+              `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
+            );
+
             const result = streamText({
               model,
-              messages: toCoreMessages(options.messages),
+              messages: coreMessages,
               ...(typeof options.temperature === "number"
                 ? { temperature: options.temperature }
                 : {}),
@@ -622,6 +698,10 @@ class AISDKService implements LLMService {
               abortSignal: abortController.signal,
               stopWhen: stepCountIs(MAX_AGENT_STEPS),
             });
+
+            void this.logger.info(
+              `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
+            );
 
             const processor = new StreamProcessor(
               {
@@ -633,6 +713,7 @@ class AISDKService implements LLMService {
                 startTime: Date.now(),
               },
               emit,
+              this.logger,
             );
 
             // Process the stream and get final response
