@@ -335,18 +335,22 @@ export class MarkdownRenderer {
 
     if (text.includes("```")) {
       const lines = text.split("\n");
-      const processedLines = lines.map((line) => {
+      const processedLines: string[] = [];
+
+      // Process lines sequentially to maintain correct state
+      for (const line of lines) {
         if (line.trim().startsWith("```")) {
+          // Toggle state when we see a code fence
           isInCodeBlock = !isInCodeBlock;
-          return chalk.yellow(line);
+          processedLines.push(chalk.yellow(line));
+        } else if (isInCodeBlock) {
+          // If we're inside a code block, color the line cyan
+          processedLines.push(chalk.cyan(line));
+        } else {
+          // Outside code block, leave as-is
+          processedLines.push(line);
         }
-
-        if (isInCodeBlock) {
-          return chalk.cyan(line);
-        }
-
-        return line;
-      });
+      }
 
       return {
         formatted: processedLines.join("\n"),
@@ -354,6 +358,7 @@ export class MarkdownRenderer {
       };
     }
 
+    // If no code fences in this chunk, but we're in a code block, color everything cyan
     if (isInCodeBlock) {
       return {
         formatted: chalk.cyan(text),
@@ -361,6 +366,7 @@ export class MarkdownRenderer {
       };
     }
 
+    // Not in a code block, return as-is
     return { formatted: text, state: { isInCodeBlock } };
   }
 

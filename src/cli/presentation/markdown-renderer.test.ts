@@ -90,6 +90,40 @@ describe("MarkdownRenderer", () => {
       expect(result4).toBe("Plain text\n");
     });
 
+    it("should properly reset code block state after closing fence", () => {
+      // Start and end code block in same chunk
+      const chunk1 = "```typescript\nconst x = 1;\n```\n";
+      const result1 = MarkdownRenderer.renderChunk(chunk1, 0);
+      const lines = result1.split("\n");
+      expect(lines[0]).toBe(chalk.yellow("```typescript"));
+      expect(lines[1]).toBe(chalk.cyan("const x = 1;"));
+      expect(lines[2]).toBe(chalk.yellow("```"));
+
+      // Next chunk should be plain (not cyan)
+      const chunk2 = "Normal text after code block\n";
+      const result2 = MarkdownRenderer.renderChunk(chunk2, 0);
+      expect(result2).toBe("Normal text after code block\n");
+    });
+
+    it("should handle multiple code blocks in sequence", () => {
+      // First code block
+      const chunk1 = "```typescript\nconst x = 1;\n```\n";
+      MarkdownRenderer.renderChunk(chunk1, 0);
+
+      // Second code block
+      const chunk2 = "```python\nprint('hello')\n```\n";
+      const result2 = MarkdownRenderer.renderChunk(chunk2, 0);
+      const lines = result2.split("\n");
+      expect(lines[0]).toBe(chalk.yellow("```python"));
+      expect(lines[1]).toBe(chalk.cyan("print('hello')"));
+      expect(lines[2]).toBe(chalk.yellow("```"));
+
+      // Text after should be plain
+      const chunk3 = "Normal text\n";
+      const result3 = MarkdownRenderer.renderChunk(chunk3, 0);
+      expect(result3).toBe("Normal text\n");
+    });
+
     it("should buffer partial headers", () => {
       // Chunk 1: "##" (should be buffered)
       const chunk1 = "##";
