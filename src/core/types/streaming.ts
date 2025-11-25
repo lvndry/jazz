@@ -126,5 +126,5 @@ export interface StreamingResult {
  */
 export const DEFAULT_STREAMING_CONFIG: StreamingConfig = {
   enabled: true,
-  textBufferMs: 10,
+  textBufferMs: 30,
 };
