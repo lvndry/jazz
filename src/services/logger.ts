@@ -256,10 +256,10 @@ function formatLogLineForFile(
   message: string,
   meta?: Record<string, unknown>,
 ): string {
-  const timestamp = new Date().toISOString();
+  const now = new Date();
   const metaText =
     meta && Object.keys(meta).length > 0 ? " " + JSON.stringify(meta, jsonReplacer) : "";
-  return `${timestamp} [${level.toUpperCase()}] ${message}${metaText}\n`;
+  return `${now.toLocaleDateString()} ${now.toLocaleTimeString()} [${level.toUpperCase()}] ${message}${metaText}\n`;
 }
 
 /**

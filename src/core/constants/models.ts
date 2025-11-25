@@ -1,4 +1,4 @@
-import type { ModelInfo } from "../types/llm";
+import type { ModelInfo } from "../types";
 
 /**
  * Static model definitions for each provider

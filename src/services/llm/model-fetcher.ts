@@ -21,13 +21,11 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       models?: Array<{
         name: string;
         model?: string;
-        [key: string]: unknown;
       }>;
     };
 
     const ollamaReasoningModels: string[] = [
       "gpt-oss",
-      "gpt-oss-safeguard",
       "deepseek-r1",
       "deepseek-v3.1",
       "qwen3",
