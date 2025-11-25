@@ -7,14 +7,19 @@ import TerminalRenderer from "marked-terminal";
  * Markdown renderer utility for terminal output
  */
 export class MarkdownRenderer {
-  private static renderer: TerminalRenderer | null = null;
+  private static initialized: boolean = false;
   private static streamingBuffer: string = "";
   private static lastFlushTime: number = 0;
+  private static isInCodeBlock: boolean = false;
 
   /**
    * Initialize the markdown renderer with terminal-friendly options
    */
   static initialize(): void {
+    if (this.initialized) {
+      return;
+    }
+
     try {
       // Configure marked with our terminal renderer using setOptions
       // @ts-expect-error marked-terminal types are incompatible with marked v16
@@ -37,6 +42,7 @@ export class MarkdownRenderer {
           // Custom styling for better terminal experience
           paragraph: chalk.white,
           text: chalk.white,
+          emoji: true,
           // Disable some features that don't work well in terminal
           showSectionPrefix: false,
           // Better spacing
@@ -47,6 +53,8 @@ export class MarkdownRenderer {
         gfm: true, // GitHub Flavored Markdown
         breaks: true, // Convert line breaks to <br>
       });
+
+      this.initialized = true;
     } catch (error: unknown) {
       console.error(
         "Error initializing markdown renderer:",
@@ -59,7 +67,7 @@ export class MarkdownRenderer {
    * Render markdown content to terminal-friendly text
    */
   static render(markdown: string): string {
-    if (!this.renderer) {
+    if (!this.initialized) {
       this.initialize();
     }
 
@@ -152,27 +160,57 @@ export class MarkdownRenderer {
     this.streamingBuffer += delta;
     const now = Date.now();
 
-    // Check if we should flush based on word boundaries or time
+    // Strategy:
+    // 1. Always process complete lines (up to last newline) immediately
+    // 2. For the remaining partial line:
+    //    - If it looks like a header, HOLD it until newline (or end of stream)
+    //    - If it ends with a markdown marker, HOLD it
+    //    - Otherwise, flush if word boundary or timeout
+
+    let output = "";
+
+    // Check for complete lines
+    const lastNewlineIndex = this.streamingBuffer.lastIndexOf("\n");
+    if (lastNewlineIndex !== -1) {
+      const completeLines = this.streamingBuffer.substring(0, lastNewlineIndex + 1);
+      const remainder = this.streamingBuffer.substring(lastNewlineIndex + 1);
+
+      output += this.applyProgressiveFormatting(completeLines);
+      this.streamingBuffer = remainder;
+      this.lastFlushTime = now;
+    }
+
+    // Now handle the remainder (partial line)
+    if (this.streamingBuffer.length === 0) {
+      return output;
+    }
+
+    // 1. Header protection: If it starts with #, wait for newline
+    // Matches: "# ", "## ", "  ### "
+    const isPotentialHeader = /^\s*#{1,6}/.test(this.streamingBuffer);
+    if (isPotentialHeader) {
+      return output; // Hold buffer
+    }
+
+    // 2. Marker protection: Don't split bold/italic/code markers
+    const endsWithMarker = /[`*_~]\s*$/.test(this.streamingBuffer);
+    if (endsWithMarker) {
+      return output; // Hold buffer
+    }
+
+    // 3. Flush conditions
     const shouldFlush =
-      // Complete word (ends with space or newline)
       this.streamingBuffer.endsWith(" ") ||
-      this.streamingBuffer.endsWith("\n") ||
-      // Complete markdown construct (ends with closing markers)
-      /[`*_~#]\s*$/.test(this.streamingBuffer) ||
-      // Time-based flush (prevent long delays)
       (now - this.lastFlushTime > bufferMs && this.streamingBuffer.length > 0);
 
     if (shouldFlush) {
       const toRender = this.streamingBuffer;
       this.streamingBuffer = "";
       this.lastFlushTime = now;
-
-      // Apply basic markdown formatting for streaming
-      return this.applyProgressiveFormatting(toRender);
+      output += this.applyProgressiveFormatting(toRender);
     }
 
-    // Hold incomplete words/constructs
-    return "";
+    return output;
   }
 
   /**
@@ -200,11 +238,33 @@ export class MarkdownRenderer {
       return text;
     }
 
-    // For streaming, we use a simpler approach than full markdown parsing
-    // Full parsing would require complete markdown blocks which defeats streaming
-    // Instead, we apply basic formatting for common patterns
-
     let formatted = text;
+
+    // Handle code blocks (stateful)
+    // We need to process line by line to track code block state correctly
+    if (formatted.includes("```")) {
+      const lines = formatted.split("\n");
+      const processedLines = lines.map((line) => {
+        // Check for code block toggle
+        if (line.trim().startsWith("```")) {
+          this.isInCodeBlock = !this.isInCodeBlock;
+          return chalk.yellow(line); // Color the fence itself
+        }
+
+        // If inside code block, color the whole line
+        if (this.isInCodeBlock) {
+          return chalk.cyan(line);
+        }
+
+        return line;
+      });
+      formatted = processedLines.join("\n");
+    } else if (this.isInCodeBlock) {
+      // If we are inside a code block and this chunk has no fences, color it all
+      formatted = chalk.cyan(formatted);
+      // Return early as we don't want other formatting inside code blocks
+      return formatted;
+    }
 
     // Handle inline code (backticks)
     formatted = formatted.replace(/`([^`]+)`/g, (_match, code) => {
@@ -224,15 +284,33 @@ export class MarkdownRenderer {
       return chalk.italic(italic);
     });
 
-    // Handle headers (# Header)
-    formatted = formatted.replace(/^###\s+(.+)$/gm, (_match, header) => {
+    // Handle headers (# Header) - Updated to support leading spaces
+    formatted = formatted.replace(/^\s*###\s+(.+)$/gm, (_match, header) => {
       return chalk.bold.blue(header);
     });
-    formatted = formatted.replace(/^##\s+(.+)$/gm, (_match, header) => {
+    formatted = formatted.replace(/^\s*##\s+(.+)$/gm, (_match, header) => {
       return chalk.bold.blue.underline(header);
     });
-    formatted = formatted.replace(/^#\s+(.+)$/gm, (_match, header) => {
+    formatted = formatted.replace(/^\s*#\s+(.+)$/gm, (_match, header) => {
       return chalk.bold.blue.underline(header);
+    });
+
+    // Handle blockquotes (> text)
+    formatted = formatted.replace(/^\s*>\s+(.+)$/gm, (_match, content) => {
+      return chalk.gray(`│ ${content}`);
+    });
+
+    // Handle lists (- item, * item, 1. item)
+    formatted = formatted.replace(/^\s*([-*+])\s+(.+)$/gm, (_match, bullet, content) => {
+      return `  ${chalk.yellow(bullet)} ${content}`;
+    });
+    formatted = formatted.replace(/^\s*(\d+\.)\s+(.+)$/gm, (_match, number, content) => {
+      return `  ${chalk.yellow(number)} ${content}`;
+    });
+
+    // Handle horizontal rules (--- or ***)
+    formatted = formatted.replace(/^\s*([-*_]){3,}\s*$/gm, () => {
+      return chalk.gray("────────────────────────────────────────");
     });
 
     // Handle links [text](url) - simplified for streaming
@@ -240,9 +318,14 @@ export class MarkdownRenderer {
       return chalk.blue.underline(text);
     });
 
-    // Note: For more complex markdown (lists, blockquotes, code blocks),
-    // we'd need to buffer more content. For now, this handles the most common
-    // streaming-friendly constructs.
+    // Simple table highlighting (lines with |)
+    if (formatted.includes("|")) {
+      formatted = formatted.replace(/^.*\|.*$/gm, (line) => {
+        // Don't format if it looks like code or other constructs
+        if (line.trim().startsWith("```") || line.trim().startsWith(">")) return line;
+        return chalk.white(line);
+      });
+    }
 
     return formatted;
   }
@@ -253,5 +336,6 @@ export class MarkdownRenderer {
   static resetStreamingBuffer(): void {
     this.streamingBuffer = "";
     this.lastFlushTime = 0;
+    this.isInCodeBlock = false;
   }
 }

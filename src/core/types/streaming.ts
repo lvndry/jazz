@@ -125,7 +125,6 @@ export interface StreamingResult {
  * Default streaming configuration
  */
 export const DEFAULT_STREAMING_CONFIG: StreamingConfig = {
-  enabled: true, // Used internally after auto-detection
-  textBufferMs: 50,
+  enabled: true,
+  textBufferMs: 10,
 };
-
