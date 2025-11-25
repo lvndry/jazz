@@ -21,7 +21,6 @@ class CLIPresentationService implements PresentationService {
    */
   private getRenderer(): CLIRenderer {
     if (!this.renderer) {
-      // Create a minimal renderer for formatting
       const config: CLIRendererConfig = {
         displayConfig: {
           mode: "markdown",

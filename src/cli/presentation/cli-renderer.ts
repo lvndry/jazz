@@ -11,7 +11,6 @@ import type {
   RenderTheme,
   StreamingConfig,
 } from "../../core/types/output";
-import { DEFAULT_STREAMING_CONFIG } from "../../core/types/streaming";
 import type { ToolCall } from "../../core/types/tools";
 import {
   formatToolArguments as formatToolArgumentsShared,
@@ -58,6 +57,14 @@ export interface CLIRendererConfig {
   readonly agentName: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high" | undefined;
 }
+
+/**
+ * Default streaming configuration
+ */
+export const DEFAULT_STREAMING_CONFIG: StreamingConfig = {
+  enabled: true,
+  textBufferMs: 30,
+};
 
 /**
  * Unified CLI renderer for terminal display
