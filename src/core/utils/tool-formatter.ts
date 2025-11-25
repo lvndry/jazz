@@ -31,7 +31,8 @@ export function formatToolArguments(
 
   // Helper to format key-value pairs
   function formatKeyValue(key: string, value: string, truncate?: number): string {
-    const truncated = truncate && value.length > truncate ? value.substring(0, truncate) + "..." : value;
+    const truncated =
+      truncate && value.length > truncate ? value.substring(0, truncate) + "..." : value;
     if (usePlain) {
       return `${key}: ${truncated}`;
     }
@@ -65,7 +66,9 @@ export function formatToolArguments(
         const start = typeof startLine === "number" ? startLine : undefined;
         const end = typeof endLine === "number" ? endLine : undefined;
         if (start && end) {
-          parts.push(usePlain ? `lines: ${start}-${end}` : ` ${chalk.dim(`lines: ${start}-${end}`)}`);
+          parts.push(
+            usePlain ? `lines: ${start}-${end}` : ` ${chalk.dim(`lines: ${start}-${end}`)}`,
+          );
         } else if (start) {
           parts.push(usePlain ? `from line: ${start}` : ` ${chalk.dim(`from line: ${start}`)}`);
         } else if (end) {
@@ -96,15 +99,43 @@ export function formatToolArguments(
       if (args["recursive"] === true) flags.push("--recursive");
       if (args["ignoreCase"] === true) flags.push("--ignore-case");
       const rawPattern = args["pattern"];
-      if (args["regex"] === true || (typeof rawPattern === "string" && rawPattern.startsWith("re:"))) {
+      if (
+        args["regex"] === true ||
+        (typeof rawPattern === "string" && rawPattern.startsWith("re:"))
+      ) {
         flags.push("--regex");
       }
       if (args["filePattern"]) {
         const filePattern = safeString(args["filePattern"]);
         if (filePattern) flags.push(`--include=${filePattern}`);
       }
+      if (args["exclude"]) {
+        const exclude = safeString(args["exclude"]);
+        if (exclude) flags.push(`--exclude=${exclude}`);
+      }
+      if (args["excludeDir"]) {
+        const excludeDir = safeString(args["excludeDir"]);
+        if (excludeDir) flags.push(`--exclude-dir=${excludeDir}`);
+      }
       if (flags.length > 0) {
-        parts.push(usePlain ? `flags: ${flags.join(" ")}` : ` ${chalk.dim(`flags: ${flags.join(" ")}`)}`);
+        parts.push(
+          usePlain ? `flags: ${flags.join(" ")}` : ` ${chalk.dim(`flags: ${flags.join(" ")}`)}`,
+        );
+      }
+      if (args["maxResults"]) {
+        const maxResults = safeString(args["maxResults"]);
+        if (maxResults) {
+          parts.push(usePlain ? `max: ${maxResults}` : ` ${chalk.dim(`max: ${maxResults}`)}`);
+        }
+      }
+
+      if (args["contextLines"]) {
+        const contextLines = safeString(args["contextLines"]);
+        if (contextLines) {
+          parts.push(
+            usePlain ? `context: ${contextLines}` : ` ${chalk.dim(`context: ${contextLines}`)}`,
+          );
+        }
       }
       return formatParts(parts);
     }
@@ -235,7 +266,8 @@ export function formatToolArguments(
       if (keys.length === 0) return "";
       const parts = keys.map((key) => {
         const valueStr = safeString(args[key]);
-        const truncated = valueStr.length > (usePlain ? 30 : 30) ? valueStr.substring(0, 30) + "..." : valueStr;
+        const truncated =
+          valueStr.length > (usePlain ? 30 : 30) ? valueStr.substring(0, 30) + "..." : valueStr;
         if (usePlain) {
           return `${key}: ${truncated}`;
         }
@@ -278,7 +310,9 @@ export function formatToolResult(toolName: string, result: string): string {
         if (branch) parts.push(chalk.cyan(branch));
         if (modified > 0) parts.push(chalk.yellow(`${modified} modified`));
         if (staged > 0) parts.push(chalk.green(`${staged} staged`));
-        return parts.length > 0 ? ` ${chalk.dim("(")}${parts.join(chalk.dim(", "))}${chalk.dim(")")}` : "";
+        return parts.length > 0
+          ? ` ${chalk.dim("(")}${parts.join(chalk.dim(", "))}${chalk.dim(")")}`
+          : "";
       }
       case "git_log": {
         const commits = obj["commits"] || obj;
@@ -326,4 +360,3 @@ export function formatToolResult(toolName: string, result: string): string {
     return "";
   }
 }
-
