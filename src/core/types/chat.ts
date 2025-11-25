@@ -23,4 +23,3 @@ export interface ChatCompletionOptions {
   stream?: boolean;
   reasoning_effort?: "disable" | "low" | "medium" | "high";
 }
-
