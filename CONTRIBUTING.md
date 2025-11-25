@@ -1,14 +1,6 @@
 # Contributing to Jazz
 
-## Quick Start
-
-```bash
-bun install
-bun run build
-bun test
-bun run lint
-bun run cli
-```
+Thank you for your interest in contributing to Jazz! Please read the [Getting Started](docs/getting-started.md) guide for a quick overview of how to set up and develop Jazz locally.
 
 ## Project Structure
 
@@ -22,6 +14,7 @@ Jazz uses clean architecture with strict dependency rules:
 
 Read the READMEs:
 
+- `docs/getting-started.md` - Setup and development workflow
 - `src/core/README.md` - Core layer patterns
 - `src/services/README.md` - Service implementations
 - `src/cli/README.md` - CLI commands

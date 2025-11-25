@@ -31,6 +31,7 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "claude-opus-4-1", displayName: "Claude Opus 4.1", isReasoningModel: true },
   ],
   google: [
+    { id: "gemini-3-pro-preview", displayName: "Gemini 3 Pro (Preview)", isReasoningModel: true },
     { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", isReasoningModel: true },
     { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", isReasoningModel: true },
     {
