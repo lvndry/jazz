@@ -269,10 +269,14 @@ function buildProviderOptions(
     case "google": {
       const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
+        const geminiProReasoningEffort = options.model.includes("gemini-3")
+          ? reasoningEffort
+          : undefined;
         return {
           google: {
             thinkingConfig: {
               includeThoughts: true,
+              ...(geminiProReasoningEffort ? { thinkingLevel: geminiProReasoningEffort } : {}),
             },
           } satisfies GoogleGenerativeAIProviderOptions,
         };
