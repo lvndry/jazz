@@ -28,9 +28,9 @@ The Services layer acts as **Adapters** that translate between:
 ┌──────▼──────────────────────────────────┐
 │  Services Layer (src/services)          │
 │  - Implements interfaces                │
-│  - External APIs                       │
-│  - Infrastructure                      │
-└────────────────────────────────────────┘
+│  - External APIs                        │
+│  - Infrastructure                       │
+└─────────────────────────────────────────┘
 ```
 
 ### Design Principles
