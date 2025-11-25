@@ -321,6 +321,8 @@ class AISDKService implements LLMService {
   private readonly modelFetcher: ModelFetcherService;
   // Model instance cache: key = "provider:modelId"
   private readonly modelCache = new Map<string, LanguageModel>();
+  // Model info cache: key = "provider:modelId"
+  private readonly modelInfoCache = new Map<string, ModelInfo>();
 
   constructor(
     config: AISDKConfig,
@@ -364,6 +366,11 @@ class AISDKService implements LLMService {
     }
 
     if (modelSource.type === "static") {
+      // Cache static models
+      modelSource.models.forEach((model) => {
+        const cacheKey = `${providerName}:${model.id}`;
+        this.modelInfoCache.set(cacheKey, model);
+      });
       return Effect.succeed(modelSource.models);
     }
 
@@ -379,7 +386,24 @@ class AISDKService implements LLMService {
 
     const apiKey = providerConfig?.api_key;
 
-    return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey);
+    return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey).pipe(
+      Effect.map((models) => {
+        // Cache dynamic models
+        models.forEach((model) => {
+          const cacheKey = `${providerName}:${model.id}`;
+          this.modelInfoCache.set(cacheKey, model);
+        });
+        return models;
+      }),
+    );
+  }
+
+  /**
+   * Get model info from cache. Returns undefined if not found.
+   */
+  private getModelInfo(providerName: ProviderName, modelId: string): ModelInfo | undefined {
+    const cacheKey = `${providerName}:${modelId}`;
+    return this.modelInfoCache.get(cacheKey);
   }
 
   readonly getProvider = (
@@ -452,21 +476,34 @@ class AISDKService implements LLMService {
           `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
         );
 
-        // Prepare tools for AI SDK if present
+        // Get model info to check tool support
+        const modelInfo = this.getModelInfo(providerName, options.model);
+        const supportsTools = modelInfo?.supportsTools ?? true; // Default to true for backward compatibility
+
+        // Prepare tools for AI SDK if present and model supports them
         let tools: ToolSet | undefined;
         if (options.tools && options.tools.length > 0) {
-          const toolConversionStart = Date.now();
-          tools = {};
+          if (supportsTools) {
+            const toolConversionStart = Date.now();
+            tools = {};
 
-          for (const toolDef of options.tools) {
-            tools[toolDef.function.name] = tool({
-              description: toolDef.function.description,
-              inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-            });
+            for (const toolDef of options.tools) {
+              tools[toolDef.function.name] = tool({
+                description: toolDef.function.description,
+                inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+              });
+            }
+            void this.logger.info(
+              `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
+            );
+          } else {
+            void this.logger.info(
+              `[LLM] Model ${providerName}:${options.model} does not support tools. Skipping ${options.tools.length} tool(s).`,
+            );
+            console.warn(
+              `[LLM Warning] Model ${providerName}:${options.model} does not support tools. Tools will not be available for this request.`,
+            );
           }
-          void this.logger.info(
-            `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
-          );
         }
 
         const providerOptions = buildProviderOptions(providerName, options);
@@ -572,20 +609,33 @@ class AISDKService implements LLMService {
     const model = selectModel(providerName, options.model, this.config.llmConfig, this.modelCache);
     void this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`);
 
-    // Prepare tools for AI SDK if present
+    // Get model info to check tool support
+    const modelInfo = this.getModelInfo(providerName, options.model);
+    const supportsTools = modelInfo?.supportsTools ?? true; // Default to true for backward compatibility
+
+    // Prepare tools for AI SDK if present and model supports them
     let tools: ToolSet | undefined;
     if (options.tools && options.tools.length > 0) {
-      const toolConversionStart = Date.now();
-      tools = {};
-      for (const toolDef of options.tools) {
-        tools[toolDef.function.name] = tool({
-          description: toolDef.function.description,
-          inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-        });
+      if (supportsTools) {
+        const toolConversionStart = Date.now();
+        tools = {};
+        for (const toolDef of options.tools) {
+          tools[toolDef.function.name] = tool({
+            description: toolDef.function.description,
+            inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+          });
+        }
+        void this.logger.info(
+          `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
+        );
+      } else {
+        void this.logger.info(
+          `[LLM] Model ${providerName}:${options.model} does not support tools. Skipping ${options.tools.length} tool(s).`,
+        );
+        console.warn(
+          `[LLM Warning] Model ${providerName}:${options.model} does not support tools. Tools will not be available for this request.`,
+        );
       }
-      void this.logger.info(
-        `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
-      );
     }
 
     const providerOptions = buildProviderOptions(providerName, options);

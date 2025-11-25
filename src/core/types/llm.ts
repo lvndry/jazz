@@ -11,6 +11,7 @@ export interface ModelInfo {
   readonly id: string;
   readonly displayName?: string;
   readonly isReasoningModel?: boolean;
+  readonly supportsTools?: boolean;
 }
 
 /**
