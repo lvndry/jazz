@@ -167,7 +167,6 @@ export function createAgentCommand(): Effect.Effect<
       llmModel: selectedModel,
       ...(agentAnswers.reasoningEffort && { reasoningEffort: agentAnswers.reasoningEffort }),
       ...(uniqueToolNames.length > 0 && { tools: uniqueToolNames }),
-      environment: {},
     };
 
     const agentService = yield* AgentServiceTag;

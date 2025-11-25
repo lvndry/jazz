@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { getAgentByIdentifier, listAllAgents } from "../../core/agent/agent-service";
 import { AgentServiceTag, type AgentService } from "../../core/interfaces/agent-service";
+import { CLIOptionsTag, type CLIOptions } from "../../core/interfaces/cli-options";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import { StorageError, StorageNotFoundError } from "../../core/types/errors";
 
@@ -15,27 +16,27 @@ import { StorageError, StorageNotFoundError } from "../../core/types/errors";
  * List all agents via CLI command
  *
  * Retrieves and displays all available agents in a formatted table showing
- * their ID, name, description, and creation date. When verbose mode
- * is enabled, shows additional details including tools, reasoning effort,
- * LLM provider, and model information.
+ * their ID, name, description, and creation date.
  *
- * @param options - Command options including verbose mode
  * @returns An Effect that resolves when the agents are listed successfully
  *
  * @throws {StorageError} When there's an error accessing storage
  *
  * @example
  * ```typescript
- * yield* listAgentsCommand({ verbose: true });
- * // Output: Detailed table showing all agents with tools and LLM info
+ * yield* listAgentsCommand();
+ * // Output: Table showing all agents with basic info
  * ```
  */
-export function listAgentsCommand(
-  options: { verbose?: boolean } = {},
-): Effect.Effect<void, StorageError, AgentService | TerminalService> {
+export function listAgentsCommand(): Effect.Effect<
+  void,
+  StorageError,
+  AgentService | TerminalService | CLIOptions
+> {
   return Effect.gen(function* () {
     const agents = yield* listAllAgents();
     const terminal = yield* TerminalServiceTag;
+    const cliOptions = yield* CLIOptionsTag;
 
     if (agents.length === 0) {
       yield* terminal.info("No agents found. Create your first agent with: jazz agent create");
@@ -60,9 +61,8 @@ export function listAgentsCommand(
       yield* terminal.log(`   Updated: ${agent.updatedAt.toISOString()}`);
 
       // Show verbose details if requested
-      if (options.verbose) {
-        yield* terminal.log(`   Agent Type: ${agent.config.agentType || "default"}`);
-        yield* terminal.log(`   Reasoning Effort: ${agent.config.reasoningEffort || "low"}`);
+      if (cliOptions.verbose) {
+        yield* terminal.log(`   Agent Type: ${agent.config.agentType}`);
 
         const toolNames = agent.config.tools ?? [];
         if (toolNames.length > 0) {
@@ -70,12 +70,6 @@ export function listAgentsCommand(
           yield* terminal.log(`     ${toolNames.join(", ")}`);
         } else {
           yield* terminal.log(`   Tools: None configured`);
-        }
-
-        if (agent.config.environment && Object.keys(agent.config.environment).length > 0) {
-          yield* terminal.log(
-            `   Environment Variables: ${Object.keys(agent.config.environment).length} configured`,
-          );
         }
       }
 
@@ -169,12 +163,6 @@ export function getAgentCommand(
       yield* terminal.log(`     ${toolNames.join(", ")}`);
     } else {
       yield* terminal.log(`   Tools: None configured`);
-    }
-
-    if (agent.config.environment && Object.keys(agent.config.environment).length > 0) {
-      yield* terminal.log(
-        `   Environment Variables: ${Object.keys(agent.config.environment).length}`,
-      );
     }
 
     yield* terminal.log("");

@@ -36,7 +36,6 @@ export class AgentServiceImpl implements AgentService {
 
         // Create default agent configuration
         const defaultConfig: AgentConfig = {
-          environment: {},
           agentType: "default",
           llmProvider: "openai",
           llmModel: "gpt-4o",
@@ -47,7 +46,6 @@ export class AgentServiceImpl implements AgentService {
         const baseConfig: AgentConfig = {
           ...defaultConfig,
           ...config,
-          environment: { ...defaultConfig.environment, ...(config.environment ?? {}) },
         };
 
         const agentConfig: AgentConfig =
