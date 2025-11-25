@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
+import { Effect } from "effect";
 import { MarkdownRenderer } from "./markdown-renderer";
 
 describe("MarkdownRenderer", () => {
@@ -62,8 +63,8 @@ describe("MarkdownRenderer", () => {
     it("should render horizontal rules correctly", () => {
       const text = "---\n";
       const result = MarkdownRenderer.renderChunk(text, 0);
-      // The regex replacement consumes the newline if matched with $gm
-      expect(result).toBe(chalk.gray("────────────────────────────────────────"));
+      // Horizontal rules now include a newline at the end
+      expect(result).toBe(chalk.gray("────────────────────────────────────────") + "\n");
     });
 
     it("should render code blocks statefully", () => {
@@ -158,15 +159,87 @@ describe("MarkdownRenderer", () => {
       const result2 = MarkdownRenderer.renderChunk(chunk2, 0);
       expect(result2).toBe(chalk.bold.blue.underline("Header") + "\n");
     });
+
+    it("should render strikethrough text correctly", () => {
+      const text = "~~Strikethrough~~\n";
+      const result = MarkdownRenderer.renderChunk(text, 0);
+      expect(result).toBe(chalk.strikethrough("Strikethrough") + "\n");
+    });
+
+    it("should render task lists correctly", () => {
+      const text = "- [ ] Unchecked task\n- [x] Checked task\n- [X] Checked task uppercase\n";
+      const result = MarkdownRenderer.renderChunk(text, 0);
+      const lines = result.split("\n");
+      expect(lines[0]).toBe(`  ${chalk.gray("○")} Unchecked task`);
+      expect(lines[1]).toBe(`  ${chalk.green("✓")} Checked task`);
+      expect(lines[2]).toBe(`  ${chalk.green("✓")} Checked task uppercase`);
+    });
+
+    it("should render nested unordered lists correctly", () => {
+      const text = "- Item 1\n  - Nested item\n    - Deeply nested\n";
+      const result = MarkdownRenderer.renderChunk(text, 0);
+      const lines = result.split("\n");
+      expect(lines[0]).toBe(`  ${chalk.yellow("-")} Item 1`);
+      expect(lines[1]).toBe(`    ${chalk.yellow("-")} Nested item`);
+      expect(lines[2]).toBe(`      ${chalk.yellow("-")} Deeply nested`);
+    });
+
+    it("should render nested ordered lists correctly", () => {
+      const text = "1. Item 1\n  2. Nested item\n    3. Deeply nested\n";
+      const result = MarkdownRenderer.renderChunk(text, 0);
+      const lines = result.split("\n");
+      expect(lines[0]).toBe(`  ${chalk.yellow("1.")} Item 1`);
+      expect(lines[1]).toBe(`    ${chalk.yellow("2.")} Nested item`);
+      expect(lines[2]).toBe(`      ${chalk.yellow("3.")} Deeply nested`);
+    });
+
+    it("should render mixed nested lists correctly", () => {
+      const text = "- Item 1\n  1. Nested ordered\n    - Deeply nested unordered\n";
+      const result = MarkdownRenderer.renderChunk(text, 0);
+      const lines = result.split("\n");
+      expect(lines[0]).toBe(`  ${chalk.yellow("-")} Item 1`);
+      expect(lines[1]).toBe(`    ${chalk.yellow("1.")} Nested ordered`);
+      expect(lines[2]).toBe(`      ${chalk.yellow("-")} Deeply nested unordered`);
+    });
+  });
+
+  describe("Effect-based methods", () => {
+    it("should initialize with Effect", () => {
+      const result = Effect.runSync(MarkdownRenderer.initialize());
+      expect(result).toBeUndefined(); // Effect.void returns undefined
+    });
+
+    it("should render markdown with Effect", () => {
+      const markdown = "## Header\n**Bold** text";
+      const result = Effect.runSync(MarkdownRenderer.render(markdown));
+      expect(result).toContain("Header");
+      expect(result).toContain("Bold");
+    });
+
+    it("should handle render errors gracefully", () => {
+      // render() should never throw, it falls back to plain text
+      const invalidMarkdown = "Some text";
+      const result = Effect.runSync(MarkdownRenderer.render(invalidMarkdown));
+      expect(typeof result).toBe("string");
+      expect(result.length).toBeGreaterThan(0);
+    });
   });
 
   describe("flushBuffer", () => {
     it("should flush remaining buffer", () => {
-      // Manually set buffer to ensure we have something to flush
-      // @ts-expect-error Accessing private property for testing
-      MarkdownRenderer.streamingBuffer = "Some text";
-      const result = MarkdownRenderer.flushBuffer();
-      expect(result).toBe("Some text");
+      // Reset to ensure clean state
+      MarkdownRenderer.resetStreamingBuffer();
+      // Add partial text that should be buffered (header pattern)
+      const result1 = MarkdownRenderer.renderChunk("##", 0);
+      expect(result1).toBe(""); // Should buffer because it looks like a header
+
+      // Add more to complete it, but don't add newline
+      const result2 = MarkdownRenderer.renderChunk(" Header", 0);
+      expect(result2).toBe(""); // Still buffering
+
+      // Now flush should return the formatted header
+      const result3 = MarkdownRenderer.flushBuffer();
+      expect(result3).toBe(chalk.bold.blue.underline("Header"));
     });
 
     it("should flush partial header as styled header if stream ends", () => {
