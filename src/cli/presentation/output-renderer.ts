@@ -196,7 +196,7 @@ export class OutputRenderer {
 
   private renderTextChunk(delta: string): string {
     if (this.mode === "markdown") {
-      const bufferMs = this.config.streamingConfig.textBufferMs ?? 50;
+      const bufferMs = this.config.streamingConfig.textBufferMs ?? 10;
       try {
         const rendered: string = MarkdownRenderer.renderChunk(delta, bufferMs);
         return rendered;
