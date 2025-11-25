@@ -10,6 +10,7 @@
 
 import type { streamText } from "ai";
 import { Chunk, Effect, Option } from "effect";
+import type { LoggerService } from "../../core/interfaces/logger";
 import { type LLMError } from "../../core/types/errors";
 import type { ToolCall } from "../../core/types/tools";
 import { type ChatCompletionResponse } from "./chat";
@@ -96,6 +97,7 @@ export class StreamProcessor {
   constructor(
     private readonly config: StreamProcessorConfig,
     private readonly emit: EmitFunction,
+    private readonly logger: LoggerService,
   ) {
     this.state = createInitialState();
 
@@ -126,7 +128,12 @@ export class StreamProcessor {
     });
 
     // Start processing stream
+    void this.logger.debug(`[LLM Timing] 🔄 Starting to process fullStream...`);
+    const streamProcessStart = Date.now();
     await this.processFullStream(result);
+    void this.logger.debug(
+      `[LLM Timing] ✓ Stream processing completed in ${Date.now() - streamProcessStart}ms`,
+    );
 
     // Wait for completion
     await this.completionPromise;
@@ -163,6 +170,10 @@ export class StreamProcessor {
 
             // Emit text start on first chunk
             if (!this.state.hasStartedText && textChunk.length > 0) {
+              const firstTokenLatency = Date.now() - this.config.startTime;
+              void this.logger.debug(
+                `[LLM Timing] 🎯 FIRST TOKEN arrived after ${firstTokenLatency}ms`,
+              );
               void this.emitEvent({ type: "text_start" });
               this.state.hasStartedText = true;
               this.recordFirstToken("text");
@@ -191,6 +202,10 @@ export class StreamProcessor {
             if (textDelta && textDelta.length > 0) {
               // Emit thinking start if this is the first reasoning chunk
               if (this.state.reasoningSequence === 0) {
+                const firstReasoningLatency = Date.now() - this.config.startTime;
+                void this.logger.debug(
+                  `[LLM Timing] 🧠 FIRST REASONING TOKEN arrived after ${firstReasoningLatency}ms`,
+                );
                 void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
                 this.recordFirstToken("reasoning");
               }
