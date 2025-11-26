@@ -5,7 +5,7 @@ import type {
   StreamingRendererConfig,
 } from "../../core/interfaces/presentation";
 import { PresentationServiceTag } from "../../core/interfaces/presentation";
-import type { StreamEvent } from "../../core/types/llm";
+import type { StreamEvent } from "../../core/types/streaming";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 
 /**

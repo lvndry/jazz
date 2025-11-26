@@ -3,14 +3,8 @@ import { Effect } from "effect";
 import { marked } from "marked";
 import TerminalRenderer from "marked-terminal";
 import { type LLMError } from "../../core/types/errors";
-import type { StreamEvent } from "../../core/types/llm";
-import type {
-  ColorProfile,
-  DisplayConfig,
-  OutputMode,
-  RenderTheme,
-  StreamingConfig,
-} from "../../core/types/output";
+import type { ColorProfile, DisplayConfig, OutputMode, RenderTheme } from "../../core/types/output";
+import type { StreamEvent, StreamingConfig } from "../../core/types/streaming";
 import type { ToolCall } from "../../core/types/tools";
 import {
   formatToolArguments as formatToolArgumentsShared,
