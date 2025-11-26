@@ -2,11 +2,16 @@ import { Command } from "commander";
 import { Effect } from "effect";
 import packageJson from "../../package.json";
 import { runCliEffect } from "../app-layer";
+import {
+  deleteAgentCommand,
+  getAgentCommand,
+  listAgentsCommand,
+} from "./commands/agent-management";
 import { gmailLoginCommand, gmailLogoutCommand, gmailStatusCommand } from "./commands/auth";
-import { chatWithAIAgentCommand, createAgentCommand } from "./commands/chat-agent";
+import { chatWithAIAgentCommand } from "./commands/chat-agent";
 import { getConfigCommand, listConfigCommand, setConfigCommand } from "./commands/config";
+import { createAgentCommand } from "./commands/create-agent";
 import { editAgentCommand } from "./commands/edit-agent";
-import { deleteAgentCommand, getAgentCommand, listAgentsCommand } from "./commands/task-agent";
 import { updateCommand } from "./commands/update";
 
 /**

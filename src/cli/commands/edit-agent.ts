@@ -1,4 +1,3 @@
-import { checkbox, input, search, select } from "@inquirer/prompts";
 import { Effect } from "effect";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
 import { getAgentByIdentifier } from "../../core/agent/agent-service";
@@ -10,6 +9,7 @@ import { AgentServiceTag, type AgentService } from "../../core/interfaces/agent-
 import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "../../core/interfaces/tool-registry";
+import type { Agent, AgentConfig, LLMProvider } from "../../core/types";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -18,8 +18,6 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "../../core/types/errors";
-import type { Agent, AgentConfig } from "../../core/types/index";
-import type { LLMProvider } from "../../core/types/llm";
 
 /**
  * CLI commands for editing existing agents
@@ -177,17 +175,18 @@ async function promptForAgentUpdates(
   const answers: AgentEditAnswers = {};
 
   // Ask what to update
-  const fieldsToUpdate: string[] = await checkbox<string>({
-    message: "What would you like to update?",
-    choices: [
-      { name: "Name", value: "name" },
-      { name: "Description", value: "description" },
-      { name: "Agent Type", value: "agentType" },
-      { name: "LLM Provider", value: "llmProvider" },
-      { name: "LLM Model", value: "llmModel" },
-      { name: "Tools", value: "tools" },
-    ],
-  });
+  const fieldsToUpdate = await Effect.runPromise(
+    terminal.checkbox<string>("What would you like to update?", {
+      choices: [
+        { name: "Name", value: "name" },
+        { name: "Description", value: "description" },
+        { name: "Agent Type", value: "agentType" },
+        { name: "LLM Provider", value: "llmProvider" },
+        { name: "LLM Model", value: "llmModel" },
+        { name: "Tools", value: "tools" },
+      ],
+    }),
+  );
 
   if (fieldsToUpdate.length === 0) {
     terminal.warn("No fields selected for update. Exiting...");
@@ -196,67 +195,65 @@ async function promptForAgentUpdates(
 
   // Update name
   if (fieldsToUpdate.includes("name")) {
-    const name = await input({
-      message: "Enter new agent name:",
-      default: currentAgent.name,
-      validate: (inputValue: string) => {
-        if (!inputValue.trim()) {
-          return "Agent name cannot be empty";
-        }
-        if (inputValue.length > 100) {
-          return "Agent name must be 100 characters or less";
-        }
-        return true;
-      },
-    });
+    const name = await Effect.runPromise(
+      terminal.ask("Enter new agent name:", {
+        defaultValue: currentAgent.name,
+        validate: (inputValue: string) => {
+          if (!inputValue.trim()) {
+            return "Agent name cannot be empty";
+          }
+          if (inputValue.length > 100) {
+            return "Agent name must be 100 characters or less";
+          }
+          return true;
+        },
+      }),
+    );
     answers.name = name;
   }
 
   // Update description
   if (fieldsToUpdate.includes("description")) {
-    const description = await input({
-      message: "Enter new agent description:",
-      default: currentAgent.description || "",
-      validate: (inputValue: string) => {
-        if (!inputValue.trim()) {
-          return "Agent description cannot be empty";
-        }
-        if (inputValue.length > 500) {
-          return "Agent description must be 500 characters or less";
-        }
-        return true;
-      },
-    });
+    const description = await Effect.runPromise(
+      terminal.ask("Enter new agent description:", {
+        defaultValue: currentAgent.description || "",
+        validate: (inputValue: string) => {
+          if (!inputValue.trim()) {
+            return "Agent description cannot be empty";
+          }
+          if (inputValue.length > 500) {
+            return "Agent description must be 500 characters or less";
+          }
+          return true;
+        },
+      }),
+    );
     answers.description = description;
   }
 
   // Update agent type
   if (fieldsToUpdate.includes("agentType")) {
-    const agentType = await select<string>({
-      message: "Select agent type:",
-      choices: agentTypes.map((type) => ({ name: type, value: type })),
-      default: currentAgent.config.agentType || agentTypes[0],
-    });
+    const agentType = await Effect.runPromise(
+      terminal.select<string>("Select agent type:", {
+        choices: agentTypes.map((type) => ({ name: type, value: type })),
+        ...(currentAgent.config.agentType || agentTypes[0]
+          ? { default: currentAgent.config.agentType || agentTypes[0] }
+          : {}),
+      }),
+    );
     answers.agentType = agentType;
   }
 
   // Update LLM provider
   if (fieldsToUpdate.includes("llmProvider")) {
-    const llmProvider = await search<ProviderName>({
-      message: "Select LLM provider:",
-      source: (term) => {
-        const choices = providers.map((provider) => ({
+    const llmProvider = await Effect.runPromise(
+      terminal.search<ProviderName>("Select LLM provider:", {
+        choices: providers.map((provider) => ({
           name: provider.name,
           value: provider.name,
-        }));
-
-        if (!term) {
-          return choices;
-        }
-
-        return choices.filter((choice) => choice.name.toLowerCase().includes(term.toLowerCase()));
-      },
-    });
+        })),
+      }),
+    );
 
     answers.llmProvider = llmProvider;
 
@@ -274,15 +271,16 @@ async function promptForAgentUpdates(
         }),
       );
 
-      const apiKey = await input({
-        message: `${llmProvider} API Key:`,
-        validate: (inputValue: string): boolean | string => {
-          if (!inputValue || inputValue.trim().length === 0) {
-            return "API key cannot be empty";
-          }
-          return true;
-        },
-      });
+      const apiKey = await Effect.runPromise(
+        terminal.ask(`${llmProvider} API Key:`, {
+          validate: (inputValue: string): boolean | string => {
+            if (!inputValue || inputValue.trim().length === 0) {
+              return "API key cannot be empty";
+            }
+            return true;
+          },
+        }),
+      );
 
       // Update config with the new API key
       await Effect.runPromise(configService.set(apiKeyPath, apiKey));
@@ -303,25 +301,14 @@ async function promptForAgentUpdates(
       },
     );
 
-    const llmModel = await search<string>({
-      message: `Select model for ${llmProvider}:`,
-      source: (term) => {
-        const choices = providerInfo.supportedModels.map((model) => ({
+    const llmModel = await Effect.runPromise(
+      terminal.search<string>(`Select model for ${llmProvider}:`, {
+        choices: providerInfo.supportedModels.map((model) => ({
           name: model.displayName || model.id,
           value: model.id,
-        }));
-
-        if (!term) {
-          return choices;
-        }
-
-        return choices.filter(
-          (choice) =>
-            choice.name.toLowerCase().includes(term.toLowerCase()) ||
-            choice.value.toLowerCase().includes(term.toLowerCase()),
-        );
-      },
-    });
+        })),
+      }),
+    );
     answers.llmModel = llmModel;
 
     // Check if the selected model is a reasoning model
@@ -330,19 +317,23 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      const reasoningEffort = await select<"disable" | "low" | "medium" | "high">({
-        message: "What reasoning effort level would you like?",
-        choices: [
-          { name: "Low - Faster responses, basic reasoning", value: "low" },
+      const reasoningEffort = await Effect.runPromise(
+        terminal.select<"disable" | "low" | "medium" | "high">(
+          "What reasoning effort level would you like?",
           {
-            name: "Medium - Balanced speed and reasoning depth (recommended)",
-            value: "medium",
+            choices: [
+              { name: "Low - Faster responses, basic reasoning", value: "low" },
+              {
+                name: "Medium - Balanced speed and reasoning depth (recommended)",
+                value: "medium",
+              },
+              { name: "High - Deep reasoning, slower responses", value: "high" },
+              { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+            ],
+            default: currentAgent.config.reasoningEffort || "medium",
           },
-          { name: "High - Deep reasoning, slower responses", value: "high" },
-          { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-        ],
-        default: currentAgent.config.reasoningEffort || "medium",
-      });
+        ),
+      );
       answers.reasoningEffort = reasoningEffort;
     }
   }
@@ -358,25 +349,14 @@ async function promptForAgentUpdates(
         throw new Error(`Failed to get provider info: ${message}`);
       }));
 
-    const llmModel = await search<string>({
-      message: `Select model for ${providerToUse}:`,
-      source: (term) => {
-        const choices = providerInfo.supportedModels.map((model) => ({
+    const llmModel = await Effect.runPromise(
+      terminal.search<string>(`Select model for ${providerToUse}:`, {
+        choices: providerInfo.supportedModels.map((model) => ({
           name: model.displayName || model.id,
           value: model.id,
-        }));
-
-        if (!term) {
-          return choices;
-        }
-
-        return choices.filter(
-          (choice) =>
-            choice.name.toLowerCase().includes(term.toLowerCase()) ||
-            choice.value.toLowerCase().includes(term.toLowerCase()),
-        );
-      },
-    });
+        })),
+      }),
+    );
     answers.llmModel = llmModel;
 
     // Check if the selected model is a reasoning model
@@ -385,19 +365,23 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      const reasoningEffort = await select<"disable" | "low" | "medium" | "high">({
-        message: "What reasoning effort level would you like?",
-        choices: [
-          { name: "Low - Faster responses, basic reasoning", value: "low" },
+      const reasoningEffort = await Effect.runPromise(
+        terminal.select<"disable" | "low" | "medium" | "high">(
+          "What reasoning effort level would you like?",
           {
-            name: "Medium - Balanced speed and reasoning depth (recommended)",
-            value: "medium",
+            choices: [
+              { name: "Low - Faster responses, basic reasoning", value: "low" },
+              {
+                name: "Medium - Balanced speed and reasoning depth (recommended)",
+                value: "medium",
+              },
+              { name: "High - Deep reasoning, slower responses", value: "high" },
+              { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+            ],
+            default: currentAgent.config.reasoningEffort || "medium",
           },
-          { name: "High - Deep reasoning, slower responses", value: "high" },
-          { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-        ],
-        default: currentAgent.config.reasoningEffort || "medium",
-      });
+        ),
+      );
       answers.reasoningEffort = reasoningEffort;
     }
   }
@@ -419,16 +403,17 @@ async function promptForAgentUpdates(
       }
     }
 
-    const toolCategories = await checkbox<string>({
-      message: "Select tool categories:",
-      choices: Object.keys(toolsByCategory).map((category) => ({
-        name: `${category} (${toolsByCategory[category]?.length || 0} tools)`,
-        value: category,
-      })),
-    });
+    const toolCategories = await Effect.runPromise(
+      terminal.checkbox<string>("Select tool categories:", {
+        choices: Object.keys(toolsByCategory).map((category) => ({
+          name: `${category} (${toolsByCategory[category]?.length || 0} tools)`,
+          value: category,
+        })),
+      }),
+    );
 
     // Store display names - will be converted to tool names in the calling function
-    answers.tools = toolCategories;
+    answers.tools = [...toolCategories];
   }
 
   return answers;
