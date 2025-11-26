@@ -10,6 +10,7 @@ import { StorageServiceTag } from "./core/interfaces/storage";
 import { TerminalServiceTag } from "./core/interfaces/terminal";
 import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
+import { resolveStorageDirectory } from "./core/utils/storage-utils";
 import { createAgentServiceLayer } from "./services/agent-service";
 import { createConfigLayer } from "./services/config";
 import { createFileSystemContextServiceLayer } from "./services/fs";
@@ -17,7 +18,6 @@ import { createGmailServiceLayer } from "./services/gmail";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer } from "./services/logger";
 import { FileStorageService } from "./services/storage/file";
-import { resolveStorageDirectory } from "./services/storage/utils";
 import { createTerminalServiceLayer, TerminalServiceImpl } from "./services/terminal";
 
 /**
