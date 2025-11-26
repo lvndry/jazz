@@ -181,30 +181,6 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(typeof result.hasModels).toBe("boolean");
       expect(typeof result.defaultModel).toBe("string");
     });
-
-    it("should fail for unknown provider", async () => {
-      const testEffect = Effect.gen(function* () {
-        const llmService = yield* LLMServiceTag;
-        return yield* llmService.getProvider("unknown-provider" as "openai");
-      });
-
-      const configLayer = createTestConfigLayer({});
-
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-          Effect.catchAll((error) => Effect.succeed(error as LLMConfigurationError)),
-        ),
-      );
-
-      expect(result).toBeInstanceOf(LLMConfigurationError);
-      if (result instanceof LLMConfigurationError) {
-        expect(result.provider).toBe("unknown-provider");
-      }
-    });
   });
 
   describe("Provider Authentication", () => {

@@ -2,6 +2,8 @@
  * Output/display configuration and rendering types
  */
 
+import type { StreamingConfig } from "./streaming";
+
 /**
  * Output mode controls what content is displayed and how it is formatted
  */
@@ -78,31 +80,16 @@ export interface OutputConfig {
   readonly colorProfile?: ColorProfile;
 
   /**
+   * Show performance metrics (first token latency, tokens/sec, duration)
+   * Useful for debugging and monitoring performance
+   * Default: true
+   */
+  readonly showMetrics?: boolean;
+
+  /**
    * Streaming-specific configuration
    */
   readonly streaming?: StreamingConfig;
-}
-
-/**
- * Streaming configuration - controls HOW content is streamed
- * All fields optional with sensible defaults
- */
-export interface StreamingConfig {
-  /**
-   * Enable streaming mode
-   * - true: Always stream
-   * - false: Never stream
-   * - "auto": Auto-detect based on TTY (default)
-   */
-  readonly enabled?: boolean | "auto";
-
-  /**
-   * Text buffer delay in milliseconds
-   * Batches small chunks for smoother rendering
-   * Only applies when streaming is enabled
-   * Default: 50
-   */
-  readonly textBufferMs?: number;
 }
 
 /**

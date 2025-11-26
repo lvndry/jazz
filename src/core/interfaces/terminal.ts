@@ -51,7 +51,13 @@ export interface TerminalService {
   /**
    * Prompt the user for text input
    */
-  readonly ask: (message: string, defaultValue?: string) => Effect.Effect<string, never>;
+  readonly ask: (
+    message: string,
+    options?: {
+      defaultValue?: string;
+      validate?: (input: string) => boolean | string;
+    },
+  ) => Effect.Effect<string, never>;
 
   /**
    * Prompt the user for password input (hidden)
@@ -61,12 +67,38 @@ export interface TerminalService {
   /**
    * Prompt the user to select from a list of options
    */
-  readonly select: (message: string, choices: string[]) => Effect.Effect<string, never>;
+  readonly select: <T = string>(
+    message: string,
+    options: {
+      choices: readonly (string | { name: string; value: T; description?: string })[];
+      default?: T;
+    },
+  ) => Effect.Effect<T, never>;
 
   /**
    * Prompt the user for confirmation (yes/no)
    */
   readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>;
+
+  /**
+   * Search and select from a list of options with filtering
+   */
+  readonly search: <T = string>(
+    message: string,
+    options: {
+      choices: readonly (string | { name: string; value: T; description?: string })[];
+    },
+  ) => Effect.Effect<T, never>;
+
+  /**
+   * Prompt the user to select multiple options (checkbox)
+   */
+  readonly checkbox: <T = string>(
+    message: string,
+    options: {
+      choices: readonly (string | { name: string; value: T; description?: string })[];
+    },
+  ) => Effect.Effect<readonly T[], never>;
 }
 
 export const TerminalServiceTag = Context.GenericTag<TerminalService>("TerminalService");

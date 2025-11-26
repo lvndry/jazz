@@ -4,7 +4,7 @@ import type { AppConfig } from "../types";
  * Stream detection utility
  * Determines if streaming should be enabled based on:
  * 1. Explicit CLI flags (--stream, --no-stream)
- * 2. Environment variables (JAZZ_STREAM, NO_COLOR, CI)
+ * 2. Environment variables (NO_COLOR, CI)
  * 3. TTY status (stdout.isTTY)
  * 4. User configuration
  */
@@ -42,7 +42,7 @@ export interface StreamDetection {
  * Priority order:
  * 1. Explicit stream override (from CLI flags)
  * 2. Config file (enabled: true/false/auto)
- * 3. Environment variables (JAZZ_STREAM=0, CI=true, NO_COLOR=1)
+ * 3. Environment variables (CI=true, NO_COLOR=1)
  * 4. Auto-detection (TTY status)
  */
 export function shouldEnableStreaming(
@@ -77,13 +77,6 @@ export function shouldEnableStreaming(
   }
 
   // Priority 3: Environment variables
-  // Check for explicit disable
-  if (process.env["JAZZ_STREAM"] === "0" || process.env["JAZZ_STREAM"] === "false") {
-    return {
-      shouldStream: false,
-      reason: "Disabled via JAZZ_STREAM environment variable",
-    };
-  }
 
   // Check for CI environment (disable streaming in CI by default)
   if (process.env["CI"] === "true" || process.env["CI"] === "1") {
@@ -94,18 +87,10 @@ export function shouldEnableStreaming(
   }
 
   // Check for NO_COLOR (often indicates non-interactive terminal)
-  if (process.env["NO_COLOR"] === "1" || process.env["NO_COLOR"] === "true") {
+  if (process.env["NO_COLOR"] === "true" || process.env["NO_COLOR"] === "1") {
     return {
       shouldStream: false,
       reason: "Disabled due to NO_COLOR environment variable",
-    };
-  }
-
-  // Check for explicit enable via environment
-  if (process.env["JAZZ_STREAM"] === "1" || process.env["JAZZ_STREAM"] === "true") {
-    return {
-      shouldStream: true,
-      reason: "Enabled via JAZZ_STREAM environment variable",
     };
   }
 
