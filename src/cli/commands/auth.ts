@@ -129,22 +129,16 @@ export function gmailStatusCommand(): Effect.Effect<
       if (tokenContent) {
         try {
           const token = JSON.parse(tokenContent) as GoogleOAuthToken;
-          const expiryDate = token.expiry_date ? new Date(token.expiry_date) : null;
-          const isExpired = expiryDate ? expiryDate < new Date() : false;
 
           yield* logger.info("Gmail token found and parsed", {
             hasAccessToken: !!token.access_token,
             hasRefreshToken: !!token.refresh_token,
-            isExpired,
           });
 
           yield* terminal.success("Gmail authentication status:");
-          yield* terminal.log(`   Status: ${isExpired ? "Expired" : "Active"}`);
           yield* terminal.log(`   Access Token: ${token.access_token ? "Present" : "Missing"}`);
           yield* terminal.log(`   Refresh Token: ${token.refresh_token ? "Present" : "Missing"}`);
-          if (expiryDate) {
-            yield* terminal.log(`   Expires: ${expiryDate.toLocaleString()}`);
-          }
+
           if (token.scope) {
             yield* terminal.log(`   Scopes: ${token.scope}`);
           }

@@ -73,6 +73,12 @@ export interface AgentRunnerOptions {
    */
   readonly conversationId?: string;
   /**
+   * Optional session identifier for logging purposes.
+   * If not provided, will use the conversationId for logging.
+   * This should be set to the sessionId created at the start of a chat session.
+   */
+  readonly sessionId?: string;
+  /**
    * Maximum number of iterations (agent reasoning loops) allowed for this run.
    * Each iteration may involve tool calls and LLM responses.
    * If not specified, defaults to `MAX_AGENT_STEPS` constant.
@@ -637,9 +643,10 @@ export class AgentRunner {
       Effect.gen(function* () {
         const logger = yield* LoggerServiceTag;
         const runContext = yield* initializeAgentRun(options);
-        const { actualConversationId } = runContext;
-        // Set conversation ID for conversation-scoped logging
-        yield* logger.setConversationId(actualConversationId);
+        // Use the sessionId from options if provided, otherwise fall back to actualConversationId
+        const sessionIdForLogging = options.sessionId || runContext.actualConversationId;
+        // Set session ID for session-scoped logging
+        yield* logger.setSessionId(sessionIdForLogging);
         return { logger, runContext };
       }),
       ({ logger, runContext }) =>
@@ -966,7 +973,7 @@ export class AgentRunner {
 
           return { ...response, messages: currentMessages };
         }),
-      ({ logger }) => logger.clearConversationId(),
+      ({ logger }) => logger.clearSessionId(),
     );
   }
 
@@ -991,9 +998,10 @@ export class AgentRunner {
       Effect.gen(function* () {
         const logger = yield* LoggerServiceTag;
         const runContext = yield* initializeAgentRun(options);
-        const { actualConversationId } = runContext;
-        // Set conversation ID for conversation-scoped logging
-        yield* logger.setConversationId(actualConversationId);
+        // Use the sessionId from options if provided, otherwise fall back to actualConversationId
+        const sessionIdForLogging = options.sessionId || runContext.actualConversationId;
+        // Set session ID for session-scoped logging
+        yield* logger.setSessionId(sessionIdForLogging);
         return { logger, runContext };
       }),
       ({ logger, runContext }) =>
@@ -1193,7 +1201,7 @@ export class AgentRunner {
 
           return { ...response, messages: currentMessages };
         }),
-      ({ logger }) => logger.clearConversationId(),
+      ({ logger }) => logger.clearSessionId(),
     );
   }
 }
