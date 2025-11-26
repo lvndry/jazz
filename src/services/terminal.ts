@@ -167,12 +167,14 @@ export class TerminalServiceImpl implements TerminalService {
     message: string,
     options: {
       choices: readonly (string | { name: string; value: T; description?: string })[];
+      default?: readonly T[];
     },
   ): Effect.Effect<readonly T[], never> {
     return Effect.promise(async () => {
       const answer = await checkboxPrompt<T>({
         message,
         choices: options.choices as unknown as Parameters<typeof checkboxPrompt<T>>[0]["choices"],
+        ...(options.default !== undefined ? { default: options.default as T[] } : {}),
       });
 
       return answer;

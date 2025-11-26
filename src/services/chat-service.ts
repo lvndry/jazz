@@ -58,7 +58,7 @@ export class ChatServiceImpl implements ChatService {
       const logger = yield* LoggerServiceTag;
 
       // Generate sessionId before the loop
-      const sessionId = `${Date.now()}`;
+      const sessionId = `${agent.name}-${Date.now()}`;
 
       yield* logger.setSessionId(sessionId);
 

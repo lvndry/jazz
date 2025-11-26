@@ -67,6 +67,8 @@ export const STATIC_PROVIDER_MODELS = {
   deepseek: [{ id: "deepseek-chat", displayName: "DeepSeek Chat", isReasoningModel: false }],
   ollama: [],
   openrouter: [],
+  ai_gateway: [],
+  groq: [],
 } as const satisfies Record<string, readonly ModelInfo[]>;
 
 export type ProviderName = keyof typeof STATIC_PROVIDER_MODELS;

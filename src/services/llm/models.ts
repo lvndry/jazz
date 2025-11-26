@@ -46,4 +46,13 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/api/v1/models",
     defaultBaseUrl: "https://openrouter.ai",
   },
+  ai_gateway: {
+    type: "dynamic",
+    endpointPath: "",
+  },
+  groq: {
+    type: "dynamic",
+    endpointPath: "/models",
+    defaultBaseUrl: "https://api.groq.com/openai/v1",
+  },
 } as const;

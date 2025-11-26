@@ -97,6 +97,7 @@ export interface TerminalService {
     message: string,
     options: {
       choices: readonly (string | { name: string; value: T; description?: string })[];
+      default?: readonly T[];
     },
   ) => Effect.Effect<readonly T[], never>;
 }
