@@ -159,6 +159,12 @@ Anthropic-inspired packaged expertise for agents.
   - **[Content Creation Skill](./skills/examples/content-creation-skill.md)** - Content generation
     and optimization
 
+### 🎯 Agent Templates
+
+Specialized agent templates for domain-specific workflows and use cases.
+
+- **[Agent Template Ideas](./agent-templates/agent-template-ideas.md)**
+
 ### 🔄 Workflows
 
 Complex multi-step agent workflows and task orchestration.
@@ -246,6 +252,10 @@ Have ideas for new patterns or improvements to existing designs?
 
 → Read [Agent Skills System](./skills/agent-skills-system.md) → Check out
 [Skills Examples](./skills/examples/README.md)
+
+### 🎯 "I want specialized agents for specific tasks"
+
+→ Read [Agent Template Ideas](./agent-templates/agent-template-ideas.md)
 
 ### 📊 "I want smarter context management"
 
