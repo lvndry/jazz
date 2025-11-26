@@ -4,12 +4,13 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "../../interfaces/fs";
 import type { Tool } from "../../interfaces/tool-registry";
+import { createSanitizedEnv } from "../../utils/env-utils";
 import { defineTool } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 
 /**
  * Filesystem and shell tools: pwd, ls, cd, grep, find, mkdir, rm
- * mkdir and rm require explicit approval and are executed via hidden execute* tools.
+ * mkdir and rm require explicit approval and are executed via hidden execute_* tools.
  */
 
 function normalizeFilterPattern(pattern?: string): {
@@ -52,47 +53,109 @@ function normalizeStatSize(size: unknown): number | string | null {
   return null;
 }
 
-// find_path - helps agent discover paths when unsure
 export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      name: z.string().min(1).describe("Name or partial name of the directory/file to find"),
+      name: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Name or glob pattern (e.g., 'test', '*.js', 'test*', '*.{js,ts}')"),
+      pathPattern: z
+        .string()
+        .optional()
+        .describe("Path pattern to match (e.g., './node_modules', '**/test/**')"),
+      excludePaths: z
+        .array(z.string())
+        .optional()
+        .describe("Paths to exclude from search (uses -prune, e.g., ['./node_modules', './.git'])"),
+      caseSensitive: z
+        .boolean()
+        .optional()
+        .describe("Use case-sensitive matching (default: false, uses -iname)"),
+      regex: z
+        .string()
+        .optional()
+        .describe("Regex pattern for name matching (overrides name if provided)"),
       maxDepth: z
         .number()
         .int()
         .positive()
         .optional()
         .describe("Maximum search depth (default: 3)"),
-      type: z.enum(["directory", "file", "both"]).optional().describe("Type of item to search for"),
+      minDepth: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe("Minimum search depth (default: 0)"),
+      type: z
+        .enum(["directory", "file", "both", "symlink"])
+        .optional()
+        .describe("Type of item to search for (directory, file, both, or symlink)"),
+      size: z
+        .string()
+        .optional()
+        .describe(
+          "File size filter (e.g., '+100M' for >100MB, '-1k' for <1KB, '500' for exactly 500 bytes)",
+        ),
+      mtime: z
+        .string()
+        .optional()
+        .describe(
+          "Modification time filter (e.g., '-7' for last 7 days, '+30' for older than 30 days)",
+        ),
       searchPath: z
         .string()
         .optional()
         .describe("Directory to start search from (defaults to current directory)"),
     })
-    .strict();
+    .strict()
+    .refine((data) => data.name || data.pathPattern || data.regex, {
+      message: "At least one of 'name', 'pathPattern', or 'regex' must be provided",
+    });
 
   return defineTool<
     FileSystem.FileSystem | FileSystemContextService,
-    { name: string; maxDepth?: number; type?: "directory" | "file" | "both"; searchPath?: string }
+    {
+      name?: string;
+      pathPattern?: string;
+      excludePaths?: string[];
+      caseSensitive?: boolean;
+      regex?: string;
+      maxDepth?: number;
+      minDepth?: number;
+      type?: "directory" | "file" | "both" | "symlink";
+      size?: string;
+      mtime?: string;
+      searchPath?: string;
+    }
   >({
     name: "find_path",
     description:
-      "Quick search for files or directories by name with shallow depth (default 3 levels). Use when you need to quickly locate a specific file or directory by name without deep traversal.",
+      "Advanced file search using find command syntax. Supports glob patterns, path matching, exclusions, regex, size/time filters, and depth control. Use for complex file searches similar to Unix 'find' command.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
-              name: string;
+            value: params.data as unknown as {
+              name?: string;
+              pathPattern?: string;
+              excludePaths?: string[];
+              caseSensitive?: boolean;
+              regex?: string;
               maxDepth?: number;
-              type?: "directory" | "file" | "both";
+              minDepth?: number;
+              type?: "directory" | "file" | "both" | "symlink";
+              size?: string;
+              mtime?: string;
               searchPath?: string;
             },
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -104,27 +167,83 @@ export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemCon
           : currentDir;
 
         const maxDepth = args.maxDepth ?? 3;
+        const minDepth = args.minDepth ?? 0;
         const searchType = args.type ?? "both";
+        const caseSensitive = args.caseSensitive ?? false;
 
         // Build find command arguments
         const findArgs: string[] = [searchDir];
 
-        // Add max depth
+        // Add depth filters
+        if (minDepth > 0) {
+          findArgs.push("-mindepth", minDepth.toString());
+        }
         findArgs.push("-maxdepth", maxDepth.toString());
+
+        // Build the main expression parts
+        const expressionParts: string[] = [];
+
+        // Handle exclusions with -prune pattern
+        // Format: -path './pattern' -prune -o (expression) -print
+        if (args.excludePaths && args.excludePaths.length > 0) {
+          for (const excludePath of args.excludePaths) {
+            expressionParts.push("-path", excludePath);
+            expressionParts.push("-prune");
+            expressionParts.push("-o");
+          }
+        }
+
+        // Add path pattern if specified
+        if (args.pathPattern) {
+          expressionParts.push("-path", args.pathPattern);
+          expressionParts.push("-o");
+        }
 
         // Add type filter
         if (searchType === "directory") {
-          findArgs.push("-type", "d");
+          expressionParts.push("-type", "d");
         } else if (searchType === "file") {
-          findArgs.push("-type", "f");
+          expressionParts.push("-type", "f");
+        } else if (searchType === "symlink") {
+          expressionParts.push("-type", "l");
+        }
+        // "both" doesn't add a type filter
+
+        // Add name/regex pattern matching
+        if (args.regex) {
+          // Use -regex for regex matching
+          expressionParts.push("-regex", args.regex);
+        } else if (args.name) {
+          // Use glob pattern directly if it contains wildcards, otherwise wrap for partial matching
+          const pattern =
+            args.name.includes("*") || args.name.includes("?") || args.name.includes("[")
+              ? args.name
+              : `*${args.name}*`;
+          const nameFlag = caseSensitive ? "-name" : "-iname";
+          expressionParts.push(nameFlag, pattern);
         }
 
-        // Add name pattern (case-insensitive)
-        findArgs.push("-iname", `*${args.name}*`);
+        // Add size filter
+        if (args.size) {
+          expressionParts.push("-size", args.size);
+        }
 
-        const command = `find ${findArgs.map((arg) => shell.escapePath(arg)).join(" ")}`;
+        // Add modification time filter
+        if (args.mtime) {
+          expressionParts.push("-mtime", args.mtime);
+        }
 
-        // Execute the find command
+        // Add -print at the end (required when using -prune)
+        if (args.excludePaths && args.excludePaths.length > 0) {
+          expressionParts.push("-print");
+        }
+
+        // Combine all arguments
+        if (expressionParts.length > 0) {
+          findArgs.push(...expressionParts);
+        }
+
+        // Execute the find command using proper argument passing (no shell injection risk)
         const result = yield* Effect.promise<{
           stdout: string;
           stderr: string;
@@ -132,9 +251,13 @@ export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemCon
         }>(
           () =>
             new Promise((resolve, reject) => {
-              const child = spawn("sh", ["-c", command], {
+              const sanitizedEnv = createSanitizedEnv();
+              const child = spawn("find", findArgs, {
+                cwd: currentDir,
                 stdio: ["ignore", "pipe", "pipe"],
+                env: sanitizedEnv,
                 timeout: 30000,
+                detached: false,
               });
 
               let stdout = "";
@@ -206,7 +329,7 @@ export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemCon
             searchDirectory: searchDir,
             maxDepth,
             type: searchType,
-            results: paths.slice(0, 50), // Limit results to avoid overwhelming output
+            results: paths.slice(0, 50),
             totalFound: paths.length,
             message:
               paths.length === 0
@@ -227,10 +350,10 @@ export function createPwdTool(): Tool<FileSystemContextService> {
     tags: ["filesystem", "navigation"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data as unknown as Record<string, never> } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data as unknown as Record<string, never> } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (_args, context) =>
       Effect.gen(function* () {
@@ -277,11 +400,11 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
     tags: ["filesystem", "listing"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
+            value: params.data as unknown as {
               path?: string;
               showHidden?: boolean;
               recursive?: boolean;
@@ -289,7 +412,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
               maxResults?: number;
             },
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -420,37 +543,27 @@ export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
     tags: ["filesystem", "navigation"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data as unknown as { path: string } } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data as unknown as { path: string } } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
 
-        // Try to resolve the path - this will provide helpful suggestions if the path doesn't exist
-        const targetResult = yield* shell.resolvePath(buildKeyFromContext(context), args.path).pipe(
-          Effect.catchAll((error) =>
-            Effect.succeed({
-              success: false,
-              result: null,
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          ),
-        );
+        const target = yield* shell
+          .resolvePath(buildKeyFromContext(context), args.path)
+          .pipe(Effect.catchAll(() => Effect.succeed(null)));
 
-        // If path resolution failed, return the error with suggestions
-        if (
-          typeof targetResult === "object" &&
-          "success" in targetResult &&
-          !targetResult.success
-        ) {
-          return targetResult;
+        if (target === null) {
+          return {
+            success: false,
+            result: null,
+            error: `Path not found: ${args.path}`,
+          };
         }
-
-        const target = targetResult as string;
 
         try {
           const stat = yield* fs.stat(target);
@@ -497,11 +610,11 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     tags: ["filesystem", "read"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
+            value: params.data as unknown as {
               path: string;
               startLine?: number;
               endLine?: number;
@@ -509,7 +622,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
               encoding?: string;
             },
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -517,34 +630,23 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         const shell = yield* FileSystemContextServiceTag;
         const filePathResult = yield* shell
           .resolvePath(buildKeyFromContext(context), args.path)
-          .pipe(
-            Effect.catchAll((error) =>
-              Effect.succeed({
-                success: false,
-                result: null,
-                error: error instanceof Error ? error.message : String(error),
-              }),
-            ),
-          );
+          .pipe(Effect.catchAll(() => Effect.succeed(null)));
 
-        // If path resolution failed, return the error with suggestions
-        if (
-          typeof filePathResult === "object" &&
-          "success" in filePathResult &&
-          !filePathResult.success
-        ) {
-          return filePathResult;
+        if (filePathResult === null) {
+          return {
+            success: false,
+            result: null,
+            error: `Path not found: ${args.path}`,
+          };
         }
 
-        const filePath = filePathResult as string;
-
         try {
-          const stat = yield* fs.stat(filePath);
+          const stat = yield* fs.stat(filePathResult);
           if (stat.type === "Directory") {
-            return { success: false, result: null, error: `Not a file: ${filePath}` };
+            return { success: false, result: null, error: `Not a file: ${filePathResult}` };
           }
 
-          let content = yield* fs.readFileString(filePath);
+          let content = yield* fs.readFileString(filePathResult);
 
           // Strip UTF-8 BOM if present
           if (content.length > 0 && content.charCodeAt(0) === 0xfeff) {
@@ -585,7 +687,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
           return {
             success: true,
             result: {
-              path: filePath,
+              path: filePathResult,
               encoding: (args.encoding ?? "utf-8").toLowerCase(),
               content,
               truncated,
@@ -636,17 +738,17 @@ export function createHeadTool(): Tool<FileSystem.FileSystem | FileSystemContext
     tags: ["filesystem", "read"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
+            value: params.data as unknown as {
               path: string;
               lines?: number;
               maxBytes?: number;
             },
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -654,34 +756,24 @@ export function createHeadTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const shell = yield* FileSystemContextServiceTag;
         const filePathResult = yield* shell
           .resolvePath(buildKeyFromContext(context), args.path)
-          .pipe(
-            Effect.catchAll((error) =>
-              Effect.succeed({
-                success: false,
-                result: null,
-                error: error instanceof Error ? error.message : String(error),
-              }),
-            ),
-          );
+          .pipe(Effect.catchAll(() => Effect.succeed(null)));
 
-        // If path resolution failed, return the error with suggestions
-        if (
-          typeof filePathResult === "object" &&
-          "success" in filePathResult &&
-          !filePathResult.success
-        ) {
-          return filePathResult;
+        // If path resolution failed, return the error
+        if (filePathResult === null) {
+          return {
+            success: false,
+            result: null,
+            error: `Path not found: ${args.path}`,
+          };
         }
 
-        const filePath = filePathResult as string;
-
         try {
-          const stat = yield* fs.stat(filePath);
+          const stat = yield* fs.stat(filePathResult);
           if (stat.type === "Directory") {
-            return { success: false, result: null, error: `Not a file: ${filePath}` };
+            return { success: false, result: null, error: `Not a file: ${filePathResult}` };
           }
 
-          let content = yield* fs.readFileString(filePath);
+          let content = yield* fs.readFileString(filePathResult);
 
           // Strip UTF-8 BOM if present
           if (content.length > 0 && content.charCodeAt(0) === 0xfeff) {
@@ -707,7 +799,7 @@ export function createHeadTool(): Tool<FileSystem.FileSystem | FileSystemContext
           return {
             success: true,
             result: {
-              path: filePath,
+              path: filePathResult,
               content: headContent,
               truncated,
               totalLines,
@@ -756,17 +848,17 @@ export function createTailTool(): Tool<FileSystem.FileSystem | FileSystemContext
     tags: ["filesystem", "read"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
+            value: params.data as unknown as {
               path: string;
               lines?: number;
               maxBytes?: number;
             },
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -774,34 +866,24 @@ export function createTailTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const shell = yield* FileSystemContextServiceTag;
         const filePathResult = yield* shell
           .resolvePath(buildKeyFromContext(context), args.path)
-          .pipe(
-            Effect.catchAll((error) =>
-              Effect.succeed({
-                success: false,
-                result: null,
-                error: error instanceof Error ? error.message : String(error),
-              }),
-            ),
-          );
+          .pipe(Effect.catchAll(() => Effect.succeed(null)));
 
-        // If path resolution failed, return the error with suggestions
-        if (
-          typeof filePathResult === "object" &&
-          "success" in filePathResult &&
-          !filePathResult.success
-        ) {
-          return filePathResult;
+        // If path resolution failed, return the error
+        if (filePathResult === null) {
+          return {
+            success: false,
+            result: null,
+            error: `Path not found: ${args.path}`,
+          };
         }
 
-        const filePath = filePathResult as string;
-
         try {
-          const stat = yield* fs.stat(filePath);
+          const stat = yield* fs.stat(filePathResult);
           if (stat.type === "Directory") {
-            return { success: false, result: null, error: `Not a file: ${filePath}` };
+            return { success: false, result: null, error: `Not a file: ${filePathResult}` };
           }
 
-          let content = yield* fs.readFileString(filePath);
+          let content = yield* fs.readFileString(filePathResult);
 
           // Strip UTF-8 BOM if present
           if (content.length > 0 && content.charCodeAt(0) === 0xfeff) {
@@ -830,7 +912,7 @@ export function createTailTool(): Tool<FileSystem.FileSystem | FileSystemContext
           return {
             success: true,
             result: {
-              path: filePath,
+              path: filePathResult,
               content: tailContent,
               truncated,
               totalLines,
@@ -876,10 +958,10 @@ export function createWriteFileTool(): Tool<FileSystem.FileSystem | FileSystemCo
     tags: ["filesystem", "write"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data as unknown as WriteFileArgs } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data as unknown as WriteFileArgs } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     approval: {
       message: (args, context) =>
@@ -928,10 +1010,10 @@ export function createExecuteWriteFileTool(): Tool<
     hidden: true,
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data as unknown as WriteFileArgs } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data as unknown as WriteFileArgs } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -1092,11 +1174,19 @@ export function createEditFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
           const fs = yield* FileSystem.FileSystem;
           let fileContent = "";
           let totalLines = 0;
+          const fileExists = yield* fs
+            .exists(target)
+            .pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+          if (!fileExists) {
+            return `WARNING: File does not exist: ${target}\n\nCannot edit a file that doesn't exist. Please create the file first or check the path.`;
+          }
+
           try {
             fileContent = yield* fs.readFileString(target);
             totalLines = fileContent.split("\n").length;
           } catch {
-            // File might not exist or be unreadable, continue anyway
+            return `WARNING: File exists but cannot be read: ${target}\n\nPlease check file permissions.`;
           }
 
           const editDescriptions = args.edits.map((edit, idx) => {
@@ -1215,6 +1305,18 @@ export function createExecuteEditFileTool(): Tool<
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+
+        const fileExists = yield* fs
+          .exists(target)
+          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+        if (!fileExists) {
+          return {
+            success: false,
+            result: null,
+            error: `File does not exist: ${target}. Cannot edit a file that doesn't exist.`,
+          };
+        }
 
         try {
           // Read the current file content
@@ -1417,45 +1519,22 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     })
     .strict();
 
-  return defineTool<
-    FileSystem.FileSystem | FileSystemContextService,
-    {
-      pattern: string;
-      path?: string;
-      recursive?: boolean;
-      regex?: boolean;
-      ignoreCase?: boolean;
-      maxResults?: number;
-      filePattern?: string;
-      exclude?: string;
-      excludeDir?: string;
-      contextLines?: number;
-    }
-  >({
+  type GrepArgs = z.infer<typeof parameters>;
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GrepArgs>({
     name: "grep",
     description:
-      "Search for text patterns within file contents using grep. Supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers. **Tip: Use contextLines to see surrounding content for better understanding of matches.**",
+      "Search for text patterns within file contents using grep. Supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers. **Tip: Use contextLines and filters to have more precise results.**",
     tags: ["search", "text"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
-              pattern: string;
-              path?: string;
-              recursive?: boolean;
-              regex?: boolean;
-              ignoreCase?: boolean;
-              maxResults?: number;
-              filePattern?: string;
-              exclude?: string;
-              excludeDir?: string;
-              contextLines?: number;
-            },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -1520,9 +1599,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         // Add the search pattern and path
         grepArgs.push(searchPattern, start);
 
-        const command = `grep ${grepArgs.map((arg) => shell.escapePath(arg)).join(" ")}`;
-
-        // Execute the grep command
+        // Execute the grep command using proper argument passing (no shell injection risk)
         const result = yield* Effect.promise<{
           stdout: string;
           stderr: string;
@@ -1530,9 +1607,13 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         }>(
           () =>
             new Promise((resolve, reject) => {
-              const child = spawn("sh", ["-c", command], {
+              const sanitizedEnv = createSanitizedEnv();
+              const child = spawn("grep", grepArgs, {
+                cwd: start,
                 stdio: ["ignore", "pipe", "pipe"],
+                env: sanitizedEnv,
                 timeout: 30000,
+                detached: false,
               });
 
               let stdout = "";
@@ -1659,39 +1740,22 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     })
     .strict();
 
-  return defineTool<
-    FileSystem.FileSystem | FileSystemContextService,
-    {
-      path?: string;
-      name?: string;
-      type?: "file" | "dir" | "all";
-      maxDepth?: number;
-      maxResults?: number;
-      includeHidden?: boolean;
-      smart?: boolean;
-    }
-  >({
+  type FindArgs = z.infer<typeof parameters>;
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, FindArgs>({
     name: "find",
     description:
       "Advanced file and directory search with smart hierarchical search strategy (searches cwd, home, and parent directories in order). Supports deep traversal (default 25 levels), regex patterns, type filters, and hidden files. Use for comprehensive searches when find_path doesn't locate what you need.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
-              path?: string;
-              name?: string;
-              type?: "file" | "dir" | "all";
-              maxDepth?: number;
-              maxResults?: number;
-              includeHidden?: boolean;
-              smart?: boolean;
-            },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -1702,7 +1766,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
           typeof args.maxResults === "number" && args.maxResults > 0 ? args.maxResults : 5000;
         const maxDepth = typeof args.maxDepth === "number" ? args.maxDepth : 25;
         const typeFilter = args.type ?? "all";
-        const useSmart = args.smart !== false; // Default to true
+        const useSmart = args.smart !== false;
 
         // Smart search strategy: search in order of likelihood
         const searchPaths: string[] = [];
@@ -1777,9 +1841,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
             findArgs.push("!", "-name", ".*");
           }
 
-          const command = `find ${findArgs.map((arg) => shell.escapePath(arg)).join(" ")}`;
-
-          // Execute the find command
+          // Execute the find command using proper argument passing (no shell injection risk)
           const result = yield* Effect.promise<{
             stdout: string;
             stderr: string;
@@ -1787,9 +1849,13 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
           }>(
             () =>
               new Promise((resolve, reject) => {
-                const child = spawn("sh", ["-c", command], {
+                const sanitizedEnv = createSanitizedEnv();
+                const child = spawn("find", findArgs, {
+                  cwd: searchPath,
                   stdio: ["ignore", "pipe", "pipe"],
+                  env: sanitizedEnv,
                   timeout: 30000,
+                  detached: false,
                 });
 
                 let stdout = "";
@@ -1867,6 +1933,66 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
   });
 }
 
+// finddir - search for directories by name
+export function createFindDirTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+  const parameters = z
+    .object({
+      name: z.string().min(1).describe("Directory name to search for (partial matches supported)"),
+      path: z
+        .string()
+        .optional()
+        .describe("Starting path for search (defaults to current working directory)"),
+      maxDepth: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Maximum search depth (default: 3)"),
+    })
+    .strict();
+
+  type FindDirArgs = z.infer<typeof parameters>;
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, FindDirArgs>({
+    name: "find_dir",
+    description:
+      "Search specifically for directories by name with partial matching support. Specialized version of find_path that only returns directories. Use when you need to locate a directory and want to filter out files from results.",
+    tags: ["filesystem", "search"],
+    parameters,
+    validate: (args) => {
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({
+            valid: true,
+            value: params.data,
+          } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
+    },
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const startPath = args.path
+          ? yield* shell.resolvePath(buildKeyFromContext(context), args.path)
+          : yield* shell.getCwd(buildKeyFromContext(context));
+
+        const found = yield* shell.findDirectory(
+          buildKeyFromContext(context),
+          args.name,
+          args.maxDepth || 3,
+        );
+
+        return {
+          success: true,
+          result: {
+            searchTerm: args.name,
+            startPath,
+            found: found.results,
+            count: found.results.length,
+          },
+        };
+      }),
+  });
+}
+
 // mkdir (approval required)
 export function createMkdirTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
@@ -1876,22 +2002,20 @@ export function createMkdirTool(): Tool<FileSystem.FileSystem | FileSystemContex
     })
     .strict();
 
-  return defineTool<
-    FileSystem.FileSystem | FileSystemContextService,
-    { path: string; recursive?: boolean }
-  >({
+  type MkdirArgs = z.infer<typeof parameters>;
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, MkdirArgs>({
     name: "mkdir",
     description: "Create a directory (requires user approval)",
     tags: ["filesystem", "write"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as { path: string; recursive?: boolean },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     approval: {
       message: (args, context) =>
@@ -1937,23 +2061,21 @@ export function createExecuteMkdirTool(): Tool<FileSystem.FileSystem | FileSyste
     })
     .strict();
 
-  return defineTool<
-    FileSystem.FileSystem | FileSystemContextService,
-    { path: string; recursive?: boolean }
-  >({
+  type ExecuteMkdirArgs = z.infer<typeof parameters>;
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, ExecuteMkdirArgs>({
     name: "execute_mkdir",
     description:
       "Executes the actual directory creation after user approval of mkdir. Creates the directory at the specified path, optionally creating parent directories. This tool is called after mkdir receives user approval.",
     hidden: true,
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as { path: string; recursive?: boolean },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -1998,20 +2120,21 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
     })
     .strict();
 
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, { path: string }>({
+  type StatArgs = z.infer<typeof parameters>;
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, StatArgs>({
     name: "stat",
     description:
       "Check if a file or directory exists and retrieve its metadata (type, size, modification time, access time). Use this to verify existence before operations or to get file information without reading contents.",
     tags: ["filesystem", "info"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as { path: string; recursive?: boolean; force?: boolean },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -2073,22 +2196,20 @@ export function createRmTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
     })
     .strict();
 
-  return defineTool<
-    FileSystem.FileSystem | FileSystemContextService,
-    { path: string; recursive?: boolean; force?: boolean }
-  >({
+  type RmArgs = z.infer<typeof parameters>;
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, RmArgs>({
     name: "rm",
     description: "Remove a file or directory (requires user approval)",
     tags: ["filesystem", "destructive"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as { path: string; recursive?: boolean; force?: boolean },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     approval: {
       message: (args, context) =>
@@ -2122,23 +2243,21 @@ export function createExecuteRmTool(): Tool<FileSystem.FileSystem | FileSystemCo
     })
     .strict();
 
-  return defineTool<
-    FileSystem.FileSystem | FileSystemContextService,
-    { path: string; recursive?: boolean; force?: boolean }
-  >({
+  type ExecuteRmArgs = z.infer<typeof parameters>;
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, ExecuteRmArgs>({
     name: "execute_rm",
     description:
       "Executes the actual file/directory removal after user approval of rm. Deletes the specified path, optionally recursively for directories. This tool is called after rm receives user approval.",
     hidden: true,
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as { path: string; recursive?: boolean; force?: boolean },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -2189,72 +2308,4 @@ export function createExecuteRmTool(): Tool<FileSystem.FileSystem | FileSystemCo
         }
       }),
   });
-}
-
-// finddir - search for directories by name
-export function createFindDirTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
-  const parameters = z
-    .object({
-      name: z.string().min(1).describe("Directory name to search for (partial matches supported)"),
-      path: z
-        .string()
-        .optional()
-        .describe("Starting path for search (defaults to current working directory)"),
-      maxDepth: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Maximum search depth (default: 3)"),
-    })
-    .strict();
-
-  return defineTool<
-    FileSystem.FileSystem | FileSystemContextService,
-    { name: string; path?: string; maxDepth?: number }
-  >({
-    name: "find_dir",
-    description:
-      "Search specifically for directories by name with partial matching support. Specialized version of find_path that only returns directories. Use when you need to locate a directory and want to filter out files from results.",
-    tags: ["filesystem", "search"],
-    parameters,
-    validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({
-            valid: true,
-            value: result.data as unknown as { name: string; path?: string; maxDepth?: number },
-          } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
-    },
-    handler: (args, context) =>
-      Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const startPath = args.path
-          ? yield* shell.resolvePath(buildKeyFromContext(context), args.path)
-          : yield* shell.getCwd(buildKeyFromContext(context));
-
-        const found = yield* shell.findDirectory(
-          buildKeyFromContext(context),
-          args.name,
-          args.maxDepth || 3,
-        );
-
-        return {
-          success: true,
-          result: {
-            searchTerm: args.name,
-            startPath,
-            found: found.results,
-            count: found.results.length,
-          },
-        };
-      }),
-  });
-}
-
-// Registration helper
-export function registerFileTools(): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  // This function is not used directly; register-tools.ts imports specific tools and registers them.
-  return Effect.void;
 }

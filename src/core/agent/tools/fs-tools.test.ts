@@ -13,7 +13,6 @@ import {
   createTailTool,
 } from "./fs-tools";
 
-// Consolidated and categorized FS tests to make intent clear and prevent regressions
 // Tests create a unique temp base directory and clean up after running
 
 const BASE = `/tmp/jazz-tests-${Date.now()}`;

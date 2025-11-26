@@ -124,20 +124,21 @@ export function createListEmailsTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<GmailService, { maxResults?: number; query?: string }>({
+  type ListEmailsArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, ListEmailsArgs>({
     name: "list_emails",
     description:
       "List emails from the user's Gmail inbox with optional search query filtering. Returns email metadata (subject, sender, date, snippet, labels). Supports Gmail search syntax (e.g., 'in:inbox newer_than:7d'). Use to browse emails or find specific messages.",
     tags: ["gmail", "list"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as { maxResults?: number; query?: string },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -169,17 +170,18 @@ export function createGetEmailTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<GmailService, { emailId: string }>({
+  type GetEmailArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, GetEmailArgs>({
     name: "get_email",
     description:
       "Retrieve the complete content of a specific email by its ID. Returns full email body, headers, recipients, attachments metadata, and labels. Use after list_emails or search_emails to read the full content of a specific message.",
     tags: ["gmail", "read"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data as unknown as { emailId: string } } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -199,20 +201,21 @@ export function createSearchEmailsTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<GmailService, { query: string; maxResults?: number }>({
+  type SearchEmailsArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, SearchEmailsArgs>({
     name: "search_emails",
     description:
       "Search Gmail using Gmail search query syntax. Supports advanced filters like 'from:', 'subject:', 'has:attachment', 'newer_than:', etc. Returns matching emails with metadata. More powerful than list_emails for finding specific emails.",
     tags: ["gmail", "search"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as { query: string; maxResults?: number },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -237,29 +240,21 @@ export function createSendEmailTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<
-    GmailService,
-    { to: string[]; subject: string; body: string; cc?: string[]; bcc?: string[] }
-  >({
+  type SendEmailArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, SendEmailArgs>({
     name: "send_email",
     description:
       "Compose an email and create a draft in Gmail. The email is saved as a draft (not sent immediately) with specified recipients (to, cc, bcc), subject, and body. The user can review and send the draft from their Gmail interface. Use to prepare emails for the user to review and send.",
     tags: ["gmail", "compose"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
-              to: string[];
-              subject: string;
-              body: string;
-              cc?: string[];
-              bcc?: string[];
-            },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -278,17 +273,18 @@ export function createSendEmailTool(): Tool<GmailService> {
 export function createListLabelsTool(): Tool<GmailService> {
   const parameters = z.object({}).strict();
 
-  return defineTool<GmailService, Record<string, never>>({
+  type ListLabelsArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, ListLabelsArgs>({
     name: "list_labels",
     description:
       "List all available Gmail labels including system labels (INBOX, SENT, TRASH, etc.) and user-created labels. Returns label IDs, names, types, message counts, and color settings. Use to discover available labels before applying them to emails.",
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data as unknown as Record<string, never> } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data as unknown as Record<string, never> } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: () =>
       Effect.gen(function* () {
@@ -332,33 +328,21 @@ export function createCreateLabelTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<
-    GmailService,
-    {
-      name: string;
-      labelListVisibility?: "labelShow" | "labelHide";
-      messageListVisibility?: "show" | "hide";
-      color?: { textColor: string; backgroundColor: string };
-    }
-  >({
+  type CreateLabelArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, CreateLabelArgs>({
     name: "create_label",
     description:
       "Create a new custom Gmail label with optional visibility settings and color customization. Labels help organize emails. Supports controlling whether the label appears in the label list and message list. Returns the created label with its ID.",
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
-              name: string;
-              labelListVisibility?: "labelShow" | "labelHide";
-              messageListVisibility?: "show" | "hide";
-              color?: { textColor: string; backgroundColor: string };
-            },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -371,7 +355,11 @@ export function createCreateLabelTool(): Tool<GmailService> {
         } = {};
         if (labelListVisibility) options.labelListVisibility = labelListVisibility;
         if (messageListVisibility) options.messageListVisibility = messageListVisibility;
-        if (color) options.color = color;
+        if (color)
+          options.color = {
+            textColor: color.textColor as string,
+            backgroundColor: color.backgroundColor as string,
+          };
 
         const createResult = yield* gmailService.createLabel(name, options).pipe(
           Effect.catchAll((error) => {
@@ -427,35 +415,21 @@ export function createUpdateLabelTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<
-    GmailService,
-    {
-      labelId: string;
-      name?: string;
-      labelListVisibility?: "labelShow" | "labelHide";
-      messageListVisibility?: "show" | "hide";
-      color?: { textColor: string; backgroundColor: string };
-    }
-  >({
+  type UpdateLabelArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, UpdateLabelArgs>({
     name: "update_label",
     description:
       "Modify an existing Gmail label's properties including name, visibility settings, and colors. Use to rename labels, change their appearance, or adjust visibility. Only works on user-created labels (system labels cannot be modified).",
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
-              labelId: string;
-              name?: string;
-              labelListVisibility?: "labelShow" | "labelHide";
-              messageListVisibility?: "show" | "hide";
-              color?: { textColor: string; backgroundColor: string };
-            },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -471,7 +445,11 @@ export function createUpdateLabelTool(): Tool<GmailService> {
         if (labelListVisibility !== undefined) updates.labelListVisibility = labelListVisibility;
         if (messageListVisibility !== undefined)
           updates.messageListVisibility = messageListVisibility;
-        if (color !== undefined) updates.color = color;
+        if (color !== undefined)
+          updates.color = {
+            textColor: color.textColor as string,
+            backgroundColor: color.backgroundColor as string,
+          };
 
         const label = yield* gmailService.updateLabel(labelId, updates);
         return { success: true, result: formatLabelForDisplay(label) };
@@ -486,22 +464,23 @@ export function createDeleteLabelTool(): Tool<GmailService> {
       labelId: z.string().min(1).describe("ID of the label to delete"),
     })
     .strict();
-  return defineTool<GmailService, { labelId: string }>({
+
+  type DeleteLabelArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, DeleteLabelArgs>({
     name: "delete_label",
     description: "Delete a Gmail label (only user-created labels can be deleted)",
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data as unknown as { labelId: string } } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     approval: {
       message: (args, _context) => {
-        const a = args as { labelId: string };
         return Effect.succeed(
-          `About to permanently delete label '${a.labelId}'. This action cannot be undone.\n\nIf the user confirms, call execute_delete_label with the same labelId.`,
+          `About to permanently delete label '${args.labelId}'. This action cannot be undone.\n\nIf the user confirms, call execute_delete_label with the same labelId.`,
         );
       },
       execute: {
@@ -573,35 +552,35 @@ export function createDeleteEmailTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<GmailService, { emailId: string }>({
+  type DeleteEmailArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, DeleteEmailArgs>({
     name: "delete_email",
     description:
       "Permanently delete an email. This action cannot be undone. Consider using trashEmail for safer removal.",
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data as unknown as { emailId: string } } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     approval: {
       message: (args, _context) =>
         Effect.gen(function* () {
-          const a = args as { emailId: string };
           const gmailService = yield* GmailServiceTag;
 
           try {
-            const email = yield* gmailService.getEmail(a.emailId);
+            const email = yield* gmailService.getEmail(args.emailId);
             const preview = createEmailPreviewMessage(email);
-            return `${preview}\n\n⚠️  About to PERMANENTLY DELETE this email. This cannot be undone!\n\nIf the user confirms, call execute_delete_email with the same emailId.`;
+            return `${preview}\n\n About to PERMANENTLY DELETE this email. This cannot be undone!\n\nIf the user confirms, call execute_delete_email with the same emailId.`;
           } catch (error) {
             // If we can't fetch email details, fall back to basic message
-            return `About to permanently delete email '${a.emailId}'. This cannot be undone!\n(Note: Could not fetch email details: ${error instanceof Error ? error.message : String(error)})`;
+            return `About to permanently delete email '${args.emailId}'. This cannot be undone!\n(Note: Could not fetch email details: ${error instanceof Error ? error.message : String(error)})`;
           }
         }),
       execute: {
         toolName: "execute_delete_email",
-        buildArgs: (args) => ({ emailId: (args as { emailId: string }).emailId }),
+        buildArgs: (args) => ({ emailId: args.emailId }),
       },
     },
     handler: (validatedArgs) =>
@@ -621,17 +600,18 @@ export function createExecuteTrashEmailTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<GmailService, { emailId: string }>({
+  type ExecuteTrashEmailArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, ExecuteTrashEmailArgs>({
     name: "execute_trash_email",
     description:
       "Internal tool that moves an email to trash after user approval. Emails in trash can be recovered. This is the execution tool called automatically after the user approves trash_email.",
     hidden: true,
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data as unknown as { emailId: string } } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -650,20 +630,21 @@ export function createExecuteDeleteEmailTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<GmailService, { emailId: string }>({
+  type ExecuteDeleteEmailArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, ExecuteDeleteEmailArgs>({
     name: "execute_delete_email",
     description:
       "Internal tool that permanently deletes an email after user approval. This action cannot be undone. This is the execution tool called automatically after the user approves delete_email.",
     hidden: true,
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as { emailId: string; labelIds: string[] },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -682,20 +663,21 @@ export function createExecuteDeleteLabelTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<GmailService, { labelId: string }>({
+  type ExecuteDeleteLabelArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, ExecuteDeleteLabelArgs>({
     name: "execute_delete_label",
     description:
       "Internal tool that permanently deletes a Gmail label after user approval. Only user-created labels can be deleted (system labels are protected). This is the execution tool called automatically after the user approves delete_label.",
     hidden: true,
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as { labelId: string },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -715,22 +697,20 @@ export function createAddLabelsToEmailTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<GmailService, { emailId: string; labelIds: string[] }>({
+  type AddLabelsToEmailArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, AddLabelsToEmailArgs>({
     name: "add_labels_to_email",
     description:
       "Apply one or more labels to a specific email. Labels help organize and categorize emails. Use list_labels to find available label IDs. Multiple labels can be added in a single operation.",
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
+      const params = parameters.safeParse(args);
+      return params.success
         ? ({
             valid: true,
-            value: result.data as unknown as {
-              emailId: string;
-              labelIds: string[];
-            },
+            value: params.data,
           } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -752,16 +732,17 @@ export function createRemoveLabelsFromEmailTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<GmailService, { emailId: string; labelIds: string[] }>({
+  type RemoveLabelsFromEmailArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, RemoveLabelsFromEmailArgs>({
     name: "remove_labels_from_email",
     description:
       "Remove one or more labels from a specific email. Use to un-categorize emails or clean up label assignments. Multiple labels can be removed in a single operation.",
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -774,7 +755,6 @@ export function createRemoveLabelsFromEmailTool(): Tool<GmailService> {
   });
 }
 
-// Batch modify emails tool
 export function createBatchModifyEmailsTool(): Tool<GmailService> {
   const parameters = z
     .object({
@@ -790,30 +770,17 @@ export function createBatchModifyEmailsTool(): Tool<GmailService> {
     })
     .strict();
 
-  return defineTool<
-    GmailService,
-    {
-      emailIds: string[];
-      addLabelIds?: string[];
-      removeLabelIds?: string[];
-    }
-  >({
+  type BatchModifyEmailsArgs = z.infer<typeof parameters>;
+  return defineTool<GmailService, BatchModifyEmailsArgs>({
     name: "batch_modify_emails",
     description:
       "Apply label operations to multiple emails simultaneously (up to 1000 emails). Efficiently add or remove labels across many emails in a single operation. Use for bulk email organization tasks.",
     parameters,
     validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({
-            valid: true,
-            value: result.data as unknown as {
-              emailIds: string[];
-              addLabelIds?: string[];
-              removeLabelIds?: string[];
-            },
-          } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (validatedArgs) =>
       Effect.gen(function* () {
@@ -835,7 +802,6 @@ export function createBatchModifyEmailsTool(): Tool<GmailService> {
   });
 }
 
-// Helper function to create email preview for approval messages
 function createEmailPreviewMessage(email: GmailEmail): string {
   const now = new Date();
   const emailDate = new Date(email.date);
@@ -848,7 +814,7 @@ function createEmailPreviewMessage(email: GmailEmail): string {
     ) || [];
 
   const labelsText = labels.length > 0 ? `\nLabels: ${labels.join(", ")}` : "";
-  const importantText = isImportant ? "\n⚠️  IMPORTANT" : "";
+  const importantText = isImportant ? "\n IMPORTANT" : "";
   const daysText =
     daysInInbox === 0 ? "Today" : daysInInbox === 1 ? "1 day ago" : `${daysInInbox} days ago`;
 
@@ -859,7 +825,6 @@ Date: ${daysText} (${emailDate.toLocaleDateString()})${importantText}${labelsTex
 Snippet: ${email.snippet.substring(0, 100)}${email.snippet.length > 100 ? "..." : ""}`;
 }
 
-// Helper functions for formatting email data
 function formatEmailsForDisplay(emails: GmailEmail[]): unknown {
   return emails.map((email) => ({
     id: email.id,

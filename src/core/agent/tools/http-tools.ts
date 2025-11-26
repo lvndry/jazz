@@ -29,18 +29,6 @@ interface HttpFormBody extends Record<string, unknown> {
 
 type HttpBody = HttpJsonBody | HttpTextBody | HttpFormBody;
 
-type HttpRequestArgs = Record<string, unknown> & {
-  readonly method: HttpMethod;
-  readonly url: string;
-  readonly headers?: Record<string, string> | undefined;
-  readonly query?: Record<string, QueryValue> | undefined;
-  readonly body?: HttpBody | undefined;
-  readonly timeoutMs?: number | undefined;
-  readonly followRedirects?: boolean | undefined;
-  readonly maxResponseBytes?: number | undefined;
-  readonly responseType?: ResponseType | undefined;
-};
-
 interface HttpResponseBodyJson {
   readonly type: "json";
   readonly data: unknown;
@@ -150,6 +138,8 @@ const HttpRequestSchema = z
   })
   .strict();
 
+type HttpRequestArgs = z.infer<typeof HttpRequestSchema>;
+
 const SENSITIVE_HEADER_PATTERNS = [
   /authorization/i,
   /cookie/i,
@@ -159,7 +149,7 @@ const SENSITIVE_HEADER_PATTERNS = [
   /credential/i,
 ] as const;
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 15_000; // 15 seconds
 const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576; // 1MB
 
 interface HeaderEntry {
@@ -345,18 +335,18 @@ export function createHttpRequestTool(): Tool<never> {
   return defineTool<never, HttpRequestArgs>({
     name: "http_request",
     description:
-      "Send HTTP/HTTPS requests to any URL. Supports all HTTP methods (GET, POST, PUT, PATCH, DELETE, etc.), custom headers, query parameters, and request bodies (JSON, text, or form data). Returns response status, headers, body, and timing information. Use to interact with REST APIs, fetch web content, or make API calls. Includes security features like header sanitization and response size limits.",
+      "Send HTTP/HTTPS requests to any URL. Supports all HTTP methods, custom headers, query parameters, and request bodies (JSON, text, or form data). Returns response status, headers, body, and timing information. Use to interact with REST APIs, fetch web content, or make API calls.",
     tags: ["http", "network", "api"],
     parameters: HttpRequestSchema,
     validate: (args) => {
-      const result = HttpRequestSchema.safeParse(args);
-      if (!result.success) {
+      const params = HttpRequestSchema.safeParse(args);
+      if (!params.success) {
         return {
           valid: false,
-          errors: result.error.issues.map((issue) => issue.message),
+          errors: params.error.issues.map((issue) => issue.message),
         };
       }
-      const parsed = result.data;
+      const parsed = params.data;
       if (parsed.body?.type === "form" && Object.keys(parsed.body.value).length === 0) {
         return {
           valid: false,
@@ -365,7 +355,7 @@ export function createHttpRequestTool(): Tool<never> {
       }
       return {
         valid: true,
-        value: parsed as HttpRequestArgs,
+        value: parsed,
       };
     },
     handler: (args: HttpRequestArgs, _context: ToolExecutionContext) =>
@@ -381,7 +371,7 @@ export function createHttpRequestTool(): Tool<never> {
             success: false,
             result: null,
             error: `Invalid URL: ${args.url}`,
-          } as ToolExecutionResult;
+          } satisfies ToolExecutionResult;
         }
 
         if (urlInstance.protocol !== "http:" && urlInstance.protocol !== "https:") {
@@ -389,7 +379,7 @@ export function createHttpRequestTool(): Tool<never> {
             success: false,
             result: null,
             error: "Only http and https protocols are supported.",
-          } as ToolExecutionResult;
+          } satisfies ToolExecutionResult;
         }
 
         const formattedQuery = formatQuery(args.query);
@@ -405,7 +395,7 @@ export function createHttpRequestTool(): Tool<never> {
             success: false,
             result: null,
             error: headerMap.error,
-          } as ToolExecutionResult;
+          } satisfies ToolExecutionResult;
         }
 
         const preparedBody = prepareRequestBody(method, args.body, headerMap);
@@ -414,7 +404,7 @@ export function createHttpRequestTool(): Tool<never> {
             success: false,
             result: null,
             error: preparedBody.error,
-          } as ToolExecutionResult;
+          } satisfies ToolExecutionResult;
         }
 
         const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -450,7 +440,7 @@ export function createHttpRequestTool(): Tool<never> {
                 error.name === "AbortError"
                   ? `Request timed out after ${timeoutMs}ms.`
                   : error.message,
-            } as ToolExecutionResult),
+            } satisfies ToolExecutionResult),
           ),
         );
 
@@ -474,7 +464,7 @@ export function createHttpRequestTool(): Tool<never> {
               success: false,
               result: null,
               error: error.message,
-            } as ToolExecutionResult),
+            } satisfies ToolExecutionResult),
           ),
         );
 
@@ -573,7 +563,7 @@ export function createHttpRequestTool(): Tool<never> {
         return {
           success: true,
           result,
-        } as ToolExecutionResult;
+        } satisfies ToolExecutionResult;
       }),
     createSummary: (result: ToolExecutionResult) => {
       if (!result.success || !result.result) {

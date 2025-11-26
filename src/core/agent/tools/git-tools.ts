@@ -4,73 +4,14 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "../../interfaces/fs";
 import type { Tool } from "../../interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
+import { createSanitizedEnv } from "../../utils/env-utils";
 import { defineTool } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
-import { createSanitizedEnv } from "./env-utils";
 
 /**
  * Git command execution tools
  * Provides safe, structured access to common Git operations
  */
-
-// Safe Git operations (read-only, no approval needed)
-export interface GitStatusArgs extends Record<string, unknown> {
-  path?: string;
-}
-
-export interface GitLogArgs extends Record<string, unknown> {
-  path?: string;
-  limit?: number;
-  oneline?: boolean;
-}
-
-export interface GitDiffArgs extends Record<string, unknown> {
-  path?: string;
-  staged?: boolean;
-  branch?: string;
-  commit?: string;
-}
-
-// Potentially destructive operations (approval required)
-export interface GitAddArgs extends Record<string, unknown> {
-  path?: string;
-  files: string[];
-  all?: boolean;
-}
-
-export interface GitCommitArgs extends Record<string, unknown> {
-  path?: string;
-  message: string;
-  all?: boolean;
-}
-
-export interface GitPushArgs extends Record<string, unknown> {
-  path?: string;
-  remote?: string;
-  branch?: string;
-  force?: boolean;
-}
-
-export interface GitPullArgs extends Record<string, unknown> {
-  path?: string;
-  remote?: string;
-  branch?: string;
-  rebase?: boolean;
-}
-
-export interface GitBranchArgs extends Record<string, unknown> {
-  path?: string;
-  list?: boolean;
-  all?: boolean;
-  remote?: boolean;
-}
-
-export interface GitCheckoutArgs extends Record<string, unknown> {
-  path?: string;
-  branch: string;
-  create?: boolean;
-  force?: boolean;
-}
 
 const DEFAULT_GIT_TIMEOUT = 15000;
 
@@ -159,6 +100,8 @@ export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemCo
     })
     .strict();
 
+  type GitStatusArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitStatusArgs>({
     name: "git_status",
     description:
@@ -168,7 +111,7 @@ export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemCo
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitStatusArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (
@@ -293,6 +236,8 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
     })
     .strict();
 
+  type GitLogArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitLogArgs>({
     name: "git_log",
     description:
@@ -302,7 +247,7 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitLogArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: GitLogArgs, context: ToolExecutionContext) =>
@@ -430,6 +375,8 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
     })
     .strict();
 
+  type GitDiffArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
     name: "git_diff",
     description:
@@ -439,7 +386,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
     validate: (args) => {
       const result = parameters.safeParse(args);
       return result.success
-        ? ({ valid: true, value: result.data as GitDiffArgs } as const)
+        ? ({ valid: true, value: result.data } as const)
         : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: GitDiffArgs, context: ToolExecutionContext) =>
@@ -563,6 +510,8 @@ export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemCo
     })
     .strict();
 
+  type GitBranchArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitBranchArgs>({
     name: "git_branch",
     description:
@@ -572,7 +521,7 @@ export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemCo
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitBranchArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: GitBranchArgs, context: ToolExecutionContext) =>
@@ -680,6 +629,8 @@ export function createGitAddTool(): Tool<FileSystem.FileSystem | FileSystemConte
     })
     .strict();
 
+  type GitAddArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitAddArgs>({
     name: "git_add",
     description:
@@ -689,7 +640,7 @@ export function createGitAddTool(): Tool<FileSystem.FileSystem | FileSystemConte
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitAddArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     approval: {
@@ -752,6 +703,8 @@ export function createExecuteGitAddTool(): Tool<FileSystem.FileSystem | FileSyst
     })
     .strict();
 
+  type GitAddArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitAddArgs>({
     name: "execute_git_add",
     description:
@@ -761,7 +714,7 @@ export function createExecuteGitAddTool(): Tool<FileSystem.FileSystem | FileSyst
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitAddArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: GitAddArgs, context: ToolExecutionContext) =>
@@ -851,6 +804,8 @@ export function createGitCommitTool(): Tool<FileSystem.FileSystem | FileSystemCo
     })
     .strict();
 
+  type GitCommitArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCommitArgs>({
     name: "git_commit",
     description:
@@ -860,7 +815,7 @@ export function createGitCommitTool(): Tool<FileSystem.FileSystem | FileSystemCo
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitCommitArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     approval: {
@@ -924,6 +879,8 @@ export function createExecuteGitCommitTool(): Tool<
     })
     .strict();
 
+  type GitCommitArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCommitArgs>({
     name: "execute_git_commit",
     description:
@@ -933,7 +890,7 @@ export function createExecuteGitCommitTool(): Tool<
     validate: (args) => {
       const result = parameters.safeParse(args);
       return result.success
-        ? ({ valid: true, value: result.data as GitCommitArgs } as const)
+        ? ({ valid: true, value: result.data } as const)
         : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: GitCommitArgs, context: ToolExecutionContext) =>
@@ -1031,6 +988,8 @@ export function createGitPushTool(): Tool<FileSystem.FileSystem | FileSystemCont
     })
     .strict();
 
+  type GitPushArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPushArgs>({
     name: "git_push",
     description:
@@ -1040,7 +999,7 @@ export function createGitPushTool(): Tool<FileSystem.FileSystem | FileSystemCont
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitPushArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     approval: {
@@ -1107,6 +1066,8 @@ export function createGitPullTool(): Tool<FileSystem.FileSystem | FileSystemCont
     })
     .strict();
 
+  type GitPullArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPullArgs>({
     name: "git_pull",
     description:
@@ -1116,7 +1077,7 @@ export function createGitPullTool(): Tool<FileSystem.FileSystem | FileSystemCont
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitPullArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     approval: {
@@ -1183,6 +1144,8 @@ export function createGitCheckoutTool(): Tool<FileSystem.FileSystem | FileSystem
     })
     .strict();
 
+  type GitCheckoutArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
     name: "git_checkout",
     description:
@@ -1192,7 +1155,7 @@ export function createGitCheckoutTool(): Tool<FileSystem.FileSystem | FileSystem
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitCheckoutArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     approval: {
@@ -1258,6 +1221,8 @@ export function createExecuteGitPushTool(): Tool<FileSystem.FileSystem | FileSys
     })
     .strict();
 
+  type GitPushArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPushArgs>({
     name: "execute_git_push",
     description:
@@ -1267,7 +1232,7 @@ export function createExecuteGitPushTool(): Tool<FileSystem.FileSystem | FileSys
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitPushArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: GitPushArgs, context: ToolExecutionContext) =>
@@ -1366,6 +1331,8 @@ export function createExecuteGitPullTool(): Tool<FileSystem.FileSystem | FileSys
     })
     .strict();
 
+  type GitPullArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPullArgs>({
     name: "execute_git_pull",
     description:
@@ -1375,7 +1342,7 @@ export function createExecuteGitPullTool(): Tool<FileSystem.FileSystem | FileSys
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data as GitPullArgs } as const)
+        ? ({ valid: true, value: params.data } as const)
         : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: GitPullArgs, context: ToolExecutionContext) =>
@@ -1476,6 +1443,8 @@ export function createExecuteGitCheckoutTool(): Tool<
     })
     .strict();
 
+  type GitCheckoutArgs = z.infer<typeof parameters>;
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
     name: "execute_git_checkout",
     description:
@@ -1485,7 +1454,7 @@ export function createExecuteGitCheckoutTool(): Tool<
     validate: (args) => {
       const result = parameters.safeParse(args);
       return result.success
-        ? ({ valid: true, value: result.data as GitCheckoutArgs } as const)
+        ? ({ valid: true, value: result.data } as const)
         : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
     },
     handler: (args: GitCheckoutArgs, context: ToolExecutionContext) =>

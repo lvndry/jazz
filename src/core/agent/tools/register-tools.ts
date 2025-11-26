@@ -68,10 +68,7 @@ import { createWebSearchTool } from "./web-search-tools";
 // Register all tools
 export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
-    // Register Gmail tools
     yield* registerGmailTools();
-
-    // Register other tool categories as needed
     yield* registerFileTools();
     yield* registerShellTools();
     yield* registerGitTools();

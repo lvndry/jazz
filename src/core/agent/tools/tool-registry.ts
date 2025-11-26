@@ -39,9 +39,8 @@ class DefaultToolRegistry implements ToolRegistry {
     return Effect.sync(() => {
       this.tools.set(tool.name, tool);
       if (category) {
-        // Store category by ID
         this.toolCategories.set(tool.name, category.id);
-        // Store category definition if not already present
+
         if (!this.categories.has(category.id)) {
           this.categories.set(category.id, category);
         }

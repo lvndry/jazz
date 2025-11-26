@@ -43,6 +43,5 @@ export interface ToolCategory {
 export interface ToolExecutionContext {
   readonly agentId: string;
   readonly conversationId?: string;
-  readonly userId?: string;
   readonly [key: string]: unknown;
 }

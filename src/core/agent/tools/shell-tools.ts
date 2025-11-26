@@ -1,19 +1,73 @@
+import { FileSystem } from "@effect/platform";
+import { spawn } from "child_process";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "../../interfaces/fs";
 import type { Tool } from "../../interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
-import { defineTool, withApprovalBoolean } from "./base-tool";
-import { createSanitizedEnv } from "./env-utils";
+import { createSanitizedEnv } from "../../utils/env-utils";
+import { defineTool } from "./base-tool";
+import { buildKeyFromContext } from "./context-utils";
+
+// Enhanced security checks for potentially dangerous commands
+const FORBIDDEN_COMMANDS = [
+  // File system destruction
+  /rm\s+-rf\s+/, // rm -rf (any path)
+  /rm\s+.*\s+\//, // rm with root path
+  /rm\s+.*\s+~/, // rm with home directory
+  /rm\s+.*\s+\*/, // rm with wildcards
+
+  // System commands
+  /sudo\s+/, // sudo commands
+  /su\s+/, // su commands
+  /mkfs\./, // format filesystem
+  /dd\s+if=.*of=\/dev\//, // dd to device
+  /shutdown/, // shutdown commands
+  /reboot/, // reboot commands
+  /halt/, // halt commands
+  /poweroff/, // poweroff commands
+  /init\s+[0-6]/, // init runlevel changes
+
+  // Network and code execution
+  /curl\s+.*\s*\|/, // curl with pipe
+  /wget\s+.*\s*\|/, // wget with pipe
+  /python\s+-c/, // python code execution
+  /node\s+-e/, // node code execution
+  /bash\s+-c/, // bash code execution
+  /sh\s+-c/, // shell code execution
+
+  // Process manipulation
+  /kill\s+-9/, // force kill processes
+  /pkill\s+/, // kill processes by name
+  /killall\s+/, // kill all processes
+
+  // Fork bombs and resource exhaustion
+  /:\(\)\s*{/, // fork bomb pattern
+  /while\s+true/, // infinite loops
+  /for\s+.*\s+in\s+.*\s+do\s+.*\s+done/, // shell loops
+
+  // File system manipulation
+  /chmod\s+777/, // overly permissive permissions
+  /chown\s+root/, // changing ownership to root
+  /mount\s+/, // mounting filesystems
+  /umount\s+/, // unmounting filesystems
+
+  // Network manipulation
+  /iptables/, // firewall manipulation
+  /ufw\s+/, // ubuntu firewall
+  /netstat\s+-tulpn/, // network information gathering
+  /ss\s+-tulpn/, // socket statistics
+
+  // System information gathering
+  /cat\s+\/etc\/passwd/, // reading password file
+  /cat\s+\/etc\/shadow/, // reading shadow file
+  /cat\s+\/etc\/hosts/, // reading hosts file
+  /ps\s+aux/, // process listing
+  /top\s*$/, // system monitor
+  /htop\s*$/, // system monitor
+];
 
 interface ExecuteCommandArgs extends Record<string, unknown> {
-  readonly command: string;
-  readonly confirm: boolean;
-  readonly workingDirectory?: string;
-  readonly timeout?: number;
-}
-
-interface ExecuteCommandApprovedArgs extends Record<string, unknown> {
   readonly command: string;
   readonly workingDirectory?: string;
   readonly timeout?: number;
@@ -36,35 +90,32 @@ export function createExecuteCommandTool(): Tool<FileSystemContextService> {
     description:
       "Request to execute a shell command on the system (requires user approval). After user approval, the actual execution is performed by the execute_command_approved tool. Runs commands in a specified working directory with configurable timeout. Includes security checks to block dangerous operations (file deletion, system commands, etc.). All command executions are logged for security auditing.",
     tags: ["shell", "execution"],
-    parameters: withApprovalBoolean(
-      z
-        .object({
-          command: z
-            .string()
-            .min(1, "command cannot be empty")
-            .describe("The shell command to execute (e.g., 'npm install', 'ls -la', 'git status')"),
-          workingDirectory: z
-            .string()
-            .optional()
-            .describe(
-              "Optional working directory to execute the command in. If not provided, uses the current working directory.",
-            ),
-          timeout: z
-            .number()
-            .int()
-            .positive()
-            .optional()
-            .describe(
-              "Optional timeout in milliseconds (default: 30000). Commands that take longer will be terminated.",
-            ),
-        })
-        .strict(),
-    ),
+    parameters: z
+      .object({
+        command: z
+          .string()
+          .min(1, "command cannot be empty")
+          .describe("The shell command to execute (e.g., 'npm install', 'ls -la', 'git status')"),
+        workingDirectory: z
+          .string()
+          .optional()
+          .describe(
+            "Optional working directory to execute the command in. If not provided, uses the current working directory.",
+          ),
+        timeout: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "Optional timeout in milliseconds (default: 30000). Commands that take longer will be terminated.",
+          ),
+      })
+      .strict(),
     validate: (args) => {
       const schema = z
         .object({
           command: z.string().min(1),
-          confirm: z.boolean(),
           workingDirectory: z.string().optional(),
           timeout: z.number().int().positive().optional(),
         })
@@ -118,7 +169,7 @@ IMPORTANT: After getting user confirmation, you MUST call the execute_command_ap
         success: false,
         result: null,
         error:
-          "Command execution requires approval. Please call this tool with confirm: true after user approval.",
+          "Command execution requires approval. After user approval, call execute_command_approved tool.",
       } as ToolExecutionResult),
     createSummary: (result: ToolExecutionResult) => {
       if (!result.success) {
@@ -129,11 +180,19 @@ IMPORTANT: After getting user confirmation, you MUST call the execute_command_ap
   });
 }
 
+interface ExecuteCommandApprovedArgs extends Record<string, unknown> {
+  readonly command: string;
+  readonly workingDirectory?: string;
+  readonly timeout?: number;
+}
+
 /**
  * Create a tool for executing approved shell commands
  */
-export function createExecuteCommandApprovedTool(): Tool<FileSystemContextService> {
-  return defineTool<FileSystemContextService, ExecuteCommandApprovedArgs>({
+export function createExecuteCommandApprovedTool(): Tool<
+  FileSystem.FileSystem | FileSystemContextService
+> {
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, ExecuteCommandApprovedArgs>({
     name: "execute_command_approved",
     description:
       "Internal tool that executes a shell command after user approval. Performs additional security validation, runs the command with sanitized environment variables, and logs execution details. This is automatically called after the user approves execute_command.",
@@ -171,12 +230,11 @@ export function createExecuteCommandApprovedTool(): Tool<FileSystemContextServic
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
 
-        // Get the working directory
-        const cwd = yield* shell.getCwd({
-          agentId: context.agentId,
-          ...(context.conversationId && { conversationId: context.conversationId }),
-        });
-        const workingDir = args.workingDirectory || cwd;
+        // Resolve and validate working directory (prevents path traversal attacks)
+        const key = buildKeyFromContext(context);
+        const workingDir = args.workingDirectory
+          ? yield* shell.resolvePath(key, args.workingDirectory)
+          : yield* shell.getCwd(key);
         const timeout = args.timeout || 30000;
 
         // Basic safety checks
@@ -189,65 +247,7 @@ export function createExecuteCommandApprovedTool(): Tool<FileSystemContextServic
           } as ToolExecutionResult;
         }
 
-        // Enhanced security checks for potentially dangerous commands
-        const dangerousPatterns = [
-          // File system destruction
-          /rm\s+-rf\s+/, // rm -rf (any path)
-          /rm\s+.*\s+\//, // rm with root path
-          /rm\s+.*\s+~/, // rm with home directory
-          /rm\s+.*\s+\*/, // rm with wildcards
-
-          // System commands
-          /sudo\s+/, // sudo commands
-          /su\s+/, // su commands
-          /mkfs\./, // format filesystem
-          /dd\s+if=.*of=\/dev\//, // dd to device
-          /shutdown/, // shutdown commands
-          /reboot/, // reboot commands
-          /halt/, // halt commands
-          /poweroff/, // poweroff commands
-          /init\s+[0-6]/, // init runlevel changes
-
-          // Network and code execution
-          /curl\s+.*\s*\|/, // curl with pipe
-          /wget\s+.*\s*\|/, // wget with pipe
-          /python\s+-c/, // python code execution
-          /node\s+-e/, // node code execution
-          /bash\s+-c/, // bash code execution
-          /sh\s+-c/, // shell code execution
-
-          // Process manipulation
-          /kill\s+-9/, // force kill processes
-          /pkill\s+/, // kill processes by name
-          /killall\s+/, // kill all processes
-
-          // Fork bombs and resource exhaustion
-          /:\(\)\s*{/, // fork bomb pattern
-          /while\s+true/, // infinite loops
-          /for\s+.*\s+in\s+.*\s+do\s+.*\s+done/, // shell loops
-
-          // File system manipulation
-          /chmod\s+777/, // overly permissive permissions
-          /chown\s+root/, // changing ownership to root
-          /mount\s+/, // mounting filesystems
-          /umount\s+/, // unmounting filesystems
-
-          // Network manipulation
-          /iptables/, // firewall manipulation
-          /ufw\s+/, // ubuntu firewall
-          /netstat\s+-tulpn/, // network information gathering
-          /ss\s+-tulpn/, // socket statistics
-
-          // System information gathering
-          /cat\s+\/etc\/passwd/, // reading password file
-          /cat\s+\/etc\/shadow/, // reading shadow file
-          /cat\s+\/etc\/hosts/, // reading hosts file
-          /ps\s+aux/, // process listing
-          /top\s*$/, // system monitor
-          /htop\s*$/, // system monitor
-        ];
-
-        const isDangerous = dangerousPatterns.some((pattern) => pattern.test(command));
+        const isDangerous = FORBIDDEN_COMMANDS.some((pattern) => pattern.test(command));
         if (isDangerous) {
           return {
             success: false,
@@ -258,9 +258,6 @@ export function createExecuteCommandApprovedTool(): Tool<FileSystemContextServic
         }
 
         try {
-          // Execute the command using Node.js child_process
-          const { spawn } = yield* Effect.promise(() => import("child_process"));
-
           // Sanitize environment variables for security
           const sanitizedEnv = createSanitizedEnv();
 
@@ -271,6 +268,10 @@ export function createExecuteCommandApprovedTool(): Tool<FileSystemContextServic
           }>(
             () =>
               new Promise((resolve, reject) => {
+                let resolved = false;
+                let stdout = "";
+                let stderr = "";
+
                 const child = spawn("sh", ["-c", command], {
                   cwd: workingDir,
                   stdio: ["ignore", "pipe", "pipe"],
@@ -281,9 +282,6 @@ export function createExecuteCommandApprovedTool(): Tool<FileSystemContextServic
                   uid: process.getuid ? process.getuid() : undefined,
                   gid: process.getgid ? process.getgid() : undefined,
                 });
-
-                let stdout = "";
-                let stderr = "";
 
                 if (child.stdout) {
                   child.stdout.on("data", (data: Buffer) => {
@@ -297,26 +295,42 @@ export function createExecuteCommandApprovedTool(): Tool<FileSystemContextServic
                   });
                 }
 
-                child.on("close", (code) => {
-                  resolve({
-                    stdout: stdout.trim(),
-                    stderr: stderr.trim(),
-                    exitCode: code || 0,
-                  });
-                });
-
-                child.on("error", (error) => {
-                  reject(error);
-                });
-
                 // Handle timeout
-                const timeoutId = setTimeout(() => {
-                  child.kill("SIGTERM");
-                  reject(new Error(`Command timed out after ${timeout}ms`));
+                let timeoutId: NodeJS.Timeout | null = null;
+
+                const cleanup = (): void => {
+                  if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                  }
+                };
+
+                timeoutId = setTimeout(() => {
+                  if (!resolved) {
+                    child.kill("SIGKILL");
+                    resolved = true;
+                    reject(new Error(`Command timed out after ${timeout}ms`));
+                  }
                 }, timeout);
 
-                child.on("close", () => {
-                  clearTimeout(timeoutId);
+                child.on("error", (error) => {
+                  cleanup();
+                  if (!resolved) {
+                    resolved = true;
+                    reject(error);
+                  }
+                });
+
+                child.on("close", (code) => {
+                  cleanup();
+                  if (!resolved) {
+                    resolved = true;
+                    resolve({
+                      stdout: stdout.trim(),
+                      stderr: stderr.trim(),
+                      exitCode: code || 0,
+                    });
+                  }
                 });
               }),
           ).pipe(
@@ -345,8 +359,6 @@ export function createExecuteCommandApprovedTool(): Tool<FileSystemContextServic
             workingDirectory: workingDir,
             exitCode: result.exitCode,
             timestamp: new Date().toISOString(),
-            agentId: context.agentId,
-            conversationId: context.conversationId,
           });
 
           return {

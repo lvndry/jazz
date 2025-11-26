@@ -63,7 +63,7 @@ describe("Shell Tools", () => {
     // Verify schema has required fields
     const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
     expect(schema._def.shape).toHaveProperty("command");
-    expect(schema._def.shape).toHaveProperty("confirm");
+    expect(schema._def.shape).not.toHaveProperty("confirm");
   });
 
   it("should create execute_command_approved tool with proper structure", () => {
@@ -99,7 +99,6 @@ describe("Shell Tools", () => {
         tool.execute(
           {
             command: "echo 'hello world'",
-            confirm: false,
           },
           context,
         ),
@@ -122,36 +121,11 @@ describe("Shell Tools", () => {
 
     // Test missing required field
     const result1 = await Effect.runPromise(
-      Effect.provide(
-        tool.execute(
-          {
-            confirm: false,
-          },
-          context,
-        ),
-        createTestLayer(),
-      ),
+      Effect.provide(tool.execute({}, context), createTestLayer()),
     );
 
     expect(result1.success).toBe(false);
     expect(result1.error).toContain("expected string, received undefined");
-
-    // Test invalid confirm type
-    const result2 = await Effect.runPromise(
-      Effect.provide(
-        tool.execute(
-          {
-            command: "echo test",
-            confirm: "not-a-boolean",
-          },
-          context,
-        ),
-        createTestLayer(),
-      ),
-    );
-
-    expect(result2.success).toBe(false);
-    expect(result2.error).toContain("expected boolean");
   });
 
   it("should block dangerous commands", async () => {
