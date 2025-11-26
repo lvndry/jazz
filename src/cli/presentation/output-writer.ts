@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 
 /**
- * Output writer interface - abstracts where output goes
- * This enables testing, JSON output, file logging, and other output targets
+ * Output writer interface - abstracts where LLM output goes
+ * This enables testing, JSON output, file logging, and other LLM output targets
  */
 export interface OutputWriter {
   /**

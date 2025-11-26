@@ -1,11 +1,12 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
+
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
 import { GmailServiceTag, type GmailService } from "../../core/interfaces/gmail";
 import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import { GmailAuthenticationError } from "../../core/types/errors";
-import { resolveStorageDirectory } from "../../services/storage/utils";
+import { resolveStorageDirectory } from "../../core/utils/storage-utils";
 
 /**
  * CLI commands for authentication management
