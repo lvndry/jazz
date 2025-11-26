@@ -11,28 +11,26 @@ import { isInstalledGlobally } from "../core/utils/runtime-detection";
  */
 
 export class LoggerServiceImpl implements LoggerService {
-  private readonly conversationIdRef: Ref.Ref<Option.Option<string>>;
+  private readonly sessionIdRef: Ref.Ref<Option.Option<string>>;
 
-  constructor(conversationId?: string) {
-    this.conversationIdRef = Ref.unsafeMake(
-      conversationId ? Option.some(conversationId) : Option.none(),
-    );
+  constructor(sessionId?: string) {
+    this.sessionIdRef = Ref.unsafeMake(sessionId ? Option.some(sessionId) : Option.none());
   }
 
   /**
-   * Set the conversation ID for this logger instance
-   * All subsequent logs will be written to the conversation-specific file
+   * Set the session ID for this logger instance
+   * All subsequent logs will be written to the session-specific file
    */
-  setConversationId(conversationId: string): Effect.Effect<void, never> {
-    return Ref.set(this.conversationIdRef, Option.some(conversationId));
+  setSessionId(sessionId: string): Effect.Effect<void, never> {
+    return Ref.set(this.sessionIdRef, Option.some(sessionId));
   }
 
   /**
-   * Clear the conversation ID
+   * Clear the session ID
    * Subsequent logs will be written to the general log file
    */
-  clearConversationId(): Effect.Effect<void, never> {
-    return Ref.set(this.conversationIdRef, Option.none());
+  clearSessionId(): Effect.Effect<void, never> {
+    return Ref.set(this.sessionIdRef, Option.none());
   }
 
   writeToFile(
@@ -40,13 +38,13 @@ export class LoggerServiceImpl implements LoggerService {
     message: string,
     meta?: Record<string, unknown>,
   ): Effect.Effect<void, Error> {
-    const conversationIdRef = this.conversationIdRef;
+    const sessionIdRef = this.sessionIdRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(conversationIdRef);
+      const sessionId = yield* Ref.get(sessionIdRef);
       return yield* Effect.tryPromise({
         try: () => {
-          if (Option.isSome(conversationId)) {
-            return writeFormattedLogToConversationFile(level, conversationId.value, message, meta);
+          if (Option.isSome(sessionId)) {
+            return writeFormattedLogToSessionFile(level, sessionId.value, message, meta);
           }
           return writeFormattedLogToFile(level, message, meta);
         },
@@ -59,12 +57,12 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    const conversationIdRef = this.conversationIdRef;
+    const sessionIdRef = this.sessionIdRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(conversationIdRef);
+      const sessionId = yield* Ref.get(sessionIdRef);
       return yield* Effect.sync(() => {
-        if (Option.isSome(conversationId)) {
-          void writeFormattedLogToConversationFile("debug", conversationId.value, message, meta);
+        if (Option.isSome(sessionId)) {
+          void writeFormattedLogToSessionFile("debug", sessionId.value, message, meta);
         } else {
           void writeFormattedLogToFile("debug", message, meta);
         }
@@ -73,12 +71,12 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    const conversationIdRef = this.conversationIdRef;
+    const sessionIdRef = this.sessionIdRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(conversationIdRef);
+      const sessionId = yield* Ref.get(sessionIdRef);
       return yield* Effect.sync(() => {
-        if (Option.isSome(conversationId)) {
-          void writeFormattedLogToConversationFile("info", conversationId.value, message, meta);
+        if (Option.isSome(sessionId)) {
+          void writeFormattedLogToSessionFile("info", sessionId.value, message, meta);
         } else {
           void writeFormattedLogToFile("info", message, meta);
         }
@@ -87,12 +85,12 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    const conversationIdRef = this.conversationIdRef;
+    const sessionIdRef = this.sessionIdRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(conversationIdRef);
+      const sessionId = yield* Ref.get(sessionIdRef);
       return yield* Effect.sync(() => {
-        if (Option.isSome(conversationId)) {
-          void writeFormattedLogToConversationFile("warn", conversationId.value, message, meta);
+        if (Option.isSome(sessionId)) {
+          void writeFormattedLogToSessionFile("warn", sessionId.value, message, meta);
         } else {
           void writeFormattedLogToFile("warn", message, meta);
         }
@@ -101,12 +99,12 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   error(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    const conversationIdRef = this.conversationIdRef;
+    const sessionIdRef = this.sessionIdRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(conversationIdRef);
+      const sessionId = yield* Ref.get(sessionIdRef);
       return yield* Effect.sync(() => {
-        if (Option.isSome(conversationId)) {
-          void writeFormattedLogToConversationFile("error", conversationId.value, message, meta);
+        if (Option.isSome(sessionId)) {
+          void writeFormattedLogToSessionFile("error", sessionId.value, message, meta);
         } else {
           void writeFormattedLogToFile("error", message, meta);
         }
@@ -118,8 +116,8 @@ export class LoggerServiceImpl implements LoggerService {
 /**
  * Create the logger layer
  *
- * Creates a single logger instance that can dynamically scope logs to conversations
- * using setConversationId() and clearConversationId() methods.
+ * Creates a single logger instance that can dynamically scope logs to sessions
+ * using setSessionId() and clearSessionId() methods.
  */
 export function createLoggerLayer(): Layer.Layer<LoggerService, never, never> {
   return Layer.succeed(LoggerServiceTag, new LoggerServiceImpl());
@@ -155,7 +153,7 @@ function formatLogLineForFile(
 
 /**
  * Shared helper to write a formatted log line to file
- * Writes to the general jazz.log file (used when no conversationId is set)
+ * Writes to the general jazz.log file (used when no sessionId is set)
  */
 async function writeFormattedLogToFile(
   level: "debug" | "info" | "warn" | "error",
@@ -170,20 +168,20 @@ async function writeFormattedLogToFile(
 }
 
 /**
- * Write a formatted log line to a conversation-specific file
- * Creates a separate log file per conversation ID: conversation-{conversationId}.log
+ * Write a formatted log line to a session-specific file
+ * Creates a separate log file per session ID: {sessionId}.log
  */
-async function writeFormattedLogToConversationFile(
+async function writeFormattedLogToSessionFile(
   level: "debug" | "info" | "warn" | "error",
-  conversationId: string,
+  sessionId: string,
   message: string,
   meta?: Record<string, unknown>,
 ): Promise<void> {
   const logsDir = getLogsDirectory();
   await mkdir(logsDir, { recursive: true });
-  // Sanitize conversationId for use in filename (remove invalid characters)
-  const sanitizedId = conversationId.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const logFilePath = path.join(logsDir, `conversation_${sanitizedId}.log`);
+  // Sanitize sessionId for use in filename (remove invalid characters)
+  const sanitizedId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const logFilePath = path.join(logsDir, `${sanitizedId}.log`);
   const line = formatLogLineForFile(level, message, meta);
   await appendFile(logFilePath, line, { encoding: "utf8" });
 }

@@ -12,6 +12,7 @@ import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
 import { createAgentServiceLayer } from "./services/agent-service";
+import { createChatServiceLayer } from "./services/chat-service";
 import { createConfigLayer } from "./services/config";
 import { createFileSystemContextServiceLayer } from "./services/fs";
 import { createGmailServiceLayer } from "./services/gmail";
@@ -95,6 +96,15 @@ export function createAppLayer(config: AppLayerConfig = {}) {
 
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
 
+  const chatLayer = createChatServiceLayer().pipe(
+    Layer.provide(terminalLayer),
+    Layer.provide(loggerLayer),
+    Layer.provide(shellLayer),
+    Layer.provide(configLayer),
+    Layer.provide(toolRegistryLayer),
+    Layer.provide(agentLayer),
+  );
+
   const presentationLayer = CLIPresentationServiceLayer;
 
   // Create a complete layer by providing all dependencies
@@ -110,6 +120,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     shellLayer,
     toolRegistrationLayer,
     agentLayer,
+    chatLayer,
     presentationLayer,
   );
 }

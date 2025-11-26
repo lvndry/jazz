@@ -11,7 +11,7 @@ export interface LoggerService {
   readonly error: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
   /**
    * Write a log entry to file
-   * Automatically routes to conversation-specific file if conversationId is set
+   * Automatically routes to session-specific file if sessionId is set
    */
   readonly writeToFile: (
     level: "debug" | "info" | "warn" | "error",
@@ -19,15 +19,15 @@ export interface LoggerService {
     meta?: Record<string, unknown>,
   ) => Effect.Effect<void, Error>;
   /**
-   * Set the conversation ID for this logger instance
-   * All subsequent logs will be written to the conversation-specific file
+   * Set the session ID for this logger instance
+   * All subsequent logs will be written to the session-specific file
    */
-  readonly setConversationId: (conversationId: string) => Effect.Effect<void, never>;
+  readonly setSessionId: (sessionId: string) => Effect.Effect<void, never>;
   /**
-   * Clear the conversation ID
+   * Clear the session ID
    * Subsequent logs will be written to the general log file
    */
-  readonly clearConversationId: () => Effect.Effect<void, never>;
+  readonly clearSessionId: () => Effect.Effect<void, never>;
 }
 
 export const LoggerServiceTag = Context.GenericTag<LoggerService>("LoggerService");
