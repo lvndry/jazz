@@ -26,7 +26,6 @@ export class AgentServiceImpl implements AgentService {
   > {
     return Effect.gen(
       function* (this: AgentServiceImpl) {
-        // Validate input parameters
         yield* validateAgentName(name);
         if (description !== undefined) {
           yield* validateAgentDescription(description);

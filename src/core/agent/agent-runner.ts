@@ -12,12 +12,12 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "../interfaces/tool-registry";
+import type { StreamEvent, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { type ChatCompletionResponse } from "../types/chat";
 import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "../types/errors";
 import { type ChatMessage } from "../types/message";
-import type { DisplayConfig, StreamingConfig } from "../types/output";
-import type { StreamEvent } from "../types/streaming";
+import type { DisplayConfig } from "../types/output";
 import {
   type ToolCall,
   type ToolDefinition,

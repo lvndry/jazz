@@ -33,7 +33,7 @@ export type StreamEvent =
       response: ChatCompletionResponse;
       totalDurationMs: number;
       /**
-       * Performance metrics (only included if logging.showMetrics is enabled)
+       * Performance metrics (only included if output.showMetrics is enabled)
        */
       metrics?: {
         firstTokenLatencyMs: number;
@@ -74,6 +74,12 @@ export type StreamEvent =
   // Usage updates (optional, for real-time token tracking)
   | { type: "usage_update"; usage: TokenUsage };
 
+export interface StreamingResult {
+  readonly stream: Stream.Stream<StreamEvent, LLMError>;
+  readonly response: Effect.Effect<ChatCompletionResponse, LLMError>;
+  readonly cancel: Effect.Effect<void, never>;
+}
+
 /**
  * Streaming configuration - controls HOW content is streamed
  * All fields optional with sensible defaults
@@ -85,7 +91,7 @@ export interface StreamingConfig {
    * - false: Never stream
    * - "auto": Auto-detect based on TTY (default)
    */
-  readonly enabled: boolean | "auto";
+  readonly enabled?: boolean | "auto";
 
   /**
    * Text buffer delay in milliseconds
@@ -93,7 +99,7 @@ export interface StreamingConfig {
    * Only applies when streaming is enabled
    * Default: 50
    */
-  readonly textBufferMs: number;
+  readonly textBufferMs?: number;
 }
 
 /**
