@@ -1,237 +1,128 @@
-import { Effect, Layer } from "effect";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { Effect, Layer, Option, Ref } from "effect";
 import { appendFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { type AgentConfigService } from "../core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "../core/interfaces/logger";
+import { jsonBigIntReplacer } from "../core/utils/logging-helpers";
 import { isInstalledGlobally } from "../core/utils/runtime-detection";
-import { formatToolArguments } from "../core/utils/tool-formatter";
 
 /**
- * Structured logging service using Effect's Logger API
- *
  * Provides a custom logger implementation that maintains pretty formatting
- * (colors, emojis) while leveraging Effect's built-in logging capabilities
- * including automatic context propagation, fiber IDs, and log level management.
- */
-
-/**
- * Structured logging service using Effect's Logger API
- *
- * Provides a custom logger implementation that maintains pretty formatting
- * (colors, emojis) while leveraging Effect's built-in logging capabilities
- * including automatic context propagation, fiber IDs, and log level management.
  */
 
 export class LoggerServiceImpl implements LoggerService {
-  constructor() {}
+  private readonly conversationIdRef: Ref.Ref<Option.Option<string>>;
+
+  constructor(conversationId?: string) {
+    this.conversationIdRef = Ref.unsafeMake(
+      conversationId ? Option.some(conversationId) : Option.none(),
+    );
+  }
+
+  /**
+   * Set the conversation ID for this logger instance
+   * All subsequent logs will be written to the conversation-specific file
+   */
+  setConversationId(conversationId: string): Effect.Effect<void, never> {
+    return Ref.set(this.conversationIdRef, Option.some(conversationId));
+  }
+
+  /**
+   * Clear the conversation ID
+   * Subsequent logs will be written to the general log file
+   */
+  clearConversationId(): Effect.Effect<void, never> {
+    return Ref.set(this.conversationIdRef, Option.none());
+  }
 
   writeToFile(
     level: "debug" | "info" | "warn" | "error",
     message: string,
     meta?: Record<string, unknown>,
   ): Effect.Effect<void, Error> {
-    return Effect.tryPromise({
-      try: () => writeFormattedLogToFile(level, message, meta),
-      catch: (error: unknown) =>
-        new Error(
-          `Failed to write to log file: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+    const conversationIdRef = this.conversationIdRef;
+    return Effect.gen(function* () {
+      const conversationId = yield* Ref.get(conversationIdRef);
+      return yield* Effect.tryPromise({
+        try: () => {
+          if (Option.isSome(conversationId)) {
+            return writeFormattedLogToConversationFile(level, conversationId.value, message, meta);
+          }
+          return writeFormattedLogToFile(level, message, meta);
+        },
+        catch: (error: unknown) =>
+          new Error(
+            `Failed to write to log file: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      });
     });
   }
 
   debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      void writeLogToFile("debug", message, meta);
+    const conversationIdRef = this.conversationIdRef;
+    return Effect.gen(function* () {
+      const conversationId = yield* Ref.get(conversationIdRef);
+      return yield* Effect.sync(() => {
+        if (Option.isSome(conversationId)) {
+          void writeFormattedLogToConversationFile("debug", conversationId.value, message, meta);
+        } else {
+          void writeFormattedLogToFile("debug", message, meta);
+        }
+      });
     });
   }
 
   info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      void writeLogToFile("info", message, meta);
+    const conversationIdRef = this.conversationIdRef;
+    return Effect.gen(function* () {
+      const conversationId = yield* Ref.get(conversationIdRef);
+      return yield* Effect.sync(() => {
+        if (Option.isSome(conversationId)) {
+          void writeFormattedLogToConversationFile("info", conversationId.value, message, meta);
+        } else {
+          void writeFormattedLogToFile("info", message, meta);
+        }
+      });
     });
   }
 
   warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      void writeLogToFile("warn", message, meta);
+    const conversationIdRef = this.conversationIdRef;
+    return Effect.gen(function* () {
+      const conversationId = yield* Ref.get(conversationIdRef);
+      return yield* Effect.sync(() => {
+        if (Option.isSome(conversationId)) {
+          void writeFormattedLogToConversationFile("warn", conversationId.value, message, meta);
+        } else {
+          void writeFormattedLogToFile("warn", message, meta);
+        }
+      });
     });
   }
 
   error(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      void writeLogToFile("error", message, meta);
+    const conversationIdRef = this.conversationIdRef;
+    return Effect.gen(function* () {
+      const conversationId = yield* Ref.get(conversationIdRef);
+      return yield* Effect.sync(() => {
+        if (Option.isSome(conversationId)) {
+          void writeFormattedLogToConversationFile("error", conversationId.value, message, meta);
+        } else {
+          void writeFormattedLogToFile("error", message, meta);
+        }
+      });
     });
   }
-}
-
-/**
- * Custom replacer for JSON.stringify to handle BigInt values
- */
-function jsonReplacer(_key: string, value: unknown): unknown {
-  if (typeof value === "bigint") {
-    return value.toString();
-  }
-  return value;
 }
 
 /**
  * Create the logger layer
  *
- * Sets up the LoggerService for use throughout the application.
+ * Creates a single logger instance that can dynamically scope logs to conversations
+ * using setConversationId() and clearConversationId() methods.
  */
 export function createLoggerLayer(): Layer.Layer<LoggerService, never, never> {
   return Layer.succeed(LoggerServiceTag, new LoggerServiceImpl());
-}
-
-// Helper functions for common logging patterns
-export function logAgentOperation(
-  agentId: string,
-  operation: string,
-  meta?: Record<string, unknown>,
-): Effect.Effect<void, never, LoggerService | AgentConfigService> {
-  return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
-    yield* logger.info(`Agent ${agentId}: ${operation}`, {
-      agentId,
-      operation,
-      ...meta,
-    });
-  });
-}
-
-// Tool execution logging helpers
-export function logToolExecutionStart(
-  toolName: string,
-  args?: Record<string, unknown>,
-): Effect.Effect<void, never, LoggerService | AgentConfigService> {
-  return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
-    const toolEmoji = getToolEmoji(toolName);
-    const argsText = formatToolArguments(toolName, args, { style: "plain" });
-    const message = argsText ? `${toolEmoji} ${toolName} ${argsText}` : `${toolEmoji} ${toolName}`;
-    yield* logger.info(message);
-  });
-}
-
-export function logToolExecutionSuccess(
-  toolName: string,
-  durationMs: number,
-  resultSummary?: string,
-  fullResult?: unknown,
-): Effect.Effect<void, never, LoggerService | AgentConfigService> {
-  return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
-    const toolEmoji = getToolEmoji(toolName);
-    const duration = formatDuration(durationMs);
-    const message = resultSummary
-      ? `${toolEmoji} ${toolName} ✅ (${duration}) - ${resultSummary}`
-      : `${toolEmoji} ${toolName} ✅ (${duration})`;
-
-    yield* logger.info(message);
-
-    // Log full result to file only (not console) for ALL tools
-    if (fullResult !== undefined) {
-      try {
-        const resultString =
-          typeof fullResult === "string" ? fullResult : JSON.stringify(fullResult, null, 2);
-
-        // Truncate very long results to avoid overwhelming logs
-        const maxLength = 10000;
-        const truncatedResult =
-          resultString.length > maxLength
-            ? resultString.substring(0, maxLength) +
-              `\n... (truncated, ${resultString.length - maxLength} more characters)`
-            : resultString;
-
-        yield* logger
-          .writeToFile("info", `Tool result for ${toolName}`, {
-            toolName,
-            resultLength: resultString.length,
-            result: truncatedResult,
-          })
-          .pipe(Effect.catchAll(() => Effect.void));
-      } catch (error) {
-        // If serialization fails, log a warning to file
-        yield* logger
-          .writeToFile("warn", `Failed to log full result for ${toolName}`, {
-            toolName,
-            error: error instanceof Error ? error.message : String(error),
-          })
-          .pipe(Effect.catchAll(() => Effect.void));
-      }
-    }
-  });
-}
-
-export function logToolExecutionError(
-  toolName: string,
-  durationMs: number,
-  error: string,
-): Effect.Effect<void, never, LoggerService | AgentConfigService> {
-  return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
-    const toolEmoji = getToolEmoji(toolName);
-    const duration = formatDuration(durationMs);
-    const message = `${toolEmoji} ${toolName} ✗ (${duration}) - ${error}`;
-
-    yield* logger.error(message);
-  });
-}
-
-export function logToolExecutionApproval(
-  toolName: string,
-  durationMs: number,
-  approvalMessage: string,
-): Effect.Effect<void, never, LoggerService | AgentConfigService> {
-  return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
-    const toolEmoji = getToolEmoji(toolName);
-    const duration = formatDuration(durationMs);
-    const message = `${toolEmoji} ${toolName} ⚠️ APPROVE REQUIRED (${duration}) - ${approvalMessage}`;
-
-    yield* logger.warn(message);
-  });
-}
-
-// Utility functions for tool logging
-function getToolEmoji(toolName: string): string {
-  const toolEmojis: Record<string, string> = {
-    // Gmail tools
-    list_emails: "📧",
-    get_email: "📨",
-    send_email: "📤",
-    reply_to_email: "↩️",
-    forward_email: "↗️",
-    mark_as_read: "👁️",
-    mark_as_unread: "👁️‍🗨️",
-    delete_email: "🗑️",
-    create_label: "🏷️",
-    add_label: "🏷️",
-    remove_label: "🏷️",
-    search_emails: "🔍",
-    // Default
-    default: "🔧",
-  };
-
-  const emoji = toolEmojis[toolName];
-  if (emoji !== undefined) {
-    return emoji;
-  }
-  return "🔧"; // Default emoji
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  } else if (ms < 60000) {
-    return `${(ms / 1000).toFixed(1)}s`;
-  } else {
-    const minutes = Math.floor(ms / 60000);
-    const seconds = ((ms % 60000) / 1000).toFixed(1);
-    return `${minutes}m ${seconds}s`;
-  }
 }
 
 let logsDirectoryCache: string | undefined;
@@ -258,12 +149,13 @@ function formatLogLineForFile(
 ): string {
   const now = new Date();
   const metaText =
-    meta && Object.keys(meta).length > 0 ? " " + JSON.stringify(meta, jsonReplacer) : "";
+    meta && Object.keys(meta).length > 0 ? " " + JSON.stringify(meta, jsonBigIntReplacer) : "";
   return `${now.toLocaleDateString()} ${now.toLocaleTimeString()} [${level.toUpperCase()}] ${message}${metaText}\n`;
 }
 
 /**
  * Shared helper to write a formatted log line to file
+ * Writes to the general jazz.log file (used when no conversationId is set)
  */
 async function writeFormattedLogToFile(
   level: "debug" | "info" | "warn" | "error",
@@ -278,41 +170,22 @@ async function writeFormattedLogToFile(
 }
 
 /**
- * Write a log entry directly to file synchronously (standalone function)
- * Useful for Effect Logger which requires synchronous execution
+ * Write a formatted log line to a conversation-specific file
+ * Creates a separate log file per conversation ID: conversation-{conversationId}.log
  */
-export function writeLogToFileSync(
+async function writeFormattedLogToConversationFile(
   level: "debug" | "info" | "warn" | "error",
-  message: string,
-  meta?: Record<string, unknown>,
-): void {
-  try {
-    const logsDir = getLogsDirectory();
-    if (!existsSync(logsDir)) {
-      mkdirSync(logsDir, { recursive: true });
-    }
-    const logFilePath = path.join(logsDir, "jazz.log");
-    const line = formatLogLineForFile(level, message, meta);
-    appendFileSync(logFilePath, line, { encoding: "utf8" });
-  } catch {
-    // Silently fail to avoid breaking the calling code
-  }
-}
-
-/**
- * Write a log entry directly to file (standalone function, no Effect/dependencies)
- * Useful for logging in contexts where LoggerService is not available
- */
-export async function writeLogToFile(
-  level: "debug" | "info" | "warn" | "error",
+  conversationId: string,
   message: string,
   meta?: Record<string, unknown>,
 ): Promise<void> {
-  try {
-    await writeFormattedLogToFile(level, message, meta);
-  } catch {
-    // Silently fail to avoid breaking the calling code
-  }
+  const logsDir = getLogsDirectory();
+  await mkdir(logsDir, { recursive: true });
+  // Sanitize conversationId for use in filename (remove invalid characters)
+  const sanitizedId = conversationId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const logFilePath = path.join(logsDir, `conversation_${sanitizedId}.log`);
+  const line = formatLogLineForFile(level, message, meta);
+  await appendFile(logFilePath, line, { encoding: "utf8" });
 }
 
 /**
