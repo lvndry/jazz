@@ -510,7 +510,7 @@ export class AgentRunner {
       };
 
       // Check if we should show metrics
-      const showMetrics = appConfig.logging?.showMetrics ?? true;
+      const showMetrics = appConfig.output?.showMetrics ?? true;
 
       // Get streaming config with defaults (streaming-specific)
       const streamingConfig: StreamingConfig = {

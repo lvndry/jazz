@@ -353,15 +353,6 @@ class AISDKService implements LLMService {
   ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never> {
     const modelSource = this.providerModels[providerName];
 
-    if (!modelSource) {
-      return Effect.fail(
-        new LLMConfigurationError({
-          provider: providerName,
-          message: `Unsupported provider: ${providerName}`,
-        }),
-      );
-    }
-
     if (modelSource.type === "static") {
       return Effect.succeed(modelSource.models);
     }
