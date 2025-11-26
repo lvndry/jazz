@@ -1,7 +1,9 @@
 import {
+  checkbox as checkboxPrompt,
   confirm as confirmPrompt,
   input,
   password as passwordPrompt,
+  search as searchPrompt,
   select as selectPrompt,
 } from "@inquirer/prompts";
 import chalk from "chalk";
@@ -73,11 +75,18 @@ export class TerminalServiceImpl implements TerminalService {
     });
   }
 
-  ask(message: string, defaultValue?: string): Effect.Effect<string, never> {
+  ask(
+    message: string,
+    options?: {
+      defaultValue?: string;
+      validate?: (input: string) => boolean | string;
+    },
+  ): Effect.Effect<string, never> {
     return Effect.promise(async () => {
       const answer = await input({
         message,
-        ...(defaultValue !== undefined ? { default: defaultValue } : {}),
+        ...(options?.defaultValue !== undefined ? { default: options.defaultValue } : {}),
+        ...(options?.validate !== undefined ? { validate: options.validate } : {}),
       });
       return answer;
     });
@@ -92,11 +101,18 @@ export class TerminalServiceImpl implements TerminalService {
     });
   }
 
-  select(message: string, choices: string[]): Effect.Effect<string, never> {
+  select<T = string>(
+    message: string,
+    options: {
+      choices: readonly (string | { name: string; value: T; description?: string })[];
+      default?: T;
+    },
+  ): Effect.Effect<T, never> {
     return Effect.promise(async () => {
-      const answer = await selectPrompt<string>({
+      const answer = await selectPrompt<T>({
         message,
-        choices,
+        choices: options.choices as unknown as Parameters<typeof selectPrompt<T>>[0]["choices"],
+        ...(options.default !== undefined ? { default: options.default } : {}),
       });
       return answer;
     });
@@ -108,6 +124,57 @@ export class TerminalServiceImpl implements TerminalService {
         message,
         default: defaultValue,
       });
+      return answer;
+    });
+  }
+
+  search<T = string>(
+    message: string,
+    options: {
+      choices: readonly (string | { name: string; value: T; description?: string })[];
+    },
+  ): Effect.Effect<T, never> {
+    return Effect.promise(async () => {
+      const answer = await searchPrompt<T>({
+        message,
+        source: (term: string | undefined) => {
+          if (!term) {
+            return options.choices as unknown as ReturnType<
+              Parameters<typeof searchPrompt<T>>[0]["source"]
+            >;
+          }
+
+          const searchTerm = term.toLowerCase();
+          return options.choices.filter((choice) => {
+            if (typeof choice === "string") {
+              return choice.toLowerCase().includes(searchTerm);
+            }
+
+            return (
+              choice.name.toLowerCase().includes(searchTerm) ||
+              String(choice.value).toLowerCase().includes(searchTerm) ||
+              (choice.description?.toLowerCase().includes(searchTerm) ?? false)
+            );
+          }) as unknown as ReturnType<Parameters<typeof searchPrompt<T>>[0]["source"]>;
+        },
+      });
+
+      return answer;
+    });
+  }
+
+  checkbox<T = string>(
+    message: string,
+    options: {
+      choices: readonly (string | { name: string; value: T; description?: string })[];
+    },
+  ): Effect.Effect<readonly T[], never> {
+    return Effect.promise(async () => {
+      const answer = await checkboxPrompt<T>({
+        message,
+        choices: options.choices as unknown as Parameters<typeof checkboxPrompt<T>>[0]["choices"],
+      });
+
       return answer;
     });
   }

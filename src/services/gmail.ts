@@ -10,7 +10,7 @@ import type { LoggerService } from "../core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "../core/interfaces/terminal";
 import { GmailAuthenticationError, GmailOperationError } from "../core/types/errors";
 import type { GmailEmail, GmailLabel } from "../core/types/gmail";
-import { resolveStorageDirectory } from "./storage/utils";
+import { resolveStorageDirectory } from "../core/utils/storage-utils";
 
 // Helper function to extract HTTP status code from gaxios errors
 function getHttpStatusFromError(error: unknown): number | undefined {

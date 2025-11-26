@@ -206,21 +206,15 @@ Enable your agents to manage Gmail: read, search, send emails, manage labels, an
 3. Choose **Desktop app** as application type
 4. Name it "Jazz CLI"
 5. Click **Create**
-6. **Important**: Add the redirect URI:
-   - Click the pencil icon to edit your OAuth client
-   - Under **Authorized redirect URIs**, add:
-     ```
-     http://localhost:53682/oauth2callback
-     ```
-   - Click **Save**
-7. Download the credentials JSON or copy the Client ID and Client Secret
+6. Click **Save**
+7. Copy/Download the credentials JSON or copy the Client ID and Client Secret
 
 #### 5. Add to Jazz Configuration
 
 To setup the configuration, run:
 
 ```bash
-jazz config set google.
+jazz config set google
 ```
 
 And paste your client id and client secret when prompted.
