@@ -1,11 +1,13 @@
 import { anthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { deepseek } from "@ai-sdk/deepseek";
 import { google, type GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
+import { groq } from "@ai-sdk/groq";
 import { mistral } from "@ai-sdk/mistral";
 import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import { createOpenRouter, type OpenRouterProviderSettings } from "@openrouter/ai-sdk-provider";
 import {
+  gateway,
   generateText,
   stepCountIs,
   streamText,
@@ -164,7 +166,12 @@ function getConfiguredProviders(llmConfig?: LLMConfig): { name: ProviderName; ap
   if (llmConfig.openrouter?.api_key) {
     providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
   }
-
+  if (llmConfig.ai_gateway?.api_key) {
+    providers.push({ name: "ai_gateway", apiKey: llmConfig.ai_gateway.api_key });
+  }
+  if (llmConfig.groq?.api_key) {
+    providers.push({ name: "groq", apiKey: llmConfig.groq.api_key });
+  }
   providers.push({ name: "ollama", apiKey: llmConfig.ollama?.api_key ?? "" });
 
   return providers;
@@ -229,6 +236,14 @@ function selectModel(
         ) => (modelId: ModelName) => LanguageModel
       )(config);
       model = openrouter(modelId);
+      break;
+    }
+    case "ai_gateway": {
+      model = gateway(modelId);
+      break;
+    }
+    case "groq": {
+      model = groq(modelId);
       break;
     }
     default:

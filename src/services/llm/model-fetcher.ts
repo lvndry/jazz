@@ -1,3 +1,4 @@
+import { gateway } from "ai";
 import { Effect } from "effect";
 import type { ProviderName } from "../../core/constants/models";
 import type { ModelInfo } from "../../core/types";
@@ -61,6 +62,32 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       };
     });
   },
+  ai_gateway: (data: unknown) => {
+    const response = data as {
+      id: string;
+      name: string;
+    }[];
+
+    return response.map((model) => ({
+      id: model.id,
+      displayName: model.name,
+      isReasoningModel: false,
+    }));
+  },
+  groq: (data: unknown) => {
+    const response = data as {
+      data: {
+        id: string;
+        owned_by: string;
+      }[];
+    };
+
+    return response.data.map((model) => ({
+      id: model.id,
+      displayName: `${model.owned_by.toLowerCase()}/${model.id.toLowerCase()}`,
+      isReasoningModel: false,
+    }));
+  },
 };
 
 export function createModelFetcher(): ModelFetcherService {
@@ -75,6 +102,11 @@ export function createModelFetcher(): ModelFetcherService {
 
           if (apiKey) {
             headers["Authorization"] = `Bearer ${apiKey}`;
+          }
+
+          if (providerName === "ai_gateway") {
+            const availableModels = await gateway.getAvailableModels();
+            return PROVIDER_TRANSFORMERS["ai_gateway"]!(availableModels.models);
           }
 
           const response = await fetch(url, {

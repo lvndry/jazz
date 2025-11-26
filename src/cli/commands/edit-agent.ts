@@ -155,7 +155,7 @@ export function editAgentCommand(
     yield* terminal.log(`   Updated: ${updatedAgent.updatedAt.toISOString()}`);
     yield* terminal.log("");
     yield* terminal.info("You can now chat with your updated agent using:");
-    yield* terminal.log(`jazz agent chat ${updatedAgent.id}`);
+    yield* terminal.log(`jazz agent chat ${updatedAgent.name}`);
   });
 }
 
@@ -409,6 +409,9 @@ async function promptForAgentUpdates(
           name: `${category} (${toolsByCategory[category]?.length || 0} tools)`,
           value: category,
         })),
+        ...(defaultCategories.length > 0
+          ? { default: defaultCategories as readonly string[] }
+          : {}),
       }),
     );
 

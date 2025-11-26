@@ -53,6 +53,8 @@ export interface LLMConfig {
   readonly deepseek?: LLMProviderConfig;
   readonly ollama?: OllamaProviderConfig;
   readonly openrouter?: LLMProviderConfig;
+  readonly ai_gateway?: LLMProviderConfig;
+  readonly groq?: LLMProviderConfig;
 }
 
 export interface LinkupConfig {
