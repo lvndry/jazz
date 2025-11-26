@@ -274,7 +274,6 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
 
     // Internal execution tools (called after approval)
     const executeGitAddTool = createExecuteGitAddTool();
-
     const executeGitCommitTool = createExecuteGitCommitTool();
     const executeGitPushTool = createExecuteGitPushTool();
     const executeGitPullTool = createExecuteGitPullTool();
