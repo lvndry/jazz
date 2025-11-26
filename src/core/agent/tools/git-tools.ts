@@ -75,17 +75,51 @@ function runGitCommand(options: {
   });
 }
 
-function resolveWorkingDirectory(
+/**
+ * Resolves the working directory for git commands that can work with both files and directories.
+ * If the path is a file, returns its parent directory.
+ * If the path is a directory, returns it directly.
+ * If the path doesn't exist, returns an error.
+ */
+function resolveGitWorkingDirectory(
   shell: FileSystemContextService,
   context: ToolExecutionContext,
+  fs: FileSystem.FileSystem,
   path?: string,
 ): Effect.Effect<string, Error, FileSystem.FileSystem | FileSystemContextService> {
-  const key = buildKeyFromContext(context);
-  if (path && path.trim().length > 0) {
-    return shell.resolvePath(key, path);
-  }
+  return Effect.gen(function* () {
+    const key = buildKeyFromContext(context);
+    let resolvedPath: string;
 
-  return shell.getCwd(key);
+    if (path && path.trim().length > 0) {
+      resolvedPath = yield* shell.resolvePath(key, path);
+    } else {
+      resolvedPath = yield* shell.getCwd(key);
+    }
+
+    // Check if the path exists (file or directory)
+    const stat = yield* fs.stat(resolvedPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+    if (stat === null) {
+      return yield* Effect.fail(new Error(`Path does not exist: ${resolvedPath}`));
+    }
+
+    // If it's a directory, use it directly
+    if (stat.type === "Directory") {
+      return resolvedPath;
+    }
+
+    // If it's a file, get its parent directory
+    if (stat.type === "File") {
+      const pathModule = yield* Effect.promise(() => import("path"));
+      const parentDir = pathModule.dirname(resolvedPath);
+      return parentDir;
+    }
+
+    // For other types (symlinks, etc.), try to use the path as-is
+    // Git commands will handle validation
+    return resolvedPath;
+  });
 }
 
 // Safe Git operations (no approval needed) \\
@@ -96,7 +130,9 @@ export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemCo
       path: z
         .string()
         .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
     })
     .strict();
 
@@ -127,7 +163,7 @@ export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemCo
         const fs = yield* FileSystem.FileSystem;
 
         let workingDirError: string | null = null;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, args?.path).pipe(
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
           Effect.catchAll((error) => {
             workingDirError = error instanceof Error ? error.message : String(error);
             return Effect.succeed(null);
@@ -139,22 +175,6 @@ export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemCo
             success: false,
             result: null,
             error: workingDirError || "Failed to resolve working directory",
-          };
-        }
-
-        let dirStatError: string | null = null;
-        const dirStat = yield* fs.stat(workingDir).pipe(
-          Effect.catchAll((error) => {
-            dirStatError = `Working directory does not exist or is not accessible: ${workingDir}. ${error instanceof Error ? error.message : String(error)}`;
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (dirStat === null) {
-          return {
-            success: false,
-            result: null,
-            error: dirStatError || `Working directory does not exist: ${workingDir}`,
           };
         }
 
@@ -224,7 +244,9 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
       path: z
         .string()
         .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
       limit: z
         .number()
         .int()
@@ -256,7 +278,7 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
         const fs = yield* FileSystem.FileSystem;
 
         let workingDirError: string | null = null;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, args?.path).pipe(
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
           Effect.catchAll((error) => {
             workingDirError = error instanceof Error ? error.message : String(error);
             return Effect.succeed(null);
@@ -268,22 +290,6 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
             success: false,
             result: null,
             error: workingDirError || "Failed to resolve working directory",
-          };
-        }
-
-        let dirStatError: string | null = null;
-        const dirStat = yield* fs.stat(workingDir).pipe(
-          Effect.catchAll((error) => {
-            dirStatError = `Working directory does not exist or is not accessible: ${workingDir}. ${error instanceof Error ? error.message : String(error)}`;
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (dirStat === null) {
-          return {
-            success: false,
-            result: null,
-            error: dirStatError || `Working directory does not exist: ${workingDir}`,
           };
         }
 
@@ -368,7 +374,9 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
       path: z
         .string()
         .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
       staged: z.boolean().optional().describe("Show staged changes (cached)"),
       branch: z.string().optional().describe("Compare with a specific branch"),
       commit: z.string().optional().describe("Compare with a specific commit"),
@@ -396,7 +404,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
         // Catch errors from path resolution
         let workingDirError: string | null = null;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, args?.path).pipe(
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
           Effect.catchAll((error) => {
             workingDirError = error instanceof Error ? error.message : String(error);
             return Effect.succeed(null);
@@ -408,22 +416,6 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
             success: false,
             result: null,
             error: workingDirError || "Failed to resolve working directory",
-          };
-        }
-
-        let dirStatError: string | null = null;
-        const dirStat = yield* fs.stat(workingDir).pipe(
-          Effect.catchAll((error) => {
-            dirStatError = `Working directory does not exist or is not accessible: ${workingDir}. ${error instanceof Error ? error.message : String(error)}`;
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (dirStat === null) {
-          return {
-            success: false,
-            result: null,
-            error: dirStatError || `Working directory does not exist: ${workingDir}`,
           };
         }
 
@@ -527,8 +519,9 @@ export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemCo
     handler: (args: GitBranchArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
         let workingDirError: string | null = null;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, args?.path).pipe(
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
           Effect.catchAll((error) => {
             workingDirError = error instanceof Error ? error.message : String(error);
             return Effect.succeed(null);
@@ -623,7 +616,9 @@ export function createGitAddTool(): Tool<FileSystem.FileSystem | FileSystemConte
       path: z
         .string()
         .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
       files: z.array(z.string()).min(1).describe("Files to add to the staging area"),
       all: z.boolean().optional().describe("Add all changes in the working directory"),
     })
@@ -697,7 +692,9 @@ export function createExecuteGitAddTool(): Tool<FileSystem.FileSystem | FileSyst
       path: z
         .string()
         .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
       files: z.array(z.string()).min(1).describe("Files to add to the staging area"),
       all: z.boolean().optional().describe("Add all changes in the working directory"),
     })
@@ -720,9 +717,10 @@ export function createExecuteGitAddTool(): Tool<FileSystem.FileSystem | FileSyst
     handler: (args: GitAddArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
 
         let workingDirError: string | null = null;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, args?.path).pipe(
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
           Effect.catchAll((error) => {
             workingDirError = error instanceof Error ? error.message : String(error);
             return Effect.succeed(null);
@@ -792,13 +790,213 @@ export function createExecuteGitAddTool(): Tool<FileSystem.FileSystem | FileSyst
   });
 }
 
+export function createGitRmTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
+      files: z.array(z.string()).min(1).describe("Files to remove from Git tracking"),
+      cached: z.boolean().optional().describe("Remove from index only (keep in working directory)"),
+      recursive: z.boolean().optional().describe("Remove directories recursively"),
+      force: z.boolean().optional().describe("Force removal (overrides safety checks)"),
+    })
+    .strict();
+
+  type GitRmArgs = z.infer<typeof parameters>;
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitRmArgs>({
+    name: "git_rm",
+    description:
+      "Remove files from Git tracking and optionally from the working directory. Removes files from the index (staging area) and can also delete them from the filesystem. Supports removing from index only (cached), recursive directory removal, and force removal. Requires user approval before execution.",
+    tags: ["git", "remove"],
+    parameters,
+    validate: (args) => {
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
+    },
+    approval: {
+      message: (args: GitRmArgs, context: ToolExecutionContext) =>
+        Effect.gen(function* () {
+          const shell = yield* FileSystemContextServiceTag;
+          const workingDir = args?.path
+            ? yield* shell.resolvePath(
+                {
+                  agentId: context.agentId,
+                  ...(context.conversationId && { conversationId: context.conversationId }),
+                },
+                args?.path,
+              )
+            : yield* shell.getCwd({
+                agentId: context.agentId,
+                ...(context.conversationId && { conversationId: context.conversationId }),
+              });
+
+          const options = [];
+          if (args?.cached) options.push("index only");
+          if (args?.recursive) options.push("recursive");
+          if (args?.force) options.push("force");
+          const optionsStr = options.length > 0 ? ` (${options.join(", ")})` : "";
+          const filesToRemove = args?.files.join(", ");
+          return `Remove ${filesToRemove} from Git tracking${optionsStr} in ${workingDir}?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_rm tool with these exact arguments: {"path": ${args?.path ? `"${args?.path}"` : "undefined"}, "files": ${JSON.stringify(args?.files)}, "cached": ${args?.cached === true}, "recursive": ${args?.recursive === true}, "force": ${args?.force === true}}`;
+        }),
+      errorMessage: "Approval required: git rm requires user confirmation.",
+      execute: {
+        toolName: "execute_git_rm",
+        buildArgs: (args) => {
+          return {
+            path: args?.path,
+            files: args?.files,
+            cached: args?.cached,
+            recursive: args?.recursive,
+            force: args?.force,
+          };
+        },
+      },
+    },
+    handler: (_args: Record<string, unknown>, _context: ToolExecutionContext) =>
+      Effect.succeed({
+        success: false,
+        result: null,
+        error: "Approval required",
+      } as ToolExecutionResult),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { removedFiles: string | string[] };
+        return `Removed ${Array.isArray(gitResult.removedFiles) ? gitResult.removedFiles.join(", ") : gitResult.removedFiles} from Git tracking`;
+      }
+      return result.success ? "Files removed from Git" : "Git rm failed";
+    },
+  });
+}
+
+export function createExecuteGitRmTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
+      files: z.array(z.string()).min(1).describe("Files to remove from Git tracking"),
+      cached: z.boolean().optional().describe("Remove from index only (keep in working directory)"),
+      recursive: z.boolean().optional().describe("Remove directories recursively"),
+      force: z.boolean().optional().describe("Force removal (overrides safety checks)"),
+    })
+    .strict();
+
+  type GitRmArgs = z.infer<typeof parameters>;
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitRmArgs>({
+    name: "execute_git_rm",
+    description:
+      "Internal tool that performs the actual git rm operation after user has approved the git_rm request. Removes files from Git tracking and optionally from the working directory.",
+    hidden: true,
+    parameters,
+    validate: (args) => {
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
+    },
+    handler: (args: GitRmArgs, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
+
+        let workingDirError: string | null = null;
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
+          Effect.catchAll((error) => {
+            workingDirError = error instanceof Error ? error.message : String(error);
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (workingDir === null) {
+          return {
+            success: false,
+            result: null,
+            error: workingDirError || "Failed to resolve working directory",
+          };
+        }
+
+        const rmArgs: string[] = ["rm"];
+        if (args?.cached) {
+          rmArgs.push("--cached");
+        }
+        if (args?.recursive) {
+          rmArgs.push("-r");
+        }
+        if (args?.force) {
+          rmArgs.push("-f");
+        }
+        rmArgs.push(...args.files);
+
+        let commandError: string | null = null;
+        const commandResult = yield* runGitCommand({
+          args: rmArgs,
+          workingDirectory: workingDir,
+        }).pipe(
+          Effect.catchAll((error) => {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            commandError = `Failed to execute git rm in directory '${workingDir}': ${errorMsg}`;
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (commandResult === null) {
+          return {
+            success: false,
+            result: null,
+            error: commandError || `Failed to execute git rm in directory '${workingDir}'`,
+          };
+        }
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error: commandResult.stderr || `git rm failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        return {
+          success: true,
+          result: {
+            workingDirectory: workingDir,
+            removedFiles: args?.files,
+            cached: args?.cached || false,
+            recursive: args?.recursive || false,
+            force: args?.force || false,
+            message: "Files removed from Git tracking",
+          },
+        };
+      }),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { removedFiles: string | string[] };
+        return `Removed ${Array.isArray(gitResult.removedFiles) ? gitResult.removedFiles.join(", ") : gitResult.removedFiles} from Git tracking`;
+      }
+      return result.success ? "Files removed from Git" : "Git rm failed";
+    },
+  });
+}
+
 export function createGitCommitTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
       path: z
         .string()
         .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
       message: z.string().min(1).describe("Commit message"),
       all: z.boolean().optional().describe("Commit all changes in the working directory"),
     })
@@ -873,7 +1071,9 @@ export function createExecuteGitCommitTool(): Tool<
       path: z
         .string()
         .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
       message: z.string().min(1).describe("Commit message"),
       all: z.boolean().optional().describe("Commit all changes in the working directory"),
     })
@@ -896,9 +1096,10 @@ export function createExecuteGitCommitTool(): Tool<
     handler: (args: GitCommitArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
 
         let workingDirError: string | null = null;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, args?.path).pipe(
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
           Effect.catchAll((error) => {
             workingDirError = error instanceof Error ? error.message : String(error);
             return Effect.succeed(null);
@@ -1238,9 +1439,10 @@ export function createExecuteGitPushTool(): Tool<FileSystem.FileSystem | FileSys
     handler: (args: GitPushArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
 
         let workingDirError: string | null = null;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, args?.path).pipe(
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
           Effect.catchAll((error) => {
             workingDirError = error instanceof Error ? error.message : String(error);
             return Effect.succeed(null);
@@ -1348,9 +1550,10 @@ export function createExecuteGitPullTool(): Tool<FileSystem.FileSystem | FileSys
     handler: (args: GitPullArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
 
         let workingDirError: string | null = null;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, args?.path).pipe(
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
           Effect.catchAll((error) => {
             workingDirError = error instanceof Error ? error.message : String(error);
             return Effect.succeed(null);
@@ -1460,9 +1663,10 @@ export function createExecuteGitCheckoutTool(): Tool<
     handler: (args: GitCheckoutArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
 
         let workingDirError: string | null = null;
-        const workingDir = yield* resolveWorkingDirectory(shell, context, args?.path).pipe(
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
           Effect.catchAll((error) => {
             workingDirError = error instanceof Error ? error.message : String(error);
             return Effect.succeed(null);
