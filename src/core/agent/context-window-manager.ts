@@ -93,6 +93,12 @@ export class ContextWindowManager {
       .map((i) => messages[i])
       .filter((msg): msg is ChatMessage => msg !== undefined);
 
+    if (keptMessages.length === 0) {
+      throw new Error(
+        `Context window trim resulted in empty messages array. System message should always be preserved. Original count: ${originalLength}`,
+      );
+    }
+
     messages.length = 0;
     messages.push(...keptMessages);
 

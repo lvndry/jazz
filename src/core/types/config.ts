@@ -29,12 +29,6 @@ export interface LoggingConfig {
   readonly format: "json" | "pretty";
   readonly output: "console" | "file" | "both";
   readonly filePath?: string;
-  /**
-   * Show performance metrics (first token latency, tokens/sec, duration)
-   * Useful for debugging and monitoring performance
-   * Default: false (enable with "debug" level or explicitly)
-   */
-  readonly showMetrics?: boolean;
 }
 
 export interface GoogleConfig {

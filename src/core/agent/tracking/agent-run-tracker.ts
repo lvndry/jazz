@@ -252,7 +252,7 @@ function writeTokenUsageLog(
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
 
-    yield* logger.info("Agent token usage", {
+    const logMeta = {
       runId: payload.runId,
       agentId: payload.agentId,
       agentName: payload.agentName,
@@ -284,7 +284,9 @@ function writeTokenUsageLog(
       startedAt: payload.startedAt.toISOString(),
       endedAt: payload.endedAt.toISOString(),
       durationMs: payload.durationMs,
-    });
+    };
+
+    yield* logger.info("Agent token usage", logMeta);
   });
 }
 

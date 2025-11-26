@@ -184,6 +184,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
         ...(override.output.colorProfile !== undefined
           ? { colorProfile: override.output.colorProfile }
           : {}),
+        ...(override.output.showMetrics !== undefined
+          ? { showMetrics: override.output.showMetrics }
+          : {}),
         // Merge streaming config
         ...(override.output.streaming && {
           streaming: { ...(base.output?.streaming ?? {}), ...override.output.streaming },

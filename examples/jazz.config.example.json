@@ -45,6 +45,7 @@
     "showToolExecution": true,
     "mode": "markdown",
     "colorProfile": "full",
+    "showMetrics": true,
     "streaming": {
       "enabled": "auto",
       "textBufferMs": 50

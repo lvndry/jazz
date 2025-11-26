@@ -16,12 +16,11 @@ export interface ModelFetcherService {
 const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => ModelInfo[]>> = {
   ollama: (data: unknown) => {
     // Transform Ollama API response
-    // Example: { models: [{ name: "llama3:latest", model: "llama3:latest", ... }] }
     const response = data as {
-      models?: Array<{
+      models?: {
         name: string;
         model?: string;
-      }>;
+      }[];
     };
 
     const ollamaReasoningModels: string[] = [
@@ -42,13 +41,12 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
   },
   openrouter: (data: unknown) => {
     // Transform OpenRouter API response
-    // Example: { data: [{ id: "openai/gpt-4o", name: "GPT-4o", ... }] }
     const response = data as {
-      data?: Array<{
+      data?: {
         id: string;
-        name?: string;
+        name: string;
         supported_parameters: string[];
-      }>;
+      }[];
     };
 
     return (response.data ?? []).map((model) => {
@@ -58,7 +56,7 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
 
       return {
         id: model.id,
-        displayName: model.name ?? model.id,
+        displayName: model.name,
         isReasoningModel,
       };
     });

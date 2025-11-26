@@ -29,6 +29,8 @@ import { AgentConfigServiceTag, type AgentConfigService } from "../../core/inter
 import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
 import type {
+  ChatCompletionOptions,
+  ChatCompletionResponse,
   LLMConfig,
   LLMProvider,
   ModelInfo,
@@ -43,7 +45,6 @@ import {
 import { safeParseJson } from "../../core/utils/json";
 import { convertToLLMError } from "../../core/utils/llm-error";
 import { createDeferred } from "../../core/utils/promise";
-import { type ChatCompletionOptions, type ChatCompletionResponse } from "./chat";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
 import { StreamProcessor } from "./stream-processor";
@@ -138,9 +139,9 @@ type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerO
 /**
  * Extract all configured providers from LLMConfig with their API keys
  */
-function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; apiKey: string }> {
+function getConfiguredProviders(llmConfig?: LLMConfig): { name: ProviderName; apiKey: string }[] {
   if (!llmConfig) return [];
-  const providers: Array<{ name: string; apiKey: string }> = [];
+  const providers: { name: ProviderName; apiKey: string }[] = [];
 
   if (llmConfig.openai?.api_key) {
     providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
@@ -333,13 +334,11 @@ class AISDKService implements LLMService {
       const providers = getConfiguredProviders(this.config.llmConfig);
 
       providers.forEach(({ name, apiKey }) => {
-        if (this.isProviderName(name)) {
-          if (name === "google") {
-            // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
-            process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
-          } else {
-            process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
-          }
+        if (name === "google") {
+          // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
+          process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
+        } else {
+          process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
         }
       });
     }
@@ -354,20 +353,11 @@ class AISDKService implements LLMService {
   ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never> {
     const modelSource = this.providerModels[providerName];
 
-    if (!modelSource) {
-      return Effect.fail(
-        new LLMConfigurationError({
-          provider: providerName,
-          message: `Unknown provider: ${providerName}`,
-        }),
-      );
-    }
-
     if (modelSource.type === "static") {
       return Effect.succeed(modelSource.models);
     }
 
-    const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
+    const providerConfig = this.config.llmConfig?.[providerName];
     const baseUrl = modelSource.defaultBaseUrl;
 
     if (!baseUrl) {
@@ -572,7 +562,6 @@ class AISDKService implements LLMService {
     const model = selectModel(providerName, options.model, this.config.llmConfig, this.modelCache);
     void this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`);
 
-    // Prepare tools for AI SDK if present
     let tools: ToolSet | undefined;
     if (options.tools && options.tools.length > 0) {
       const toolConversionStart = Date.now();

@@ -1,9 +1,10 @@
 import { Effect } from "effect";
-import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
+import { AVAILABLE_PROVIDERS, type ProviderName } from "../../core/constants/models";
 import { ConfigurationValidationError } from "../../core/types/errors";
 
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
+import type { LoggingConfig } from "../../core/types/config";
 
 /**
  * CLI commands for configuration management
@@ -69,7 +70,12 @@ export function setConfigCommand(
 
     if (value === undefined) {
       if (key === "llm") {
-        const provider = yield* terminal.select("Select LLM provider:", AVAILABLE_PROVIDERS);
+        const provider = yield* terminal.select<ProviderName>("Select LLM provider:", {
+          choices: AVAILABLE_PROVIDERS.map((provider) => ({
+            name: provider,
+            value: provider,
+          })),
+        });
 
         yield* terminal.info(`Configuring ${provider}...`);
 
@@ -104,12 +110,10 @@ export function setConfigCommand(
       }
 
       if (key === "logging") {
-        const level = yield* terminal.select("Select logging level:", [
-          "debug",
-          "info",
-          "warn",
-          "error",
-        ]);
+        const level = yield* terminal.select<LoggingConfig["level"]>("Select logging level:", {
+          choices: ["debug", "info", "warn", "error"],
+        });
+
         yield* configService.set("logging.level", level);
         yield* terminal.success("Logging configuration updated.");
         return;
