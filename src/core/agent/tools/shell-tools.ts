@@ -69,7 +69,6 @@ const FORBIDDEN_COMMANDS = [
 
 interface ExecuteCommandArgs extends Record<string, unknown> {
   readonly command: string;
-  readonly confirm: boolean;
   readonly workingDirectory?: string;
   readonly timeout?: number;
 }
@@ -117,7 +116,6 @@ export function createExecuteCommandTool(): Tool<FileSystemContextService> {
       const schema = z
         .object({
           command: z.string().min(1),
-          confirm: z.boolean(),
           workingDirectory: z.string().optional(),
           timeout: z.number().int().positive().optional(),
         })
@@ -171,7 +169,7 @@ IMPORTANT: After getting user confirmation, you MUST call the execute_command_ap
         success: false,
         result: null,
         error:
-          "Command execution requires approval. Please call this tool with confirm: true after user approval.",
+          "Command execution requires approval. After user approval, call execute_command_approved tool.",
       } as ToolExecutionResult),
     createSummary: (result: ToolExecutionResult) => {
       if (!result.success) {
