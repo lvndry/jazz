@@ -1,5 +1,5 @@
-import type { StorageConfig } from "../../core/types";
-import { getDefaultDataDirectory } from "../../core/utils/runtime-detection";
+import type { StorageConfig } from "../types";
+import { getDefaultDataDirectory } from "./runtime-detection";
 
 /**
  * Resolve the effective directory that should be used for file-based storage.
