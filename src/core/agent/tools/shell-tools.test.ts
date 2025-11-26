@@ -91,7 +91,7 @@ describe("Shell Tools", () => {
     const tool = createExecuteCommandTool();
     const context = {
       agentId: "test-agent",
-      conversationId: "test-conversation",
+      agentName: "test-agent",
     };
 
     const result = await Effect.runPromise(

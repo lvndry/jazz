@@ -59,7 +59,7 @@ export function createWebSearchTool(): ReturnType<
       })
       .strict(),
     validate: (args) => {
-      const result = (
+      const params = (
         z
           .object({
             query: z.string().min(1),
@@ -68,10 +68,11 @@ export function createWebSearchTool(): ReturnType<
           })
           .strict() as z.ZodType<WebSearchArgs>
       ).safeParse(args);
-      if (!result.success) {
-        return { valid: false, errors: result.error.issues.map((i) => i.message) } as const;
+
+      if (!params.success) {
+        return { valid: false, errors: params.error.issues.map((i) => i.message) };
       }
-      return { valid: true, value: result.data } as const;
+      return { valid: true, value: params.data };
     },
     handler: function webSearchHandler(
       args: WebSearchArgs,
