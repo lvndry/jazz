@@ -7,7 +7,7 @@ import {
   getAgentCommand,
   listAgentsCommand,
 } from "./commands/agent-management";
-import { gmailLoginCommand, gmailLogoutCommand, gmailStatusCommand } from "./commands/auth";
+import { googleLoginCommand, googleLogoutCommand, googleStatusCommand } from "./commands/auth";
 import { chatWithAIAgentCommand } from "./commands/chat-agent";
 import { getConfigCommand, listConfigCommand, setConfigCommand } from "./commands/config";
 import { createAgentCommand } from "./commands/create-agent";
@@ -175,40 +175,42 @@ function registerConfigCommands(program: Command): void {
  */
 function registerAuthCommands(program: Command): void {
   const authCommand = program.command("auth").description("Manage authentication");
-  const gmailAuthCommand = authCommand
-    .command("gmail")
-    .description("Gmail authentication commands");
 
-  gmailAuthCommand
+  // Google authentication commands
+  const googleAuthCommand = authCommand
+    .command("google")
+    .description("Google authentication commands (Gmail & Calendar)");
+
+  googleAuthCommand
     .command("login")
-    .description("Authenticate with Gmail")
+    .description("Authenticate with Google (Gmail & Calendar)")
     .action(() => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(gmailLoginCommand(), {
+      runCliEffect(googleLoginCommand(), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
       });
     });
 
-  gmailAuthCommand
+  googleAuthCommand
     .command("logout")
-    .description("Logout from Gmail")
+    .description("Logout from Google (Gmail & Calendar)")
     .action(() => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(gmailLogoutCommand(), {
+      runCliEffect(googleLogoutCommand(), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
       });
     });
 
-  gmailAuthCommand
+  googleAuthCommand
     .command("status")
-    .description("Check Gmail authentication status")
+    .description("Check Google authentication status (Gmail & Calendar)")
     .action(() => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(gmailStatusCommand(), {
+      runCliEffect(googleStatusCommand(), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
@@ -240,7 +242,7 @@ function registerUpdateCommand(program: Command): void {
  * Sets up the Commander.js program with all available commands including:
  * - Agent management (create, list, get, edit, delete, chat)
  * - Configuration management (get, set, show)
- * - Authentication (Gmail login, logout, status)
+ * - Authentication (Google login, logout, status)
  * - Update command
  *
  * @returns An Effect that creates the configured Commander program

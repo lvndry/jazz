@@ -8,6 +8,7 @@ import type {
   ToolExecutionResult,
 } from "../types";
 import type { AgentConfigService } from "./agent-config";
+import type { CalendarService } from "./calendar";
 import type { FileSystemContextService } from "./fs";
 import type { GmailService } from "./gmail";
 import type { LoggerService } from "./logger";
@@ -23,6 +24,7 @@ export type ToolRequirements =
   | FileSystemContextService
   | FileSystem.FileSystem
   | GmailService
+  | CalendarService
   | AgentConfigService
   | LoggerService;
 

@@ -396,10 +396,11 @@ async function promptForAgentUpdates(
 
     // Find which categories contain the agent's current tools
     const defaultCategories: string[] = [];
-    for (const [category, tools] of Object.entries(toolsByCategory)) {
-      // Check if any of the agent's tools are in this category
-      if (tools.some((tool) => currentToolSet.has(tool))) {
-        defaultCategories.push(category);
+    for (const [categoryDisplayName, toolsInCategory] of Object.entries(toolsByCategory)) {
+      // Check if any of the agent's current tools are in this category
+      const hasAgentTool = toolsInCategory.some((toolName) => currentToolSet.has(toolName));
+      if (hasAgentTool) {
+        defaultCategories.push(categoryDisplayName);
       }
     }
 
