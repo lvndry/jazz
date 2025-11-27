@@ -176,7 +176,7 @@ function registerConfigCommands(program: Command): void {
 function registerAuthCommands(program: Command): void {
   const authCommand = program.command("auth").description("Manage authentication");
 
-  // Google authentication commands (unified for Gmail & Calendar)
+  // Google authentication commands
   const googleAuthCommand = authCommand
     .command("google")
     .description("Google authentication commands (Gmail & Calendar)");
@@ -242,7 +242,7 @@ function registerUpdateCommand(program: Command): void {
  * Sets up the Commander.js program with all available commands including:
  * - Agent management (create, list, get, edit, delete, chat)
  * - Configuration management (get, set, show)
- * - Authentication (Google login, logout, status - unified for Gmail & Calendar)
+ * - Authentication (Google login, logout, status)
  * - Update command
  *
  * @returns An Effect that creates the configured Commander program

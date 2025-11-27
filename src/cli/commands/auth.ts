@@ -21,7 +21,7 @@ interface GoogleOAuthToken {
 }
 
 /**
- * Unified Google login command - initiates OAuth flow for Gmail and Calendar
+ * Google login command - initiates OAuth flow for Gmail and Calendar
  */
 export function googleLoginCommand(): Effect.Effect<
   void,
