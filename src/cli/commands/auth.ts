@@ -2,11 +2,10 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
-import { CalendarServiceTag, type CalendarService } from "../../core/interfaces/calendar";
 import { GmailServiceTag, type GmailService } from "../../core/interfaces/gmail";
 import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
-import { CalendarAuthenticationError, GmailAuthenticationError } from "../../core/types/errors";
+import { GmailAuthenticationError } from "../../core/types/errors";
 import { resolveStorageDirectory } from "../../core/utils/storage-utils";
 
 /**
@@ -22,9 +21,9 @@ interface GoogleOAuthToken {
 }
 
 /**
- * Gmail login command - initiates OAuth flow
+ * Unified Google login command - initiates OAuth flow for Gmail and Calendar
  */
-export function gmailLoginCommand(): Effect.Effect<
+export function googleLoginCommand(): Effect.Effect<
   void,
   GmailAuthenticationError,
   GmailService | LoggerService | AgentConfigService | TerminalService
@@ -34,20 +33,21 @@ export function gmailLoginCommand(): Effect.Effect<
     const gmailService = yield* GmailServiceTag;
     const terminal = yield* TerminalServiceTag;
 
-    yield* logger.info("Starting Gmail authentication...");
-    yield* terminal.info("Starting Gmail authentication...");
+    yield* logger.info("Starting Google authentication...");
+    yield* terminal.info("Starting Google authentication...");
+    yield* terminal.log("This will authenticate you for both Gmail and Calendar services.");
 
     yield* gmailService.authenticate();
-    yield* logger.info("Gmail authentication completed successfully");
-    yield* terminal.success("Gmail authentication successful!");
-    yield* terminal.log("You can now use Gmail tools with your agents.");
+    yield* logger.info("Google authentication completed successfully");
+    yield* terminal.success("Google authentication successful!");
+    yield* terminal.log("You can now use Gmail and Calendar tools with your agents.");
   });
 }
 
 /**
- * Gmail logout command - removes stored tokens
+ * Unified Google logout command - removes stored tokens
  */
-export function gmailLogoutCommand(): Effect.Effect<
+export function googleLogoutCommand(): Effect.Effect<
   void,
   never,
   FileSystem.FileSystem | AgentConfigService | LoggerService | TerminalService
@@ -58,8 +58,8 @@ export function gmailLogoutCommand(): Effect.Effect<
     const config = yield* AgentConfigServiceTag;
     const terminal = yield* TerminalServiceTag;
 
-    yield* logger.info("Starting Gmail logout process...");
-    yield* terminal.info("Logging out of Gmail...");
+    yield* logger.info("Starting Google logout process...");
+    yield* terminal.info("Logging out of Google...");
 
     // Get the token file path from config
     const { storage } = yield* config.appConfig;
@@ -83,21 +83,22 @@ export function gmailLogoutCommand(): Effect.Effect<
         }),
       );
 
-      yield* logger.info("Gmail token removed successfully");
-      yield* terminal.success("Successfully logged out of Gmail");
+      yield* logger.info("Google token removed successfully");
+      yield* terminal.success("Successfully logged out of Google");
       yield* terminal.log("Your authentication tokens have been removed.");
+      yield* terminal.log("This affects both Gmail and Calendar services.");
     } else {
-      yield* logger.info("No Gmail token found to remove");
-      yield* terminal.info("No Gmail authentication found");
-      yield* terminal.log("You were not logged in to Gmail.");
+      yield* logger.info("No Google token found to remove");
+      yield* terminal.info("No Google authentication found");
+      yield* terminal.log("You were not logged in to Google.");
     }
   });
 }
 
 /**
- * Check Gmail authentication status
+ * Unified Google status command - checks authentication status
  */
-export function gmailStatusCommand(): Effect.Effect<
+export function googleStatusCommand(): Effect.Effect<
   void,
   never,
   FileSystem.FileSystem | AgentConfigService | LoggerService | TerminalService
@@ -108,8 +109,8 @@ export function gmailStatusCommand(): Effect.Effect<
     const config = yield* AgentConfigServiceTag;
     const terminal = yield* TerminalServiceTag;
 
-    yield* logger.info("Checking Gmail authentication status...");
-    yield* terminal.info("Checking Gmail authentication status...");
+    yield* logger.info("Checking Google authentication status...");
+    yield* terminal.info("Checking Google authentication status...");
 
     // Get the token file path from config
     const { storage } = yield* config.appConfig;
@@ -131,79 +132,38 @@ export function gmailStatusCommand(): Effect.Effect<
         try {
           const token = JSON.parse(tokenContent) as GoogleOAuthToken;
 
-          yield* logger.info("Gmail token found and parsed", {
+          yield* logger.info("Google token found and parsed", {
             hasAccessToken: !!token.access_token,
             hasRefreshToken: !!token.refresh_token,
           });
 
-          yield* terminal.success("Gmail authentication status:");
+          yield* terminal.success("Google authentication status:");
           yield* terminal.log(`   Access Token: ${token.access_token ? "Present" : "Missing"}`);
           yield* terminal.log(`   Refresh Token: ${token.refresh_token ? "Present" : "Missing"}`);
 
           if (token.scope) {
             yield* terminal.log(`   Scopes: ${token.scope}`);
           }
+
+          yield* terminal.log("");
+          yield* terminal.log("   Services enabled:");
+          yield* terminal.log("   ✓ Gmail");
+          yield* terminal.log("   ✓ Calendar");
         } catch (parseError) {
-          yield* logger.error("Failed to parse Gmail token", { error: parseError });
-          yield* terminal.warn("Gmail token file exists but is corrupted");
-          yield* terminal.log("   Run 'jazz auth gmail logout' to clean up and re-authenticate");
+          yield* logger.error("Failed to parse Google token", { error: parseError });
+          yield* terminal.warn("Google token file exists but is corrupted");
+          yield* terminal.log("   Run 'jazz auth google logout' to clean up and re-authenticate");
         }
       } else {
-        yield* logger.info("Gmail token file is empty");
-        yield* terminal.warn("Gmail token file exists but is empty");
-        yield* terminal.log("   Run 'jazz auth gmail logout' to clean up and re-authenticate");
+        yield* logger.info("Google token file is empty");
+        yield* terminal.warn("Google token file exists but is empty");
+        yield* terminal.log("   Run 'jazz auth google logout' to clean up and re-authenticate");
       }
     } else {
-      yield* logger.info("No Gmail token found");
-      yield* terminal.error("Gmail authentication status:");
+      yield* logger.info("No Google token found");
+      yield* terminal.error("Google authentication status:");
       yield* terminal.log("   Status: Not authenticated");
-      yield* terminal.log("   Run 'jazz auth gmail login' to authenticate");
+      yield* terminal.log("   Run 'jazz auth google login' to authenticate");
     }
   });
-}
-
-/**
- * Calendar login command - initiates OAuth flow
- */
-export function calendarLoginCommand(): Effect.Effect<
-  void,
-  CalendarAuthenticationError,
-  CalendarService | LoggerService | AgentConfigService | TerminalService
-> {
-  return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
-    const calendarService = yield* CalendarServiceTag;
-    const terminal = yield* TerminalServiceTag;
-
-    yield* logger.info("Starting Calendar authentication...");
-    yield* terminal.info("Starting Calendar authentication...");
-    yield* terminal.log("Note: Calendar shares authentication with Gmail");
-
-    yield* calendarService.authenticate();
-    yield* logger.info("Calendar authentication completed successfully");
-    yield* terminal.success("Calendar authentication successful!");
-    yield* terminal.log("You can now use Calendar tools with your agents.");
-  });
-}
-
-/**
- * Calendar logout command - removes stored tokens (shares token with Gmail)
- */
-export function calendarLogoutCommand(): Effect.Effect<
-  void,
-  never,
-  FileSystem.FileSystem | AgentConfigService | LoggerService | TerminalService
-> {
-  return gmailLogoutCommand(); // Calendar shares tokens with Gmail
-}
-
-/**
- * Calendar status command - checks authentication status (shares token with Gmail)
- */
-export function calendarStatusCommand(): Effect.Effect<
-  void,
-  never,
-  FileSystem.FileSystem | AgentConfigService | LoggerService | TerminalService
-> {
-  return gmailStatusCommand(); // Calendar shares tokens with Gmail
 }
