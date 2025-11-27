@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import Exa from "exa-js";
 import { LinkupClient, type SearchDepth } from "linkup-sdk";
+import Parallel from "parallel-web";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
@@ -27,7 +28,7 @@ export interface WebSearchResult {
   readonly totalResults: number;
   readonly query: string;
   readonly timestamp: string;
-  readonly provider: "linkup" | "exa";
+  readonly provider: "linkup" | "exa" | "parallel";
 }
 
 export function createWebSearchTool(): ReturnType<
@@ -88,7 +89,9 @@ export function createWebSearchTool(): ReturnType<
           const linkupResult = yield* executeLinkupSearch(args, linkupKey).pipe(
             Effect.catchAll((error) => {
               return logger
-                .warn(`Linkup search failed: ${error.message}`)
+                .warn(
+                  `Linkup search failed: ${error instanceof Error ? error.message : String(error)}`,
+                )
                 .pipe(Effect.map(() => null as WebSearchResult | null));
             }),
           );
@@ -108,7 +111,9 @@ export function createWebSearchTool(): ReturnType<
           const exaResult = yield* executeExaSearch(args, exaKey).pipe(
             Effect.catchAll((error) => {
               return logger
-                .warn(`Exa search failed: ${error.message}`)
+                .warn(
+                  `Exa search failed: ${error instanceof Error ? error.message : String(error)}`,
+                )
                 .pipe(Effect.map(() => null as WebSearchResult | null));
             }),
           );
@@ -121,12 +126,34 @@ export function createWebSearchTool(): ReturnType<
           }
         }
 
-        if (!linkupKey && !exaKey) {
+        // Try Parallel if API key is present
+        const parallelKey = yield* config.getOrElse("parallel.api_key", "");
+        if (parallelKey) {
+          yield* logger.info("Attempting search with Parallel provider...");
+          const parallelResult = yield* executeParallelSearch(args, parallelKey).pipe(
+            Effect.catchAll((error) => {
+              return logger
+                .warn(
+                  `Parallel search failed: ${error instanceof Error ? error.message : String(error)}`,
+                )
+                .pipe(Effect.map(() => null as WebSearchResult | null));
+            }),
+          );
+
+          if (parallelResult) {
+            return {
+              success: true,
+              result: parallelResult,
+            };
+          }
+        }
+
+        if (!linkupKey && !exaKey && !parallelKey) {
           return {
             success: false,
             result: null,
             error:
-              "No search provider API keys found. Please configure 'linkup.api_key' or 'exa.api_key'.",
+              "No search provider API keys found. Please configure 'linkup.api_key', 'exa.api_key', or 'parallel.api_key'.",
           };
         }
 
@@ -148,6 +175,7 @@ export function createWebSearchTool(): ReturnType<
 
 let cachedLinkupClient: LinkupClient | null = null;
 let cachedExaClient: Exa | null = null;
+let cachedParallelClient: Parallel | null = null;
 
 /**
  * Execute a Linkup search
@@ -252,6 +280,58 @@ function executeExaSearch(
       query: args.query,
       timestamp: new Date().toISOString(),
       provider: "exa" as const,
+    };
+  });
+}
+
+/**
+ * Execute a Parallel search
+ */
+function executeParallelSearch(
+  args: WebSearchArgs,
+  apiKey: string,
+): Effect.Effect<WebSearchResult, Error, LoggerService> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+
+    if (!cachedParallelClient) {
+      cachedParallelClient = new Parallel({ apiKey });
+    }
+
+    const parallel = cachedParallelClient;
+
+    yield* logger.info(
+      `Executing Parallel search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
+    );
+
+    const response = yield* Effect.tryPromise({
+      try: async () => {
+        return await parallel.beta.search({
+          objective: args.query,
+        });
+      },
+      catch: (error) =>
+        new Error(
+          `Parallel search failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    });
+
+    const results: WebSearchItem[] = (response.results || []).map((result) => ({
+      title: result.title || "",
+      url: result.url || "",
+      snippet: result.excerpts?.join(" ") || "",
+      ...(result.publish_date ? { publishedDate: result.publish_date } : {}),
+      source: "parallel",
+    }));
+
+    yield* logger.info(`Parallel search found ${results.length} results`);
+
+    return {
+      results,
+      totalResults: results.length,
+      query: args.query,
+      timestamp: new Date().toISOString(),
+      provider: "parallel" as const,
     };
   });
 }
