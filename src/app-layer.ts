@@ -12,6 +12,7 @@ import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
 import { createAgentServiceLayer } from "./services/agent-service";
+import { createCalendarServiceLayer } from "./services/calendar";
 import { createChatServiceLayer } from "./services/chat-service";
 import { createConfigLayer } from "./services/config";
 import { createFileSystemContextServiceLayer } from "./services/fs";
@@ -81,6 +82,13 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(loggerLayer),
   );
 
+  const calendarLayer = createCalendarServiceLayer().pipe(
+    Layer.provide(fileSystemLayer),
+    Layer.provide(configLayer),
+    Layer.provide(loggerLayer),
+    Layer.provide(terminalLayer),
+  );
+
   const llmLayer = createAISDKServiceLayer().pipe(
     Layer.provide(configLayer),
     Layer.provide(loggerLayer),
@@ -115,6 +123,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     terminalLayer,
     storageLayer,
     gmailLayer,
+    calendarLayer,
     llmLayer,
     toolRegistryLayer,
     shellLayer,

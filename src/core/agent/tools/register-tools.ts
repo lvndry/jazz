@@ -2,6 +2,7 @@ import { Effect, Layer } from "effect";
 import type { ToolRegistry } from "../../interfaces/tool-registry";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { ToolCategory } from "../../types";
+import { calendarTools } from "./calendar-tools";
 import {
   createCdTool,
   createEditFileTool,
@@ -69,6 +70,7 @@ import { createWebSearchTool } from "./web-search-tools";
 export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     yield* registerGmailTools();
+    yield* registerCalendarTools();
     yield* registerFileTools();
     yield* registerShellTools();
     yield* registerGitTools();
@@ -78,6 +80,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
 }
 
 export const GMAIL_CATEGORY: ToolCategory = { id: "gmail", displayName: "Gmail" };
+export const CALENDAR_CATEGORY: ToolCategory = { id: "calendar", displayName: "Calendar" };
 export const HTTP_CATEGORY: ToolCategory = { id: "http", displayName: "HTTP" };
 export const FILE_MANAGEMENT_CATEGORY: ToolCategory = {
   id: "file_management",
@@ -100,6 +103,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   HTTP_CATEGORY,
   WEB_SEARCH_CATEGORY,
   GMAIL_CATEGORY,
+  CALENDAR_CATEGORY,
 ] as const;
 
 /**
@@ -176,6 +180,19 @@ export function registerGmailTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(addLabelsToEmailTool);
     yield* registerTool(removeLabelsFromEmailTool);
     yield* registerTool(batchModifyEmailsTool);
+  });
+}
+
+// Register Calendar tools
+export function registerCalendarTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(CALENDAR_CATEGORY);
+
+    // Register all calendar tools
+    for (const tool of calendarTools) {
+      yield* registerTool(tool);
+    }
   });
 }
 

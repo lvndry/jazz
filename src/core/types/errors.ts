@@ -200,6 +200,18 @@ export class GmailTaskError extends Data.TaggedError("GmailTaskError")<{
   readonly suggestion?: string;
 }> {}
 
+export class CalendarAuthenticationError extends Data.TaggedError("CalendarAuthenticationError")<{
+  readonly message: string;
+  readonly suggestion?: string;
+}> {}
+
+export class CalendarOperationError extends Data.TaggedError("CalendarOperationError")<{
+  readonly operation?: string;
+  readonly message: string;
+  readonly status?: number;
+  readonly suggestion?: string;
+}> {}
+
 // Update Errors
 export class UpdateCheckError extends Data.TaggedError("UpdateCheckError")<{
   readonly message: string;
@@ -276,5 +288,7 @@ export type JazzError =
   | GmailAuthenticationError
   | GmailOperationError
   | GmailTaskError
+  | CalendarAuthenticationError
+  | CalendarOperationError
   | UpdateCheckError
   | UpdateInstallError;

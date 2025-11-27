@@ -7,7 +7,14 @@ import {
   getAgentCommand,
   listAgentsCommand,
 } from "./commands/agent-management";
-import { gmailLoginCommand, gmailLogoutCommand, gmailStatusCommand } from "./commands/auth";
+import {
+  calendarLoginCommand,
+  calendarLogoutCommand,
+  calendarStatusCommand,
+  gmailLoginCommand,
+  gmailLogoutCommand,
+  gmailStatusCommand,
+} from "./commands/auth";
 import { chatWithAIAgentCommand } from "./commands/chat-agent";
 import { getConfigCommand, listConfigCommand, setConfigCommand } from "./commands/config";
 import { createAgentCommand } from "./commands/create-agent";
@@ -175,6 +182,8 @@ function registerConfigCommands(program: Command): void {
  */
 function registerAuthCommands(program: Command): void {
   const authCommand = program.command("auth").description("Manage authentication");
+
+  // Gmail authentication commands
   const gmailAuthCommand = authCommand
     .command("gmail")
     .description("Gmail authentication commands");
@@ -214,6 +223,47 @@ function registerAuthCommands(program: Command): void {
         configPath: opts.config,
       });
     });
+
+  // Calendar authentication commands
+  const calendarAuthCommand = authCommand
+    .command("calendar")
+    .description("Calendar authentication commands");
+
+  calendarAuthCommand
+    .command("login")
+    .description("Authenticate with Calendar")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(calendarLoginCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  calendarAuthCommand
+    .command("logout")
+    .description("Logout from Calendar")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(calendarLogoutCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  calendarAuthCommand
+    .command("status")
+    .description("Check Calendar authentication status")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(calendarStatusCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
 }
 
 /**
@@ -240,7 +290,7 @@ function registerUpdateCommand(program: Command): void {
  * Sets up the Commander.js program with all available commands including:
  * - Agent management (create, list, get, edit, delete, chat)
  * - Configuration management (get, set, show)
- * - Authentication (Gmail login, logout, status)
+ * - Authentication (Gmail and Calendar login, logout, status)
  * - Update command
  *
  * @returns An Effect that creates the configured Commander program

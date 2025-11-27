@@ -2,10 +2,11 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
+import { CalendarServiceTag, type CalendarService } from "../../core/interfaces/calendar";
 import { GmailServiceTag, type GmailService } from "../../core/interfaces/gmail";
 import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
-import { GmailAuthenticationError } from "../../core/types/errors";
+import { CalendarAuthenticationError, GmailAuthenticationError } from "../../core/types/errors";
 import { resolveStorageDirectory } from "../../core/utils/storage-utils";
 
 /**
@@ -159,4 +160,50 @@ export function gmailStatusCommand(): Effect.Effect<
       yield* terminal.log("   Run 'jazz auth gmail login' to authenticate");
     }
   });
+}
+
+/**
+ * Calendar login command - initiates OAuth flow
+ */
+export function calendarLoginCommand(): Effect.Effect<
+  void,
+  CalendarAuthenticationError,
+  CalendarService | LoggerService | AgentConfigService | TerminalService
+> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+    const calendarService = yield* CalendarServiceTag;
+    const terminal = yield* TerminalServiceTag;
+
+    yield* logger.info("Starting Calendar authentication...");
+    yield* terminal.info("Starting Calendar authentication...");
+    yield* terminal.log("Note: Calendar shares authentication with Gmail");
+
+    yield* calendarService.authenticate();
+    yield* logger.info("Calendar authentication completed successfully");
+    yield* terminal.success("Calendar authentication successful!");
+    yield* terminal.log("You can now use Calendar tools with your agents.");
+  });
+}
+
+/**
+ * Calendar logout command - removes stored tokens (shares token with Gmail)
+ */
+export function calendarLogoutCommand(): Effect.Effect<
+  void,
+  never,
+  FileSystem.FileSystem | AgentConfigService | LoggerService | TerminalService
+> {
+  return gmailLogoutCommand(); // Calendar shares tokens with Gmail
+}
+
+/**
+ * Calendar status command - checks authentication status (shares token with Gmail)
+ */
+export function calendarStatusCommand(): Effect.Effect<
+  void,
+  never,
+  FileSystem.FileSystem | AgentConfigService | LoggerService | TerminalService
+> {
+  return gmailStatusCommand(); // Calendar shares tokens with Gmail
 }
