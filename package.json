@@ -79,6 +79,7 @@
     "marked-terminal": "^7.3.0",
     "ollama-ai-provider-v2": "^1.5.4",
     "open": "^10.2.0",
+    "parallel-web": "^0.2.4",
     "short-uuid": "^5.0.1",
     "zod": "^4.1.9"
   },
