@@ -7,6 +7,13 @@ import { GmailAuthenticationError, GmailOperationError } from "../core/types";
 import { GmailService } from "./../core/interfaces/gmail";
 import { GmailServiceResource } from "./gmail";
 
+// Helper constant for test tokens with required scopes
+const TEST_TOKEN_WITH_SCOPES = JSON.stringify({
+  access_token: "test",
+  scope:
+    "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.labels https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events",
+});
+
 describe("GmailService", () => {
   let mockFileSystem: FileSystem.FileSystem;
   let mockGmail: gmail_v1.Gmail;
@@ -73,6 +80,8 @@ describe("GmailService", () => {
       password: mock(() => Effect.succeed("")),
       select: mock(() => Effect.succeed("")),
       confirm: mock(() => Effect.succeed(true)),
+      search: mock(() => Effect.succeed("")),
+      checkbox: mock(() => Effect.succeed([""])),
     } as TerminalService;
 
     // Create service instance
@@ -92,6 +101,8 @@ describe("GmailService", () => {
         access_token: "test-token",
         refresh_token: "test-refresh",
         expiry_date: Date.now() + 3600000,
+        scope:
+          "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.labels https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events",
       });
 
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
@@ -113,7 +124,7 @@ describe("GmailService", () => {
   describe("listEmails", () => {
     it("should return empty array when no messages", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       (mockGmail.users.messages.list as ReturnType<typeof mock>).mockResolvedValue({
@@ -131,7 +142,7 @@ describe("GmailService", () => {
 
     it("should return emails with metadata", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockMessage = {
@@ -171,7 +182,7 @@ describe("GmailService", () => {
 
     it("should support query parameter", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       (mockGmail.users.messages.list as ReturnType<typeof mock>).mockResolvedValue({
@@ -189,7 +200,7 @@ describe("GmailService", () => {
 
     it("should handle API errors", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       // Mock a rejected promise - create error in a way that won't throw during test setup
@@ -245,7 +256,7 @@ describe("GmailService", () => {
   describe("getEmail", () => {
     it("should return email with full body", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockMessage = {
@@ -284,7 +295,7 @@ describe("GmailService", () => {
 
     it("should handle missing email", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const createError = () => {
@@ -314,7 +325,7 @@ describe("GmailService", () => {
   describe("sendEmail", () => {
     it("should create draft email", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       (mockGmail.users.drafts.create as ReturnType<typeof mock>).mockResolvedValue({});
@@ -329,7 +340,7 @@ describe("GmailService", () => {
 
     it("should include CC and BCC", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       (mockGmail.users.drafts.create as ReturnType<typeof mock>).mockResolvedValue({});
@@ -348,7 +359,7 @@ describe("GmailService", () => {
 
     it("should handle send errors", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const createError = () => {
@@ -378,7 +389,7 @@ describe("GmailService", () => {
   describe("searchEmails", () => {
     it("should delegate to listEmails with query", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       (mockGmail.users.messages.list as ReturnType<typeof mock>).mockResolvedValue({
@@ -398,7 +409,7 @@ describe("GmailService", () => {
   describe("listLabels", () => {
     it("should return labels", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockLabels = [
@@ -432,7 +443,7 @@ describe("GmailService", () => {
 
     it("should handle empty labels", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       (mockGmail.users.labels.list as ReturnType<typeof mock>).mockResolvedValue({
@@ -448,7 +459,7 @@ describe("GmailService", () => {
   describe("createLabel", () => {
     it("should create label with all options", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockLabel = {
@@ -484,7 +495,7 @@ describe("GmailService", () => {
 
     it("should create label with minimal options", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockLabel = {
@@ -506,7 +517,7 @@ describe("GmailService", () => {
   describe("updateLabel", () => {
     it("should update label name", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockLabel = {
@@ -528,7 +539,7 @@ describe("GmailService", () => {
 
     it("should update label color", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockLabel = {
@@ -561,7 +572,7 @@ describe("GmailService", () => {
   describe("deleteLabel", () => {
     it("should delete label", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       (mockGmail.users.labels.delete as ReturnType<typeof mock>).mockResolvedValue({});
@@ -579,7 +590,7 @@ describe("GmailService", () => {
   describe("modifyEmail", () => {
     it("should add labels to email", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockMessage = {
@@ -613,7 +624,7 @@ describe("GmailService", () => {
 
     it("should remove labels from email", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockMessage = {
@@ -646,7 +657,7 @@ describe("GmailService", () => {
   describe("batchModifyEmails", () => {
     it("should batch modify multiple emails", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       (mockGmail.users.messages.batchModify as ReturnType<typeof mock>).mockResolvedValue({});
@@ -669,7 +680,7 @@ describe("GmailService", () => {
   describe("trashEmail", () => {
     it("should trash email", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       (mockGmail.users.messages.trash as ReturnType<typeof mock>).mockResolvedValue({});
@@ -687,7 +698,7 @@ describe("GmailService", () => {
   describe("deleteEmail", () => {
     it("should permanently delete email", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       (mockGmail.users.messages.delete as ReturnType<typeof mock>).mockResolvedValue({});
@@ -705,7 +716,7 @@ describe("GmailService", () => {
   describe("error handling", () => {
     it("should handle GaxiosError with status code", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const createError = () => {
@@ -730,7 +741,7 @@ describe("GmailService", () => {
 
     it("should handle errors without status code", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const error = new Error("Network error");
@@ -751,7 +762,7 @@ describe("GmailService", () => {
   describe("parseMessageToEmail", () => {
     it("should parse email with CC and BCC", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockMessage = {
@@ -784,7 +795,7 @@ describe("GmailService", () => {
 
     it("should handle missing headers gracefully", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockMessage = {
@@ -814,7 +825,7 @@ describe("GmailService", () => {
   describe("parseLabelToGmailLabel", () => {
     it("should parse label with all fields", async () => {
       (mockFileSystem.readFileString as ReturnType<typeof mock>).mockReturnValue(
-        Effect.succeed(JSON.stringify({ access_token: "test" })),
+        Effect.succeed(TEST_TOKEN_WITH_SCOPES),
       );
 
       const mockLabel = {
