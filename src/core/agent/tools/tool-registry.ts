@@ -176,53 +176,79 @@ class DefaultToolRegistry implements ToolRegistry {
     context: ToolExecutionContext,
   ): Effect.Effect<
     ToolExecutionResult,
-    Error,
+    never,
     ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
   > {
-    function* generator(this: DefaultToolRegistry) {
+    // Capture this to avoid issues with Effect.gen not preserving context
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const registry = this;
+    return Effect.gen(function* () {
       const start = Date.now();
-      const tool = yield* this.getTool(name);
+      // getTool errors should fail fast (tool not found is a critical error)
+      const tool = yield* registry.getTool(name);
 
       yield* logToolExecutionStart(name, args);
 
-      try {
-        const result = yield* tool.execute(args, context);
+      // Execute tool and catch all errors (both Effect errors and tool handler errors)
+      // Use either to convert errors to success values
+      const eitherResult = yield* tool.execute(args, context).pipe(Effect.either);
+
+      let result: ToolExecutionResult;
+      if (eitherResult._tag === "Left") {
         const durationMs = Date.now() - start;
+        const errorMessage =
+          eitherResult.left instanceof Error
+            ? eitherResult.left.message
+            : String(eitherResult.left);
 
-        if (result.success) {
-          // Create a summary of the result for better logging
-          const resultSummary = tool.createSummary?.(result);
-
-          // Log successful execution with improved formatting
-          yield* logToolExecutionSuccess(name, durationMs, resultSummary, result.result);
-        } else {
-          // If this is an approval-required response, log as warning with special label
-          const resultObj = result.result as
-            | { approvalRequired?: boolean; message?: string }
-            | undefined;
-          const isApproval = resultObj?.approvalRequired === true;
-          if (isApproval) {
-            const approvalMsg = resultObj?.message || result.error || "Approval required";
-            yield* logToolExecutionApproval(name, durationMs, approvalMsg);
-          } else {
-            const errorMessage = result.error || "Tool returned success=false";
-            yield* logToolExecutionError(name, durationMs, errorMessage);
-          }
-        }
-
-        return result;
-      } catch (err) {
-        const durationMs = Date.now() - start;
-        const errorMessage = err instanceof Error ? err.message : String(err);
-
-        // Log error with improved formatting
         yield* logToolExecutionError(name, durationMs, errorMessage);
 
-        throw err as Error;
+        result = {
+          success: false,
+          result: null,
+          error: errorMessage,
+        };
+      } else {
+        // Effect succeeded - use the result
+        result = eitherResult.right;
       }
-    }
 
-    return Effect.gen(generator.bind(this));
+      const durationMs = Date.now() - start;
+
+      if (result.success) {
+        // Create a summary of the result for better logging
+        const resultSummary = tool.createSummary?.(result);
+
+        // Log successful execution with improved formatting
+        yield* logToolExecutionSuccess(name, durationMs, resultSummary, result.result);
+      } else {
+        // If this is an approval-required response, log as warning with special label
+        const resultObj = result.result as
+          | { approvalRequired?: boolean; message?: string }
+          | undefined;
+        const isApproval = resultObj?.approvalRequired === true;
+        if (isApproval) {
+          const approvalMsg = resultObj?.message || result.error || "Approval required";
+          yield* logToolExecutionApproval(name, durationMs, approvalMsg);
+        } else {
+          const errorMessage = result.error || "Tool returned success=false";
+          yield* logToolExecutionError(name, durationMs, errorMessage);
+        }
+      }
+
+      return result;
+    }).pipe(
+      Effect.catchAll((error: Error) => {
+        return Effect.gen(function* () {
+          yield* logToolExecutionError(name, 0, error.message);
+          return {
+            success: false,
+            result: null,
+            error: error.message,
+          } as ToolExecutionResult;
+        });
+      }),
+    );
   }
 }
 

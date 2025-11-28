@@ -136,11 +136,6 @@ export class ToolExecutor {
 
         return { toolCallId: toolCall.id, result: result.result, success: result.success, name };
       } catch (error) {
-        // Fail fast on missing tools
-        if (error instanceof Error && error.message.startsWith("Tool not found")) {
-          throw error;
-        }
-
         const toolDuration = Date.now() - toolStartTime;
         const errorMessage = error instanceof Error ? error.message : String(error);
 

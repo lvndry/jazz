@@ -511,7 +511,7 @@ export class GmailServiceResource implements GmailService {
       : undefined;
     const date = headers["date"] || new Date().toISOString();
 
-    const attachments: GmailEmail["attachments"] | undefined = [];
+    const attachments: GmailEmail["attachments"] = [];
 
     let bodyText: string | undefined;
     if (includeBody) {

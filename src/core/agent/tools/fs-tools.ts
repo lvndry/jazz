@@ -1538,6 +1538,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     },
     handler: (args, context) =>
       Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const start = args.path
           ? yield* shell.resolvePath(buildKeyFromContext(context), args.path)
@@ -1546,11 +1547,35 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const maxResults =
           typeof args.maxResults === "number" && args.maxResults > 0 ? args.maxResults : 5000;
 
+        // Check if the path exists and determine if it's a file or directory
+        const stat = yield* fs.stat(start).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+        if (stat === null) {
+          return yield* Effect.fail(new Error(`Path does not exist: ${start}`));
+        }
+
+        // Determine the working directory and search path
+        let workingDir: string;
+        let searchPath: string;
+
+        if (stat.type === "Directory") {
+          workingDir = start;
+          searchPath = start;
+        } else if (stat.type === "File") {
+          // If it's a file, use its parent directory as working directory and the file as search path
+          const pathModule = yield* Effect.promise(() => import("path"));
+          workingDir = pathModule.dirname(start);
+          searchPath = start;
+        } else {
+          workingDir = start;
+          searchPath = start;
+        }
+
         // Build grep command arguments
         const grepArgs: string[] = [];
 
-        // Add recursive flag
-        if (recursive) {
+        // Add recursive flag (only if searching a directory)
+        if (recursive && stat.type === "Directory") {
           grepArgs.push("-r");
         }
 
@@ -1597,7 +1622,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         }
 
         // Add the search pattern and path
-        grepArgs.push(searchPattern, start);
+        grepArgs.push(searchPattern, searchPath);
 
         // Execute the grep command using proper argument passing (no shell injection risk)
         const result = yield* Effect.promise<{
@@ -1609,7 +1634,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
             new Promise((resolve, reject) => {
               const sanitizedEnv = createSanitizedEnv();
               const child = spawn("grep", grepArgs, {
-                cwd: start,
+                cwd: workingDir,
                 stdio: ["ignore", "pipe", "pipe"],
                 env: sanitizedEnv,
                 timeout: 30000,

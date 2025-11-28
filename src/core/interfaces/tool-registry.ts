@@ -186,7 +186,7 @@ export interface ToolRegistry {
     context: ToolExecutionContext,
   ) => Effect.Effect<
     ToolExecutionResult,
-    Error,
+    never,
     ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
   >;
 }
