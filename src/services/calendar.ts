@@ -414,7 +414,7 @@ export class CalendarServiceResource implements CalendarService {
     const validResponseStatuses = ["needsAction", "declined", "tentative", "accepted"] as const;
     const attendees: CalendarEventAttendee[] =
       event.attendees?.map((attendee) => {
-        const responseStatus: CalendarEventAttendee["responseStatus"] | undefined =
+        const responseStatus: CalendarEventAttendee["responseStatus"] =
           attendee.responseStatus !== undefined &&
           attendee.responseStatus !== null &&
           validResponseStatuses.includes(

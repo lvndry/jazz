@@ -1,6 +1,6 @@
 export const SHARED_CONTEXT = `
 ## Current Context
-- Current Date (ISO format): {currentDate}
+- Current Date: {currentDate}
 - System Information: {systemInfo}
 - User Information: {userInfo}
 `;

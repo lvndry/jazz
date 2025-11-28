@@ -56,7 +56,7 @@ export class AgentPromptBuilder {
     never
   > {
     return Effect.sync(() => {
-      const currentDate = new Date().toISOString();
+      const currentDate = new Date().toString();
       const platform = os.platform();
       const arch = os.arch();
       const release = os.release();
