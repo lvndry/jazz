@@ -19,6 +19,7 @@ import {
   createMkdirTool,
   createPwdTool,
   createReadFileTool,
+  createReadPdfTool,
   createRmTool,
   createStatTool,
   createTailTool,
@@ -219,6 +220,7 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     const cd = createCdTool();
     const grep = createGrepTool();
     const readFile = createReadFileTool();
+    const readPdf = createReadPdfTool();
     const head = createHeadTool();
     const tail = createTailTool();
     const find = createFindTool();
@@ -239,6 +241,7 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(cd);
     yield* registerTool(grep);
     yield* registerTool(readFile);
+    yield* registerTool(readPdf);
     yield* registerTool(head);
     yield* registerTool(tail);
     yield* registerTool(writeFile);
