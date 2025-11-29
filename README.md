@@ -44,7 +44,7 @@ Git, Gmail, filesystem, shell, web search, HTTP, PDF, and more. Just create an a
 
 ### 🧠 Multi LLM, Model Agnostic
 
-Switch between OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama, and more—even mid-conversation. Your agents aren't locked to one provider.
+Switch between OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama, Openrouter and more, even mid-conversation. Your agents aren't locked to one provider.
 
 ### 🔒 Safety First
 
