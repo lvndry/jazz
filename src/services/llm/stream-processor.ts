@@ -275,7 +275,12 @@ export class StreamProcessor {
             this.state.finishEventReceived = true;
             this.state.finishReason = finishReason;
 
-            // Validate expected finish reasons
+            // Handle error finish reason
+            if (finishReason === "error") {
+              const error = "error" in part ? part.error : new Error("Unexpected error");
+              throw error;
+            }
+
             if (
               finishReason !== "stop" &&
               finishReason !== "length" &&
@@ -304,8 +309,7 @@ export class StreamProcessor {
     const toolCalls =
       this.state.collectedToolCalls.length > 0 ? this.state.collectedToolCalls : undefined;
 
-    // Try to get usage quickly (50ms timeout)
-    let usage: ChatCompletionResponse["usage"] | undefined;
+    let usage: ChatCompletionResponse["usage"];
     try {
       const usageResult = await Promise.race([
         result.usage,

@@ -80,21 +80,23 @@ export class ChatServiceImpl implements ChatService {
 
       while (chatActive) {
         // Prompt for user input
-        const userMessage = yield* terminal.ask("You:").pipe(
-          Effect.catchAll((error: unknown) => {
-            // Handle ExitPromptError from inquirer when user presses Ctrl+C
-            if (
-              error instanceof Error &&
-              (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
-            ) {
-              // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
-              // The exit check below will handle the goodbye message
-              return Effect.succeed("/exit");
-            }
-            // Re-throw other errors, ensuring it's an Error instance
-            return Effect.fail(error instanceof Error ? error : new Error(String(error)));
-          }),
-        );
+        const userMessage = yield* terminal
+          .ask("You:", { defaultValue: "/help for commands" })
+          .pipe(
+            Effect.catchAll((error: unknown) => {
+              // Handle ExitPromptError from inquirer when user presses Ctrl+C
+              if (
+                error instanceof Error &&
+                (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
+              ) {
+                // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
+                // The exit check below will handle the goodbye message
+                return Effect.succeed("/exit");
+              }
+              // Re-throw other errors, ensuring it's an Error instance
+              return Effect.fail(error instanceof Error ? error : new Error(String(error)));
+            }),
+          );
 
         const trimmedMessage = userMessage.trim();
         const lowerMessage = trimmedMessage.toLowerCase();

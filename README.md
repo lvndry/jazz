@@ -10,24 +10,216 @@
 
 ---
 
-## What Jazz Gives You
+## 📑 Table of Contents
 
-Turn plain language into **safe, auditable actions**. Jazz agents read email, run git commands, edit files, call APIs, research the web, and orchestrate multi-step workflows.
-
-**In short:** Jazz can do literally everything an agent should do for real work and save you the manual steps.
-
-For example:
-
-- **Email Management** — Summarize and triage your inbox, draft replies, and label messages
-- **Git Operations** — Inspect repos, propose and create commits, push changes when you approve
-- **Web Research** — Search the web for up-to-date answers and synthesize sources into a brief
-- **Shell & Files** — Run shell commands, read and edit files
-- **API Integration** — Call remote APIs (HTTP) and combine results into reports or automation flows
-- **Much more**
+- [Why Jazz?](#why-jazz)
+- [See Jazz in Action](#see-jazz-in-action)
+- [Quick Start](#-quick-start)
+- [Usage Highlights](#-usage-highlights)
+- [Built for Production](#️-built-for-production)
+- [What's Next](#️-whats-next)
+- [Documentation & Community](#-documentation--community)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ---
 
-## 🚀 Quick Start — Get Productive in Minutes
+## Why Jazz?
+
+### 🤖 Not Just Chat, Real Action
+
+**Jazz doesn't just talk about work, it does the work.**
+
+Ask Jazz to `analyze yesterday's unread emails and archive newsletters`, it connects to Gmail, reads your inbox, categorizes messages, and archives them. Ask it to `commit my changes with a good message`, it runs `git diff`, analyzes your changes, generates a semantic commit message, and commits the code. Ask it to `find all TODO comments in the codebase`, it searches your files, extracts context, and organizes them by priority.
+
+This isn't a chatbot, it's an autonomous agent that executes multi-step workflows, makes decisions, and gets things done.
+
+### 🎯 Purpose, Built for Workflows
+
+Jazz is designed from the ground up for autonomous agents that handle multi-step, real-world tasks with contextual awareness.
+
+### 🛠️ 44 Tools, Ready to Use
+
+Git, Gmail, filesystem, shell, web search, HTTP, PDF, and more. Just create an agent and start automating. See [`docs/integrations.md`](docs/integrations.md) for setup instructions.
+
+### 🧠 Multi LLM, Model Agnostic
+
+Switch between OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama, and more—even mid-conversation. Your agents aren't locked to one provider.
+
+### 🔒 Safety First
+
+**Every dangerous action requires your explicit approval.**
+
+- **Requires confirmation**: Git commits, file changes, sending emails, shell commands, API requests
+- **Executes automatically**: Reading files, searching, analyzing code, viewing data
+- **Secure credentials**: OAuth2 authentication, never logged or exposed
+- **Full audit trail**: Complete logs of every agent action for transparency and debugging
+
+You stay in control. Jazz won't delete files, push code, or send emails without showing you exactly what it will do and waiting for your "yes".
+
+---
+
+## See Jazz in Action
+
+### Example 1: Email Triage
+
+```bash
+$ jazz agent chat email-assistant
+
+You: Summarize unread emails from yesterday and organize them
+
+Agent: 📧 Found 23 unread emails from yesterday
+
+📊 Summary:
+- Work: 12 emails (5 from team, 4 PRs, 3 meetings)
+- Newsletters: 8 emails
+- Social: 3 emails
+
+I can:
+1. Archive all newsletters
+2. Label work emails by sender
+3. Draft replies for urgent items
+
+What would you like me to do?
+
+You: Archive newsletters and label work emails
+
+Agent: ⚠️ About to:
+- Archive 8 newsletter emails
+- Add labels to 12 work emails
+
+Proceed? (yes/no): yes
+
+Agent: ✓ Done! Inbox organized.
+```
+
+### Example 2: Git Assistant
+
+```bash
+$ jazz agent chat git-helper
+
+You: What changed in my code?
+
+Agent: [Running git status...]
+
+Found 3 modified files:
+1. src/auth/jwt.ts - Token refresh logic added
+2. src/middleware/auth.ts - New authentication middleware
+3. tests/auth.test.ts - 12 new test cases
+
+Summary:
+- Added automatic token refresh before expiration
+- Implemented refresh token rotation
+- Added comprehensive test coverage
+
+Suggested commit message:
+"feat: implement JWT token refresh with rotation
+
+- Add automatic refresh 5min before expiration
+- Implement single-use refresh token rotation
+- Add Redis caching for token blacklist
+- Add 12 new tests covering refresh flow"
+
+Should I commit these changes? (yes/no):
+
+You: yes
+
+Agent: ✓ Committed successfully
+```
+
+### Example 3: Code Analyzer - Bug Analysis
+
+```bash
+$ jazz agent chat code-analyzer
+
+You: I'm getting an error "Cannot read property 'id' of undefined" in src/api/users.ts. Help me analyze this bug.
+
+Agent: [Reading src/api/users.ts...]
+       [Analyzing error context...]
+
+       Found the issue at line 45:
+
+       const user = await getUserById(userId);
+       return user.id;  // ← Error: user might be undefined
+
+       Analysis:
+       - The `getUserById` function can return `undefined` if user not found
+       - Line 45 accesses `user.id` without checking if user exists
+       - This causes the error when a non-existent user ID is requested
+
+       Suggested fix:
+       1. Add null check before accessing user.id
+       2. Return appropriate error response for not found cases
+       3. Consider updating getUserById to throw an error instead
+
+       Should I show you the fix?
+
+You: yes, apply the fix
+
+Agent: [Applying fix...]
+
+       Updated code:
+       const user = await getUserById(userId);
+       if (!user) {
+         throw new NotFoundError(`User ${userId} not found`);
+       }
+       return user.id;
+
+       ✓ Fix applied
+       ✓ Added error handling
+```
+
+### Example 4: PDF Summary
+
+```bash
+$ jazz agent chat pdf-reader
+
+You: Read the PDF at ~/Documents/bitcoin.pdf and make a summary
+
+Agent: [Reading PDF file...]
+       ✓ Successfully read ~/Documents/bitcoin.pdf
+
+       [Analyzing content...]
+       Document: "Bitcoin: A Peer-to-Peer Electronic Cash System"
+       Pages: 9
+
+       # Summary
+
+       ## Overview
+       This paper introduces Bitcoin, a decentralized digital currency system
+       that enables peer-to-peer electronic transactions without requiring a
+       trusted third party.
+
+       ## Key Topics
+
+       ### 1. The Double-Spending Problem
+       - Traditional digital cash requires a trusted central authority
+       - Bitcoin solves this through cryptographic proof instead of trust
+
+       ### 2. Network Architecture
+       - Peer-to-peer network using proof-of-work
+       - Transactions are broadcast to all nodes
+       - Nodes accept the longest proof-of-work chain as valid
+
+       ### 3. Proof-of-Work Mechanism
+       - Nodes compete to solve computational puzzles
+       - Difficulty adjusts to maintain ~10 minute block times
+       - Network is resistant to attacks as long as honest nodes control
+         majority of CPU power
+
+       ## Key Findings
+       - Eliminates need for financial institutions as intermediaries
+       - Transactions are irreversible once confirmed
+       - Privacy maintained through public keys (pseudonymous, not anonymous)
+
+       ✓ Summary complete
+```
+
+**Want more examples?** See the [`examples/`](examples/) folder for additional use cases.
+
+---
+
+## 🚀 Quick Start
 
 ### 1. Install the CLI
 
@@ -47,10 +239,7 @@ yarn global add jazz-ai
 
 ### 2. Create Your First Agent
 
-No prior config required — the wizard will guide you:
-
 ```bash
-# Run the interactive wizard — if an API key is missing the wizard will ask for it
 jazz agent create
 ```
 
@@ -67,8 +256,6 @@ jazz agent list
 jazz agent chat <agent-name>
 ```
 
-Agents stream responses, call tools, and ask for approval for any actions that change state.
-
 ---
 
 ## 📚 Usage Highlights
@@ -84,102 +271,23 @@ Agents stream responses, call tools, and ask for approval for any actions that c
 
 ---
 
-## 🎯 What You Can Expect
+## 🏗️ Built for Production
 
-### Multi-Provider LLM Support
+Jazz is built with **100% TypeScript** and **Effect-TS** for production-grade reliability:
 
-OpenAI • Anthropic • Google • Ollama • Openrouter • And more...
-
-### Safety & Auditability
-
-Explicit approval workflow • Typed, auditable tools • Audit logs for transparency
-
-### Rich Developer Experience
-
-Streaming responses • Rich CLI rendering • Easy testing & mocking through Effect Layers
-
-### Powerful Tools
-
-Filesystem operations • Git integration • Gmail access • HTTP requests • Shell commands • Web search
+- **Type-Safe by Design**: Explicit error types and recovery paths ensure bulletproof error handling
+- **Security-First**: All state-changing operations require explicit approval; credentials stored securely, never logged
+- **Input Validation**: All external inputs validated and sanitized before processing
+- **Contextual Awareness**: Agents maintain working directory and conversation context across multi-step workflows
+- **Intelligent Orchestration**: Smart sequencing of tools with graceful error recovery and retry logic
+- **Complete Auditability**: Full logs of all agent actions for transparency and debugging
 
 ---
 
-## 💡 Real-World Examples
+## 🗺️ What's Next
 
-<details>
-<summary><strong>Git Assistant</strong></summary>
-
-Ask: _"what changed?"_
-
-**Jazz will:**
-
-1. Run `git status`
-2. Summarize diffs
-3. Suggest commit messages
-4. Commit when you say "yes"
-
-</details>
-
-<details>
-<summary><strong>Email Triage</strong></summary>
-
-Ask: _"summarize unread messages from yesterday"_
-
-**Jazz will:**
-
-1. Read your unread messages
-2. Provide summaries
-3. Offer actions (draft reply, archive, label)
-
-</details>
-
-<details>
-<summary><strong>Research & Report</strong></summary>
-
-Ask: _"collect latest guides on TypeScript 5.5 and summarize sources"_
-
-**Jazz will:**
-
-1. Search the web
-2. Aggregate information
-3. Output a concise report with links
-
-</details>
-
-<details>
-<summary><strong>Automated Project Onboarding</strong></summary>
-
-Ask: _"Set up the project from github.com/user/awesome-app for local development"_
-
-**Jazz will:**
-
-1. Clone the repository to your preferred directory
-2. Detect the tech stack (Node.js, Python, etc.)
-3. Search for setup instructions in README/docs
-4. Install dependencies (`npm install`, `pip install`, etc.)
-5. Create `.env` file from `.env.example` and prompt for missing keys
-6. Run initialization scripts if needed
-7. Verify the setup by running tests
-8. Summarize what was configured and next steps
-
-</details>
-
-<details>
-<summary><strong>Dependency Security Audit</strong></summary>
-
-Ask: _"Audit my dependencies for vulnerabilities and fix them"_
-
-**Jazz will:**
-
-1. Run security audit (`npm audit`, `poetry audit`, etc.)
-2. Search CVE databases and changelogs for each vulnerability
-3. Identify safe upgrade paths (major vs. patch versions)
-4. Show you a summary with severity levels and fix options
-5. Update `package.json`/`requirements.txt` with your approval
-6. Run tests to verify nothing broke
-7. Create a detailed commit message documenting the security fixes
-
-</details>
+Jazz is actively developed with exciting features coming.
+See [TODO.md](TODO.md) for the full roadmap and [docs/exploration/](docs/exploration/) for research on future features.
 
 ---
 
@@ -190,7 +298,7 @@ Ask: _"Audit my dependencies for vulnerabilities and fix them"_
 - **Full Documentation** — [`docs/README.md`](docs/README.md)
 - **Examples** — [`examples/`](examples/)
 - **Tools Reference** — [`docs/tools-reference.md`](docs/tools-reference.md)
-- **Exploration** — [`exploration/`](exploration/) for future features and ideas that require research
+- **Exploration** — [`docs/exploration/`](docs/exploration/) for future features and research
 
 **Community:**
 
@@ -216,7 +324,7 @@ MIT — see [`LICENSE`](LICENSE).
 
 <div align="center">
 
-⭐ If Jazz helps you automate your work, please give the project a star on GitHub — it helps others find it!
+⭐ If Jazz helps you automate your work, please give the project a star on GitHub, it helps others find it!
 
 [⬆ Back to top](#jazz-)
 
