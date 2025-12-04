@@ -10,7 +10,6 @@ import {
   createExecuteMkdirTool,
   createExecuteRmTool,
   createExecuteWriteFileTool,
-  createFindDirTool,
   createFindPathTool,
   createFindTool,
   createGrepTool,
@@ -224,7 +223,6 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     const head = createHeadTool();
     const tail = createTailTool();
     const find = createFindTool();
-    const finddir = createFindDirTool();
     const findPath = createFindPathTool();
     const stat = createStatTool();
     const mkdir = createMkdirTool();
@@ -247,7 +245,6 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(writeFile);
     yield* registerTool(editFile);
     yield* registerTool(find);
-    yield* registerTool(finddir);
     yield* registerTool(findPath);
     yield* registerTool(stat);
     yield* registerTool(mkdir);
