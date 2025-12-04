@@ -277,7 +277,9 @@ export class StreamProcessor {
 
             // Handle error finish reason
             if (finishReason === "error") {
-              const error = "error" in part ? part.error : new Error("Unexpected error");
+              const error = new Error(
+                `Unexpected error during stream processing: ${JSON.stringify(part)}`,
+              );
               throw error;
             }
 

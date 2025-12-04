@@ -97,6 +97,7 @@ export class ToolExecutor {
             });
           } else {
             const message = yield* presentationService.formatToolExecutionStart(name, args);
+            yield* presentationService.writeBlankLine();
             yield* presentationService.writeOutput(message);
           }
         }
