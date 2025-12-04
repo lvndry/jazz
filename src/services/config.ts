@@ -1,5 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer, Option } from "effect";
+import { ConfigurationError, ConfigurationNotFoundError } from "../core/types/errors";
 import type {
   AppConfig,
   ExaConfig,
@@ -91,7 +92,11 @@ export class AgentConfigServiceImpl implements AgentConfigService {
 export function createConfigLayer(
   debug?: boolean,
   customConfigPath?: string,
-): Layer.Layer<AgentConfigService, never, FileSystem.FileSystem> {
+): Layer.Layer<
+  AgentConfigService,
+  ConfigurationError | ConfigurationNotFoundError,
+  FileSystem.FileSystem
+> {
   return Layer.effect(
     AgentConfigServiceTag,
     Effect.gen(function* () {
@@ -216,7 +221,7 @@ function loadConfigFile(
     configPath?: string;
     fileConfig?: Partial<AppConfig>;
   },
-  never
+  ConfigurationError | ConfigurationNotFoundError
 > {
   return Effect.gen(function* () {
     // If custom config path is provided, validate and use it exclusively
@@ -227,43 +232,60 @@ function loadConfigFile(
         .pipe(Effect.catchAll(() => Effect.succeed(false)));
 
       if (!exists) {
-        console.error(`\n❌ Error: Config file not found at: ${expandedPath}`);
-        console.error(`\nPlease ensure the file exists and the path is correct.\n`);
-        process.exit(1);
+        return yield* Effect.fail(
+          new ConfigurationNotFoundError({
+            path: expandedPath,
+            suggestion: "Please ensure the file exists and the path is correct.",
+          }),
+        );
       }
 
       const contentResult = yield* fs.readFileString(expandedPath).pipe(
         Effect.catchAll((error) =>
-          Effect.sync(() => {
-            console.error(`\n❌ Error: Cannot read config file at: ${expandedPath}`);
-            console.error(`Reason: ${String(error)}\n`);
-            process.exit(1);
-          }),
+          Effect.fail(
+            new ConfigurationError({
+              field: "file",
+              message: `Cannot read config file at: ${expandedPath}. Reason: ${String(error)}`,
+              suggestion: "Check file permissions and ensure the file is readable.",
+            }),
+          ),
         ),
       );
 
       const content = contentResult;
 
       if (!content) {
-        console.error(`\n❌ Error: Config file is empty: ${expandedPath}\n`);
-        process.exit(1);
+        return yield* Effect.fail(
+          new ConfigurationError({
+            field: "file",
+            message: `Config file is empty: ${expandedPath}`,
+            suggestion: "Add valid JSON configuration to the file.",
+          }),
+        );
       }
 
       const parsed = safeParseJson<Partial<AppConfig>>(content);
       if (Option.isNone(parsed)) {
-        console.error(`\n❌ Error: Invalid JSON in config file: ${expandedPath}`);
-        console.error(`\nPlease ensure the file contains valid JSON.`);
-        process.exit(1);
+        return yield* Effect.fail(
+          new ConfigurationError({
+            field: "format",
+            message: `Invalid JSON in config file: ${expandedPath}`,
+            suggestion: "Please ensure the file contains valid JSON.",
+          }),
+        );
       }
 
       // Validate that the parsed config matches AppConfig structure
       const config = parsed.value;
       if (typeof config !== "object" || config === null) {
-        console.error(
-          `\n❌ Error: Config file must contain a valid configuration object: ${expandedPath}`,
+        return yield* Effect.fail(
+          new ConfigurationError({
+            field: "structure",
+            message: `Config file must contain a valid configuration object: ${expandedPath}`,
+            value: config,
+            suggestion: 'Expected format: { "llm": {...}, "storage": {...}, ... }',
+          }),
         );
-        console.error(`\nExpected format: { "llm": {...}, "storage": {...}, ... }\n`);
-        process.exit(1);
       }
 
       return { configPath: expandedPath, fileConfig: config };
