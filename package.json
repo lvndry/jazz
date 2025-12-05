@@ -79,6 +79,7 @@
     "marked-terminal": "^7.3.0",
     "ollama-ai-provider-v2": "^1.5.5",
     "open": "^10.2.0",
+    "parallel-web": "^0.2.4",
     "pdf-parse": "^2.4.5",
     "short-uuid": "^5.2.0",
     "zod": "^4.1.13"

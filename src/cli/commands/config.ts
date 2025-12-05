@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "../../core/constants/models";
 import { ConfigurationValidationError } from "../../core/types/errors";
 
+import { WEB_SEARCH_PROVIDERS } from "../../core/agent/tools/web-search-tools";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import type { LoggingConfig } from "../../core/types/config";
@@ -95,17 +96,17 @@ export function setConfigCommand(
         return;
       }
 
-      if (key === "linkup") {
-        const apiKey = yield* terminal.password("Enter Linkup API Key:");
-        yield* configService.set("linkup.api_key", apiKey);
-        yield* terminal.success("Linkup configuration updated.");
-        return;
-      }
+      if (key === "web_search") {
+        const provider = yield* terminal.select<string>("Select web search provider:", {
+          choices: WEB_SEARCH_PROVIDERS,
+        });
 
-      if (key === "exa") {
-        const apiKey = yield* terminal.password("Enter Exa API Key:");
-        yield* configService.set("exa.api_key", apiKey);
-        yield* terminal.success("Exa configuration updated.");
+        yield* terminal.info(`Configuring ${provider}...`);
+
+        const apiKey = yield* terminal.password("Enter API Key:");
+        yield* configService.set(`web_search.${provider}.api_key`, apiKey);
+
+        yield* terminal.success(`Configuration for ${provider} updated.`);
         return;
       }
 

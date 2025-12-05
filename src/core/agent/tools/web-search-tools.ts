@@ -1,16 +1,20 @@
 import { Effect } from "effect";
 import Exa from "exa-js";
 import { LinkupClient, type SearchDepth } from "linkup-sdk";
+import Parallel from "parallel-web";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import type { ToolExecutionResult } from "../../types";
+import type { WebSearchConfig } from "../../types/config";
 import { defineTool } from "./base-tool";
 
 export interface WebSearchArgs extends Record<string, unknown> {
   readonly query: string;
   readonly depth?: SearchDepth;
   readonly includeImages?: boolean;
+  readonly fromDate?: string;
+  readonly toDate?: string;
 }
 
 export interface WebSearchItem {
@@ -27,8 +31,22 @@ export interface WebSearchResult {
   readonly totalResults: number;
   readonly query: string;
   readonly timestamp: string;
-  readonly provider: "linkup" | "exa";
+  readonly provider: "linkup" | "exa" | "parallel";
 }
+
+const MAX_RESULTS = 200;
+
+/**
+ * Available web search providers with their display names
+ * Used by CLI and other parts of the system to list available providers
+ */
+export const WEB_SEARCH_PROVIDERS = [
+  { name: "Parallel", value: "parallel" },
+  { name: "Exa", value: "exa" },
+  { name: "Linkup", value: "linkup" },
+] as const;
+
+export type WebSearchProviderName = (typeof WEB_SEARCH_PROVIDERS)[number]["value"];
 
 export function createWebSearchTool(): ReturnType<
   typeof defineTool<AgentConfigService | LoggerService, WebSearchArgs>
@@ -43,6 +61,7 @@ export function createWebSearchTool(): ReturnType<
         query: z
           .string()
           .min(1, "query cannot be empty")
+          .max(5000, "query cannot be longer than 5000 characters")
           .describe(
             "The search query to execute. You should refine and improve the user's original query to be as specific as possible. Add context or constraints to narrow down results. Examples: 1. Bad: 'Total' -> Good: 'French energy company Total website'. 2. Bad: 'Python error' -> Good: 'Python TypeError: int object is not iterable solution'. 3. Bad: 'best restaurants' -> Good: 'best Italian restaurants in downtown Chicago 2024'.",
           ),
@@ -56,6 +75,20 @@ export function createWebSearchTool(): ReturnType<
           .boolean()
           .optional()
           .describe("Whether to include images in search results (default: false)"),
+        fromDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
+          .optional()
+          .describe(
+            "The date from which the search results should be considered, in ISO 8601 format (YYYY-MM-DD)",
+          ),
+        toDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
+          .optional()
+          .describe(
+            "The date until which the search results should be considered, in ISO 8601 format (YYYY-MM-DD)",
+          ),
       })
       .strict(),
     validate: (args) => {
@@ -65,6 +98,14 @@ export function createWebSearchTool(): ReturnType<
             query: z.string().min(1),
             depth: z.enum(["standard", "deep"]).optional(),
             includeImages: z.boolean().optional(),
+            fromDate: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
+              .optional(),
+            toDate: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
+              .optional(),
           })
           .strict() as z.ZodType<WebSearchArgs>
       ).safeParse(args);
@@ -81,53 +122,99 @@ export function createWebSearchTool(): ReturnType<
         const config = yield* AgentConfigServiceTag;
         const logger = yield* LoggerServiceTag;
 
-        // Try Linkup if API key is present
-        const linkupKey = yield* config.getOrElse("linkup.api_key", "");
+        // Get web search config
+        const appConfig = yield* config.appConfig;
+        const webSearchConfig: WebSearchConfig | undefined = appConfig.web_search;
+        const priorityOrder: readonly string[] = webSearchConfig?.priority_order ?? [
+          "parallel",
+          "exa",
+          "linkup",
+        ];
+
+        // Build provider registry with API keys
+        const providers: Array<{
+          name: string;
+          apiKey: string;
+          execute: (
+            args: WebSearchArgs,
+            apiKey: string,
+          ) => Effect.Effect<WebSearchResult, Error, LoggerService>;
+        }> = [];
+
+        const getApiKey = (
+          providerName: string,
+        ): Effect.Effect<string, never, AgentConfigService> =>
+          Effect.gen(function* () {
+            return yield* config.getOrElse(`web_search.${providerName}.api_key`, "");
+          });
+
+        // Register available providers
+        const linkupKey = yield* getApiKey("linkup");
         if (linkupKey) {
-          yield* logger.info("Attempting search with Linkup provider...");
-          const linkupResult = yield* executeLinkupSearch(args, linkupKey).pipe(
-            Effect.catchAll((error) => {
-              return logger
-                .warn(`Linkup search failed: ${error.message}`)
-                .pipe(Effect.map(() => null as WebSearchResult | null));
-            }),
-          );
-
-          if (linkupResult) {
-            return {
-              success: true,
-              result: linkupResult,
-            };
-          }
+          providers.push({
+            name: "linkup",
+            apiKey: linkupKey,
+            execute: executeLinkupSearch,
+          });
         }
 
-        // Try Exa if API key is present
-        const exaKey = yield* config.getOrElse("exa.api_key", "");
+        const exaKey = yield* getApiKey("exa");
         if (exaKey) {
-          yield* logger.info("Attempting search with Exa provider...");
-          const exaResult = yield* executeExaSearch(args, exaKey).pipe(
-            Effect.catchAll((error) => {
-              return logger
-                .warn(`Exa search failed: ${error.message}`)
-                .pipe(Effect.map(() => null as WebSearchResult | null));
-            }),
-          );
-
-          if (exaResult) {
-            return {
-              success: true,
-              result: exaResult,
-            };
-          }
+          providers.push({
+            name: "exa",
+            apiKey: exaKey,
+            execute: executeExaSearch,
+          });
         }
 
-        if (!linkupKey && !exaKey) {
+        const parallelKey = yield* getApiKey("parallel");
+        if (parallelKey) {
+          providers.push({
+            name: "parallel",
+            apiKey: parallelKey,
+            execute: executeParallelSearch,
+          });
+        }
+
+        if (providers.length === 0) {
           return {
             success: false,
             result: null,
             error:
-              "No search provider API keys found. Please configure 'linkup.api_key' or 'exa.api_key'.",
+              "No search provider API keys found. Please configure 'web_search.<provider>.api_key' (e.g., 'web_search.parallel.api_key').",
           };
+        }
+
+        // Sort providers by priority order
+        const sortedProviders = providers.sort((a, b) => {
+          const aIndex = priorityOrder.indexOf(a.name);
+          const bIndex = priorityOrder.indexOf(b.name);
+          // If not in priority order, put at end
+          if (aIndex === -1 && bIndex === -1) return 0;
+          if (aIndex === -1) return 1;
+          if (bIndex === -1) return -1;
+          return aIndex - bIndex;
+        });
+
+        // Try providers in priority order
+        for (const provider of sortedProviders) {
+          yield* logger.info(`Attempting search with ${provider.name} provider...`);
+          const result = yield* provider.execute(args, provider.apiKey).pipe(
+            Effect.catchAll((error) => {
+              return logger
+                .warn(
+                  `${provider.name} search failed: ${error instanceof Error ? error.message : String(error)}`,
+                )
+                .pipe(Effect.map(() => null as WebSearchResult | null));
+            }),
+          );
+
+          if (result) {
+            return {
+              success: true,
+              result,
+            };
+          }
         }
 
         return {
@@ -148,6 +235,7 @@ export function createWebSearchTool(): ReturnType<
 
 let cachedLinkupClient: LinkupClient | null = null;
 let cachedExaClient: Exa | null = null;
+let cachedParallelClient: Parallel | null = null;
 
 /**
  * Execute a Linkup search
@@ -173,12 +261,22 @@ function executeLinkupSearch(
 
     const response = yield* Effect.tryPromise({
       try: async () => {
-        return await client.search({
+        const searchParams: Parameters<typeof client.search>[0] = {
           query: args.query,
           depth: args.depth ?? "standard",
           outputType: "searchResults",
           includeImages: args.includeImages ?? false,
-        });
+          maxResults: MAX_RESULTS,
+        };
+
+        if (args.fromDate) {
+          searchParams.fromDate = new Date(args.fromDate);
+        }
+        if (args.toDate) {
+          searchParams.toDate = new Date(args.toDate);
+        }
+
+        return await client.search(searchParams);
       },
       catch: (error) =>
         new Error(
@@ -227,10 +325,19 @@ function executeExaSearch(
 
     const response = yield* Effect.tryPromise({
       try: async () => {
-        return await exa.search(args.query, {
+        const searchOptions: Parameters<typeof exa.search>[1] = {
           type: "auto",
           useAutoprompt: true,
-        });
+        };
+
+        if (args.fromDate) {
+          searchOptions.startPublishedDate = args.fromDate;
+        }
+        if (args.toDate) {
+          searchOptions.endPublishedDate = args.toDate;
+        }
+
+        return await exa.search(args.query, searchOptions);
       },
       catch: (error) =>
         new Error(`Exa search failed: ${error instanceof Error ? error.message : String(error)}`),
@@ -252,6 +359,59 @@ function executeExaSearch(
       query: args.query,
       timestamp: new Date().toISOString(),
       provider: "exa" as const,
+    };
+  });
+}
+
+/**
+ * Execute a Parallel search
+ */
+function executeParallelSearch(
+  args: WebSearchArgs,
+  apiKey: string,
+): Effect.Effect<WebSearchResult, Error, LoggerService> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+
+    if (!cachedParallelClient) {
+      cachedParallelClient = new Parallel({ apiKey });
+    }
+
+    const parallel = cachedParallelClient;
+
+    yield* logger.info(
+      `Executing Parallel search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
+    );
+
+    const response = yield* Effect.tryPromise({
+      try: async () => {
+        return await parallel.beta.search({
+          objective: args.query,
+          mode: "agentic",
+        });
+      },
+      catch: (error) =>
+        new Error(
+          `Parallel search failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    });
+
+    const results: WebSearchItem[] = (response.results || []).map((result) => ({
+      title: result.title || "",
+      url: result.url || "",
+      snippet: result.excerpts?.join(" ") || "",
+      ...(result.publish_date ? { publishedDate: result.publish_date } : {}),
+      source: "parallel",
+    }));
+
+    yield* logger.info(`Parallel search found ${results.length} results`);
+
+    return {
+      results,
+      totalResults: results.length,
+      query: args.query,
+      timestamp: new Date().toISOString(),
+      provider: "parallel" as const,
     };
   });
 }

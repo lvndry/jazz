@@ -3,12 +3,11 @@ import { Effect, Layer, Option } from "effect";
 import { ConfigurationError, ConfigurationNotFoundError } from "../core/types/errors";
 import type {
   AppConfig,
-  ExaConfig,
   GoogleConfig,
   LLMConfig,
-  LinkupConfig,
   LoggingConfig,
   StorageConfig,
+  WebSearchConfig,
 } from "../core/types/index";
 import { safeParseJson } from "../core/utils/json";
 import { getDefaultDataDirectory } from "../core/utils/runtime-detection";
@@ -159,15 +158,11 @@ function defaultConfig(): AppConfig {
   };
 
   const llm: LLMConfig = {};
-  const linkup: LinkupConfig = {
-    api_key: "",
+  const web_search: WebSearchConfig = {
+    priority_order: ["parallel", "exa", "linkup"],
   };
 
-  const exa: ExaConfig = {
-    api_key: "",
-  };
-
-  return { storage, logging, google, llm, linkup, exa };
+  return { storage, logging, google, llm, web_search };
 }
 
 function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig {
@@ -200,8 +195,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     }),
     ...(override.google && { google: { ...base.google, ...override.google } }),
     ...(override.llm && { llm: { ...(base.llm ?? {}), ...override.llm } }),
-    ...(override.linkup && { linkup: { ...base.linkup, ...override.linkup } }),
-    ...(override.exa && { exa: { ...base.exa, ...override.exa } }),
+    ...(override.web_search && {
+      web_search: { ...(base.web_search ?? {}), ...override.web_search },
+    }),
   };
 }
 
