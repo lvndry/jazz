@@ -9,8 +9,7 @@ export interface AppConfig {
   readonly logging: LoggingConfig;
   readonly google?: GoogleConfig;
   readonly llm?: LLMConfig;
-  readonly linkup?: LinkupConfig;
-  readonly exa?: ExaConfig;
+  readonly web_search?: WebSearchConfig;
   readonly output?: OutputConfig;
 }
 
@@ -57,10 +56,13 @@ export interface LLMConfig {
   readonly groq?: LLMProviderConfig;
 }
 
-export interface LinkupConfig {
+export interface WebSearchProviderConfig {
   readonly api_key: string;
 }
 
-export interface ExaConfig {
-  readonly api_key: string;
+export interface WebSearchConfig {
+  readonly linkup?: WebSearchProviderConfig;
+  readonly exa?: WebSearchProviderConfig;
+  readonly parallel?: WebSearchProviderConfig;
+  readonly priority_order?: readonly string[]; // e.g., ["parallel", "exa", "linkup"]
 }

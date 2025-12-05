@@ -31,6 +31,9 @@ describe("WebSearchTool", () => {
   const mockAppConfig: AppConfig = {
     storage: { type: "file", path: "./.jazz" },
     logging: { level: "info", format: "pretty", output: "console" },
+    web_search: {
+      priority_order: ["parallel", "exa", "linkup"],
+    },
   };
 
   beforeEach(() => {
@@ -74,8 +77,9 @@ describe("WebSearchTool", () => {
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
       getOrElse: vi.fn().mockImplementation((key) => {
-        if (key === "linkup.api_key") return Effect.succeed("");
-        if (key === "exa.api_key") return Effect.succeed("");
+        if (key === "web_search.linkup.api_key") return Effect.succeed("");
+        if (key === "web_search.exa.api_key") return Effect.succeed("");
+        if (key === "web_search.parallel.api_key") return Effect.succeed("");
         return Effect.succeed("default");
       }),
       getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),
@@ -90,6 +94,9 @@ describe("WebSearchTool", () => {
       warn: vi.fn().mockReturnValue(Effect.void),
       error: vi.fn().mockReturnValue(Effect.void),
       writeToFile: vi.fn().mockReturnValue(Effect.void),
+      logToolCall: vi.fn().mockReturnValue(Effect.void),
+      setSessionId: vi.fn().mockReturnValue(Effect.void),
+      clearSessionId: vi.fn().mockReturnValue(Effect.void),
     };
 
     const mockLayer = Layer.merge(
@@ -120,8 +127,9 @@ describe("WebSearchTool", () => {
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
       getOrElse: vi.fn().mockImplementation((key) => {
-        if (key === "linkup.api_key") return Effect.succeed("");
-        if (key === "exa.api_key") return Effect.succeed("exa-key");
+        if (key === "web_search.linkup.api_key") return Effect.succeed("");
+        if (key === "web_search.exa.api_key") return Effect.succeed("exa-key");
+        if (key === "web_search.parallel.api_key") return Effect.succeed("");
         return Effect.succeed("default");
       }),
       getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("Linkup API key not found"))),
@@ -136,6 +144,9 @@ describe("WebSearchTool", () => {
       warn: vi.fn().mockReturnValue(Effect.void),
       error: vi.fn().mockReturnValue(Effect.void),
       writeToFile: vi.fn().mockReturnValue(Effect.void),
+      logToolCall: vi.fn().mockReturnValue(Effect.void),
+      setSessionId: vi.fn().mockReturnValue(Effect.void),
+      clearSessionId: vi.fn().mockReturnValue(Effect.void),
     };
 
     const mockLayer = Layer.merge(

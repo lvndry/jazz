@@ -6,6 +6,7 @@ import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import type { ToolExecutionResult } from "../../types";
+import type { WebSearchConfig } from "../../types/config";
 import { defineTool } from "./base-tool";
 
 export interface WebSearchArgs extends Record<string, unknown> {
@@ -108,79 +109,99 @@ export function createWebSearchTool(): ReturnType<
         const config = yield* AgentConfigServiceTag;
         const logger = yield* LoggerServiceTag;
 
-        // Try Linkup if API key is present
-        const linkupKey = yield* config.getOrElse("linkup.api_key", "");
+        // Get web search config
+        const appConfig = yield* config.appConfig;
+        const webSearchConfig: WebSearchConfig | undefined = appConfig.web_search;
+        const priorityOrder: readonly string[] = webSearchConfig?.priority_order ?? [
+          "parallel",
+          "exa",
+          "linkup",
+        ];
+
+        // Build provider registry with API keys
+        const providers: Array<{
+          name: string;
+          apiKey: string;
+          execute: (
+            args: WebSearchArgs,
+            apiKey: string,
+          ) => Effect.Effect<WebSearchResult, Error, LoggerService>;
+        }> = [];
+
+        const getApiKey = (
+          providerName: string,
+        ): Effect.Effect<string, never, AgentConfigService> =>
+          Effect.gen(function* () {
+            return yield* config.getOrElse(`web_search.${providerName}.api_key`, "");
+          });
+
+        // Register available providers
+        const linkupKey = yield* getApiKey("linkup");
         if (linkupKey) {
-          yield* logger.info("Attempting search with Linkup provider...");
-          const linkupResult = yield* executeLinkupSearch(args, linkupKey).pipe(
-            Effect.catchAll((error) => {
-              return logger
-                .warn(
-                  `Linkup search failed: ${error instanceof Error ? error.message : String(error)}`,
-                )
-                .pipe(Effect.map(() => null as WebSearchResult | null));
-            }),
-          );
-
-          if (linkupResult) {
-            return {
-              success: true,
-              result: linkupResult,
-            };
-          }
+          providers.push({
+            name: "linkup",
+            apiKey: linkupKey,
+            execute: executeLinkupSearch,
+          });
         }
 
-        // Try Exa if API key is present
-        const exaKey = yield* config.getOrElse("exa.api_key", "");
+        const exaKey = yield* getApiKey("exa");
         if (exaKey) {
-          yield* logger.info("Attempting search with Exa provider...");
-          const exaResult = yield* executeExaSearch(args, exaKey).pipe(
-            Effect.catchAll((error) => {
-              return logger
-                .warn(
-                  `Exa search failed: ${error instanceof Error ? error.message : String(error)}`,
-                )
-                .pipe(Effect.map(() => null as WebSearchResult | null));
-            }),
-          );
-
-          if (exaResult) {
-            return {
-              success: true,
-              result: exaResult,
-            };
-          }
+          providers.push({
+            name: "exa",
+            apiKey: exaKey,
+            execute: executeExaSearch,
+          });
         }
 
-        // Try Parallel if API key is present
-        const parallelKey = yield* config.getOrElse("parallel.api_key", "");
+        const parallelKey = yield* getApiKey("parallel");
         if (parallelKey) {
-          yield* logger.info("Attempting search with Parallel provider...");
-          const parallelResult = yield* executeParallelSearch(args, parallelKey).pipe(
-            Effect.catchAll((error) => {
-              return logger
-                .warn(
-                  `Parallel search failed: ${error instanceof Error ? error.message : String(error)}`,
-                )
-                .pipe(Effect.map(() => null as WebSearchResult | null));
-            }),
-          );
-
-          if (parallelResult) {
-            return {
-              success: true,
-              result: parallelResult,
-            };
-          }
+          providers.push({
+            name: "parallel",
+            apiKey: parallelKey,
+            execute: executeParallelSearch,
+          });
         }
 
-        if (!linkupKey && !exaKey && !parallelKey) {
+        if (providers.length === 0) {
           return {
             success: false,
             result: null,
             error:
-              "No search provider API keys found. Please configure 'linkup.api_key', 'exa.api_key', or 'parallel.api_key'.",
+              "No search provider API keys found. Please configure 'web_search.<provider>.api_key' (e.g., 'web_search.parallel.api_key').",
           };
+        }
+
+        // Sort providers by priority order
+        const sortedProviders = providers.sort((a, b) => {
+          const aIndex = priorityOrder.indexOf(a.name);
+          const bIndex = priorityOrder.indexOf(b.name);
+          // If not in priority order, put at end
+          if (aIndex === -1 && bIndex === -1) return 0;
+          if (aIndex === -1) return 1;
+          if (bIndex === -1) return -1;
+          return aIndex - bIndex;
+        });
+
+        // Try providers in priority order
+        for (const provider of sortedProviders) {
+          yield* logger.info(`Attempting search with ${provider.name} provider...`);
+          const result = yield* provider.execute(args, provider.apiKey).pipe(
+            Effect.catchAll((error) => {
+              return logger
+                .warn(
+                  `${provider.name} search failed: ${error instanceof Error ? error.message : String(error)}`,
+                )
+                .pipe(Effect.map(() => null as WebSearchResult | null));
+            }),
+          );
+
+          if (result) {
+            return {
+              success: true,
+              result,
+            };
+          }
         }
 
         return {

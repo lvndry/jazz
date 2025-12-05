@@ -95,17 +95,21 @@ export function setConfigCommand(
         return;
       }
 
-      if (key === "linkup") {
-        const apiKey = yield* terminal.password("Enter Linkup API Key:");
-        yield* configService.set("linkup.api_key", apiKey);
-        yield* terminal.success("Linkup configuration updated.");
-        return;
-      }
+      if (key === "web_search") {
+        const provider = yield* terminal.select<string>("Select web search provider:", {
+          choices: [
+            { name: "Parallel", value: "parallel" },
+            { name: "Exa", value: "exa" },
+            { name: "Linkup", value: "linkup" },
+          ],
+        });
 
-      if (key === "exa") {
-        const apiKey = yield* terminal.password("Enter Exa API Key:");
-        yield* configService.set("exa.api_key", apiKey);
-        yield* terminal.success("Exa configuration updated.");
+        yield* terminal.info(`Configuring ${provider}...`);
+
+        const apiKey = yield* terminal.password("Enter API Key:");
+        yield* configService.set(`web_search.${provider}.api_key`, apiKey);
+
+        yield* terminal.success(`Configuration for ${provider} updated.`);
         return;
       }
 

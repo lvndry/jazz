@@ -29,11 +29,21 @@
     "clientId": "1234567890.apps.googleusercontent.com",
     "clientSecret": "1234567890"
   },
-  "linkup": {
-    "api_key": "your-linkup-api-key-here"
-  },
-  "exa": {
-    "api_key": "your-exa-api-key-here"
+  "web_search": {
+    "priority_order": [
+      "parallel",
+      "exa",
+      "linkup"
+    ],
+    "parallel": {
+      "api_key": "your-parallel-api-key-here"
+    },
+    "exa": {
+      "api_key": "your-exa-api-key-here"
+    },
+    "linkup": {
+      "api_key": "your-linkup-api-key-here"
+    }
   },
   "logging": {
     "level": "info",
