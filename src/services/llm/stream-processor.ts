@@ -288,7 +288,7 @@ export class StreamProcessor {
               finishReason !== "length" &&
               finishReason !== "tool-calls"
             ) {
-              console.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
+              void this.logger.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
             }
             break;
           }

@@ -57,8 +57,7 @@ export class ChatServiceImpl implements ChatService {
       const terminal = yield* TerminalServiceTag;
       const logger = yield* LoggerServiceTag;
 
-      // Generate sessionId before the loop
-      const sessionId = `${agent.name}-${Date.now()}`;
+      const sessionId = generateSessionId(agent.name);
 
       yield* logger.setSessionId(sessionId);
 
@@ -629,6 +628,20 @@ export function createChatServiceLayer(): Layer.Layer<
   | typeof AgentServiceTag
 > {
   return Layer.succeed(ChatServiceTag, new ChatServiceImpl());
+}
+
+/**
+ * Generate a session ID in the format: {agentName}-YYYYMMDD-HHmmss
+ */
+function generateSessionId(agentName: string): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const seconds = String(now.getSeconds()).padStart(2, "0");
+  return `${agentName}-${year}${month}${day}-${hours}${minutes}${seconds}`;
 }
 
 /**
