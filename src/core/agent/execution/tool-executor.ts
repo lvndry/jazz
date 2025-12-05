@@ -107,6 +107,18 @@ export class ToolExecutor {
         const toolDuration = Date.now() - toolStartTime;
         const resultString = JSON.stringify(result.result);
 
+        // Log tool result details for debugging
+        yield* logger.debug("Tool execution succeeded", {
+          agentId,
+          conversationId,
+          toolName: name,
+          toolCallId: toolCall.id,
+          durationMs: toolDuration,
+          success: result.success,
+          resultSize: resultString.length,
+          resultPreview: resultString.substring(0, 200),
+        });
+
         // Emit tool execution complete
         if (displayConfig.showToolExecution) {
           if (renderer) {
