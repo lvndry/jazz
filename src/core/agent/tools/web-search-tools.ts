@@ -36,6 +36,18 @@ export interface WebSearchResult {
 
 const MAX_RESULTS = 200;
 
+/**
+ * Available web search providers with their display names
+ * Used by CLI and other parts of the system to list available providers
+ */
+export const WEB_SEARCH_PROVIDERS = [
+  { name: "Parallel", value: "parallel" },
+  { name: "Exa", value: "exa" },
+  { name: "Linkup", value: "linkup" },
+] as const;
+
+export type WebSearchProviderName = (typeof WEB_SEARCH_PROVIDERS)[number]["value"];
+
 export function createWebSearchTool(): ReturnType<
   typeof defineTool<AgentConfigService | LoggerService, WebSearchArgs>
 > {

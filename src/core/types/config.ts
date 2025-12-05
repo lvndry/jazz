@@ -64,5 +64,5 @@ export interface WebSearchConfig {
   readonly linkup?: WebSearchProviderConfig;
   readonly exa?: WebSearchProviderConfig;
   readonly parallel?: WebSearchProviderConfig;
-  readonly priority_order?: readonly string[]; // e.g., ["parallel", "exa", "linkup"]
+  readonly priority_order?: readonly string[];
 }

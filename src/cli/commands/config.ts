@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "../../core/constants/models";
 import { ConfigurationValidationError } from "../../core/types/errors";
 
+import { WEB_SEARCH_PROVIDERS } from "../../core/agent/tools/web-search-tools";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import type { LoggingConfig } from "../../core/types/config";
@@ -97,11 +98,7 @@ export function setConfigCommand(
 
       if (key === "web_search") {
         const provider = yield* terminal.select<string>("Select web search provider:", {
-          choices: [
-            { name: "Parallel", value: "parallel" },
-            { name: "Exa", value: "exa" },
-            { name: "Linkup", value: "linkup" },
-          ],
+          choices: WEB_SEARCH_PROVIDERS,
         });
 
         yield* terminal.info(`Configuring ${provider}...`);
