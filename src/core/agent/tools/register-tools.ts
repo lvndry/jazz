@@ -28,17 +28,23 @@ import {
   createExecuteGitAddTool,
   createExecuteGitCheckoutTool,
   createExecuteGitCommitTool,
+  createExecuteGitMergeTool,
   createExecuteGitPullTool,
   createExecuteGitPushTool,
+  createExecuteGitTagTool,
   createGitAddTool,
+  createGitBlameTool,
   createGitBranchTool,
   createGitCheckoutTool,
   createGitCommitTool,
   createGitDiffTool,
   createGitLogTool,
+  createGitMergeTool,
   createGitPullTool,
   createGitPushTool,
+  createGitReflogTool,
   createGitStatusTool,
+  createGitTagTool,
 } from "./git-tools";
 import {
   createAddLabelsToEmailTool,
@@ -281,6 +287,9 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     const gitLogTool = createGitLogTool();
     const gitDiffTool = createGitDiffTool();
     const gitBranchTool = createGitBranchTool();
+    const gitTagTool = createGitTagTool();
+    const gitBlameTool = createGitBlameTool();
+    const gitReflogTool = createGitReflogTool();
 
     // Potentially destructive operations (approval required)
     const gitAddTool = createGitAddTool();
@@ -288,6 +297,7 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     const gitPushTool = createGitPushTool();
     const gitPullTool = createGitPullTool();
     const gitCheckoutTool = createGitCheckoutTool();
+    const gitMergeTool = createGitMergeTool();
 
     // Internal execution tools (called after approval)
     const executeGitAddTool = createExecuteGitAddTool();
@@ -295,12 +305,17 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     const executeGitPushTool = createExecuteGitPushTool();
     const executeGitPullTool = createExecuteGitPullTool();
     const executeGitCheckoutTool = createExecuteGitCheckoutTool();
+    const executeGitTagTool = createExecuteGitTagTool();
+    const executeGitMergeTool = createExecuteGitMergeTool();
 
     // Register safe tools
     yield* registerTool(gitStatusTool);
     yield* registerTool(gitLogTool);
     yield* registerTool(gitDiffTool);
     yield* registerTool(gitBranchTool);
+    yield* registerTool(gitTagTool);
+    yield* registerTool(gitBlameTool);
+    yield* registerTool(gitReflogTool);
 
     // Register approval-required tools
     yield* registerTool(gitAddTool);
@@ -308,6 +323,7 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(gitPushTool);
     yield* registerTool(gitPullTool);
     yield* registerTool(gitCheckoutTool);
+    yield* registerTool(gitMergeTool);
 
     // Register internal execution tools
     yield* registerTool(executeGitAddTool);
@@ -315,6 +331,8 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(executeGitPushTool);
     yield* registerTool(executeGitPullTool);
     yield* registerTool(executeGitCheckoutTool);
+    yield* registerTool(executeGitTagTool);
+    yield* registerTool(executeGitMergeTool);
   });
 }
 

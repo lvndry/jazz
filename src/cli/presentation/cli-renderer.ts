@@ -245,9 +245,8 @@ export class CLIRenderer {
       try {
         const rendered: string = this.renderChunk(delta, bufferMs);
         return rendered;
-      } catch (error) {
+      } catch {
         // Fallback to plain text if markdown rendering fails
-        console.warn("Markdown rendering failed:", error);
         return delta;
       }
     }
@@ -442,10 +441,9 @@ export class CLIRenderer {
         });
 
         this.markedInitialized = true;
-      } catch (error: unknown) {
+      } catch {
         // Log error but don't throw - allow fallback to plain text
-        const message = error instanceof Error ? error.message : String(error);
-        console.error("Error initializing markdown renderer:", message);
+        // Silently fall back - markdown initialization failure is not critical
       }
     });
   }
@@ -463,10 +461,8 @@ export class CLIRenderer {
         // Use marked.parse for synchronous parsing
         const result = marked.parse(markdown) as string;
         return result;
-      } catch (error) {
+      } catch {
         // Fallback to plain text if markdown parsing fails
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn("Markdown parsing failed, falling back to plain text:", message);
         return markdown;
       }
     });
