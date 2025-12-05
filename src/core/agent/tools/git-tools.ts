@@ -1740,3 +1740,1050 @@ export function createExecuteGitCheckoutTool(): Tool<
     },
   });
 }
+
+export function createGitTagTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe("Path to the Git repository (defaults to current working directory)"),
+      list: z.boolean().optional().describe("List all tags"),
+      create: z.string().optional().describe("Create a new tag with the specified name"),
+      message: z
+        .string()
+        .optional()
+        .describe("Annotated tag message (required if creating an annotated tag)"),
+      commit: z.string().optional().describe("Create tag at specific commit (defaults to HEAD)"),
+      delete: z.string().optional().describe("Delete a tag with the specified name"),
+      force: z
+        .boolean()
+        .optional()
+        .describe("Force tag creation/deletion (overwrites existing tags)"),
+    })
+    .strict();
+
+  type GitTagArgs = z.infer<typeof parameters>;
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitTagArgs>({
+    name: "git_tag",
+    description:
+      "Request to list, create, or delete Git tags. Tags are references to specific points in Git history, commonly used to mark release points. Can list all tags (no approval needed), or request to create lightweight or annotated tags, or delete tags (requires user approval). After approval call the execute_git_tag tool to perform the actual operation.",
+    tags: ["git", "tag"],
+    parameters,
+    validate: (args) => {
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
+    },
+    approval: {
+      message: (args: GitTagArgs, context: ToolExecutionContext) =>
+        Effect.gen(function* () {
+          const shell = yield* FileSystemContextServiceTag;
+          const workingDir = args?.path
+            ? yield* shell.resolvePath(
+                {
+                  agentId: context.agentId,
+                  ...(context.conversationId && { conversationId: context.conversationId }),
+                },
+                args?.path,
+              )
+            : yield* shell.getCwd({
+                agentId: context.agentId,
+                ...(context.conversationId && { conversationId: context.conversationId }),
+              });
+
+          // If only listing, no approval needed - proceed with listing
+          if (!args?.create && !args?.delete) {
+            return `Listing tags in ${workingDir} - no approval needed. Proceeding with listing.`;
+          }
+
+          if (args?.create) {
+            const tagType = args?.message ? "annotated" : "lightweight";
+            const commit = args?.commit ? ` at commit ${args.commit}` : "";
+            const force = args?.force ? " (force - overwrites existing)" : "";
+            return `Create ${tagType} tag "${args.create}"${commit}${force} in ${workingDir}?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_tag tool with these exact arguments: {"path": ${args?.path ? `"${args.path}"` : "undefined"}, "create": "${args.create}", "message": ${args?.message ? JSON.stringify(args.message) : "undefined"}, "commit": ${args?.commit ? `"${args.commit}"` : "undefined"}, "force": ${args?.force === true}}`;
+          }
+
+          if (args?.delete) {
+            const force = args?.force ? " (force)" : "";
+            return `Delete tag "${args.delete}"${force} in ${workingDir}?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_tag tool with these exact arguments: {"path": ${args?.path ? `"${args.path}"` : "undefined"}, "delete": "${args.delete}", "force": ${args?.force === true}}`;
+          }
+
+          return "";
+        }),
+      errorMessage: "Approval required: git tag create/delete requires user confirmation.",
+      execute: {
+        toolName: "execute_git_tag",
+        buildArgs: (args) => {
+          return {
+            path: args?.path,
+            create: args?.create,
+            message: args?.message,
+            commit: args?.commit,
+            delete: args?.delete,
+            force: args?.force,
+          };
+        },
+      },
+    },
+    handler: (args: GitTagArgs, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
+
+        // If create or delete is specified, require approval (handled by approval mechanism)
+        if (args?.create || args?.delete) {
+          return {
+            success: false,
+            result: null,
+            error: "Approval required",
+          } as ToolExecutionResult;
+        }
+
+        // List tags (safe operation, no approval needed)
+        let workingDirError: string | null = null;
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
+          Effect.catchAll((error) => {
+            workingDirError = error instanceof Error ? error.message : String(error);
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (workingDir === null) {
+          return {
+            success: false,
+            result: null,
+            error: workingDirError || "Failed to resolve working directory",
+          };
+        }
+
+        let commandError: string | null = null;
+        const commandResult = yield* runGitCommand({
+          args: ["tag", "--list", "--sort=-creatordate"],
+          workingDirectory: workingDir,
+        }).pipe(
+          Effect.catchAll((error) => {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            commandError = `Failed to execute git tag in directory '${workingDir}': ${errorMsg}`;
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (commandResult === null) {
+          return {
+            success: false,
+            result: null,
+            error: commandError || `Failed to execute git tag in directory '${workingDir}'`,
+          };
+        }
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr || `git tag failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        const tags = commandResult.stdout
+          .split("\n")
+          .filter((line) => line.trim().length > 0)
+          .map((tag) => tag.trim());
+
+        return {
+          success: true,
+          result: {
+            workingDirectory: workingDir,
+            tags,
+            tagCount: tags.length,
+          },
+        };
+      }),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { tagCount?: number; tag?: string; deleted?: boolean };
+        if (gitResult.deleted) {
+          return `Deleted tag: ${gitResult.tag}`;
+        }
+        if (gitResult.tag) {
+          return `Created tag: ${gitResult.tag}`;
+        }
+        if (gitResult.tagCount !== undefined) {
+          return `Found ${gitResult.tagCount} tags`;
+        }
+      }
+      return result.success ? "Git tag operation successful" : "Git tag operation failed";
+    },
+  });
+}
+
+export function createExecuteGitTagTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe("Path to the Git repository (defaults to current working directory)"),
+      create: z.string().optional().describe("Create a new tag with the specified name"),
+      message: z
+        .string()
+        .optional()
+        .describe("Annotated tag message (required if creating an annotated tag)"),
+      commit: z.string().optional().describe("Create tag at specific commit (defaults to HEAD)"),
+      delete: z.string().optional().describe("Delete a tag with the specified name"),
+      force: z
+        .boolean()
+        .optional()
+        .describe("Force tag creation/deletion (overwrites existing tags)"),
+    })
+    .strict();
+
+  type GitTagArgs = z.infer<typeof parameters>;
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitTagArgs>({
+    name: "execute_git_tag",
+    description:
+      "Performs the actual git tag operation after user has approved the git_tag request. Creates, deletes, or lists tags in the repository.",
+    hidden: true,
+    parameters,
+    validate: (args) => {
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
+    },
+    handler: (args: GitTagArgs, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
+
+        let workingDirError: string | null = null;
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
+          Effect.catchAll((error) => {
+            workingDirError = error instanceof Error ? error.message : String(error);
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (workingDir === null) {
+          return {
+            success: false,
+            result: null,
+            error: workingDirError || "Failed to resolve working directory",
+          };
+        }
+
+        if (args?.create) {
+          // Create tag
+          const tagArgs: string[] = ["tag"];
+          if (args?.force) {
+            tagArgs.push("--force");
+          }
+          if (args?.message) {
+            tagArgs.push("-a", args.create, "-m", args.message);
+          } else {
+            tagArgs.push(args.create);
+          }
+          if (args?.commit) {
+            tagArgs.push(args.commit);
+          }
+
+          let commandError: string | null = null;
+          const commandResult = yield* runGitCommand({
+            args: tagArgs,
+            workingDirectory: workingDir,
+          }).pipe(
+            Effect.catchAll((error) => {
+              const errorMsg = error instanceof Error ? error.message : String(error);
+              commandError = `Failed to execute git tag in directory '${workingDir}': ${errorMsg}`;
+              return Effect.succeed(null);
+            }),
+          );
+
+          if (commandResult === null) {
+            return {
+              success: false,
+              result: null,
+              error: commandError || `Failed to execute git tag in directory '${workingDir}'`,
+            };
+          }
+
+          if (commandResult.exitCode !== 0) {
+            return {
+              success: false,
+              result: null,
+              error:
+                commandResult.stderr || `git tag failed with exit code ${commandResult.exitCode}`,
+            };
+          }
+
+          return {
+            success: true,
+            result: {
+              workingDirectory: workingDir,
+              tag: args.create,
+              message: args?.message,
+              commit: args?.commit || "HEAD",
+              force: args?.force || false,
+              created: true,
+            },
+          };
+        }
+
+        if (args?.delete) {
+          // Delete tag
+          const tagArgs: string[] = ["tag", "--delete"];
+          if (args?.force) {
+            tagArgs.push("--force");
+          }
+          tagArgs.push(args.delete);
+
+          let commandError: string | null = null;
+          const commandResult = yield* runGitCommand({
+            args: tagArgs,
+            workingDirectory: workingDir,
+          }).pipe(
+            Effect.catchAll((error) => {
+              const errorMsg = error instanceof Error ? error.message : String(error);
+              commandError = `Failed to execute git tag delete in directory '${workingDir}': ${errorMsg}`;
+              return Effect.succeed(null);
+            }),
+          );
+
+          if (commandResult === null) {
+            return {
+              success: false,
+              result: null,
+              error:
+                commandError || `Failed to execute git tag delete in directory '${workingDir}'`,
+            };
+          }
+
+          if (commandResult.exitCode !== 0) {
+            return {
+              success: false,
+              result: null,
+              error:
+                commandResult.stderr ||
+                `git tag delete failed with exit code ${commandResult.exitCode}`,
+            };
+          }
+
+          return {
+            success: true,
+            result: {
+              workingDirectory: workingDir,
+              tag: args.delete,
+              deleted: true,
+              force: args?.force || false,
+            },
+          };
+        }
+
+        // List tags (when neither create nor delete is specified)
+        let commandError: string | null = null;
+        const commandResult = yield* runGitCommand({
+          args: ["tag", "--list", "--sort=-creatordate"],
+          workingDirectory: workingDir,
+        }).pipe(
+          Effect.catchAll((error) => {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            commandError = `Failed to execute git tag list in directory '${workingDir}': ${errorMsg}`;
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (commandResult === null) {
+          return {
+            success: false,
+            result: null,
+            error: commandError || `Failed to execute git tag list in directory '${workingDir}'`,
+          };
+        }
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr ||
+              `git tag list failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        const tags = commandResult.stdout
+          .split("\n")
+          .filter((line) => line.trim().length > 0)
+          .map((tag) => tag.trim());
+
+        return {
+          success: true,
+          result: {
+            workingDirectory: workingDir,
+            tags,
+            tagCount: tags.length,
+          },
+        };
+      }),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { tag: string; deleted?: boolean; created?: boolean };
+        if (gitResult.deleted) {
+          return `Deleted tag: ${gitResult.tag}`;
+        }
+        if (gitResult.created) {
+          return `Created tag: ${gitResult.tag}`;
+        }
+      }
+      return result.success ? "Git tag operation successful" : "Git tag operation failed";
+    },
+  });
+}
+
+export function createGitBlameTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
+      file: z.string().min(1).describe("Path to the file to blame (relative to repository root)"),
+      startLine: z
+        .number()
+        .int()
+        .min(1)
+        .optional()
+        .describe("Start line number (1-based, inclusive)"),
+      endLine: z.number().int().min(1).optional().describe("End line number (1-based, inclusive)"),
+      showEmail: z.boolean().optional().describe("Show author email instead of name"),
+      showLineNumbers: z.boolean().optional().describe("Show line numbers in output"),
+    })
+    .strict();
+
+  type GitBlameArgs = z.infer<typeof parameters>;
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitBlameArgs>({
+    name: "git_blame",
+    description:
+      "Show what revision and author last modified each line of a file. Displays commit hash, author, date, and line content for each line. Useful for tracking who changed what and when, debugging issues, or understanding code history. Supports line range filtering and various output formats.",
+    tags: ["git", "blame", "history"],
+    parameters,
+    validate: (args) => {
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
+    },
+    handler: (args: GitBlameArgs, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
+
+        let workingDirError: string | null = null;
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
+          Effect.catchAll((error) => {
+            workingDirError = error instanceof Error ? error.message : String(error);
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (workingDir === null) {
+          return {
+            success: false,
+            result: null,
+            error: workingDirError || "Failed to resolve working directory",
+          };
+        }
+
+        const blameArgs: string[] = ["blame", "--no-color"];
+        if (args?.showEmail) {
+          blameArgs.push("--show-email");
+        }
+        if (args?.showLineNumbers) {
+          blameArgs.push("--show-number");
+        }
+
+        // Add line range if specified
+        if (args?.startLine && args?.endLine) {
+          if (args.startLine > args.endLine) {
+            return {
+              success: false,
+              result: null,
+              error: `Invalid line range: start line (${args.startLine}) must be <= end line (${args.endLine})`,
+            };
+          }
+          blameArgs.push(`-L${args.startLine},${args.endLine}`);
+        } else if (args?.startLine) {
+          blameArgs.push(`-L${args.startLine},${args.startLine}`);
+        }
+
+        blameArgs.push(args.file);
+
+        let commandError: string | null = null;
+        const commandResult = yield* runGitCommand({
+          args: blameArgs,
+          workingDirectory: workingDir,
+          timeoutMs: 20000,
+        }).pipe(
+          Effect.catchAll((error) => {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            commandError = `Failed to execute git blame in directory '${workingDir}': ${errorMsg}`;
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (commandResult === null) {
+          return {
+            success: false,
+            result: null,
+            error: commandError || `Failed to execute git blame in directory '${workingDir}'`,
+          };
+        }
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr || `git blame failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        const lines = commandResult.stdout
+          .split("\n")
+          .filter((line) => line.trim().length > 0)
+          .map((line) => {
+            // Parse blame output format: commit_hash (author date line_number) content
+            const match = line.match(/^(\S+)\s+\(([^)]+)\s+(\d+)\)\s+(.*)$/);
+            if (match && match.length >= 5) {
+              const hash = match[1] || "unknown";
+              const authorInfo = match[2] || "unknown";
+              const lineNum = match[3] || "0";
+              const content = match[4] || line;
+              return {
+                commitHash: hash,
+                author: authorInfo.trim(),
+                lineNumber: parseInt(lineNum, 10),
+                content,
+              };
+            }
+            // Fallback if parsing fails
+            return {
+              commitHash: "unknown",
+              author: "unknown",
+              lineNumber: 0,
+              content: line,
+            };
+          });
+
+        return {
+          success: true,
+          result: {
+            workingDirectory: workingDir,
+            file: args.file,
+            lineCount: lines.length,
+            lines,
+            options: {
+              startLine: args?.startLine,
+              endLine: args?.endLine,
+              showEmail: args?.showEmail ?? false,
+              showLineNumbers: args?.showLineNumbers ?? false,
+            },
+          },
+        };
+      }),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { file: string; lineCount: number };
+        return `Blamed ${gitResult.lineCount} lines in ${gitResult.file}`;
+      }
+      return result.success ? "Git blame retrieved" : "Git blame failed";
+    },
+  });
+}
+
+export function createGitMergeTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe("Path to the Git repository (defaults to current working directory)"),
+      branch: z.string().min(1).describe("Branch or commit to merge into the current branch"),
+      message: z.string().optional().describe("Merge commit message"),
+      noFastForward: z
+        .boolean()
+        .optional()
+        .describe("Create a merge commit even if fast-forward is possible"),
+      squash: z
+        .boolean()
+        .optional()
+        .describe("Squash all commits from the branch into a single commit"),
+      abort: z.boolean().optional().describe("Abort an in-progress merge"),
+      strategy: z
+        .enum(["resolve", "recursive", "octopus", "ours", "subtree"])
+        .optional()
+        .describe("Merge strategy to use"),
+    })
+    .strict();
+
+  type GitMergeArgs = z.infer<typeof parameters>;
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitMergeArgs>({
+    name: "git_merge",
+    description:
+      "Merge changes from another branch or commit into the current branch. Combines the history of two branches, creating a merge commit. Supports various merge strategies, squash merging, and fast-forward control. Can also abort an in-progress merge. Requires user approval before execution.",
+    tags: ["git", "merge"],
+    parameters,
+    validate: (args) => {
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
+    },
+    approval: {
+      message: (args: GitMergeArgs, context: ToolExecutionContext) =>
+        Effect.gen(function* () {
+          const shell = yield* FileSystemContextServiceTag;
+          const workingDir = args?.path
+            ? yield* shell.resolvePath(
+                {
+                  agentId: context.agentId,
+                  ...(context.conversationId && { conversationId: context.conversationId }),
+                },
+                args?.path,
+              )
+            : yield* shell.getCwd({
+                agentId: context.agentId,
+                ...(context.conversationId && { conversationId: context.conversationId }),
+              });
+
+          if (args?.abort) {
+            return `Abort in-progress merge in ${workingDir}?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_merge tool with these exact arguments: {"path": ${args?.path ? `"${args.path}"` : "undefined"}, "abort": true}`;
+          }
+
+          const options = [];
+          if (args?.noFastForward) options.push("no fast-forward");
+          if (args?.squash) options.push("squash");
+          if (args?.strategy) options.push(`strategy: ${args.strategy}`);
+          const optionsStr = options.length > 0 ? ` (${options.join(", ")})` : "";
+          const messageStr = args?.message ? ` with message: "${args.message}"` : "";
+
+          return `Merge branch "${args.branch}" into current branch${optionsStr}${messageStr} in ${workingDir}?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_merge tool with these exact arguments: {"path": ${args?.path ? `"${args.path}"` : "undefined"}, "branch": "${args.branch}", "message": ${args?.message ? JSON.stringify(args.message) : "undefined"}, "noFastForward": ${args?.noFastForward === true}, "squash": ${args?.squash === true}, "strategy": ${args?.strategy ? `"${args.strategy}"` : "undefined"}}`;
+        }),
+      errorMessage: "Approval required: git merge requires user confirmation.",
+      execute: {
+        toolName: "execute_git_merge",
+        buildArgs: (args) => {
+          return {
+            path: args?.path,
+            branch: args?.branch,
+            message: args?.message,
+            noFastForward: args?.noFastForward,
+            squash: args?.squash,
+            abort: args?.abort,
+            strategy: args?.strategy,
+          };
+        },
+      },
+    },
+    handler: (_args: GitMergeArgs, _context: ToolExecutionContext) =>
+      Effect.succeed({
+        success: false,
+        result: null,
+        error: "Approval required",
+      } as ToolExecutionResult),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { branch?: string; aborted?: boolean; merged?: boolean };
+        if (gitResult.aborted) {
+          return "Merge aborted";
+        }
+        if (gitResult.merged) {
+          return `Merged ${gitResult.branch || "branch"} into current branch`;
+        }
+      }
+      return result.success ? "Git merge successful" : "Git merge failed";
+    },
+  });
+}
+
+export function createExecuteGitMergeTool(): Tool<
+  FileSystem.FileSystem | FileSystemContextService
+> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe("Path to the Git repository (defaults to current working directory)"),
+      branch: z.string().optional().describe("Branch or commit to merge into the current branch"),
+      message: z.string().optional().describe("Merge commit message"),
+      noFastForward: z
+        .boolean()
+        .optional()
+        .describe("Create a merge commit even if fast-forward is possible"),
+      squash: z
+        .boolean()
+        .optional()
+        .describe("Squash all commits from the branch into a single commit"),
+      abort: z.boolean().optional().describe("Abort an in-progress merge"),
+      strategy: z
+        .enum(["resolve", "recursive", "octopus", "ours", "subtree"])
+        .optional()
+        .describe("Merge strategy to use"),
+    })
+    .strict();
+
+  type GitMergeArgs = z.infer<typeof parameters>;
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitMergeArgs>({
+    name: "execute_git_merge",
+    description:
+      "Internal tool that performs the actual git merge operation after user has approved the git_merge request. Merges changes from another branch or commit into the current branch.",
+    hidden: true,
+    parameters,
+    validate: (args) => {
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
+    },
+    handler: (args: GitMergeArgs, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
+
+        let workingDirError: string | null = null;
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
+          Effect.catchAll((error) => {
+            workingDirError = error instanceof Error ? error.message : String(error);
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (workingDir === null) {
+          return {
+            success: false,
+            result: null,
+            error: workingDirError || "Failed to resolve working directory",
+          };
+        }
+
+        if (args?.abort) {
+          // Abort merge
+          const mergeArgs: string[] = ["merge", "--abort"];
+
+          let commandError: string | null = null;
+          const commandResult = yield* runGitCommand({
+            args: mergeArgs,
+            workingDirectory: workingDir,
+          }).pipe(
+            Effect.catchAll((error) => {
+              const errorMsg = error instanceof Error ? error.message : String(error);
+              commandError = `Failed to execute git merge --abort in directory '${workingDir}': ${errorMsg}`;
+              return Effect.succeed(null);
+            }),
+          );
+
+          if (commandResult === null) {
+            return {
+              success: false,
+              result: null,
+              error:
+                commandError || `Failed to execute git merge --abort in directory '${workingDir}'`,
+            };
+          }
+
+          if (commandResult.exitCode !== 0) {
+            return {
+              success: false,
+              result: null,
+              error:
+                commandResult.stderr ||
+                `git merge --abort failed with exit code ${commandResult.exitCode}`,
+            };
+          }
+
+          return {
+            success: true,
+            result: {
+              workingDirectory: workingDir,
+              aborted: true,
+              message: "Merge aborted successfully",
+            },
+          };
+        }
+
+        if (!args?.branch) {
+          return {
+            success: false,
+            result: null,
+            error: "Branch or commit must be specified for merge operation",
+          };
+        }
+
+        // Perform merge
+        const mergeArgs: string[] = ["merge"];
+        if (args?.noFastForward) {
+          mergeArgs.push("--no-ff");
+        }
+        if (args?.squash) {
+          mergeArgs.push("--squash");
+        }
+        if (args?.strategy) {
+          mergeArgs.push("--strategy", args.strategy);
+        }
+        if (args?.message) {
+          mergeArgs.push("-m", args.message);
+        }
+        mergeArgs.push(args.branch);
+
+        let commandError: string | null = null;
+        const commandResult = yield* runGitCommand({
+          args: mergeArgs,
+          workingDirectory: workingDir,
+          timeoutMs: 30000,
+        }).pipe(
+          Effect.catchAll((error) => {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            commandError = `Failed to execute git merge in directory '${workingDir}': ${errorMsg}`;
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (commandResult === null) {
+          return {
+            success: false,
+            result: null,
+            error: commandError || `Failed to execute git merge in directory '${workingDir}'`,
+          };
+        }
+
+        if (commandResult.exitCode !== 0) {
+          // Merge conflicts or other errors
+          const hasConflicts =
+            commandResult.stderr.includes("conflict") || commandResult.stderr.includes("CONFLICT");
+          return {
+            success: false,
+            result: {
+              workingDirectory: workingDir,
+              branch: args.branch,
+              hasConflicts,
+              error:
+                commandResult.stderr || `git merge failed with exit code ${commandResult.exitCode}`,
+            },
+            error: hasConflicts
+              ? "Merge conflicts detected. Please resolve conflicts before continuing."
+              : commandResult.stderr || `git merge failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        // Get the merge commit hash if available
+        const hashResult = yield* runGitCommand({
+          args: ["rev-parse", "HEAD"],
+          workingDirectory: workingDir,
+        }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+        const mergeCommitHash =
+          hashResult === null || hashResult.exitCode !== 0 ? "unknown" : hashResult.stdout.trim();
+
+        return {
+          success: true,
+          result: {
+            workingDirectory: workingDir,
+            branch: args.branch,
+            merged: true,
+            mergeCommitHash,
+            message: args?.message,
+            strategy: args?.strategy,
+            noFastForward: args?.noFastForward || false,
+            squash: args?.squash || false,
+          },
+        };
+      }),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { branch?: string; aborted?: boolean; merged?: boolean };
+        if (gitResult.aborted) {
+          return "Merge aborted";
+        }
+        if (gitResult.merged) {
+          return `Merged ${gitResult.branch || "branch"} into current branch`;
+        }
+      }
+      return result.success ? "Git merge successful" : "Git merge failed";
+    },
+  });
+}
+
+export function createGitReflogTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Path to a file or directory in the Git repository (defaults to current working directory)",
+        ),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(1000)
+        .optional()
+        .describe("Limit the number of reflog entries to show"),
+      branch: z
+        .string()
+        .optional()
+        .describe("Show reflog for a specific branch (defaults to HEAD)"),
+      all: z.boolean().optional().describe("Show reflog for all branches"),
+      oneline: z.boolean().optional().describe("Show entries in one-line format"),
+    })
+    .strict();
+
+  type GitReflogArgs = z.infer<typeof parameters>;
+
+  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitReflogArgs>({
+    name: "git_reflog",
+    description:
+      "Display the reference log showing where HEAD and branch references have been. Shows commit hashes, actions (checkout, commit, merge, etc.), and timestamps. Useful for recovering lost commits, understanding branch history, or tracking reference movements. Supports filtering by branch and limiting results.",
+    tags: ["git", "reflog", "history"],
+    parameters,
+    validate: (args) => {
+      const params = parameters.safeParse(args);
+      return params.success
+        ? ({ valid: true, value: params.data } as const)
+        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
+    },
+    handler: (args: GitReflogArgs, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
+
+        let workingDirError: string | null = null;
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
+          Effect.catchAll((error) => {
+            workingDirError = error instanceof Error ? error.message : String(error);
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (workingDir === null) {
+          return {
+            success: false,
+            result: null,
+            error: workingDirError || "Failed to resolve working directory",
+          };
+        }
+
+        const limit = args?.limit ?? 20;
+        const reflogArgs: string[] = ["reflog", "--no-color"];
+
+        if (args?.all) {
+          reflogArgs.push("--all");
+        } else if (args?.branch) {
+          reflogArgs.push(args.branch);
+        }
+
+        if (limit > 0) {
+          reflogArgs.push(`-n${limit}`);
+        }
+
+        let commandError: string | null = null;
+        const commandResult = yield* runGitCommand({
+          args: reflogArgs,
+          workingDirectory: workingDir,
+        }).pipe(
+          Effect.catchAll((error) => {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            commandError = `Failed to execute git reflog in directory '${workingDir}': ${errorMsg}`;
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (commandResult === null) {
+          return {
+            success: false,
+            result: null,
+            error: commandError || `Failed to execute git reflog in directory '${workingDir}'`,
+          };
+        }
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr || `git reflog failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        // Parse reflog output format: <commit-hash> HEAD@{n}: <action>: <summary>
+        // Example: abc1234 HEAD@{0}: checkout: moving from main to feature
+        const entries = commandResult.stdout
+          .split("\n")
+          .filter((line) => line.trim().length > 0)
+          .map((line) => {
+            // Match: <hash> <ref>@{<n>}: <action>: <summary>
+            const match = line.match(/^(\S+)\s+(\S+@\{\d+\}):\s+(.+?)(?::\s+(.+))?$/);
+            if (match && match.length >= 4) {
+              const hash = match[1] || "unknown";
+              const ref = match[2] || "unknown";
+              const action = match[3] || "unknown";
+              const summary = match[4] || "";
+
+              // Extract short hash (first 7 characters)
+              const shortHash = hash.length >= 7 ? hash.substring(0, 7) : hash;
+
+              return {
+                hash,
+                shortHash,
+                ref,
+                action: action.trim(),
+                summary: summary.trim(),
+                oneline: args?.oneline
+                  ? `${shortHash} ${ref}: ${action}${summary ? `: ${summary}` : ""}`
+                  : undefined,
+              };
+            }
+            // Fallback if parsing fails
+            return {
+              hash: "unknown",
+              shortHash: "unknown",
+              ref: "unknown",
+              action: "unknown",
+              summary: line,
+              oneline: args?.oneline ? line : undefined,
+            };
+          });
+
+        return {
+          success: true,
+          result: {
+            workingDirectory: workingDir,
+            entryCount: entries.length,
+            entries,
+            options: {
+              limit,
+              branch: args?.branch,
+              all: args?.all ?? false,
+              oneline: args?.oneline ?? false,
+            },
+          },
+        };
+      }),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { entryCount: number };
+        return `Retrieved ${gitResult.entryCount} reflog entries`;
+      }
+      return result.success ? "Git reflog retrieved" : "Git reflog failed";
+    },
+  });
+}

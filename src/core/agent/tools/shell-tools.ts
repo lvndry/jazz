@@ -354,7 +354,8 @@ export function createExecuteCommandApprovedTool(): Tool<
           }
 
           // Log command execution for security auditing
-          console.warn(`🔒 SECURITY LOG: Command executed by agent ${context.agentId}:`, {
+          console.warn(`🔒 SECURITY LOG: Command executed by agent ${context.agentId}:`);
+          console.warn({
             command: args.command,
             workingDirectory: workingDir,
             exitCode: result.exitCode,
