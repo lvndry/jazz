@@ -476,7 +476,6 @@ export class AgentRunner {
               });
 
               const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
-              const pendingToolCalls: ToolCall[] = [];
 
               const streamingResult = yield* Effect.retry(
                 Effect.gen(function* () {
@@ -548,11 +547,6 @@ export class AgentRunner {
                 Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
                   Effect.gen(function* () {
                     yield* renderer.handleEvent(event);
-
-                    if (event.type === "tool_call") {
-                      pendingToolCalls.push(event.toolCall);
-                    }
-
                     if (event.type === "complete") {
                       yield* Ref.set(completionRef, event.response);
                       if (event.metrics?.firstTokenLatencyMs) {
@@ -679,9 +673,9 @@ export class AgentRunner {
                   reasoning: completion.content,
                 });
 
-                // Execute tools
+                // Execute tools - use completion.toolCalls as the source of truth
                 const toolResults = yield* ToolExecutor.executeToolCalls(
-                  pendingToolCalls,
+                  completion.toolCalls,
                   context,
                   displayConfig,
                   renderer,
@@ -695,16 +689,57 @@ export class AgentRunner {
                 // Create mapping for quick lookup
                 const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
 
+                // Validate that all tool calls have results
+                const missingResults: string[] = [];
+                for (const toolCall of completion.toolCalls) {
+                  if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
+                    missingResults.push(toolCall.id);
+                  }
+                }
+                if (missingResults.length > 0) {
+                  yield* logger.error("Missing tool results for some tool calls", {
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                    missingToolCallIds: missingResults,
+                    expectedCount: completion.toolCalls.length,
+                    actualCount: toolResults.length,
+                  });
+                  return yield* Effect.fail(
+                    new Error(
+                      `Missing tool results for ${missingResults.length} tool call(s). This indicates a bug in tool execution.`,
+                    ),
+                  );
+                }
+
                 // Add tool result messages
                 for (const toolCall of completion.toolCalls) {
                   if (toolCall.type === "function") {
                     const result = resultMap.get(toolCall.id);
-                    currentMessages.push({
-                      role: "tool",
-                      name: toolCall.function.name,
-                      content: JSON.stringify(result),
-                      tool_call_id: toolCall.id,
-                    });
+                    // Result should always be defined due to validation above, but add safety check
+                    if (result === undefined) {
+                      yield* logger.error("Tool result is undefined despite validation", {
+                        agentId: agent.id,
+                        conversationId: actualConversationId,
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.function.name,
+                      });
+                      // Use error result as fallback
+                      currentMessages.push({
+                        role: "tool",
+                        name: toolCall.function.name,
+                        content: JSON.stringify({
+                          error: "Tool execution result was undefined",
+                        }),
+                        tool_call_id: toolCall.id,
+                      });
+                    } else {
+                      currentMessages.push({
+                        role: "tool",
+                        name: toolCall.function.name,
+                        content: JSON.stringify(result),
+                        tool_call_id: toolCall.id,
+                      });
+                    }
                   }
                 }
 
@@ -964,16 +999,57 @@ export class AgentRunner {
                 // Add tool results to conversation
                 const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
 
+                // Validate that all tool calls have results
+                const missingResults: string[] = [];
+                for (const toolCall of completion.toolCalls) {
+                  if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
+                    missingResults.push(toolCall.id);
+                  }
+                }
+                if (missingResults.length > 0) {
+                  yield* logger.error("Missing tool results for some tool calls", {
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                    missingToolCallIds: missingResults,
+                    expectedCount: completion.toolCalls.length,
+                    actualCount: toolResults.length,
+                  });
+                  return yield* Effect.fail(
+                    new Error(
+                      `Missing tool results for ${missingResults.length} tool call(s). This indicates a bug in tool execution.`,
+                    ),
+                  );
+                }
+
                 // Add tool result messages
                 for (const toolCall of completion.toolCalls) {
                   if (toolCall.type === "function") {
                     const result = resultMap.get(toolCall.id);
-                    currentMessages.push({
-                      role: "tool",
-                      name: toolCall.function.name,
-                      content: JSON.stringify(result),
-                      tool_call_id: toolCall.id,
-                    });
+                    // Result should always be defined due to validation above, but add safety check
+                    if (result === undefined) {
+                      yield* logger.error("Tool result is undefined despite validation", {
+                        agentId: agent.id,
+                        conversationId: actualConversationId,
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.function.name,
+                      });
+                      // Use error result as fallback
+                      currentMessages.push({
+                        role: "tool",
+                        name: toolCall.function.name,
+                        content: JSON.stringify({
+                          error: "Tool execution result was undefined",
+                        }),
+                        tool_call_id: toolCall.id,
+                      });
+                    } else {
+                      currentMessages.push({
+                        role: "tool",
+                        name: toolCall.function.name,
+                        content: JSON.stringify(result),
+                        tool_call_id: toolCall.id,
+                      });
+                    }
                   }
                 }
 
