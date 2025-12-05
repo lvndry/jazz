@@ -88,7 +88,7 @@ export function createExecuteCommandTool(): Tool<FileSystemContextService> {
   return defineTool<FileSystemContextService, ExecuteCommandArgs>({
     name: "execute_command",
     description:
-      "Request to execute a shell command on the system (requires user approval). After user approval, the actual execution is performed by the execute_command_approved tool. Runs commands in a specified working directory with configurable timeout. Includes security checks to block dangerous operations (file deletion, system commands, etc.). All command executions are logged for security auditing.",
+      "Asks for user approval to execute a shell command on the system. You must call the execute_command_approved tool with the exact arguments after user approval. Runs commands in a specified working directory with configurable timeout. Includes security checks to block dangerous operations (file deletion, system commands, etc.). All command executions are logged for security auditing.",
     tags: ["shell", "execution"],
     parameters: z
       .object({
@@ -195,7 +195,7 @@ export function createExecuteCommandApprovedTool(): Tool<
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ExecuteCommandApprovedArgs>({
     name: "execute_command_approved",
     description:
-      "Internal tool that executes a shell command after user approval. Performs additional security validation, runs the command with sanitized environment variables, and logs execution details. This is automatically called after the user approves execute_command.",
+      "Executes the actual shell command after user approval of execute_command. Performs additional security validation, runs the command with sanitized environment variables, and logs execution details. This tool can only be called after execute_command receives user approval.",
     hidden: true,
     parameters: z
       .object({
@@ -354,7 +354,8 @@ export function createExecuteCommandApprovedTool(): Tool<
           }
 
           // Log command execution for security auditing
-          console.warn(`🔒 SECURITY LOG: Command executed by agent ${context.agentId}:`, {
+          console.warn(`🔒 SECURITY LOG: Command executed by agent ${context.agentId}:`);
+          console.warn({
             command: args.command,
             workingDirectory: workingDir,
             exitCode: result.exitCode,

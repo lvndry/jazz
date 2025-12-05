@@ -1,6 +1,5 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
-import { GaxiosError } from "gaxios";
 import { google, type gmail_v1 } from "googleapis";
 import http from "node:http";
 import open from "open";
@@ -10,15 +9,8 @@ import type { LoggerService } from "../core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "../core/interfaces/terminal";
 import { GmailAuthenticationError, GmailOperationError } from "../core/types/errors";
 import type { GmailEmail, GmailLabel } from "../core/types/gmail";
+import { getHttpStatusFromError } from "../core/utils/http-utils";
 import { resolveStorageDirectory } from "../core/utils/storage-utils";
-
-// Helper function to extract HTTP status code from gaxios errors
-function getHttpStatusFromError(error: unknown): number | undefined {
-  if (error instanceof GaxiosError) {
-    return error.status ?? error.response?.status;
-  }
-  return undefined;
-}
 
 /**
  * Gmail service for interacting with Gmail API
@@ -365,6 +357,18 @@ export class GmailServiceResource implements GmailService {
         if (!token) return false;
         try {
           const parsed = JSON.parse(token) as GoogleOAuthToken;
+          // Check if token has required Gmail scopes
+          const requiredScopes = [
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/gmail.modify",
+          ];
+          const tokenScopes = parsed.scope?.split(" ") || [];
+          const hasRequiredScopes = requiredScopes.some((scope) => tokenScopes.includes(scope));
+          if (!hasRequiredScopes) {
+            // Token exists but doesn't have required scopes, need to re-authenticate
+            return false;
+          }
           this.oauthClient.setCredentials(parsed);
           return true;
         } catch {
@@ -398,12 +402,15 @@ export class GmailServiceResource implements GmailService {
         this.oauthClient = freshClient;
         this.gmail = google.gmail({ version: "v1", auth: this.oauthClient });
 
+        // Include both Gmail and Calendar scopes since they share the same token file
         const scopes = [
           "https://www.googleapis.com/auth/gmail.readonly",
           "https://www.googleapis.com/auth/gmail.send",
           "https://www.googleapis.com/auth/gmail.modify",
           "https://www.googleapis.com/auth/gmail.labels",
           "https://www.googleapis.com/auth/gmail.compose",
+          "https://www.googleapis.com/auth/calendar",
+          "https://www.googleapis.com/auth/calendar.events",
         ];
 
         const authUrl = this.oauthClient.generateAuthUrl({
@@ -504,7 +511,7 @@ export class GmailServiceResource implements GmailService {
       : undefined;
     const date = headers["date"] || new Date().toISOString();
 
-    const attachments: GmailEmail["attachments"] | undefined = [];
+    const attachments: GmailEmail["attachments"] = [];
 
     let bodyText: string | undefined;
     if (includeBody) {

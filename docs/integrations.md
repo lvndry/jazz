@@ -153,9 +153,9 @@ Jazz supports multiple LLM providers. You need at least one configured to create
 
 ---
 
-## Gmail Integration
+## Google Services (Gmail & Calendar)
 
-Enable your agents to manage Gmail: read, search, send emails, manage labels, and more.
+Enable your agents to manage Gmail (read, search, send emails, manage labels) and Google Calendar (manage events, check availability, schedule meetings).
 
 ### Prerequisites
 
@@ -171,11 +171,12 @@ Enable your agents to manage Gmail: read, search, send emails, manage labels, an
 3. Name your project (e.g., "Jazz Agent")
 4. Click **Create**
 
-#### 2. Enable Gmail API
+#### 2. Enable APIs
 
 1. In your project, go to **APIs & Services** → **Library**
-2. Search for "Gmail API"
-3. Click **Gmail API** → **Enable**
+2. Search for and enable:
+   - **Gmail API** - Click **Enable**
+   - **Google Calendar API** - Click **Enable**
 
 #### 3. Configure OAuth Consent Screen
 
@@ -189,15 +190,17 @@ Enable your agents to manage Gmail: read, search, send emails, manage labels, an
 5. Click **Save and Continue**
 6. On **Scopes** page:
    - Click **Add or Remove Scopes**
-   - Add these Gmail scopes:
-     - `https://www.googleapis.com/auth/gmail.modify`
-     - `https://www.googleapis.com/auth/gmail.compose`
-     - `https://www.googleapis.com/auth/gmail.labels`
+   - Add these scopes:
+     - `https://mail.google.com/` (Full Gmail access)
+     - `https://www.googleapis.com/auth/calendar` (Calendar access)
+     - `https://www.googleapis.com/auth/calendar.events` (Calendar events)
    - Click **Update** → **Save and Continue**
-7. On **Test users** page:
+7. On **Audience** → **Test users** page:
    - Click **Add Users**
    - Add your Gmail address
    - Click **Save and Continue**
+
+> **Note**: Both Gmail and Calendar share the same OAuth credentials and authentication tokens. You only need to set up OAuth once for both services.
 
 #### 4. Create OAuth Credentials
 
@@ -222,28 +225,34 @@ And paste your client id and client secret when prompted.
 #### 6. Authenticate
 
 ```bash
-# Authenticate with Gmail
+# Authenticate with Gmail (also enables Calendar)
 jazz auth gmail login
+
+# OR authenticate with Calendar (also enables Gmail)
+jazz auth calendar login
 
 # This will:
 # 1. Open your browser
 # 2. Ask you to sign in to Google
-# 3. Request permissions for Gmail access
+# 3. Request permissions for Gmail and Calendar access
 # 4. Redirect back to Jazz (localhost)
 # 5. Store authentication tokens securely
 
-# Verify authentication
+# Verify  authentication
 jazz auth gmail status
+jazz auth calendar status
 ```
 
-#### 7. Create an Agent with Gmail Tools
+> **Note**: Gmail and Calendar share authentication tokens. Authenticating with either service grants access to both.
+
+#### 7. Create an Agent with Google Tools
 
 ```bash
 jazz agent create
 
 # During creation:
-# - Choose tools → Select "Gmail" category
-# - This gives your agent access to all Gmail operations
+# - Choose tools → Select "Gmail" and/or "Calendar" categories
+# - This gives your agent access to Gmail and Calendar operations
 ```
 
 ### Gmail Tool Capabilities
@@ -256,6 +265,19 @@ Your agents can now:
 - **Email Actions**: Trash, delete, archive with approval
 - **Batch Operations**: Modify multiple emails at once
 - **Smart Search**: Use Gmail's powerful query syntax
+
+### Calendar Tool Capabilities
+
+Your agents can now:
+
+- **Read Events**: List, search, get event details
+- **Create Events**: Schedule meetings with title, time, attendees, location
+- **Update Events**: Modify existing events (reschedule, change details)
+- **Delete Events**: Remove cancelled events
+- **Quick Add**: Create events from natural language ("meeting tomorrow at 2pm")
+- **List Calendars**: Access all subscribed calendars
+- **Search**: Find events by text across titles, descriptions, and locations
+- **Upcoming Events**: Quickly check what's coming up
 
 ### Security & Privacy
 

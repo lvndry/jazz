@@ -19,6 +19,14 @@ export interface LoggerService {
     meta?: Record<string, unknown>,
   ) => Effect.Effect<void, Error>;
   /**
+   * Log a tool call to the session log file (if sessionId is set)
+   * Uses the same format as chat messages: [timestamp] [TOOL_CALL] toolName {args}
+   */
+  readonly logToolCall: (
+    toolName: string,
+    args: Record<string, unknown>,
+  ) => Effect.Effect<void, never>;
+  /**
    * Set the session ID for this logger instance
    * All subsequent logs will be written to the session-specific file
    */

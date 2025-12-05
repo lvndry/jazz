@@ -57,8 +57,7 @@ export class ChatServiceImpl implements ChatService {
       const terminal = yield* TerminalServiceTag;
       const logger = yield* LoggerServiceTag;
 
-      // Generate sessionId before the loop
-      const sessionId = `${agent.name}-${Date.now()}`;
+      const sessionId = generateSessionId(agent.name);
 
       yield* logger.setSessionId(sessionId);
 
@@ -80,21 +79,23 @@ export class ChatServiceImpl implements ChatService {
 
       while (chatActive) {
         // Prompt for user input
-        const userMessage = yield* terminal.ask("You:").pipe(
-          Effect.catchAll((error: unknown) => {
-            // Handle ExitPromptError from inquirer when user presses Ctrl+C
-            if (
-              error instanceof Error &&
-              (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
-            ) {
-              // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
-              // The exit check below will handle the goodbye message
-              return Effect.succeed("/exit");
-            }
-            // Re-throw other errors, ensuring it's an Error instance
-            return Effect.fail(error instanceof Error ? error : new Error(String(error)));
-          }),
-        );
+        const userMessage = yield* terminal
+          .ask("You:", { defaultValue: "/help for commands" })
+          .pipe(
+            Effect.catchAll((error: unknown) => {
+              // Handle ExitPromptError from inquirer when user presses Ctrl+C
+              if (
+                error instanceof Error &&
+                (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
+              ) {
+                // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
+                // The exit check below will handle the goodbye message
+                return Effect.succeed("/exit");
+              }
+              // Re-throw other errors, ensuring it's an Error instance
+              return Effect.fail(error instanceof Error ? error : new Error(String(error)));
+            }),
+          );
 
         const trimmedMessage = userMessage.trim();
         const lowerMessage = trimmedMessage.toLowerCase();
@@ -627,6 +628,20 @@ export function createChatServiceLayer(): Layer.Layer<
   | typeof AgentServiceTag
 > {
   return Layer.succeed(ChatServiceTag, new ChatServiceImpl());
+}
+
+/**
+ * Generate a session ID in the format: {agentName}-YYYYMMDD-HHmmss
+ */
+function generateSessionId(agentName: string): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const seconds = String(now.getSeconds()).padStart(2, "0");
+  return `${agentName}-${year}${month}${day}-${hours}${minutes}${seconds}`;
 }
 
 /**

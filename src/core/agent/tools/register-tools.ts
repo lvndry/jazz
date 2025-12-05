@@ -2,6 +2,7 @@ import { Effect, Layer } from "effect";
 import type { ToolRegistry } from "../../interfaces/tool-registry";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { ToolCategory } from "../../types";
+import { calendarTools } from "./calendar-tools";
 import {
   createCdTool,
   createEditFileTool,
@@ -9,7 +10,6 @@ import {
   createExecuteMkdirTool,
   createExecuteRmTool,
   createExecuteWriteFileTool,
-  createFindDirTool,
   createFindPathTool,
   createFindTool,
   createGrepTool,
@@ -18,6 +18,7 @@ import {
   createMkdirTool,
   createPwdTool,
   createReadFileTool,
+  createReadPdfTool,
   createRmTool,
   createStatTool,
   createTailTool,
@@ -27,17 +28,23 @@ import {
   createExecuteGitAddTool,
   createExecuteGitCheckoutTool,
   createExecuteGitCommitTool,
+  createExecuteGitMergeTool,
   createExecuteGitPullTool,
   createExecuteGitPushTool,
+  createExecuteGitTagTool,
   createGitAddTool,
+  createGitBlameTool,
   createGitBranchTool,
   createGitCheckoutTool,
   createGitCommitTool,
   createGitDiffTool,
   createGitLogTool,
+  createGitMergeTool,
   createGitPullTool,
   createGitPushTool,
+  createGitReflogTool,
   createGitStatusTool,
+  createGitTagTool,
 } from "./git-tools";
 import {
   createAddLabelsToEmailTool,
@@ -69,6 +76,7 @@ import { createWebSearchTool } from "./web-search-tools";
 export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     yield* registerGmailTools();
+    yield* registerCalendarTools();
     yield* registerFileTools();
     yield* registerShellTools();
     yield* registerGitTools();
@@ -78,6 +86,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
 }
 
 export const GMAIL_CATEGORY: ToolCategory = { id: "gmail", displayName: "Gmail" };
+export const CALENDAR_CATEGORY: ToolCategory = { id: "calendar", displayName: "Calendar" };
 export const HTTP_CATEGORY: ToolCategory = { id: "http", displayName: "HTTP" };
 export const FILE_MANAGEMENT_CATEGORY: ToolCategory = {
   id: "file_management",
@@ -100,6 +109,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   HTTP_CATEGORY,
   WEB_SEARCH_CATEGORY,
   GMAIL_CATEGORY,
+  CALENDAR_CATEGORY,
 ] as const;
 
 /**
@@ -179,6 +189,19 @@ export function registerGmailTools(): Effect.Effect<void, Error, ToolRegistry> {
   });
 }
 
+// Register Calendar tools
+export function registerCalendarTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(CALENDAR_CATEGORY);
+
+    // Register all calendar tools
+    for (const tool of calendarTools) {
+      yield* registerTool(tool);
+    }
+  });
+}
+
 // Register HTTP tools
 export function registerHttpTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
@@ -202,10 +225,10 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     const cd = createCdTool();
     const grep = createGrepTool();
     const readFile = createReadFileTool();
+    const readPdf = createReadPdfTool();
     const head = createHeadTool();
     const tail = createTailTool();
     const find = createFindTool();
-    const finddir = createFindDirTool();
     const findPath = createFindPathTool();
     const stat = createStatTool();
     const mkdir = createMkdirTool();
@@ -222,12 +245,12 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(cd);
     yield* registerTool(grep);
     yield* registerTool(readFile);
+    yield* registerTool(readPdf);
     yield* registerTool(head);
     yield* registerTool(tail);
     yield* registerTool(writeFile);
     yield* registerTool(editFile);
     yield* registerTool(find);
-    yield* registerTool(finddir);
     yield* registerTool(findPath);
     yield* registerTool(stat);
     yield* registerTool(mkdir);
@@ -264,6 +287,9 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     const gitLogTool = createGitLogTool();
     const gitDiffTool = createGitDiffTool();
     const gitBranchTool = createGitBranchTool();
+    const gitTagTool = createGitTagTool();
+    const gitBlameTool = createGitBlameTool();
+    const gitReflogTool = createGitReflogTool();
 
     // Potentially destructive operations (approval required)
     const gitAddTool = createGitAddTool();
@@ -271,6 +297,7 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     const gitPushTool = createGitPushTool();
     const gitPullTool = createGitPullTool();
     const gitCheckoutTool = createGitCheckoutTool();
+    const gitMergeTool = createGitMergeTool();
 
     // Internal execution tools (called after approval)
     const executeGitAddTool = createExecuteGitAddTool();
@@ -278,12 +305,17 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     const executeGitPushTool = createExecuteGitPushTool();
     const executeGitPullTool = createExecuteGitPullTool();
     const executeGitCheckoutTool = createExecuteGitCheckoutTool();
+    const executeGitTagTool = createExecuteGitTagTool();
+    const executeGitMergeTool = createExecuteGitMergeTool();
 
     // Register safe tools
     yield* registerTool(gitStatusTool);
     yield* registerTool(gitLogTool);
     yield* registerTool(gitDiffTool);
     yield* registerTool(gitBranchTool);
+    yield* registerTool(gitTagTool);
+    yield* registerTool(gitBlameTool);
+    yield* registerTool(gitReflogTool);
 
     // Register approval-required tools
     yield* registerTool(gitAddTool);
@@ -291,6 +323,7 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(gitPushTool);
     yield* registerTool(gitPullTool);
     yield* registerTool(gitCheckoutTool);
+    yield* registerTool(gitMergeTool);
 
     // Register internal execution tools
     yield* registerTool(executeGitAddTool);
@@ -298,6 +331,8 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(executeGitPushTool);
     yield* registerTool(executeGitPullTool);
     yield* registerTool(executeGitCheckoutTool);
+    yield* registerTool(executeGitTagTool);
+    yield* registerTool(executeGitMergeTool);
   });
 }
 

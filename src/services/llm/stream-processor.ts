@@ -165,7 +165,32 @@ export class StreamProcessor {
 
         switch (part.type) {
           case "text-delta": {
-            const textChunk = part.text;
+            let textChunk: string;
+            if (typeof part.text === "string") {
+              textChunk = part.text;
+            } else if (Array.isArray(part.text)) {
+              // Extract text from structured content array
+              // e.g Mistral may return content as array of objects or strings
+              const textArray = part.text as Array<unknown>;
+              textChunk = textArray
+                .map((item: unknown) => {
+                  if (typeof item === "object" && item !== null) {
+                    const obj = item as Record<string, unknown>;
+                    if (obj["type"] === "text" && "text" in obj) {
+                      return String(obj["text"]);
+                    }
+                    if (obj["type"] === "reference") {
+                      // Skip reference items for now, could be enhanced to handle citations
+                      return "";
+                    }
+                  }
+                  return typeof item === "string" ? item : "";
+                })
+                .join("");
+            } else {
+              // Fallback: convert to string
+              textChunk = String(part.text ?? "");
+            }
 
             // Emit text start on first chunk
             if (!this.state.hasStartedText && textChunk.length > 0) {
@@ -275,13 +300,20 @@ export class StreamProcessor {
             this.state.finishEventReceived = true;
             this.state.finishReason = finishReason;
 
-            // Validate expected finish reasons
+            // Handle error finish reason
+            if (finishReason === "error") {
+              const error = new Error(
+                `Unexpected error during stream processing: ${JSON.stringify(part)}`,
+              );
+              throw error;
+            }
+
             if (
               finishReason !== "stop" &&
               finishReason !== "length" &&
               finishReason !== "tool-calls"
             ) {
-              console.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
+              void this.logger.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
             }
             break;
           }
@@ -291,6 +323,21 @@ export class StreamProcessor {
           }
         }
       }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AI_TypeValidationError") {
+        void this.logger.warn(
+          `[StreamProcessor] AI SDK validation error (likely due to provider-specific content format): ${error.message}`,
+          {
+            provider: this.config.providerName,
+            model: this.config.modelName,
+            errorName: error.name,
+          },
+        );
+
+        throw error;
+      }
+      // Re-throw other errors
+      throw error;
     } finally {
       this.resolveCompletion();
     }
@@ -304,8 +351,7 @@ export class StreamProcessor {
     const toolCalls =
       this.state.collectedToolCalls.length > 0 ? this.state.collectedToolCalls : undefined;
 
-    // Try to get usage quickly (50ms timeout)
-    let usage: ChatCompletionResponse["usage"] | undefined;
+    let usage: ChatCompletionResponse["usage"];
     try {
       const usageResult = await Promise.race([
         result.usage,

@@ -66,11 +66,11 @@ export interface AgentRunnerOptions {
    */
   readonly conversationId?: string;
   /**
-   * Optional session identifier for logging purposes.
-   * If not provided, will use the conversationId for logging.
+   * Session identifier for logging purposes.
    * This should be set to the sessionId created at the start of a chat session.
+   * Used to route logs to session-specific log files.
    */
-  readonly sessionId?: string;
+  readonly sessionId: string;
   /**
    * Maximum number of iterations (agent reasoning loops) allowed for this run.
    * Each iteration may involve tool calls and LLM responses.
@@ -387,12 +387,15 @@ export class AgentRunner {
       Effect.gen(function* () {
         const logger = yield* LoggerServiceTag;
         const runContext = yield* initializeAgentRun(options);
-        const sessionIdForLogging = options.sessionId || runContext.actualConversationId;
-        // Set session ID for session-scoped logging
-        yield* logger.setSessionId(sessionIdForLogging);
-        return { logger, runContext };
+
+        yield* logger.setSessionId(options.sessionId);
+
+        const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
+          Option.none(),
+        );
+        return { logger, runContext, finalizeFiberRef };
       }),
-      ({ logger, runContext }) =>
+      ({ logger, runContext, finalizeFiberRef }) =>
         Effect.gen(function* () {
           const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
           const llmService = yield* LLMServiceTag;
@@ -456,8 +459,23 @@ export class AgentRunner {
                 reasoning_effort: agent.config.reasoningEffort ?? "disable",
               };
 
+              // Log LLM request details
+              yield* logger.debug("Sending LLM request", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+                provider,
+                model,
+                messageCount: messagesToSend.length,
+                toolsAvailable: tools.length,
+                reasoningEffort: agent.config.reasoningEffort,
+                lastUserMessage: messagesToSend
+                  .filter((m) => m.role === "user")
+                  .slice(-1)[0]
+                  ?.content?.substring(0, 500),
+              });
+
               const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
-              const pendingToolCalls: ToolCall[] = [];
 
               const streamingResult = yield* Effect.retry(
                 Effect.gen(function* () {
@@ -497,7 +515,7 @@ export class AgentRunner {
                       error instanceof LLMRateLimitError ||
                       error instanceof LLMAuthenticationError
                     ) {
-                      yield* logger.error("Streaming failed, falling back to non-streaming mode", {
+                      yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
                         provider,
                         model: agent.config.llmModel,
                         errorType: error._tag,
@@ -529,11 +547,6 @@ export class AgentRunner {
                 Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
                   Effect.gen(function* () {
                     yield* renderer.handleEvent(event);
-
-                    if (event.type === "tool_call") {
-                      pendingToolCalls.push(event.toolCall);
-                    }
-
                     if (event.type === "complete") {
                       yield* Ref.set(completionRef, event.response);
                       if (event.metrics?.firstTokenLatencyMs) {
@@ -610,6 +623,17 @@ export class AgentRunner {
                 }
               }
 
+              // Log LLM response summary
+              yield* logger.debug("LLM response received", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+                contentLength: completion.content.length,
+                toolCallsCount: completion.toolCalls?.length ?? 0,
+                tokenUsage: completion.usage,
+                contentPreview: completion.content.substring(0, 300),
+              });
+
               if (completion.usage) {
                 recordLLMUsage(runTracker, completion.usage);
               }
@@ -640,9 +664,18 @@ export class AgentRunner {
 
               // Handle tool calls
               if (completion.toolCalls && completion.toolCalls.length > 0) {
-                // Execute tools
+                // Log agent decision to use tools
+                yield* logger.info("Agent decided to use tools", {
+                  agentId: agent.id,
+                  conversationId: actualConversationId,
+                  iteration: i + 1,
+                  toolsChosen: completion.toolCalls.map((tc) => tc.function.name),
+                  reasoning: completion.content,
+                });
+
+                // Execute tools - use completion.toolCalls as the source of truth
                 const toolResults = yield* ToolExecutor.executeToolCalls(
-                  pendingToolCalls,
+                  completion.toolCalls,
                   context,
                   displayConfig,
                   renderer,
@@ -656,16 +689,57 @@ export class AgentRunner {
                 // Create mapping for quick lookup
                 const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
 
+                // Validate that all tool calls have results
+                const missingResults: string[] = [];
+                for (const toolCall of completion.toolCalls) {
+                  if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
+                    missingResults.push(toolCall.id);
+                  }
+                }
+                if (missingResults.length > 0) {
+                  yield* logger.error("Missing tool results for some tool calls", {
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                    missingToolCallIds: missingResults,
+                    expectedCount: completion.toolCalls.length,
+                    actualCount: toolResults.length,
+                  });
+                  return yield* Effect.fail(
+                    new Error(
+                      `Missing tool results for ${missingResults.length} tool call(s). This indicates a bug in tool execution.`,
+                    ),
+                  );
+                }
+
                 // Add tool result messages
                 for (const toolCall of completion.toolCalls) {
                   if (toolCall.type === "function") {
                     const result = resultMap.get(toolCall.id);
-                    currentMessages.push({
-                      role: "tool",
-                      name: toolCall.function.name,
-                      content: JSON.stringify(result),
-                      tool_call_id: toolCall.id,
-                    });
+                    // Result should always be defined due to validation above, but add safety check
+                    if (result === undefined) {
+                      yield* logger.error("Tool result is undefined despite validation", {
+                        agentId: agent.id,
+                        conversationId: actualConversationId,
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.function.name,
+                      });
+                      // Use error result as fallback
+                      currentMessages.push({
+                        role: "tool",
+                        name: toolCall.function.name,
+                        content: JSON.stringify({
+                          error: "Tool execution result was undefined",
+                        }),
+                        tool_call_id: toolCall.id,
+                      });
+                    } else {
+                      currentMessages.push({
+                        role: "tool",
+                        name: toolCall.function.name,
+                        content: JSON.stringify(result),
+                        tool_call_id: toolCall.id,
+                      });
+                    }
                   }
                 }
 
@@ -678,6 +752,14 @@ export class AgentRunner {
               }
 
               // No tool calls - final response
+              yield* logger.info("Agent provided final response", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+                completionLength: completion.content.length,
+                totalToolsUsed: runTracker.toolCalls,
+              });
+
               response = { ...response, content: completion.content };
               const completionMsg = yield* presentationService.formatCompletion(agent.name);
               yield* logger.info(completionMsg);
@@ -712,18 +794,30 @@ export class AgentRunner {
             yield* logger.warn(warningMessage);
           }
 
-          // Finalize run asynchronously
-          yield* finalizeAgentRun(runTracker, { iterationsUsed, finished }).pipe(
+          const finalizeFiber = yield* finalizeAgentRun(runTracker, {
+            iterationsUsed,
+            finished,
+          }).pipe(
             Effect.catchAll((error) =>
               logger.warn("Failed to write agent token usage log", { error: error.message }),
             ),
             Effect.fork,
-            Effect.asVoid,
           );
+          yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
 
           return { ...response, messages: currentMessages };
         }),
-      ({ logger }) => logger.clearSessionId(),
+      ({ logger, finalizeFiberRef }) =>
+        Effect.gen(function* () {
+          const fiberOption = yield* Ref.get(finalizeFiberRef);
+          if (Option.isSome(fiberOption)) {
+            yield* Fiber.await(fiberOption.value).pipe(
+              Effect.asVoid,
+              Effect.catchAll(() => Effect.void),
+            );
+          }
+          yield* logger.clearSessionId();
+        }),
     );
   }
 
@@ -748,13 +842,13 @@ export class AgentRunner {
       Effect.gen(function* () {
         const logger = yield* LoggerServiceTag;
         const runContext = yield* initializeAgentRun(options);
-        // Use the sessionId from options if provided, otherwise fall back to actualConversationId
-        const sessionIdForLogging = options.sessionId || runContext.actualConversationId;
-        // Set session ID for session-scoped logging
-        yield* logger.setSessionId(sessionIdForLogging);
-        return { logger, runContext };
+        yield* logger.setSessionId(options.sessionId);
+        const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
+          Option.none(),
+        );
+        return { logger, runContext, finalizeFiberRef };
       }),
-      ({ logger, runContext }) =>
+      ({ logger, runContext, finalizeFiberRef }) =>
         Effect.gen(function* () {
           const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
           const llmService = yield* LLMServiceTag;
@@ -804,6 +898,22 @@ export class AgentRunner {
                 reasoning_effort: agent.config.reasoningEffort ?? "disable",
               };
 
+              // Log LLM request details
+              yield* logger.debug("Sending LLM request", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+                provider,
+                model,
+                messageCount: messagesToSend.length,
+                toolsAvailable: tools.length,
+                reasoningEffort: agent.config.reasoningEffort,
+                lastUserMessage: messagesToSend
+                  .filter((m) => m.role === "user")
+                  .slice(-1)[0]
+                  ?.content?.substring(0, 500),
+              });
+
               const completion = yield* Effect.retry(
                 Effect.gen(function* () {
                   try {
@@ -818,6 +928,17 @@ export class AgentRunner {
                   Schedule.whileInput((error) => error instanceof LLMRateLimitError),
                 ),
               );
+
+              // Log LLM response summary
+              yield* logger.debug("LLM response received", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+                contentLength: completion.content.length,
+                toolCallsCount: completion.toolCalls?.length ?? 0,
+                tokenUsage: completion.usage,
+                contentPreview: completion.content.substring(0, 300),
+              });
 
               if (completion.usage) {
                 recordLLMUsage(runTracker, completion.usage);
@@ -855,6 +976,15 @@ export class AgentRunner {
 
               // Handle tool calls
               if (completion.toolCalls && completion.toolCalls.length > 0) {
+                // Log agent decision to use tools
+                yield* logger.info("Agent decided to use tools", {
+                  agentId: agent.id,
+                  conversationId: actualConversationId,
+                  iteration: i + 1,
+                  toolsChosen: completion.toolCalls.map((tc) => tc.function.name),
+                  reasoning: completion.content,
+                });
+
                 const toolResults = yield* ToolExecutor.executeToolCalls(
                   completion.toolCalls,
                   context,
@@ -869,16 +999,57 @@ export class AgentRunner {
                 // Add tool results to conversation
                 const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
 
+                // Validate that all tool calls have results
+                const missingResults: string[] = [];
+                for (const toolCall of completion.toolCalls) {
+                  if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
+                    missingResults.push(toolCall.id);
+                  }
+                }
+                if (missingResults.length > 0) {
+                  yield* logger.error("Missing tool results for some tool calls", {
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                    missingToolCallIds: missingResults,
+                    expectedCount: completion.toolCalls.length,
+                    actualCount: toolResults.length,
+                  });
+                  return yield* Effect.fail(
+                    new Error(
+                      `Missing tool results for ${missingResults.length} tool call(s). This indicates a bug in tool execution.`,
+                    ),
+                  );
+                }
+
                 // Add tool result messages
                 for (const toolCall of completion.toolCalls) {
                   if (toolCall.type === "function") {
                     const result = resultMap.get(toolCall.id);
-                    currentMessages.push({
-                      role: "tool",
-                      name: toolCall.function.name,
-                      content: JSON.stringify(result),
-                      tool_call_id: toolCall.id,
-                    });
+                    // Result should always be defined due to validation above, but add safety check
+                    if (result === undefined) {
+                      yield* logger.error("Tool result is undefined despite validation", {
+                        agentId: agent.id,
+                        conversationId: actualConversationId,
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.function.name,
+                      });
+                      // Use error result as fallback
+                      currentMessages.push({
+                        role: "tool",
+                        name: toolCall.function.name,
+                        content: JSON.stringify({
+                          error: "Tool execution result was undefined",
+                        }),
+                        tool_call_id: toolCall.id,
+                      });
+                    } else {
+                      currentMessages.push({
+                        role: "tool",
+                        name: toolCall.function.name,
+                        content: JSON.stringify(result),
+                        tool_call_id: toolCall.id,
+                      });
+                    }
                   }
                 }
 
@@ -891,6 +1062,14 @@ export class AgentRunner {
               }
 
               // No tool calls - final response
+              yield* logger.info("Agent provided final response", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+                completionLength: completion.content.length,
+                totalToolsUsed: runTracker.toolCalls,
+              });
+
               response = { ...response, content: formattedContent };
 
               // Display final response
@@ -945,18 +1124,30 @@ export class AgentRunner {
             yield* logger.warn(warningMsg);
           }
 
-          // Finalize run asynchronously
-          yield* finalizeAgentRun(runTracker, { iterationsUsed, finished }).pipe(
+          const finalizeFiber = yield* finalizeAgentRun(runTracker, {
+            iterationsUsed,
+            finished,
+          }).pipe(
             Effect.catchAll((error) =>
               logger.warn("Failed to write agent token usage log", { error: error.message }),
             ),
             Effect.fork,
-            Effect.asVoid,
           );
+          yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
 
           return { ...response, messages: currentMessages };
         }),
-      ({ logger }) => logger.clearSessionId(),
+      ({ logger, finalizeFiberRef }) =>
+        Effect.gen(function* () {
+          const fiberOption = yield* Ref.get(finalizeFiberRef);
+          if (Option.isSome(fiberOption)) {
+            yield* Fiber.await(fiberOption.value).pipe(
+              Effect.asVoid,
+              Effect.catchAll(() => Effect.void),
+            );
+          }
+          yield* logger.clearSessionId();
+        }),
     );
   }
 }

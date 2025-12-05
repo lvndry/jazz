@@ -158,7 +158,7 @@ git reset --hard <commit>  # Restore
 Run Jazz in Docker for additional isolation:
 
 ```dockerfile
-FROM node:18-alpine
+FROM node:20-alpine
 RUN npm install -g jazz-ai
 USER node
 WORKDIR /home/node

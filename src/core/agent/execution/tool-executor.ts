@@ -86,6 +86,8 @@ export class ToolExecutor {
             ? (parsed as Record<string, unknown>)
             : {};
 
+        yield* logger.logToolCall(name, args);
+
         // Emit tool execution start
         if (displayConfig.showToolExecution) {
           if (renderer) {
@@ -97,6 +99,7 @@ export class ToolExecutor {
             });
           } else {
             const message = yield* presentationService.formatToolExecutionStart(name, args);
+            yield* presentationService.writeBlankLine();
             yield* presentationService.writeOutput(message);
           }
         }
@@ -105,6 +108,18 @@ export class ToolExecutor {
         const result = yield* ToolExecutor.executeTool(name, args, context);
         const toolDuration = Date.now() - toolStartTime;
         const resultString = JSON.stringify(result.result);
+
+        // Log tool result details for debugging
+        yield* logger.debug("Tool execution succeeded", {
+          agentId,
+          conversationId,
+          toolName: name,
+          toolCallId: toolCall.id,
+          durationMs: toolDuration,
+          success: result.success,
+          resultSize: resultString.length,
+          resultPreview: resultString.substring(0, 200),
+        });
 
         // Emit tool execution complete
         if (displayConfig.showToolExecution) {
@@ -136,11 +151,6 @@ export class ToolExecutor {
 
         return { toolCallId: toolCall.id, result: result.result, success: result.success, name };
       } catch (error) {
-        // Fail fast on missing tools
-        if (error instanceof Error && error.message.startsWith("Tool not found")) {
-          throw error;
-        }
-
         const toolDuration = Date.now() - toolStartTime;
         const errorMessage = error instanceof Error ? error.message : String(error);
 
