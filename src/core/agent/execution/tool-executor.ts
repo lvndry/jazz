@@ -86,6 +86,8 @@ export class ToolExecutor {
             ? (parsed as Record<string, unknown>)
             : {};
 
+        yield* logger.logToolCall(name, args);
+
         // Emit tool execution start
         if (displayConfig.showToolExecution) {
           if (renderer) {
