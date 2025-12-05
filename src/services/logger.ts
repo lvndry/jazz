@@ -111,6 +111,19 @@ export class LoggerServiceImpl implements LoggerService {
       });
     });
   }
+
+  logToolCall(toolName: string, args: Record<string, unknown>): Effect.Effect<void, never> {
+    const sessionIdRef = this.sessionIdRef;
+    return Effect.gen(function* () {
+      const sessionId = yield* Ref.get(sessionIdRef);
+      if (Option.isSome(sessionId)) {
+        yield* Effect.tryPromise({
+          try: () => writeToolCallToSessionFile(sessionId.value, toolName, args),
+          catch: () => undefined, // Silently fail - logging should not break execution
+        });
+      }
+    }).pipe(Effect.catchAll(() => Effect.void));
+  }
 }
 
 /**
@@ -183,6 +196,30 @@ async function writeFormattedLogToSessionFile(
   const sanitizedId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
   const logFilePath = path.join(logsDir, `${sanitizedId}.log`);
   const line = formatLogLineForFile(level, message, meta);
+  await appendFile(logFilePath, line, { encoding: "utf8" });
+}
+
+/**
+ * Write a tool call to the session log file in the same format as chat messages
+ * Format: [timestamp] [TOOL_CALL] toolName {args}
+ */
+async function writeToolCallToSessionFile(
+  sessionId: string,
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<void> {
+  const logsDir = getLogsDirectory();
+  await mkdir(logsDir, { recursive: true });
+  // Sanitize sessionId for use in filename (remove invalid characters)
+  const sanitizedId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const logFilePath = path.join(logsDir, `${sanitizedId}.log`);
+  const timestamp = new Date().toISOString();
+
+  // Format arguments as JSON
+  const argsJson = JSON.stringify(args);
+  const content = `${toolName} ${argsJson}`;
+  const line = `[${timestamp}] [TOOL_CALL] ${content}\n`;
+
   await appendFile(logFilePath, line, { encoding: "utf8" });
 }
 
