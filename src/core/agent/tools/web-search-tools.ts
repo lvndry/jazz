@@ -12,6 +12,8 @@ export interface WebSearchArgs extends Record<string, unknown> {
   readonly query: string;
   readonly depth?: SearchDepth;
   readonly includeImages?: boolean;
+  readonly fromDate?: string;
+  readonly toDate?: string;
 }
 
 export interface WebSearchItem {
@@ -30,6 +32,8 @@ export interface WebSearchResult {
   readonly timestamp: string;
   readonly provider: "linkup" | "exa" | "parallel";
 }
+
+const MAX_RESULTS = 200;
 
 export function createWebSearchTool(): ReturnType<
   typeof defineTool<AgentConfigService | LoggerService, WebSearchArgs>
@@ -57,6 +61,20 @@ export function createWebSearchTool(): ReturnType<
           .boolean()
           .optional()
           .describe("Whether to include images in search results (default: false)"),
+        fromDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
+          .optional()
+          .describe(
+            "The date from which the search results should be considered, in ISO 8601 format (YYYY-MM-DD)",
+          ),
+        toDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
+          .optional()
+          .describe(
+            "The date until which the search results should be considered, in ISO 8601 format (YYYY-MM-DD)",
+          ),
       })
       .strict(),
     validate: (args) => {
@@ -66,6 +84,14 @@ export function createWebSearchTool(): ReturnType<
             query: z.string().min(1),
             depth: z.enum(["standard", "deep"]).optional(),
             includeImages: z.boolean().optional(),
+            fromDate: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
+              .optional(),
+            toDate: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
+              .optional(),
           })
           .strict() as z.ZodType<WebSearchArgs>
       ).safeParse(args);
@@ -201,12 +227,22 @@ function executeLinkupSearch(
 
     const response = yield* Effect.tryPromise({
       try: async () => {
-        return await client.search({
+        const searchParams: Parameters<typeof client.search>[0] = {
           query: args.query,
           depth: args.depth ?? "standard",
           outputType: "searchResults",
           includeImages: args.includeImages ?? false,
-        });
+          maxResults: MAX_RESULTS,
+        };
+
+        if (args.fromDate) {
+          searchParams.fromDate = new Date(args.fromDate);
+        }
+        if (args.toDate) {
+          searchParams.toDate = new Date(args.toDate);
+        }
+
+        return await client.search(searchParams);
       },
       catch: (error) =>
         new Error(
@@ -255,10 +291,19 @@ function executeExaSearch(
 
     const response = yield* Effect.tryPromise({
       try: async () => {
-        return await exa.search(args.query, {
+        const searchOptions: Parameters<typeof exa.search>[1] = {
           type: "auto",
           useAutoprompt: true,
-        });
+        };
+
+        if (args.fromDate) {
+          searchOptions.startPublishedDate = args.fromDate;
+        }
+        if (args.toDate) {
+          searchOptions.endPublishedDate = args.toDate;
+        }
+
+        return await exa.search(args.query, searchOptions);
       },
       catch: (error) =>
         new Error(`Exa search failed: ${error instanceof Error ? error.message : String(error)}`),
