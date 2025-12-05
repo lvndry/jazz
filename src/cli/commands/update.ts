@@ -12,7 +12,7 @@ import { UpdateCheckError, UpdateInstallError } from "../../core/types/errors";
 /**
  * Version information from npm registry
  */
-interface NpmPackageInfo {
+export interface NpmPackageInfo {
   "dist-tags": {
     latest: string;
     [key: string]: string;
@@ -42,7 +42,7 @@ function compareVersions(v1: string, v2: string): number {
 /**
  * Check if a newer version is available on npm
  */
-function checkForUpdate(): Effect.Effect<
+export function checkForUpdate(): Effect.Effect<
   { hasUpdate: boolean; currentVersion: string; latestVersion: string },
   UpdateCheckError
 > {

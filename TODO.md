@@ -44,7 +44,7 @@
         language.
 - [x] Ollama - Being able to pass custom baseURL in config
 - [x] Ollama - Fetch available models from baseURL instead of keeping a list of static model
-- [ ] Notion - Use MCP or API ?
+- [ ] Notion tools
 
 ## Quality, Safety & Testing
 
@@ -71,5 +71,4 @@
 
 - [x] Read repo diff, propose commit message, then commit & push automatically. ->
 - [x] Summarize emails labeled `newsletter` and bulk archive/delete on confirmation.
-- Download an image from a given URL into a specified local workspace folder.
 - [x] Clone a repository from a URL, follow setup instructions, and report completion status.

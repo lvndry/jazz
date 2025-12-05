@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
+import { autoCheckForUpdate } from "./cli/auto-update";
 import { CLIPresentationServiceLayer } from "./cli/presentation/presentation-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
@@ -149,7 +150,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
 ): void {
   const managedEffect = Effect.scoped(
     Effect.gen(function* () {
-      const fiber = yield* Effect.fork(effect);
+      const fiber = yield* Effect.fork(autoCheckForUpdate().pipe(Effect.zipRight(effect)));
       let signalCount = 0;
       type SignalName = "SIGINT" | "SIGTERM";
 
