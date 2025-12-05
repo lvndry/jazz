@@ -61,6 +61,7 @@ export function createWebSearchTool(): ReturnType<
         query: z
           .string()
           .min(1, "query cannot be empty")
+          .max(5000, "query cannot be longer than 5000 characters")
           .describe(
             "The search query to execute. You should refine and improve the user's original query to be as specific as possible. Add context or constraints to narrow down results. Examples: 1. Bad: 'Total' -> Good: 'French energy company Total website'. 2. Bad: 'Python error' -> Good: 'Python TypeError: int object is not iterable solution'. 3. Bad: 'best restaurants' -> Good: 'best Italian restaurants in downtown Chicago 2024'.",
           ),
@@ -386,6 +387,7 @@ function executeParallelSearch(
       try: async () => {
         return await parallel.beta.search({
           objective: args.query,
+          mode: "agentic",
         });
       },
       catch: (error) =>
