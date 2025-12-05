@@ -32,20 +32,19 @@
 
 ## Integrations
 
-- [ ] Google Calendar tools
-  - [ ] Events for the day
-  - [ ] Create/Delete event
-  - [ ] Edit event
+- [x] Google Calendar tools
+  - [x] Events for the day
+  - [x] Create/Delete event
+  - [x] Edit event
 - [ ] Gmail enhancements
   - [ ] Attachment support — wire interface implementation for upload/download streams.
   - [ ] `createReplyToEmailTool` — reply within thread while preserving references and history.
   - [ ] `createForwardEmailTool` — forward with original metadata and optional redaction.
   - [ ] Advanced search with date ranges — accept structured filters and map to Gmail query
         language.
-  - [ ] Calendar integration bridge — parse meeting intents and invoke Calendar tooling once
-        available.
 - [x] Ollama - Being able to pass custom baseURL in config
 - [x] Ollama - Fetch available models from baseURL instead of keeping a list of static model
+- [ ] Notion - Use MCP or API ?
 
 ## Quality, Safety & Testing
 
@@ -70,7 +69,7 @@
 
 ## Workflow Concepts To Validate
 
-- Read repo diff, propose commit message, then commit & push automatically.
-- Summarize emails labeled `newsletter` and bulk archive/delete on confirmation.
+- [x] Read repo diff, propose commit message, then commit & push automatically. ->
+- [x] Summarize emails labeled `newsletter` and bulk archive/delete on confirmation.
 - Download an image from a given URL into a specified local workspace folder.
-- Clone a repository from a URL, follow setup instructions, and report completion status.
+- [x] Clone a repository from a URL, follow setup instructions, and report completion status.
