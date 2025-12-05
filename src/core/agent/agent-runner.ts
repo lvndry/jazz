@@ -476,7 +476,6 @@ export class AgentRunner {
               });
 
               const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
-              const pendingToolCalls: ToolCall[] = [];
 
               const streamingResult = yield* Effect.retry(
                 Effect.gen(function* () {
@@ -548,11 +547,6 @@ export class AgentRunner {
                 Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
                   Effect.gen(function* () {
                     yield* renderer.handleEvent(event);
-
-                    if (event.type === "tool_call") {
-                      pendingToolCalls.push(event.toolCall);
-                    }
-
                     if (event.type === "complete") {
                       yield* Ref.set(completionRef, event.response);
                       if (event.metrics?.firstTokenLatencyMs) {
@@ -679,9 +673,9 @@ export class AgentRunner {
                   reasoning: completion.content,
                 });
 
-                // Execute tools
+                // Execute tools - use completion.toolCalls as the source of truth
                 const toolResults = yield* ToolExecutor.executeToolCalls(
-                  pendingToolCalls,
+                  completion.toolCalls,
                   context,
                   displayConfig,
                   renderer,
