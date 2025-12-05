@@ -376,7 +376,7 @@ class AISDKService implements LLMService {
     const baseUrl = modelSource.defaultBaseUrl;
 
     if (!baseUrl) {
-      console.warn(
+      void this.logger.warn(
         `[LLM Warning] Provider '${providerName}' requires dynamic model fetching but no defaultBaseUrl is defined. Skipping provider.`,
       );
       return Effect.succeed([]);
@@ -442,7 +442,7 @@ class AISDKService implements LLMService {
     return Effect.tryPromise({
       try: async () => {
         const timingStart = Date.now();
-        void this.logger.info(
+        void this.logger.debug(
           `[LLM Timing] Starting non-streaming completion for ${providerName}:${options.model}`,
         );
 
@@ -453,7 +453,7 @@ class AISDKService implements LLMService {
           this.config.llmConfig,
           this.modelCache,
         );
-        void this.logger.info(
+        void this.logger.debug(
           `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
         );
 
@@ -469,7 +469,7 @@ class AISDKService implements LLMService {
               inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
             });
           }
-          void this.logger.info(
+          void this.logger.debug(
             `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
           );
         }
@@ -478,12 +478,12 @@ class AISDKService implements LLMService {
 
         const messageConversionStart = Date.now();
         const coreMessages = toCoreMessages(options.messages);
-        void this.logger.info(
+        void this.logger.debug(
           `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
         );
 
         const generateTextStart = Date.now();
-        void this.logger.info(`[LLM Timing] Calling generateText...`);
+        void this.logger.debug(`[LLM Timing] Calling generateText...`);
         const result = await generateText({
           model,
           messages: coreMessages,
@@ -492,15 +492,15 @@ class AISDKService implements LLMService {
           ...(providerOptions ? { providerOptions } : {}),
           stopWhen: stepCountIs(MAX_AGENT_STEPS),
         });
-        void this.logger.info(
+        void this.logger.debug(
           `[LLM Timing] generateText completed in ${Date.now() - generateTextStart}ms`,
         );
         void this.logger.info(`[LLM Timing] Total completion time: ${Date.now() - timingStart}ms`);
 
         const responseModel = options.model;
         const content = result.text ?? "";
-        let toolCalls: ChatCompletionResponse["toolCalls"] | undefined = undefined;
-        let usage: ChatCompletionResponse["usage"] | undefined = undefined;
+        let toolCalls: ChatCompletionResponse["toolCalls"] = undefined;
+        let usage: ChatCompletionResponse["usage"] = undefined;
 
         // Extract usage information
         if (result.usage) {
@@ -556,7 +556,6 @@ class AISDKService implements LLMService {
           if (e.type) errorDetails["type"] = e.type;
         }
 
-        console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
         void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
         return llmError;
@@ -569,7 +568,7 @@ class AISDKService implements LLMService {
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
     const timingStart = Date.now();
-    void this.logger.info(
+    void this.logger.debug(
       `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
     );
 
@@ -587,7 +586,7 @@ class AISDKService implements LLMService {
           inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
         });
       }
-      void this.logger.info(
+      void this.logger.debug(
         `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
       );
     }
@@ -597,7 +596,7 @@ class AISDKService implements LLMService {
     // Message conversion timing
     const messageConversionStart = Date.now();
     const coreMessages = toCoreMessages(options.messages);
-    void this.logger.info(
+    void this.logger.debug(
       `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
     );
 
@@ -618,7 +617,7 @@ class AISDKService implements LLMService {
         void (async (): Promise<void> => {
           try {
             const streamTextStart = Date.now();
-            void this.logger.info(
+            void this.logger.debug(
               `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
             );
 
@@ -634,7 +633,7 @@ class AISDKService implements LLMService {
               stopWhen: stepCountIs(MAX_AGENT_STEPS),
             });
 
-            void this.logger.info(
+            void this.logger.debug(
               `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
             );
 
@@ -689,8 +688,6 @@ class AISDKService implements LLMService {
               }
             }
 
-            console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-
             void this.logger.error(
               `LLM Error: ${llmError._tag} - ${llmError.message}`,
               errorDetails,
@@ -727,8 +724,6 @@ class AISDKService implements LLMService {
           if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
           if (e.type) errorDetails["type"] = e.type;
         }
-
-        console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
 
         void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
