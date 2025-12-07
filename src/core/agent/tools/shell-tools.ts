@@ -6,7 +6,11 @@ import { type FileSystemContextService, FileSystemContextServiceTag } from "../.
 import type { Tool } from "../../interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
 import { createSanitizedEnv } from "../../utils/env-utils";
-import { defineTool } from "./base-tool";
+import {
+  defineTool,
+  formatApprovalRequiredDescription,
+  formatExecutionToolDescription,
+} from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 
 // Enhanced security checks for potentially dangerous commands
@@ -87,8 +91,9 @@ interface ExecuteCommandArgs extends Record<string, unknown> {
 export function createExecuteCommandTool(): Tool<FileSystemContextService> {
   return defineTool<FileSystemContextService, ExecuteCommandArgs>({
     name: "execute_command",
-    description:
-      "⚠️ APPROVAL REQUIRED: Execute a shell command on the system. Runs commands in a specified working directory with configurable timeout. Includes security checks to block dangerous operations (file deletion, system commands, etc.). All command executions are logged for security auditing. This tool requests user approval and does NOT perform the command execution directly. After the user confirms, you MUST call execute_command_approved with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Execute a shell command on the system. Runs commands in a specified working directory with configurable timeout. Includes security checks to block dangerous operations (file deletion, system commands, etc.). All command executions are logged for security auditing. This tool requests user approval and does NOT perform the command execution directly. After the user confirms, you MUST call execute_command_approved with the exact arguments provided in the approval response.",
+    ),
     tags: ["shell", "execution"],
     parameters: z
       .object({
@@ -194,8 +199,9 @@ export function createExecuteCommandApprovedTool(): Tool<
 > {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ExecuteCommandApprovedArgs>({
     name: "execute_command_approved",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual shell command execution after user approval of execute_command. Performs additional security validation, runs the command with sanitized environment variables, and logs execution details. This tool should only be called after execute_command receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual shell command execution after user approval of execute_command. Performs additional security validation, runs the command with sanitized environment variables, and logs execution details. This tool should only be called after execute_command receives user approval.",
+    ),
     hidden: true,
     parameters: z
       .object({

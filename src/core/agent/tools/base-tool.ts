@@ -279,3 +279,41 @@ export function makeZodValidator<Args extends Record<string, unknown>>(
     return { valid: true, value: result.data } as const;
   };
 }
+
+/**
+ * Format a tool description with the "APPROVAL REQUIRED" prefix.
+ * Standardizes the format for tools that require user approval before execution.
+ *
+ * @param description - The base description of the tool
+ * @returns The description prefixed with the approval required marker
+ *
+ * @example
+ * ```typescript
+ * description: formatApprovalRequiredDescription(
+ *   "Create a new event in Google Calendar with specified details."
+ * )
+ * // Returns: "⚠️ APPROVAL REQUIRED: Create a new event in Google Calendar with specified details."
+ * ```
+ */
+export function formatApprovalRequiredDescription(description: string): string {
+  return `⚠️ APPROVAL REQUIRED: ${description}`;
+}
+
+/**
+ * Format a tool description with the "EXECUTION TOOL" prefix.
+ * Standardizes the format for execution tools that perform actions after approval.
+ *
+ * @param description - The base description of the tool
+ * @returns The description prefixed with the execution tool marker
+ *
+ * @example
+ * ```typescript
+ * description: formatExecutionToolDescription(
+ *   "Performs the actual calendar event creation after user approval."
+ * )
+ * // Returns: "🔧 EXECUTION TOOL: Performs the actual calendar event creation after user approval."
+ * ```
+ */
+export function formatExecutionToolDescription(description: string): string {
+  return `🔧 EXECUTION TOOL: ${description}`;
+}
