@@ -3,7 +3,11 @@ import { z } from "zod";
 import { GmailServiceTag, type GmailService } from "../../interfaces/gmail";
 import type { Tool } from "../../interfaces/tool-registry";
 import type { GmailEmail, GmailLabel } from "../../types/gmail";
-import { defineTool } from "./base-tool";
+import {
+  defineTool,
+  formatApprovalRequiredDescription,
+  formatExecutionToolDescription,
+} from "./base-tool";
 
 // Gmail allowed label colors
 const ALLOWED_LABEL_COLORS = [
@@ -468,8 +472,9 @@ export function createDeleteLabelTool(): Tool<GmailService> {
   type DeleteLabelArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, DeleteLabelArgs>({
     name: "delete_label",
-    description:
-      "⚠️ APPROVAL REQUIRED: Delete a Gmail label (only user-created labels can be deleted). This tool requests user approval and does NOT perform the deletion directly. After the user confirms, you MUST call execute_delete_label with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Delete a Gmail label (only user-created labels can be deleted). This tool requests user approval and does NOT perform the deletion directly. After the user confirms, you MUST call execute_delete_label with the exact arguments provided in the approval response.",
+    ),
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {
@@ -508,8 +513,9 @@ export function createTrashEmailTool(): Tool<GmailService> {
 
   return defineTool<GmailService, { emailId: string }>({
     name: "trash_email",
-    description:
-      "⚠️ APPROVAL REQUIRED: Move an email to trash (recoverable). Use this for safer email removal. This tool requests user approval and does NOT perform the trash operation directly. After the user confirms, you MUST call execute_trash_email with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Move an email to trash (recoverable). Use this for safer email removal. This tool requests user approval and does NOT perform the trash operation directly. After the user confirms, you MUST call execute_trash_email with the exact arguments provided in the approval response.",
+    ),
     parameters,
     validate: (args) => {
       const result = parameters.safeParse(args);
@@ -557,8 +563,9 @@ export function createDeleteEmailTool(): Tool<GmailService> {
   type DeleteEmailArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, DeleteEmailArgs>({
     name: "delete_email",
-    description:
-      "⚠️ APPROVAL REQUIRED: Permanently delete an email. This action cannot be undone. Consider using trash_email for safer removal. This tool requests user approval and does NOT perform the deletion directly. After the user confirms, you MUST call execute_delete_email with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Permanently delete an email. This action cannot be undone. Consider using trash_email for safer removal. This tool requests user approval and does NOT perform the deletion directly. After the user confirms, you MUST call execute_delete_email with the exact arguments provided in the approval response.",
+    ),
     parameters,
     validate: (args) => {
       const params = parameters.safeParse(args);
@@ -605,8 +612,9 @@ export function createExecuteTrashEmailTool(): Tool<GmailService> {
   type ExecuteTrashEmailArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, ExecuteTrashEmailArgs>({
     name: "execute_trash_email",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual email trash operation after user approval of trash_email. Moves an email to trash (recoverable). This tool should only be called after trash_email receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual email trash operation after user approval of trash_email. Moves an email to trash (recoverable). This tool should only be called after trash_email receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -635,8 +643,9 @@ export function createExecuteDeleteEmailTool(): Tool<GmailService> {
   type ExecuteDeleteEmailArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, ExecuteDeleteEmailArgs>({
     name: "execute_delete_email",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual email deletion after user approval of delete_email. Permanently deletes an email (this action cannot be undone). This tool should only be called after delete_email receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual email deletion after user approval of delete_email. Permanently deletes an email (this action cannot be undone). This tool should only be called after delete_email receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -668,8 +677,9 @@ export function createExecuteDeleteLabelTool(): Tool<GmailService> {
   type ExecuteDeleteLabelArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, ExecuteDeleteLabelArgs>({
     name: "execute_delete_label",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual Gmail label deletion after user approval of delete_label. Permanently deletes a Gmail label (only user-created labels can be deleted; system labels are protected). This tool should only be called after delete_label receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual Gmail label deletion after user approval of delete_label. Permanently deletes a Gmail label (only user-created labels can be deleted; system labels are protected). This tool should only be called after delete_label receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {

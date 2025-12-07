@@ -5,7 +5,11 @@ import { type FileSystemContextService, FileSystemContextServiceTag } from "../.
 import type { Tool } from "../../interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
 import { createSanitizedEnv } from "../../utils/env-utils";
-import { defineTool } from "./base-tool";
+import {
+  defineTool,
+  formatApprovalRequiredDescription,
+  formatExecutionToolDescription,
+} from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 
 /**
@@ -628,8 +632,9 @@ export function createGitAddTool(): Tool<FileSystem.FileSystem | FileSystemConte
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitAddArgs>({
     name: "git_add",
-    description:
-      "⚠️ APPROVAL REQUIRED: Stage files for commit by adding them to Git's index. Prepares changes to be included in the next commit. Can stage specific files or all changes. This tool requests user approval and does NOT perform the staging directly. After the user confirms, you MUST call execute_git_add with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Stage files for commit by adding them to Git's index. Prepares changes to be included in the next commit. Can stage specific files or all changes. This tool requests user approval and does NOT perform the staging directly. After the user confirms, you MUST call execute_git_add with the exact arguments provided in the approval response.",
+    ),
     tags: ["git", "index"],
     parameters,
     validate: (args) => {
@@ -704,8 +709,9 @@ export function createExecuteGitAddTool(): Tool<FileSystem.FileSystem | FileSyst
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitAddArgs>({
     name: "execute_git_add",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual git add operation after user approval of git_add. Stages files for commit by adding them to Git's index. This tool should only be called after git_add receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual git add operation after user approval of git_add. Stages files for commit by adding them to Git's index. This tool should only be called after git_add receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -810,8 +816,9 @@ export function createGitRmTool(): Tool<FileSystem.FileSystem | FileSystemContex
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitRmArgs>({
     name: "git_rm",
-    description:
-      "⚠️ APPROVAL REQUIRED: Remove files from Git tracking and optionally from the working directory. Removes files from the index (staging area) and can also delete them from the filesystem. Supports removing from index only (cached), recursive directory removal, and force removal. This tool requests user approval and does NOT perform the removal directly. After the user confirms, you MUST call execute_git_rm with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Remove files from Git tracking and optionally from the working directory. Removes files from the index (staging area) and can also delete them from the filesystem. Supports removing from index only (cached), recursive directory removal, and force removal. This tool requests user approval and does NOT perform the removal directly. After the user confirms, you MUST call execute_git_rm with the exact arguments provided in the approval response.",
+    ),
     tags: ["git", "remove"],
     parameters,
     validate: (args) => {
@@ -895,8 +902,9 @@ export function createExecuteGitRmTool(): Tool<FileSystem.FileSystem | FileSyste
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitRmArgs>({
     name: "execute_git_rm",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual git rm operation after user approval of git_rm. Removes files from Git tracking and optionally from the working directory. This tool should only be called after git_rm receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual git rm operation after user approval of git_rm. Removes files from Git tracking and optionally from the working directory. This tool should only be called after git_rm receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -1006,8 +1014,9 @@ export function createGitCommitTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCommitArgs>({
     name: "git_commit",
-    description:
-      "⚠️ APPROVAL REQUIRED: Create a commit to permanently record staged changes in the repository history. Requires a commit message describing the changes. Can commit all staged changes or all working directory changes. This tool requests user approval and does NOT perform the commit directly. After the user confirms, you MUST call execute_git_commit with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Create a commit to permanently record staged changes in the repository history. Requires a commit message describing the changes. Can commit all staged changes or all working directory changes. This tool requests user approval and does NOT perform the commit directly. After the user confirms, you MUST call execute_git_commit with the exact arguments provided in the approval response.",
+    ),
     tags: ["git", "commit"],
     parameters,
     validate: (args) => {
@@ -1083,8 +1092,9 @@ export function createExecuteGitCommitTool(): Tool<
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCommitArgs>({
     name: "execute_git_commit",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual git commit operation after user approval of git_commit. Creates a commit with the specified message. This tool should only be called after git_commit receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual git commit operation after user approval of git_commit. Creates a commit with the specified message. This tool should only be called after git_commit receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -1193,8 +1203,9 @@ export function createGitPushTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPushArgs>({
     name: "git_push",
-    description:
-      "⚠️ APPROVAL REQUIRED: Upload local commits to a remote repository. Pushes the current branch (or specified branch) to the remote (default: origin). Supports force push to overwrite remote history (use with caution). This tool requests user approval and does NOT perform the push directly. After the user confirms, you MUST call execute_git_push with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Upload local commits to a remote repository. Pushes the current branch (or specified branch) to the remote (default: origin). Supports force push to overwrite remote history (use with caution). This tool requests user approval and does NOT perform the push directly. After the user confirms, you MUST call execute_git_push with the exact arguments provided in the approval response.",
+    ),
     tags: ["git", "push"],
     parameters,
     validate: (args) => {
@@ -1271,8 +1282,9 @@ export function createGitPullTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPullArgs>({
     name: "git_pull",
-    description:
-      "⚠️ APPROVAL REQUIRED: Download and merge changes from a remote repository into the current branch. Combines git fetch and git merge. Supports rebase mode to maintain linear history. Use to update your local branch with remote changes. This tool requests user approval and does NOT perform the pull directly. After the user confirms, you MUST call execute_git_pull with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Download and merge changes from a remote repository into the current branch. Combines git fetch and git merge. Supports rebase mode to maintain linear history. Use to update your local branch with remote changes. This tool requests user approval and does NOT perform the pull directly. After the user confirms, you MUST call execute_git_pull with the exact arguments provided in the approval response.",
+    ),
     tags: ["git", "pull"],
     parameters,
     validate: (args) => {
@@ -1349,8 +1361,9 @@ export function createGitCheckoutTool(): Tool<FileSystem.FileSystem | FileSystem
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
     name: "git_checkout",
-    description:
-      "⚠️ APPROVAL REQUIRED: Switch to a different branch or create a new branch. Changes the working directory to match the specified branch. Can create new branches or force checkout (discarding local changes). Use to navigate between branches or start work on a new feature branch. This tool requests user approval and does NOT perform the checkout directly. After the user confirms, you MUST call execute_git_checkout with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Switch to a different branch or create a new branch. Changes the working directory to match the specified branch. Can create new branches or force checkout (discarding local changes). Use to navigate between branches or start work on a new feature branch. This tool requests user approval and does NOT perform the checkout directly. After the user confirms, you MUST call execute_git_checkout with the exact arguments provided in the approval response.",
+    ),
     tags: ["git", "checkout"],
     parameters,
     validate: (args) => {
@@ -1426,8 +1439,9 @@ export function createExecuteGitPushTool(): Tool<FileSystem.FileSystem | FileSys
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPushArgs>({
     name: "execute_git_push",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual git push operation after user approval of git_push. Uploads local commits to the remote repository. This tool should only be called after git_push receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual git push operation after user approval of git_push. Uploads local commits to the remote repository. This tool should only be called after git_push receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -1537,8 +1551,9 @@ export function createExecuteGitPullTool(): Tool<FileSystem.FileSystem | FileSys
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitPullArgs>({
     name: "execute_git_pull",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual git pull operation after user approval of git_pull. Downloads and merges changes from the remote repository. This tool should only be called after git_pull receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual git pull operation after user approval of git_pull. Downloads and merges changes from the remote repository. This tool should only be called after git_pull receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -1650,8 +1665,9 @@ export function createExecuteGitCheckoutTool(): Tool<
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
     name: "execute_git_checkout",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual git checkout operation after user approval of git_checkout. Switches to the specified branch or creates a new branch. This tool should only be called after git_checkout receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual git checkout operation after user approval of git_checkout. Switches to the specified branch or creates a new branch. This tool should only be called after git_checkout receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -1945,8 +1961,9 @@ export function createExecuteGitTagTool(): Tool<FileSystem.FileSystem | FileSyst
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitTagArgs>({
     name: "execute_git_tag",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual git tag operation after user approval of git_tag. Creates, deletes, or lists tags in the repository. This tool should only be called after git_tag receives user approval for create/delete operations.",
+    description: formatExecutionToolDescription(
+      "Performs the actual git tag operation after user approval of git_tag. Creates, deletes, or lists tags in the repository. This tool should only be called after git_tag receives user approval for create/delete operations.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -2336,8 +2353,9 @@ export function createGitMergeTool(): Tool<FileSystem.FileSystem | FileSystemCon
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitMergeArgs>({
     name: "git_merge",
-    description:
-      "⚠️ APPROVAL REQUIRED: Merge changes from another branch or commit into the current branch. Combines the history of two branches, creating a merge commit. Supports various merge strategies, squash merging, and fast-forward control. Can also abort an in-progress merge. This tool requests user approval and does NOT perform the merge directly. After the user confirms, you MUST call execute_git_merge with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Merge changes from another branch or commit into the current branch. Combines the history of two branches, creating a merge commit. Supports various merge strategies, squash merging, and fast-forward control. Can also abort an in-progress merge. This tool requests user approval and does NOT perform the merge directly. After the user confirms, you MUST call execute_git_merge with the exact arguments provided in the approval response.",
+    ),
     tags: ["git", "merge"],
     parameters,
     validate: (args) => {
@@ -2444,8 +2462,9 @@ export function createExecuteGitMergeTool(): Tool<
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitMergeArgs>({
     name: "execute_git_merge",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual git merge operation after user approval of git_merge. Merges changes from another branch or commit into the current branch. This tool should only be called after git_merge receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual git merge operation after user approval of git_merge. Merges changes from another branch or commit into the current branch. This tool should only be called after git_merge receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {

@@ -5,7 +5,11 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "../../interfaces/fs";
 import type { Tool } from "../../interfaces/tool-registry";
 import { createSanitizedEnv } from "../../utils/env-utils";
-import { defineTool } from "./base-tool";
+import {
+  defineTool,
+  formatApprovalRequiredDescription,
+  formatExecutionToolDescription,
+} from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 
 /**
@@ -1025,8 +1029,9 @@ export function createWriteFileTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, WriteFileArgs>({
     name: "write_file",
-    description:
-      "⚠️ APPROVAL REQUIRED: Write content to a file, creating it if it doesn't exist. This tool requests user approval and does NOT perform the write operation directly. After the user confirms, you MUST call execute_write_file with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Write content to a file, creating it if it doesn't exist. This tool requests user approval and does NOT perform the write operation directly. After the user confirms, you MUST call execute_write_file with the exact arguments provided in the approval response.",
+    ),
     tags: ["filesystem", "write"],
     parameters,
     validate: (args) => {
@@ -1077,8 +1082,9 @@ export function createExecuteWriteFileTool(): Tool<
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, WriteFileArgs>({
     name: "execute_write_file",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual file write operation after user approval of write_file. Creates or overwrites the file at the specified path with the provided content. This tool should only be called after write_file receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual file write operation after user approval of write_file. Creates or overwrites the file at the specified path with the provided content. This tool should only be called after write_file receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -1226,8 +1232,9 @@ export function createEditFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, EditFileArgs>({
     name: "edit_file",
-    description:
-      "⚠️ APPROVAL REQUIRED: Edit specific parts of a file without rewriting the entire file. This tool requests user approval and does NOT perform the edit operation directly. After the user confirms, you MUST call execute_edit_file with the exact arguments provided in the approval response. Supports multiple edit operations in one call: replace lines by line numbers, replace patterns (regex or literal), insert content at specific lines, or delete lines. Use this when you need to make targeted changes to a file. For line-based edits, use line numbers from read_file, head, tail, or grep. For pattern-based edits, use patterns to find and replace text. All edits are applied in order.",
+    description: formatApprovalRequiredDescription(
+      "Edit specific parts of a file without rewriting the entire file. This tool requests user approval and does NOT perform the edit operation directly. After the user confirms, you MUST call execute_edit_file with the exact arguments provided in the approval response. Supports multiple edit operations in one call: replace lines by line numbers, replace patterns (regex or literal), insert content at specific lines, or delete lines. Use this when you need to make targeted changes to a file. For line-based edits, use line numbers from read_file, head, tail, or grep. For pattern-based edits, use patterns to find and replace text. All edits are applied in order.",
+    ),
     tags: ["filesystem", "write", "edit"],
     parameters,
     validate: (args) => {
@@ -1362,8 +1369,9 @@ export function createExecuteEditFileTool(): Tool<
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, EditFileArgs>({
     name: "execute_edit_file",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual file edit operation after user approval of edit_file. Applies multiple edit operations to a file in sequence. This tool should only be called after edit_file receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual file edit operation after user approval of edit_file. Applies multiple edit operations to a file in sequence. This tool should only be called after edit_file receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -2042,8 +2050,9 @@ export function createMkdirTool(): Tool<FileSystem.FileSystem | FileSystemContex
   type MkdirArgs = z.infer<typeof parameters>;
   return defineTool<FileSystem.FileSystem | FileSystemContextService, MkdirArgs>({
     name: "mkdir",
-    description:
-      "⚠️ APPROVAL REQUIRED: Create a directory, optionally creating parent directories as needed. This tool requests user approval and does NOT perform the directory creation directly. After the user confirms, you MUST call execute_mkdir with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Create a directory, optionally creating parent directories as needed. This tool requests user approval and does NOT perform the directory creation directly. After the user confirms, you MUST call execute_mkdir with the exact arguments provided in the approval response.",
+    ),
     tags: ["filesystem", "write"],
     parameters,
     validate: (args) => {
@@ -2102,8 +2111,9 @@ export function createExecuteMkdirTool(): Tool<FileSystem.FileSystem | FileSyste
   type ExecuteMkdirArgs = z.infer<typeof parameters>;
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ExecuteMkdirArgs>({
     name: "execute_mkdir",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual directory creation after user approval of mkdir. Creates the directory at the specified path, optionally creating parent directories. This tool should only be called after mkdir receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual directory creation after user approval of mkdir. Creates the directory at the specified path, optionally creating parent directories. This tool should only be called after mkdir receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
@@ -2239,8 +2249,9 @@ export function createRmTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, RmArgs>({
     name: "rm",
-    description:
-      "⚠️ APPROVAL REQUIRED: Remove a file or directory, optionally recursively. This tool requests user approval and does NOT perform the deletion directly. After the user confirms, you MUST call execute_rm with the exact arguments provided in the approval response.",
+    description: formatApprovalRequiredDescription(
+      "Remove a file or directory, optionally recursively. This tool requests user approval and does NOT perform the deletion directly. After the user confirms, you MUST call execute_rm with the exact arguments provided in the approval response.",
+    ),
     tags: ["filesystem", "destructive"],
     parameters,
     validate: (args) => {
@@ -2288,8 +2299,9 @@ export function createExecuteRmTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ExecuteRmArgs>({
     name: "execute_rm",
-    description:
-      "🔧 EXECUTION TOOL: Performs the actual file/directory removal after user approval of rm. Deletes the specified path, optionally recursively for directories. This tool should only be called after rm receives user approval.",
+    description: formatExecutionToolDescription(
+      "Performs the actual file/directory removal after user approval of rm. Deletes the specified path, optionally recursively for directories. This tool should only be called after rm receives user approval.",
+    ),
     hidden: true,
     parameters,
     validate: (args) => {
