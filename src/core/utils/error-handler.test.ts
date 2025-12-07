@@ -91,6 +91,8 @@ describe("Error Handler", () => {
       password: vi.fn().mockReturnValue(Effect.succeed("")),
       select: vi.fn().mockReturnValue(Effect.succeed("")),
       confirm: vi.fn().mockReturnValue(Effect.succeed(true)),
+      search: vi.fn().mockReturnValue(Effect.succeed("")),
+      checkbox: vi.fn().mockReturnValue(Effect.succeed([])),
     };
 
     const terminalLayer = Layer.succeed(TerminalServiceTag, mockTerminalService);

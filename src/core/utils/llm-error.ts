@@ -8,6 +8,123 @@ import {
 } from "../types/errors";
 
 /**
+ * Core truncation logic: truncate contents array to keep first message + last N messages.
+ * Returns the truncated contents array or undefined if no truncation needed.
+ */
+function truncateContentsArray(
+  contents: unknown[],
+  keepLastMessages: number,
+): unknown[] | undefined {
+  if (contents.length <= keepLastMessages) {
+    return undefined;
+  }
+
+  return [
+    ...contents.slice(0, 1), // Keep first message (usually system/user prompt)
+    ...contents.slice(-keepLastMessages), // Keep last N messages
+  ];
+}
+
+/**
+ * Truncate requestBodyValues to keep only the last N messages in contents array.
+ * This prevents verbose error logs when API calls fail with large conversation histories.
+ * Handles both direct errors and nested errors (e.g., AI_RetryError with errors array).
+ * Returns the truncated requestBodyValues object or undefined if not found.
+ */
+export function truncateRequestBodyValues(
+  error: unknown,
+  keepLastMessages: number = 5,
+): Record<string, unknown> | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+
+  const errorObj = error as Record<string, unknown>;
+
+  // Check for direct requestBodyValues
+  let requestBodyValues = errorObj["requestBodyValues"];
+
+  // If not found, check nested errors array (e.g., AI_RetryError)
+  if (!requestBodyValues && Array.isArray(errorObj["errors"])) {
+    const errors = errorObj["errors"] as Array<unknown>;
+    for (const nestedError of errors) {
+      if (nestedError && typeof nestedError === "object") {
+        const nested = nestedError as Record<string, unknown>;
+        if (nested["requestBodyValues"]) {
+          requestBodyValues = nested["requestBodyValues"];
+          break;
+        }
+      }
+    }
+  }
+
+  if (!requestBodyValues || typeof requestBodyValues !== "object") {
+    return undefined;
+  }
+
+  const bodyValues = requestBodyValues as Record<string, unknown>;
+  const messages = bodyValues["messages"] || bodyValues["messages"];
+
+  if (!Array.isArray(messages)) {
+    return undefined;
+  }
+
+  const messagesArray = messages as unknown[];
+
+  // Truncate to last N messages
+  const truncatedContents = truncateContentsArray(messagesArray, keepLastMessages);
+
+  if (!truncatedContents) {
+    return undefined;
+  }
+
+  return {
+    ...bodyValues,
+    contents: truncatedContents,
+    _truncated: true,
+    _originalMessageCount: messagesArray.length,
+  };
+}
+
+/**
+ * Truncate requestBodyValues in an object in-place.
+ * This prevents verbose error messages when API calls fail with large conversation histories.
+ */
+function truncateRequestBodyValuesInObject(
+  obj: Record<string, unknown>,
+  keepLastMessages: number = 5,
+): void {
+  // Check for direct requestBodyValues
+  const requestBodyValues = obj["requestBodyValues"];
+  if (requestBodyValues && typeof requestBodyValues === "object") {
+    const bodyValues = requestBodyValues as Record<string, unknown>;
+    const contents = bodyValues["contents"];
+    if (Array.isArray(contents)) {
+      const contentsArray = contents as unknown[];
+      const truncatedContents = truncateContentsArray(contentsArray, keepLastMessages);
+      if (truncatedContents) {
+        obj["requestBodyValues"] = {
+          ...bodyValues,
+          contents: truncatedContents,
+          _truncated: true,
+          _originalMessageCount: contentsArray.length,
+        };
+      }
+    }
+  }
+
+  // Check nested errors array (e.g., AI_RetryError)
+  if (Array.isArray(obj["errors"])) {
+    const errors = obj["errors"] as Array<unknown>;
+    for (const nestedError of errors) {
+      if (nestedError && typeof nestedError === "object") {
+        truncateRequestBodyValuesInObject(nestedError as Record<string, unknown>, keepLastMessages);
+      }
+    }
+  }
+}
+
+/**
  * Extract all properties from an error object into a plain object.
  * This allows us to JSON.stringify the error with all its properties.
  */
@@ -53,6 +170,9 @@ function extractErrorProperties(error: Error): Record<string, unknown> {
       // Ignore errors accessing properties
     }
   }
+
+  // Truncate requestBodyValues before returning
+  truncateRequestBodyValuesInObject(props, 5);
 
   return props;
 }
@@ -102,9 +222,13 @@ function extractErrorMessage(error: unknown): string {
   }
 
   if (error && typeof error === "object") {
+    // For plain objects, truncate requestBodyValues before stringifying
+    const errorObj = { ...(error as Record<string, unknown>) };
+    truncateRequestBodyValuesInObject(errorObj, 5);
+
     // For plain objects, try to stringify them
     try {
-      const stringified = JSON.stringify(error, null, 2);
+      const stringified = JSON.stringify(errorObj, null, 2);
       // If stringify returns just "{}", provide a descriptive fallback
       if (stringified !== "{}") {
         return stringified;

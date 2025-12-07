@@ -213,7 +213,7 @@ export function createCreateCalendarEventTool(): Tool<CalendarService> {
   return defineTool<CalendarService, CreateCalendarEventArgs>({
     name: "create_calendar_event",
     description:
-      "Create a new event in Google Calendar with specified details. Supports both timed events (using startDateTime/endDateTime) and all-day events (using startDate/endDate). Can specify title, description, location, attendees, and notifications. Returns the created event with its ID.",
+      "⚠️ APPROVAL REQUIRED: Create a new event in Google Calendar with specified details. Supports both timed events (using startDateTime/endDateTime) and all-day events (using startDate/endDate). Can specify title, description, location, attendees, and notifications. This tool requests user approval and does NOT perform the event creation directly. After the user confirms, you MUST call execute_create_calendar_event with the exact arguments provided in the approval response.",
     tags: ["calendar", "create"],
     parameters,
     validate: (args) => {
@@ -300,7 +300,7 @@ export function createExecuteCreateCalendarEventTool(): Tool<CalendarService> {
   return defineTool<CalendarService, ExecuteCreateCalendarEventArgs>({
     name: "execute_create_calendar_event",
     description:
-      "Internal tool that creates a calendar event after user approval. This is the execution tool called automatically after the user approves create_calendar_event.",
+      "🔧 EXECUTION TOOL: Performs the actual calendar event creation after user approval of create_calendar_event. Creates a new event in Google Calendar with the specified details. This tool should only be called after create_calendar_event receives user approval.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -363,7 +363,7 @@ export function createUpdateCalendarEventTool(): Tool<CalendarService> {
   return defineTool<CalendarService, UpdateCalendarEventArgs>({
     name: "update_calendar_event",
     description:
-      "Update an existing calendar event's properties. Can modify title, description, location, time, or timezone. Only provided fields will be updated; others remain unchanged. Use to reschedule events or update event details.",
+      "⚠️ APPROVAL REQUIRED: Update an existing calendar event's properties. Can modify title, description, location, time, or timezone. Only provided fields will be updated; others remain unchanged. Use to reschedule events or update event details. This tool requests user approval and does NOT perform the update directly. After the user confirms, you MUST call execute_update_calendar_event with the exact arguments provided in the approval response.",
     tags: ["calendar", "update"],
     parameters,
     validate: (args) => {
@@ -458,7 +458,7 @@ export function createExecuteUpdateCalendarEventTool(): Tool<CalendarService> {
   return defineTool<CalendarService, ExecuteUpdateCalendarEventArgs>({
     name: "execute_update_calendar_event",
     description:
-      "Internal tool that updates a calendar event after user approval. This is the execution tool called automatically after the user approves update_calendar_event.",
+      "🔧 EXECUTION TOOL: Performs the actual calendar event update after user approval of update_calendar_event. Updates an existing event's properties in Google Calendar. This tool should only be called after update_calendar_event receives user approval.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -523,7 +523,7 @@ export function createDeleteCalendarEventTool(): Tool<CalendarService> {
   return defineTool<CalendarService, DeleteCalendarEventArgs>({
     name: "delete_calendar_event",
     description:
-      "Permanently delete a calendar event. This action cannot be undone. Use to remove cancelled or incorrect events from the calendar.",
+      "⚠️ APPROVAL REQUIRED: Permanently delete a calendar event. This action cannot be undone. Use to remove cancelled or incorrect events from the calendar. This tool requests user approval and does NOT perform the deletion directly. After the user confirms, you MUST call execute_delete_calendar_event with the exact arguments provided in the approval response.",
     tags: ["calendar", "delete"],
     parameters,
     validate: (args) => {
@@ -582,7 +582,7 @@ export function createExecuteDeleteCalendarEventTool(): Tool<CalendarService> {
   return defineTool<CalendarService, ExecuteDeleteCalendarEventArgs>({
     name: "execute_delete_calendar_event",
     description:
-      "Internal tool that deletes a calendar event after user approval. This is the execution tool called automatically after the user approves delete_calendar_event.",
+      "🔧 EXECUTION TOOL: Performs the actual calendar event deletion after user approval of delete_calendar_event. Permanently deletes an event from Google Calendar. This tool should only be called after delete_calendar_event receives user approval.",
     hidden: true,
     parameters,
     validate: (args) => {
@@ -686,7 +686,7 @@ export function createQuickAddCalendarEventTool(): Tool<CalendarService> {
   return defineTool<CalendarService, QuickAddCalendarEventArgs>({
     name: "quick_add_calendar_event",
     description:
-      "Create a calendar event from natural language text using Google's quick add feature. Automatically parses date, time, and title from text like 'Lunch with Sarah tomorrow at noon' or 'Team meeting Friday 2pm-3pm'. Convenient for simple events without detailed parameters.",
+      "⚠️ APPROVAL REQUIRED: Create a calendar event from natural language text using Google's quick add feature. Automatically parses date, time, and title from text like 'Lunch with Sarah tomorrow at noon' or 'Team meeting Friday 2pm-3pm'. Convenient for simple events without detailed parameters. This tool requests user approval and does NOT perform the event creation directly. After the user confirms, you MUST call execute_quick_add_calendar_event with the exact arguments provided in the approval response.",
     tags: ["calendar", "create", "quick"],
     parameters,
     validate: (args) => {
@@ -732,7 +732,7 @@ export function createExecuteQuickAddCalendarEventTool(): Tool<CalendarService> 
   return defineTool<CalendarService, ExecuteQuickAddCalendarEventArgs>({
     name: "execute_quick_add_calendar_event",
     description:
-      "Internal tool that creates a calendar event from natural language after user approval. This is the execution tool called automatically after the user approves quick_add_calendar_event.",
+      "🔧 EXECUTION TOOL: Performs the actual calendar event creation from natural language after user approval of quick_add_calendar_event. Creates an event using Google's quick add feature. This tool should only be called after quick_add_calendar_event receives user approval.",
     hidden: true,
     parameters,
     validate: (args) => {
