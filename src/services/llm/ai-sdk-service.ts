@@ -45,7 +45,7 @@ import {
   type LLMError,
 } from "../../core/types/errors";
 import { safeParseJson } from "../../core/utils/json";
-import { convertToLLMError } from "../../core/utils/llm-error";
+import { convertToLLMError, truncateRequestBodyValues } from "../../core/utils/llm-error";
 import { createDeferred } from "../../core/utils/promise";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
@@ -556,6 +556,11 @@ class AISDKService implements LLMService {
           if (e.type) errorDetails["type"] = e.type;
         }
 
+        const truncatedRequestBody = truncateRequestBodyValues(error);
+        if (truncatedRequestBody) {
+          errorDetails["requestBodyValues"] = truncatedRequestBody;
+        }
+
         void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
 
         return llmError;
@@ -688,6 +693,12 @@ class AISDKService implements LLMService {
               }
             }
 
+            // Truncate requestBodyValues to keep only last 5 messages
+            const truncatedRequestBody = truncateRequestBodyValues(error, 5);
+            if (truncatedRequestBody) {
+              errorDetails["requestBodyValues"] = truncatedRequestBody;
+            }
+
             void this.logger.error(
               `LLM Error: ${llmError._tag} - ${llmError.message}`,
               errorDetails,
@@ -723,6 +734,12 @@ class AISDKService implements LLMService {
           if (e.status) errorDetails["status"] = e.status;
           if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
           if (e.type) errorDetails["type"] = e.type;
+        }
+
+        // Truncate requestBodyValues to keep only last 5 messages
+        const truncatedRequestBody = truncateRequestBodyValues(error, 5);
+        if (truncatedRequestBody) {
+          errorDetails["requestBodyValues"] = truncatedRequestBody;
         }
 
         void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
