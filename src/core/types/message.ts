@@ -13,10 +13,18 @@ export interface ChatMessage {
   /**
    * For role === "assistant": include tool calls emitted by the model so that
    * subsequent tool messages are valid according to the OpenAI API.
+   *
+   * For Google/Gemini models, thought_signature must be preserved to maintain
+   * reasoning context across function calls.
    */
   tool_calls?: ReadonlyArray<{
     id: string;
     type: "function";
     function: { name: string; arguments: string };
+    /**
+     * Google Gemini thought_signature - encrypted representation of model's
+     * internal reasoning. Must be preserved when present to maintain context.
+     */
+    thought_signature?: string;
   }>;
 }

@@ -11,27 +11,33 @@ import type { ModelInfo } from "../types";
  */
 export const STATIC_PROVIDER_MODELS = {
   openai: [
+    { id: "gpt-5.2", displayName: "GPT-5.2", isReasoningModel: true },
     { id: "gpt-5.1", displayName: "GPT-5.1", isReasoningModel: true },
     { id: "gpt-5.1-codex", displayName: "GPT-5.1 Codex", isReasoningModel: true },
-    { id: "gpt-5", displayName: "GPT-5", isReasoningModel: true },
     { id: "gpt-5-pro", displayName: "GPT-5 Pro", isReasoningModel: true },
-    { id: "gpt-5-codex", displayName: "GPT-5 Codex", isReasoningModel: true },
+    { id: "gpt-5", displayName: "GPT-5", isReasoningModel: true },
     { id: "gpt-5-mini", displayName: "GPT-5 Mini", isReasoningModel: true },
     { id: "gpt-5-nano", displayName: "GPT-5 Nano", isReasoningModel: true },
-    { id: "gpt-4.1", displayName: "GPT-4.1", isReasoningModel: true },
-    { id: "gpt-4.1-mini", displayName: "GPT-4.1 Mini", isReasoningModel: true },
-    { id: "gpt-4.1-nano", displayName: "GPT-4.1 Nano", isReasoningModel: true },
+    { id: "gpt-5-codex", displayName: "GPT-5 Codex", isReasoningModel: true },
+    { id: "gpt-4.1", displayName: "GPT-4.1", isReasoningModel: false },
+    { id: "gpt-4.1-mini", displayName: "GPT-4.1 Mini", isReasoningModel: false },
+    { id: "gpt-4.1-nano", displayName: "GPT-4.1 Nano", isReasoningModel: false },
     { id: "gpt-4o", displayName: "GPT-4o", isReasoningModel: false },
     { id: "gpt-4o-mini", displayName: "GPT-4o Mini", isReasoningModel: false },
-    { id: "o4-mini", displayName: "o4-mini", isReasoningModel: true },
   ],
   anthropic: [
+    { id: "claude-opus-4-5", displayName: "Claude Opus 4.5", isReasoningModel: true },
     { id: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5", isReasoningModel: true },
     { id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", isReasoningModel: true },
     { id: "claude-opus-4-1", displayName: "Claude Opus 4.1", isReasoningModel: true },
   ],
   google: [
     { id: "gemini-3-pro-preview", displayName: "Gemini 3 Pro (Preview)", isReasoningModel: true },
+    {
+      id: "gemini-3-flash-preview",
+      displayName: "Gemini 3 Flash (Preview)",
+      isReasoningModel: true,
+    },
     { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", isReasoningModel: true },
     { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", isReasoningModel: true },
     {

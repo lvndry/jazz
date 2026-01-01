@@ -178,6 +178,39 @@ function extractErrorProperties(error: Error): Record<string, unknown> {
 }
 
 /**
+ * Extract a clean, user-friendly error message from an error.
+ * Returns just the core message without verbose details.
+ */
+export function extractCleanErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    // For API errors, try to extract just the message without all the extra properties
+    if (APICallError.isInstance(error)) {
+      // APICallError.message usually contains the API error message
+      return error.message;
+    }
+    // For other errors, return just the message
+    return error.message;
+  }
+
+  if (error && typeof error === "object") {
+    const obj = error as Record<string, unknown>;
+    // Try to find a message property
+    if (typeof obj["message"] === "string") {
+      return obj["message"];
+    }
+    // Try to find an error.message nested structure
+    if (obj["error"] && typeof obj["error"] === "object") {
+      const errorObj = obj["error"] as Record<string, unknown>;
+      if (typeof errorObj["message"] === "string") {
+        return errorObj["message"];
+      }
+    }
+  }
+
+  return String(error);
+}
+
+/**
  * Extract a meaningful error message from an unknown error.
  * Handles Error objects, plain objects, and primitive values.
  * For API errors, captures all relevant debugging fields (status, trace, responseBody, etc.).
