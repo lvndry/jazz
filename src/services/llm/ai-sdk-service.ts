@@ -44,8 +44,13 @@ import {
   LLMConfigurationError,
   type LLMError,
 } from "../../core/types/errors";
+import type { ToolCall } from "../../core/types/tools";
 import { safeParseJson } from "../../core/utils/json";
-import { convertToLLMError, truncateRequestBodyValues } from "../../core/utils/llm-error";
+import {
+  convertToLLMError,
+  extractCleanErrorMessage,
+  truncateRequestBodyValues,
+} from "../../core/utils/llm-error";
 import { createDeferred } from "../../core/utils/promise";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
@@ -73,6 +78,7 @@ function toCoreMessages(
       id: string;
       type: "function";
       function: { name: string; arguments: string };
+      thought_signature?: string;
     }>;
   }>,
 ): ModelMessage[] {
@@ -96,7 +102,13 @@ function toCoreMessages(
     if (role === "assistant") {
       const contentParts: Array<
         | { type: "text"; text: string }
-        | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
+        | {
+            type: "tool-call";
+            toolCallId: string;
+            toolName: string;
+            input: unknown;
+            thoughtSignature?: string;
+          }
       > = [];
 
       if (m.content && m.content.length > 0) {
@@ -105,12 +117,30 @@ function toCoreMessages(
 
       if (m.tool_calls && m.tool_calls.length > 0) {
         for (const tc of m.tool_calls) {
-          contentParts.push({
+          const toolCallPart: {
+            type: "tool-call";
+            toolCallId: string;
+            toolName: string;
+            input: unknown;
+            providerOptions?: { google?: { thoughtSignature?: string } };
+          } = {
             type: "tool-call",
             toolCallId: tc.id,
             toolName: tc.function.name,
             input: parseToolArguments(tc.function.arguments),
-          });
+          };
+
+          // Preserve thought_signature for Google/Gemini models
+          // The AI SDK expects it in providerOptions.google.thoughtSignature format
+          if (tc.thought_signature) {
+            toolCallPart.providerOptions = {
+              google: {
+                thoughtSignature: tc.thought_signature,
+              },
+            };
+          }
+
+          contentParts.push(toolCallPart);
         }
       }
 
@@ -514,14 +544,30 @@ class AISDKService implements LLMService {
 
         // Extract tool calls if present
         if (result.toolCalls && result.toolCalls.length > 0) {
-          toolCalls = result.toolCalls.map((tc: TypedToolCall<ToolSet>) => ({
-            id: tc.toolCallId,
-            type: "function" as const,
-            function: {
-              name: tc.toolName,
-              arguments: JSON.stringify(tc.input ?? {}),
-            },
-          }));
+          toolCalls = result.toolCalls.map((tc: TypedToolCall<ToolSet>) => {
+            const toolCall: ToolCall = {
+              id: tc.toolCallId,
+              type: "function" as const,
+              function: {
+                name: tc.toolName,
+                arguments: JSON.stringify(tc.input ?? {}),
+              },
+            };
+
+            // Preserve thought_signature for Google/Gemini models if present
+            // The AI SDK includes it in providerMetadata.google.thoughtSignature
+            if ("providerMetadata" in tc && tc.providerMetadata) {
+              const providerMetadata = tc.providerMetadata as {
+                google?: { thoughtSignature?: string };
+              };
+              if (providerMetadata?.google?.thoughtSignature) {
+                (toolCall as { thought_signature?: string }).thought_signature =
+                  providerMetadata.google.thoughtSignature;
+              }
+            }
+
+            return toolCall;
+          });
         }
 
         const resultObj: ChatCompletionResponse = {
@@ -536,7 +582,12 @@ class AISDKService implements LLMService {
       catch: (error: unknown) => {
         const llmError = convertToLLMError(error, providerName);
 
-        // Log error details
+        const cleanMessage = extractCleanErrorMessage(error);
+
+        // Log clean error message at error level (user-facing)
+        void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+
+        // Log detailed error information at debug level (for debugging)
         const errorDetails: Record<string, unknown> = {
           provider: providerName,
           errorType: llmError._tag,
@@ -561,7 +612,7 @@ class AISDKService implements LLMService {
           errorDetails["requestBodyValues"] = truncatedRequestBody;
         }
 
-        void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+        void this.logger.debug("LLM Error Details", errorDetails);
 
         return llmError;
       },
@@ -699,10 +750,11 @@ class AISDKService implements LLMService {
               errorDetails["requestBodyValues"] = truncatedRequestBody;
             }
 
-            void this.logger.error(
-              `LLM Error: ${llmError._tag} - ${llmError.message}`,
-              errorDetails,
-            );
+            const cleanMessage = extractCleanErrorMessage(error);
+            // Log clean error message at error level (user-facing)
+            void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+            // Log detailed error information at debug level (for debugging)
+            void this.logger.debug("LLM Error Details", errorDetails);
 
             void emit(Effect.fail(Option.some(llmError)));
 
@@ -742,7 +794,11 @@ class AISDKService implements LLMService {
           errorDetails["requestBodyValues"] = truncatedRequestBody;
         }
 
-        void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+        const cleanMessage = extractCleanErrorMessage(error);
+        // Log clean error message at error level (user-facing)
+        void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+        // Log detailed error information at debug level (for debugging)
+        void this.logger.debug("LLM Error Details", errorDetails);
 
         return Effect.fail(llmError);
       }),

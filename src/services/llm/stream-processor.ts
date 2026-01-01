@@ -285,6 +285,18 @@ export class StreamProcessor {
                 arguments: JSON.stringify(part.input),
               },
             };
+
+            // Preserve thought_signature for Google/Gemini models if present
+            // The AI SDK includes it in providerMetadata.google.thoughtSignature
+            if ("providerMetadata" in part && part.providerMetadata) {
+              const providerMetadata = part.providerMetadata as {
+                google?: { thoughtSignature?: string };
+              };
+              if (providerMetadata?.google?.thoughtSignature) {
+                toolCall.thought_signature = providerMetadata.google.thoughtSignature;
+              }
+            }
+
             this.state.collectedToolCalls.push(toolCall);
 
             void this.emitEvent({

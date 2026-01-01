@@ -198,7 +198,9 @@ export class ChatServiceImpl implements ChatService {
                   );
                   yield* terminal.log(`   Error details: ${error.message}`);
                 } else if (error instanceof LLMRequestError) {
-                  yield* terminal.error(`LLM request failed: ${error.message}`);
+                  // Extract clean error message without verbose details
+                  const cleanMessage = error.message.split(" | ")[0] || error.message;
+                  yield* terminal.error(`LLM request failed: ${cleanMessage}`);
                   yield* terminal.log("   This might be a temporary issue. Please try again.");
                 } else {
                   yield* terminal.error(`Error: ${String(error)}`);

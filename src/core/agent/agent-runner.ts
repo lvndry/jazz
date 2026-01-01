@@ -648,6 +648,9 @@ export class AgentRunner {
                         id: tc.id,
                         type: tc.type,
                         function: { name: tc.function.name, arguments: tc.function.arguments },
+                        ...(tc.thought_signature
+                          ? { thought_signature: tc.thought_signature }
+                          : {}),
                       })),
                     }
                   : {}),
@@ -954,6 +957,9 @@ export class AgentRunner {
                         id: tc.id,
                         type: tc.type,
                         function: { name: tc.function.name, arguments: tc.function.arguments },
+                        ...(tc.thought_signature
+                          ? { thought_signature: tc.thought_signature }
+                          : {}),
                       })),
                     }
                   : {}),
