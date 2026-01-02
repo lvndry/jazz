@@ -70,7 +70,7 @@
     "@inquirer/prompts": "^8.1.0",
     "@openrouter/ai-sdk-provider": "^1.5.4",
     "ai": "^6.0.5",
-    "chalk": "^5.6.2",
+    "chalk": "^4.1.2",
     "commander": "^14.0.2",
     "effect": "^3.19.14",
     "exa-js": "^2.0.12",
