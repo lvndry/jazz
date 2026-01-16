@@ -41,7 +41,7 @@
     "url": "https://github.com/lvndry/jazz/issues"
   },
   "scripts": {
-    "build": "bun build src/main.ts --outfile dist/main.js --target node --packages external && tsc --emitDeclarationOnly",
+    "build": "bun build src/main.ts --outfile dist/main.js --target node --minify && tsc --emitDeclarationOnly",
     "typecheck": "bun run tsc --noEmit",
     "dev": "bun --watch src/main.ts",
     "start": "bun dist/main.js",
