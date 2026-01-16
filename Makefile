@@ -173,12 +173,12 @@ update: ## Update dependencies
 # Version bumping
 patch: ## Bump patch version (e.g., 0.4.5 -> 0.4.6)
 	@echo "Bumping patch version..."
-	@bun version patch
+	@npm version patch
 
 minor: ## Bump minor version (e.g., 0.4.5 -> 0.5.0)
 	@echo "Bumping minor version..."
-	@bun version minor
+	@npm version minor
 
 major: ## Bump major version (e.g., 0.4.5 -> 1.0.0)
 	@echo "Bumping major version..."
-	@bun version major
+	@npm version major
