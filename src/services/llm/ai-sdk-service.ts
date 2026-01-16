@@ -35,6 +35,7 @@ import type {
   ChatCompletionResponse,
   LLMConfig,
   LLMProvider,
+  LLMProviderListItem,
   ModelInfo,
   StreamEvent,
   StreamingResult,
@@ -171,9 +172,11 @@ type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerO
 /**
  * Extract all configured providers from LLMConfig with their API keys
  */
-function getConfiguredProviders(llmConfig?: LLMConfig): { name: ProviderName; apiKey: string }[] {
+function getConfiguredProviders(
+  llmConfig?: LLMConfig,
+): { name: ProviderName; apiKey: string; displayName?: string }[] {
   if (!llmConfig) return [];
-  const providers: { name: ProviderName; apiKey: string }[] = [];
+  const providers: { name: ProviderName; apiKey: string; displayName?: string }[] = [];
 
   if (llmConfig.openai?.api_key) {
     providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
@@ -197,7 +200,7 @@ function getConfiguredProviders(llmConfig?: LLMConfig): { name: ProviderName; ap
     providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
   }
   if (llmConfig.ai_gateway?.api_key) {
-    providers.push({ name: "ai_gateway", apiKey: llmConfig.ai_gateway.api_key });
+    providers.push({ name: "ai_gateway", displayName: "ai gateway", apiKey: llmConfig.ai_gateway.api_key });
   }
   if (llmConfig.groq?.api_key) {
     providers.push({ name: "groq", apiKey: llmConfig.groq.api_key });
@@ -451,7 +454,7 @@ class AISDKService implements LLMService {
     );
   };
 
-  listProviders(): Effect.Effect<readonly { name: ProviderName; configured: boolean }[], never> {
+  listProviders(): Effect.Effect<readonly LLMProviderListItem[], never> {
     const configuredProviders = getConfiguredProviders(this.config.llmConfig);
     const configuredNames = new Set(configuredProviders.map((p) => p.name));
 
@@ -459,6 +462,7 @@ class AISDKService implements LLMService {
       .filter((provider): provider is ProviderName => this.isProviderName(provider))
       .map((name) => ({
         name,
+        ...(name === "ai_gateway" ? { displayName: "ai gateway" } : {}),
         configured: configuredNames.has(name),
       }));
 

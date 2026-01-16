@@ -3,12 +3,12 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
 import { autoCheckForUpdate } from "./cli/auto-update";
 import { CLIPresentationServiceLayer } from "./cli/presentation/presentation-service";
+import { InkPresentationServiceLayer } from "./cli/presentation/ink-presentation-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
 import { AgentConfigServiceTag } from "./core/interfaces/agent-config";
 import { CLIOptionsTag } from "./core/interfaces/cli-options";
 import { StorageServiceTag } from "./core/interfaces/storage";
-import { TerminalServiceTag } from "./core/interfaces/terminal";
 import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
@@ -21,7 +21,7 @@ import { createGmailServiceLayer } from "./services/gmail";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer } from "./services/logger";
 import { FileStorageService } from "./services/storage/file";
-import { createTerminalServiceLayer, TerminalServiceImpl } from "./services/terminal";
+import { createTerminalServiceLayer } from "./services/terminal";
 
 /**
  * Configuration options for creating the application layer
@@ -59,6 +59,7 @@ export interface AppLayerConfig {
  * yield* someCommand().pipe(Effect.provide(appLayer));
  * ```
  */
+
 export function createAppLayer(config: AppLayerConfig = {}) {
   const { debug, configPath } = config;
   const fileSystemLayer = NodeFileSystem.layer;
@@ -81,6 +82,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(fileSystemLayer),
     Layer.provide(configLayer),
     Layer.provide(loggerLayer),
+    Layer.provide(terminalLayer),
   );
 
   const calendarLayer = createCalendarServiceLayer().pipe(
@@ -114,7 +116,9 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(agentLayer),
   );
 
-  const presentationLayer = CLIPresentationServiceLayer;
+  // In TTY mode, keep Ink UI intact by routing all presentation output into Ink.
+  // The legacy CLI presentation writes directly to stdout, which clobbers Ink rendering.
+  const presentationLayer = process.stdout.isTTY ? InkPresentationServiceLayer : CLIPresentationServiceLayer;
 
   // Create a complete layer by providing all dependencies
   return Layer.mergeAll(
@@ -148,62 +152,63 @@ export function runCliEffect<R, E extends JazzError | Error>(
   effect: Effect.Effect<void, E, R>,
   config: AppLayerConfig = {},
 ): void {
-  const managedEffect = Effect.scoped(
-    Effect.gen(function* () {
-      const fiber = yield* Effect.fork(autoCheckForUpdate().pipe(Effect.zipRight(effect)));
-      let signalCount = 0;
-      type SignalName = "SIGINT" | "SIGTERM";
+  const cliOptionsLayer = Layer.succeed(CLIOptionsTag, {
+    verbose: config.verbose,
+    debug: config.debug,
+    configPath: config.configPath,
+  });
 
-      function handler(signal: SignalName): void {
-        signalCount += 1;
-        const label = signal === "SIGINT" ? "Ctrl+C" : signal;
+  const program = Effect.gen(function* () {
+    const fiber = yield* Effect.fork(autoCheckForUpdate().pipe(Effect.zipRight(effect)));
+    let signalCount = 0;
+    type SignalName = "SIGINT" | "SIGTERM";
 
-        if (signalCount === 1) {
-          process.stdout.write(`\nReceived ${label}. Gracefully shutting down...\n`);
-          Effect.runFork(Fiber.interrupt(fiber));
-        } else {
-          process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");
-          process.exit(1);
-        }
+    function handler(signal: SignalName): void {
+      signalCount += 1;
+      const label = signal === "SIGINT" ? "Ctrl+C" : signal;
+
+      if (signalCount === 1) {
+        process.stdout.write(`\nReceived ${label}. Gracefully shutting down...\n`);
+        Effect.runFork(Fiber.interrupt(fiber));
+      } else {
+        process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");
+        process.exit(1);
       }
+    }
 
-      yield* Effect.acquireRelease(
+    yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        process.on("SIGINT", handler);
+        process.on("SIGTERM", handler);
+      }),
+      () =>
         Effect.sync(() => {
-          process.on("SIGINT", handler);
-          process.on("SIGTERM", handler);
+          process.off("SIGINT", handler);
+          process.off("SIGTERM", handler);
         }),
-        () =>
-          Effect.sync(() => {
-            process.off("SIGINT", handler);
-            process.off("SIGTERM", handler);
-          }),
-      );
+    );
 
-      const exit = yield* Fiber.await(fiber);
+    const exit = yield* Fiber.await(fiber);
 
-      if (Exit.isFailure(exit)) {
-        if (Exit.isInterrupted(exit)) {
-          return;
-        }
-
-        const maybeError = Cause.failureOption(exit.cause);
-        if (Option.isSome(maybeError)) {
-          yield* handleError(maybeError.value);
-          return;
-        }
-
-        yield* handleError(new Error(Cause.pretty(exit.cause)));
+    if (Exit.isFailure(exit)) {
+      if (Exit.isInterrupted(exit)) {
         return;
       }
-    }),
-  ).pipe(
-    Effect.provide(createAppLayer(config)),
-    Effect.provideService(TerminalServiceTag, new TerminalServiceImpl()),
-    Effect.provideService(CLIOptionsTag, {
-      verbose: config.verbose,
-      debug: config.debug,
-      configPath: config.configPath,
-    }),
+
+      const maybeError = Cause.failureOption(exit.cause);
+      if (Option.isSome(maybeError)) {
+        yield* handleError(maybeError.value);
+        return;
+      }
+
+      yield* handleError(new Error(Cause.pretty(exit.cause)));
+      return;
+    }
+  });
+
+  const managedEffect = program.pipe(
+    Effect.provide(Layer.mergeAll(createAppLayer(config), cliOptionsLayer)),
+    Effect.scoped,
   ) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect);

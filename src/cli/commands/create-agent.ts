@@ -22,7 +22,7 @@ import {
   StorageError,
   ValidationError,
 } from "../../core/types/errors";
-import type { AgentConfig } from "../../core/types/index";
+import type { AgentConfig, LLMProviderListItem } from "../../core/types/index";
 
 /**
  * CLI commands for creating AI agents
@@ -198,12 +198,12 @@ async function promptForAgentInfo(
   categoryIdToDisplayName: Map<string, string>,
   terminal: TerminalService,
 ): Promise<AIAgentCreationAnswers> {
-  const allProviders = await Effect.runPromise(llmService.listProviders());
+  const allProviders: readonly LLMProviderListItem[] = await Effect.runPromise(llmService.listProviders());
 
   const llmProvider = await Effect.runPromise(
     terminal.search<ProviderName>("Which LLM provider would you like to use?", {
       choices: allProviders.map((p) => ({
-        name: p.name,
+        name: p.displayName ?? p.name,
         value: p.name,
       })),
     }),
@@ -211,6 +211,8 @@ async function promptForAgentInfo(
 
   // STEP 2.A: Check if API key exists for the selected provider
   const providerName = llmProvider;
+  const providerDisplayName =
+    allProviders.find((p) => p.name === providerName)?.displayName ?? providerName;
   const apiKeyPath = `llm.${providerName}.api_key`;
   const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
 
@@ -219,7 +221,7 @@ async function promptForAgentInfo(
     await Effect.runPromise(
       Effect.gen(function* () {
         yield* terminal.log("");
-        yield* terminal.warn(`API key not set in config file for ${providerName}.`);
+        yield* terminal.warn(`API key not set in config file for ${providerDisplayName}.`);
         yield* terminal.log("Please paste your API key below:");
       }),
     );
@@ -227,7 +229,7 @@ async function promptForAgentInfo(
     const isOptional = providerName === "ollama";
 
     const apiKey = await Effect.runPromise(
-      terminal.ask(`${providerName} API Key${isOptional ? " (optional)" : ""} :`, {
+      terminal.ask(`${providerDisplayName} API Key${isOptional ? " (optional)" : ""} :`, {
         validate: (inputValue: string): boolean | string => {
           if (isOptional) {
             return true;
@@ -304,7 +306,7 @@ async function promptForAgentInfo(
 
   // STEP 4: Ask for name
   const name = await Effect.runPromise(
-    terminal.ask("What would you like to name your AI agent?", {
+    terminal.ask("Name of your new agent:", {
       validate: (inputValue: string): boolean | string => {
         if (!inputValue || inputValue.trim().length === 0) {
           return "Agent name cannot be empty";
@@ -324,7 +326,7 @@ async function promptForAgentInfo(
   let description: string | undefined;
   if (agentType === "default") {
     description = await Effect.runPromise(
-      terminal.ask("Describe what this AI agent will do:", {
+      terminal.ask("Describe what this agent will do:", {
         validate: (inputValue: string): boolean | string => {
           if (!inputValue || inputValue.trim().length === 0) {
             return "Agent description cannot be empty";

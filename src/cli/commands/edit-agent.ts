@@ -164,7 +164,7 @@ export function editAgentCommand(
  */
 async function promptForAgentUpdates(
   currentAgent: Agent,
-  providers: readonly { name: ProviderName; configured: boolean }[],
+  providers: readonly { name: ProviderName; displayName?: string; configured: boolean }[],
   agentTypes: readonly string[],
   toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
   terminal: TerminalService,
@@ -249,13 +249,15 @@ async function promptForAgentUpdates(
     const llmProvider = await Effect.runPromise(
       terminal.search<ProviderName>("Select LLM provider:", {
         choices: providers.map((provider) => ({
-          name: provider.name,
+          name: provider.displayName ?? provider.name,
           value: provider.name,
         })),
       }),
     );
 
     answers.llmProvider = llmProvider;
+    const providerDisplayName =
+      providers.find((p) => p.name === llmProvider)?.displayName ?? llmProvider;
 
     // Check if API key exists for the selected provider
     const apiKeyPath = `llm.${llmProvider}.api_key`;
@@ -266,13 +268,13 @@ async function promptForAgentUpdates(
       await Effect.runPromise(
         Effect.gen(function* () {
           yield* terminal.log("");
-          yield* terminal.warn(`API key not set in config file for ${llmProvider}.`);
+          yield* terminal.warn(`API key not set in config file for ${providerDisplayName}.`);
           yield* terminal.log("Please paste your API key below:");
         }),
       );
 
       const apiKey = await Effect.runPromise(
-        terminal.ask(`${llmProvider} API Key:`, {
+        terminal.ask(`${providerDisplayName} API Key:`, {
           validate: (inputValue: string): boolean | string => {
             if (!inputValue || inputValue.trim().length === 0) {
               return "API key cannot be empty";
@@ -302,7 +304,7 @@ async function promptForAgentUpdates(
     );
 
     const llmModel = await Effect.runPromise(
-      terminal.search<string>(`Select model for ${llmProvider}:`, {
+      terminal.search<string>(`Select model for ${providerDisplayName}:`, {
         choices: providerInfo.supportedModels.map((model) => ({
           name: model.displayName || model.id,
           value: model.id,

@@ -21,3 +21,13 @@ export interface LLMProvider {
   readonly defaultModel: string;
   readonly authenticate: () => Effect.Effect<void, LLMAuthenticationError>;
 }
+
+/**
+ * LLM Provider Listing
+ * Used for presenting providers in CLI/UI.
+ */
+export interface LLMProviderListItem {
+  readonly name: ProviderName;
+  readonly displayName?: string;
+  readonly configured: boolean;
+}

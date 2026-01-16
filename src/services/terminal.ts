@@ -1,79 +1,82 @@
-import {
-  checkbox as checkboxPrompt,
-  confirm as confirmPrompt,
-  input,
-  password as passwordPrompt,
-  search as searchPrompt,
-  select as selectPrompt,
-} from "@inquirer/prompts";
-import chalk from "chalk";
 import { Effect, Layer } from "effect";
-import { TerminalServiceTag, type TerminalService } from "../core/interfaces/terminal";
+import { render } from "ink";
+import React from "react";
+import App, { store } from "../cli/ui/App";
+import { TerminalServiceTag, type TerminalOutput, type TerminalService } from "../core/interfaces/terminal";
 
 /**
- * Terminal output service implementation for consistent CLI styling
+ * Ink-based Terminal Service Implementation
  *
- * Provides a unified interface for terminal output with automatic
- * emoji prefixes, color coding, and formatting.
+ * Replaces the legacy inquirer/chalk implementation with a modern React UI.
+ * This service updates the global React store which drives the Ink rendering.
  */
-export class TerminalServiceImpl implements TerminalService {
-  constructor() {}
+export class InkTerminalService implements TerminalService {
+  constructor() {
+    // Initialize the Ink app on service creation
+    // We strictly assume this service is singleton and created once at startup
+    render(React.createElement(App));
+  }
+
+  // Basic Logging Methods
 
   info(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      console.log(chalk.cyan("🔍") + "  " + message);
+      store.addLog({ type: "info", message, timestamp: new Date() });
     });
   }
 
   success(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      console.log(chalk.green("✅") + "  " + message);
+      store.addLog({ type: "success", message, timestamp: new Date() });
     });
   }
 
   error(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      console.log(chalk.red("❌") + "  " + message);
+      store.addLog({ type: "error", message, timestamp: new Date() });
     });
   }
 
   warn(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      console.log(chalk.yellow("⚠️") + "  " + message);
+      store.addLog({ type: "warn", message, timestamp: new Date() });
     });
   }
 
-  log(message: string): Effect.Effect<void, never> {
+  log(message: TerminalOutput): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      console.log(message);
+      store.addLog({ type: "log", message, timestamp: new Date() });
     });
   }
 
   debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      if (meta) {
-        console.debug(chalk.gray.dim(message), meta);
-      } else {
-        console.debug(chalk.gray.dim(message));
-      }
+      store.addLog({
+        type: "debug",
+        message,
+        timestamp: new Date(),
+        ...(meta ? { meta } : {}),
+      });
     });
   }
 
   heading(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      console.log();
-      console.log(chalk.bold.cyan(message));
-      console.log();
+      // Treating heading as a special log or just a log for now,
+      // could be enhanced in UI to support multiple types
+      store.addLog({ type: "log", message: `\n${message}\n`, timestamp: new Date() });
     });
   }
 
   list(items: string[]): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      for (const item of items) {
-        console.log("   • " + item);
-      }
+      items.forEach((item) => {
+        store.addLog({ type: "log", message: `  • ${item}`, timestamp: new Date() });
+      });
     });
   }
+
+  // Interactive Methods
 
   ask(
     message: string,
@@ -82,22 +85,36 @@ export class TerminalServiceImpl implements TerminalService {
       validate?: (input: string) => boolean | string;
     },
   ): Effect.Effect<string, never> {
-    return Effect.promise(async () => {
-      const answer = await input({
+    return Effect.async((resume) => {
+      store.setPrompt({
+        type: "text",
         message,
-        ...(options?.defaultValue !== undefined ? { default: options.defaultValue } : {}),
-        ...(options?.validate !== undefined ? { validate: options.validate } : {}),
+
+        ...(options ? { options: options } : {}),
+        resolve: (val: unknown) => {
+          store.setPrompt(null);
+          store.addLog({
+            type: "log",
+            message: `${message} ${String(val)}`,
+            timestamp: new Date(),
+          });
+          resume(Effect.succeed(val as string));
+        },
       });
-      return answer;
     });
   }
 
   password(message: string): Effect.Effect<string, never> {
-    return Effect.promise(async () => {
-      const answer = await passwordPrompt({
+    return Effect.async((resume) => {
+      store.setPrompt({
+        type: "password",
         message,
+        resolve: (val: unknown) => {
+          store.setPrompt(null);
+          store.addLog({ type: "log", message: `${message} *****`, timestamp: new Date() });
+          resume(Effect.succeed(val as string));
+        },
       });
-      return answer;
     });
   }
 
@@ -108,23 +125,49 @@ export class TerminalServiceImpl implements TerminalService {
       default?: T;
     },
   ): Effect.Effect<T, never> {
-    return Effect.promise(async () => {
-      const answer = await selectPrompt<T>({
-        message,
-        choices: options.choices as unknown as Parameters<typeof selectPrompt<T>>[0]["choices"],
-        ...(options.default !== undefined ? { default: options.default } : {}),
+    return Effect.async((resume) => {
+      // Normalize choices for Ink SelectInput
+      const choices = options.choices.map((c) => {
+        if (typeof c === "string") return { label: c, value: c as unknown as T };
+        return { label: c.name, value: c.value };
       });
-      return answer;
+
+      store.setPrompt({
+        type: "select",
+        message,
+
+        options: { choices: choices },
+        resolve: (val: unknown) => {
+          store.setPrompt(null);
+          // find label for log
+          const choice = choices.find((c) => c.value === val);
+          store.addLog({
+            type: "log",
+            message: `${message} ${choice?.label}`,
+            timestamp: new Date(),
+          });
+          resume(Effect.succeed(val as T));
+        },
+      });
     });
   }
 
   confirm(message: string, defaultValue: boolean = false): Effect.Effect<boolean, never> {
-    return Effect.promise(async () => {
-      const answer = await confirmPrompt({
+    return Effect.async((resume) => {
+      store.setPrompt({
+        type: "confirm",
         message,
-        default: defaultValue,
+        options: { defaultValue },
+        resolve: (val: unknown) => {
+          store.setPrompt(null);
+          store.addLog({
+            type: "log",
+            message: `${message} ${val ? "Yes" : "No"}`,
+            timestamp: new Date(),
+          });
+          resume(Effect.succeed(val as boolean));
+        },
       });
-      return answer;
     });
   }
 
@@ -134,33 +177,8 @@ export class TerminalServiceImpl implements TerminalService {
       choices: readonly (string | { name: string; value: T; description?: string })[];
     },
   ): Effect.Effect<T, never> {
-    return Effect.promise(async () => {
-      const answer = await searchPrompt<T>({
-        message,
-        source: (term: string | undefined) => {
-          if (!term) {
-            return options.choices as unknown as ReturnType<
-              Parameters<typeof searchPrompt<T>>[0]["source"]
-            >;
-          }
-
-          const searchTerm = term.toLowerCase();
-          return options.choices.filter((choice) => {
-            if (typeof choice === "string") {
-              return choice.toLowerCase().includes(searchTerm);
-            }
-
-            return (
-              choice.name.toLowerCase().includes(searchTerm) ||
-              String(choice.value).toLowerCase().includes(searchTerm) ||
-              (choice.description?.toLowerCase().includes(searchTerm) ?? false)
-            );
-          }) as unknown as ReturnType<Parameters<typeof searchPrompt<T>>[0]["source"]>;
-        },
-      });
-
-      return answer;
-    });
+    // Basic search implementation mapping to Select for now
+    return this.select(message, options);
   }
 
   checkbox<T = string>(
@@ -170,14 +188,37 @@ export class TerminalServiceImpl implements TerminalService {
       default?: readonly T[];
     },
   ): Effect.Effect<readonly T[], never> {
-    return Effect.promise(async () => {
-      const answer = await checkboxPrompt<T>({
-        message,
-        choices: options.choices as unknown as Parameters<typeof checkboxPrompt<T>>[0]["choices"],
-        ...(options.default !== undefined ? { default: options.default as T[] } : {}),
+    return Effect.async((resume) => {
+      // Normalize choices
+      const choices = options.choices.map((c) => {
+        if (typeof c === "string") return { label: c, value: c as unknown as T };
+        return { label: c.name, value: c.value };
       });
 
-      return answer;
+      store.setPrompt({
+        type: "checkbox",
+        message,
+        options: { choices, defaultSelected: options.default },
+        resolve: (val: unknown) => {
+          store.setPrompt(null);
+          // val should be an array of values
+          const selectedValues = val as T[];
+          const selectedLabels = selectedValues
+            .map((v) => {
+              const c = choices.find((ch) => ch.value === v);
+              return c?.label;
+            })
+            .filter(Boolean)
+            .join(", ");
+
+          store.addLog({
+            type: "log",
+            message: `${message} [${selectedLabels}]`,
+            timestamp: new Date(),
+          });
+          resume(Effect.succeed(val as readonly T[]));
+        },
+      });
     });
   }
 }
@@ -186,5 +227,8 @@ export class TerminalServiceImpl implements TerminalService {
  * Create the terminal service layer
  */
 export function createTerminalServiceLayer(): Layer.Layer<TerminalService, never, never> {
-  return Layer.succeed(TerminalServiceTag, new TerminalServiceImpl());
+  return Layer.effect(
+    TerminalServiceTag,
+    Effect.sync(() => new InkTerminalService()),
+  );
 }

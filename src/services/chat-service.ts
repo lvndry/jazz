@@ -80,7 +80,7 @@ export class ChatServiceImpl implements ChatService {
       while (chatActive) {
         // Prompt for user input
         const userMessage = yield* terminal
-          .ask("You:", { defaultValue: "/help for commands" })
+          .ask("You:")
           .pipe(
             Effect.catchAll((error: unknown) => {
               // Handle ExitPromptError from inquirer when user presses Ctrl+C
