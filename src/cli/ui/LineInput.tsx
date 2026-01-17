@@ -6,21 +6,93 @@ import React, { useEffect, useState } from "react";
  * Based on ink-text-input with added word-level operations.
  */
 
-/** Find the start of the previous word */
+/**
+ * Check if a character is alphanumeric (word character).
+ * Matches macOS word boundary behavior.
+ */
+function isWordChar(char: string): boolean {
+  return /[a-zA-Z0-9_]/.test(char);
+}
+
+/**
+ * Find the start of the previous word.
+ * Matches macOS Option+Left behavior:
+ * - If cursor is in the middle of a word, move to start of that word
+ * - If cursor is at the start of a word, move to start of previous word
+ * - Word boundaries are defined by alphanumeric vs non-alphanumeric characters
+ */
 function findPrevWordBoundary(value: string, cursor: number): number {
   if (cursor === 0) return 0;
+
   let i = cursor;
-  while (i > 0 && value[i - 1] === " ") i--;
-  while (i > 0 && value[i - 1] !== " ") i--;
+
+  // If we're in the middle or end of a word, skip to its start
+  const charBefore = value[i - 1];
+  if (i > 0 && charBefore !== undefined && isWordChar(charBefore)) {
+    // Move backward through word characters
+    while (i > 0) {
+      const char = value[i - 1];
+      if (char === undefined || !isWordChar(char)) break;
+      i--;
+    }
+    return i;
+  }
+
+  // Skip backward through non-word characters (spaces, punctuation, etc.)
+  while (i > 0) {
+    const char = value[i - 1];
+    if (char === undefined || isWordChar(char)) break;
+    i--;
+  }
+
+  // Now skip backward through the word characters to find the start
+  while (i > 0) {
+    const char = value[i - 1];
+    if (char === undefined || !isWordChar(char)) break;
+    i--;
+  }
+
   return i;
 }
 
-/** Find the end of the next word */
+/**
+ * Find the end of the next word.
+ * Matches macOS Option+Right behavior:
+ * - If cursor is in the middle of a word, move to end of that word
+ * - If cursor is at the end of a word, move to end of next word
+ * - Word boundaries are defined by alphanumeric vs non-alphanumeric characters
+ */
 function findNextWordBoundary(value: string, cursor: number): number {
   if (cursor >= value.length) return value.length;
+
   let i = cursor;
-  while (i < value.length && value[i] !== " ") i++;
-  while (i < value.length && value[i] === " ") i++;
+
+  // If we're in the middle or start of a word, skip to its end
+  const charAt = value[i];
+  if (i < value.length && charAt !== undefined && isWordChar(charAt)) {
+    // Move forward through word characters
+    while (i < value.length) {
+      const char = value[i];
+      if (char === undefined || !isWordChar(char)) break;
+      i++;
+    }
+    return i;
+  }
+
+  // Skip forward through non-word characters (spaces, punctuation, etc.)
+  while (i < value.length) {
+    const char = value[i];
+    if (char === undefined || isWordChar(char)) break;
+    i++;
+  }
+
+  // Now skip forward through the word characters to find the end
+  while (i < value.length) {
+    const char = value[i];
+    if (char === undefined || !isWordChar(char)) break;
+    i++;
+  }
+
   return i;
 }
 

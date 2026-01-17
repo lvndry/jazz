@@ -1,3 +1,4 @@
+import chalk from "chalk";
 import { Effect, Layer } from "effect";
 import { Box, Text } from "ink";
 import React from "react";
@@ -248,7 +249,7 @@ class InkStreamingRenderer implements StreamingRenderer {
     const formattedReasoning = formatMarkdownAnsi(reasoning);
     store.addLog({
       type: "log",
-      message: `🧠 Reasoning:\n${formattedReasoning}`,
+      message: `\n🧠 Reasoning:\n${chalk.gray(formattedReasoning)}`,
       timestamp: new Date(),
     });
   }
