@@ -1,72 +1,84 @@
 import { Box, Text } from "ink";
 import React from "react";
-import type { LogEntry } from "./types";
+import type { LogEntry, LogType } from "./types";
 
-export function LogList({ logs }: { logs: LogEntry[]; }): React.ReactElement {
-  return (
-    <Box
-      flexDirection="column"
-      marginBottom={1}
-    >
-      {logs.map((log, index) => (
-        <Box key={index} flexDirection="column">
-          {typeof log.message === "string" ? (
-            <Box marginBottom={0}>
-              {getIcon(log.type)}
-              <Text> </Text>
-              {log.type === "log" ? (
-                // Important: don't force a color for plain logs so ANSI styling (chalk/marked)
-                // can render correctly and not get overwritten by Ink's `color` prop.
-                <Text>{log.message}</Text>
-              ) : (
-                <Text dimColor={log.type === "debug"} color={getColor(log.type)}>
-                  {log.message}
-                </Text>
-              )}
-            </Box>
-          ) : log.message._tag === "ink" && React.isValidElement(log.message.node) ? (
-            <Box marginBottom={0}>{log.message.node}</Box>
-          ) : (
-            <Box marginBottom={0}>
-              {getIcon("warn")}
-              <Text> </Text>
-              <Text color="yellow">[Unsupported UI output]</Text>
-            </Box>
-          )}
+// Pre-created icon elements to avoid creating new React elements on every render
+const ICONS: Record<LogType, React.ReactElement> = {
+  success: <Text color="green">✔</Text>,
+  error: <Text color="red">✖</Text>,
+  warn: <Text color="yellow">⚠</Text>,
+  info: <Text color="blue">ℹ</Text>,
+  debug: <Text dimColor>🐛</Text>,
+  user: <Text color="cyan">›</Text>,
+  log: <></>,
+};
+
+const COLORS: Record<LogType, string> = {
+  success: "green",
+  error: "red",
+  warn: "yellow",
+  debug: "gray",
+  user: "cyan",
+  info: "white",
+  log: "white",
+};
+
+/**
+ * Individual log entry component - memoized to prevent re-renders
+ * when other logs are added to the list.
+ *
+ * IMPORTANT: Props must be stable for memoization to work.
+ * - `log` object reference should be stable (not recreated)
+ * - `addSpacing` is a primitive boolean
+ */
+export const LogEntryItem = React.memo(function LogEntryItem({
+  log,
+  addSpacing,
+}: {
+  log: LogEntry;
+  addSpacing: boolean;
+}): React.ReactElement {
+  const icon = ICONS[log.type];
+  const color = COLORS[log.type];
+
+  if (typeof log.message === "string") {
+    if (log.type === "user") {
+      return (
+        <Box marginTop={addSpacing ? 1 : 0}>
+          {icon}
+          <Text> </Text>
+          <Text color="cyan" bold>{log.message}</Text>
         </Box>
-      ))}
+      );
+    }
+
+    return (
+      <Box marginTop={addSpacing ? 1 : 0}>
+        {icon}
+        <Text> </Text>
+        {log.type === "log" ? (
+          // Important: don't force a color for plain logs so ANSI styling (chalk/marked)
+          // can render correctly and not get overwritten by Ink's `color` prop.
+          <Text>{log.message}</Text>
+        ) : (
+          <Text dimColor={log.type === "debug"} color={color}>
+            {log.message}
+          </Text>
+        )}
+      </Box>
+    );
+  }
+
+  if (log.message._tag === "ink" && React.isValidElement(log.message.node)) {
+    return <Box marginTop={addSpacing ? 1 : 0}>{log.message.node}</Box>;
+  }
+
+  return (
+    <Box marginTop={0}>
+      {ICONS.warn}
+      <Text> </Text>
+      <Text color="yellow">[Unsupported UI output]</Text>
     </Box>
   );
-}
+});
 
-function getIcon(type: LogEntry["type"]): React.ReactElement {
-  switch (type) {
-    case "success":
-      return <Text color="green">✔</Text>;
-    case "error":
-      return <Text color="red">✖</Text>;
-    case "warn":
-      return <Text color="yellow">⚠</Text>;
-    case "info":
-      return <Text color="blue">ℹ</Text>;
-    case "debug":
-      return <Text dimColor>🐛</Text>;
-    case "log":
-      return <></>;
-  }
-}
-
-function getColor(type: LogEntry["type"]): string {
-  switch (type) {
-    case "success":
-      return "green";
-    case "error":
-      return "red";
-    case "warn":
-      return "yellow";
-    case "debug":
-      return "gray";
-    default:
-      return "white";
-  }
-}

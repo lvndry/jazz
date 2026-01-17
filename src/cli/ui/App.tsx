@@ -1,12 +1,12 @@
-import { Box } from "ink";
+import { Box, Static } from "ink";
 import type { Dispatch, SetStateAction } from "react";
-import { createContext, useRef, useState } from "react";
+import { createContext, useMemo, useRef, useState } from "react";
 import { Header } from "./Header";
 import { LiveResponse } from "./LiveResponse";
-import { LogList } from "./LogList";
+import { LogEntryItem } from "./LogList";
 import { Prompt } from "./Prompt";
 import StatusFooter from "./StatusFooter";
-import type { LiveStreamState, LogEntry, PromptState } from "./types";
+import type { LiveStreamState, LogEntry, LogEntryInput, PromptState } from "./types";
 
 export const AppContext = createContext<{
   logs: LogEntry[];
@@ -34,7 +34,7 @@ export const AppContext = createContext<{
 
 // Store logic decoupled from React for Effect integration
 export const store = {
-  addLog: (_entry: LogEntry): void => { },
+  addLog: (_entry: LogEntryInput): void => { },
   setPrompt: (_prompt: PromptState | null): void => { },
   setStatus: (_status: string | null): void => { },
   setStream: (_stream: LiveStreamState | null): void => { },
@@ -52,14 +52,19 @@ export function App(): React.ReactElement {
   // during render, preventing race conditions where store methods are called before
   // initialization completes (e.g., between render() returning and useEffect running)
   const initializedRef = useRef(false);
+  // Counter for generating unique log IDs
+  const logIdCounterRef = useRef(0);
   // Maximum number of log entries to keep in memory for the UI
   // Older logs are dropped from the state (but persist in log files on disk)
-  const MAX_LOG_ENTRIES = 1000;
+  // Keep this low for performance - Ink re-renders the entire tree
+  const MAX_LOG_ENTRIES = 100;
 
   if (!initializedRef.current) {
     store.addLog = (entry) =>
       setLogs((prev) => {
-        const next = [...prev, entry];
+        const id = `log-${++logIdCounterRef.current}`;
+        const entryWithId = { ...entry, id };
+        const next = [...prev, entryWithId];
         if (next.length > MAX_LOG_ENTRIES) {
           return next.slice(next.length - MAX_LOG_ENTRIES);
         }
@@ -72,27 +77,40 @@ export function App(): React.ReactElement {
     initializedRef.current = true;
   }
 
+  // Memoize context value to prevent unnecessary re-renders of context consumers
+  const contextValue = useMemo(
+    () => ({
+      logs,
+      prompt,
+      status,
+      stream,
+      workingDirectory,
+      setLogs,
+      setPrompt,
+      setStatus,
+      setStream,
+      setWorkingDirectory,
+    }),
+    [logs, prompt, status, stream, workingDirectory],
+  );
+
   return (
-    <AppContext.Provider
-      value={{
-        logs,
-        prompt,
-        status,
-        stream,
-        workingDirectory,
-        setLogs,
-        setPrompt,
-        setStatus,
-        setStream,
-        setWorkingDirectory,
-      }}
-    >
+    <AppContext.Provider value={contextValue}>
       <Box
         flexDirection="column"
         padding={1}
       >
         <Header />
-        <LogList logs={logs} />
+        {/* Use Static for logs - they don't change once rendered, so Ink won't re-render them */}
+        <Static items={logs}>
+          {(log, index) => (
+            <LogEntryItem
+              key={log.id}
+              log={log}
+              addSpacing={log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user")}
+            />
+          )}
+        </Static>
         {stream && <LiveResponse stream={stream} />}
         {prompt && <Prompt prompt={prompt} />}
         <StatusFooter

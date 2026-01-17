@@ -114,7 +114,7 @@ export class InkTerminalService implements TerminalService {
           const inputValue = String(val);
           store.setPrompt(null);
           store.addLog({
-            type: "log",
+            type: "user",
             message: `${message} ${inputValue}`,
             timestamp: new Date(),
           });

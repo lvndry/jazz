@@ -1,9 +1,11 @@
 import { Box, Text } from "ink";
 import BigText from "ink-big-text";
 import Gradient from "ink-gradient";
+import React from "react";
 import packageJson from "../../../package.json";
 
-export function Header() {
+
+export const Header = React.memo(function Header() {
   return (
     <Box
       marginY={1}
@@ -30,4 +32,4 @@ export function Header() {
       </Box>
     </Box>
   );
-}
+});

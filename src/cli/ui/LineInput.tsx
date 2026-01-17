@@ -9,6 +9,15 @@ import React, { useEffect, useRef, useState } from "react";
 // ANSI escape character (ESC)
 const ESC = String.fromCharCode(0x1b);
 
+// Pre-compiled regex patterns for escape sequence detection (avoid creating on every keystroke)
+const OPTION_LEFT_REGEX = new RegExp(`^${ESC}\\[(\\d+;)?[359]D$`);
+const OPTION_RIGHT_REGEX = new RegExp(`^${ESC}\\[(\\d+;)?[359]C$`);
+const ESC_BF_REGEX = new RegExp(`^${ESC}(b|f)$`);
+const OPTION_LEFT_INPUT_REGEX = new RegExp(`${ESC}\\[(\\d+;)?[359]D`);
+const OPTION_LEFT_INPUT_5D_REGEX = new RegExp(`${ESC}\\[(\\d+;)?5D`);
+const OPTION_RIGHT_INPUT_REGEX = new RegExp(`${ESC}\\[(\\d+;)?[359]C`);
+const OPTION_RIGHT_INPUT_5C_REGEX = new RegExp(`${ESC}\\[(\\d+;)?5C`);
+
 /**
  * Check if a character is alphanumeric (word character).
  * Matches macOS word boundary behavior.
@@ -118,34 +127,31 @@ export function LineInput({
   showCursor = true,
   focus = true,
 }: LineInputProps): React.ReactElement {
+  // Internal state for cursor position - this drives re-renders
   const [cursorOffset, setCursorOffset] = useState(originalValue.length);
-  const escapeBufferRef = useRef("");
 
-  // Track the latest value and cursor to avoid race conditions during fast typing
+  // Refs are the source of truth during input processing
+  // They're updated synchronously to ensure no input is lost during fast typing
   const valueRef = useRef(originalValue);
   const cursorRef = useRef(cursorOffset);
+  const escapeBufferRef = useRef("");
 
-  // Sync refs with state
-  useEffect(() => {
+  // Sync refs when value changes externally (from parent)
+  // This handles cases like form reset or programmatic value changes
+  if (originalValue !== valueRef.current) {
     valueRef.current = originalValue;
-  }, [originalValue]);
+    // Adjust cursor if it's out of bounds
+    if (cursorRef.current > originalValue.length) {
+      cursorRef.current = originalValue.length;
+    }
+  }
 
-  useEffect(() => {
+  // Sync cursor ref with state (for cases where state updates from external sources)
+  if (cursorOffset !== cursorRef.current && cursorOffset <= valueRef.current.length) {
     cursorRef.current = cursorOffset;
-  }, [cursorOffset]);
+  }
 
-  // Keep cursor in bounds when value changes externally
-  useEffect(() => {
-    setCursorOffset((prev) => {
-      if (prev > originalValue.length) {
-        return originalValue.length;
-      }
-      return prev;
-    });
-  }, [originalValue]);
-
-  // Cleanup: Reset escape buffer when component unmounts or value is cleared
-  // This prevents state accumulation over long conversations
+  // Cleanup: Reset escape buffer when value is cleared
   useEffect(() => {
     if (originalValue.length === 0) {
       escapeBufferRef.current = "";
@@ -184,7 +190,7 @@ export function LineInput({
           newBuffer === "\x1b[3D" ||
           newBuffer === "\x1b[1;5D" ||
           newBuffer === "\x1b[5D" ||
-          new RegExp(`^${ESC}\\[(\\d+;)?[359]D$`).test(newBuffer);
+          OPTION_LEFT_REGEX.test(newBuffer);
 
         // Check for complete Option+Right sequences
         // Common patterns: \x1b[1;3C, \x1b[1;9C, \x1b[3C, \x1b[1;5C, \x1b[5C
@@ -194,7 +200,7 @@ export function LineInput({
           newBuffer === "\x1b[3C" ||
           newBuffer === "\x1b[1;5C" ||
           newBuffer === "\x1b[5C" ||
-          new RegExp(`^${ESC}\\[(\\d+;)?[359]C$`).test(newBuffer);
+          OPTION_RIGHT_REGEX.test(newBuffer);
 
         if (isLeftSequence) {
           isOptionLeft = true;
@@ -207,7 +213,7 @@ export function LineInput({
         else if (
           newBuffer === "\x1b" ||
           (newBuffer.startsWith("\x1b[") && newBuffer.length <= 12) ||
-          (newBuffer.length <= 2 && new RegExp(`^${ESC}(b|f)$`).test(newBuffer))
+          (newBuffer.length <= 2 && ESC_BF_REGEX.test(newBuffer))
         ) {
           // Still building the sequence, wait for more input
           escapeBufferRef.current = newBuffer;
@@ -225,8 +231,8 @@ export function LineInput({
         // Check for Option+Left patterns in the input string
         if (
           input.includes("\x1bb") ||
-          new RegExp(`${ESC}\\[(\\d+;)?[359]D`).test(input) ||
-          new RegExp(`${ESC}\\[(\\d+;)?5D`).test(input)
+          OPTION_LEFT_INPUT_REGEX.test(input) ||
+          OPTION_LEFT_INPUT_5D_REGEX.test(input)
         ) {
           isOptionLeft = true;
           escapeBufferRef.current = "";
@@ -234,8 +240,8 @@ export function LineInput({
         // Check for Option+Right patterns in the input string
         else if (
           input.includes("\x1bf") ||
-          new RegExp(`${ESC}\\[(\\d+;)?[359]C`).test(input) ||
-          new RegExp(`${ESC}\\[(\\d+;)?5C`).test(input)
+          OPTION_RIGHT_INPUT_REGEX.test(input) ||
+          OPTION_RIGHT_INPUT_5C_REGEX.test(input)
         ) {
           isOptionRight = true;
           escapeBufferRef.current = "";
@@ -358,21 +364,34 @@ export function LineInput({
         nextCursorOffset = nextValue.length;
       }
 
-      // Update refs immediately for next keystroke
-      cursorRef.current = nextCursorOffset;
-      valueRef.current = nextValue;
+      // Update refs immediately - these are the source of truth
+      // This ensures subsequent keystrokes always work with the latest values
+      const valueChanged = nextValue !== currentValue;
+      const cursorChanged = nextCursorOffset !== currentCursor;
 
-      setCursorOffset(nextCursorOffset);
+      if (valueChanged || cursorChanged) {
+        // Update refs synchronously for next keystroke
+        cursorRef.current = nextCursorOffset;
+        valueRef.current = nextValue;
 
-      if (nextValue !== currentValue) {
-        onChange(nextValue);
+        // Trigger re-render via cursor state update
+        // This is the single state update that drives rendering
+        setCursorOffset(nextCursorOffset);
+
+        // Notify parent of value change
+        if (valueChanged) {
+          onChange(nextValue);
+        }
       }
     },
     { isActive: focus },
   );
 
-  // Render
-  const value = mask ? mask.repeat(originalValue.length) : originalValue;
+  // Render using refs as source of truth for immediate visual feedback
+  // Use the ref value to ensure we always render the latest input
+  const displayValue = valueRef.current;
+  const displayCursor = cursorRef.current;
+  const value = mask ? mask.repeat(displayValue.length) : displayValue;
 
   let renderedValue = value;
   let renderedPlaceholder: React.ReactNode = placeholder ? (
@@ -394,9 +413,9 @@ export function LineInput({
 
     // Value with cursor
     if (value.length > 0) {
-      const before = value.slice(0, cursorOffset);
-      const cursorChar = cursorOffset < value.length ? value[cursorOffset] : " ";
-      const after = cursorOffset < value.length ? value.slice(cursorOffset + 1) : "";
+      const before = value.slice(0, displayCursor);
+      const cursorChar = displayCursor < value.length ? value[displayCursor] : " ";
+      const after = displayCursor < value.length ? value.slice(displayCursor + 1) : "";
 
       renderedValue = (
         <>

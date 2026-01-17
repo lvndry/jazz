@@ -32,6 +32,13 @@ class InkStreamingRenderer implements StreamingRenderer {
   private lastFormattedText: string = "";
   private lastFormattedReasoning: string = "";
 
+  // Throttling for stream updates to reduce React re-renders
+  private lastUpdateTime: number = 0;
+  private pendingUpdate: boolean = false;
+  private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  // Minimum time between stream updates (ms) - balances responsiveness vs performance
+  private static readonly UPDATE_THROTTLE_MS = 50;
+
   constructor(
     private readonly agentName: string,
     private readonly showMetrics: boolean,
@@ -46,6 +53,12 @@ class InkStreamingRenderer implements StreamingRenderer {
       this.lastAgentHeaderWritten = false;
       this.lastFormattedText = "";
       this.lastFormattedReasoning = "";
+      this.lastUpdateTime = 0;
+      this.pendingUpdate = false;
+      if (this.updateTimeoutId) {
+        clearTimeout(this.updateTimeoutId);
+        this.updateTimeoutId = null;
+      }
       store.setStatus(null);
       store.setStream(null);
     });
@@ -53,6 +66,13 @@ class InkStreamingRenderer implements StreamingRenderer {
 
   flush(): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      // Clear any pending throttled update
+      if (this.updateTimeoutId) {
+        clearTimeout(this.updateTimeoutId);
+        this.updateTimeoutId = null;
+      }
+      this.pendingUpdate = false;
+
       if (this.liveText.trim().length > 0) {
         store.addLog({ type: "log", message: this.liveText, timestamp: new Date() });
       }
@@ -272,7 +292,28 @@ class InkStreamingRenderer implements StreamingRenderer {
     return `Running ${uniqueToolNames.length} tools… (${uniqueToolNames.join(", ")})`;
   }
 
-  private updateLiveStream(includeReasoning: boolean = true): void {
+  private updateLiveStream(includeReasoning: boolean = true, force: boolean = false): void {
+    const now = Date.now();
+    const timeSinceLastUpdate = now - this.lastUpdateTime;
+
+    // Throttle updates to reduce React re-renders
+    // If we updated recently, schedule a pending update instead
+    if (!force && timeSinceLastUpdate < InkStreamingRenderer.UPDATE_THROTTLE_MS) {
+      if (!this.pendingUpdate) {
+        this.pendingUpdate = true;
+        const delay = InkStreamingRenderer.UPDATE_THROTTLE_MS - timeSinceLastUpdate;
+        this.updateTimeoutId = setTimeout(() => {
+          this.pendingUpdate = false;
+          this.updateTimeoutId = null;
+          this.updateLiveStream(includeReasoning, true);
+        }, delay);
+      }
+      return;
+    }
+
+    this.lastUpdateTime = now;
+    this.pendingUpdate = false;
+
     const formattedText = formatMarkdownAnsi(this.liveText);
     // Show reasoning if: (1) we're including it, and (2) either buffer has content (during thinking) or completed reasoning exists
     const reasoningToShow = this.reasoningBuffer.trim().length > 0
@@ -340,11 +381,12 @@ class InkPresentationService implements PresentationService {
   }
 
   presentThinking(agentName: string, isFirstIteration: boolean): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
-      const msg = yield* this.getRenderer().formatThinking(agentName, isFirstIteration);
-      // For non-streaming, we just log the thinking message
-      // We could also set status, but checking strict parity with existing behavior first
-      store.addLog({ type: "info", message: msg, timestamp: new Date() });
+    return Effect.sync(() => {
+      // For Ink UI, we use the status bar for thinking indicator instead of logging
+      // The streaming renderer handles this via thinking_start event, but for non-streaming
+      // cases we set status here. This avoids duplicate "thinking" messages.
+      const message = isFirstIteration ? "thinking…" : "processing results…";
+      store.setStatus(`${agentName} is ${message}`);
     });
   }
 

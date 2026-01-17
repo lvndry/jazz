@@ -1,12 +1,18 @@
 import type { TerminalOutput } from "../../core/interfaces/terminal";
 
-export type LogType = "info" | "success" | "warn" | "error" | "debug" | "log";
+export type LogType = "info" | "success" | "warn" | "error" | "debug" | "log" | "user";
 
-export interface LogEntry {
+/** Input type for adding logs - id is auto-generated */
+export interface LogEntryInput {
   type: LogType;
   message: TerminalOutput;
   meta?: Record<string, unknown>;
   timestamp: Date;
+}
+
+/** Full log entry with auto-generated id */
+export interface LogEntry extends LogEntryInput {
+  id: string;
 }
 
 export interface LiveStreamState {
