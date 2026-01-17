@@ -30,14 +30,20 @@ describe("GmailService", () => {
       makeDirectory: mock(() => Effect.void),
     } as unknown as FileSystem.FileSystem;
 
-    // Mock OAuth client
+    // Mock OAuth client with credentials storage
+    const credentials: Record<string, unknown> = {};
     mockOAuthClient = {
-      setCredentials: mock(() => {}),
+      setCredentials: mock((creds: unknown) => {
+        Object.assign(credentials, creds);
+      }),
       getToken: mock(() => Promise.resolve({ tokens: {} })),
       generateAuthUrl: mock(() => "https://accounts.google.com/auth"),
+      refreshAccessToken: mock(() => Promise.resolve({ credentials: {} })),
       _clientId: "test-client-id",
       _clientSecret: "test-client-secret",
-      credentials: {},
+      get credentials() {
+        return credentials;
+      },
     } as unknown as InstanceType<typeof google.auth.OAuth2>;
 
     // Mock Gmail API client
