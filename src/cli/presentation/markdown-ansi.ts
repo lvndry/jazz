@@ -1,5 +1,12 @@
 import chalk from "chalk";
 
+// Placeholder constants using Unicode private use area to avoid markdown conflicts
+const CODE_BLOCK_PLACEHOLDER_START = "\uE000";
+const CODE_BLOCK_PLACEHOLDER_END = "\uE001";
+const INLINE_CODE_PLACEHOLDER_START = "\uE002";
+const INLINE_CODE_PLACEHOLDER_END = "\uE003";
+const TASK_LIST_MARKER = "\uE004";
+
 /**
  * Apply Markdown formatting heuristics to terminal output.
  * Supports headings (#, ##, ###), bold, italic, strikethrough, inline code, code blocks,
@@ -12,7 +19,26 @@ export function formatMarkdownAnsi(text: string): string {
 
   let formatted = text;
   formatted = formatEscapedText(formatted);
-  formatted = formatCodeBlocks(formatted);
+
+  // Extract code blocks and inline code to protect them from other formatters
+  const codeBlocks: string[] = [];
+  const inlineCodes: string[] = [];
+
+  // Extract code blocks first (they take precedence)
+  formatted = formatted.replace(/```[\s\S]*?```/g, (match) => {
+    const index = codeBlocks.length;
+    codeBlocks.push(match);
+    return `${CODE_BLOCK_PLACEHOLDER_START}${index}${CODE_BLOCK_PLACEHOLDER_END}`;
+  });
+
+  // Extract inline code (but not inside code blocks)
+  formatted = formatted.replace(/`([^`\n]+?)`/g, (_match, code: string) => {
+    const index = inlineCodes.length;
+    inlineCodes.push(code);
+    return `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
+  });
+
+  // Apply other formatting to non-code content
   formatted = formatHeadings(formatted);
   formatted = formatBlockquotes(formatted);
   formatted = formatTaskLists(formatted);
@@ -21,103 +47,152 @@ export function formatMarkdownAnsi(text: string): string {
   formatted = formatStrikethrough(formatted);
   formatted = formatBold(formatted);
   formatted = formatItalic(formatted);
-  formatted = formatInlineCode(formatted);
   formatted = formatLinks(formatted);
+
+  // Restore inline code with ANSI formatting
+  // Use regex to ensure exact placeholder matching
+  inlineCodes.forEach((code, index) => {
+    const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
+    const regex = new RegExp(escapeRegex(placeholder), "g");
+    formatted = formatted.replace(regex, chalk.cyan(code));
+  });
+
+  // Restore code blocks with ANSI formatting
+  codeBlocks.forEach((block, index) => {
+    const placeholder = `${CODE_BLOCK_PLACEHOLDER_START}${index}${CODE_BLOCK_PLACEHOLDER_END}`;
+    const regex = new RegExp(escapeRegex(placeholder), "g");
+    const formattedBlock = formatCodeBlockContent(block);
+    formatted = formatted.replace(regex, formattedBlock);
+  });
+
   return formatted;
 }
 
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Remove escape characters from markdown escaped text
+ */
 function formatEscapedText(text: string): string {
   return text.replace(/\\([*_`\\[\]()#+\-.!])/g, "$1");
 }
 
+/**
+ * Format markdown headings with ANSI colors
+ */
 function formatHeadings(text: string): string {
   let formatted = text;
 
   // H3: ### Heading (bold blue - less prominent)
-  formatted = formatted.replace(/^### (.*)$/gm, (_match, content) => chalk.bold.blue(content));
+  formatted = formatted.replace(/^### (.*)$/gm, (_match: string, content: string) => chalk.bold.blue(content));
 
   // H2: ## Heading (bold blue - prominent)
-  formatted = formatted.replace(/^## (.*)$/gm, (_match, content) => chalk.bold.blue(content));
+  formatted = formatted.replace(/^## (.*)$/gm, (_match: string, content: string) => chalk.bold.blue(content));
 
   // H1: # Heading (bold blue underline - most prominent)
-  formatted = formatted.replace(/^# (.*)$/gm, (_match, content) => chalk.bold.blue.underline(content));
+  formatted = formatted.replace(/^# (.*)$/gm, (_match: string, content: string) => chalk.bold.blue.underline(content));
 
   return formatted;
 }
 
+/**
+ * Format markdown strikethrough text
+ */
 function formatStrikethrough(text: string): string {
-  return text.replace(/~~([^~\n]+?)~~/g, (_match, content) => chalk.strikethrough(content));
+  return text.replace(/~~([^~\n]+?)~~/g, (_match: string, content: string) => chalk.strikethrough(content));
 }
 
+/**
+ * Format markdown bold text (** or __)
+ */
 function formatBold(text: string): string {
-  return text.replace(/(\*\*|__)([^*_\n]+?)\1/g, (_match, _delimiter, content) => chalk.bold(content));
+  return text.replace(/(\*\*|__)([^*_\n]+?)\1/g, (_match: string, _delimiter: string, content: string) => chalk.bold(content));
 }
 
+/**
+ * Format markdown italic text (* or _)
+ */
 function formatItalic(text: string): string {
   let formatted = text;
 
   formatted = formatted.replace(
     /(?<!\*)\*([^*\n]+?)\*(?!\*)/g,
-    (_match, content) => chalk.italic(content),
+    (_match: string, content: string) => chalk.italic(content),
   );
 
   formatted = formatted.replace(
     /(?<!_)_([^_\n]+?)_(?!_)/g,
-    (_match, content) => chalk.italic(content),
+    (_match: string, content: string) => chalk.italic(content),
   );
 
   return formatted;
 }
 
-function formatInlineCode(text: string): string {
-  return text.replace(/`([^`\n]+?)`/g, (_match, code) => chalk.cyan(code));
-}
-
-function formatCodeBlocks(text: string): string {
+/**
+ * Format code block content with ANSI colors
+ * Preserves leading whitespace while applying colors
+ */
+function formatCodeBlockContent(codeBlock: string): string {
   // Handle code blocks with triple backticks
-  // This is a simplified version that works on complete text blocks
-  let isInCodeBlock = false;
-  const lines = text.split("\n");
+  // Format the code fence and content separately
+  const lines = codeBlock.split("\n");
   const processedLines: string[] = [];
 
   for (const line of lines) {
     if (line.trim().startsWith("```")) {
-      isInCodeBlock = !isInCodeBlock;
-      // Style the code fence itself
-      processedLines.push(chalk.yellow(line));
-    } else if (isInCodeBlock) {
+      // Style the code fence itself, preserving indentation
+      const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
+      const content = line.trimStart();
+      processedLines.push(leadingWhitespace + chalk.yellow(content));
+    } else {
       // Inside code block - style content as cyan
       processedLines.push(chalk.cyan(line));
-    } else {
-      processedLines.push(line);
     }
   }
 
   return processedLines.join("\n");
 }
 
+/**
+ * Format markdown blockquotes with gray color and visual bar
+ */
 function formatBlockquotes(text: string): string {
-  return text.replace(/^\s*>\s+(.+)$/gm, (_match, content) => {
+  return text.replace(/^\s*>\s+(.+)$/gm, (_match: string, content: string) => {
     return chalk.gray(`│ ${content}`);
   });
 }
 
+/**
+ * Format markdown task lists with checkboxes
+ * Uses a marker to prevent double processing
+ */
 function formatTaskLists(text: string): string {
   // Task list items: - [ ] or - [x] or - [X]
-  return text.replace(/^\s*-\s+\[([ xX])\]\s+(.+)$/gm, (_match, checked: string, content: string) => {
+  return text.replace(/^\s*-\s+\[([ xX])\]\s+(.+)$/gm, (_match: string, checked: string, content: string) => {
     const isChecked = checked.toLowerCase() === "x";
     const checkbox = isChecked ? chalk.green("✓") : chalk.gray("○");
     const indent = "  ";
-    return `${indent}${checkbox} ${content}`;
+    // Add marker to prevent reprocessing by formatLists
+    return `${TASK_LIST_MARKER}${indent}${checkbox} ${content}`;
   });
 }
 
+/**
+ * Format markdown lists (ordered and unordered) with colored bullets
+ * Supports nested lists with proper indentation
+ */
 function formatLists(text: string): string {
   const lines = text.split("\n");
   const processedLines = lines.map((line) => {
-    // Skip if already processed as task list
-    if (line.includes("✓") || line.includes("○")) {
-      return line;
+    // Skip if already processed as task list (contains marker)
+    if (line.startsWith(TASK_LIST_MARKER)) {
+      // Remove marker and return the formatted task list
+      return line.substring(TASK_LIST_MARKER.length);
     }
 
     // Unordered lists (-, *, +) with nested support
@@ -148,6 +223,10 @@ function formatLists(text: string): string {
   return processedLines.join("\n");
 }
 
+/**
+ * Format markdown horizontal rules with styled line
+ * Adapts to terminal width with reasonable limits
+ */
 function formatHorizontalRules(text: string): string {
   // Get terminal width with fallback
   function getTerminalWidth(): number {
@@ -166,8 +245,11 @@ function formatHorizontalRules(text: string): string {
   });
 }
 
+/**
+ * Format markdown links with underlined blue text
+ */
 function formatLinks(text: string): string {
-  return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, linkText, _url) => {
+  return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match: string, linkText: string, _url: string) => {
     return chalk.blue.underline(linkText);
   });
 }

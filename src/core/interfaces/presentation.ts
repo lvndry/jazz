@@ -81,6 +81,7 @@ export interface PresentationService {
   readonly formatToolsDetected: (
     agentName: string,
     toolNames: readonly string[],
+    toolsRequiringApproval: readonly string[],
   ) => Effect.Effect<string, never>;
 
   /**

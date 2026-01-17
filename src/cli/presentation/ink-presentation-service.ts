@@ -98,10 +98,18 @@ class InkStreamingRenderer implements StreamingRenderer {
         }
 
         case "tools_detected": {
-          const tools = event.toolNames.join(", ");
+          const approvalSet = new Set(event.toolsRequiringApproval);
+          const formattedTools = event.toolNames
+            .map((name) => {
+              if (approvalSet.has(name)) {
+                return `${name} (requires approval)`;
+              }
+              return name;
+            })
+            .join(", ");
           store.addLog({
             type: "info",
-            message: ink(renderToolBadge(`Tools: ${tools}`)),
+            message: ink(renderToolBadge(`Tools: ${formattedTools}`)),
             timestamp: new Date(),
           });
           return;
@@ -359,8 +367,9 @@ class InkPresentationService implements PresentationService {
   formatToolsDetected(
     agentName: string,
     toolNames: readonly string[],
+    toolsRequiringApproval: readonly string[],
   ): Effect.Effect<string, never> {
-    return this.getRenderer().formatToolsDetected(agentName, toolNames);
+    return this.getRenderer().formatToolsDetected(agentName, toolNames, toolsRequiringApproval);
   }
 
   createStreamingRenderer(config: StreamingRendererConfig): Effect.Effect<StreamingRenderer, never> {
