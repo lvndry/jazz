@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect";
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import short from "short-uuid";
+import { store } from "../cli/ui/App";
 import { AgentRunner, type AgentRunnerOptions } from "../core/agent/agent-runner";
 import { getAgentByIdentifier } from "../core/agent/agent-service";
 import { normalizeToolConfig } from "../core/agent/utils/tool-config";
@@ -65,6 +66,7 @@ export class ChatServiceImpl implements ChatService {
       let conversationId: string = generateConversationId();
 
       // Initialize session before the loop
+      const fileSystemContext = yield* FileSystemContextServiceTag;
       yield* initializeSession(agent, conversationId).pipe(
         Effect.catchAll(() =>
           Effect.gen(function* () {
@@ -72,6 +74,8 @@ export class ChatServiceImpl implements ChatService {
           }),
         ),
       );
+      // Update working directory in store after initialization
+      updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
 
       let chatActive = true;
       let conversationHistory: ChatMessage[] = [];
@@ -129,6 +133,7 @@ export class ChatServiceImpl implements ChatService {
           if (commandResult.newConversationId !== undefined) {
             conversationId = commandResult.newConversationId;
             // Initialize the new conversation
+            const fileSystemContext = yield* FileSystemContextServiceTag;
             yield* initializeSession(agent, conversationId).pipe(
               Effect.catchAll(() =>
                 Effect.gen(function* () {
@@ -136,9 +141,14 @@ export class ChatServiceImpl implements ChatService {
                 }),
               ),
             );
+            // Update working directory in store after conversation change
+            updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
           }
           if (commandResult.newAgent !== undefined) {
             agent = commandResult.newAgent;
+            // Update working directory in store after agent switch
+            const fileSystemContext = yield* FileSystemContextServiceTag;
+            updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
           }
           if (commandResult.newHistory !== undefined) {
             conversationHistory = commandResult.newHistory;
@@ -255,6 +265,10 @@ export class ChatServiceImpl implements ChatService {
 
           // Display is handled entirely by AgentRunner (both streaming and non-streaming)
           // No need to display here - AgentRunner takes care of it
+
+          // Update working directory in store after agent run (in case cd was called)
+          const fileSystemContext = yield* FileSystemContextServiceTag;
+          updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
         });
       }
     }).pipe(Effect.catchAll(() => Effect.void));
@@ -281,6 +295,22 @@ function initializeSession(
       .pipe(Effect.catchAll(() => Effect.void));
     yield* logger.info(`Initialized agent working directory to: ${process.cwd()}`);
   });
+}
+
+/**
+ * Update the working directory in the UI store
+ */
+function updateWorkingDirectoryInStore(
+  agentId: string,
+  conversationId: string | undefined,
+  fileSystemContext: FileSystemContextService,
+): void {
+  Effect.gen(function* () {
+    const cwd = yield* fileSystemContext.getCwd(
+      conversationId ? { agentId, conversationId } : { agentId },
+    );
+    store.setWorkingDirectory(cwd);
+  }).pipe(Effect.runSync);
 }
 
 /**

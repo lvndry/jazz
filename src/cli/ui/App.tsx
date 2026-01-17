@@ -13,19 +13,23 @@ export const AppContext = createContext<{
   prompt: PromptState | null;
   status: string | null;
   stream: LiveStreamState | null;
+  workingDirectory: string | null;
   setLogs: Dispatch<SetStateAction<LogEntry[]>>;
   setPrompt: Dispatch<SetStateAction<PromptState | null>>;
   setStatus: Dispatch<SetStateAction<string | null>>;
   setStream: Dispatch<SetStateAction<LiveStreamState | null>>;
+  setWorkingDirectory: Dispatch<SetStateAction<string | null>>;
 }>({
   logs: [],
   prompt: null,
   status: null,
   stream: null,
+  workingDirectory: null,
   setLogs: () => {},
   setPrompt: () => {},
   setStatus: () => {},
   setStream: () => {},
+  setWorkingDirectory: () => {},
 });
 
 // Store logic decoupled from React for Effect integration
@@ -34,6 +38,7 @@ export const store = {
   setPrompt: (_prompt: PromptState | null): void => {},
   setStatus: (_status: string | null): void => {},
   setStream: (_stream: LiveStreamState | null): void => {},
+  setWorkingDirectory: (_workingDirectory: string | null): void => {},
 };
 
 export function App(): React.ReactElement {
@@ -41,6 +46,7 @@ export function App(): React.ReactElement {
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [stream, setStream] = useState<LiveStreamState | null>(null);
+  const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
 
   // Use a ref to track initialization and ensure store functions are set synchronously
   // during render, preventing race conditions where store methods are called before
@@ -51,12 +57,24 @@ export function App(): React.ReactElement {
     store.setPrompt = (prompt) => setPrompt(prompt);
     store.setStatus = (status) => setStatus(status);
     store.setStream = (stream) => setStream(stream);
+    store.setWorkingDirectory = (workingDirectory) => setWorkingDirectory(workingDirectory);
     initializedRef.current = true;
   }
 
   return (
     <AppContext.Provider
-      value={{ logs, prompt, status, stream, setLogs, setPrompt, setStatus, setStream }}
+      value={{
+        logs,
+        prompt,
+        status,
+        stream,
+        workingDirectory,
+        setLogs,
+        setPrompt,
+        setStatus,
+        setStream,
+        setWorkingDirectory,
+      }}
     >
       <Box
         flexDirection="column"
@@ -66,7 +84,10 @@ export function App(): React.ReactElement {
         <LogList logs={logs} />
         {stream && <LiveResponse stream={stream} />}
         {prompt && <Prompt prompt={prompt} />}
-        <StatusFooter status={status} />
+        <StatusFooter
+          status={status}
+          workingDirectory={workingDirectory}
+        />
       </Box>
     </AppContext.Provider>
   );

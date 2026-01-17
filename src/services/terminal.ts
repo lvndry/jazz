@@ -7,8 +7,6 @@ import { TerminalServiceTag, type TerminalOutput, type TerminalService } from ".
 /**
  * Ink-based Terminal Service Implementation
  *
- * Replaces the legacy inquirer/chalk implementation with a modern React UI.
- * This service updates the global React store which drives the Ink rendering.
  */
 export class InkTerminalService implements TerminalService {
   constructor() {

@@ -1,8 +1,16 @@
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 
-export default function StatusFooter({ status }: { status: string | null }) {
-  if (!status) return null;
+export default function StatusFooter({
+  status,
+  workingDirectory,
+}: {
+  status: string | null;
+  workingDirectory: string | null;
+}) {
+  const hasContent = status || workingDirectory;
+
+  if (!hasContent) return null;
 
   return (
     <Box
@@ -11,10 +19,21 @@ export default function StatusFooter({ status }: { status: string | null }) {
       borderColor="gray"
       paddingX={1}
     >
-      <Text color="cyan">
-        <Spinner type="dots" />
-      </Text>
-      <Text> {status}</Text>
+      <Box flexDirection="row">
+        {status && (
+          <Box marginRight={2}>
+            <Text color="cyan">
+              <Spinner type="dots" />
+            </Text>
+            <Text> {status}</Text>
+          </Box>
+        )}
+        {workingDirectory && (
+          <Box>
+            <Text color="gray">📁 {workingDirectory}</Text>
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 }

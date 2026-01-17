@@ -31,7 +31,15 @@ export function LiveResponse({ stream }: { stream: LiveStreamState }): React.Rea
       <Box marginTop={1} paddingLeft={1}>
         <Text>{stream.text}</Text>
       </Box>
+
+    {stream.reasoning && (
+      <Box marginTop={1} paddingLeft={1} flexDirection="column">
+        <Text dimColor italic>
+          🧠 Reasoning
+        </Text>
+        <Text>{stream.reasoning}</Text>
+      </Box>
+    )}
     </Box>
   );
 }
-

@@ -12,6 +12,7 @@ export interface LogEntry {
 export interface LiveStreamState {
   agentName: string;
   text: string;
+  reasoning?: string;
 }
 
 export type PromptType = "text" | "select" | "confirm" | "password" | "checkbox";

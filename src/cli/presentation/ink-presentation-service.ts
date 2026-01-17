@@ -12,6 +12,7 @@ import type { StreamEvent } from "../../core/types/streaming";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/App";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
+import { formatMarkdownAnsi } from "./markdown-ansi";
 
 function renderToolBadge(label: string): React.ReactElement {
   return React.createElement(
@@ -24,6 +25,7 @@ function renderToolBadge(label: string): React.ReactElement {
 class InkStreamingRenderer implements StreamingRenderer {
   private readonly activeTools = new Map<string, string>();
   private liveText: string = "";
+  private reasoningBuffer: string = "";
   private lastAgentHeaderWritten: boolean = false;
 
   constructor(
@@ -65,7 +67,15 @@ class InkStreamingRenderer implements StreamingRenderer {
         }
 
         case "thinking_start": {
+          this.reasoningBuffer = "";
+          this.updateLiveStream(false);
           store.setStatus(`${this.agentName} is thinking…`);
+          return;
+        }
+
+        case "thinking_chunk": {
+          this.reasoningBuffer += event.content;
+          this.updateLiveStream();
           return;
         }
 
@@ -74,6 +84,9 @@ class InkStreamingRenderer implements StreamingRenderer {
           if (this.activeTools.size === 0) {
             store.setStatus(null);
           }
+          this.logReasoning();
+          this.reasoningBuffer = "";
+          this.updateLiveStream(false);
           return;
         }
 
@@ -126,13 +139,13 @@ class InkStreamingRenderer implements StreamingRenderer {
 
         case "text_start": {
           this.liveText = "";
-          store.setStream({ agentName: this.agentName, text: "" });
+          this.updateLiveStream(false);
           return;
         }
 
         case "text_chunk": {
           this.liveText = event.accumulated;
-          store.setStream({ agentName: this.agentName, text: event.accumulated });
+          this.updateLiveStream();
           return;
         }
 
@@ -167,14 +180,15 @@ class InkStreamingRenderer implements StreamingRenderer {
               : event.response.content.trim().length > 0
                 ? event.response.content
                 : "";
+          const formattedFinalText = formatMarkdownAnsi(finalText);
 
-          if (finalText.length > 0) {
+          if (formattedFinalText.length > 0) {
             store.addLog({
               type: "log",
               message: ink(
                 React.createElement(AgentResponseCard, {
                   agentName: this.agentName,
-                  content: finalText,
+                  content: formattedFinalText,
                 }),
               ),
               timestamp: new Date(),
@@ -211,6 +225,32 @@ class InkStreamingRenderer implements StreamingRenderer {
     if (uniqueToolNames.length === 0) return "Working…";
     if (uniqueToolNames.length === 1) return `Running ${uniqueToolNames[0]}…`;
     return `Running ${uniqueToolNames.length} tools… (${uniqueToolNames.join(", ")})`;
+  }
+
+  private updateLiveStream(includeReasoning: boolean = true): void {
+    const formattedText = formatMarkdownAnsi(this.liveText);
+    const shouldShowReasoning = includeReasoning && this.reasoningBuffer.trim().length > 0;
+    const formattedReasoning = shouldShowReasoning
+      ? formatMarkdownAnsi(this.reasoningBuffer)
+      : undefined;
+    store.setStream({
+      agentName: this.agentName,
+      text: formattedText,
+      reasoning: formattedReasoning ?? "",
+    });
+  }
+
+  private logReasoning(): void {
+    const reasoning = this.reasoningBuffer.trim();
+    if (reasoning.length === 0) {
+      return;
+    }
+    const formattedReasoning = formatMarkdownAnsi(reasoning);
+    store.addLog({
+      type: "log",
+      message: `🧠 Reasoning:\n${formattedReasoning}`,
+      timestamp: new Date(),
+    });
   }
 }
 
