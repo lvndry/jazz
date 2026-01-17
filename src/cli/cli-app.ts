@@ -59,7 +59,7 @@ function registerAgentCommands(program: Command): void {
     });
 
   agentCommand
-    .command("get <agentId>")
+    .command("show <agentId>")
     .description("Get an agent details")
     .action((agentId: string) => {
       const opts = program.opts<CliOptions>();
