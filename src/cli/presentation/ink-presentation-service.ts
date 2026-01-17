@@ -27,6 +27,7 @@ class InkStreamingRenderer implements StreamingRenderer {
   private readonly activeTools = new Map<string, string>();
   private liveText: string = "";
   private reasoningBuffer: string = "";
+  private completedReasoning: string = "";
   private lastAgentHeaderWritten: boolean = false;
   private lastFormattedText: string = "";
   private lastFormattedReasoning: string = "";
@@ -41,6 +42,7 @@ class InkStreamingRenderer implements StreamingRenderer {
       this.activeTools.clear();
       this.liveText = "";
       this.reasoningBuffer = "";
+      this.completedReasoning = "";
       this.lastAgentHeaderWritten = false;
       this.lastFormattedText = "";
       this.lastFormattedReasoning = "";
@@ -64,6 +66,10 @@ class InkStreamingRenderer implements StreamingRenderer {
       switch (event.type) {
         case "stream_start": {
           this.lastAgentHeaderWritten = true;
+          // Reset reasoning state for new stream
+          this.reasoningBuffer = "";
+          this.completedReasoning = "";
+          this.lastFormattedReasoning = "";
           store.addLog({
             type: "info",
             message: `${this.agentName} (${event.provider}/${event.model})`,
@@ -74,6 +80,8 @@ class InkStreamingRenderer implements StreamingRenderer {
 
         case "thinking_start": {
           this.reasoningBuffer = "";
+          // Don't clear completedReasoning here - accumulate reasoning sessions
+          // Only clear on stream_start to handle multiple reasoning sessions
           this.updateLiveStream(false);
           store.setStatus(`${this.agentName} is thinking…`);
           return;
@@ -91,14 +99,23 @@ class InkStreamingRenderer implements StreamingRenderer {
             store.setStatus(null);
           }
           this.logReasoning();
+
+          const newReasoning = this.reasoningBuffer.trim();
+          if (newReasoning.length > 0) {
+            if (this.completedReasoning.trim().length > 0) {
+              this.completedReasoning += "\n\n---\n\n" + newReasoning;
+            } else {
+              this.completedReasoning = newReasoning;
+            }
+          }
           this.reasoningBuffer = "";
-          this.lastFormattedReasoning = "";
-          this.updateLiveStream(false);
+          // Update stream to include all accumulated reasoning
+          this.updateLiveStream(true);
           return;
         }
 
         case "tools_detected": {
-          const approvalSet = new Set(event.toolsRequiringApproval as readonly string[]);
+          const approvalSet = new Set(event.toolsRequiringApproval);
           const formattedTools = event.toolNames
             .map((name) => {
               if (approvalSet.has(name)) {
@@ -158,7 +175,8 @@ class InkStreamingRenderer implements StreamingRenderer {
 
         case "text_start": {
           this.liveText = "";
-          this.updateLiveStream(false);
+          // Include reasoning when text starts - reasoning should persist during text streaming
+          this.updateLiveStream(true);
           return;
         }
 
@@ -237,6 +255,8 @@ class InkStreamingRenderer implements StreamingRenderer {
           store.setStatus(null);
           store.setStream(null);
           this.liveText = "";
+          this.reasoningBuffer = "";
+          this.completedReasoning = "";
           this.lastFormattedText = "";
           this.lastFormattedReasoning = "";
           return;
@@ -254,8 +274,14 @@ class InkStreamingRenderer implements StreamingRenderer {
 
   private updateLiveStream(includeReasoning: boolean = true): void {
     const formattedText = formatMarkdownAnsi(this.liveText);
-    const shouldShowReasoning = includeReasoning && this.reasoningBuffer.trim().length > 0;
-    const formattedReasoning = shouldShowReasoning ? formatMarkdownAnsi(this.reasoningBuffer) : "";
+    // Show reasoning if: (1) we're including it, and (2) either buffer has content (during thinking) or completed reasoning exists
+    const reasoningToShow = this.reasoningBuffer.trim().length > 0
+      ? this.reasoningBuffer
+      : this.completedReasoning.trim().length > 0
+        ? this.completedReasoning
+        : "";
+    const shouldShowReasoning = includeReasoning && reasoningToShow.length > 0;
+    const formattedReasoning = shouldShowReasoning ? formatMarkdownAnsi(reasoningToShow) : "";
 
     // Only update if the formatted content actually changed
     // This prevents unnecessary re-renders that cause blinking
@@ -281,7 +307,7 @@ class InkStreamingRenderer implements StreamingRenderer {
     const formattedReasoning = formatMarkdownAnsi(reasoning);
     store.addLog({
       type: "log",
-      message: `\n🧠 Reasoning:\n${chalk.gray(formattedReasoning)}`,
+      message: `🧠 Reasoning:\n${chalk.gray(formattedReasoning)}`,
       timestamp: new Date(),
     });
   }

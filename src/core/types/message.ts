@@ -28,3 +28,10 @@ export interface ChatMessage {
     thought_signature?: string;
   }>;
 }
+
+/**
+ * A non-empty list of chat messages, usually starting with a system message.
+ * This type helps ensure that we always have at least one message (typically the system prompt)
+ * when communicating with LLMs.
+ */
+export type ConversationMessages = [ChatMessage, ...ChatMessage[]];

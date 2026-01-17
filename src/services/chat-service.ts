@@ -7,7 +7,7 @@ import { store } from "../cli/ui/App";
 import { AgentRunner, type AgentRunnerOptions } from "../core/agent/agent-runner";
 import { getAgentByIdentifier } from "../core/agent/agent-service";
 import { normalizeToolConfig } from "../core/agent/utils/tool-config";
-import { AgentConfigServiceTag } from "../core/interfaces/agent-config";
+import { AgentConfigServiceTag, type AgentConfigService } from "../core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "../core/interfaces/agent-service";
 import { ChatServiceTag, type ChatService } from "../core/interfaces/chat-service";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../core/interfaces/fs";
@@ -126,6 +126,7 @@ export class ChatServiceImpl implements ChatService {
             agent,
             conversationId,
             conversationHistory,
+            sessionId,
           );
 
           if (commandResult.newConversationId !== undefined) {
@@ -337,7 +338,7 @@ function logMessageToSession(
  * Special command types
  */
 type SpecialCommand = {
-  type: "new" | "help" | "status" | "clear" | "tools" | "agents" | "switch" | "unknown";
+  type: "new" | "help" | "status" | "clear" | "tools" | "agents" | "switch" | "compact" | "unknown";
   args: string[];
 };
 
@@ -370,6 +371,8 @@ function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "agents", args };
     case "switch":
       return { type: "switch", args };
+    case "compact":
+      return { type: "compact", args };
     default:
       return { type: "unknown", args: [command, ...args] };
   }
@@ -383,6 +386,7 @@ function handleSpecialCommand(
   agent: Agent,
   conversationId: string | undefined,
   conversationHistory: ChatMessage[],
+  sessionId: string,
 ): Effect.Effect<
   {
     shouldContinue: boolean;
@@ -390,8 +394,16 @@ function handleSpecialCommand(
     newHistory?: ChatMessage[];
     newAgent?: Agent;
   },
-  StorageError | StorageNotFoundError,
-  ToolRegistry | TerminalService | AgentService | FileSystemContextService
+  StorageError | StorageNotFoundError | Error,
+  | ToolRegistry
+  | TerminalService
+  | AgentService
+  | FileSystemContextService
+  | LoggerService
+  | LLMService
+  | AgentConfigService
+  | PresentationService
+  | ToolRequirements
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -418,6 +430,7 @@ function handleSpecialCommand(
           "   /switch [agent]  - Switch to a different agent in the same conversation",
         );
         yield* terminal.log("   /clear           - Clear the screen");
+        yield* terminal.log("   /compact         - Summarize background history to save tokens");
         yield* terminal.log("   /help            - Show this help message");
         yield* terminal.log("   /exit            - Exit the chat");
         yield* terminal.log("");
@@ -531,6 +544,73 @@ function handleSpecialCommand(
 
         yield* terminal.log("");
         return { shouldContinue: true };
+      }
+
+      case "compact": {
+        if (!conversationHistory || conversationHistory.length < 5) {
+          yield* terminal.warn("Not enough history to compact (minimum 5 messages).");
+          yield* terminal.log("");
+          return { shouldContinue: true };
+        }
+
+        const messageCount = conversationHistory.length - 1; // Exclude system message
+
+        // Stage 1: Reading
+        store.setStatus(`📖 Reading ${messageCount} messages from conversation history...`);
+        yield* Effect.sleep("1 seconds");
+
+        try {
+          // Keep system message [0], summarize everything else [1...N]
+          const messagesToSummarize = conversationHistory.slice(1);
+
+          // Clear loading and show success for Stage 1
+          store.setStatus(null);
+          yield* terminal.success(`📖 Read ${messageCount} messages from conversation history`);
+          yield* terminal.log("");
+
+          // Stage 2: Analyzing
+          store.setStatus("🧠 Analyzing content and extracting key information...");
+          yield* Effect.sleep("2.5 seconds");
+
+          // Clear loading and show success for Stage 2
+          store.setStatus(null);
+          yield* terminal.success("🧠 Analyzed content and extracted key information");
+          yield* terminal.log("");
+
+          // Stage 3: Summarizing
+          store.setStatus("✨ Generating high-density summary...");
+
+          const summaryMessage = yield* AgentRunner.summarizeHistory(
+            messagesToSummarize,
+            agent,
+            sessionId,
+            conversationId || "manual-compact",
+          );
+
+          // Clear loading and show success for Stage 3
+          store.setStatus(null);
+          yield* terminal.success("✨ Generated high-density summary");
+          yield* terminal.log("");
+
+          const newHistory: ChatMessage[] = [conversationHistory[0] as ChatMessage, summaryMessage];
+
+          yield* terminal.success("Conversation context compacted successfully!");
+          yield* terminal.log(
+            `   Reduced from ${messageCount + 1} messages to 2 (system + summary)`,
+          );
+          yield* terminal.log("   Earlier context compressed while preserving key information");
+          yield* terminal.log("");
+
+          return { shouldContinue: true, newHistory };
+        } catch (error) {
+          // Clear loading status on error
+          store.setStatus(null);
+          yield* terminal.error(
+            `Failed to compact history: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          yield* terminal.log("");
+          return { shouldContinue: true };
+        }
       }
 
       case "switch": {
