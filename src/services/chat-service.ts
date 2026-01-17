@@ -363,7 +363,7 @@ function handleSpecialCommand(
     newAgent?: Agent;
   },
   StorageError | StorageNotFoundError,
-  ToolRegistry | TerminalService | AgentService
+  ToolRegistry | TerminalService | AgentService | FileSystemContextService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -405,6 +405,13 @@ function handleSpecialCommand(
         yield* terminal.log(`   Reasoning effort: ${agent.config.reasoningEffort}`);
         const totalTools = agent.config.tools?.length ?? 0;
         yield* terminal.log(`   Tools: ${totalTools} available`);
+        const fileSystemContext = yield* FileSystemContextServiceTag;
+        const workingDirectory = yield* fileSystemContext.getCwd(
+          conversationId
+            ? { agentId: agent.id, conversationId }
+            : { agentId: agent.id },
+        );
+        yield* terminal.log(`   Working directory: ${workingDirectory}`);
         yield* terminal.log("");
         return { shouldContinue: true };
       }
