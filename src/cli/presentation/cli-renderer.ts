@@ -703,6 +703,11 @@ export class CLIRenderer {
   private formatHeaders(text: string): string {
     let formatted = text;
 
+    // H4 (####)
+    formatted = formatted.replace(/^\s*####\s+(.+)$/gm, (_match, header) => {
+      return chalk.bold(header);
+    });
+
     // H3 (###)
     formatted = formatted.replace(/^\s*###\s+(.+)$/gm, (_match, header) => {
       return chalk.bold.blue(header);

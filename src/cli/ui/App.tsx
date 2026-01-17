@@ -25,20 +25,20 @@ export const AppContext = createContext<{
   status: null,
   stream: null,
   workingDirectory: null,
-  setLogs: () => {},
-  setPrompt: () => {},
-  setStatus: () => {},
-  setStream: () => {},
-  setWorkingDirectory: () => {},
+  setLogs: () => { },
+  setPrompt: () => { },
+  setStatus: () => { },
+  setStream: () => { },
+  setWorkingDirectory: () => { },
 });
 
 // Store logic decoupled from React for Effect integration
 export const store = {
-  addLog: (_entry: LogEntry): void => {},
-  setPrompt: (_prompt: PromptState | null): void => {},
-  setStatus: (_status: string | null): void => {},
-  setStream: (_stream: LiveStreamState | null): void => {},
-  setWorkingDirectory: (_workingDirectory: string | null): void => {},
+  addLog: (_entry: LogEntry): void => { },
+  setPrompt: (_prompt: PromptState | null): void => { },
+  setStatus: (_status: string | null): void => { },
+  setStream: (_stream: LiveStreamState | null): void => { },
+  setWorkingDirectory: (_workingDirectory: string | null): void => { },
 };
 
 export function App(): React.ReactElement {
@@ -52,8 +52,19 @@ export function App(): React.ReactElement {
   // during render, preventing race conditions where store methods are called before
   // initialization completes (e.g., between render() returning and useEffect running)
   const initializedRef = useRef(false);
+  // Maximum number of log entries to keep in memory for the UI
+  // Older logs are dropped from the state (but persist in log files on disk)
+  const MAX_LOG_ENTRIES = 1000;
+
   if (!initializedRef.current) {
-    store.addLog = (entry) => setLogs((prev) => [...prev, entry]);
+    store.addLog = (entry) =>
+      setLogs((prev) => {
+        const next = [...prev, entry];
+        if (next.length > MAX_LOG_ENTRIES) {
+          return next.slice(next.length - MAX_LOG_ENTRIES);
+        }
+        return next;
+      });
     store.setPrompt = (prompt) => setPrompt(prompt);
     store.setStatus = (status) => setStatus(status);
     store.setStream = (stream) => setStream(stream);

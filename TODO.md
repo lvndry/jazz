@@ -6,7 +6,7 @@
 - [x] Stream content in terminal — swap to `streamText` to present incremental LLM output and reduce
       perceived latency.
 - [x] Update system prompt to discorourage usage of tables. They don't render well in terminal
-- [ ] Better colors and themes.
+- [x] Better colors and theme.
 - [x] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
 - [x] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
       more capable or less costly model while keeping the same context
