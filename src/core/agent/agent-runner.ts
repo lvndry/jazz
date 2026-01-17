@@ -8,9 +8,9 @@ import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
 import type { PresentationService } from "../interfaces/presentation";
 import { PresentationServiceTag } from "../interfaces/presentation";
 import {
-  ToolRegistryTag,
-  type ToolRegistry,
-  type ToolRequirements,
+    ToolRegistryTag,
+    type ToolRegistry,
+    type ToolRequirements,
 } from "../interfaces/tool-registry";
 import type { StreamEvent, StreamingConfig } from "../types";
 import { type Agent } from "../types";
@@ -24,13 +24,13 @@ import { agentPromptBuilder } from "./agent-prompt";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { ToolExecutor } from "./execution/tool-executor";
 import {
-  beginIteration,
-  completeIteration,
-  createAgentRunTracker,
-  finalizeAgentRun,
-  recordFirstTokenLatency,
-  recordLLMRetry,
-  recordLLMUsage,
+    beginIteration,
+    completeIteration,
+    createAgentRunTracker,
+    finalizeAgentRun,
+    recordFirstTokenLatency,
+    recordLLMRetry,
+    recordLLMUsage,
 } from "./tracking/agent-run-tracker";
 import { normalizeToolConfig } from "./utils/tool-config";
 
@@ -433,11 +433,9 @@ export class AgentRunner {
             try {
               // Log thinking indicator
               if (i === 0) {
-                const thinkingMsg = yield* presentationService.formatThinking(agent.name, true);
-                yield* logger.info(thinkingMsg);
+                yield* presentationService.presentThinking(agent.name, true);
               } else {
-                const thinkingMsg = yield* presentationService.formatThinking(agent.name, false);
-                yield* logger.info(thinkingMsg);
+                yield* presentationService.presentThinking(agent.name, false);
               }
 
               // Ensure messages are not empty
@@ -764,8 +762,7 @@ export class AgentRunner {
               });
 
               response = { ...response, content: completion.content };
-              const completionMsg = yield* presentationService.formatCompletion(agent.name);
-              yield* logger.info(completionMsg);
+              yield* presentationService.presentCompletion(agent.name);
 
               iterationsUsed = i + 1;
               finished = true;
@@ -778,23 +775,16 @@ export class AgentRunner {
           // Post-loop cleanup
           if (!finished) {
             iterationsUsed = maxIterations;
-            const warningMessage = yield* presentationService.formatWarning(
+            iterationsUsed = maxIterations;
+            yield* presentationService.presentWarning(
               agent.name,
               `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
             );
-            yield* presentationService.writeBlankLine();
-            yield* presentationService.writeOutput(warningMessage);
-            yield* presentationService.writeBlankLine();
-            yield* logger.warn(warningMessage);
           } else if (!response.content?.trim() && !response.toolCalls) {
-            const warningMessage = yield* presentationService.formatWarning(
+            yield* presentationService.presentWarning(
               agent.name,
               "model returned an empty response",
             );
-            yield* presentationService.writeBlankLine();
-            yield* presentationService.writeOutput(warningMessage);
-            yield* presentationService.writeBlankLine();
-            yield* logger.warn(warningMessage);
           }
 
           const finalizeFiber = yield* finalizeAgentRun(runTracker, {
@@ -874,11 +864,9 @@ export class AgentRunner {
               // Log thinking indicator
               if (displayConfig.showThinking) {
                 if (i === 0) {
-                  const thinkingMsg = yield* presentationService.formatThinking(agent.name, true);
-                  yield* logger.info(thinkingMsg);
+                  yield* presentationService.presentThinking(agent.name, true);
                 } else {
-                  const thinkingMsg = yield* presentationService.formatThinking(agent.name, false);
-                  yield* logger.info(thinkingMsg);
+                  yield* presentationService.presentThinking(agent.name, false);
                 }
               }
 
@@ -1080,17 +1068,12 @@ export class AgentRunner {
 
               // Display final response
               if (formattedContent && formattedContent.trim().length > 0) {
-                const formattedResponse = yield* presentationService.formatAgentResponse(
-                  agent.name,
-                  formattedContent,
-                );
                 yield* presentationService.writeBlankLine();
-                yield* presentationService.writeOutput(formattedResponse);
+                yield* presentationService.presentAgentResponse(agent.name, formattedContent);
                 yield* presentationService.writeBlankLine();
               }
 
-              const completionMsg = yield* presentationService.formatCompletion(agent.name);
-              yield* logger.info(completionMsg);
+              yield* presentationService.presentCompletion(agent.name);
 
               // Show metrics if enabled
               if (showMetrics && completion.usage) {
@@ -1117,17 +1100,15 @@ export class AgentRunner {
           // Post-loop cleanup
           if (!finished) {
             iterationsUsed = maxIterations;
-            const warningMsg = yield* presentationService.formatWarning(
+            yield* presentationService.presentWarning(
               agent.name,
               `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
             );
-            yield* logger.warn(warningMsg);
           } else if (!response.content?.trim() && !response.toolCalls) {
-            const warningMsg = yield* presentationService.formatWarning(
+            yield* presentationService.presentWarning(
               agent.name,
               "model returned an empty response",
             );
-            yield* logger.warn(warningMsg);
           }
 
           const finalizeFiber = yield* finalizeAgentRun(runTracker, {

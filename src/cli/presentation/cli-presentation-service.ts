@@ -52,6 +52,34 @@ class CLIPresentationService implements PresentationService {
     return this.getRenderer().formatAgentResponse(agentName, content);
   }
 
+  presentThinking(agentName: string, isFirstIteration: boolean): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const msg = yield* this.formatThinking(agentName, isFirstIteration);
+      yield* this.writeOutput(msg);
+    });
+  }
+
+  presentCompletion(agentName: string): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const msg = yield* this.formatCompletion(agentName);
+      yield* this.writeOutput(msg);
+    });
+  }
+
+  presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const msg = yield* this.formatWarning(agentName, message);
+      yield* this.writeOutput(msg);
+    });
+  }
+
+  presentAgentResponse(agentName: string, content: string): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const formatted = yield* this.formatAgentResponse(agentName, content);
+      yield* this.writeOutput(formatted);
+    });
+  }
+
   renderMarkdown(markdown: string): Effect.Effect<string, never> {
     return this.getRenderer().renderMarkdown(markdown);
   }

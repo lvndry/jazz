@@ -98,7 +98,7 @@ class InkStreamingRenderer implements StreamingRenderer {
         }
 
         case "tools_detected": {
-          const approvalSet = new Set(event.toolsRequiringApproval);
+          const approvalSet = new Set(event.toolsRequiringApproval as readonly string[]);
           const formattedTools = event.toolNames
             .map((name) => {
               if (approvalSet.has(name)) {
@@ -226,7 +226,11 @@ class InkStreamingRenderer implements StreamingRenderer {
               parts.push(`Total: ${event.metrics.totalTokens} tokens`);
             }
             if (parts.length > 0) {
-              store.addLog({ type: "debug", message: `[${parts.join(" | ")}]`, timestamp: new Date() });
+              store.addLog({
+                type: "debug",
+                message: `[${parts.join(" | ")}]`,
+                timestamp: new Date(),
+              });
             }
           }
 
@@ -251,9 +255,7 @@ class InkStreamingRenderer implements StreamingRenderer {
   private updateLiveStream(includeReasoning: boolean = true): void {
     const formattedText = formatMarkdownAnsi(this.liveText);
     const shouldShowReasoning = includeReasoning && this.reasoningBuffer.trim().length > 0;
-    const formattedReasoning = shouldShowReasoning
-      ? formatMarkdownAnsi(this.reasoningBuffer)
-      : "";
+    const formattedReasoning = shouldShowReasoning ? formatMarkdownAnsi(this.reasoningBuffer) : "";
 
     // Only update if the formatted content actually changed
     // This prevents unnecessary re-renders that cause blinking
@@ -311,22 +313,38 @@ class InkPresentationService implements PresentationService {
     return this.renderer;
   }
 
-  formatThinking(agentName: string, isFirstIteration: boolean): Effect.Effect<string, never> {
-    return this.getRenderer().formatThinking(agentName, isFirstIteration);
+  presentThinking(agentName: string, isFirstIteration: boolean): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const msg = yield* this.getRenderer().formatThinking(agentName, isFirstIteration);
+      // For non-streaming, we just log the thinking message
+      // We could also set status, but checking strict parity with existing behavior first
+      store.addLog({ type: "info", message: msg, timestamp: new Date() });
+    });
   }
 
-  formatCompletion(agentName: string): Effect.Effect<string, never> {
-    return this.getRenderer().formatCompletion(agentName);
+  presentCompletion(agentName: string): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const msg = yield* this.getRenderer().formatCompletion(agentName);
+      store.addLog({ type: "info", message: msg, timestamp: new Date() });
+    });
   }
 
-  formatWarning(agentName: string, message: string): Effect.Effect<string, never> {
-    return this.getRenderer().formatWarning(agentName, message);
+  presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const msg = yield* this.getRenderer().formatWarning(agentName, message);
+      store.addLog({ type: "warn", message: msg, timestamp: new Date() });
+    });
   }
 
-  formatAgentResponse(agentName: string, content: string): Effect.Effect<string, never> {
-    // We keep the legacy formatter (chalk/marked-terminal) so markdown looks decent,
-    // but we *display* it inside Ink by logging the resulting string.
-    return this.getRenderer().formatAgentResponse(agentName, content);
+  presentAgentResponse(agentName: string, content: string): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const formatted = yield* this.getRenderer().formatAgentResponse(agentName, content);
+      store.addLog({
+        type: "log", // 'log' type uses default coloring (white/reset) which allows ANSI codes to shine
+        message: formatted,
+        timestamp: new Date(),
+      });
+    });
   }
 
   renderMarkdown(markdown: string): Effect.Effect<string, never> {
@@ -372,7 +390,9 @@ class InkPresentationService implements PresentationService {
     return this.getRenderer().formatToolsDetected(agentName, toolNames, toolsRequiringApproval);
   }
 
-  createStreamingRenderer(config: StreamingRendererConfig): Effect.Effect<StreamingRenderer, never> {
+  createStreamingRenderer(
+    config: StreamingRendererConfig,
+  ): Effect.Effect<StreamingRenderer, never> {
     return Effect.sync(() => {
       return new InkStreamingRenderer(config.agentName, config.showMetrics);
     });
@@ -395,4 +415,3 @@ export const InkPresentationServiceLayer = Layer.effect(
   PresentationServiceTag,
   Effect.sync(() => new InkPresentationService()),
 );
-
