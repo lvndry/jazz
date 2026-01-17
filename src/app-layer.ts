@@ -2,7 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
 import { autoCheckForUpdate } from "./cli/auto-update";
-import { CLIPresentationServiceLayer } from "./cli/presentation/presentation-service";
+import { CLIPresentationServiceLayer } from "./cli/presentation/cli-presentation-service";
 import { InkPresentationServiceLayer } from "./cli/presentation/ink-presentation-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
