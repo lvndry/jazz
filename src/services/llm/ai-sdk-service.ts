@@ -301,8 +301,9 @@ function buildProviderOptions(
         return {
           openai: {
             reasoningEffort,
-            store: false,
-            include: ["reasoning.encrypted_content"],
+            reasoningSummary: "detailed",
+            // store: false,
+            // include: ["reasoning.encrypted_content"],
           } satisfies OpenAIResponsesProviderOptions,
         };
       }

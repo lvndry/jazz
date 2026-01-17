@@ -86,7 +86,12 @@ export interface TerminalService {
   /**
    * Prompt the user for password input (hidden)
    */
-  readonly password: (message: string) => Effect.Effect<string, never>;
+  readonly password: (
+    message: string,
+    options?: {
+      validate?: (input: string) => boolean | string;
+    },
+  ) => Effect.Effect<string, never>;
 
   /**
    * Prompt the user to select from a list of options

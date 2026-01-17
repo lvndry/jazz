@@ -61,8 +61,8 @@ export interface WebSearchProviderConfig {
 }
 
 export interface WebSearchConfig {
-  readonly linkup?: WebSearchProviderConfig;
   readonly exa?: WebSearchProviderConfig;
   readonly parallel?: WebSearchProviderConfig;
+  readonly tavily?: WebSearchProviderConfig;
   readonly priority_order?: readonly string[];
 }

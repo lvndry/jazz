@@ -16,6 +16,10 @@ interface AgentListItem {
   };
 }
 
+/**
+ * AgentsList displays a list of agents with a minimal header design.
+ * Uses spacing and subtle separators instead of box borders for copy-friendly terminal output.
+ */
 export function AgentsList(props: {
   readonly agents: readonly AgentListItem[];
   readonly verbose: boolean;
@@ -38,7 +42,7 @@ export function AgentsList(props: {
 
   const width = Math.max(60, Math.min(columns, 120));
 
-  const inner = Math.max(40, width - 2); // border padding
+  const inner = Math.max(40, width - 2);
 
   const idxW = 3;
   const nameW = Math.max(16, Math.min(28, Math.floor(inner * 0.28)));
@@ -50,19 +54,22 @@ export function AgentsList(props: {
   const descW = Math.max(10, inner - fixed);
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      paddingX={1}
-      width={width}
-    >
+    <Box flexDirection="column" paddingX={1} width={width}>
+      {/* Header */}
       <Box justifyContent="space-between">
-        <Text bold>Agents ({props.agents.length})</Text>
+        <Text bold color="cyan">
+          Agents ({props.agents.length})
+        </Text>
         <Text dimColor>jazz agent get &lt;id|name&gt; · jazz agent chat &lt;id|name&gt;</Text>
       </Box>
 
-      <Box marginTop={1} flexDirection="row">
+      {/* Header separator */}
+      <Box>
+        <Text dimColor>{"─".repeat(Math.min(60, width - 2))}</Text>
+      </Box>
+
+      {/* Column headers */}
+      <Box marginTop={1} flexDirection="row" paddingLeft={1}>
         <Text dimColor>
           {padRight("#", idxW)}
           {" ".repeat(gap)}
@@ -78,7 +85,8 @@ export function AgentsList(props: {
         </Text>
       </Box>
 
-      <Box marginTop={1} flexDirection="column">
+      {/* Agent rows */}
+      <Box marginTop={1} flexDirection="column" paddingLeft={1}>
         {props.agents.map((agent, i) => {
           const model = `${formatProviderDisplayName(agent.config.llmProvider)}/${agent.config.llmModel}`;
           const type = agent.config.agentType ?? "default";
@@ -122,6 +130,9 @@ export function AgentsList(props: {
           );
         })}
       </Box>
+
+      {/* Bottom spacing */}
+      <Box marginTop={1} />
     </Box>
   );
 }

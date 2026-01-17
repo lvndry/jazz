@@ -1,6 +1,10 @@
 import { Box, Text, useStdout } from "ink";
 import React from "react";
 
+/**
+ * ConfigCard displays configuration with a minimal header design.
+ * Uses spacing and subtle separators instead of box borders for copy-friendly terminal output.
+ */
 export function ConfigCard(props: {
   readonly title: string;
   readonly json: string;
@@ -27,16 +31,18 @@ export function ConfigCard(props: {
   const jsonLines = props.json.split("\n").flatMap((line) => wrapIndentedLine(line, contentWidth));
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      paddingX={1}
-      width={width}
-    >
+    <Box flexDirection="column" paddingX={1} width={width}>
+      {/* Header */}
       <Box justifyContent="space-between">
-        <Text bold>{props.title}</Text>
+        <Text bold color="cyan">
+          {props.title}
+        </Text>
         <Text dimColor>jazz config get &lt;key&gt; · jazz config set &lt;key&gt;</Text>
+      </Box>
+
+      {/* Header separator */}
+      <Box>
+        <Text dimColor>{"─".repeat(Math.min(60, width - 2))}</Text>
       </Box>
 
       {props.note ? (
@@ -45,11 +51,15 @@ export function ConfigCard(props: {
         </Box>
       ) : null}
 
-      <Box marginTop={1} borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+      {/* JSON content - no borders for easy copying */}
+      <Box marginTop={1} flexDirection="column" paddingLeft={1}>
         {jsonLines.map((line, idx) => (
           <Text key={idx}>{line}</Text>
         ))}
       </Box>
+
+      {/* Bottom spacing */}
+      <Box marginTop={1} />
     </Box>
   );
 }

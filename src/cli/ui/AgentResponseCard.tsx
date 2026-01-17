@@ -1,6 +1,10 @@
 import { Box, Text } from "ink";
 import React from "react";
 
+/**
+ * AgentResponseCard displays the agent's response with a minimal header design.
+ * Uses spacing and color instead of box borders for copy-friendly terminal output.
+ */
 export function AgentResponseCard({
   agentName,
   content,
@@ -9,14 +13,8 @@ export function AgentResponseCard({
   content: string;
 }): React.ReactElement {
   return (
-    <Box
-      flexDirection="column"
-      marginTop={1}
-      borderStyle="round"
-      borderColor="green"
-      paddingX={1}
-      paddingY={0}
-    >
+    <Box flexDirection="column" marginTop={1} paddingX={1}>
+      {/* Minimal header with status indicator */}
       <Box>
         <Text color="green">✔</Text>
         <Text> </Text>
@@ -25,10 +23,20 @@ export function AgentResponseCard({
         </Text>
         <Text dimColor> replied</Text>
       </Box>
-      <Box marginTop={1}>
+
+      {/* Subtle separator line */}
+      <Box marginTop={0}>
+        <Text dimColor>{"─".repeat(40)}</Text>
+      </Box>
+
+      {/* Content area - no borders for easy copying */}
+      <Box marginTop={1} paddingLeft={1}>
         {/* Do NOT force a color here; allow ANSI styling (chalk/marked-terminal) to render. */}
         <Text>{content}</Text>
       </Box>
+
+      {/* Bottom spacing */}
+      <Box marginTop={1} />
     </Box>
   );
 }

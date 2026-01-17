@@ -86,35 +86,66 @@ export class InkTerminalService implements TerminalService {
     },
   ): Effect.Effect<string, never> {
     return Effect.async((resume) => {
-      store.setPrompt({
+      // Store the validate function to ensure it's properly passed to the prompt
+      const validateFn = options?.validate;
+
+      const promptState: {
+        type: "text";
+        message: string;
+        options?: { defaultValue?: string; validate?: (input: string) => boolean | string };
+        resolve: (val: unknown) => void;
+      } = {
         type: "text",
         message,
-
-        ...(options ? { options: options } : {}),
+        ...(options
+          ? {
+              options: {
+                ...(options.defaultValue !== undefined ? { defaultValue: options.defaultValue } : {}),
+                ...(validateFn ? { validate: validateFn } : {}),
+              },
+            }
+          : {}),
         resolve: (val: unknown) => {
+          // The Prompt component validates before calling resolve, so we can trust the input
+          const inputValue = String(val);
           store.setPrompt(null);
           store.addLog({
             type: "log",
-            message: `${message} ${String(val)}`,
+            message: `${message} ${inputValue}`,
             timestamp: new Date(),
           });
-          resume(Effect.succeed(val as string));
+          resume(Effect.succeed(inputValue));
         },
-      });
+      };
+
+      store.setPrompt(promptState);
     });
   }
 
-  password(message: string): Effect.Effect<string, never> {
+  password(
+    message: string,
+    options?: {
+      validate?: (input: string) => boolean | string;
+    },
+  ): Effect.Effect<string, never> {
     return Effect.async((resume) => {
-      store.setPrompt({
-        type: "password",
+      // Store the validate function to ensure it's properly passed to the prompt
+      const validateFn = options?.validate;
+
+      const promptState = {
+        type: "password" as const,
         message,
+        ...(options && validateFn ? { options: { validate: validateFn } } : {}),
         resolve: (val: unknown) => {
+          // The Prompt component validates before calling resolve, so we can trust the input
+          const inputValue = String(val);
           store.setPrompt(null);
           store.addLog({ type: "log", message: `${message} *****`, timestamp: new Date() });
-          resume(Effect.succeed(val as string));
+          resume(Effect.succeed(inputValue));
         },
-      });
+      };
+
+      store.setPrompt(promptState);
     });
   }
 

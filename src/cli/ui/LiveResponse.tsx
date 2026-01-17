@@ -3,16 +3,14 @@ import Spinner from "ink-spinner";
 import React from "react";
 import type { LiveStreamState } from "./types";
 
+/**
+ * LiveResponse displays the streaming response with a minimal header design.
+ * Uses spacing and color instead of box borders for copy-friendly terminal output.
+ */
 export function LiveResponse({ stream }: { stream: LiveStreamState }): React.ReactElement {
   return (
-    <Box
-      flexDirection="column"
-      marginTop={1}
-      borderStyle="round"
-      borderColor="magenta"
-      paddingX={1}
-      paddingY={0}
-    >
+    <Box flexDirection="column" marginTop={1} paddingX={1}>
+      {/* Minimal header with spinner */}
       <Box>
         <Text color="magenta">
           <Spinner type="dots" />
@@ -23,7 +21,14 @@ export function LiveResponse({ stream }: { stream: LiveStreamState }): React.Rea
         </Text>
         <Text dimColor> is responding…</Text>
       </Box>
-      <Box marginTop={1}>
+
+      {/* Subtle separator line */}
+      <Box marginTop={0}>
+        <Text dimColor>{"─".repeat(40)}</Text>
+      </Box>
+
+      {/* Content area - no borders for easy copying */}
+      <Box marginTop={1} paddingLeft={1}>
         <Text>{stream.text}</Text>
       </Box>
     </Box>

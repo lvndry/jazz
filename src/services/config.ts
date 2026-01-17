@@ -159,7 +159,7 @@ function defaultConfig(): AppConfig {
 
   const llm: LLMConfig = {};
   const web_search: WebSearchConfig = {
-    priority_order: ["parallel", "exa", "linkup"],
+    priority_order: ["parallel", "exa", "tavily"],
   };
 
   return { storage, logging, google, llm, web_search };

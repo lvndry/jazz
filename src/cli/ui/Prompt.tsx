@@ -6,8 +6,13 @@ import { LineInput } from "./LineInput";
 import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
 import type { PromptState } from "./types";
 
+/**
+ * Prompt displays user input prompts with a minimal header design.
+ * Uses spacing and color instead of box borders for copy-friendly terminal output.
+ */
 export function Prompt({ prompt }: { prompt: PromptState }): React.ReactElement {
   const [value, setValue] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
     // React can batch `setPrompt(null)` + `setPrompt(nextPrompt)`, so this component
@@ -19,11 +24,43 @@ export function Prompt({ prompt }: { prompt: PromptState }): React.ReactElement 
         : "";
 
     setValue(defaultValue);
+    setValidationError(null);
   }, [prompt]);
 
   function handleSubmit(val: string): void {
+    // Check if validation function exists
+    const validate = prompt.options?.["validate"];
+    if (
+      validate !== undefined &&
+      validate !== null &&
+      typeof validate === "function"
+    ) {
+      // Type guard: validate is a function that takes string and returns boolean | string
+      const validationFn = validate as (input: string) => boolean | string;
+      const result = validationFn(val);
+
+      // Validation failed
+      if (result !== true) {
+        // Display error message (result is either false or a string error message)
+        const errorMessage = typeof result === "string" ? result : "Invalid input";
+        setValidationError(errorMessage);
+        // Don't resolve - keep the prompt active so user can fix the input
+        return;
+      }
+    }
+
+    // Validation passed or no validation function
     setValue("");
+    setValidationError(null);
     prompt.resolve(val);
+  }
+
+  function handleChange(newValue: string): void {
+    setValue(newValue);
+    // Clear validation error when user starts typing
+    if (validationError) {
+      setValidationError(null);
+    }
   }
 
   function handleSelect(item: { value: unknown }): void {
@@ -31,36 +68,53 @@ export function Prompt({ prompt }: { prompt: PromptState }): React.ReactElement 
   }
 
   return (
-    <Box
-      flexDirection="column"
-      marginTop={1}
-      borderStyle="round"
-      borderColor="green"
-      padding={1}
-    >
-      <Text bold>{prompt.message}</Text>
-      <Box marginTop={1}>
+    <Box flexDirection="column" marginTop={1} paddingX={1}>
+      {/* Prompt message with indicator */}
+      <Box>
+        <Text color="green">?</Text>
+        <Text> </Text>
+        <Text bold>{prompt.message}</Text>
+      </Box>
+
+      {/* Input area */}
+      <Box marginTop={1} paddingLeft={1} flexDirection="column">
         {prompt.type === "text" && (
-          <Box>
-            <Text color="green">{">"} </Text>
-            <LineInput
-              value={value}
-              onChange={setValue}
-              onSubmit={handleSubmit}
-              showCursor
-            />
-          </Box>
+          <>
+            <Box>
+              <Text color="green">{">"} </Text>
+              <LineInput
+                value={value}
+                onChange={handleChange}
+                onSubmit={handleSubmit}
+                showCursor
+              />
+            </Box>
+            {/* Validation error message */}
+            {validationError && (
+              <Box marginTop={1} paddingLeft={2}>
+                <Text color="red">✗ {validationError}</Text>
+              </Box>
+            )}
+          </>
         )}
         {prompt.type === "password" && (
-          <Box>
-            <Text color="green">{">"} </Text>
-            <LineInput
-              value={value}
-              onChange={setValue}
-              onSubmit={handleSubmit}
-              mask="*"
-            />
-          </Box>
+          <>
+            <Box>
+              <Text color="green">{">"} </Text>
+              <LineInput
+                value={value}
+                onChange={handleChange}
+                onSubmit={handleSubmit}
+                mask="*"
+              />
+            </Box>
+            {/* Validation error message */}
+            {validationError && (
+              <Box marginTop={1} paddingLeft={2}>
+                <Text color="red">✗ {validationError}</Text>
+              </Box>
+            )}
+          </>
         )}
         {prompt.type === "select" && (
           <SelectInput

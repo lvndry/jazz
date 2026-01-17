@@ -17,6 +17,10 @@ interface AgentDetailsItem {
   };
 }
 
+/**
+ * AgentDetailsCard displays agent information with a minimal header design.
+ * Uses spacing and subtle separators instead of box borders for copy-friendly terminal output.
+ */
 export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): React.ReactElement {
   const { stdout } = useStdout();
   const [columns, setColumns] = React.useState<number>(() => stdout.columns ?? 80);
@@ -42,19 +46,22 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
   const tools = agent.config.tools ?? [];
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      paddingX={1}
-      width={width}
-    >
+    <Box flexDirection="column" paddingX={1} width={width}>
+      {/* Header */}
       <Box justifyContent="space-between">
-        <Text bold>Agent: {agent.name}</Text>
+        <Text bold color="cyan">
+          Agent: {agent.name}
+        </Text>
         <Text dimColor>jazz agent chat &lt;id|name&gt;</Text>
       </Box>
 
-      <Box marginTop={1} flexDirection="column">
+      {/* Header separator */}
+      <Box>
+        <Text dimColor>{"─".repeat(Math.min(60, width - 2))}</Text>
+      </Box>
+
+      {/* Basic info */}
+      <Box marginTop={1} flexDirection="column" paddingLeft={1}>
         <KeyValue label="ID" value={agent.id} innerWidth={inner} />
         <KeyValue label="Model" value={model} innerWidth={inner} />
         <KeyValue label="Created" value={formatIsoShort(agent.createdAt)} innerWidth={inner} />
@@ -67,9 +74,12 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
         />
       </Box>
 
-      <Box marginTop={1} borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
-        <Text bold>Configuration</Text>
-        <Box marginTop={1} flexDirection="column">
+      {/* Configuration section */}
+      <Box marginTop={1} flexDirection="column">
+        <Text bold color="gray">
+          Configuration
+        </Text>
+        <Box flexDirection="column" paddingLeft={1}>
           <KeyValue label="Agent type" value={agent.config.agentType ?? "default"} innerWidth={inner - 2} />
           <KeyValue label="Provider" value={agent.config.llmProvider} innerWidth={inner - 2} />
           <KeyValue label="Model" value={agent.config.llmModel} innerWidth={inner - 2} />
@@ -81,12 +91,15 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
         </Box>
       </Box>
 
-      <Box marginTop={1} borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+      {/* Tools section */}
+      <Box marginTop={1} flexDirection="column">
         <Box justifyContent="space-between">
-          <Text bold>Tools</Text>
+          <Text bold color="gray">
+            Tools
+          </Text>
           <Text dimColor>{tools.length}</Text>
         </Box>
-        <Box marginTop={1}>
+        <Box paddingLeft={1}>
           {tools.length === 0 ? (
             <Text dimColor>none configured</Text>
           ) : (
@@ -94,6 +107,9 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
           )}
         </Box>
       </Box>
+
+      {/* Bottom spacing */}
+      <Box marginTop={1} />
     </Box>
   );
 }

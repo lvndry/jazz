@@ -1,6 +1,6 @@
 import { Box } from "ink";
 import type { Dispatch, SetStateAction } from "react";
-import { createContext, useEffect, useState } from "react";
+import { createContext, useRef, useState } from "react";
 import { Header } from "./Header";
 import { LiveResponse } from "./LiveResponse";
 import { LogList } from "./LogList";
@@ -42,12 +42,17 @@ export function App(): React.ReactElement {
   const [status, setStatus] = useState<string | null>(null);
   const [stream, setStream] = useState<LiveStreamState | null>(null);
 
-  useEffect(() => {
+  // Use a ref to track initialization and ensure store functions are set synchronously
+  // during render, preventing race conditions where store methods are called before
+  // initialization completes (e.g., between render() returning and useEffect running)
+  const initializedRef = useRef(false);
+  if (!initializedRef.current) {
     store.addLog = (entry) => setLogs((prev) => [...prev, entry]);
     store.setPrompt = (prompt) => setPrompt(prompt);
     store.setStatus = (status) => setStatus(status);
     store.setStream = (stream) => setStream(stream);
-  }, []);
+    initializedRef.current = true;
+  }
 
   return (
     <AppContext.Provider
