@@ -68,17 +68,64 @@ function wrapIndentedLine(line: string, width: number): string[] {
   if (line.length <= width) return [line];
   const indentMatch = line.match(/^(\s*)/);
   const indent = indentMatch?.[1] ?? "";
-  const available = Math.max(8, width);
+
+  // Calculate available width for content after accounting for indent
+  // Ensure we have at least 1 character of content space to prevent infinite loops
+  const contentWidth = width - indent.length;
+
+  // If indent is too large relative to width, we can't wrap properly
+  // Return as-is to avoid infinite loop (user will need wider terminal)
+  if (contentWidth <= 0) {
+    return [line];
+  }
 
   const chunks: string[] = [];
   let rest = line;
+  let isFirstChunk = true;
+  let previousRestLength = rest.length;
 
   // First chunk keeps original indentation; subsequent chunks keep the same indentation.
-  while (rest.length > available) {
-    chunks.push(rest.slice(0, available));
-    rest = indent + rest.slice(available);
+  while (true) {
+    // Check if we need to wrap
+    const needsWrap = isFirstChunk
+      ? rest.length > width
+      : (indent.length + rest.length) > width;
+
+    if (!needsWrap) {
+      break;
+    }
+
+    if (isFirstChunk) {
+      // First chunk: take full width (includes original indent)
+      chunks.push(rest.slice(0, width));
+      rest = rest.slice(width);
+      isFirstChunk = false;
+    } else {
+      // Subsequent chunks: prepend indent, then take content that fits within width
+      const takeChars = Math.max(1, Math.min(contentWidth, rest.length));
+      chunks.push(indent + rest.slice(0, takeChars));
+      rest = rest.slice(takeChars);
+
+      // Safety check: if we're not making progress, break to prevent infinite loop
+      if (rest.length >= previousRestLength) {
+        // Force add remaining content and break
+        if (rest.length > 0) {
+          chunks.push(indent + rest);
+        }
+        return chunks;
+      }
+      previousRestLength = rest.length;
+    }
   }
-  chunks.push(rest);
+
+  // Add remaining content with proper indentation
+  if (rest.length > 0) {
+    if (isFirstChunk) {
+      chunks.push(rest);
+    } else {
+      chunks.push(indent + rest);
+    }
+  }
+
   return chunks;
 }
-

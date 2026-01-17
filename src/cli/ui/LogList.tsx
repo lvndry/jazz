@@ -52,7 +52,7 @@ function getIcon(type: LogEntry["type"]): React.ReactElement {
     case "debug":
       return <Text dimColor>🐛</Text>;
     case "log":
-      return <Text>•</Text>;
+      return <></>;
   }
 }
 

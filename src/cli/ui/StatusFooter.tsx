@@ -1,7 +1,8 @@
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
+import React from "react";
 
-export default function StatusFooter({
+function StatusFooter({
   status,
   workingDirectory,
 }: {
@@ -37,3 +38,5 @@ export default function StatusFooter({
     </Box>
   );
 }
+
+export default React.memo(StatusFooter);

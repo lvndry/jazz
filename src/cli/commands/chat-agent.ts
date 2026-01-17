@@ -47,7 +47,7 @@ export function chatWithAIAgentCommand(
     );
 
     const terminal = yield* TerminalServiceTag;
-    yield* terminal.heading(`🤖 Starting chat with AI agent: ${agent.name} (${agent.config.reasoningEffort ?? "No reasoning" })`);
+    yield* terminal.heading(`🤖 Starting chat with AI agent: ${agent.name} (reasoning: ${agent.config.reasoningEffort ?? "disabled" })`);
     if (agent.description) {
       yield* terminal.log(`   Description: ${agent.description}`);
     }

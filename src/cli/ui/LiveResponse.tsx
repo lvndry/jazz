@@ -7,7 +7,11 @@ import type { LiveStreamState } from "./types";
  * LiveResponse displays the streaming response with a minimal header design.
  * Uses spacing and color instead of box borders for copy-friendly terminal output.
  */
-export function LiveResponse({ stream }: { stream: LiveStreamState }): React.ReactElement {
+export const LiveResponse = React.memo(function LiveResponse({
+  stream,
+}: {
+  stream: LiveStreamState;
+}): React.ReactElement {
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>
       {/* Minimal header with spinner */}
@@ -42,4 +46,4 @@ export function LiveResponse({ stream }: { stream: LiveStreamState }): React.Rea
     )}
     </Box>
   );
-}
+});

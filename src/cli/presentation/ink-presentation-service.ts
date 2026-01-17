@@ -28,6 +28,8 @@ class InkStreamingRenderer implements StreamingRenderer {
   private liveText: string = "";
   private reasoningBuffer: string = "";
   private lastAgentHeaderWritten: boolean = false;
+  private lastFormattedText: string = "";
+  private lastFormattedReasoning: string = "";
 
   constructor(
     private readonly agentName: string,
@@ -40,6 +42,8 @@ class InkStreamingRenderer implements StreamingRenderer {
       this.liveText = "";
       this.reasoningBuffer = "";
       this.lastAgentHeaderWritten = false;
+      this.lastFormattedText = "";
+      this.lastFormattedReasoning = "";
       store.setStatus(null);
       store.setStream(null);
     });
@@ -88,6 +92,7 @@ class InkStreamingRenderer implements StreamingRenderer {
           }
           this.logReasoning();
           this.reasoningBuffer = "";
+          this.lastFormattedReasoning = "";
           this.updateLiveStream(false);
           return;
         }
@@ -220,6 +225,8 @@ class InkStreamingRenderer implements StreamingRenderer {
           store.setStatus(null);
           store.setStream(null);
           this.liveText = "";
+          this.lastFormattedText = "";
+          this.lastFormattedReasoning = "";
           return;
         }
       }
@@ -238,12 +245,22 @@ class InkStreamingRenderer implements StreamingRenderer {
     const shouldShowReasoning = includeReasoning && this.reasoningBuffer.trim().length > 0;
     const formattedReasoning = shouldShowReasoning
       ? formatMarkdownAnsi(this.reasoningBuffer)
-      : undefined;
-    store.setStream({
-      agentName: this.agentName,
-      text: formattedText,
-      reasoning: formattedReasoning ?? "",
-    });
+      : "";
+
+    // Only update if the formatted content actually changed
+    // This prevents unnecessary re-renders that cause blinking
+    if (
+      formattedText !== this.lastFormattedText ||
+      formattedReasoning !== this.lastFormattedReasoning
+    ) {
+      this.lastFormattedText = formattedText;
+      this.lastFormattedReasoning = formattedReasoning;
+      store.setStream({
+        agentName: this.agentName,
+        text: formattedText,
+        reasoning: formattedReasoning,
+      });
+    }
   }
 
   private logReasoning(): void {
