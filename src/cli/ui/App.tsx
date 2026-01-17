@@ -39,6 +39,7 @@ export const store = {
   setStatus: (_status: string | null): void => { },
   setStream: (_stream: LiveStreamState | null): void => { },
   setWorkingDirectory: (_workingDirectory: string | null): void => { },
+  clearLogs: (): void => { },
 };
 
 export function App(): React.ReactElement {
@@ -74,6 +75,7 @@ export function App(): React.ReactElement {
     store.setStatus = (status) => setStatus(status);
     store.setStream = (stream) => setStream(stream);
     store.setWorkingDirectory = (workingDirectory) => setWorkingDirectory(workingDirectory);
+    store.clearLogs = () => setLogs([]);
     initializedRef.current = true;
   }
 

@@ -78,6 +78,13 @@ export class InkTerminalService implements TerminalService {
     });
   }
 
+  clear(): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      console.clear();
+      store.clearLogs();
+    });
+  }
+
   // Interactive Methods
 
   ask(

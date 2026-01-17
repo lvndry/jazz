@@ -73,6 +73,11 @@ export interface TerminalService {
   readonly list: (items: string[]) => Effect.Effect<void, never>;
 
   /**
+   * Clear the terminal screen
+   */
+  readonly clear: () => Effect.Effect<void, never>;
+
+  /**
    * Prompt the user for text input
    */
   readonly ask: (
