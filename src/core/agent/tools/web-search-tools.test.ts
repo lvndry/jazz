@@ -5,18 +5,6 @@ import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import { createWebSearchTool } from "./web-search-tools";
 
-// Mock the linkup-sdk
-const mockLinkupClient = mock();
-const mockSearch = mock();
-
-// Mock the LinkupClient constructor and search method
-mockLinkupClient.mockImplementation(() => ({
-  search: mockSearch,
-}));
-
-// Replace the LinkupClient import
-(globalThis as unknown as { LinkupClient: unknown }).LinkupClient = mockLinkupClient;
-
 // Mock exa-js
 const mockExaSearch = mock();
 mock.module("exa-js", () => {
@@ -32,7 +20,7 @@ describe("WebSearchTool", () => {
     storage: { type: "file", path: "./.jazz" },
     logging: { level: "info", format: "pretty", output: "console" },
     web_search: {
-      priority_order: ["parallel", "exa", "linkup"],
+      priority_order: ["parallel", "exa"],
     },
   };
 
@@ -67,7 +55,8 @@ describe("WebSearchTool", () => {
     const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
     expect(schema._def.shape).toHaveProperty("query");
     expect(schema._def.shape).toHaveProperty("depth");
-    expect(schema._def.shape).toHaveProperty("includeImages");
+    expect(schema._def.shape).toHaveProperty("fromDate");
+    expect(schema._def.shape).toHaveProperty("toDate");
   });
 
   it("should validate arguments correctly", async () => {
@@ -77,7 +66,6 @@ describe("WebSearchTool", () => {
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
       getOrElse: vi.fn().mockImplementation((key) => {
-        if (key === "web_search.linkup.api_key") return Effect.succeed("");
         if (key === "web_search.exa.api_key") return Effect.succeed("");
         if (key === "web_search.parallel.api_key") return Effect.succeed("");
         return Effect.succeed("default");
@@ -120,19 +108,18 @@ describe("WebSearchTool", () => {
     expect(invalidResult).toBeDefined();
   });
 
-  it("should fallback to Exa when Linkup is unavailable", async () => {
+  it("should fallback to Exa when Parallel is unavailable", async () => {
     const tool = createWebSearchTool();
 
-    // Mock config service: Linkup missing, Exa present
+    // Mock config service: Parallel missing, Exa present
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
       getOrElse: vi.fn().mockImplementation((key) => {
-        if (key === "web_search.linkup.api_key") return Effect.succeed("");
         if (key === "web_search.exa.api_key") return Effect.succeed("exa-key");
         if (key === "web_search.parallel.api_key") return Effect.succeed("");
         return Effect.succeed("default");
       }),
-      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("Linkup API key not found"))),
+      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("Parallel API key not found"))),
       has: vi.fn().mockReturnValue(Effect.succeed(false)),
       set: vi.fn().mockReturnValue(Effect.succeed(undefined)),
       appConfig: Effect.succeed(mockAppConfig),
@@ -201,12 +188,12 @@ describe("WebSearchTool", () => {
       result: {
         totalResults: 5,
         query: "test search",
-        provider: "linkup",
+        provider: "exa",
       },
     };
 
     const summary = tool.createSummary?.(mockResult);
-    expect(summary).toBe('Found 5 results for "test search" using linkup');
+    expect(summary).toBe('Found 5 results for "test search" using exa');
   });
 
   it("should handle web search fallback summary", () => {

@@ -1,9 +1,180 @@
+import chalk from "chalk";
 import { Effect } from "effect";
+import React from "react";
 import { getAgentByIdentifier, listAllAgents } from "../../core/agent/agent-service";
 import { AgentServiceTag, type AgentService } from "../../core/interfaces/agent-service";
 import { CLIOptionsTag, type CLIOptions } from "../../core/interfaces/cli-options";
-import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
+import { ink, TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import { StorageError, StorageNotFoundError } from "../../core/types/errors";
+import { AgentDetailsCard } from "../ui/AgentDetailsCard";
+import { AgentsList } from "../ui/AgentsList";
+
+function getTerminalWidth(): number {
+  try {
+    return process.stdout.columns || 80;
+  } catch {
+    return 80;
+  }
+}
+
+function truncateMiddle(text: string, max: number): string {
+  if (max <= 0) return "";
+  if (text.length <= max) return text;
+  if (max <= 1) return "…";
+  if (max <= 10) return text.slice(0, max - 1) + "…";
+  const keep = max - 1;
+  const left = Math.ceil(keep * 0.6);
+  const right = keep - left;
+  return text.slice(0, left) + "…" + text.slice(text.length - right);
+}
+
+function formatIsoShort(d: Date): string {
+  // 2026-01-16 13:05
+  const iso = d.toISOString();
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
+}
+
+/**
+ * Strip ANSI escape codes from a string to get its visual width.
+ * ANSI escape sequences follow patterns like: \x1b[...m, \u001b[...m, or \033[...m
+ * Handles CSI (Control Sequence Introducer) sequences used by chalk and other terminal libraries.
+ */
+function stripAnsiCodes(text: string): string {
+  // Match ANSI escape sequences:
+  // - ESC[ (CSI) followed by parameters (numbers, semicolons) and ending with a letter (typically 'm')
+  // - Chalk uses \u001b (Unicode ESC character) for escape sequences
+  // - Matches sequences ending with any letter (m for colors, H for cursor position, etc.)
+  // This regex matches the most common format: ESC[ followed by parameters and a command letter
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
+}
+
+/**
+ * Get the visual width of a string, ignoring ANSI escape codes.
+ */
+function getVisualWidth(text: string): number {
+  return stripAnsiCodes(text).length;
+}
+
+/**
+ * Pad text to the right to a specific visual width, accounting for ANSI escape codes.
+ * This ensures table alignment works correctly even when text contains chalk styling.
+ */
+function padRight(text: string, width: number): string {
+  const visualWidth = getVisualWidth(text);
+  if (visualWidth >= width) return text;
+  return text + " ".repeat(width - visualWidth);
+}
+
+function formatAgentsListBlock(
+  agents: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly description?: string | undefined;
+    readonly createdAt: Date;
+    readonly updatedAt: Date;
+    readonly config: {
+      readonly llmProvider: string;
+      readonly llmModel: string;
+      readonly reasoningEffort?: string | undefined;
+      readonly agentType?: string | undefined;
+      readonly tools?: readonly string[] | undefined;
+    };
+  }[],
+  options: { readonly verbose: boolean },
+): string {
+  const width = Math.max(60, Math.min(getTerminalWidth(), 120));
+
+  const title = `Agents (${agents.length})`;
+  const innerWidth = width - 2;
+  const header = `┌${"─".repeat(innerWidth)}┐`;
+  const footer = `└${"─".repeat(innerWidth)}┘`;
+
+  const lines: string[] = [];
+  lines.push(chalk.dim(header));
+
+  const titleLine = ` ${chalk.bold(title)} ${chalk.dim(
+    "— use `jazz agent get <id|name>` or `jazz agent chat <id|name>`",
+  )}`;
+  lines.push(chalk.dim("│") + padRight(titleLine, innerWidth) + chalk.dim("│"));
+  lines.push(chalk.dim(`├${"─".repeat(innerWidth)}┤`));
+
+  // Columns (keep conservative so we don't rely on perfect ANSI width measurement)
+  const idxW = 3; // "12 "
+  const nameW = Math.max(16, Math.min(28, Math.floor(innerWidth * 0.28)));
+  const modelW = Math.max(18, Math.min(30, Math.floor(innerWidth * 0.25)));
+  const typeW = Math.max(10, Math.min(14, Math.floor(innerWidth * 0.12)));
+  const updatedW = 16; // "YYYY-MM-DD HH:mm"
+  const gap = 2;
+
+  const fixed =
+    idxW + gap + nameW + gap + modelW + gap + typeW + gap + updatedW + gap; // last gap for padding
+  const descW = Math.max(10, innerWidth - fixed);
+
+  const colHeader =
+    padRight("#", idxW) +
+    " ".repeat(gap) +
+    padRight("Name", nameW) +
+    " ".repeat(gap) +
+    padRight("Model", modelW) +
+    " ".repeat(gap) +
+    padRight("Type", typeW) +
+    " ".repeat(gap) +
+    padRight("Updated", updatedW) +
+    " ".repeat(gap) +
+    padRight("Description", descW);
+  lines.push(chalk.dim("│") + " " + chalk.dim(truncateMiddle(colHeader, innerWidth - 1)) + chalk.dim("│"));
+  lines.push(chalk.dim(`├${"─".repeat(innerWidth)}┤`));
+
+  for (const [index, agent] of agents.entries()) {
+    const idx = String(index + 1);
+    const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
+    const agentType = agent.config.agentType ?? "default";
+    const updated = formatIsoShort(agent.updatedAt);
+
+    const row =
+      padRight(idx, idxW) +
+      " ".repeat(gap) +
+      padRight(truncateMiddle(agent.name, nameW), nameW) +
+      " ".repeat(gap) +
+      padRight(truncateMiddle(model, modelW), modelW) +
+      " ".repeat(gap) +
+      padRight(truncateMiddle(agentType, typeW), typeW) +
+      " ".repeat(gap) +
+      padRight(truncateMiddle(updated, updatedW), updatedW) +
+      " ".repeat(gap) +
+      padRight(truncateMiddle(agent.description ?? "", descW), descW);
+
+    lines.push(chalk.dim("│") + " " + chalk.white(truncateMiddle(row, innerWidth - 1)) + chalk.dim("│"));
+
+    const metaParts: string[] = [];
+    metaParts.push(`${chalk.dim("id")} ${chalk.dim(truncateMiddle(agent.id, 28))}`);
+    if (agent.config.reasoningEffort) {
+      metaParts.push(`${chalk.dim("reasoning")} ${chalk.dim(String(agent.config.reasoningEffort))}`);
+    }
+    metaParts.push(`${chalk.dim("created")} ${chalk.dim(formatIsoShort(agent.createdAt))}`);
+
+    const meta = metaParts.join(chalk.dim("  ·  "));
+    lines.push(chalk.dim("│") + " " + padRight(meta, innerWidth - 1) + chalk.dim("│"));
+
+    if (options.verbose) {
+      const tools = agent.config.tools ?? [];
+      const toolsLine =
+        tools.length > 0
+          ? `${chalk.dim("tools")} ${chalk.dim(`${tools.length}`)} ${chalk.dim("—")} ${chalk.dim(
+              truncateMiddle(tools.join(", "), innerWidth - 20),
+            )}`
+          : `${chalk.dim("tools")} ${chalk.dim("none configured")}`;
+      lines.push(chalk.dim("│") + " " + padRight(toolsLine, innerWidth - 1) + chalk.dim("│"));
+    }
+
+    lines.push(chalk.dim(`├${"─".repeat(innerWidth)}┤`));
+  }
+
+  // Replace last separator with footer for cleaner look
+  lines[lines.length - 1] = chalk.dim(footer);
+  return lines.join("\n");
+}
 
 /**
  * CLI commands for agent management
@@ -43,37 +214,21 @@ export function listAgentsCommand(): Effect.Effect<
       return;
     }
 
-    yield* terminal.log(`Found ${agents.length} agent(s):`);
-    yield* terminal.log("");
-
-    for (const [index, agent] of agents.entries()) {
-      yield* terminal.log(`${index + 1}. ${agent.name} (${agent.id})`);
-      yield* terminal.log(`   Description: ${agent.description}`);
-
-      // Always show LLM provider and model
-      const llmProvider = agent.config.llmProvider;
-      const llmModel = agent.config.llmModel;
-      yield* terminal.log(`   Model: ${llmProvider}/${llmModel}`);
-      yield* terminal.log(`   Reasoning: ${agent.config.reasoningEffort}`);
-      yield* terminal.log(`   Agent Type: ${agent.config.agentType}`);
-
-      yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
-      yield* terminal.log(`   Updated: ${agent.updatedAt.toISOString()}`);
-
-      // Show verbose details if requested
-      if (cliOptions.verbose) {
-        yield* terminal.log(`   Agent Type: ${agent.config.agentType}`);
-
-        const toolNames = agent.config.tools ?? [];
-        if (toolNames.length > 0) {
-          yield* terminal.log(`   Tools (${toolNames.length}):`);
-          yield* terminal.log(`     ${toolNames.join(", ")}`);
-        } else {
-          yield* terminal.log(`   Tools: None configured`);
-        }
-      }
-
-      yield* terminal.log("");
+    // Prefer a responsive Ink component (reflows on terminal resize).
+    // Fall back to a plain string block when not in a TTY.
+    if (process.stdout.isTTY) {
+      yield* terminal.log(
+        {
+          _tag: "ink",
+          node: React.createElement(AgentsList, {
+            agents,
+            verbose: cliOptions.verbose === true,
+          }),
+        },
+      );
+    } else {
+      const block = formatAgentsListBlock(agents, { verbose: cliOptions.verbose === true });
+      yield* terminal.log(block);
     }
   });
 }
@@ -142,29 +297,119 @@ export function getAgentCommand(
     const agent = yield* getAgentByIdentifier(agentIdentifier);
     const terminal = yield* TerminalServiceTag;
 
-    yield* terminal.log(`📋 Agent Details:`);
-    yield* terminal.log(`   ID: ${agent.id}`);
-    yield* terminal.log(`   Name: ${agent.name}`);
-    yield* terminal.log(`   Description: ${agent.description}`);
-    yield* terminal.log(`   Model: ${agent.model}`);
-    yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
-    yield* terminal.log(`   Updated: ${agent.updatedAt.toISOString()}`);
-    yield* terminal.log("");
-
-    yield* terminal.log(`⚙️  Configuration:`);
-    yield* terminal.log(`   Agent Type: ${agent.config.agentType || "default"}`);
-    yield* terminal.log(`   LLM Provider: ${agent.config.llmProvider}`);
-    yield* terminal.log(`   LLM Model: ${agent.config.llmModel}`);
-    yield* terminal.log(`   Reasoning Effort: ${agent.config.reasoningEffort || "low"}`);
-
-    const toolNames = agent.config.tools ?? [];
-    if (toolNames.length > 0) {
-      yield* terminal.log(`   Tools (${toolNames.length}):`);
-      yield* terminal.log(`     ${toolNames.join(", ")}`);
-    } else {
-      yield* terminal.log(`   Tools: None configured`);
+    // In TTY mode, render a structured Ink card (single log entry, no noisy bullets).
+    if (process.stdout.isTTY) {
+      yield* terminal.log(
+        ink(
+          React.createElement(AgentDetailsCard, {
+            agent: {
+              id: agent.id,
+              name: agent.name,
+              description: agent.description,
+              model: agent.model,
+              createdAt: agent.createdAt,
+              updatedAt: agent.updatedAt,
+              config: {
+                agentType: agent.config.agentType,
+                llmProvider: agent.config.llmProvider,
+                llmModel: agent.config.llmModel,
+                reasoningEffort: agent.config.reasoningEffort,
+                tools: agent.config.tools ?? [],
+              },
+            },
+          }),
+        ),
+      );
+      return;
     }
 
-    yield* terminal.log("");
+    // Non-TTY: write a readable plain-text block (good for piping).
+    yield* terminal.log(formatAgentDetailsBlock(agent));
   });
+}
+
+function formatAgentDetailsBlock(agent: {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string | undefined;
+  readonly model?: string | undefined;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+  readonly config: {
+    readonly agentType?: string | undefined;
+    readonly llmProvider: string;
+    readonly llmModel: string;
+    readonly reasoningEffort?: string | undefined;
+    readonly tools?: readonly string[] | undefined;
+  };
+}): string {
+  const width = Math.max(60, Math.min(getTerminalWidth(), 120));
+  const innerWidth = width - 2;
+
+  const header = `┌${"─".repeat(innerWidth)}┐`;
+  const footer = `└${"─".repeat(innerWidth)}┘`;
+  const sep = `├${"─".repeat(innerWidth)}┤`;
+
+  const model =
+    agent.model?.trim().length ? agent.model : `${agent.config.llmProvider}/${agent.config.llmModel}`;
+  const tools = agent.config.tools ?? [];
+
+  const lines: string[] = [];
+  lines.push(chalk.dim(header));
+  lines.push(
+    chalk.dim("│") +
+      padRight(` ${chalk.bold(`Agent: ${agent.name}`)} ${chalk.dim("— jazz agent chat <id|name>")}`, innerWidth) +
+      chalk.dim("│"),
+  );
+  lines.push(chalk.dim(sep));
+
+  const kv = (k: string, v: string) =>
+    chalk.dim("│") + padRight(` ${chalk.dim(k)} ${v}`, innerWidth) + chalk.dim("│");
+
+  lines.push(kv("ID:", agent.id));
+  lines.push(kv("Model:", model));
+  lines.push(kv("Created:", agent.createdAt.toISOString()));
+  lines.push(kv("Updated:", agent.updatedAt.toISOString()));
+  lines.push(kv("Description:", agent.description?.trim().length ? agent.description : "—"));
+
+  lines.push(chalk.dim(sep));
+  lines.push(kv("Agent type:", agent.config.agentType ?? "default"));
+  lines.push(kv("Provider:", agent.config.llmProvider));
+  lines.push(kv("LLM model:", agent.config.llmModel));
+  lines.push(kv("Reasoning:", agent.config.reasoningEffort ? String(agent.config.reasoningEffort) : "—"));
+
+  lines.push(chalk.dim(sep));
+  lines.push(
+    chalk.dim("│") +
+      padRight(` ${chalk.bold(`Tools (${tools.length})`)}${tools.length ? ":" : " — none configured"}`, innerWidth) +
+      chalk.dim("│"),
+  );
+
+  if (tools.length > 0) {
+    const wrapped = wrapCommaList(tools, Math.max(20, innerWidth - 4));
+    for (const line of wrapped) {
+      lines.push(chalk.dim("│") + padRight(`   ${line}`, innerWidth) + chalk.dim("│"));
+    }
+  }
+
+  lines.push(chalk.dim(footer));
+  return lines.join("\n");
+}
+
+function wrapCommaList(items: readonly string[], width: number): string[] {
+  const parts = items.slice();
+  const lines: string[] = [];
+  let current = "";
+
+  for (const p of parts) {
+    const next = current.length === 0 ? p : `${current}, ${p}`;
+    if (next.length <= width) {
+      current = next;
+      continue;
+    }
+    if (current.length > 0) lines.push(current);
+    current = p;
+  }
+  if (current.length > 0) lines.push(current);
+  return lines;
 }

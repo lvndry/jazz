@@ -90,8 +90,9 @@ class CLIPresentationService implements PresentationService {
   formatToolsDetected(
     agentName: string,
     toolNames: readonly string[],
+    toolsRequiringApproval: readonly string[],
   ): Effect.Effect<string, never> {
-    return this.getRenderer().formatToolsDetected(agentName, toolNames);
+    return this.getRenderer().formatToolsDetected(agentName, toolNames, toolsRequiringApproval);
   }
 
   createStreamingRenderer(

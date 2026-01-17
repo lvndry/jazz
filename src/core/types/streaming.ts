@@ -56,7 +56,12 @@ export type StreamEvent =
 
   // Tool calls
   | { type: "tool_call"; toolCall: ToolCall; sequence: number }
-  | { type: "tools_detected"; toolNames: readonly string[]; agentName: string }
+  | {
+      type: "tools_detected";
+      toolNames: readonly string[];
+      toolsRequiringApproval: readonly string[];
+      agentName: string;
+    }
   | {
       type: "tool_execution_start";
       toolName: string;

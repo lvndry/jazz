@@ -11,9 +11,12 @@ import type { ModelInfo } from "../types";
  */
 export const STATIC_PROVIDER_MODELS = {
   openai: [
+    { id: "gpt-5.2-pro", displayName: "GPT-5.2 Pro", isReasoningModel: true },
     { id: "gpt-5.2", displayName: "GPT-5.2", isReasoningModel: true },
+    { id: "gpt-5.2-codex", displayName: "GPT-5.2 Codex", isReasoningModel: true },
     { id: "gpt-5.1", displayName: "GPT-5.1", isReasoningModel: true },
     { id: "gpt-5.1-codex", displayName: "GPT-5.1 Codex", isReasoningModel: true },
+    { id: "gpt-5.1-codex-mini", displayName: "GPT-5.1 Codex Mini", isReasoningModel: true },
     { id: "gpt-5-pro", displayName: "GPT-5 Pro", isReasoningModel: true },
     { id: "gpt-5", displayName: "GPT-5", isReasoningModel: true },
     { id: "gpt-5-mini", displayName: "GPT-5 Mini", isReasoningModel: true },
@@ -32,10 +35,10 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "claude-opus-4-1", displayName: "Claude Opus 4.1", isReasoningModel: true },
   ],
   google: [
-    { id: "gemini-3-pro-preview", displayName: "Gemini 3 Pro (Preview)", isReasoningModel: true },
+    { id: "gemini-3-pro-preview", displayName: "Gemini 3 Pro", isReasoningModel: true },
     {
       id: "gemini-3-flash-preview",
-      displayName: "Gemini 3 Flash (Preview)",
+      displayName: "Gemini 3 Flash",
       isReasoningModel: true,
     },
     { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", isReasoningModel: true },

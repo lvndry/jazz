@@ -265,13 +265,25 @@ export class CLIRenderer {
     );
   }
 
-  private renderToolsDetected(event: { toolNames: readonly string[]; agentName: string }): string {
+  private renderToolsDetected(event: {
+    toolNames: readonly string[];
+    toolsRequiringApproval: readonly string[];
+    agentName: string;
+  }): string {
     const { colors, icons } = this.theme;
-    const tools = event.toolNames.join(", ");
+    const approvalSet = new Set(event.toolsRequiringApproval);
+    const formattedTools = event.toolNames
+      .map((name) => {
+        if (approvalSet.has(name)) {
+          return `${name} ${colors.dim("(requires approval)")}`;
+        }
+        return name;
+      })
+      .join(", ");
     return (
       "\n" +
       colors.warning(`${icons.tool} ${event.agentName} is using tools: `) +
-      colors.toolName(tools) +
+      colors.toolName(formattedTools) +
       "\n"
     );
   }
@@ -841,10 +853,19 @@ export class CLIRenderer {
   formatToolsDetected(
     agentName: string,
     toolNames: readonly string[],
+    toolsRequiringApproval: readonly string[],
   ): Effect.Effect<string, never> {
     return Effect.sync(() => {
-      const tools = toolNames.join(", ");
-      return `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${chalk.cyan(tools)}\n`;
+      const approvalSet = new Set(toolsRequiringApproval);
+      const formattedTools = toolNames
+        .map((name) => {
+          if (approvalSet.has(name)) {
+            return `${name} ${chalk.dim("(requires approval)")}`;
+          }
+          return name;
+        })
+        .join(", ");
+      return `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${chalk.cyan(formattedTools)}\n`;
     });
   }
 

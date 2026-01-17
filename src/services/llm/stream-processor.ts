@@ -216,6 +216,24 @@ export class StreamProcessor {
             break;
           }
 
+          case "reasoning-start": {
+            // Handle reasoning start event (emitted before reasoning-delta chunks)
+            if (!this.config.hasReasoningEnabled) {
+              break;
+            }
+
+            // Emit thinking start on reasoning-start event
+            if (this.state.reasoningSequence === 0) {
+              const firstReasoningLatency = Date.now() - this.config.startTime;
+              void this.logger.debug(
+                `[LLM Timing] 🧠 REASONING START arrived after ${firstReasoningLatency}ms`,
+              );
+              void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+              this.recordFirstToken("reasoning");
+            }
+            break;
+          }
+
           case "reasoning-delta": {
             if (!this.config.hasReasoningEnabled) {
               break;
@@ -224,7 +242,7 @@ export class StreamProcessor {
             const textDelta = part.text;
 
             if (textDelta && textDelta.length > 0) {
-              // Emit thinking start if this is the first reasoning chunk
+              // Emit thinking start if we haven't received reasoning-start event
               if (this.state.reasoningSequence === 0) {
                 const firstReasoningLatency = Date.now() - this.config.startTime;
                 void this.logger.debug(

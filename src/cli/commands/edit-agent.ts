@@ -164,7 +164,7 @@ export function editAgentCommand(
  */
 async function promptForAgentUpdates(
   currentAgent: Agent,
-  providers: readonly { name: ProviderName; configured: boolean }[],
+  providers: readonly { name: ProviderName; displayName?: string; configured: boolean }[],
   agentTypes: readonly string[],
   toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
   terminal: TerminalService,
@@ -174,27 +174,31 @@ async function promptForAgentUpdates(
 ): Promise<AgentEditAnswers> {
   const answers: AgentEditAnswers = {};
 
-  // Ask what to update
-  const fieldsToUpdate = await Effect.runPromise(
-    terminal.checkbox<string>("What would you like to update?", {
-      choices: [
-        { name: "Name", value: "name" },
-        { name: "Description", value: "description" },
-        { name: "Agent Type", value: "agentType" },
-        { name: "LLM Provider", value: "llmProvider" },
-        { name: "LLM Model", value: "llmModel" },
-        { name: "Tools", value: "tools" },
-      ],
+  const currentModelIsReasoning = await isCurrentReasoningModel(
+    currentAgent,
+    llmService,
+    currentProviderInfo,
+  );
+  const fieldChoices: { name: string; value: string }[] = [
+    { name: "Name", value: "name" },
+    { name: "Description", value: "description" },
+    { name: "Agent Type", value: "agentType" },
+    { name: "LLM Provider", value: "llmProvider" },
+    { name: "LLM Model", value: "llmModel" },
+    { name: "Tools", value: "tools" },
+  ];
+  if (currentModelIsReasoning) {
+    fieldChoices.push({ name: "Reasoning Effort", value: "reasoningEffort" });
+  }
+
+  const fieldToUpdate = await Effect.runPromise(
+    terminal.select<string>("What would you like to update?", {
+      choices: fieldChoices,
     }),
   );
 
-  if (fieldsToUpdate.length === 0) {
-    terminal.warn("No fields selected for update. Exiting...");
-    return answers;
-  }
-
   // Update name
-  if (fieldsToUpdate.includes("name")) {
+  if (fieldToUpdate === "name") {
     const name = await Effect.runPromise(
       terminal.ask("Enter new agent name:", {
         defaultValue: currentAgent.name,
@@ -213,7 +217,7 @@ async function promptForAgentUpdates(
   }
 
   // Update description
-  if (fieldsToUpdate.includes("description")) {
+  if (fieldToUpdate === "description") {
     const description = await Effect.runPromise(
       terminal.ask("Enter new agent description:", {
         defaultValue: currentAgent.description || "",
@@ -232,7 +236,7 @@ async function promptForAgentUpdates(
   }
 
   // Update agent type
-  if (fieldsToUpdate.includes("agentType")) {
+  if (fieldToUpdate === "agentType") {
     const agentType = await Effect.runPromise(
       terminal.select<string>("Select agent type:", {
         choices: agentTypes.map((type) => ({ name: type, value: type })),
@@ -245,17 +249,19 @@ async function promptForAgentUpdates(
   }
 
   // Update LLM provider
-  if (fieldsToUpdate.includes("llmProvider")) {
+  if (fieldToUpdate === "llmProvider") {
     const llmProvider = await Effect.runPromise(
       terminal.search<ProviderName>("Select LLM provider:", {
         choices: providers.map((provider) => ({
-          name: provider.name,
+          name: provider.displayName ?? provider.name,
           value: provider.name,
         })),
       }),
     );
 
     answers.llmProvider = llmProvider;
+    const providerDisplayName =
+      providers.find((p) => p.name === llmProvider)?.displayName ?? llmProvider;
 
     // Check if API key exists for the selected provider
     const apiKeyPath = `llm.${llmProvider}.api_key`;
@@ -266,13 +272,13 @@ async function promptForAgentUpdates(
       await Effect.runPromise(
         Effect.gen(function* () {
           yield* terminal.log("");
-          yield* terminal.warn(`API key not set in config file for ${llmProvider}.`);
+          yield* terminal.warn(`API key not set in config file for ${providerDisplayName}.`);
           yield* terminal.log("Please paste your API key below:");
         }),
       );
 
       const apiKey = await Effect.runPromise(
-        terminal.ask(`${llmProvider} API Key:`, {
+        terminal.ask(`${providerDisplayName} API Key:`, {
           validate: (inputValue: string): boolean | string => {
             if (!inputValue || inputValue.trim().length === 0) {
               return "API key cannot be empty";
@@ -302,7 +308,7 @@ async function promptForAgentUpdates(
     );
 
     const llmModel = await Effect.runPromise(
-      terminal.search<string>(`Select model for ${llmProvider}:`, {
+      terminal.search<string>(`Select model for ${providerDisplayName}:`, {
         choices: providerInfo.supportedModels.map((model) => ({
           name: model.displayName || model.id,
           value: model.id,
@@ -317,29 +323,12 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      const reasoningEffort = await Effect.runPromise(
-        terminal.select<"disable" | "low" | "medium" | "high">(
-          "What reasoning effort level would you like?",
-          {
-            choices: [
-              { name: "Low - Faster responses, basic reasoning", value: "low" },
-              {
-                name: "Medium - Balanced speed and reasoning depth (recommended)",
-                value: "medium",
-              },
-              { name: "High - Deep reasoning, slower responses", value: "high" },
-              { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-            ],
-            default: currentAgent.config.reasoningEffort || "medium",
-          },
-        ),
-      );
-      answers.reasoningEffort = reasoningEffort;
+      answers.reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
     }
   }
 
   // Update LLM model (only if provider wasn't already updated)
-  if (fieldsToUpdate.includes("llmModel") && !answers.llmProvider) {
+  if (fieldToUpdate === "llmModel" && !answers.llmProvider) {
     // Use current provider to get available models
     const providerToUse = currentAgent.config.llmProvider;
     const providerInfo =
@@ -365,29 +354,12 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      const reasoningEffort = await Effect.runPromise(
-        terminal.select<"disable" | "low" | "medium" | "high">(
-          "What reasoning effort level would you like?",
-          {
-            choices: [
-              { name: "Low - Faster responses, basic reasoning", value: "low" },
-              {
-                name: "Medium - Balanced speed and reasoning depth (recommended)",
-                value: "medium",
-              },
-              { name: "High - Deep reasoning, slower responses", value: "high" },
-              { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-            ],
-            default: currentAgent.config.reasoningEffort || "medium",
-          },
-        ),
-      );
-      answers.reasoningEffort = reasoningEffort;
+      answers.reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
     }
   }
 
   // Update tools
-  if (fieldsToUpdate.includes("tools")) {
+  if (fieldToUpdate === "tools") {
     // Get current agent's tool names
     const currentToolNames = normalizeToolConfig(currentAgent.config.tools, {
       agentId: currentAgent.id,
@@ -420,5 +392,57 @@ async function promptForAgentUpdates(
     answers.tools = [...toolCategories];
   }
 
+  if (fieldToUpdate === "reasoningEffort") {
+    answers.reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
+  }
+
   return answers;
+}
+
+async function isCurrentReasoningModel(
+  currentAgent: Agent,
+  llmService: LLMService,
+  currentProviderInfo: LLMProvider | null,
+): Promise<boolean> {
+  if (!currentAgent.config.llmProvider || !currentAgent.config.llmModel) {
+    return false;
+  }
+
+  let providerInfo = currentProviderInfo;
+  if (!providerInfo) {
+    try {
+      providerInfo = await Effect.runPromise(llmService.getProvider(currentAgent.config.llmProvider));
+    } catch {
+      return false;
+    }
+  }
+
+  const currentModelInfo = providerInfo.supportedModels.find(
+    (model) => model.id === currentAgent.config.llmModel,
+  );
+
+  return currentModelInfo?.isReasoningModel ?? false;
+}
+
+async function promptForReasoningEffort(
+  terminal: TerminalService,
+  currentAgent: Agent,
+): Promise<"disable" | "low" | "medium" | "high"> {
+  return Effect.runPromise(
+    terminal.select<"disable" | "low" | "medium" | "high">(
+      "What reasoning effort level would you like?",
+      {
+        choices: [
+          { name: "Low - Faster responses, basic reasoning", value: "low" },
+          {
+            name: "Medium - Balanced speed and reasoning depth (recommended)",
+            value: "medium",
+          },
+          { name: "High - Deep reasoning, slower responses", value: "high" },
+          { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+        ],
+        default: currentAgent.config.reasoningEffort || "medium",
+      },
+    ),
+  );
 }

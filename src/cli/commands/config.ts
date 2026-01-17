@@ -2,10 +2,12 @@ import { Effect } from "effect";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "../../core/constants/models";
 import { ConfigurationValidationError } from "../../core/types/errors";
 
+import React from "react";
 import { WEB_SEARCH_PROVIDERS } from "../../core/agent/tools/web-search-tools";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
-import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
+import { ink, TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import type { LoggingConfig } from "../../core/types/config";
+import { ConfigCard } from "../ui/ConfigCard";
 
 /**
  * CLI commands for configuration management
@@ -23,8 +25,23 @@ export function listConfigCommand(): Effect.Effect<
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
     const config = yield* configService.appConfig;
-    yield* terminal.heading("Current Configuration");
-    yield* terminal.log(JSON.stringify(config, null, 2));
+
+    const json = JSON.stringify(config, null, 2);
+
+    if (process.stdout.isTTY) {
+      yield* terminal.log(
+        ink(
+          React.createElement(ConfigCard, {
+            title: "Current configuration",
+            note: "Showing full values (including secrets).",
+            json,
+          }),
+        ),
+      );
+      return;
+    }
+
+    yield* terminal.log(`Current configuration\n\n${json}`);
   });
 }
 

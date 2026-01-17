@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { type AgentConfigService } from "../../interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import {
@@ -211,7 +211,20 @@ export class ToolExecutor {
     return Effect.gen(function* () {
       const presentationService = yield* PresentationServiceTag;
       const logger = yield* LoggerServiceTag;
+      const registry = yield* ToolRegistryTag;
       const toolNames = toolCalls.map((tc) => tc.function.name);
+
+      // Fetch tool information to determine which require approval
+      const toolsRequiringApproval: string[] = [];
+      for (const toolName of toolNames) {
+        const toolResult = yield* Effect.either(registry.getTool(toolName));
+        if (Either.isRight(toolResult)) {
+          const tool = toolResult.right;
+          if (tool.approvalExecuteToolName) {
+            toolsRequiringApproval.push(toolName);
+          }
+        }
+      }
 
       // Show tools detected
       if (displayConfig.showToolExecution) {
@@ -219,10 +232,15 @@ export class ToolExecutor {
           yield* renderer.handleEvent({
             type: "tools_detected",
             toolNames,
+            toolsRequiringApproval,
             agentName,
           });
         } else {
-          const message = yield* presentationService.formatToolsDetected(agentName, toolNames);
+          const message = yield* presentationService.formatToolsDetected(
+            agentName,
+            toolNames,
+            toolsRequiringApproval,
+          );
           yield* presentationService.writeOutput(message);
         }
       }
