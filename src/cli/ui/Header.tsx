@@ -25,7 +25,7 @@ export function Header() {
         >
           <Text color="cyan">v{packageJson.version}</Text>
           <Text> | </Text>
-          <Text dimColor>Agentic AI Coding Assistant</Text>
+          <Text dimColor>Your AI agent that actually does things</Text>
         </Box>
       </Box>
     </Box>

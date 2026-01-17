@@ -1,138 +1,214 @@
 import { Text, useInput } from "ink";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 
-function clamp(n: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, n));
+/**
+ * Text input component with readline-style shortcuts.
+ * Based on ink-text-input with added word-level operations.
+ */
+
+/** Find the start of the previous word */
+function findPrevWordBoundary(value: string, cursor: number): number {
+  if (cursor === 0) return 0;
+  let i = cursor;
+  while (i > 0 && value[i - 1] === " ") i--;
+  while (i > 0 && value[i - 1] !== " ") i--;
+  return i;
 }
 
-function deletePreviousWordAtCursor(value: string, cursor: number): { next: string; cursor: number } {
-  if (value.length === 0 || cursor === 0) return { next: value, cursor };
-
+/** Find the end of the next word */
+function findNextWordBoundary(value: string, cursor: number): number {
+  if (cursor >= value.length) return value.length;
   let i = cursor;
+  while (i < value.length && value[i] !== " ") i++;
+  while (i < value.length && value[i] === " ") i++;
+  return i;
+}
 
-  // 1) Remove trailing spaces before the cursor.
-  while (i > 0 && value[i - 1] === " ") i -= 1;
-  // 2) Remove the word.
-  while (i > 0 && value[i - 1] !== " ") i -= 1;
-
-  return { next: value.slice(0, i) + value.slice(cursor), cursor: i };
+interface LineInputProps {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (value: string) => void;
+  mask?: string;
+  placeholder?: string;
+  showCursor?: boolean;
+  focus?: boolean;
 }
 
 export function LineInput({
-  value,
+  value: originalValue,
   onChange,
   onSubmit,
   mask,
-  resetKey,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-  onSubmit: (val: string) => void;
-  mask?: string;
-  resetKey?: string | number;
-}): React.ReactElement {
-  const [cursor, setCursor] = useState<number>(value.length);
-  const lastValueRef = useRef<string>(value);
+  placeholder = "",
+  showCursor = true,
+  focus = true,
+}: LineInputProps): React.ReactElement {
+  const [cursorOffset, setCursorOffset] = useState(originalValue.length);
 
-  // Keep cursor in bounds when parent updates value (but don't force it to end).
+  // Keep cursor in bounds when value changes externally
   useEffect(() => {
-    if (value !== lastValueRef.current) {
-      lastValueRef.current = value;
-      setCursor((c) => clamp(c, 0, value.length));
+    setCursorOffset((prev) => {
+      if (prev > originalValue.length) {
+        return originalValue.length;
+      }
+      return prev;
+    });
+  }, [originalValue]);
+
+  useInput(
+    (input, key) => {
+      // Ignore certain keys
+      if (
+        key.upArrow ||
+        key.downArrow ||
+        (key.ctrl && input === "c") ||
+        key.tab
+      ) {
+        return;
+      }
+
+      // Submit
+      if (key.return) {
+        onSubmit(originalValue);
+        return;
+      }
+
+      let nextCursorOffset = cursorOffset;
+      let nextValue = originalValue;
+
+      // --- Word-level operations (Option/Alt = meta) ---
+
+      // Option+Left: jump word left
+      if (key.meta && key.leftArrow) {
+        nextCursorOffset = findPrevWordBoundary(originalValue, cursorOffset);
+      }
+      // Option+Right: jump word right
+      else if (key.meta && key.rightArrow) {
+        nextCursorOffset = findNextWordBoundary(originalValue, cursorOffset);
+      }
+      // Option+Backspace or Ctrl+W: delete word backward
+      else if ((key.meta && key.backspace) || (key.ctrl && input === "w")) {
+        const boundary = findPrevWordBoundary(originalValue, cursorOffset);
+        nextValue = originalValue.slice(0, boundary) + originalValue.slice(cursorOffset);
+        nextCursorOffset = boundary;
+      }
+      // Option+Delete: delete word forward
+      else if (key.meta && key.delete) {
+        const boundary = findNextWordBoundary(originalValue, cursorOffset);
+        nextValue = originalValue.slice(0, cursorOffset) + originalValue.slice(boundary);
+      }
+      // --- Readline shortcuts ---
+      // Ctrl+A: beginning of line
+      else if (key.ctrl && input === "a") {
+        nextCursorOffset = 0;
+      }
+      // Ctrl+E: end of line
+      else if (key.ctrl && input === "e") {
+        nextCursorOffset = originalValue.length;
+      }
+      // Ctrl+U: kill line backward
+      else if (key.ctrl && input === "u") {
+        nextValue = originalValue.slice(cursorOffset);
+        nextCursorOffset = 0;
+      }
+      // Ctrl+K: kill line forward
+      else if (key.ctrl && input === "k") {
+        nextValue = originalValue.slice(0, cursorOffset);
+      }
+      // Ctrl+D: delete char forward
+      else if (key.ctrl && input === "d") {
+        if (cursorOffset < originalValue.length) {
+          nextValue = originalValue.slice(0, cursorOffset) + originalValue.slice(cursorOffset + 1);
+        }
+      }
+      // --- Basic navigation ---
+      else if (key.leftArrow) {
+        if (showCursor) {
+          nextCursorOffset--;
+        }
+      }
+      else if (key.rightArrow) {
+        if (showCursor) {
+          nextCursorOffset++;
+        }
+      }
+      // --- Deletion ---
+      else if (key.backspace || key.delete) {
+        if (cursorOffset > 0) {
+          nextValue =
+            originalValue.slice(0, cursorOffset - 1) +
+            originalValue.slice(cursorOffset);
+          nextCursorOffset--;
+        }
+      }
+      // --- Regular input ---
+      else if (!key.ctrl && !key.meta) {
+        nextValue =
+          originalValue.slice(0, cursorOffset) +
+          input +
+          originalValue.slice(cursorOffset);
+        nextCursorOffset += input.length;
+      }
+
+      // Clamp cursor
+      if (nextCursorOffset < 0) {
+        nextCursorOffset = 0;
+      }
+      if (nextCursorOffset > nextValue.length) {
+        nextCursorOffset = nextValue.length;
+      }
+
+      setCursorOffset(nextCursorOffset);
+
+      if (nextValue !== originalValue) {
+        onChange(nextValue);
+      }
+    },
+    { isActive: focus }
+  );
+
+  // Render
+  const value = mask ? mask.repeat(originalValue.length) : originalValue;
+
+  let renderedValue = value;
+  let renderedPlaceholder: React.ReactNode = placeholder ? (
+    <Text dimColor>{placeholder}</Text>
+  ) : null;
+
+  if (showCursor && focus) {
+    // Placeholder with cursor
+    if (placeholder.length > 0) {
+      renderedPlaceholder = (
+        <Text>
+          <Text inverse>{placeholder[0]}</Text>
+          <Text dimColor>{placeholder.slice(1)}</Text>
+        </Text>
+      );
+    } else {
+      renderedPlaceholder = <Text inverse> </Text>;
     }
-  }, [value]);
 
-  // When prompt changes, put cursor at end (native-feeling).
-  useEffect(() => {
-    if (resetKey !== undefined) {
-      setCursor(value.length);
+    // Value with cursor
+    if (value.length > 0) {
+      const before = value.slice(0, cursorOffset);
+      const cursorChar = cursorOffset < value.length ? value[cursorOffset] : " ";
+      const after = cursorOffset < value.length ? value.slice(cursorOffset + 1) : "";
+
+      renderedValue = (
+        <>
+          {before}
+          <Text inverse>{cursorChar}</Text>
+          {after}
+        </>
+      ) as unknown as string;
+    } else {
+      renderedValue = (<Text inverse> </Text>) as unknown as string;
     }
-  }, [resetKey, value.length]);
+  }
 
-  useInput((input, key) => {
-    if (key.return) {
-      onSubmit(value);
-      return;
-    }
-
-    if (key.leftArrow) {
-      setCursor((c) => clamp(c - 1, 0, value.length));
-      return;
-    }
-
-    if (key.rightArrow) {
-      setCursor((c) => clamp(c + 1, 0, value.length));
-      return;
-    }
-
-    // Readline-ish cursor movement.
-    if (key.ctrl && input === "a") {
-      setCursor(0);
-      return;
-    }
-    if (key.ctrl && input === "e") {
-      setCursor(value.length);
-      return;
-    }
-
-    // Terminal reality check:
-    // - Cmd is usually not transmitted to terminal apps, so we can't reliably detect it.
-    // - Option (Alt) comes through as `meta` in Ink. We support meta+backspace to delete word.
-    if ((key.meta && key.backspace) || (key.ctrl && input === "w")) {
-      const { next, cursor: nextCursor } = deletePreviousWordAtCursor(value, cursor);
-      onChange(next);
-      setCursor(nextCursor);
-      return;
-    }
-
-    // Ctrl+U clears the whole line (common readline behavior).
-    if (key.ctrl && input === "u") {
-      onChange("");
-      setCursor(0);
-      return;
-    }
-
-    if (key.backspace) {
-      if (cursor === 0) return;
-      const next = value.slice(0, cursor - 1) + value.slice(cursor);
-      onChange(next);
-      setCursor((c) => clamp(c - 1, 0, next.length));
-      return;
-    }
-
-    if (key.delete) {
-      if (cursor >= value.length) return;
-      const next = value.slice(0, cursor) + value.slice(cursor + 1);
-      onChange(next);
-      return;
-    }
-
-    // Ignore other control keys.
-    if (key.ctrl || key.meta) return;
-
-    if (input.length > 0) {
-      const next = value.slice(0, cursor) + input + value.slice(cursor);
-      onChange(next);
-      setCursor((c) => clamp(c + input.length, 0, next.length));
-    }
-  });
-
-  const rendered = useMemo((): { before: string; at: string; after: string } => {
-    const displayed = mask ? mask.repeat(value.length) : value;
-    const c = clamp(cursor, 0, displayed.length);
-    const before = displayed.slice(0, c);
-    const at = c < displayed.length ? displayed.charAt(c) : " ";
-    const after = c < displayed.length ? displayed.slice(c + 1) : "";
-    return { before, at, after };
-  }, [mask, value]);
-
-  // Render a visible cursor at the current position.
   return (
     <Text>
-      {rendered.before}
-      <Text inverse>{rendered.at}</Text>
-      {rendered.after}
+      {value.length > 0 ? renderedValue : (placeholder ? renderedPlaceholder : renderedValue)}
     </Text>
   );
 }
-

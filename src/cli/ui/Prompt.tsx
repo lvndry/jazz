@@ -47,7 +47,7 @@ export function Prompt({ prompt }: { prompt: PromptState }): React.ReactElement 
               value={value}
               onChange={setValue}
               onSubmit={handleSubmit}
-              resetKey={prompt.message}
+              showCursor
             />
           </Box>
         )}
@@ -59,7 +59,6 @@ export function Prompt({ prompt }: { prompt: PromptState }): React.ReactElement 
               onChange={setValue}
               onSubmit={handleSubmit}
               mask="*"
-              resetKey={prompt.message}
             />
           </Box>
         )}
