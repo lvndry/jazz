@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import SelectInput from "ink-select-input";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { LineInput } from "./LineInput";
 import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
@@ -10,9 +10,15 @@ import type { PromptState } from "./types";
  * Prompt displays user input prompts with a minimal header design.
  * Uses spacing and color instead of box borders for copy-friendly terminal output.
  */
-export function Prompt({ prompt }: { prompt: PromptState }): React.ReactElement {
+function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactElement {
   const [value, setValue] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Use refs to avoid recreating callbacks on every render
+  const promptRef = useRef(prompt);
+  const validationErrorRef = useRef(validationError);
+  promptRef.current = prompt;
+  validationErrorRef.current = validationError;
 
   useEffect(() => {
     // React can batch `setPrompt(null)` + `setPrompt(nextPrompt)`, so this component
@@ -27,9 +33,11 @@ export function Prompt({ prompt }: { prompt: PromptState }): React.ReactElement 
     setValidationError(null);
   }, [prompt]);
 
-  function handleSubmit(val: string): void {
+  // Stable callback - doesn't change between renders
+  const handleSubmit = useCallback((val: string): void => {
+    const currentPrompt = promptRef.current;
     // Check if validation function exists
-    const validate = prompt.options?.["validate"];
+    const validate = currentPrompt.options?.["validate"];
     if (
       validate !== undefined &&
       validate !== null &&
@@ -52,20 +60,22 @@ export function Prompt({ prompt }: { prompt: PromptState }): React.ReactElement 
     // Validation passed or no validation function
     setValue("");
     setValidationError(null);
-    prompt.resolve(val);
-  }
+    currentPrompt.resolve(val);
+  }, []);
 
-  function handleChange(newValue: string): void {
+  // Stable callback - doesn't change between renders
+  const handleChange = useCallback((newValue: string): void => {
     setValue(newValue);
     // Clear validation error when user starts typing
-    if (validationError) {
+    if (validationErrorRef.current) {
       setValidationError(null);
     }
-  }
+  }, []);
 
-  function handleSelect(item: { value: unknown }): void {
-    prompt.resolve(item.value);
-  }
+  // Stable callback - doesn't change between renders
+  const handleSelect = useCallback((item: { value: unknown; }): void => {
+    promptRef.current.resolve(item.value);
+  }, []);
 
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>
@@ -144,3 +154,6 @@ export function Prompt({ prompt }: { prompt: PromptState }): React.ReactElement 
     </Box>
   );
 }
+
+// Export memoized version to prevent unnecessary re-renders
+export const Prompt = React.memo(PromptComponent);

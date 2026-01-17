@@ -1,9 +1,10 @@
 import { Effect } from "effect";
 import * as os from "os";
-import type { ChatMessage } from "../types/message";
+import type { ChatMessage, ConversationMessages } from "../types/message";
 import { CODER_PROMPT_V1 } from "./prompts/coder/v1";
 import { DEFAULT_PROMPT_V2 } from "./prompts/default/v2";
 import { GMAIL_PROMPT_V2 } from "./prompts/gmail/v2";
+import { SUMMARIZER_PROMPT_V1 } from "./prompts/summarizer/v1";
 
 export interface AgentPromptTemplate {
   readonly name: string;
@@ -43,6 +44,13 @@ export class AgentPromptBuilder {
         description:
           "An expert software engineer and architect specialized in code analysis, debugging, and implementation with deep context awareness.",
         systemPrompt: CODER_PROMPT_V1,
+        userPromptTemplate: "{userInput}",
+      },
+      summarizer: {
+        name: "Summarizer Agent",
+        description:
+          "An agent specialized in compressing conversation history while maintaining semantic fidelity.",
+        systemPrompt: SUMMARIZER_PROMPT_V1,
         userPromptTemplate: "{userInput}",
       },
     };
@@ -138,13 +146,13 @@ export class AgentPromptBuilder {
   buildAgentMessages(
     templateName: string,
     options: AgentPromptOptions,
-  ): Effect.Effect<ChatMessage[], Error> {
+  ): Effect.Effect<ConversationMessages, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
         const systemPrompt = yield* this.buildSystemPrompt(templateName, options);
         const userPrompt = yield* this.buildUserPrompt(templateName, options);
 
-        const messages: ChatMessage[] = [{ role: "system", content: systemPrompt }];
+        const messages: ConversationMessages = [{ role: "system", content: systemPrompt }];
 
         // Add conversation history if available
         if (options.conversationHistory && options.conversationHistory.length > 0) {
@@ -170,13 +178,6 @@ export class AgentPromptBuilder {
               messages.push({ role: "user", content: options.userInput });
             }
           }
-        }
-
-        // Final safety check: ensure we never return an empty messages array
-        if (messages.length === 0) {
-          throw new Error(
-            `Cannot create empty messages array - at least system message should be present. Template: ${templateName}, userInput: "${options.userInput}", userPrompt: "${userPrompt}"`,
-          );
         }
 
         return messages;

@@ -152,16 +152,28 @@ export function createListEmailsTool(): Tool<GmailService> {
           typeof validatedArgs.maxResults === "number" ? validatedArgs.maxResults : 10;
         const query = typeof validatedArgs.query === "string" ? validatedArgs.query : "";
 
-        try {
-          const emails = yield* gmailService.listEmails(maxResults, query);
-          return { success: true, result: formatEmailsForDisplay(emails) };
-        } catch (error) {
-          return {
-            success: false,
-            result: null,
-            error: `Failed to list emails: ${error instanceof Error ? error.message : String(error)}`,
-          };
-        }
+        const result = yield* gmailService.listEmails(maxResults, query).pipe(
+          Effect.map((emails) => ({
+            success: true as const,
+            result: formatEmailsForDisplay(emails),
+          })),
+          Effect.catchAll((error) => {
+            // Handle authentication errors with a clearer message
+            if (error._tag === "GmailAuthenticationError") {
+              return Effect.succeed({
+                success: false as const,
+                result: null,
+                error: `Authentication failed: ${error.message}. Please run 'bun run cli auth google login' to re-authenticate.`,
+              });
+            }
+            return Effect.succeed({
+              success: false as const,
+              result: null,
+              error: `Failed to list emails: ${error.message || String(error)}`,
+            });
+          }),
+        );
+        return result;
       }),
   });
 }
@@ -226,8 +238,28 @@ export function createSearchEmailsTool(): Tool<GmailService> {
         const gmailService = yield* GmailServiceTag;
         const maxResults =
           typeof validatedArgs.maxResults === "number" ? validatedArgs.maxResults : 10;
-        const emails = yield* gmailService.searchEmails(validatedArgs.query, maxResults);
-        return { success: true, result: formatEmailsForDisplay(emails) };
+        const result = yield* gmailService.searchEmails(validatedArgs.query, maxResults).pipe(
+          Effect.map((emails) => ({
+            success: true as const,
+            result: formatEmailsForDisplay(emails),
+          })),
+          Effect.catchAll((error) => {
+            // Handle authentication errors with a clearer message
+            if (error._tag === "GmailAuthenticationError") {
+              return Effect.succeed({
+                success: false as const,
+                result: null,
+                error: `Authentication failed: ${error.message}. Please run 'bun run cli auth google login' to re-authenticate.`,
+              });
+            }
+            return Effect.succeed({
+              success: false as const,
+              result: null,
+              error: `Failed to search emails: ${error.message || String(error)}`,
+            });
+          }),
+        );
+        return result;
       }),
   });
 }

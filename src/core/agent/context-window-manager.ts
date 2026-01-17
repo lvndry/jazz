@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import type { LoggerService } from "../interfaces/logger";
-import type { ChatMessage } from "../types/message";
+import type { ChatMessage, ConversationMessages } from "../types/message";
 
 /**
  * Configuration for context window management
@@ -64,28 +64,32 @@ export class ContextWindowManager {
   }
 
   /**
-   * Trim message history in-place to fit within context window limits.
+   * Trim message history to fit within context window limits.
+   * Returns a new array of messages and the trim metadata.
    * Preserves system message and ensures tool call/result pairing.
    */
   trim(
-    messages: ChatMessage[],
+    messages: ConversationMessages,
     logger: LoggerService,
     agentId: string,
     conversationId: string,
-  ): Effect.Effect<TrimResult | void, never, LoggerService | AgentConfigService> {
+  ): Effect.Effect<
+    { messages: ConversationMessages; result: TrimResult | undefined },
+    never,
+    LoggerService | AgentConfigService
+  > {
     const currentTokens = this.config.maxTokens ? this.calculateTotalTokens(messages) : 0;
     const needsTokenTrim =
       this.config.maxTokens !== undefined && currentTokens > this.config.maxTokens;
     const needsMessageTrim = messages.length > this.config.maxMessages;
 
     if (!needsMessageTrim && !needsTokenTrim) {
-      return Effect.void;
+      return Effect.succeed({ messages, result: undefined });
     }
 
     const originalLength = messages.length;
 
     // Step 1: Build tool call ID map
-    // Map tool_call_id -> index of assistant message that created it
     const toolCallToAssistant = new Map<string, number>();
 
     for (let i = 0; i < messages.length; i++) {
@@ -97,15 +101,8 @@ export class ContextWindowManager {
       }
     }
 
-    // Step 2: Determine valid trimming candidates (keeping system msg)
-    // We trim from the BEGINNING (after system), keeping recent messages.
-    // So we need to find the split point where remaining messages fit limits.
-
-    // Always keep index 0 (system)
-    const systemTokens = messages[0] ? this.estimateTokens(messages[0]) : 0;
-
-    let keptIndices: number[] = [];
-    if (messages.length > 0) keptIndices.push(0);
+    // Step 2: Determine valid trimming candidates (keeping system msg at index 0)
+    const systemTokens = this.estimateTokens(messages[0]);
 
     // Scan backwards from end to collect messages until limit reached
     const recentIndices: number[] = [];
@@ -114,7 +111,7 @@ export class ContextWindowManager {
 
     for (let i = messages.length - 1; i >= 1; i--) {
       const msg = messages[i];
-      if (!msg) continue; // Should not happen
+      if (!msg) continue;
 
       const tokens = this.estimateTokens(msg);
 
@@ -124,11 +121,6 @@ export class ContextWindowManager {
         this.config.maxTokens !== undefined && accumulatedTokens + tokens > this.config.maxTokens;
 
       if (willExceedMessages || willExceedTokens) {
-        // We cannot keep this message (and thus any older messages)
-        // But wait, if we drop this message, we must ensure we don't break tool pairs.
-        // Trimming logic usually drops oldest first.
-        // So if we stop here, we are effectively keeping [i+1 ... end] + system.
-        // We just need to validate tool integrity for the set we gathered.
         break;
       }
 
@@ -139,20 +131,10 @@ export class ContextWindowManager {
 
     // Reverse to get chronological order [oldest ... newest]
     recentIndices.reverse();
-    keptIndices = keptIndices.concat(recentIndices);
 
     // Step 3: Validate tool integrity
-    // If we kept a tool result, we must also ensure we kept its assistant call.
-    // Since we scanned from end (recent), we likely kept results first.
-    // If we kept a Result at index K, check if Call is at index J (where J < K).
-    // If J is not in keptIndices, we must Drop K.
-
-    // Refine keptIndices
-    const keptSet = new Set(keptIndices);
-    const finalIndices: number[] = [];
-
-    // Add system first
-    if (keptSet.has(0)) finalIndices.push(0);
+    const keptSet = new Set([0, ...recentIndices]);
+    const finalIndices: number[] = [0]; // Always keep system
 
     // Process recent messages
     for (const idx of recentIndices) {
@@ -161,7 +143,6 @@ export class ContextWindowManager {
 
       if (msg.role === "tool" && msg.tool_call_id) {
         const assistantIdx = toolCallToAssistant.get(msg.tool_call_id);
-        // If assistant not found or not in our kept set, we drop this tool result
         if (assistantIdx === undefined || !keptSet.has(assistantIdx)) {
           continue; // Drop orphan result
         }
@@ -170,30 +151,20 @@ export class ContextWindowManager {
     }
 
     // Step 4: Rebuild messages array
-    const keptMessages = finalIndices
-      .map((i) => messages[i])
-      .filter((msg): msg is ChatMessage => msg !== undefined);
+    const keptMessages: ChatMessage[] = finalIndices.map((i) => messages[i] as ChatMessage);
 
-    if (keptMessages.length === 0) {
-      // Should effectively never happen as we force 0, but safety check
-      if (messages.length > 0) {
-        const sysMsg = messages[0];
-        if (sysMsg) {
-          keptMessages.push(sysMsg);
-        }
-      }
-    }
+    // Structural guarantee: finalIndices always contains 0,
+    // and messages is ConversationMessages, so messages[0] exists.
+    const resultMessages: ConversationMessages = [
+      keptMessages[0],
+      ...keptMessages.slice(1),
+    ] as ConversationMessages;
 
-    // Safety check 2: if only system remains but we had more, and logic stripped everything else? valid.
-
-    messages.length = 0;
-    messages.push(...keptMessages);
-
-    const result: TrimResult = {
+    const trimResult: TrimResult = {
       originalCount: originalLength,
-      trimmedCount: messages.length,
-      messagesRemoved: originalLength - messages.length,
-      estimatedTokens: this.calculateTotalTokens(messages),
+      trimmedCount: resultMessages.length,
+      messagesRemoved: originalLength - resultMessages.length,
+      estimatedTokens: this.calculateTotalTokens(resultMessages),
     };
 
     return logger
@@ -201,11 +172,11 @@ export class ContextWindowManager {
         agentId,
         conversationId,
         limits: { maxMessages: this.config.maxMessages, maxTokens: this.config.maxTokens },
-        originalCount: result.originalCount,
-        trimmedCount: result.trimmedCount,
-        estimatedTokens: result.estimatedTokens,
+        originalCount: trimResult.originalCount,
+        trimmedCount: trimResult.trimmedCount,
+        estimatedTokens: trimResult.estimatedTokens,
       })
-      .pipe(Effect.map(() => result));
+      .pipe(Effect.map(() => ({ messages: resultMessages, result: trimResult })));
   }
 
   /**

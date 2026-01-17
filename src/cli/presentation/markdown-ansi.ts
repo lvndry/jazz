@@ -8,6 +8,28 @@ const INLINE_CODE_PLACEHOLDER_END = "\uE003";
 const TASK_LIST_MARKER = "\uE004";
 
 /**
+ * Strip ANSI escape codes from text
+ * Removes all ANSI escape sequences including colors, formatting, and cursor movements
+ */
+function stripAnsiCodes(text: string): string {
+  // Match ANSI escape sequences:
+  // ESC[ followed by parameters and ending with m
+  // ESC character (0x1B) is matched using character code to avoid linting issues
+  const ESC = String.fromCharCode(0x1b);
+  const ansiEscapeRegex = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
+  return text.replace(ansiEscapeRegex, "");
+}
+
+/**
+ * Normalize excessive blank lines
+ * Reduces multiple consecutive blank lines to at most 2 blank lines
+ */
+function normalizeBlankLines(text: string): string {
+  // Replace 3 or more consecutive blank lines with exactly 2 blank lines
+  return text.replace(/\n{3,}/g, "\n\n");
+}
+
+/**
  * Apply Markdown formatting heuristics to terminal output.
  * Supports headings (#, ##, ###), bold, italic, strikethrough, inline code, code blocks,
  * links, lists, blockquotes, horizontal rules, task lists, and escaped characters.
@@ -18,6 +40,10 @@ export function formatMarkdownAnsi(text: string): string {
   }
 
   let formatted = text;
+  // Strip ANSI codes first to prevent them from appearing in output
+  formatted = stripAnsiCodes(formatted);
+  // Normalize excessive blank lines
+  formatted = normalizeBlankLines(formatted);
   formatted = formatEscapedText(formatted);
 
   // Extract code blocks and inline code to protect them from other formatters

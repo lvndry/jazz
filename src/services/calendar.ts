@@ -50,6 +50,29 @@ export class CalendarServiceResource implements CalendarService {
         const exists = yield* this.readTokenIfExists();
         if (!exists) {
           yield* this.performOAuthFlow();
+        } else {
+          // Validate the token by attempting to refresh it
+          // If refresh fails with invalid_grant, the token is invalid and we need to re-authenticate
+          const validationResult = yield* this.validateAndRefreshToken().pipe(
+            Effect.map(() => true as const),
+            Effect.catchAll((error) => {
+              // If token refresh fails with invalid_grant, token is invalid - need to re-authenticate
+              const errorMessage = error.message || String(error);
+              if (errorMessage.includes("invalid_grant") || errorMessage.includes("Failed to refresh")) {
+                return Effect.succeed(false as const);
+              }
+              // For other errors, propagate them
+              return Effect.fail(error);
+            }),
+          );
+
+          if (!validationResult) {
+            // Token is invalid, remove it and re-authenticate
+            yield* this.fs.remove(this.tokenFilePath).pipe(
+              Effect.catchAll(() => Effect.void),
+            );
+            yield* this.performOAuthFlow();
+          }
         }
         return void 0;
       }.bind(this),
@@ -265,6 +288,8 @@ export class CalendarServiceResource implements CalendarService {
         const tokenLoaded = yield* this.readTokenIfExists();
         if (!tokenLoaded) {
           yield* this.performOAuthFlow();
+        } else {
+          yield* this.validateAndRefreshToken();
         }
         return void 0;
       }.bind(this),
@@ -296,6 +321,59 @@ export class CalendarServiceResource implements CalendarService {
           return true;
         } catch {
           return false;
+        }
+      }.bind(this),
+    );
+  }
+
+  private validateAndRefreshToken(): Effect.Effect<void, CalendarAuthenticationError> {
+    return Effect.gen(
+      function* (this: CalendarServiceResource) {
+        const credentials = this.oauthClient.credentials as GoogleOAuthToken;
+
+        // Check if access token exists
+        if (!credentials.access_token) {
+          throw new CalendarAuthenticationError({
+            message:
+              "Access token is missing. Please run 'bun run cli auth google login' to authenticate.",
+          });
+        }
+
+        // Check if token is expired (with 5 minute buffer for clock skew)
+        const now = Date.now();
+        const expiryDate = credentials.expiry_date;
+        const isExpired = expiryDate !== undefined && expiryDate <= now + 5 * 60 * 1000;
+
+        if (isExpired) {
+          // Try to refresh the token
+          if (!credentials.refresh_token) {
+            throw new CalendarAuthenticationError({
+              message:
+                "Access token expired and no refresh token available. Please run 'bun run cli auth google login' to re-authenticate.",
+            });
+          }
+
+          try {
+            // Attempt to refresh the token
+            const refreshed = yield* Effect.tryPromise({
+              try: () => this.oauthClient.refreshAccessToken(),
+              catch: (err) =>
+                new CalendarAuthenticationError({
+                  message: `Failed to refresh access token: ${err instanceof Error ? err.message : String(err)}. Please run 'bun run cli auth google login' to re-authenticate.`,
+                }),
+            });
+
+            // Update credentials with refreshed token
+            this.oauthClient.setCredentials(refreshed.credentials);
+            // Persist the refreshed token
+            yield* this.persistToken(refreshed.credentials as GoogleOAuthToken);
+          } catch {
+            // If refresh fails, throw error prompting user to re-authenticate
+            throw new CalendarAuthenticationError({
+              message:
+                "Failed to refresh access token. Please run 'bun run cli auth google login' to re-authenticate.",
+            });
+          }
         }
       }.bind(this),
     );

@@ -78,6 +78,13 @@ export class InkTerminalService implements TerminalService {
     });
   }
 
+  clear(): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      console.clear();
+      store.clearLogs();
+    });
+  }
+
   // Interactive Methods
 
   ask(
@@ -114,7 +121,7 @@ export class InkTerminalService implements TerminalService {
           const inputValue = String(val);
           store.setPrompt(null);
           store.addLog({
-            type: "log",
+            type: "user",
             message: `${message} ${inputValue}`,
             timestamp: new Date(),
           });

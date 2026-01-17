@@ -8,11 +8,11 @@ import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
 import type { PresentationService } from "../interfaces/presentation";
 import { PresentationServiceTag } from "../interfaces/presentation";
 import {
-    ToolRegistryTag,
-    type ToolRegistry,
-    type ToolRequirements,
+  ToolRegistryTag,
+  type ToolRegistry,
+  type ToolRequirements,
 } from "../interfaces/tool-registry";
-import type { StreamEvent, StreamingConfig } from "../types";
+import type { ConversationMessages, StreamEvent, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { type ChatCompletionResponse } from "../types/chat";
 import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "../types/errors";
@@ -24,13 +24,13 @@ import { agentPromptBuilder } from "./agent-prompt";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { ToolExecutor } from "./execution/tool-executor";
 import {
-    beginIteration,
-    completeIteration,
-    createAgentRunTracker,
-    finalizeAgentRun,
-    recordFirstTokenLatency,
-    recordLLMRetry,
-    recordLLMUsage,
+  beginIteration,
+  completeIteration,
+  createAgentRunTracker,
+  finalizeAgentRun,
+  recordFirstTokenLatency,
+  recordLLMRetry,
+  recordLLMUsage,
 } from "./tracking/agent-run-tracker";
 import { normalizeToolConfig } from "./utils/tool-config";
 
@@ -71,6 +71,11 @@ export interface AgentRunnerOptions {
    * Used to route logs to session-specific log files.
    */
   readonly sessionId: string;
+  /**
+   * If true, this is an internal sub-agent run (e.g., summarization).
+   * UI elements like thinking indicators will be suppressed.
+   */
+  readonly internal?: boolean;
   /**
    * Maximum number of iterations (agent reasoning loops) allowed for this run.
    * Each iteration may involve tool calls and LLM responses.
@@ -176,7 +181,7 @@ interface AgentRunContext {
   readonly context: ToolExecutionContext;
   readonly tools: ToolDefinition[];
   readonly expandedToolNames: readonly string[];
-  readonly messages: ChatMessage[];
+  readonly messages: ConversationMessages;
   readonly runTracker: ReturnType<typeof createAgentRunTracker>;
   readonly provider: ProviderName;
   readonly model: string;
@@ -242,7 +247,7 @@ function initializeAgentRun(
     }
 
     // Build messages
-    const messages = yield* agentPromptBuilder.buildAgentMessages(agentType, {
+    const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(agentType, {
       agentName: agent.name,
       agentDescription: agent.description || "",
       userInput,
@@ -274,36 +279,27 @@ function initializeAgentRun(
  * Ensure messages array is never empty
  * throws error if empty
  */
-function ensureMessagesNotEmpty(
-  messages: ChatMessage[],
-  userInput: string,
-  logger: LoggerService,
-  agentId: string,
-  conversationId: string,
-  iteration: number,
-): Effect.Effect<ChatMessage[], Error, LoggerService | AgentConfigService> {
-  if (messages.length === 0) {
-    return Effect.gen(function* () {
-      yield* logger.error("Messages array is empty - this indicates a bug", {
-        agentId,
-        conversationId,
-        iteration,
-        userInput: userInput || "<empty>",
-      });
-
-      return yield* Effect.fail(
-        new Error(
-          `Messages array is empty at iteration ${iteration}. This should never happen - ` +
-            `the system message should always be present. This indicates a bug in message building or context trimming. ` +
-            `Agent: ${agentId}, Conversation: ${conversationId}`,
-        ),
-      );
-    });
-  }
-  return Effect.succeed(messages);
-}
 
 export class AgentRunner {
+  /**
+   * Internal execution mode for sub-agents (e.g., summarizers, researchers).
+   * Does not trigger UI events like thinking indicators or incremental rendering.
+   */
+  public static runRecursive(
+    options: Omit<AgentRunnerOptions, "internal">,
+  ): Effect.Effect<
+    AgentResponse,
+    Error,
+    | LLMService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | PresentationService
+    | ToolRequirements
+  > {
+    return AgentRunner.run({ ...options, internal: true });
+  }
+
   /**
    * Run an agent conversation
    */
@@ -325,10 +321,13 @@ export class AgentRunner {
       const appConfig = yield* configService.appConfig;
 
       // Determine if streaming should be enabled
-      const streamDetection = shouldEnableStreaming(
-        appConfig,
-        options.stream !== undefined ? { stream: options.stream } : {},
-      );
+      // Force non-streaming for internal runs
+      const streamDetection = options.internal
+        ? { shouldStream: false, reason: "Internal sub-agent run" }
+        : shouldEnableStreaming(
+            appConfig,
+            options.stream !== undefined ? { stream: options.stream } : {},
+          );
 
       // Get display config with defaults
       const displayConfig: DisplayConfig = {
@@ -397,7 +396,7 @@ export class AgentRunner {
       }),
       ({ logger, runContext, finalizeFiberRef }) =>
         Effect.gen(function* () {
-          const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
+          const { agent, maxIterations = MAX_AGENT_STEPS } = options;
           const llmService = yield* LLMServiceTag;
           const presentationService = yield* PresentationServiceTag;
           const { actualConversationId, context, tools, messages, runTracker, provider, model } =
@@ -420,7 +419,7 @@ export class AgentRunner {
           });
 
           // Run agent loop
-          const currentMessages = [...messages];
+          let currentMessages: ConversationMessages = [messages[0], ...messages.slice(1)];
           let response: AgentResponse = {
             content: "",
             conversationId: actualConversationId,
@@ -432,26 +431,18 @@ export class AgentRunner {
             yield* Effect.sync(() => beginIteration(runTracker, i + 1));
             try {
               // Log thinking indicator
-              if (i === 0) {
-                yield* presentationService.presentThinking(agent.name, true);
-              } else {
-                yield* presentationService.presentThinking(agent.name, false);
+              if (!options.internal) {
+                if (i === 0) {
+                  yield* presentationService.presentThinking(agent.name, true);
+                } else {
+                  yield* presentationService.presentThinking(agent.name, false);
+                }
               }
-
-              // Ensure messages are not empty
-              const messagesToSend = yield* ensureMessagesNotEmpty(
-                currentMessages,
-                userInput,
-                logger,
-                agent.id,
-                actualConversationId,
-                i + 1,
-              );
 
               // Create streaming completion with retry and fallback
               const llmOptions = {
                 model,
-                messages: messagesToSend,
+                messages: currentMessages,
                 tools,
                 toolChoice: "auto" as const,
                 reasoning_effort: agent.config.reasoningEffort ?? "disable",
@@ -464,10 +455,10 @@ export class AgentRunner {
                 iteration: i + 1,
                 provider,
                 model,
-                messageCount: messagesToSend.length,
+                messageCount: currentMessages.length,
                 toolsAvailable: tools.length,
                 reasoningEffort: agent.config.reasoningEffort,
-                lastUserMessage: messagesToSend
+                lastUserMessage: currentMessages
                   .filter((m) => m.role === "user")
                   .slice(-1)[0]
                   ?.content?.substring(0, 500),
@@ -656,12 +647,13 @@ export class AgentRunner {
 
               currentMessages.push(assistantMessage);
 
-              yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
+              const trimUpdate = yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
                 currentMessages,
                 logger,
                 agent.id,
                 actualConversationId,
               );
+              currentMessages = trimUpdate.messages;
 
               // Handle tool calls
               if (completion.toolCalls && completion.toolCalls.length > 0) {
@@ -843,14 +835,14 @@ export class AgentRunner {
       }),
       ({ logger, runContext, finalizeFiberRef }) =>
         Effect.gen(function* () {
-          const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
+          const { agent, maxIterations = MAX_AGENT_STEPS } = options;
           const llmService = yield* LLMServiceTag;
           const presentationService = yield* PresentationServiceTag;
           const { actualConversationId, context, tools, messages, runTracker, provider, model } =
             runContext;
 
           // Run agent loop
-          const currentMessages = [...messages];
+          let currentMessages: ConversationMessages = [messages[0], ...messages.slice(1)];
           let response: AgentResponse = {
             content: "",
             conversationId: actualConversationId,
@@ -862,7 +854,7 @@ export class AgentRunner {
             yield* Effect.sync(() => beginIteration(runTracker, i + 1));
             try {
               // Log thinking indicator
-              if (displayConfig.showThinking) {
+              if (!options.internal && displayConfig.showThinking) {
                 if (i === 0) {
                   yield* presentationService.presentThinking(agent.name, true);
                 } else {
@@ -870,20 +862,10 @@ export class AgentRunner {
                 }
               }
 
-              // Ensure messages are not empty
-              const messagesToSend = yield* ensureMessagesNotEmpty(
-                currentMessages,
-                userInput,
-                logger,
-                agent.id,
-                actualConversationId,
-                i + 1,
-              );
-
               // Create non-streaming completion with retry
               const llmOptions = {
                 model,
-                messages: messagesToSend,
+                messages: currentMessages,
                 tools,
                 toolChoice: "auto" as const,
                 reasoning_effort: agent.config.reasoningEffort ?? "disable",
@@ -896,10 +878,10 @@ export class AgentRunner {
                 iteration: i + 1,
                 provider,
                 model,
-                messageCount: messagesToSend.length,
+                messageCount: currentMessages.length,
                 toolsAvailable: tools.length,
                 reasoningEffort: agent.config.reasoningEffort,
-                lastUserMessage: messagesToSend
+                lastUserMessage: currentMessages
                   .filter((m) => m.role === "user")
                   .slice(-1)[0]
                   ?.content?.substring(0, 500),
@@ -955,12 +937,13 @@ export class AgentRunner {
 
               currentMessages.push(assistantMessage);
 
-              yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
+              const trimUpdate = yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
                 currentMessages,
                 logger,
                 agent.id,
                 actualConversationId,
               );
+              currentMessages = trimUpdate.messages;
 
               // Format content - always use markdown since LLMs output markdown
               let formattedContent = completion.content;
@@ -1136,5 +1119,74 @@ export class AgentRunner {
           yield* logger.clearSessionId();
         }),
     );
+  }
+  /**
+   * Summarizes a portion of the conversation history using a specialized sub-agent.
+   * Returns a single assistant message containing the summary.
+   */
+  public static summarizeHistory(
+    messagesToSummarize: ChatMessage[],
+    agent: Agent,
+    sessionId: string,
+    conversationId: string,
+  ): Effect.Effect<
+    ChatMessage,
+    Error,
+    | LLMService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | PresentationService
+    | ToolRequirements
+  > {
+    return Effect.gen(function* () {
+      const logger = yield* LoggerServiceTag;
+
+      if (messagesToSummarize.length === 0) {
+        return { role: "assistant", content: "No history to summarize." };
+      }
+
+      yield* logger.debug("Starting background context summarization", {
+        messageCount: messagesToSummarize.length,
+        conversationId,
+      });
+
+      const historyText = messagesToSummarize
+        .map((m) => {
+          let content = m.content || "";
+          if (m.tool_calls) {
+            content += `\n[Tool Calls: ${m.tool_calls.map((tc) => tc.function.name).join(", ")}]`;
+          }
+          return `[${m.role.toUpperCase()}] ${content}`;
+        })
+        .join("\n\n---\n\n");
+
+      // Define specialized summarizer agent on the fly
+      const summarizer: Agent = {
+        id: "summarizer",
+        name: "Summarizer",
+        description: "Background context compressor",
+        model: agent.model,
+        config: {
+          ...agent.config,
+          agentType: "summarizer",
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const summaryResponse = yield* AgentRunner.runRecursive({
+        agent: summarizer,
+        userInput: historyText,
+        sessionId,
+        conversationId,
+        maxIterations: 1,
+      });
+
+      return {
+        role: "assistant",
+        content: summaryResponse.content,
+      };
+    });
   }
 }

@@ -41,6 +41,29 @@ export class GmailServiceResource implements GmailService {
         const exists = yield* this.readTokenIfExists();
         if (!exists) {
           yield* this.performOAuthFlow();
+        } else {
+          // Validate the token by attempting to refresh it
+          // If refresh fails with invalid_grant, the token is invalid and we need to re-authenticate
+          const validationResult = yield* this.validateAndRefreshToken().pipe(
+            Effect.map(() => true as const),
+            Effect.catchAll((error) => {
+              // If token refresh fails with invalid_grant, token is invalid - need to re-authenticate
+              const errorMessage = error.message || String(error);
+              if (errorMessage.includes("invalid_grant") || errorMessage.includes("Failed to refresh")) {
+                return Effect.succeed(false as const);
+              }
+              // For other errors, propagate them
+              return Effect.fail(error);
+            }),
+          );
+
+          if (!validationResult) {
+            // Token is invalid, remove it and re-authenticate
+            yield* this.fs.remove(this.tokenFilePath).pipe(
+              Effect.catchAll(() => Effect.void),
+            );
+            yield* this.performOAuthFlow();
+          }
         }
         return void 0;
       }.bind(this),
@@ -341,6 +364,8 @@ export class GmailServiceResource implements GmailService {
         const tokenLoaded = yield* this.readTokenIfExists();
         if (!tokenLoaded) {
           yield* this.performOAuthFlow();
+        } else {
+          yield* this.validateAndRefreshToken();
         }
         return void 0;
       }.bind(this),
@@ -373,6 +398,58 @@ export class GmailServiceResource implements GmailService {
           return true;
         } catch {
           return false;
+        }
+      }.bind(this),
+    );
+  }
+
+  private validateAndRefreshToken(): Effect.Effect<void, GmailAuthenticationError> {
+    return Effect.gen(
+      function* (this: GmailServiceResource) {
+        const credentials = this.oauthClient.credentials as GoogleOAuthToken;
+
+        // Check if access token exists
+        if (!credentials.access_token) {
+          throw new GmailAuthenticationError({
+            message:
+              "Access token is missing. Please run 'bun run cli auth google login' to authenticate.",
+          });
+        }
+
+        // Check if token is expired (with 5 minute buffer for clock skew)
+        const now = Date.now();
+        const expiryDate = credentials.expiry_date;
+        const isExpired = expiryDate !== undefined && expiryDate <= now + 5 * 60 * 1000;
+
+        if (isExpired) {
+          // Try to refresh the token
+          if (!credentials.refresh_token) {
+            throw new GmailAuthenticationError({
+              message:
+                "Access token expired and no refresh token available. Please run 'bun run cli auth google login' to re-authenticate.",
+            });
+          }
+
+          try {
+            // Attempt to refresh the token
+            const refreshed = yield* Effect.tryPromise({
+              try: () => this.oauthClient.refreshAccessToken(),
+              catch: (err) =>
+                new GmailAuthenticationError({
+                  message: `Failed to refresh access token: ${err instanceof Error ? err.message : String(err)}. Please run 'bun run cli auth google login' to re-authenticate.`,
+                }),
+            });
+
+            // Update credentials with refreshed token
+            this.oauthClient.setCredentials(refreshed.credentials);
+            // Persist the refreshed token
+            yield* this.persistToken(refreshed.credentials as GoogleOAuthToken);
+          } catch {
+            throw new GmailAuthenticationError({
+              message:
+                "Failed to refresh access token. Please run 'bun run cli auth google login' to re-authenticate.",
+            });
+          }
         }
       }.bind(this),
     );
@@ -593,13 +670,28 @@ export class GmailServiceResource implements GmailService {
   private wrapGmailCall<A>(
     operation: () => Promise<A>,
     failureMessage: string,
-  ): Effect.Effect<A, GmailOperationError> {
+  ): Effect.Effect<A, GmailOperationError | GmailAuthenticationError> {
     return Effect.tryPromise({
       try: operation,
       catch: (err) => {
+        const errorMessage = err instanceof Error ? err.message : String(err);
         const status = getHttpStatusFromError(err);
+
+        // Check if this is an authentication error (invalid_grant, unauthorized, etc.)
+        if (
+          errorMessage.includes("invalid_grant") ||
+          errorMessage.includes("invalid_token") ||
+          errorMessage.includes("unauthorized") ||
+          status === 401
+        ) {
+          return new GmailAuthenticationError({
+            message: `${failureMessage}: ${errorMessage}`,
+            suggestion: "Please run 'bun run cli auth google login' to re-authenticate.",
+          });
+        }
+
         return new GmailOperationError({
-          message: `${failureMessage}: ${err instanceof Error ? err.message : String(err)}`,
+          message: `${failureMessage}: ${errorMessage}`,
           ...(status !== undefined ? { status } : {}),
         });
       },
