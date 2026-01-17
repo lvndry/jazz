@@ -2,7 +2,11 @@ import { Effect, Layer } from "effect";
 import { render } from "ink";
 import React from "react";
 import App, { store } from "../cli/ui/App";
-import { TerminalServiceTag, type TerminalOutput, type TerminalService } from "../core/interfaces/terminal";
+import {
+  TerminalServiceTag,
+  type TerminalOutput,
+  type TerminalService,
+} from "../core/interfaces/terminal";
 
 /**
  * Ink-based Terminal Service Implementation
@@ -98,7 +102,9 @@ export class InkTerminalService implements TerminalService {
         ...(options
           ? {
               options: {
-                ...(options.defaultValue !== undefined ? { defaultValue: options.defaultValue } : {}),
+                ...(options.defaultValue !== undefined
+                  ? { defaultValue: options.defaultValue }
+                  : {}),
                 ...(validateFn ? { validate: validateFn } : {}),
               },
             }

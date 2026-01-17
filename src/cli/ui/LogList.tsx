@@ -2,7 +2,7 @@ import { Box, Text } from "ink";
 import React from "react";
 import type { LogEntry } from "./types";
 
-export function LogList({ logs }: { logs: LogEntry[] }): React.ReactElement {
+export function LogList({ logs }: { logs: LogEntry[]; }): React.ReactElement {
   return (
     <Box
       flexDirection="column"
