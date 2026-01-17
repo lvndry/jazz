@@ -38,6 +38,7 @@ class InkStreamingRenderer implements StreamingRenderer {
     return Effect.sync(() => {
       this.activeTools.clear();
       this.liveText = "";
+      this.reasoningBuffer = "";
       this.lastAgentHeaderWritten = false;
       store.setStatus(null);
       store.setStream(null);
@@ -113,9 +114,13 @@ class InkStreamingRenderer implements StreamingRenderer {
         case "tool_execution_start": {
           this.activeTools.set(event.toolCallId, event.toolName);
           store.setStatus(this.formatToolStatus());
+          const argsStr = CLIRenderer.formatToolArguments(event.toolName, event.arguments);
+          const message = argsStr
+            ? `⚙️  Executing tool: ${event.toolName}${argsStr}`
+            : `⚙️  Executing tool: ${event.toolName}`;
           store.addLog({
             type: "log",
-            message: `⚙️  Executing tool: ${event.toolName}`,
+            message,
             timestamp: new Date(),
           });
           return;

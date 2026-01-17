@@ -55,7 +55,8 @@ describe("WebSearchTool", () => {
     const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
     expect(schema._def.shape).toHaveProperty("query");
     expect(schema._def.shape).toHaveProperty("depth");
-    expect(schema._def.shape).toHaveProperty("includeImages");
+    expect(schema._def.shape).toHaveProperty("fromDate");
+    expect(schema._def.shape).toHaveProperty("toDate");
   });
 
   it("should validate arguments correctly", async () => {
