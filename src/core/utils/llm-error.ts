@@ -186,28 +186,62 @@ export function extractCleanErrorMessage(error: unknown): string {
     // For API errors, try to extract just the message without all the extra properties
     if (APICallError.isInstance(error)) {
       // APICallError.message usually contains the API error message
-      return error.message;
+      // Remove any " | " separators and extra details for cleaner display
+      let message = error.message;
+      // Split by " | " and take the first part (the actual error message)
+      if (message.includes(" | ")) {
+        message = message.split(" | ")[0] || message;
+      }
+      // Also handle cases where the message might have "|" without spaces
+      if (message.includes("|")) {
+        // Try to extract just the meaningful part before any pipe
+        const parts = message.split("|");
+        // If the first part looks like a complete error message, use it
+        if (parts[0] && parts[0].trim().length > 0) {
+          message = parts[0].trim();
+        }
+      }
+      return message;
     }
-    // For other errors, return just the message
-    return error.message;
+    // For other errors, clean the message similarly
+    let message = error.message;
+    if (message.includes(" | ")) {
+      message = message.split(" | ")[0] || message;
+    }
+    return message;
   }
 
   if (error && typeof error === "object") {
     const obj = error as Record<string, unknown>;
     // Try to find a message property
     if (typeof obj["message"] === "string") {
-      return obj["message"];
+      let message = obj["message"];
+      // Clean the message
+      if (message.includes(" | ")) {
+        message = message.split(" | ")[0] || message;
+      }
+      return message;
     }
     // Try to find an error.message nested structure
     if (obj["error"] && typeof obj["error"] === "object") {
       const errorObj = obj["error"] as Record<string, unknown>;
       if (typeof errorObj["message"] === "string") {
-        return errorObj["message"];
+        let message = errorObj["message"];
+        // Clean the message
+        if (message.includes(" | ")) {
+          message = message.split(" | ")[0] || message;
+        }
+        return message;
       }
     }
   }
 
-  return String(error);
+  const errorString = String(error);
+  // Clean the string representation too
+  if (errorString.includes(" | ")) {
+    return errorString.split(" | ")[0] || errorString;
+  }
+  return errorString;
 }
 
 /**

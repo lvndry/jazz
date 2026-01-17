@@ -11,6 +11,15 @@ export interface AppConfig {
   readonly llm?: LLMConfig;
   readonly web_search?: WebSearchConfig;
   readonly output?: OutputConfig;
+  readonly mcpServers?: Record<string, MCPServerConfig>;
+}
+
+export interface MCPServerConfig {
+  readonly command: string;
+  readonly args?: readonly string[];
+  readonly env?: Record<string, string>;
+  readonly enabled?: boolean;
+  readonly inputs?: Record<string, string>;
 }
 
 export type StorageConfig =

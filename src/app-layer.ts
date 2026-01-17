@@ -20,6 +20,7 @@ import { createFileSystemContextServiceLayer } from "./services/fs";
 import { createGmailServiceLayer } from "./services/gmail";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer } from "./services/logger";
+import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
 import { FileStorageService } from "./services/storage/file";
 import { createTerminalServiceLayer } from "./services/terminal";
 
@@ -100,9 +101,16 @@ export function createAppLayer(config: AppLayerConfig = {}) {
 
   const shellLayer = createFileSystemContextServiceLayer().pipe(Layer.provide(fileSystemLayer));
 
+  const mcpServerManagerLayer = createMCPServerManagerLayer()
+    .pipe(Layer.provide(loggerLayer))
+    .pipe(Layer.provide(configLayer));
+
   const toolRegistrationLayer = createToolRegistrationLayer().pipe(
     Layer.provide(toolRegistryLayer),
-    Layer.provide(shellLayer),
+    Layer.provide(mcpServerManagerLayer),
+    Layer.provide(configLayer),
+    Layer.provide(loggerLayer),
+    Layer.provide(terminalLayer),
   );
 
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
@@ -114,6 +122,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(configLayer),
     Layer.provide(toolRegistryLayer),
     Layer.provide(agentLayer),
+    Layer.provide(mcpServerManagerLayer),
   );
 
   // In TTY mode, keep Ink UI intact by routing all presentation output into Ink.
@@ -132,6 +141,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     llmLayer,
     toolRegistryLayer,
     shellLayer,
+    mcpServerManagerLayer,
     toolRegistrationLayer,
     agentLayer,
     chatLayer,
@@ -168,7 +178,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
       const label = signal === "SIGINT" ? "Ctrl+C" : signal;
 
       if (signalCount === 1) {
-        process.stdout.write(`\nReceived ${label}. Gracefully shutting down...\n`);
+        process.stdout.write(`\nReceived ${label}. Shutting down...\n`);
         Effect.runFork(Fiber.interrupt(fiber));
       } else {
         process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");

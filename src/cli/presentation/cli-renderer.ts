@@ -331,7 +331,19 @@ export class CLIRenderer {
 
   private renderError(error: LLMError): string {
     const { colors, icons } = this.theme;
-    return "\n" + colors.error(`${icons.error} Error: ${error.message}`) + "\n";
+    // Clean the error message to remove " | " separators and extra details
+    let cleanMessage = error.message;
+    if (cleanMessage.includes(" | ")) {
+      cleanMessage = cleanMessage.split(" | ")[0] || cleanMessage;
+    }
+    // Also handle cases where message might have "|" without spaces
+    if (cleanMessage.includes("|") && !cleanMessage.includes(" | ")) {
+      const parts = cleanMessage.split("|");
+      if (parts[0] && parts[0].trim().length > 0) {
+        cleanMessage = parts[0].trim();
+      }
+    }
+    return "\n" + colors.error(`${icons.error} Error: ${cleanMessage}`) + "\n";
   }
 
   private renderComplete(event: {

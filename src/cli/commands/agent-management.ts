@@ -358,7 +358,7 @@ function formatAgentDetailsBlock(agent: {
   lines.push(chalk.dim(header));
   lines.push(
     chalk.dim("│") +
-      padRight(` ${chalk.bold(`Agent: ${agent.name}`)} ${chalk.dim("— jazz agent chat <id|name>")}`, innerWidth) +
+      padRight(` ${chalk.bold(`Agent: ${agent.name}`)}`, innerWidth) +
       chalk.dim("│"),
   );
   lines.push(chalk.dim(sep));

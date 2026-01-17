@@ -2,6 +2,7 @@ import { Effect, Layer } from "effect";
 import { render } from "ink";
 import React from "react";
 import App, { store } from "../cli/ui/App";
+import type { LogEntryInput } from "../cli/ui/types";
 import {
   TerminalServiceTag,
   type TerminalOutput,
@@ -13,10 +14,23 @@ import {
  *
  */
 export class InkTerminalService implements TerminalService {
+  private inkInstance: ReturnType<typeof render> | null = null;
+
   constructor() {
     // Initialize the Ink app on service creation
     // We strictly assume this service is singleton and created once at startup
-    render(React.createElement(App));
+    this.inkInstance = render(React.createElement(App));
+  }
+
+  /**
+   * Cleanup method to unmount the Ink app
+   * Called when the command completes
+   */
+  cleanup(): void {
+    if (this.inkInstance) {
+      this.inkInstance.unmount();
+      this.inkInstance = null;
+    }
   }
 
   // Basic Logging Methods
@@ -45,9 +59,22 @@ export class InkTerminalService implements TerminalService {
     });
   }
 
-  log(message: TerminalOutput): Effect.Effect<void, never> {
+  log(message: TerminalOutput, id?: string): Effect.Effect<string | undefined, never> {
     return Effect.sync(() => {
-      store.addLog({ type: "log", message, timestamp: new Date() });
+      const entry: LogEntryInput = {
+        type: "log",
+        message,
+        timestamp: new Date(),
+        ...(id ? { id } : {}),
+      };
+      const logId = store.addLog(entry);
+      return logId;
+    });
+  }
+
+  updateLog(id: string, message: TerminalOutput): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.updateLog(id, { message, timestamp: new Date() });
     });
   }
 

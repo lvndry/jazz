@@ -13,6 +13,7 @@ import { ChatServiceTag, type ChatService } from "../core/interfaces/chat-servic
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../core/interfaces/fs";
 import { type LLMService } from "../core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../core/interfaces/logger";
+import { MCPServerManagerTag, type MCPServerManager } from "../core/interfaces/mcp-server";
 import { type PresentationService } from "../core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "../core/interfaces/terminal";
 import {
@@ -52,6 +53,7 @@ export class ChatServiceImpl implements ChatService {
     | AgentService
     | LLMService
     | PresentationService
+    | MCPServerManager
     | ToolRequirements
   > {
     return Effect.gen(function* () {
@@ -91,7 +93,7 @@ export class ChatServiceImpl implements ChatService {
               (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
             ) {
               // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
-              // The exit check below will handle the goodbye message
+              // The exit check below will handle the goodbye message and cleanup
               return Effect.succeed("/exit");
             }
             // Re-throw other errors, ensuring it's an Error instance
@@ -103,6 +105,25 @@ export class ChatServiceImpl implements ChatService {
         const lowerMessage = trimmedMessage.toLowerCase();
         if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
           yield* terminal.info("👋 Goodbye!");
+
+          // Cleanup: Disconnect all MCP servers before exiting
+          // This ensures child processes are properly terminated
+          try {
+            const mcpManager = yield* MCPServerManagerTag;
+            yield* mcpManager.disconnectAllServers().pipe(
+              Effect.catchAll((error) =>
+                Effect.gen(function* () {
+                  const logger = yield* LoggerServiceTag;
+                  const errorMessage = error instanceof Error ? error.message : String(error);
+                  yield* logger.debug(`Error during MCP cleanup: ${errorMessage}`);
+                  // Continue with exit even if cleanup fails
+                }),
+              ),
+            );
+          } catch {
+            // Ignore errors during cleanup - we're exiting anyway
+          }
+
           chatActive = false;
           continue;
         }

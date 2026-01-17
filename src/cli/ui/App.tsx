@@ -1,4 +1,4 @@
-import { Box, Static } from "ink";
+import { Box } from "ink";
 import type { Dispatch, SetStateAction } from "react";
 import { createContext, useMemo, useRef, useState } from "react";
 import { Header } from "./Header";
@@ -34,7 +34,8 @@ export const AppContext = createContext<{
 
 // Store logic decoupled from React for Effect integration
 export const store = {
-  addLog: (_entry: LogEntryInput): void => { },
+  addLog: (_entry: LogEntryInput): string => "",
+  updateLog: (_id: string, _entry: Partial<LogEntryInput>): void => { },
   setPrompt: (_prompt: PromptState | null): void => { },
   setStatus: (_status: string | null): void => { },
   setStream: (_stream: LiveStreamState | null): void => { },
@@ -61,16 +62,38 @@ export function App(): React.ReactElement {
   const MAX_LOG_ENTRIES = 100;
 
   if (!initializedRef.current) {
-    store.addLog = (entry) =>
+    store.addLog = (entry: LogEntryInput): string => {
+      const id = entry.id ?? `log-${++logIdCounterRef.current}`;
       setLogs((prev) => {
-        const id = `log-${++logIdCounterRef.current}`;
-        const entryWithId = { ...entry, id };
+        // If ID is provided and entry already exists, update it
+        if (entry.id && prev.some((log) => log.id === entry.id)) {
+          return prev.map((log): LogEntry => {
+            if (log.id === entry.id) {
+              return { ...log, ...entry, id } as LogEntry;
+            }
+            return log;
+          });
+        }
+        // Otherwise, add new entry
+        const entryWithId: LogEntry = { ...entry, id } as LogEntry;
         const next = [...prev, entryWithId];
         if (next.length > MAX_LOG_ENTRIES) {
           return next.slice(next.length - MAX_LOG_ENTRIES);
         }
         return next;
       });
+      return id;
+    };
+    store.updateLog = (id: string, updates: Partial<LogEntryInput>): void => {
+      setLogs((prev) =>
+        prev.map((log): LogEntry => {
+          if (log.id === id) {
+            return { ...log, ...updates } as LogEntry;
+          }
+          return log;
+        }),
+      );
+    };
     store.setPrompt = (prompt) => setPrompt(prompt);
     store.setStatus = (status) => setStatus(status);
     store.setStream = (stream) => setStream(stream);
@@ -103,16 +126,14 @@ export function App(): React.ReactElement {
         padding={1}
       >
         <Header />
-        {/* Use Static for logs - they don't change once rendered, so Ink won't re-render them */}
-        <Static items={logs}>
-          {(log, index) => (
-            <LogEntryItem
-              key={log.id}
-              log={log}
-              addSpacing={log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user")}
-            />
-          )}
-        </Static>
+        {/* Render logs in order - Header first, then logs */}
+        {logs.map((log, index) => (
+          <LogEntryItem
+            key={log.id}
+            log={log}
+            addSpacing={log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user")}
+          />
+        ))}
         {stream && <LiveResponse stream={stream} />}
         {prompt && <Prompt prompt={prompt} />}
         <StatusFooter

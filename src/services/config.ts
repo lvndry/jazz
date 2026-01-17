@@ -198,6 +198,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     ...(override.web_search && {
       web_search: { ...(base.web_search ?? {}), ...override.web_search },
     }),
+    ...(override.mcpServers && {
+      mcpServers: { ...(base.mcpServers ?? {}), ...override.mcpServers },
+    }),
   };
 }
 
