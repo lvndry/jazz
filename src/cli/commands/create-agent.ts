@@ -202,9 +202,9 @@ async function promptForAgentInfo(
 
   const llmProvider = await Effect.runPromise(
     terminal.search<ProviderName>("Which LLM provider would you like to use?", {
-      choices: allProviders.map((p) => ({
-        name: p.displayName ?? p.name,
-        value: p.name,
+      choices: allProviders.map((provider) => ({
+        name: provider.displayName ?? provider.name,
+        value: provider.name,
       })),
     }),
   );
@@ -212,7 +212,7 @@ async function promptForAgentInfo(
   // STEP 2.A: Check if API key exists for the selected provider
   const providerName = llmProvider;
   const providerDisplayName =
-    allProviders.find((p) => p.name === providerName)?.displayName ?? providerName;
+    allProviders.find((provider) => provider.name === providerName)?.displayName ?? providerName;
   const apiKeyPath = `llm.${providerName}.api_key`;
   const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
 

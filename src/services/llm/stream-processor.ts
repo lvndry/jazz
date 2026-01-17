@@ -163,14 +163,6 @@ export class StreamProcessor {
           break;
         }
 
-        // Debug: Log all event types when reasoning is enabled
-        if (this.config.hasReasoningEnabled) {
-          void this.logger.debug(`[StreamProcessor] Event type: ${part.type}`, {
-            provider: this.config.providerName,
-            hasReasoning: this.config.hasReasoningEnabled,
-          });
-        }
-
         switch (part.type) {
           case "text-delta": {
             let textChunk: string;
