@@ -8,6 +8,12 @@ import {
   wrapCommaList,
 } from "./string-utils";
 
+// Force chalk to enable colors in test environment
+// Chalk v4 disables colors when stdout is not a TTY, so we need to force it
+if (chalk.level === 0) {
+  chalk.level = 1; // Enable basic colors
+}
+
 describe("string-utils", () => {
   describe("stripAnsiCodes", () => {
     it("should strip colors", () => {
