@@ -1,5 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
+import { spawn } from "node:child_process";
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import short from "short-uuid";
@@ -423,7 +424,7 @@ function logMessageToSession(
  * Special command types
  */
 type SpecialCommand = {
-  type: "new" | "help" | "status" | "clear" | "tools" | "agents" | "switch" | "compact" | "unknown";
+  type: "new" | "help" | "status" | "clear" | "tools" | "agents" | "switch" | "compact" | "copy" | "unknown";
   args: string[];
 };
 
@@ -458,6 +459,8 @@ function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "switch", args };
     case "compact":
       return { type: "compact", args };
+    case "copy":
+      return { type: "copy", args };
     default:
       return { type: "unknown", args: [command, ...args] };
   }
@@ -516,6 +519,7 @@ function handleSpecialCommand(
         );
         yield* terminal.log("   /clear           - Clear the screen");
         yield* terminal.log("   /compact         - Summarize background history to save tokens");
+        yield* terminal.log("   /copy            - Copy the last agent response to clipboard");
         yield* terminal.log("   /help            - Show this help message");
         yield* terminal.log("   /exit            - Exit the chat");
         yield* terminal.log("");
@@ -696,6 +700,57 @@ function handleSpecialCommand(
           yield* terminal.log("");
           return { shouldContinue: true };
         }
+      }
+
+      case "copy": {
+        // Find the last assistant message in the history
+        // Iterate backwards through history
+        let lastResponse: string | null = null;
+        for (let i = conversationHistory.length - 1; i >= 0; i--) {
+          const msg = conversationHistory[i];
+          if (msg && msg.role === "assistant" && msg.content) {
+            lastResponse = msg.content;
+            break;
+          }
+        }
+
+        if (!lastResponse) {
+          yield* terminal.warn("No agent response found to copy.");
+          yield* terminal.log("");
+          return { shouldContinue: true };
+        }
+
+        // Copy to clipboard using pbcopy (macOS specific for now as per user environment)
+        try {
+          // Use Effect.promise to handle the child process execution
+          yield* Effect.promise(() => new Promise<void>((resolve, reject) => {
+            const pbcopy = spawn("pbcopy");
+            pbcopy.stdin.write(lastResponse);
+            pbcopy.stdin.end();
+
+            pbcopy.on("close", (code) => {
+              if (code === 0) {
+                resolve();
+              } else {
+                reject(new Error(`pbcopy exited with code ${code}`));
+              }
+            });
+
+            pbcopy.on("error", (err) => {
+              reject(err);
+            });
+          }));
+
+          yield* terminal.success("Last agent response copied to clipboard!");
+          yield* terminal.log("");
+        } catch (error) {
+           yield* terminal.error(
+            `Failed to copy to clipboard: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          yield* terminal.log("   (Note: /copy currently requires pbcopy on macOS)");
+          yield* terminal.log("");
+        }
+        return { shouldContinue: true };
       }
 
       case "switch": {

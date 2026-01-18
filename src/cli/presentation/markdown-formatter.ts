@@ -221,10 +221,10 @@ export function formatHorizontalRules(text: string, terminalWidth: number = 80):
  * Format markdown links with underlined blue text
  */
 export function formatLinks(text: string): string {
-  return text.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    (_match: string, linkText: string, _url: string) => chalk.blue.underline(linkText),
-  );
+  // Use negative lookbehind to ensure we don't match the '[' in ANSI escape sequences
+  // eslint-disable-next-line no-control-regex
+  const regex = new RegExp("(?<!\\u001b)\\[([^\\]]+)\\]\\(([^)]+)\\)", "g");
+  return text.replace(regex, (_match: string, linkText: string, _url: string) => chalk.blue.underline(linkText));
 }
 
 /**
