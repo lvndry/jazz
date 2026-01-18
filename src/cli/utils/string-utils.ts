@@ -3,11 +3,62 @@
  */
 
 /**
- * Pad a string with spaces on the right to reach a target width.
+ * Get the current terminal width, defaulting to 80 if not available.
+ */
+export function getTerminalWidth(): number {
+  try {
+    return process.stdout.columns || 80;
+  } catch {
+    return 80;
+  }
+}
+
+/**
+ * Strip ANSI escape codes from a string to get its visual width.
+ * ANSI escape sequences follow patterns like: \x1b[...m, \u001b[...m, or \033[...m
+ * Handles CSI (Control Sequence Introducer) sequences used by chalk and other terminal libraries.
+ */
+export function stripAnsiCodes(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
+}
+
+/**
+ * Get the visual width of a string, ignoring ANSI escape codes.
+ */
+export function getVisualWidth(text: string): number {
+  return stripAnsiCodes(text).length;
+}
+
+/**
+ * Pad a string with spaces on the right to reach a target visual width.
+ * Handles ANSI escape codes correctly.
  */
 export function padRight(text: string, width: number): string {
-  if (text.length >= width) return text;
-  return text + " ".repeat(width - text.length);
+  const visualWidth = getVisualWidth(text);
+  if (visualWidth >= width) return text;
+  return text + " ".repeat(width - visualWidth);
+}
+
+/**
+ * Wrap a comma-separated list of items to fit within a specific width.
+ */
+export function wrapCommaList(items: readonly string[], width: number): string[] {
+  const parts = items.slice();
+  const lines: string[] = [];
+  let current = "";
+
+  for (const p of parts) {
+    const next = current.length === 0 ? p : `${current}, ${p}`;
+    if (next.length <= width) {
+      current = next;
+      continue;
+    }
+    if (current.length > 0) lines.push(current);
+    current = p;
+  }
+  if (current.length > 0) lines.push(current);
+  return lines;
 }
 
 /**

@@ -20,19 +20,20 @@ import type {
 import { CalendarAuthenticationError, CalendarOperationError } from "../core/types/errors";
 import { getHttpStatusFromError } from "../core/utils/http-utils";
 import { resolveStorageDirectory } from "../core/utils/storage-utils";
+import {
+  ALL_GOOGLE_SCOPES,
+  CALENDAR_REQUIRED_SCOPES,
+  getGoogleOAuthPort,
+  getGoogleOAuthRedirectUri,
+  getGoogleTokenFilePath,
+  hasRequiredScopes,
+  type GoogleOAuthToken,
+} from "./google/auth";
 
 /**
  * Calendar service for interacting with Google Calendar API
  * Implements the core CalendarService interface
  */
-
-interface GoogleOAuthToken {
-  access_token?: string;
-  refresh_token?: string;
-  scope?: string;
-  token_type?: string;
-  expiry_date?: number;
-}
 
 export class CalendarServiceResource implements CalendarService {
   constructor(
@@ -307,13 +308,7 @@ export class CalendarServiceResource implements CalendarService {
         try {
           const parsed = JSON.parse(token) as GoogleOAuthToken;
           // Check if token has required Calendar scopes
-          const requiredScopes = [
-            "https://www.googleapis.com/auth/calendar",
-            "https://www.googleapis.com/auth/calendar.events",
-          ];
-          const tokenScopes = parsed.scope?.split(" ") || [];
-          const hasRequiredScopes = requiredScopes.every((scope) => tokenScopes.includes(scope));
-          if (!hasRequiredScopes) {
+          if (!hasRequiredScopes(parsed, CALENDAR_REQUIRED_SCOPES)) {
             // Token exists but doesn't have required scopes, need to re-authenticate
             return false;
           }
@@ -382,8 +377,8 @@ export class CalendarServiceResource implements CalendarService {
   private performOAuthFlow(): Effect.Effect<void, CalendarAuthenticationError> {
     return Effect.gen(
       function* (this: CalendarServiceResource) {
-        const port = Number(process.env["GOOGLE_REDIRECT_PORT"] || 53682);
-        const redirectUri = `http://localhost:${port}/oauth2callback`;
+        const port = getGoogleOAuthPort();
+        const redirectUri = getGoogleOAuthRedirectUri(port);
         // Recreate OAuth client with runtime redirectUri (property is readonly)
         const currentCreds = this.oauthClient.credentials as GoogleOAuthToken;
         const clientId = this.oauthClient._clientId;
@@ -404,15 +399,7 @@ export class CalendarServiceResource implements CalendarService {
         this.calendar = google.calendar({ version: "v3", auth: this.oauthClient });
 
         // Include both Calendar and Gmail scopes since they share the same token file
-        const scopes = [
-          "https://www.googleapis.com/auth/calendar",
-          "https://www.googleapis.com/auth/calendar.events",
-          "https://www.googleapis.com/auth/gmail.readonly",
-          "https://www.googleapis.com/auth/gmail.send",
-          "https://www.googleapis.com/auth/gmail.modify",
-          "https://www.googleapis.com/auth/gmail.labels",
-          "https://www.googleapis.com/auth/gmail.compose",
-        ];
+        const scopes = [...ALL_GOOGLE_SCOPES];
 
         const authUrl = this.oauthClient.generateAuthUrl({
           access_type: "offline",
@@ -729,14 +716,14 @@ export function createCalendarServiceLayer(): Layer.Layer<
         return Effect.void as Effect.Effect<void, CalendarAuthenticationError>;
       }
 
-      const port = 53682;
-      const redirectUri = `http://localhost:${port}/oauth2callback`;
+      const port = getGoogleOAuthPort();
+      const redirectUri = getGoogleOAuthRedirectUri(port);
       const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
       const calendar = google.calendar({ version: "v3", auth: oauth2Client });
 
       const { storage } = yield* agentConfig.appConfig;
       const dataDir = resolveStorageDirectory(storage);
-      const tokenFilePath = `${dataDir}/google/gmail-token.json`; // Shared with Gmail
+      const tokenFilePath = getGoogleTokenFilePath(dataDir); // Shared with Gmail
       const service: CalendarService = new CalendarServiceResource(
         fs,
         tokenFilePath,

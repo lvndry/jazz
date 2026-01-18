@@ -15,9 +15,8 @@
 ## Agent Runtime & Automation
 
 - [ ] Dynamic tool loading - dynamically load only relevant tools based on context/user query
-- [ ] Being able to always approve low stake tools - Give a risk level to tools, being able to say
-      if we want to allays authorize a tool so that it don't ask for approval every time
-- [ ] Summarize context near window limits — add automatic context compression that preserves action
+- [ ] Being able to always approve low stake tools - Give a risk level to tools, being able to say if we want to allays authorize a tool so that it don't ask for approval every time
+- [x] Summarize context near window limits — add automatic context compression that preserves action
       history when tokens spike.
 - [ ] Explore sub-agent triggers — PoC orchestration primitives.
 - [ ] Trigger system (schedule, file, webhook, manual) — hooks/cronjobs. Might require being able to execute jazz tasks
@@ -44,7 +43,7 @@
         language.
 - [x] Ollama - Being able to pass custom baseURL in config
 - [x] Ollama - Fetch available models from baseURL instead of keeping a list of static model
-- [ ] Notion tools
+- [x] Notion tools (Available via MCP)
 
 ## Quality, Safety & Testing
 

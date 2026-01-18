@@ -1,24 +1,17 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 
-import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
-import { GmailServiceTag, type GmailService } from "../../core/interfaces/gmail";
-import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
-import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
-import { GmailAuthenticationError } from "../../core/types/errors";
-import { resolveStorageDirectory } from "../../core/utils/storage-utils";
+import { AgentConfigServiceTag, type AgentConfigService } from "../../../core/interfaces/agent-config";
+import { GmailServiceTag, type GmailService } from "../../../core/interfaces/gmail";
+import { LoggerServiceTag, type LoggerService } from "../../../core/interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "../../../core/interfaces/terminal";
+import { GmailAuthenticationError } from "../../../core/types/errors";
+import { resolveStorageDirectory } from "../../../core/utils/storage-utils";
+import { getGoogleTokenFilePath, type GoogleOAuthToken } from "../../../services/google/auth";
 
 /**
  * CLI commands for authentication management
  */
-
-interface GoogleOAuthToken {
-  access_token?: string;
-  refresh_token?: string;
-  scope?: string;
-  token_type?: string;
-  expiry_date?: number;
-}
 
 /**
  * Google login command - initiates OAuth flow for Gmail and Calendar
@@ -64,7 +57,7 @@ export function googleLogoutCommand(): Effect.Effect<
     // Get the token file path from config
     const { storage } = yield* config.appConfig;
     const dataDir = resolveStorageDirectory(storage);
-    const tokenFilePath = `${dataDir}/google/gmail-token.json`;
+    const tokenFilePath = getGoogleTokenFilePath(dataDir);
 
     // Check if token file exists
     const tokenExists = yield* fs
@@ -115,7 +108,7 @@ export function googleStatusCommand(): Effect.Effect<
     // Get the token file path from config
     const { storage } = yield* config.appConfig;
     const dataDir = resolveStorageDirectory(storage);
-    const tokenFilePath = `${dataDir}/google/gmail-token.json`;
+    const tokenFilePath = getGoogleTokenFilePath(dataDir);
 
     // Check if token file exists
     const tokenExists = yield* fs

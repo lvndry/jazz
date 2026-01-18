@@ -14,7 +14,7 @@ import {
   createGitPullTool,
   createGitPushTool,
   createGitStatusTool,
-} from "./git-tools";
+} from "./git";
 import { createToolRegistryLayer, type Tool, type ToolExecutionResult } from "./tool-registry";
 
 function getCurrentBranch(): Effect.Effect<string, Error> {

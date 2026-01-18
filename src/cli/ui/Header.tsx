@@ -11,8 +11,9 @@ export const Header = React.memo(function Header() {
       marginY={1}
       flexDirection="row"
       alignItems="center"
+      justifyContent="center"
     >
-      <Box flexDirection="column">
+      <Box flexDirection="column" alignItems="center">
         <Gradient name="morning">
           <BigText
             text="Jazz"

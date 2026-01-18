@@ -1,198 +1,40 @@
-import { Cause, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
+import { Effect } from "effect";
 
 import { MAX_AGENT_STEPS } from "../constants/agent";
 import type { ProviderName } from "../constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "../interfaces/agent-config";
-import { LLMServiceTag, type LLMService } from "../interfaces/llm";
+import type { LLMService } from "../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
-import { MCPServerManagerTag, type MCPServerManager } from "../interfaces/mcp-server";
+import { type MCPServerManager } from "../interfaces/mcp-server";
 import type { PresentationService } from "../interfaces/presentation";
-import { PresentationServiceTag } from "../interfaces/presentation";
 import type { TerminalService } from "../interfaces/terminal";
 import {
   ToolRegistryTag,
   type ToolRegistry,
   type ToolRequirements,
 } from "../interfaces/tool-registry";
-import type { ConversationMessages, StreamEvent, StreamingConfig } from "../types";
+import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
-import { type ChatCompletionResponse } from "../types/chat";
-import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "../types/errors";
-import { type ChatMessage } from "../types/message";
+import { LLMRateLimitError } from "../types/errors";
+import type { ChatMessage } from "../types/message";
 import type { DisplayConfig } from "../types/output";
-import { type ToolCall, type ToolDefinition, type ToolExecutionContext } from "../types/tools";
+import type { ToolExecutionContext } from "../types/tools";
 import { shouldEnableStreaming } from "../utils/stream-detector";
 import { agentPromptBuilder } from "./agent-prompt";
-import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
-import { ToolExecutor } from "./execution/tool-executor";
+import { Summarizer } from "./context/summarizer";
+import { executeWithStreaming, executeWithoutStreaming } from "./execution";
+import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 import { registerMCPToolsForAgent } from "./tools/register-tools";
 import {
-  beginIteration,
-  completeIteration,
-  createAgentRunTracker,
-  finalizeAgentRun,
-  recordFirstTokenLatency,
-  recordLLMRetry,
-  recordLLMUsage,
-} from "./tracking/agent-run-tracker";
+  DEFAULT_DISPLAY_CONFIG,
+  type AgentResponse,
+  type AgentRunContext,
+  type AgentRunnerOptions,
+} from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
 
-const MAX_RETRIES = 3;
-const STREAM_CREATION_TIMEOUT = Duration.minutes(2);
-const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
-
 /**
- * Agent runner for executing agent conversations
- */
-
-/**
- * Configuration options for running an agent conversation.
- *
- * This interface defines all the parameters needed to execute a single turn of an agent conversation,
- * including the agent configuration, user input, conversation context, and execution settings.
- *
- */
-export interface AgentRunnerOptions {
-  /**
-   * The agent to execute.
-   */
-  readonly agent: Agent;
-  /**
-   * The user's input or query for this conversation turn.
-   * This is the primary instruction that the agent will process and respond to.
-   */
-  readonly userInput: string;
-  /**
-   * Optional conversation identifier for tracking multi-turn conversations.
-   * If not provided, a new conversation ID will be generated automatically.
-   * Use the same conversation ID across multiple turns to maintain context.
-   */
-  readonly conversationId?: string;
-  /**
-   * Session identifier for logging purposes.
-   * This should be set to the sessionId created at the start of a chat session.
-   * Used to route logs to session-specific log files.
-   */
-  readonly sessionId: string;
-  /**
-   * If true, this is an internal sub-agent run (e.g., summarization).
-   * UI elements like thinking indicators will be suppressed.
-   */
-  readonly internal?: boolean;
-  /**
-   * Maximum number of iterations (agent reasoning loops) allowed for this run.
-   * Each iteration may involve tool calls and LLM responses.
-   * If not specified, defaults to `MAX_AGENT_STEPS` constant.
-   * The agent will stop when it reaches this limit or completes its task.
-   */
-  readonly maxIterations?: number;
-  /**
-   * Full conversation history to date, including prior assistant, user, and tool messages.
-   * Use this to preserve context across turns (e.g., approval flows, multi-step tasks).
-   */
-  readonly conversationHistory?: ChatMessage[];
-  /**
-   * Override streaming behavior (from --stream or --no-stream CLI flags).
-   * - `true`: Force streaming on - responses are rendered in real-time as they're generated
-   * - `false`: Force streaming off - wait for complete response before rendering
-   * - `undefined`: Use auto-detection based on environment and configuration (default)
-   */
-  readonly stream?: boolean;
-}
-
-/**
- * Response returned from executing an agent conversation.
- *
- * Contains the agent's response content, conversation metadata, tool execution results,
- * and the full message history for this turn. Use this to:
- * - Display the agent's response to the user
- * - Pass conversation history to subsequent turns
- * - Inspect tool calls and results for debugging or auditing
- * - Track conversation state and context
- */
-export interface AgentResponse {
-  /**
-   * The agent's text response content.
-   * This is the final answer or message from the agent after processing the user input
-   * and executing any necessary tools. May be empty if the agent only performed tool calls
-   * without providing a text response.
-   */
-  readonly content: string;
-  /**
-   * The conversation identifier for this run.
-   * This will be the same as the `conversationId` provided in options, or a newly generated
-   * ID if one wasn't provided. Use this to track and correlate related conversation turns.
-   */
-  readonly conversationId: string;
-  /**
-   * Optional array of tool calls made by the agent during this turn.
-   * Present when the agent decided to use tools to accomplish the task.
-   * Each tool call includes the tool name, arguments, and call ID.
-   *
-   * @example
-   * ```typescript
-   * if (response.toolCalls) {
-   *   response.toolCalls.forEach(call => {
-   *     console.log(`Agent called: ${call.function.name}`);
-   *   });
-   * }
-   * ```
-   */
-  readonly toolCalls?: ToolCall[];
-  /**
-   * Optional map of tool execution results, keyed by tool name.
-   * Present when tools were executed during this turn.
-   * Contains the results returned by each tool, which may include data, errors, or status information.
-   *
-   * @example
-   * ```typescript
-   * if (response.toolResults) {
-   *   const emailResults = response.toolResults["gmail_list_emails"];
-   *   console.log("Emails retrieved:", emailResults);
-   * }
-   * ```
-   */
-  readonly toolResults?: Record<string, unknown>;
-  /**
-   * The full message list used for this turn, including system, user, assistant, and tool messages.
-   * Pass this back on the next turn to retain context across approvals and multi-step tasks.
-   *
-   * This array contains the complete conversation state, including:
-   * - System messages (agent instructions)
-   * - User messages (input)
-   * - Assistant messages (agent responses)
-   * - Tool messages (tool execution results)
-   */
-  readonly messages?: ChatMessage[] | undefined;
-}
-
-/**
- * Default display configuration (applies to both modes)
- */
-const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
-  showThinking: true,
-  showToolExecution: true,
-  mode: "markdown",
-};
-
-/**
- * Common initialization data for agent runs
- */
-interface AgentRunContext {
-  readonly agent: Agent;
-  readonly actualConversationId: string;
-  readonly context: ToolExecutionContext;
-  readonly tools: ToolDefinition[];
-  readonly expandedToolNames: readonly string[];
-  readonly messages: ConversationMessages;
-  readonly runTracker: ReturnType<typeof createAgentRunTracker>;
-  readonly provider: ProviderName;
-  readonly model: string;
-  readonly connectedMCPServers: readonly string[];
-}
-
-/**
- * Initialize common agent run context (tools, messages, tracker)
+ * Initialize common agent run context (tools, messages, metrics)
  */
 function initializeAgentRun(
   options: AgentRunnerOptions,
@@ -215,7 +57,7 @@ function initializeAgentRun(
     const provider: ProviderName = agent.config.llmProvider;
     const model = agent.config.llmModel;
 
-    const runTracker = createAgentRunTracker({
+    const runMetrics = createAgentRunMetrics({
       agent,
       conversationId: actualConversationId,
       provider,
@@ -295,7 +137,7 @@ function initializeAgentRun(
       tools,
       expandedToolNames,
       messages,
-      runTracker,
+      runMetrics,
       provider,
       model,
       connectedMCPServers,
@@ -304,10 +146,12 @@ function initializeAgentRun(
 }
 
 /**
- * Ensure messages array is never empty
- * throws error if empty
+ * Agent runner for executing agent conversations.
+ *
+ * This class serves as the orchestrator for agent execution, delegating to
+ * specialized executors for streaming vs batch mode, and managing context
+ * initialization and cleanup.
  */
-
 export class AgentRunner {
   /**
    * Internal execution mode for sub-agents (e.g., summarizers, researchers).
@@ -329,7 +173,10 @@ export class AgentRunner {
   }
 
   /**
-   * Run an agent conversation
+   * Run an agent conversation.
+   *
+   * This is the main entry point for executing agent conversations.
+   * It automatically selects streaming or batch mode based on configuration.
    */
   static run(
     options: AgentRunnerOptions,
@@ -347,6 +194,9 @@ export class AgentRunner {
       // Get services
       const configService = yield* AgentConfigServiceTag;
       const appConfig = yield* configService.appConfig;
+
+      // Initialize run context
+      const runContext = yield* initializeAgentRun(options);
 
       // Determine if streaming should be enabled
       // Force non-streaming for internal runs
@@ -379,950 +229,40 @@ export class AgentRunner {
           : {}),
       };
 
+      const runRecursive = (runOpts: {
+        agent: Agent;
+        userInput: string;
+        sessionId: string;
+        conversationId: string;
+        maxIterations: number;
+      }) => AgentRunner.runRecursive(runOpts);
+
       if (streamDetection.shouldStream) {
-        return yield* AgentRunner.runWithStreaming(
+        return yield* executeWithStreaming(
           options,
+          runContext,
           displayConfig,
           streamingConfig,
           showMetrics,
+          runRecursive,
         );
       } else {
-        return yield* AgentRunner.runWithoutStreaming(options, displayConfig, showMetrics);
-      }
-    });
-  }
-
-  /**
-   * Streaming implementation that processes LLM responses in real-time.
-   */
-  private static runWithStreaming(
-    options: AgentRunnerOptions,
-    displayConfig: DisplayConfig,
-    streamingConfig: StreamingConfig,
-    showMetrics: boolean,
-  ): Effect.Effect<
-    AgentResponse,
-    LLMRateLimitError | Error,
-    | LLMService
-    | ToolRegistry
-    | LoggerService
-    | AgentConfigService
-    | PresentationService
-    | ToolRequirements
-  > {
-    return Effect.acquireUseRelease(
-      Effect.gen(function* () {
-        const logger = yield* LoggerServiceTag;
-        const runContext = yield* initializeAgentRun(options);
-        const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
-
-        yield* logger.setSessionId(options.sessionId);
-
-        const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
-          Option.none(),
+        return yield* executeWithoutStreaming(
+          options,
+          runContext,
+          displayConfig,
+          showMetrics,
+          runRecursive,
         );
-        return { logger, runContext, mcpManager, finalizeFiberRef };
-      }),
-      ({ logger, runContext, mcpManager: _mcpManager, finalizeFiberRef }) =>
-        Effect.gen(function* () {
-          const { agent, maxIterations = MAX_AGENT_STEPS } = options;
-          const llmService = yield* LLMServiceTag;
-          const presentationService = yield* PresentationServiceTag;
-          const { actualConversationId, context, tools, messages, runTracker, provider, model } =
-            runContext;
-
-          // Create renderer
-          const normalizedStreamingConfig: StreamingConfig = {
-            enabled: true, // Always enabled in streaming mode
-            ...(streamingConfig.textBufferMs !== undefined && {
-              textBufferMs: streamingConfig.textBufferMs,
-            }),
-          };
-
-          const renderer = yield* presentationService.createStreamingRenderer({
-            displayConfig,
-            streamingConfig: normalizedStreamingConfig,
-            showMetrics,
-            agentName: agent.name,
-            reasoningEffort: agent.config.reasoningEffort,
-          });
-
-          // Run agent loop
-          let currentMessages: ConversationMessages = [messages[0], ...messages.slice(1)];
-          let response: AgentResponse = {
-            content: "",
-            conversationId: actualConversationId,
-          };
-          let finished = false;
-          let iterationsUsed = 0;
-
-          for (let i = 0; i < maxIterations; i++) {
-            yield* Effect.sync(() => beginIteration(runTracker, i + 1));
-            try {
-              // Log thinking indicator
-              if (!options.internal) {
-                if (i === 0) {
-                  yield* presentationService.presentThinking(agent.name, true);
-                } else {
-                  yield* presentationService.presentThinking(agent.name, false);
-                }
-              }
-
-              // Proactively compact context if approaching token limit
-              currentMessages = yield* AgentRunner.compactContextIfNeeded(
-                currentMessages,
-                agent,
-                options.sessionId,
-                actualConversationId,
-              );
-
-              // Create streaming completion with retry and fallback
-              const llmOptions = {
-                model,
-                messages: currentMessages,
-                tools,
-                toolChoice: "auto" as const,
-                reasoning_effort: agent.config.reasoningEffort ?? "disable",
-              };
-
-
-              // Log LLM request details
-              yield* logger.debug("Sending LLM request", {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-                provider,
-                model,
-                messageCount: currentMessages.length,
-                toolsAvailable: tools.length,
-                reasoningEffort: agent.config.reasoningEffort,
-                lastUserMessage: currentMessages
-                  .filter((m) => m.role === "user")
-                  .slice(-1)[0]
-                  ?.content?.substring(0, 500),
-              });
-
-              const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
-
-              const streamingResult = yield* Effect.retry(
-                Effect.gen(function* () {
-                  try {
-                    return yield* llmService.createStreamingChatCompletion(provider, llmOptions);
-                  } catch (error) {
-                    recordLLMRetry(runTracker, error);
-                    // Log LLM error details
-                    if (
-                      error instanceof LLMRequestError ||
-                      error instanceof LLMRateLimitError ||
-                      error instanceof LLMAuthenticationError
-                    ) {
-                      yield* logger.error("LLM request error", {
-                        provider,
-                        model: agent.config.llmModel,
-                        errorType: error._tag,
-                        message: error.message,
-                        agentId: agent.id,
-                        conversationId: actualConversationId,
-                      });
-                    }
-                    throw error;
-                  }
-                }),
-                Schedule.exponential("1 second").pipe(
-                  Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
-                  Schedule.whileInput((error) => error instanceof LLMRateLimitError),
-                ),
-              ).pipe(
-                Effect.timeout(STREAM_CREATION_TIMEOUT),
-                Effect.catchAll((error) =>
-                  Effect.gen(function* () {
-                    // Log the error that caused fallback
-                    if (
-                      error instanceof LLMRequestError ||
-                      error instanceof LLMRateLimitError ||
-                      error instanceof LLMAuthenticationError
-                    ) {
-                      yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
-                        provider,
-                        model: agent.config.llmModel,
-                        errorType: error._tag,
-                        message: error.message,
-                        agentId: agent.id,
-                        conversationId: actualConversationId,
-                      });
-                    } else {
-                      yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
-                        provider,
-                        model: agent.config.llmModel,
-                        error: error instanceof Error ? error.message : String(error),
-                        agentId: agent.id,
-                        conversationId: actualConversationId,
-                      });
-                    }
-                    const fallback = yield* llmService.createChatCompletion(provider, llmOptions);
-                    return {
-                      stream: Stream.empty,
-                      response: Effect.succeed(fallback),
-                      cancel: Effect.void,
-                    };
-                  }),
-                ),
-              );
-
-              // Process stream events
-              const streamFiber = yield* Effect.fork(
-                Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
-                  Effect.gen(function* () {
-                    yield* renderer.handleEvent(event);
-                    if (event.type === "complete") {
-                      yield* Ref.set(completionRef, event.response);
-                      if (event.metrics?.firstTokenLatencyMs) {
-                        recordFirstTokenLatency(runTracker, event.metrics.firstTokenLatencyMs);
-                      }
-                    }
-
-                    if (event.type === "error") {
-                      // Log the error
-                      const error = event.error as
-                        | LLMAuthenticationError
-                        | LLMRateLimitError
-                        | LLMRequestError;
-                      yield* logger.error("Stream event error", {
-                        provider,
-                        model: agent.config.llmModel,
-                        errorType: error._tag,
-                        message: error.message,
-                        recoverable: event.recoverable,
-                        agentId: agent.id,
-                        conversationId: actualConversationId,
-                      });
-                      if (!event.recoverable) {
-                        yield* streamingResult.cancel;
-                      }
-                    }
-                  }),
-                ),
-              );
-
-              // Wait for stream completion - the stream is cancelled on completion event
-              // so the fiber should complete naturally without needing a timeout
-              const streamExit = yield* Fiber.await(streamFiber);
-
-              let completion: ChatCompletionResponse;
-              if (Exit.isFailure(streamExit)) {
-                yield* streamingResult.cancel;
-                const error = Cause.failureOption(streamExit.cause);
-                if (Option.isSome(error)) {
-                  yield* logger.error("Stream processing failed", {
-                    error: error.value instanceof Error ? error.value.message : String(error.value),
-                  });
-                  return yield* Effect.fail(error.value);
-                } else {
-                  const fromRef = yield* Ref.get(completionRef);
-                  if (fromRef) {
-                    completion = fromRef;
-                  } else {
-                    completion = yield* streamingResult.response.pipe(
-                      Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
-                      Effect.catchAll(() =>
-                        Effect.gen(function* () {
-                          yield* streamingResult.cancel;
-                          return yield* llmService.createChatCompletion(provider, llmOptions);
-                        }),
-                      ),
-                    );
-                  }
-                }
-              } else {
-                const fromRef = yield* Ref.get(completionRef);
-                if (fromRef) {
-                  completion = fromRef;
-                } else {
-                  completion = yield* streamingResult.response.pipe(
-                    Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
-                    Effect.catchAll(() =>
-                      Effect.gen(function* () {
-                        yield* streamingResult.cancel;
-                        return yield* llmService.createChatCompletion(provider, llmOptions);
-                      }),
-                    ),
-                  );
-                }
-              }
-
-              // Log LLM response summary
-              yield* logger.debug("LLM response received", {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-                contentLength: completion.content.length,
-                toolCallsCount: completion.toolCalls?.length ?? 0,
-                tokenUsage: completion.usage,
-                contentPreview: completion.content.substring(0, 300),
-              });
-
-              if (completion.usage) {
-                recordLLMUsage(runTracker, completion.usage);
-              }
-
-              // Add assistant response to conversation
-              const assistantMessage = {
-                role: "assistant" as const,
-                content: completion.content,
-                ...(completion.toolCalls
-                  ? {
-                      tool_calls: completion.toolCalls.map((tc) => ({
-                        id: tc.id,
-                        type: tc.type,
-                        function: { name: tc.function.name, arguments: tc.function.arguments },
-                        ...(tc.thought_signature
-                          ? { thought_signature: tc.thought_signature }
-                          : {}),
-                      })),
-                    }
-                  : {}),
-              };
-
-              currentMessages.push(assistantMessage);
-
-              const trimUpdate = yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
-                currentMessages,
-                logger,
-                agent.id,
-                actualConversationId,
-              );
-              currentMessages = trimUpdate.messages;
-
-              // Handle tool calls
-              if (completion.toolCalls && completion.toolCalls.length > 0) {
-                // Log agent decision to use tools
-                yield* logger.info("Agent decided to use tools", {
-                  agentId: agent.id,
-                  conversationId: actualConversationId,
-                  iteration: i + 1,
-                  toolsChosen: completion.toolCalls.map((tc) => tc.function.name),
-                  reasoning: completion.content,
-                });
-
-                // Execute tools - use completion.toolCalls as the source of truth
-                const toolResults = yield* ToolExecutor.executeToolCalls(
-                  completion.toolCalls,
-                  context,
-                  displayConfig,
-                  renderer,
-                  runTracker,
-                  agent.id,
-                  actualConversationId,
-                  agent.name,
-                );
-
-                // Add tool results to conversation
-                // Create mapping for quick lookup
-                const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
-
-                // Validate that all tool calls have results
-                const missingResults: string[] = [];
-                for (const toolCall of completion.toolCalls) {
-                  if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
-                    missingResults.push(toolCall.id);
-                  }
-                }
-                if (missingResults.length > 0) {
-                  yield* logger.error("Missing tool results for some tool calls", {
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                    missingToolCallIds: missingResults,
-                    expectedCount: completion.toolCalls.length,
-                    actualCount: toolResults.length,
-                  });
-                  return yield* Effect.fail(
-                    new Error(
-                      `Missing tool results for ${missingResults.length} tool call(s). This indicates a bug in tool execution.`,
-                    ),
-                  );
-                }
-
-                // Add tool result messages
-                for (const toolCall of completion.toolCalls) {
-                  if (toolCall.type === "function") {
-                    const result = resultMap.get(toolCall.id);
-                    // Result should always be defined due to validation above, but add safety check
-                    if (result === undefined) {
-                      yield* logger.error("Tool result is undefined despite validation", {
-                        agentId: agent.id,
-                        conversationId: actualConversationId,
-                        toolCallId: toolCall.id,
-                        toolName: toolCall.function.name,
-                      });
-                      // Use error result as fallback
-                      currentMessages.push({
-                        role: "tool",
-                        name: toolCall.function.name,
-                        content: JSON.stringify({
-                          error: "Tool execution result was undefined",
-                        }),
-                        tool_call_id: toolCall.id,
-                      });
-                    } else {
-                      currentMessages.push({
-                        role: "tool",
-                        name: toolCall.function.name,
-                        content: JSON.stringify(result),
-                        tool_call_id: toolCall.id,
-                      });
-                    }
-                  }
-                }
-
-                response = {
-                  ...response,
-                  toolCalls: completion.toolCalls,
-                  toolResults: Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
-                };
-                continue;
-              }
-
-              // No tool calls - final response
-              yield* logger.info("Agent provided final response", {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-                completionLength: completion.content.length,
-                totalToolsUsed: runTracker.toolCalls,
-              });
-
-              response = { ...response, content: completion.content };
-              yield* presentationService.presentCompletion(agent.name);
-
-              iterationsUsed = i + 1;
-              finished = true;
-              break;
-            } finally {
-              yield* Effect.sync(() => completeIteration(runTracker));
-            }
-          }
-
-          // Post-loop cleanup
-          if (!finished) {
-            iterationsUsed = maxIterations;
-            iterationsUsed = maxIterations;
-            yield* presentationService.presentWarning(
-              agent.name,
-              `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
-            );
-          } else if (!response.content?.trim() && !response.toolCalls) {
-            yield* presentationService.presentWarning(
-              agent.name,
-              "model returned an empty response",
-            );
-          }
-
-          const finalizeFiber = yield* finalizeAgentRun(runTracker, {
-            iterationsUsed,
-            finished,
-          }).pipe(
-            Effect.catchAll((error) =>
-              logger.warn("Failed to write agent token usage log", { error: error.message }),
-            ),
-            Effect.fork,
-          );
-          yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
-
-          return { ...response, messages: currentMessages };
-        }),
-      ({ logger, runContext, mcpManager, finalizeFiberRef }) =>
-        Effect.gen(function* () {
-          const fiberOption = yield* Ref.get(finalizeFiberRef);
-          if (Option.isSome(fiberOption)) {
-            yield* Fiber.await(fiberOption.value).pipe(
-              Effect.asVoid,
-              Effect.catchAll(() => Effect.void),
-            );
-          }
-
-          // Disconnect MCP servers used in this conversation
-          if (runContext.connectedMCPServers.length > 0 && Option.isSome(mcpManager)) {
-            yield* logger.debug(
-              `Disconnecting ${runContext.connectedMCPServers.length} MCP server(s) for conversation ${runContext.actualConversationId}`,
-            );
-            for (const serverName of runContext.connectedMCPServers) {
-              yield* mcpManager.value.disconnectServer(serverName).pipe(
-                Effect.catchAll((error) =>
-                  logger.warn(`Failed to disconnect MCP server ${serverName}`, {
-                    error: error instanceof Error ? error.message : String(error),
-                  }),
-                ),
-              );
-            }
-            yield* logger.debug("All MCP servers disconnected for this conversation");
-          }
-
-          yield* logger.clearSessionId();
-        }),
-    );
-  }
-
-  /**
-   * Non-streaming implementation that waits for complete LLM responses before rendering.
-   */
-  private static runWithoutStreaming(
-    options: AgentRunnerOptions,
-    displayConfig: DisplayConfig,
-    showMetrics: boolean,
-  ): Effect.Effect<
-    AgentResponse,
-    LLMRateLimitError | Error,
-    | LLMService
-    | ToolRegistry
-    | LoggerService
-    | AgentConfigService
-    | PresentationService
-    | ToolRequirements
-  > {
-    return Effect.acquireUseRelease(
-      Effect.gen(function* () {
-        const logger = yield* LoggerServiceTag;
-        const runContext = yield* initializeAgentRun(options);
-        const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
-        yield* logger.setSessionId(options.sessionId);
-        const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
-          Option.none(),
-        );
-        return { logger, runContext, mcpManager, finalizeFiberRef };
-      }),
-      ({ logger, runContext, mcpManager: _mcpManager, finalizeFiberRef }) =>
-        Effect.gen(function* () {
-          const { agent, maxIterations = MAX_AGENT_STEPS } = options;
-          const llmService = yield* LLMServiceTag;
-          const presentationService = yield* PresentationServiceTag;
-          const { actualConversationId, context, tools, messages, runTracker, provider, model } =
-            runContext;
-
-          // Run agent loop
-          let currentMessages: ConversationMessages = [messages[0], ...messages.slice(1)];
-          let response: AgentResponse = {
-            content: "",
-            conversationId: actualConversationId,
-          };
-          let finished = false;
-          let iterationsUsed = 0;
-
-          for (let i = 0; i < maxIterations; i++) {
-            yield* Effect.sync(() => beginIteration(runTracker, i + 1));
-            try {
-              // Log thinking indicator
-              if (!options.internal && displayConfig.showThinking) {
-                if (i === 0) {
-                  yield* presentationService.presentThinking(agent.name, true);
-                } else {
-                  yield* presentationService.presentThinking(agent.name, false);
-                }
-              }
-
-              // Proactively compact context if approaching token limit
-              currentMessages = yield* AgentRunner.compactContextIfNeeded(
-                currentMessages,
-                agent,
-                options.sessionId,
-                actualConversationId,
-              );
-
-              // Create non-streaming completion with retry
-              const llmOptions = {
-                model,
-                messages: currentMessages,
-                tools,
-                toolChoice: "auto" as const,
-                reasoning_effort: agent.config.reasoningEffort ?? "disable",
-              };
-
-              // Log LLM request details
-              yield* logger.debug("Sending LLM request", {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-                provider,
-                model,
-                messageCount: currentMessages.length,
-                toolsAvailable: tools.length,
-                reasoningEffort: agent.config.reasoningEffort,
-                lastUserMessage: currentMessages
-                  .filter((m) => m.role === "user")
-                  .slice(-1)[0]
-                  ?.content?.substring(0, 500),
-              });
-
-              const completion = yield* Effect.retry(
-                Effect.gen(function* () {
-                  try {
-                    return yield* llmService.createChatCompletion(provider, llmOptions);
-                  } catch (error) {
-                    recordLLMRetry(runTracker, error);
-                    throw error;
-                  }
-                }),
-                Schedule.exponential("1 second").pipe(
-                  Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
-                  Schedule.whileInput((error) => error instanceof LLMRateLimitError),
-                ),
-              );
-
-              // Log LLM response summary
-              yield* logger.debug("LLM response received", {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-                contentLength: completion.content.length,
-                toolCallsCount: completion.toolCalls?.length ?? 0,
-                tokenUsage: completion.usage,
-                contentPreview: completion.content.substring(0, 300),
-              });
-
-              if (completion.usage) {
-                recordLLMUsage(runTracker, completion.usage);
-              }
-
-              // Add assistant response to conversation
-              const assistantMessage = {
-                role: "assistant" as const,
-                content: completion.content,
-                ...(completion.toolCalls
-                  ? {
-                      tool_calls: completion.toolCalls.map((tc) => ({
-                        id: tc.id,
-                        type: tc.type,
-                        function: { name: tc.function.name, arguments: tc.function.arguments },
-                        ...(tc.thought_signature
-                          ? { thought_signature: tc.thought_signature }
-                          : {}),
-                      })),
-                    }
-                  : {}),
-              };
-
-              currentMessages.push(assistantMessage);
-
-              const trimUpdate = yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
-                currentMessages,
-                logger,
-                agent.id,
-                actualConversationId,
-              );
-              currentMessages = trimUpdate.messages;
-
-              // Format content - always use markdown since LLMs output markdown
-              let formattedContent = completion.content;
-              if (formattedContent) {
-                formattedContent = yield* presentationService.renderMarkdown(formattedContent);
-              }
-
-              // Handle tool calls
-              if (completion.toolCalls && completion.toolCalls.length > 0) {
-                // Log agent decision to use tools
-                yield* logger.info("Agent decided to use tools", {
-                  agentId: agent.id,
-                  conversationId: actualConversationId,
-                  iteration: i + 1,
-                  toolsChosen: completion.toolCalls.map((tc) => tc.function.name),
-                  reasoning: completion.content,
-                });
-
-                const toolResults = yield* ToolExecutor.executeToolCalls(
-                  completion.toolCalls,
-                  context,
-                  displayConfig,
-                  null, // No renderer for non-streaming
-                  runTracker,
-                  agent.id,
-                  actualConversationId,
-                  agent.name,
-                );
-
-                // Add tool results to conversation
-                const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
-
-                // Validate that all tool calls have results
-                const missingResults: string[] = [];
-                for (const toolCall of completion.toolCalls) {
-                  if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
-                    missingResults.push(toolCall.id);
-                  }
-                }
-                if (missingResults.length > 0) {
-                  yield* logger.error("Missing tool results for some tool calls", {
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                    missingToolCallIds: missingResults,
-                    expectedCount: completion.toolCalls.length,
-                    actualCount: toolResults.length,
-                  });
-                  return yield* Effect.fail(
-                    new Error(
-                      `Missing tool results for ${missingResults.length} tool call(s). This indicates a bug in tool execution.`,
-                    ),
-                  );
-                }
-
-                // Add tool result messages
-                for (const toolCall of completion.toolCalls) {
-                  if (toolCall.type === "function") {
-                    const result = resultMap.get(toolCall.id);
-                    // Result should always be defined due to validation above, but add safety check
-                    if (result === undefined) {
-                      yield* logger.error("Tool result is undefined despite validation", {
-                        agentId: agent.id,
-                        conversationId: actualConversationId,
-                        toolCallId: toolCall.id,
-                        toolName: toolCall.function.name,
-                      });
-                      // Use error result as fallback
-                      currentMessages.push({
-                        role: "tool",
-                        name: toolCall.function.name,
-                        content: JSON.stringify({
-                          error: "Tool execution result was undefined",
-                        }),
-                        tool_call_id: toolCall.id,
-                      });
-                    } else {
-                      currentMessages.push({
-                        role: "tool",
-                        name: toolCall.function.name,
-                        content: JSON.stringify(result),
-                        tool_call_id: toolCall.id,
-                      });
-                    }
-                  }
-                }
-
-                response = {
-                  ...response,
-                  toolCalls: completion.toolCalls,
-                  toolResults: Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
-                };
-                continue;
-              }
-
-              // No tool calls - final response
-              yield* logger.info("Agent provided final response", {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-                completionLength: completion.content.length,
-                totalToolsUsed: runTracker.toolCalls,
-              });
-
-              response = { ...response, content: formattedContent };
-
-              // Display final response
-              if (formattedContent && formattedContent.trim().length > 0) {
-                yield* presentationService.writeBlankLine();
-                yield* presentationService.presentAgentResponse(agent.name, formattedContent);
-                yield* presentationService.writeBlankLine();
-              }
-
-              yield* presentationService.presentCompletion(agent.name);
-
-              // Show metrics if enabled
-              if (showMetrics && completion.usage) {
-                const parts: string[] = [];
-                if (completion.usage.totalTokens)
-                  parts.push(`Total: ${completion.usage.totalTokens} tokens`);
-                if (completion.usage.promptTokens)
-                  parts.push(`Prompt: ${completion.usage.promptTokens}`);
-                if (completion.usage.completionTokens)
-                  parts.push(`Completion: ${completion.usage.completionTokens}`);
-                if (parts.length > 0) {
-                  yield* logger.info(`[${parts.join(" | ")}]`);
-                }
-              }
-
-              iterationsUsed = i + 1;
-              finished = true;
-              break;
-            } finally {
-              yield* Effect.sync(() => completeIteration(runTracker));
-            }
-          }
-
-          // Post-loop cleanup
-          if (!finished) {
-            iterationsUsed = maxIterations;
-            yield* presentationService.presentWarning(
-              agent.name,
-              `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
-            );
-          } else if (!response.content?.trim() && !response.toolCalls) {
-            yield* presentationService.presentWarning(
-              agent.name,
-              "model returned an empty response",
-            );
-          }
-
-          const finalizeFiber = yield* finalizeAgentRun(runTracker, {
-            iterationsUsed,
-            finished,
-          }).pipe(
-            Effect.catchAll((error) =>
-              logger.warn("Failed to write agent token usage log", { error: error.message }),
-            ),
-            Effect.fork,
-          );
-          yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
-
-          return { ...response, messages: currentMessages };
-        }),
-      ({ logger, runContext, mcpManager, finalizeFiberRef }) =>
-        Effect.gen(function* () {
-          const fiberOption = yield* Ref.get(finalizeFiberRef);
-          if (Option.isSome(fiberOption)) {
-            yield* Fiber.await(fiberOption.value).pipe(
-              Effect.asVoid,
-              Effect.catchAll(() => Effect.void),
-            );
-          }
-
-          // Disconnect MCP servers used in this conversation
-          if (runContext.connectedMCPServers.length > 0 && Option.isSome(mcpManager)) {
-            yield* logger.debug(
-              `Disconnecting ${runContext.connectedMCPServers.length} MCP server(s) for conversation ${runContext.actualConversationId}`,
-            );
-            for (const serverName of runContext.connectedMCPServers) {
-              yield* mcpManager.value.disconnectServer(serverName).pipe(
-                Effect.catchAll((error) =>
-                  logger.warn(`Failed to disconnect MCP server ${serverName}`, {
-                    error: error instanceof Error ? error.message : String(error),
-                  }),
-                ),
-              );
-            }
-            yield* logger.debug("All MCP servers disconnected for this conversation");
-          }
-
-          yield* logger.clearSessionId();
-        }),
-    );
-  }
-
-  /**
-   * Proactively check if context needs compaction and summarize if necessary.
-   * This prevents hitting the model's context window limit by summarizing old messages.
-   */
-  private static compactContextIfNeeded(
-    currentMessages: ConversationMessages,
-    agent: Agent,
-    sessionId: string,
-    conversationId: string,
-  ): Effect.Effect<
-    ConversationMessages,
-    Error,
-    | LLMService
-    | ToolRegistry
-    | LoggerService
-    | AgentConfigService
-    | PresentationService
-    | ToolRequirements
-  > {
-    return Effect.gen(function* () {
-      const logger = yield* LoggerServiceTag;
-
-      // Check if summarization is needed
-      if (!DEFAULT_CONTEXT_WINDOW_MANAGER.shouldSummarize(currentMessages)) {
-        return currentMessages;
       }
-
-      const currentTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages);
-      const maxTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens || 150000;
-
-      yield* logger.info("Conversation context approaching limit", {
-        currentTokens,
-        maxTokens,
-        threshold: Math.floor(maxTokens * 0.8),
-        agentId: agent.id,
-        conversationId,
-      });
-
-      yield* logger.info("Compacting history to preserve context...", {
-        messageCount: currentMessages.length,
-      });
-
-      // Keep system message [0] and recent messages that fit in token budget
-      const systemMessage = currentMessages[0];
-
-      // Reserve 20% of max tokens for recent context
-      // This ensures we keep recent context while preventing it from eating the entire window
-      const recentTokenBudget = Math.floor(maxTokens * 0.2);
-      let accumulatedTokens = 0;
-      let recentCount = 0;
-
-      // Scan backwards to fill budget
-      for (let i = currentMessages.length - 1; i > 0; i--) {
-        const msg = currentMessages[i];
-        if (!msg) continue;
-        // Calculate tokens for this single message
-        const tokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens([msg]);
-
-        // Stop if adding this message exceeds budget, unless it's the very first one we're checking
-        // (we always want to keep at least 1 recent message even if it's large, though extremely large messages are risky)
-        if (accumulatedTokens + tokens > recentTokenBudget && recentCount > 0) {
-          break;
-        }
-
-        accumulatedTokens += tokens;
-        recentCount++;
-      }
-
-      // Always keep at least the last message
-      recentCount = Math.max(1, recentCount);
-      // But don't exceed total messages available to separate
-      recentCount = Math.min(recentCount, currentMessages.length - 1);
-
-      const recentMessages = currentMessages.slice(-recentCount);
-      const messagesToSummarize = currentMessages.slice(1, -recentCount);
-
-      if (messagesToSummarize.length === 0) {
-        // Not enough to summarize, just return as-is
-        return currentMessages;
-      }
-
-      yield* logger.debug("Summarizing messages from conversation", {
-        totalMessages: currentMessages.length,
-        messagesToSummarize: messagesToSummarize.length,
-        recentKept: recentCount,
-      });
-
-      // Summarize the middle portion
-      const summaryMessage = yield* AgentRunner.summarizeHistory(
-        messagesToSummarize,
-        agent,
-        sessionId,
-        conversationId,
-      );
-
-      // Rebuild: [system, summary, ...recent]
-      const compactedMessages: ConversationMessages = [
-        systemMessage,
-        summaryMessage,
-        ...recentMessages,
-      ] as ConversationMessages;
-
-      const newTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(compactedMessages);
-
-      yield* logger.info("Context compacted successfully", {
-        originalMessages: currentMessages.length,
-        compactedMessages: compactedMessages.length,
-        originalTokens: currentTokens,
-        compactedTokens: newTokens,
-        tokensSaved: currentTokens - newTokens,
-      });
-
-      return compactedMessages;
     });
   }
 
   /**
    * Summarizes a portion of the conversation history using a specialized sub-agent.
    * Returns a single assistant message containing the summary.
+   *
+   * This is a public convenience method that delegates to the Summarizer module.
    */
   public static summarizeHistory(
     messagesToSummarize: ChatMessage[],
@@ -1339,54 +279,23 @@ export class AgentRunner {
     | PresentationService
     | ToolRequirements
   > {
-    return Effect.gen(function* () {
-      const logger = yield* LoggerServiceTag;
+    const runRecursive = (runOpts: {
+      agent: Agent;
+      userInput: string;
+      sessionId: string;
+      conversationId: string;
+      maxIterations: number;
+    }) => AgentRunner.runRecursive(runOpts);
 
-      if (messagesToSummarize.length === 0) {
-        return { role: "assistant", content: "No history to summarize." };
-      }
-
-      yield* logger.debug("Starting background context summarization", {
-        messageCount: messagesToSummarize.length,
-        conversationId,
-      });
-
-      const historyText = messagesToSummarize
-        .map((m) => {
-          let content = m.content || "";
-          if (m.tool_calls) {
-            content += `\n[Tool Calls: ${m.tool_calls.map((tc) => tc.function.name).join(", ")}]`;
-          }
-          return `[${m.role.toUpperCase()}] ${content}`;
-        })
-        .join("\n\n---\n\n");
-
-      // Define specialized summarizer agent on the fly
-      const summarizer: Agent = {
-        id: "summarizer",
-        name: "Summarizer",
-        description: "Background context compressor",
-        model: agent.model,
-        config: {
-          ...agent.config,
-          agentType: "summarizer",
-        },
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const summaryResponse = yield* AgentRunner.runRecursive({
-        agent: summarizer,
-        userInput: historyText,
-        sessionId,
-        conversationId,
-        maxIterations: 1,
-      });
-
-      return {
-        role: "assistant",
-        content: summaryResponse.content,
-      };
-    });
+    return Summarizer.summarizeHistory(
+      messagesToSummarize,
+      agent,
+      sessionId,
+      conversationId,
+      runRecursive,
+    );
   }
 }
+
+// Re-export types for convenience
+export type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "./types";

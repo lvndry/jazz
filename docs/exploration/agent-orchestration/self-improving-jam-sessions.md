@@ -51,7 +51,7 @@ an evolving repository of best-known playbooks and measurable skill growth per a
   1. CLI loads session config, resolves referenced agents (IDs or templates).
   2. Spawns each agent via existing `AgentRunner.run` but injects session-specific system append
      (goal text, scoring hints).
-  3. Collects structured outputs from `agent-run-tracker` for later scoring.
+  3. Collects structured outputs from `agent-run-metrics` for later scoring.
 
 **Prerequisites**
 
@@ -139,7 +139,7 @@ an evolving repository of best-known playbooks and measurable skill growth per a
 
 ### Phase 0 — Instrumentation Prep
 
-1. Expand `agent-run-tracker` to emit a normalized summary object (JSON) per run.
+1. Expand `agent-run-metrics` to emit a normalized summary object (JSON) per run.
 2. Ensure `LoggerService` exposes hooks for CLI consumers to capture transcripts programmatically.
 3. Add config toggles for experimental features under `appConfig.experimental`.
 

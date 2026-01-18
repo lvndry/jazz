@@ -8,63 +8,13 @@ import { ink, TerminalServiceTag, type TerminalService } from "../../core/interf
 import { StorageError, StorageNotFoundError } from "../../core/types/errors";
 import { AgentDetailsCard } from "../ui/AgentDetailsCard";
 import { AgentsList } from "../ui/AgentsList";
-
-function getTerminalWidth(): number {
-  try {
-    return process.stdout.columns || 80;
-  } catch {
-    return 80;
-  }
-}
-
-function truncateMiddle(text: string, max: number): string {
-  if (max <= 0) return "";
-  if (text.length <= max) return text;
-  if (max <= 1) return "…";
-  if (max <= 10) return text.slice(0, max - 1) + "…";
-  const keep = max - 1;
-  const left = Math.ceil(keep * 0.6);
-  const right = keep - left;
-  return text.slice(0, left) + "…" + text.slice(text.length - right);
-}
-
-function formatIsoShort(d: Date): string {
-  // 2026-01-16 13:05
-  const iso = d.toISOString();
-  return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
-}
-
-/**
- * Strip ANSI escape codes from a string to get its visual width.
- * ANSI escape sequences follow patterns like: \x1b[...m, \u001b[...m, or \033[...m
- * Handles CSI (Control Sequence Introducer) sequences used by chalk and other terminal libraries.
- */
-function stripAnsiCodes(text: string): string {
-  // Match ANSI escape sequences:
-  // - ESC[ (CSI) followed by parameters (numbers, semicolons) and ending with a letter (typically 'm')
-  // - Chalk uses \u001b (Unicode ESC character) for escape sequences
-  // - Matches sequences ending with any letter (m for colors, H for cursor position, etc.)
-  // This regex matches the most common format: ESC[ followed by parameters and a command letter
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
-}
-
-/**
- * Get the visual width of a string, ignoring ANSI escape codes.
- */
-function getVisualWidth(text: string): number {
-  return stripAnsiCodes(text).length;
-}
-
-/**
- * Pad text to the right to a specific visual width, accounting for ANSI escape codes.
- * This ensures table alignment works correctly even when text contains chalk styling.
- */
-function padRight(text: string, width: number): string {
-  const visualWidth = getVisualWidth(text);
-  if (visualWidth >= width) return text;
-  return text + " ".repeat(width - visualWidth);
-}
+import {
+  formatIsoShort,
+  getTerminalWidth,
+  padRight,
+  truncateMiddle,
+  wrapCommaList,
+} from "../utils/string-utils";
 
 function formatAgentsListBlock(
   agents: readonly {
@@ -396,20 +346,4 @@ function formatAgentDetailsBlock(agent: {
   return lines.join("\n");
 }
 
-function wrapCommaList(items: readonly string[], width: number): string[] {
-  const parts = items.slice();
-  const lines: string[] = [];
-  let current = "";
 
-  for (const p of parts) {
-    const next = current.length === 0 ? p : `${current}, ${p}`;
-    if (next.length <= width) {
-      current = next;
-      continue;
-    }
-    if (current.length > 0) lines.push(current);
-    current = p;
-  }
-  if (current.length > 0) lines.push(current);
-  return lines;
-}
