@@ -200,6 +200,16 @@ export function convertMCPSchemaToZod(
     return z.object({});
   }
 
+  // Handle MCP SDK's nested jsonSchema format
+  // The MCP SDK wraps the actual JSON schema inside { jsonSchema: { ... } }
+  // We need to unwrap it to get the actual schema with type/properties/required
+  const schemaObj = mcpSchema as Record<string, unknown>;
+  const nestedJsonSchema = schemaObj["jsonSchema"];
+  if (nestedJsonSchema !== undefined && typeof nestedJsonSchema === "object" && nestedJsonSchema !== null) {
+    // Unwrap the nested jsonSchema
+    return convertMCPSchemaToZod(nestedJsonSchema, toolName);
+  }
+
   const schema = mcpSchema as MCPJSONSchema;
 
   // Handle const values (exact value match)

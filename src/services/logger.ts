@@ -7,6 +7,50 @@ import { jsonBigIntReplacer } from "../core/utils/logging-helpers";
 import { isInstalledGlobally } from "../core/utils/runtime-detection";
 
 /**
+ * Log Write Queue
+ *
+ * Ensures sequential log writes to prevent interleaving while maintaining
+ * fire-and-forget semantics. Each log entry is queued and written in order.
+ */
+class LogWriteQueue {
+  private writePromise: Promise<void> = Promise.resolve();
+  private dirCreated: Set<string> = new Set();
+
+  /**
+   * Enqueue a log write. Returns immediately (fire-and-forget).
+   * Writes are processed sequentially in the background.
+   */
+  enqueue(filePath: string, content: string): void {
+    // Chain this write after the previous one completes
+    this.writePromise = this.writePromise
+      .then(async () => {
+        // Ensure directory exists (cached to avoid repeated checks)
+        const dir = path.dirname(filePath);
+        if (!this.dirCreated.has(dir)) {
+          await mkdir(dir, { recursive: true });
+          this.dirCreated.add(dir);
+        }
+        await appendFile(filePath, content, { encoding: "utf8" });
+      })
+      .catch((error) => {
+        // Log errors to stderr but don't throw - logging should not break the app
+        console.error(`[LogWriteQueue] Failed to write log: ${error instanceof Error ? error.message : String(error)}`);
+      });
+  }
+
+  /**
+   * Wait for all pending writes to complete.
+   * Useful for graceful shutdown.
+   */
+  async flush(): Promise<void> {
+    await this.writePromise;
+  }
+}
+
+// Singleton queue for all log writes
+const logQueue = new LogWriteQueue();
+
+/**
  * Provides a custom logger implementation that maintains pretty formatting
  */
 
@@ -37,22 +81,16 @@ export class LoggerServiceImpl implements LoggerService {
     level: "debug" | "info" | "warn" | "error",
     message: string,
     meta?: Record<string, unknown>,
-  ): Effect.Effect<void, Error> {
+  ): Effect.Effect<void, never> {
     const sessionIdRef = this.sessionIdRef;
     return Effect.gen(function* () {
       const sessionId = yield* Ref.get(sessionIdRef);
-      return yield* Effect.tryPromise({
-        try: () => {
-          if (Option.isSome(sessionId)) {
-            return writeFormattedLogToSessionFile(level, sessionId.value, message, meta);
-          }
-          return writeFormattedLogToFile(level, message, meta);
-        },
-        catch: (error: unknown) =>
-          new Error(
-            `Failed to write to log file: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-      });
+      // Write operations are now synchronous (queued internally)
+      if (Option.isSome(sessionId)) {
+        writeFormattedLogToSessionFile(level, sessionId.value, message, meta);
+      } else {
+        writeFormattedLogToFile(level, message, meta);
+      }
     });
   }
 
@@ -117,12 +155,10 @@ export class LoggerServiceImpl implements LoggerService {
     return Effect.gen(function* () {
       const sessionId = yield* Ref.get(sessionIdRef);
       if (Option.isSome(sessionId)) {
-        yield* Effect.tryPromise({
-          try: () => writeToolCallToSessionFile(sessionId.value, toolName, args),
-          catch: () => undefined, // Silently fail - logging should not break execution
-        });
+        // Write is now synchronous (queued internally)
+        writeToolCallToSessionFile(sessionId.value, toolName, args);
       }
-    }).pipe(Effect.catchAll(() => Effect.void));
+    });
   }
 }
 
@@ -134,6 +170,16 @@ export class LoggerServiceImpl implements LoggerService {
  */
 export function createLoggerLayer(): Layer.Layer<LoggerService, never, never> {
   return Layer.succeed(LoggerServiceTag, new LoggerServiceImpl());
+}
+
+/**
+ * Flush all pending log writes
+ *
+ * Call this during graceful shutdown to ensure all queued log entries
+ * are written to disk before the process exits.
+ */
+export async function flushLogs(): Promise<void> {
+  await logQueue.flush();
 }
 
 let logsDirectoryCache: string | undefined;
@@ -167,49 +213,49 @@ function formatLogLineForFile(
 /**
  * Shared helper to write a formatted log line to file
  * Writes to the general jazz.log file (used when no sessionId is set)
+ * Uses the write queue to ensure sequential writes without interleaving.
  */
-async function writeFormattedLogToFile(
+function writeFormattedLogToFile(
   level: "debug" | "info" | "warn" | "error",
   message: string,
   meta?: Record<string, unknown>,
-): Promise<void> {
+): void {
   const logsDir = getLogsDirectory();
-  await mkdir(logsDir, { recursive: true });
   const logFilePath = path.join(logsDir, "jazz.log");
   const line = formatLogLineForFile(level, message, meta);
-  await appendFile(logFilePath, line, { encoding: "utf8" });
+  logQueue.enqueue(logFilePath, line);
 }
 
 /**
  * Write a formatted log line to a session-specific file
  * Creates a separate log file per session ID: {sessionId}.log
+ * Uses the write queue to ensure sequential writes without interleaving.
  */
-async function writeFormattedLogToSessionFile(
+function writeFormattedLogToSessionFile(
   level: "debug" | "info" | "warn" | "error",
   sessionId: string,
   message: string,
   meta?: Record<string, unknown>,
-): Promise<void> {
+): void {
   const logsDir = getLogsDirectory();
-  await mkdir(logsDir, { recursive: true });
   // Sanitize sessionId for use in filename (remove invalid characters)
   const sanitizedId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
   const logFilePath = path.join(logsDir, `${sanitizedId}.log`);
   const line = formatLogLineForFile(level, message, meta);
-  await appendFile(logFilePath, line, { encoding: "utf8" });
+  logQueue.enqueue(logFilePath, line);
 }
 
 /**
  * Write a tool call to the session log file in the same format as chat messages
  * Format: [timestamp] [TOOL_CALL] toolName {args}
+ * Uses the write queue to ensure sequential writes without interleaving.
  */
-async function writeToolCallToSessionFile(
+function writeToolCallToSessionFile(
   sessionId: string,
   toolName: string,
   args: Record<string, unknown>,
-): Promise<void> {
+): void {
   const logsDir = getLogsDirectory();
-  await mkdir(logsDir, { recursive: true });
   // Sanitize sessionId for use in filename (remove invalid characters)
   const sanitizedId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
   const logFilePath = path.join(logsDir, `${sanitizedId}.log`);
@@ -220,7 +266,7 @@ async function writeToolCallToSessionFile(
   const content = `${toolName} ${argsJson}`;
   const line = `[${timestamp}] [TOOL_CALL] ${content}\n`;
 
-  await appendFile(logFilePath, line, { encoding: "utf8" });
+  logQueue.enqueue(logFilePath, line);
 }
 
 /**

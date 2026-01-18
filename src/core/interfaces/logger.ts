@@ -11,13 +11,14 @@ export interface LoggerService {
   readonly error: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
   /**
    * Write a log entry to file
-   * Automatically routes to session-specific file if sessionId is set
+   * Automatically routes to session-specific file if sessionId is set.
+   * Uses a write queue to ensure sequential writes without interleaving.
    */
   readonly writeToFile: (
     level: "debug" | "info" | "warn" | "error",
     message: string,
     meta?: Record<string, unknown>,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, never>;
   /**
    * Log a tool call to the session log file (if sessionId is set)
    * Uses the same format as chat messages: [timestamp] [TOOL_CALL] toolName {args}

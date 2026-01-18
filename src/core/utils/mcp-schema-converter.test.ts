@@ -266,6 +266,29 @@ describe("MCP Schema Converter", () => {
       expect(warnings.some(w => w.includes("$ref not supported"))).toBe(true);
     });
 
+    it("should unwrap MCP SDK's nested jsonSchema format", () => {
+      // The MCP SDK wraps the actual JSON schema inside { jsonSchema: { ... } }
+      // This test ensures we correctly unwrap it
+      const schema = {
+        jsonSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Search query" },
+            limit: { type: "number" },
+          },
+          required: ["query"],
+        },
+      };
+      const zodSchema = convertMCPSchemaToZod(schema, "notion-search");
+
+      // Should correctly parse the unwrapped schema
+      expect(zodSchema.safeParse({ query: "test" }).success).toBe(true);
+      expect(zodSchema.safeParse({ query: "test", limit: 10 }).success).toBe(true);
+      // Should fail without required query
+      expect(zodSchema.safeParse({ limit: 10 }).success).toBe(false);
+      expect(zodSchema.safeParse({}).success).toBe(false);
+    });
+
     it("should handle nested object schemas", () => {
       const schema = {
         type: "object",
