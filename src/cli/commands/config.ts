@@ -1,12 +1,11 @@
 import { Effect } from "effect";
-import { AVAILABLE_PROVIDERS, type ProviderName } from "../../core/constants/models";
-import { ConfigurationValidationError } from "../../core/types/errors";
-
 import React from "react";
 import { WEB_SEARCH_PROVIDERS } from "../../core/agent/tools/web-search-tools";
+import { AVAILABLE_PROVIDERS, type ProviderName } from "../../core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
 import { ink, TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import type { LoggingConfig } from "../../core/types/config";
+import { ConfigurationValidationError } from "../../core/types/errors";
 import { ConfigCard } from "../ui/ConfigCard";
 
 /**

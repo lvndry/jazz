@@ -5,7 +5,7 @@ import type { LoggerService } from "../../interfaces/logger";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import { type Agent } from "../../types";
 
-export interface AgentRunTrackerContext {
+export interface AgentRunMetricsContext {
   readonly agent: Agent;
   readonly conversationId: string;
   readonly userId?: string;
@@ -24,7 +24,7 @@ interface AgentRunIterationSummary {
   readonly toolSequence: string[];
 }
 
-export interface AgentRunTracker {
+export interface AgentRunMetrics {
   readonly runId: string;
   readonly agentId: string;
   readonly agentName: string;
@@ -52,7 +52,7 @@ export interface AgentRunTracker {
   firstTokenLatencyMs?: number | undefined;
 }
 
-export function createAgentRunTracker(context: AgentRunTrackerContext): AgentRunTracker {
+export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRunMetrics {
   const { agent, conversationId, userId, provider, model, reasoningEffort, maxIterations } =
     context;
 
@@ -85,19 +85,19 @@ export function createAgentRunTracker(context: AgentRunTrackerContext): AgentRun
 }
 
 export function recordLLMUsage(
-  tracker: AgentRunTracker,
+  metrics: AgentRunMetrics,
   usage: { readonly promptTokens: number; readonly completionTokens: number },
 ): void {
-  tracker.totalPromptTokens += usage.promptTokens;
-  tracker.totalCompletionTokens += usage.completionTokens;
+  metrics.totalPromptTokens += usage.promptTokens;
+  metrics.totalCompletionTokens += usage.completionTokens;
 }
 
-export function recordLLMRetry(tracker: AgentRunTracker, error: unknown): void {
-  tracker.llmRetryCount += 1;
-  tracker.lastError = pushError(tracker, error, "llm-retry");
+export function recordLLMRetry(metrics: AgentRunMetrics, error: unknown): void {
+  metrics.llmRetryCount += 1;
+  metrics.lastError = pushError(metrics, error, "llm-retry");
 }
 
-export function beginIteration(tracker: AgentRunTracker, iterationNumber: number): void {
+export function beginIteration(metrics: AgentRunMetrics, iterationNumber: number): void {
   const summary: AgentRunIterationSummary = {
     iteration: iterationNumber,
     toolCalls: 0,
@@ -106,20 +106,20 @@ export function beginIteration(tracker: AgentRunTracker, iterationNumber: number
     errors: [],
     toolSequence: [],
   };
-  tracker.currentIteration = summary;
-  tracker.iterationSummaries.push(summary);
+  metrics.currentIteration = summary;
+  metrics.iterationSummaries.push(summary);
 }
 
-export function completeIteration(tracker: AgentRunTracker): void {
-  tracker.currentIteration = undefined;
+export function completeIteration(metrics: AgentRunMetrics): void {
+  metrics.currentIteration = undefined;
 }
 
-export function recordToolInvocation(tracker: AgentRunTracker, toolName: string): void {
-  tracker.toolCalls += 1;
-  tracker.toolsUsed.add(toolName);
-  tracker.toolCallCounts[toolName] = (tracker.toolCallCounts[toolName] ?? 0) + 1;
-  tracker.toolInvocationSequence.push(toolName);
-  const current = tracker.currentIteration;
+export function recordToolInvocation(metrics: AgentRunMetrics, toolName: string): void {
+  metrics.toolCalls += 1;
+  metrics.toolsUsed.add(toolName);
+  metrics.toolCallCounts[toolName] = (metrics.toolCallCounts[toolName] ?? 0) + 1;
+  metrics.toolInvocationSequence.push(toolName);
+  const current = metrics.currentIteration;
 
   if (current) {
     current.toolCalls += 1;
@@ -129,39 +129,39 @@ export function recordToolInvocation(tracker: AgentRunTracker, toolName: string)
   }
 }
 
-export function recordToolError(tracker: AgentRunTracker, toolName: string, error: unknown): void {
-  tracker.toolErrors += 1;
-  tracker.lastError = pushError(tracker, error, `tool:${toolName}`);
+export function recordToolError(metrics: AgentRunMetrics, toolName: string, error: unknown): void {
+  metrics.toolErrors += 1;
+  metrics.lastError = pushError(metrics, error, `tool:${toolName}`);
 }
 
-export function recordFirstTokenLatency(tracker: AgentRunTracker, latencyMs: number): void {
-  if (tracker.firstTokenLatencyMs === undefined) {
-    tracker.firstTokenLatencyMs = latencyMs;
+export function recordFirstTokenLatency(metrics: AgentRunMetrics, latencyMs: number): void {
+  if (metrics.firstTokenLatencyMs === undefined) {
+    metrics.firstTokenLatencyMs = latencyMs;
   }
 }
 
-export function recordLastError(tracker: AgentRunTracker, error: unknown): void {
-  tracker.lastError = pushError(tracker, error);
+export function recordLastError(metrics: AgentRunMetrics, error: unknown): void {
+  metrics.lastError = pushError(metrics, error);
 }
 
 export function finalizeAgentRun(
-  tracker: AgentRunTracker,
+  metrics: AgentRunMetrics,
   details: {
     readonly iterationsUsed: number;
     readonly finished: boolean;
   },
 ): Effect.Effect<void, Error, LoggerService> {
   const endedAt = new Date();
-  const durationMs = endedAt.getTime() - tracker.startedAt.getTime();
-  const totalTokens = tracker.totalPromptTokens + tracker.totalCompletionTokens;
-  const toolsUsedList = Array.from(tracker.toolsUsed.values()).sort();
+  const durationMs = endedAt.getTime() - metrics.startedAt.getTime();
+  const totalTokens = metrics.totalPromptTokens + metrics.totalCompletionTokens;
+  const toolsUsedList = Array.from(metrics.toolsUsed.values()).sort();
   const sortedToolCallCounts: Record<string, number> = Object.fromEntries(
-    Object.entries(tracker.toolCallCounts).sort(([a], [b]) => a.localeCompare(b)),
+    Object.entries(metrics.toolCallCounts).sort(([a], [b]) => a.localeCompare(b)),
   );
   const sanitizedLastError =
-    tracker.lastError && tracker.lastError.trim().length > 0 ? tracker.lastError : undefined;
+    metrics.lastError && metrics.lastError.trim().length > 0 ? metrics.lastError : undefined;
 
-  const iterationSummaries = tracker.iterationSummaries.map((summary) => ({
+  const iterationSummaries = metrics.iterationSummaries.map((summary) => ({
     iteration: summary.iteration,
     toolCalls: summary.toolCalls,
     toolsUsed: Array.from(summary.toolsUsed.values()).sort(),
@@ -173,36 +173,36 @@ export function finalizeAgentRun(
   }));
 
   return writeTokenUsageLog({
-    runId: tracker.runId,
-    agentId: tracker.agentId,
-    agentName: tracker.agentName,
-    agentType: tracker.agentType,
-    agentUpdatedAt: tracker.agentUpdatedAt,
-    conversationId: tracker.conversationId,
-    ...(tracker.userId ? { userId: tracker.userId } : {}),
-    ...(tracker.provider ? { provider: tracker.provider } : {}),
-    ...(tracker.model ? { model: tracker.model } : {}),
-    ...(tracker.reasoningEffort ? { reasoningEffort: tracker.reasoningEffort } : {}),
-    promptTokens: tracker.totalPromptTokens,
-    completionTokens: tracker.totalCompletionTokens,
+    runId: metrics.runId,
+    agentId: metrics.agentId,
+    agentName: metrics.agentName,
+    agentType: metrics.agentType,
+    agentUpdatedAt: metrics.agentUpdatedAt,
+    conversationId: metrics.conversationId,
+    ...(metrics.userId ? { userId: metrics.userId } : {}),
+    ...(metrics.provider ? { provider: metrics.provider } : {}),
+    ...(metrics.model ? { model: metrics.model } : {}),
+    ...(metrics.reasoningEffort ? { reasoningEffort: metrics.reasoningEffort } : {}),
+    promptTokens: metrics.totalPromptTokens,
+    completionTokens: metrics.totalCompletionTokens,
     totalTokens,
     iterations: details.iterationsUsed,
-    maxIterations: tracker.maxIterations,
+    maxIterations: metrics.maxIterations,
     finished: details.finished,
-    startedAt: tracker.startedAt,
+    startedAt: metrics.startedAt,
     endedAt,
     durationMs,
-    retryCount: tracker.llmRetryCount,
+    retryCount: metrics.llmRetryCount,
     ...(sanitizedLastError ? { lastError: sanitizedLastError } : {}),
-    toolCalls: tracker.toolCalls,
+    toolCalls: metrics.toolCalls,
     toolsUsed: toolsUsedList,
-    toolErrors: tracker.toolErrors,
+    toolErrors: metrics.toolErrors,
     toolCallCounts: sortedToolCallCounts,
-    toolInvocationSequence: tracker.toolInvocationSequence,
-    errors: tracker.errors,
+    toolInvocationSequence: metrics.toolInvocationSequence,
+    errors: metrics.errors,
     iterationSummaries,
-    ...(tracker.firstTokenLatencyMs !== undefined
-      ? { firstTokenLatencyMs: tracker.firstTokenLatencyMs }
+    ...(metrics.firstTokenLatencyMs !== undefined
+      ? { firstTokenLatencyMs: metrics.firstTokenLatencyMs }
       : {}),
   });
 }
@@ -295,12 +295,12 @@ function normalizeError(error: unknown): string {
   return message.replace(/\s+/g, " ").trim();
 }
 
-function pushError(tracker: AgentRunTracker, error: unknown, context?: string): string {
+function pushError(metrics: AgentRunMetrics, error: unknown, context?: string): string {
   const normalized = normalizeError(error);
   const contextualized = context ? `${context}: ${normalized}` : normalized;
-  tracker.errors.push(contextualized);
-  if (tracker.currentIteration) {
-    tracker.currentIteration.errors.push(contextualized);
+  metrics.errors.push(contextualized);
+  if (metrics.currentIteration) {
+    metrics.currentIteration.errors.push(contextualized);
   }
   return contextualized;
 }

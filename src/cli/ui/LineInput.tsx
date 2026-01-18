@@ -2,93 +2,12 @@ import { Box, Text, useInput } from "ink";
 import React, { useEffect, useRef, useState } from "react";
 
 import { parseInput, type KeyInfo } from "./escape-sequence-parser";
+import { findNextWordBoundary, findPrevWordBoundary } from "./text-utils";
 
 /**
  * Text input component with readline-style shortcuts.
  * Based on ink-text-input with added word-level operations.
  */
-
-/**
- * Check if a character is alphanumeric (word character).
- * Matches macOS word boundary behavior.
- */
-function isWordChar(char: string): boolean {
-  return /[a-zA-Z0-9_]/.test(char);
-}
-
-/**
- * Find the start of the previous word.
- * Matches macOS Option+Left behavior.
- */
-function findPrevWordBoundary(value: string, cursor: number): number {
-  if (cursor === 0) return 0;
-
-  let i = cursor;
-
-  // If we're in the middle or end of a word, skip to its start
-  const charBefore = value[i - 1];
-  if (i > 0 && charBefore !== undefined && isWordChar(charBefore)) {
-    while (i > 0) {
-      const char = value[i - 1];
-      if (char === undefined || !isWordChar(char)) break;
-      i--;
-    }
-    return i;
-  }
-
-  // Skip backward through non-word characters
-  while (i > 0) {
-    const char = value[i - 1];
-    if (char === undefined || isWordChar(char)) break;
-    i--;
-  }
-
-  // Skip backward through word characters to find the start
-  while (i > 0) {
-    const char = value[i - 1];
-    if (char === undefined || !isWordChar(char)) break;
-    i--;
-  }
-
-  return i;
-}
-
-/**
- * Find the end of the next word.
- * Matches macOS Option+Right behavior.
- */
-function findNextWordBoundary(value: string, cursor: number): number {
-  if (cursor >= value.length) return value.length;
-
-  let i = cursor;
-
-  // If we're in the middle or start of a word, skip to its end
-  const charAt = value[i];
-  if (i < value.length && charAt !== undefined && isWordChar(charAt)) {
-    while (i < value.length) {
-      const char = value[i];
-      if (char === undefined || !isWordChar(char)) break;
-      i++;
-    }
-    return i;
-  }
-
-  // Skip forward through non-word characters
-  while (i < value.length) {
-    const char = value[i];
-    if (char === undefined || isWordChar(char)) break;
-    i++;
-  }
-
-  // Skip forward through word characters to find the end
-  while (i < value.length) {
-    const char = value[i];
-    if (char === undefined || !isWordChar(char)) break;
-    i++;
-  }
-
-  return i;
-}
 
 interface LineInputProps {
   value: string;

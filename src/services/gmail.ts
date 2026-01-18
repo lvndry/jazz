@@ -11,19 +11,20 @@ import { GmailAuthenticationError, GmailOperationError } from "../core/types/err
 import type { GmailEmail, GmailLabel } from "../core/types/gmail";
 import { getHttpStatusFromError } from "../core/utils/http-utils";
 import { resolveStorageDirectory } from "../core/utils/storage-utils";
+import {
+  ALL_GOOGLE_SCOPES,
+  GMAIL_REQUIRED_SCOPES,
+  getGoogleOAuthPort,
+  getGoogleOAuthRedirectUri,
+  getGoogleTokenFilePath,
+  hasAnyRequiredScope,
+  type GoogleOAuthToken,
+} from "./google/auth";
 
 /**
  * Gmail service for interacting with Gmail API
  * Implements the core GmailService interface
  */
-
-interface GoogleOAuthToken {
-  access_token?: string;
-  refresh_token?: string;
-  scope?: string;
-  token_type?: string;
-  expiry_date?: number;
-}
 
 export class GmailServiceResource implements GmailService {
   constructor(
@@ -383,14 +384,7 @@ export class GmailServiceResource implements GmailService {
         try {
           const parsed = JSON.parse(token) as GoogleOAuthToken;
           // Check if token has required Gmail scopes
-          const requiredScopes = [
-            "https://www.googleapis.com/auth/gmail.readonly",
-            "https://www.googleapis.com/auth/gmail.send",
-            "https://www.googleapis.com/auth/gmail.modify",
-          ];
-          const tokenScopes = parsed.scope?.split(" ") || [];
-          const hasRequiredScopes = requiredScopes.some((scope) => tokenScopes.includes(scope));
-          if (!hasRequiredScopes) {
+          if (!hasAnyRequiredScope(parsed, GMAIL_REQUIRED_SCOPES)) {
             // Token exists but doesn't have required scopes, need to re-authenticate
             return false;
           }
@@ -458,8 +452,8 @@ export class GmailServiceResource implements GmailService {
   private performOAuthFlow(): Effect.Effect<void, GmailAuthenticationError> {
     return Effect.gen(
       function* (this: GmailServiceResource) {
-        const port = Number(process.env["GOOGLE_REDIRECT_PORT"] || 53682);
-        const redirectUri = `http://localhost:${port}/oauth2callback`;
+        const port = getGoogleOAuthPort();
+        const redirectUri = getGoogleOAuthRedirectUri(port);
         // Recreate OAuth client with runtime redirectUri (property is readonly)
         const currentCreds = this.oauthClient.credentials as GoogleOAuthToken;
         const clientId = this.oauthClient._clientId;
@@ -480,19 +474,11 @@ export class GmailServiceResource implements GmailService {
         this.gmail = google.gmail({ version: "v1", auth: this.oauthClient });
 
         // Include both Gmail and Calendar scopes since they share the same token file
-        const scopes = [
-          "https://www.googleapis.com/auth/gmail.readonly",
-          "https://www.googleapis.com/auth/gmail.send",
-          "https://www.googleapis.com/auth/gmail.modify",
-          "https://www.googleapis.com/auth/gmail.labels",
-          "https://www.googleapis.com/auth/gmail.compose",
-          "https://www.googleapis.com/auth/calendar",
-          "https://www.googleapis.com/auth/calendar.events",
-        ];
+        const scopes = ALL_GOOGLE_SCOPES;
 
         const authUrl = this.oauthClient.generateAuthUrl({
           access_type: "offline",
-          scope: scopes,
+          scope: [...scopes],
           prompt: "consent",
         });
 
@@ -731,14 +717,14 @@ export function createGmailServiceLayer(): Layer.Layer<
         return Effect.void as Effect.Effect<void, GmailAuthenticationError>;
       }
 
-      const port = 53682;
-      const redirectUri = `http://localhost:${port}/oauth2callback`;
+      const port = getGoogleOAuthPort();
+      const redirectUri = getGoogleOAuthRedirectUri(port);
       const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
       const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
       const { storage } = yield* agentConfig.appConfig;
       const dataDir = resolveStorageDirectory(storage);
-      const tokenFilePath = `${dataDir}/google/gmail-token.json`;
+      const tokenFilePath = getGoogleTokenFilePath(dataDir);
       const service: GmailService = new GmailServiceResource(
         fs,
         tokenFilePath,

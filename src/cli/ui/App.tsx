@@ -1,6 +1,7 @@
 import { Box } from "ink";
 import type { Dispatch, SetStateAction } from "react";
 import { createContext, useMemo, useRef, useState } from "react";
+import ErrorBoundary from "./ErrorBoundary";
 import { Header } from "./Header";
 import { LiveResponse } from "./LiveResponse";
 import { LogEntryItem } from "./LogList";
@@ -139,28 +140,30 @@ export function App(): React.ReactElement {
   );
 
   return (
-    <AppContext.Provider value={contextValue}>
-      <Box
-        flexDirection="column"
-        padding={1}
-      >
-        <Header />
-        {/* Render logs in order - Header first, then logs */}
-        {logs.map((log, index) => (
-          <LogEntryItem
-            key={log.id}
-            log={log}
-            addSpacing={log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user")}
+    <ErrorBoundary>
+      <AppContext.Provider value={contextValue}>
+        <Box
+          flexDirection="column"
+          padding={1}
+        >
+          <Header />
+          {/* Render logs in order - Header first, then logs */}
+          {logs.map((log, index) => (
+            <LogEntryItem
+              key={log.id}
+              log={log}
+              addSpacing={log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user")}
+            />
+          ))}
+          {stream && <LiveResponse stream={stream} />}
+          {prompt && <Prompt prompt={prompt} />}
+          <StatusFooter
+            status={status}
+            workingDirectory={workingDirectory}
           />
-        ))}
-        {stream && <LiveResponse stream={stream} />}
-        {prompt && <Prompt prompt={prompt} />}
-        <StatusFooter
-          status={status}
-          workingDirectory={workingDirectory}
-        />
-      </Box>
-    </AppContext.Provider>
+        </Box>
+      </AppContext.Provider>
+    </ErrorBoundary>
   );
 }
 

@@ -14,68 +14,27 @@ import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { ToolCategory } from "../../types";
 import type { MCPTool } from "../../types/mcp";
 import { toPascalCase } from "../../utils/string";
-import { calendarTools } from "./calendar-tools";
+import { calendarTools } from "./calendar";
+import { fs } from "./fs";
 import {
-  createCdTool,
-  createEditFileTool,
-  createExecuteEditFileTool,
-  createExecuteMkdirTool,
-  createExecuteRmTool,
-  createExecuteWriteFileTool,
-  createFindPathTool,
-  createFindTool,
-  createGrepTool,
-  createHeadTool,
-  createLsTool,
-  createMkdirTool,
-  createPwdTool,
-  createReadFileTool,
-  createReadPdfTool,
-  createRmTool,
-  createStatTool,
-  createTailTool,
-  createWriteFileTool,
-} from "./fs-tools";
-import {
-  createExecuteGitAddTool,
-  createExecuteGitCheckoutTool,
-  createExecuteGitCommitTool,
-  createExecuteGitMergeTool,
-  createExecuteGitPullTool,
-  createExecuteGitPushTool,
-  createExecuteGitTagTool,
-  createGitAddTool,
-  createGitBlameTool,
-  createGitBranchTool,
-  createGitCheckoutTool,
-  createGitCommitTool,
-  createGitDiffTool,
-  createGitLogTool,
-  createGitMergeTool,
-  createGitPullTool,
-  createGitPushTool,
-  createGitReflogTool,
-  createGitStatusTool,
-  createGitTagTool,
-} from "./git-tools";
-import {
-  createAddLabelsToEmailTool,
-  createBatchModifyEmailsTool,
-  createCreateLabelTool,
-  createDeleteEmailTool,
-  createDeleteLabelTool,
-  createExecuteDeleteEmailTool,
-  createExecuteDeleteLabelTool,
-  createExecuteTrashEmailTool,
-  createGetEmailTool,
-  createListEmailsTool,
-  createListLabelsTool,
-  createRemoveLabelsFromEmailTool,
-  createSearchEmailsTool,
-  createSendEmailTool,
-  createTrashEmailTool,
-  createUpdateLabelTool,
-} from "./gmail-tools";
+    createAddLabelsToEmailTool,
+    createBatchModifyEmailsTool,
+    createCreateLabelTool,
+    createDeleteEmailTool,
+    createDeleteLabelTool,
+    createExecuteDeleteEmailTool,
+    createExecuteDeleteLabelTool,
+    createExecuteTrashEmailTool,
+    createGetEmailTool,
+    createListEmailsTool,
+    createListLabelsTool,
+    createRemoveLabelsFromEmailTool,
+    createSearchEmailsTool,
+    createSendEmailTool,
+    createTrashEmailTool,
+    createUpdateLabelTool,
+} from "./gmail";
+import { git } from "./git";
 import { createHttpRequestTool } from "./http-tools";
 import { registerMCPServerTools } from "./mcp-tools";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
@@ -485,25 +444,6 @@ export function registerMCPToolsForSelection(): Effect.Effect<
   });
 }
 
-/**
- * Register MCP server tools with lazy connection support
- *
- * This function uses a connect-get-disconnect pattern:
- * 1. Connect to each MCP server to discover available tools
- * 2. Immediately disconnect to prevent the CLI from hanging
- * 3. Register tools with server config for lazy reconnection when invoked
- *
- * @deprecated Use registerMCPToolsLazy() instead to avoid startup delays, or registerMCPToolsForSelection() for tool selection
- */
-export function registerMCPTools(): Effect.Effect<
-  void,
-  Error,
-  ToolRegistry | MCPServerManager | AgentConfigService | LoggerService | TerminalService
-> {
-  // Delegate to the new function to avoid code duplication
-  return registerMCPToolsForSelection();
-}
-
 export const GMAIL_CATEGORY: ToolCategory = { id: "gmail", displayName: "Gmail" };
 export const CALENDAR_CATEGORY: ToolCategory = { id: "calendar", displayName: "Calendar" };
 export const HTTP_CATEGORY: ToolCategory = { id: "http", displayName: "HTTP" };
@@ -681,45 +621,34 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(FILE_MANAGEMENT_CATEGORY);
 
-    const pwd = createPwdTool();
-    const ls = createLsTool();
-    const cd = createCdTool();
-    const grep = createGrepTool();
-    const readFile = createReadFileTool();
-    const readPdf = createReadPdfTool();
-    const head = createHeadTool();
-    const tail = createTailTool();
-    const find = createFindTool();
-    const findPath = createFindPathTool();
-    const stat = createStatTool();
-    const mkdir = createMkdirTool();
-    const executeMkdir = createExecuteMkdirTool();
-    const rm = createRmTool();
-    const executeRm = createExecuteRmTool();
-    const writeFile = createWriteFileTool();
-    const executeWriteFile = createExecuteWriteFileTool();
-    const editFile = createEditFileTool();
-    const executeEditFile = createExecuteEditFileTool();
+    // Navigation tools
+    yield* registerTool(fs.pwd());
+    yield* registerTool(fs.ls());
+    yield* registerTool(fs.cd());
+    yield* registerTool(fs.stat());
 
-    yield* registerTool(pwd);
-    yield* registerTool(ls);
-    yield* registerTool(cd);
-    yield* registerTool(grep);
-    yield* registerTool(readFile);
-    yield* registerTool(readPdf);
-    yield* registerTool(head);
-    yield* registerTool(tail);
-    yield* registerTool(writeFile);
-    yield* registerTool(editFile);
-    yield* registerTool(find);
-    yield* registerTool(findPath);
-    yield* registerTool(stat);
-    yield* registerTool(mkdir);
-    yield* registerTool(executeMkdir);
-    yield* registerTool(rm);
-    yield* registerTool(executeRm);
-    yield* registerTool(executeWriteFile);
-    yield* registerTool(executeEditFile);
+    // Read tools
+    yield* registerTool(fs.read());
+    yield* registerTool(fs.readPdf());
+    yield* registerTool(fs.head());
+    yield* registerTool(fs.tail());
+
+    // Search tools
+    yield* registerTool(fs.grep());
+    yield* registerTool(fs.find());
+    yield* registerTool(fs.findPath());
+
+    // Write tools (approval required)
+    yield* registerTool(fs.write());
+    yield* registerTool(fs.edit());
+    yield* registerTool(fs.mkdir());
+    yield* registerTool(fs.rm());
+
+    // Execute tools (internal - called after approval)
+    yield* registerTool(fs.executeWrite());
+    yield* registerTool(fs.executeEdit());
+    yield* registerTool(fs.executeMkdir());
+    yield* registerTool(fs.executeRm());
   });
 }
 
@@ -744,56 +673,30 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     const registerTool = registry.registerForCategory(GIT_CATEGORY);
 
     // Safe Git operations (no approval needed)
-    const gitStatusTool = createGitStatusTool();
-    const gitLogTool = createGitLogTool();
-    const gitDiffTool = createGitDiffTool();
-    const gitBranchTool = createGitBranchTool();
-    const gitTagTool = createGitTagTool();
-    const gitBlameTool = createGitBlameTool();
-    const gitReflogTool = createGitReflogTool();
+    yield* registerTool(git.status());
+    yield* registerTool(git.log());
+    yield* registerTool(git.diff());
+    yield* registerTool(git.branch());
+    yield* registerTool(git.tag());
+    yield* registerTool(git.blame());
+    yield* registerTool(git.reflog());
 
-    // Potentially destructive operations (approval required)
-    const gitAddTool = createGitAddTool();
-    const gitCommitTool = createGitCommitTool();
-    const gitPushTool = createGitPushTool();
-    const gitPullTool = createGitPullTool();
-    const gitCheckoutTool = createGitCheckoutTool();
-    const gitMergeTool = createGitMergeTool();
+    // Approval-required operations
+    yield* registerTool(git.add());
+    yield* registerTool(git.commit());
+    yield* registerTool(git.push());
+    yield* registerTool(git.pull());
+    yield* registerTool(git.checkout());
+    yield* registerTool(git.merge());
 
     // Internal execution tools (called after approval)
-    const executeGitAddTool = createExecuteGitAddTool();
-    const executeGitCommitTool = createExecuteGitCommitTool();
-    const executeGitPushTool = createExecuteGitPushTool();
-    const executeGitPullTool = createExecuteGitPullTool();
-    const executeGitCheckoutTool = createExecuteGitCheckoutTool();
-    const executeGitTagTool = createExecuteGitTagTool();
-    const executeGitMergeTool = createExecuteGitMergeTool();
-
-    // Register safe tools
-    yield* registerTool(gitStatusTool);
-    yield* registerTool(gitLogTool);
-    yield* registerTool(gitDiffTool);
-    yield* registerTool(gitBranchTool);
-    yield* registerTool(gitTagTool);
-    yield* registerTool(gitBlameTool);
-    yield* registerTool(gitReflogTool);
-
-    // Register approval-required tools
-    yield* registerTool(gitAddTool);
-    yield* registerTool(gitCommitTool);
-    yield* registerTool(gitPushTool);
-    yield* registerTool(gitPullTool);
-    yield* registerTool(gitCheckoutTool);
-    yield* registerTool(gitMergeTool);
-
-    // Register internal execution tools
-    yield* registerTool(executeGitAddTool);
-    yield* registerTool(executeGitCommitTool);
-    yield* registerTool(executeGitPushTool);
-    yield* registerTool(executeGitPullTool);
-    yield* registerTool(executeGitCheckoutTool);
-    yield* registerTool(executeGitTagTool);
-    yield* registerTool(executeGitMergeTool);
+    yield* registerTool(git.executeAdd());
+    yield* registerTool(git.executeCommit());
+    yield* registerTool(git.executePush());
+    yield* registerTool(git.executePull());
+    yield* registerTool(git.executeCheckout());
+    yield* registerTool(git.executeTag());
+    yield* registerTool(git.executeMerge());
   });
 }
 

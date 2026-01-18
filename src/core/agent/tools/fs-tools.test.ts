@@ -11,7 +11,7 @@ import {
   createReadFileTool,
   createStatTool,
   createTailTool,
-} from "./fs-tools";
+} from "./fs";
 
 // Tests create a unique temp base directory and clean up after running
 

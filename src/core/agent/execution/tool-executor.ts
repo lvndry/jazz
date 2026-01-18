@@ -17,8 +17,8 @@ import { formatToolArguments } from "../../utils/tool-formatter";
 import {
   recordToolError,
   recordToolInvocation,
-  type createAgentRunTracker,
-} from "../tracking/agent-run-tracker";
+  type createAgentRunMetrics,
+} from "../metrics/agent-run-metrics";
 
 /**
  * Service for executing tools
@@ -50,7 +50,7 @@ export class ToolExecutor {
     context: ToolExecutionContext,
     displayConfig: DisplayConfig,
     renderer: StreamingRenderer | null,
-    runTracker: ReturnType<typeof createAgentRunTracker>,
+    runMetrics: ReturnType<typeof createAgentRunMetrics>,
     agentId: string,
     conversationId: string,
   ): Effect.Effect<
@@ -67,7 +67,7 @@ export class ToolExecutor {
       }
 
       const { name, arguments: argsString } = toolCall.function;
-      recordToolInvocation(runTracker, name);
+      recordToolInvocation(runMetrics, name);
       const toolStartTime = Date.now();
 
       try {
@@ -172,7 +172,7 @@ export class ToolExecutor {
           }
         }
 
-        recordToolError(runTracker, name, error);
+        recordToolError(runMetrics, name, error);
         yield* logger.error("Tool execution failed", {
           agentId,
           conversationId,
@@ -199,7 +199,7 @@ export class ToolExecutor {
     context: ToolExecutionContext,
     displayConfig: DisplayConfig,
     renderer: StreamingRenderer | null,
-    runTracker: ReturnType<typeof createAgentRunTracker>,
+    runMetrics: ReturnType<typeof createAgentRunMetrics>,
     agentId: string,
     conversationId: string,
     agentName: string,
@@ -273,7 +273,7 @@ export class ToolExecutor {
             context,
             displayConfig,
             renderer,
-            runTracker,
+            runMetrics,
             agentId,
             conversationId,
           ),
