@@ -1,13 +1,13 @@
 import { Effect } from "effect";
-import { AgentServiceTag, type AgentService } from "../interfaces/agent-service";
+import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import type {
   AgentAlreadyExistsError,
   AgentConfigurationError,
   StorageError,
   ValidationError,
-} from "../types/errors";
-import { StorageNotFoundError } from "../types/errors";
-import type { Agent, AgentConfig } from "../types/index";
+} from "@/core/types/errors";
+import { StorageNotFoundError } from "@/core/types/errors";
+import type { Agent, AgentConfig } from "@/core/types/index";
 
 /**
  * Helper functions for common agent operations

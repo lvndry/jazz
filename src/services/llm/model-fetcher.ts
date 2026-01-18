@@ -1,8 +1,8 @@
 import { gateway } from "ai";
 import { Effect } from "effect";
-import type { ProviderName } from "../../core/constants/models";
-import type { ModelInfo } from "../../core/types";
-import { LLMConfigurationError } from "../../core/types/errors";
+import type { ProviderName } from "@/core/constants/models";
+import type { ModelInfo } from "@/core/types";
+import { LLMConfigurationError } from "@/core/types/errors";
 
 export interface ModelFetcherService {
   fetchModels(

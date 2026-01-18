@@ -1,12 +1,12 @@
 import { Effect } from "effect";
 
-import type { AgentConfigService } from "../../interfaces/agent-config";
-import type { LLMService } from "../../interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
-import type { PresentationService } from "../../interfaces/presentation";
-import type { ToolRegistry, ToolRequirements } from "../../interfaces/tool-registry";
-import type { Agent } from "../../types";
-import type { ChatMessage, ConversationMessages } from "../../types/message";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
+import type { LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import type { PresentationService } from "@/core/interfaces/presentation";
+import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
+import type { Agent } from "@/core/types";
+import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import type { AgentResponse } from "../types";
 

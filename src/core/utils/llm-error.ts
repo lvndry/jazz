@@ -1,11 +1,11 @@
 import { APICallError } from "ai";
-import type { ProviderName } from "../constants/models";
+import type { ProviderName } from "@/core/constants/models";
 import {
   LLMAuthenticationError,
   LLMRateLimitError,
   LLMRequestError,
   type LLMError,
-} from "../types/errors";
+} from "@/core/types/errors";
 
 /**
  * Core truncation logic: truncate contents array to keep first message + last N messages.

@@ -1,23 +1,23 @@
 import { Effect } from "effect";
-import { agentPromptBuilder } from "../../core/agent/agent-prompt";
-import { getAgentByIdentifier } from "../../core/agent/agent-service";
-import { registerMCPServerTools } from "../../core/agent/tools/mcp-tools";
+import { agentPromptBuilder } from "@/core/agent/agent-prompt";
+import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
   createCategoryMappings,
   getMCPServerCategories,
-} from "../../core/agent/tools/register-tools";
-import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
-import type { ProviderName } from "../../core/constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
-import { AgentServiceTag, type AgentService } from "../../core/interfaces/agent-service";
-import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
-import type { LoggerService } from "../../core/interfaces/logger";
-import { LoggerServiceTag } from "../../core/interfaces/logger";
-import type { MCPServerManager } from "../../core/interfaces/mcp-server";
-import { MCPServerManagerTag } from "../../core/interfaces/mcp-server";
-import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
-import { ToolRegistryTag, type ToolRegistry } from "../../core/interfaces/tool-registry";
-import type { Agent, AgentConfig, LLMProvider } from "../../core/types";
+} from "@/core/agent/tools/register-tools";
+import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
+import type { ProviderName } from "@/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
+import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
+import type { LoggerService } from "@/core/interfaces/logger";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
+import type { MCPServerManager } from "@/core/interfaces/mcp-server";
+import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
+import type { Agent, AgentConfig, LLMProvider } from "@/core/types";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -25,10 +25,10 @@ import {
   StorageError,
   StorageNotFoundError,
   ValidationError,
-} from "../../core/types/errors";
-import type { MCPTool } from "../../core/types/mcp";
-import { extractServerNamesFromToolNames, isAuthenticationRequired } from "../../core/utils/mcp-utils";
-import { toPascalCase } from "../../core/utils/string";
+} from "@/core/types/errors";
+import type { MCPTool } from "@/core/types/mcp";
+import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp-utils";
+import { toPascalCase } from "@/core/utils/string";
 
 /**
  * CLI commands for editing existing agents

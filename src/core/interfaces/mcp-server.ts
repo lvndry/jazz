@@ -5,8 +5,8 @@ import type {
   MCPConnectionError,
   MCPDisconnectionError,
   MCPToolDiscoveryError,
-} from "../types/errors";
-import type { MCPClient, MCPTool } from "../types/mcp";
+} from "@/core/types/errors";
+import type { MCPClient, MCPTool } from "@/core/types/mcp";
 import type { AgentConfigService } from "./agent-config";
 import type { LoggerService } from "./logger";
 import type { TerminalService } from "./terminal";

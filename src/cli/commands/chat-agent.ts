@@ -1,10 +1,10 @@
 import { Effect } from "effect";
-import { getAgentByIdentifier } from "../../core/agent/agent-service";
-import { ChatServiceTag } from "../../core/interfaces/chat-service";
-import { LoggerServiceTag } from "../../core/interfaces/logger";
-import { TerminalServiceTag } from "../../core/interfaces/terminal";
-import { AgentNotFoundError } from "../../core/types/errors";
-import { CommonSuggestions } from "../../core/utils/error-handler";
+import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { ChatServiceTag } from "@/core/interfaces/chat-service";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
+import { TerminalServiceTag } from "@/core/interfaces/terminal";
+import { AgentNotFoundError } from "@/core/types/errors";
+import { CommonSuggestions } from "@/core/utils/error-handler";
 
 /**
  * CLI commands for AI-powered chat agent interactions

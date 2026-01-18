@@ -2,9 +2,9 @@ import { Effect, Layer, Option, Ref } from "effect";
 import { appendFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { LoggerServiceTag, type LoggerService } from "../core/interfaces/logger";
-import { jsonBigIntReplacer } from "../core/utils/logging-helpers";
-import { isInstalledGlobally } from "../core/utils/runtime-detection";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { jsonBigIntReplacer } from "@/core/utils/logging-helpers";
+import { isInstalledGlobally } from "@/core/utils/runtime-detection";
 
 /**
  * Log Write Queue

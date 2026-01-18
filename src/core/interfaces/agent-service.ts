@@ -5,8 +5,8 @@ import type {
   StorageError,
   StorageNotFoundError,
   ValidationError,
-} from "../types/errors";
-import type { Agent, AgentConfig } from "../types/index";
+} from "@/core/types/errors";
+import type { Agent, AgentConfig } from "@/core/types/index";
 
 /**
  * Agent service interface for managing agent lifecycle and operations

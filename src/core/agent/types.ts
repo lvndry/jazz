@@ -1,8 +1,8 @@
-import type { ProviderName } from "../constants/models";
+import type { ProviderName } from "@/core/constants/models";
 import type { Agent } from "../types";
-import type { ChatMessage, ConversationMessages } from "../types/message";
-import type { DisplayConfig } from "../types/output";
-import type { ToolCall, ToolDefinition, ToolExecutionContext } from "../types/tools";
+import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import type { DisplayConfig } from "@/core/types/output";
+import type { ToolCall, ToolDefinition, ToolExecutionContext } from "@/core/types/tools";
 import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 
 /**

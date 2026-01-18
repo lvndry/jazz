@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
-import { GmailAuthenticationError, GmailOperationError } from "../types/errors";
-import type { GmailEmail, GmailLabel } from "../types/gmail";
+import { GmailAuthenticationError, GmailOperationError } from "@/core/types/errors";
+import type { GmailEmail, GmailLabel } from "@/core/types/gmail";
 
 export interface GmailService {
   /** Authenticates with Gmail API and initializes the service. */

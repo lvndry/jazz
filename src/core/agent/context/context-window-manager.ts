@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import type { AgentConfigService } from "../../interfaces/agent-config";
-import type { LoggerService } from "../../interfaces/logger";
-import type { ChatMessage, ConversationMessages } from "../../types/message";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
+import type { LoggerService } from "@/core/interfaces/logger";
+import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 
 /**
  * Configuration for context window management

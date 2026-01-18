@@ -1,25 +1,25 @@
 import { Effect } from "effect";
 
-import { MAX_AGENT_STEPS } from "../constants/agent";
-import type { ProviderName } from "../constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "../interfaces/agent-config";
-import type { LLMService } from "../interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
-import { type MCPServerManager } from "../interfaces/mcp-server";
-import type { PresentationService } from "../interfaces/presentation";
-import type { TerminalService } from "../interfaces/terminal";
+import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+import type { ProviderName } from "@/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import type { LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { type MCPServerManager } from "@/core/interfaces/mcp-server";
+import type { PresentationService } from "@/core/interfaces/presentation";
+import type { TerminalService } from "@/core/interfaces/terminal";
 import {
   ToolRegistryTag,
   type ToolRegistry,
   type ToolRequirements,
-} from "../interfaces/tool-registry";
+} from "@/core/interfaces/tool-registry";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
-import { LLMRateLimitError } from "../types/errors";
-import type { ChatMessage } from "../types/message";
-import type { DisplayConfig } from "../types/output";
-import type { ToolExecutionContext } from "../types/tools";
-import { shouldEnableStreaming } from "../utils/stream-detector";
+import { LLMRateLimitError } from "@/core/types/errors";
+import type { ChatMessage } from "@/core/types/message";
+import type { DisplayConfig } from "@/core/types/output";
+import type { ToolExecutionContext } from "@/core/types/tools";
+import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import { agentPromptBuilder } from "./agent-prompt";
 import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";

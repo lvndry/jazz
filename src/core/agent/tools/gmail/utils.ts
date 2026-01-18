@@ -1,4 +1,4 @@
-import type { GmailEmail, GmailLabel } from "../../../types/gmail";
+import type { GmailEmail, GmailLabel } from "@/core/types/gmail";
 
 /**
  * Gmail tools shared utilities

@@ -1,25 +1,25 @@
 import { Effect } from "effect";
 import { spawn } from "node:child_process";
-import { store } from "../../../cli/ui/App";
-import { AgentRunner } from "../../../core/agent/agent-runner";
-import { getAgentByIdentifier } from "../../../core/agent/agent-service";
-import { normalizeToolConfig } from "../../../core/agent/utils/tool-config";
-import type { AgentConfigService } from "../../../core/interfaces/agent-config";
-import { AgentServiceTag, type AgentService } from "../../../core/interfaces/agent-service";
+import { store } from "@/cli/ui/App";
+import { AgentRunner } from "@/core/agent/agent-runner";
+import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import {
   FileSystemContextServiceTag,
   type FileSystemContextService,
-} from "../../../core/interfaces/fs";
-import type { LLMService } from "../../../core/interfaces/llm";
-import type { LoggerService } from "../../../core/interfaces/logger";
-import type { PresentationService } from "../../../core/interfaces/presentation";
-import { TerminalServiceTag, type TerminalService } from "../../../core/interfaces/terminal";
+} from "@/core/interfaces/fs";
+import type { LLMService } from "@/core/interfaces/llm";
+import type { LoggerService } from "@/core/interfaces/logger";
+import type { PresentationService } from "@/core/interfaces/presentation";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import {
   ToolRegistryTag,
   type ToolRegistry,
   type ToolRequirements,
-} from "../../../core/interfaces/tool-registry";
-import { StorageError, StorageNotFoundError } from "../../../core/types/errors";
+} from "@/core/interfaces/tool-registry";
+import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 

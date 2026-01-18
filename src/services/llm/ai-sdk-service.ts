@@ -25,11 +25,11 @@ import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { z } from "zod";
-import { MAX_AGENT_STEPS } from "../../core/constants/agent";
-import type { ProviderName } from "../../core/constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
-import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
+import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+import type { ProviderName } from "@/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type {
   ChatCompletionOptions,
   ChatCompletionResponse,
@@ -39,20 +39,20 @@ import type {
   ModelInfo,
   StreamEvent,
   StreamingResult,
-} from "../../core/types";
+} from "@/core/types";
 import {
   LLMAuthenticationError,
   LLMConfigurationError,
   type LLMError,
-} from "../../core/types/errors";
-import type { ToolCall } from "../../core/types/tools";
-import { safeParseJson } from "../../core/utils/json";
+} from "@/core/types/errors";
+import type { ToolCall } from "@/core/types/tools";
+import { safeParseJson } from "@/core/utils/json";
 import {
   convertToLLMError,
   extractCleanErrorMessage,
   truncateRequestBodyValues,
-} from "../../core/utils/llm-error";
-import { createDeferred } from "../../core/utils/promise";
+} from "@/core/utils/llm-error";
+import { createDeferred } from "@/core/utils/promise";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
 import { StreamProcessor } from "./stream-processor";

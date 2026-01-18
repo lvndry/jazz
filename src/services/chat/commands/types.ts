@@ -1,5 +1,5 @@
-import type { Agent } from "../../../core/types";
-import type { ChatMessage } from "../../../core/types/message";
+import type { Agent } from "@/core/types";
+import type { ChatMessage } from "@/core/types/message";
 
 /**
  * Types of special commands available in the chat interface

@@ -6,10 +6,10 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
-} from "../../core/interfaces/presentation";
-import { PresentationServiceTag } from "../../core/interfaces/presentation";
-import { ink } from "../../core/interfaces/terminal";
-import type { StreamEvent } from "../../core/types/streaming";
+} from "@/core/interfaces/presentation";
+import { PresentationServiceTag } from "@/core/interfaces/presentation";
+import { ink } from "@/core/interfaces/terminal";
+import type { StreamEvent } from "@/core/types/streaming";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/App";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";

@@ -2,10 +2,10 @@ import { createMCPClient } from "@ai-sdk/mcp";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Effect, Layer } from "effect";
-import type { AgentConfigService } from "../../core/interfaces/agent-config";
-import { AgentConfigServiceTag } from "../../core/interfaces/agent-config";
-import type { LoggerService } from "../../core/interfaces/logger";
-import { LoggerServiceTag } from "../../core/interfaces/logger";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
+import type { LoggerService } from "@/core/interfaces/logger";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type {
   MCPServerConfig,
   MCPServerConfigStdio,
@@ -13,26 +13,26 @@ import type {
   MCPServerManager,
   MCPTransport,
   MCPTransportType
-} from "../../core/interfaces/mcp-server";
+} from "@/core/interfaces/mcp-server";
 import {
   isHttpConfig,
   isStdioConfig,
   MCPServerManagerTag
-} from "../../core/interfaces/mcp-server";
-import type { TerminalService } from "../../core/interfaces/terminal";
-import { TerminalServiceTag } from "../../core/interfaces/terminal";
+} from "@/core/interfaces/mcp-server";
+import type { TerminalService } from "@/core/interfaces/terminal";
+import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import {
   MCPConnectionError,
   MCPDisconnectionError,
   MCPToolDiscoveryError,
-} from "../../core/types/errors";
-import type { MCPClient, MCPTool } from "../../core/types/mcp";
+} from "@/core/types/errors";
+import type { MCPClient, MCPTool } from "@/core/types/mcp";
 import {
   isMCPClient,
   normalizeMCPToolRegistry,
-} from "../../core/types/mcp";
-import { createSanitizedEnv } from "../../core/utils/env-utils";
-import { retryWithBackoff } from "../../core/utils/mcp-utils";
+} from "@/core/types/mcp";
+import { createSanitizedEnv } from "@/core/utils/env-utils";
+import { retryWithBackoff } from "@/core/utils/mcp-utils";
 
 /**
  * MCP Server Manager implementation

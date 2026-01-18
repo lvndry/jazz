@@ -1,12 +1,12 @@
 import { Effect } from "effect";
-import { registerMCPToolsForAgent } from "../../../core/agent/tools/register-tools";
-import { normalizeToolConfig } from "../../../core/agent/utils/tool-config";
-import type { AgentConfigService } from "../../../core/interfaces/agent-config";
-import { LoggerServiceTag, type LoggerService } from "../../../core/interfaces/logger";
-import type { MCPServerManager } from "../../../core/interfaces/mcp-server";
-import { TerminalServiceTag, type TerminalService } from "../../../core/interfaces/terminal";
-import type { ToolRegistry } from "../../../core/interfaces/tool-registry";
-import type { Agent } from "../../../core/types";
+import { registerMCPToolsForAgent } from "@/core/agent/tools/register-tools";
+import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import type { MCPServerManager } from "@/core/interfaces/mcp-server";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import type { ToolRegistry } from "@/core/interfaces/tool-registry";
+import type { Agent } from "@/core/types";
 
 /**
  * Set up agent before first message: Connect to MCP servers and register tools.

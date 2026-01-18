@@ -1,27 +1,27 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
-import { AgentRunner, type AgentRunnerOptions } from "../core/agent/agent-runner";
-import { AgentConfigServiceTag } from "../core/interfaces/agent-config";
-import { AgentServiceTag, type AgentService } from "../core/interfaces/agent-service";
-import { ChatServiceTag, type ChatService } from "../core/interfaces/chat-service";
-import { FileSystemContextServiceTag, type FileSystemContextService } from "../core/interfaces/fs";
-import { type LLMService } from "../core/interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "../core/interfaces/logger";
-import { MCPServerManagerTag, type MCPServerManager } from "../core/interfaces/mcp-server";
-import { type PresentationService } from "../core/interfaces/presentation";
-import { TerminalServiceTag, type TerminalService } from "../core/interfaces/terminal";
+import { AgentRunner, type AgentRunnerOptions } from "@/core/agent/agent-runner";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
+import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
+import { ChatServiceTag, type ChatService } from "@/core/interfaces/chat-service";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { type LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { MCPServerManagerTag, type MCPServerManager } from "@/core/interfaces/mcp-server";
+import { type PresentationService } from "@/core/interfaces/presentation";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import {
     ToolRegistryTag,
     type ToolRegistry,
     type ToolRequirements,
-} from "../core/interfaces/tool-registry";
+} from "@/core/interfaces/tool-registry";
 import {
     LLMAuthenticationError,
     LLMRateLimitError,
     LLMRequestError,
-} from "../core/types/errors";
-import type { Agent } from "../core/types/index";
-import { type ChatMessage } from "../core/types/message";
+} from "@/core/types/errors";
+import type { Agent } from "@/core/types/index";
+import { type ChatMessage } from "@/core/types/message";
 import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
 import {
     generateConversationId,

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { StorageServiceTag, type StorageService } from "../../core/interfaces/storage";
-import type { Agent } from "../../core/types";
-import type { StorageError, StorageNotFoundError } from "../../core/types/errors";
+import { StorageServiceTag, type StorageService } from "@/core/interfaces/storage";
+import type { Agent } from "@/core/types";
+import type { StorageError, StorageNotFoundError } from "@/core/types/errors";
 
 export function saveAgent(agent: Agent): Effect.Effect<void, StorageError, StorageService> {
   return Effect.gen(function* () {

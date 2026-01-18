@@ -1,4 +1,4 @@
-import type { RenderTheme } from "../../core/types";
+import type { RenderTheme } from "@/core/types";
 
 /**
  * Explicit state machine for thinking/reasoning rendering

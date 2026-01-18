@@ -1,4 +1,4 @@
-import type { ToolExecutionContext } from "../../types";
+import type { ToolExecutionContext } from "@/core/types";
 
 export function buildKeyFromContext(context: ToolExecutionContext): {
   readonly agentId: string;

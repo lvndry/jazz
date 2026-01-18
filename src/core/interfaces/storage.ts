@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
 import type { Agent } from "../types";
-import type { StorageError, StorageNotFoundError } from "../types/errors";
+import type { StorageError, StorageNotFoundError } from "@/core/types/errors";
 
 /**
  * Storage service interface for managing agent persistence

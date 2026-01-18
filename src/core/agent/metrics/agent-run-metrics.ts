@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import { randomUUID } from "node:crypto";
 
-import type { LoggerService } from "../../interfaces/logger";
-import { LoggerServiceTag } from "../../interfaces/logger";
-import { type Agent } from "../../types";
+import type { LoggerService } from "@/core/interfaces/logger";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
+import { type Agent } from "@/core/types";
 
 export interface AgentRunMetricsContext {
   readonly agent: Agent;

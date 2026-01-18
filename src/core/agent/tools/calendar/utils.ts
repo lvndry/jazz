@@ -1,4 +1,4 @@
-import type { CalendarEvent, CalendarInfo } from "../../../types/calendar";
+import type { CalendarEvent, CalendarInfo } from "@/core/types/calendar";
 
 /**
  * Calendar tools shared utilities

@@ -1,5 +1,5 @@
 import { Context, Effect } from "effect";
-import type { AppConfig } from "../types/index";
+import type { AppConfig } from "@/core/types/index";
 
 export interface AgentConfigService {
   /** Gets a config value by key. Returns the typed value or fails if not found. */

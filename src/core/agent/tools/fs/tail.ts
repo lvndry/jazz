@@ -1,8 +1,8 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "../../../interfaces/fs";
-import type { Tool } from "../../../interfaces/tool-registry";
+import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 

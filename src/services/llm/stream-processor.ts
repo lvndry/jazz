@@ -10,10 +10,10 @@
 
 import type { streamText } from "ai";
 import { Chunk, Effect, Option } from "effect";
-import type { LoggerService } from "../../core/interfaces/logger";
-import type { ChatCompletionResponse, StreamEvent } from "../../core/types";
-import { type LLMError } from "../../core/types/errors";
-import type { ToolCall } from "../../core/types/tools";
+import type { LoggerService } from "@/core/interfaces/logger";
+import type { ChatCompletionResponse, StreamEvent } from "@/core/types";
+import { type LLMError } from "@/core/types/errors";
+import type { ToolCall } from "@/core/types/tools";
 
 /**
  * Type for AI SDK StreamText result

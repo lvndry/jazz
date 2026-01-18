@@ -1,9 +1,9 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "../../../interfaces/fs";
-import type { Tool } from "../../../interfaces/tool-registry";
-import type { ToolExecutionContext, ToolExecutionResult } from "../../../types";
+import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { Tool } from "@/core/interfaces/tool-registry";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import {
   defineTool,
   formatApprovalRequiredDescription,

@@ -2,7 +2,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { homedir } from "os";
-import { FileSystemContextServiceTag } from "../core/interfaces/fs";
+import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { createFileSystemContextServiceLayer } from "./fs";
 
 describe("FileSystemContextService", () => {

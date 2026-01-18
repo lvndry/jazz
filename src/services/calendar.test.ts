@@ -2,9 +2,9 @@ import { FileSystem } from "@effect/platform";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Either } from "effect";
 import { google, type calendar_v3 } from "googleapis";
-import type { TerminalService } from "../core/interfaces/terminal";
-import { CalendarAuthenticationError, CalendarOperationError } from "../core/types";
-import { CalendarService } from "./../core/interfaces/calendar";
+import type { TerminalService } from "@/core/interfaces/terminal";
+import { CalendarAuthenticationError, CalendarOperationError } from "@/core/types";
+import { CalendarService } from "@/core/interfaces/calendar";
 import { CalendarServiceResource } from "./calendar";
 
 // Helper constant for test tokens with required scopes

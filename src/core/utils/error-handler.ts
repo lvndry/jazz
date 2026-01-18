@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
-import type { JazzError } from "../types/errors";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import type { JazzError } from "@/core/types/errors";
 
 /**
  * Enhanced error handling utilities with actionable suggestions

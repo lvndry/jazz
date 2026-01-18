@@ -2,7 +2,7 @@
  * Agent types
  */
 
-import type { ProviderName } from "../constants/models";
+import type { ProviderName } from "@/core/constants/models";
 
 export interface Agent {
   readonly id: string;
