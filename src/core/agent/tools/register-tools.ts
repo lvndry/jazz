@@ -340,13 +340,10 @@ export function registerMCPToolsForAgent(
         }
 
         // Determine category for tools
-        const category: ToolCategory =
-          serverConfig.name.toLowerCase() === "mongodb"
-            ? MCP_MONGODB_CATEGORY
-            : {
-                id: `mcp_${serverConfig.name.toLowerCase()}`,
-                displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
-              };
+        const category: ToolCategory = {
+          id: `mcp_${serverConfig.name.toLowerCase()}`,
+          displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
+        };
 
         // Register tools with server config for lazy reconnection
         // Agents always use all tools from their selected MCP servers, so register all discovered tools
@@ -439,13 +436,10 @@ export function registerMCPToolsForSelection(): Effect.Effect<
         yield* logger.debug(`Disconnected from MCP server ${serverConfig.name} (lazy mode)`);
 
         // Determine category for tools
-        const category: ToolCategory =
-          serverConfig.name.toLowerCase() === "mongodb"
-            ? MCP_MONGODB_CATEGORY
-            : {
-                id: `mcp_${serverConfig.name.toLowerCase()}`,
-                displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
-              };
+        const category: ToolCategory = {
+          id: `mcp_${serverConfig.name.toLowerCase()}`,
+          displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
+        };
 
         // Register tools with server config for lazy reconnection
         const registerTool = registry.registerForCategory(category);
@@ -506,10 +500,6 @@ export const SHELL_COMMANDS_CATEGORY: ToolCategory = {
 };
 export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
 export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Search" };
-export const MCP_MONGODB_CATEGORY: ToolCategory = {
-  id: "mcp_mongodb",
-  displayName: "MongoDB (MCP)",
-};
 
 /**
  * Get MCP server names as tool categories without connecting to servers
@@ -541,10 +531,7 @@ export function getMCPServerCategories(): Effect.Effect<
       }
 
       // Use the same category naming as registerMCPToolsForSelection
-      const categoryDisplayName =
-        serverConfig.name.toLowerCase() === "mongodb"
-          ? MCP_MONGODB_CATEGORY.displayName
-          : `${toPascalCase(serverConfig.name)} (MCP)`;
+      const categoryDisplayName = `${toPascalCase(serverConfig.name)} (MCP)`;
 
       // Add category with empty array (we don't know tool count without connecting)
       categories[categoryDisplayName] = [];
@@ -567,7 +554,6 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   WEB_SEARCH_CATEGORY,
   GMAIL_CATEGORY,
   CALENDAR_CATEGORY,
-  MCP_MONGODB_CATEGORY,
 ] as const;
 
 /**

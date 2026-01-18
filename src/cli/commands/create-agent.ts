@@ -8,7 +8,6 @@ import {
   GIT_CATEGORY,
   GMAIL_CATEGORY,
   HTTP_CATEGORY,
-  MCP_MONGODB_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
 } from "../../core/agent/tools/register-tools";
@@ -115,7 +114,6 @@ export function createAgentCommand(): Effect.Effect<
     const agentTypes = yield* agentPromptBuilder.listTemplates();
     let toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
-    // Add MCP server names to the list (without connecting to them)
     const mcpServerData = yield* getMCPServerCategories();
     toolsByCategory = { ...toolsByCategory, ...mcpServerData.categories };
 
@@ -125,8 +123,7 @@ export function createAgentCommand(): Effect.Effect<
 
     // Add MCP server category mappings (category ID format: mcp_<servername>)
     for (const [displayName, serverName] of mcpServerData.displayNameToServerName.entries()) {
-      const categoryId =
-        serverName.toLowerCase() === "mongodb" ? "mcp_mongodb" : `mcp_${serverName.toLowerCase()}`;
+      const categoryId = `mcp_${serverName.toLowerCase()}`;
       categoryDisplayNameToId.set(displayName, categoryId);
     }
 
@@ -171,9 +168,9 @@ export function createAgentCommand(): Effect.Effect<
         Effect.gen(function* () {
           yield* logger.debug(`Registering tools from MCP server ${serverConfig.name}...`);
 
-          // Discover tools from server with timeout (30 seconds per server to allow for authentication)
+          // Discover tools from server with timeout (45 seconds per server to allow for authentication)
           const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
-            Effect.timeout("30 seconds"),
+            Effect.timeout("45 seconds"),
             Effect.catchAll((error) =>
               Effect.gen(function* () {
                 const errorMessage =
@@ -210,13 +207,10 @@ export function createAgentCommand(): Effect.Effect<
           }
 
           // Determine category for tools
-          const category =
-            serverConfig.name.toLowerCase() === "mongodb"
-              ? MCP_MONGODB_CATEGORY
-              : {
-                  id: `mcp_${serverConfig.name.toLowerCase()}`,
-                  displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
-                };
+          const category = {
+            id: `mcp_${serverConfig.name.toLowerCase()}`,
+            displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
+          };
 
           // Register tools
           const registerTool = toolRegistry.registerForCategory(category);

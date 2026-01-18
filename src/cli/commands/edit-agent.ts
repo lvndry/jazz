@@ -5,7 +5,6 @@ import { registerMCPServerTools } from "../../core/agent/tools/mcp-tools";
 import {
   createCategoryMappings,
   getMCPServerCategories,
-  MCP_MONGODB_CATEGORY,
 } from "../../core/agent/tools/register-tools";
 import { normalizeToolConfig } from "../../core/agent/utils/tool-config";
 import type { ProviderName } from "../../core/constants/models";
@@ -27,9 +26,9 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "../../core/types/errors";
-import { toPascalCase } from "../../core/utils/string";
 import type { MCPTool } from "../../core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "../../core/utils/mcp-utils";
+import { toPascalCase } from "../../core/utils/string";
 
 /**
  * CLI commands for editing existing agents
@@ -97,14 +96,12 @@ export function editAgentCommand(
     const categoryMappings = createCategoryMappings();
     const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
 
-    // Add MCP server names to the list (without connecting to them)
     const mcpServerData = yield* getMCPServerCategories();
     toolsByCategory = { ...toolsByCategory, ...mcpServerData.categories };
 
     // Add MCP server category mappings (category ID format: mcp_<servername>)
     for (const [displayName, serverName] of mcpServerData.displayNameToServerName.entries()) {
-      const categoryId =
-        serverName.toLowerCase() === "mongodb" ? "mcp_mongodb" : `mcp_${serverName.toLowerCase()}`;
+      const categoryId = `mcp_${serverName.toLowerCase()}`;
       categoryDisplayNameToId.set(displayName, categoryId);
     }
 
@@ -159,15 +156,12 @@ export function editAgentCommand(
               }
             }
             if (!categoryDisplayName) {
-              categoryDisplayName =
-                serverConfig.name.toLowerCase() === "mongodb"
-                  ? MCP_MONGODB_CATEGORY.displayName
-                  : `${toPascalCase(serverConfig.name)} (MCP)`;
+              categoryDisplayName = `${toPascalCase(serverConfig.name)} (MCP)`;
             }
 
-            // Discover tools from server with timeout (30 seconds per server to allow for authentication)
+            // Discover tools from server with timeout (45 seconds per server to allow for authentication)
             const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
-              Effect.timeout("30 seconds"),
+              Effect.timeout("45 seconds"),
               Effect.catchAll((error) =>
                 Effect.gen(function* () {
                   // Log detailed error information
@@ -237,13 +231,10 @@ export function editAgentCommand(
             );
 
             // Determine category for tools using the exact display name from the UI
-            const category =
-              serverConfig.name.toLowerCase() === "mongodb"
-                ? MCP_MONGODB_CATEGORY
-                : {
-                    id: `mcp_${serverConfig.name.toLowerCase()}`,
-                    displayName: categoryDisplayName,
-                  };
+            const category = {
+              id: `mcp_${serverConfig.name.toLowerCase()}`,
+              displayName: categoryDisplayName,
+            };
 
             // Register tools
             const registerTool = toolRegistry.registerForCategory(category);

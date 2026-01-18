@@ -134,7 +134,7 @@ export function isAuthenticationRequired(error: unknown): boolean {
       ? error.message
       : typeof error === "string"
         ? error
-        : String(error);
+        : JSON.stringify(error);
 
   const lowerMessage = errorMessage.toLowerCase();
 
