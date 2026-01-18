@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable no-control-regex */
 // Run with: node src/cli/ui/debug-keys.mjs
 // Then press Option+Left, Option+Right, etc. to see what sequences are sent
 // Press Ctrl+C to exit

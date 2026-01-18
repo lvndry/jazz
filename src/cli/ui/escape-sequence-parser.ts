@@ -7,30 +7,62 @@
  * - Readline shortcuts (Ctrl+A, Ctrl+E, etc.)
  */
 
-// ANSI escape character (ESC)
-const ESC = String.fromCharCode(0x1b);
+/**
+ * Option+Left/Right sequences
+ *
+ * Terminals send different sequences for Option/Alt + Arrow:
+ * - ESC [ 1 ; 3 D / C: standard ANSI (xterm, iTerm2 default)
+ * - ESC [ 1 ; 9 D / C: used by some terminals/shells
+ * - ESC [ 3 D / C: simplified format
+ * - ESC [ 1 ; 5 D / C: often maps to Ctrl+Arrow but handled here for compatibility
+ * - ESC [ 5 D / C: alternative simplified format
+ *
+ * We use \\x1b in regex to avoid "Unexpected control character" linting errors.
+ */
+const OPTION_LEFT_REGEX = new RegExp(`^\\x1b\\[(\\d+;)?[359]D$`);
+const OPTION_RIGHT_REGEX = new RegExp(`^\\x1b\\[(\\d+;)?[359]C$`);
 
-const OPTION_LEFT_REGEX = new RegExp(`^${ESC}\\[(\\d+;)?[359]D$`);
-const OPTION_RIGHT_REGEX = new RegExp(`^${ESC}\\[(\\d+;)?[359]C$`);
-const ESC_BF_REGEX = new RegExp(`^${ESC}(b|f)$`);
-const OPTION_LEFT_INPUT_REGEX = new RegExp(`${ESC}\\[(\\d+;)?[359]D`);
-const OPTION_LEFT_INPUT_5D_REGEX = new RegExp(`${ESC}\\[(\\d+;)?5D`);
-const OPTION_RIGHT_INPUT_REGEX = new RegExp(`${ESC}\\[(\\d+;)?[359]C`);
-const OPTION_RIGHT_INPUT_5C_REGEX = new RegExp(`${ESC}\\[(\\d+;)?5C`);
+/**
+ * ESC b and ESC f are the traditional readline/emacs shortcuts
+ * for word-left and word-right.
+ */
+const ESC_BF_REGEX = new RegExp(`^\\x1b(b|f)$`);
 
-// Double-escape sequences (some terminals send ESC ESC [ X for Option+Arrow)
-const DOUBLE_ESC_LEFT = `${ESC}${ESC}[D`;
-const DOUBLE_ESC_RIGHT = `${ESC}${ESC}[C`;
-const DOUBLE_ESC_SS3_LEFT = `${ESC}${ESC}OD`;
-const DOUBLE_ESC_SS3_RIGHT = `${ESC}${ESC}OC`;
+/**
+ * Partial matching regexes for stream handling
+ */
+const OPTION_LEFT_INPUT_REGEX = new RegExp(`\\x1b\\[(\\d+;)?[359]D`);
+const OPTION_LEFT_INPUT_5D_REGEX = new RegExp(`\\x1b\\[(\\d+;)?5D`);
+const OPTION_RIGHT_INPUT_REGEX = new RegExp(`\\x1b\\[(\\d+;)?[359]C`);
+const OPTION_RIGHT_INPUT_5C_REGEX = new RegExp(`\\x1b\\[(\\d+;)?5C`);
 
-// Command+Arrow sequences (move to line start/end)
-const CMD_LEFT_SEQUENCES = [`${ESC}[1;2D`, `${ESC}[H`, `${ESC}OH`];
-const CMD_RIGHT_SEQUENCES = [`${ESC}[1;2C`, `${ESC}[F`, `${ESC}OF`, `${ESC}[4~`];
+/**
+ * Double-escape sequences
+ * Some terminals (like iTerm2 in certain modes) send ESC ESC [ X
+ * for Option+Arrow to distinguish it from standard escape sequences.
+ */
+const DOUBLE_ESC_LEFT = `\x1b\x1b[D`;
+const DOUBLE_ESC_RIGHT = `\x1b\x1b[C`;
+const DOUBLE_ESC_SS3_LEFT = `\x1b\x1b[OD`;
+const DOUBLE_ESC_SS3_RIGHT = `\x1b\x1b[OC`;
 
-// Option+Delete and Command+Delete
-const OPTION_DELETE_SEQUENCE = `${ESC}d`; // ESC d for Option+Delete (forward word delete)
-const CMD_DELETE_SEQUENCE = `${ESC}[3;2~`; // Command+Delete variant
+/**
+ * Command+Arrow sequences (move to line start/end)
+ * - ESC [ 1 ; 2 D / C: Shift+Arrow variants (often maps to Command on Mac)
+ * - ESC [ H / F: Home/End keys
+ * - ESC O H / F: Application mode Home/End keys
+ * - ESC [ 4 ~: Alternative End key sequence
+ */
+const CMD_LEFT_SEQUENCES = [`\x1b[1;2D`, `\x1b[H`, `\x1bOH`];
+const CMD_RIGHT_SEQUENCES = [`\x1b[1;2C`, `\x1b[F`, `\x1bOF`, `\x1b[4~`];
+
+/**
+ * Deletion sequences
+ * - ESC d: Option+Delete (delete word forward) - standard readline
+ * - ESC [ 3 ; 2 ~: Command+Delete (delete to line start) - mapped in some terminals
+ */
+const OPTION_DELETE_SEQUENCE = `\x1bd`;
+const CMD_DELETE_SEQUENCE = `\x1b[3;2~`;
 
 /**
  * Key information from useInput hook

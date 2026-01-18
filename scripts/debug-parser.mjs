@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable no-control-regex */
 // Run with: node src/cli/ui/debug-parser.mjs
 // Then press Option+Left, Option+Right to see how parseInput handles them
 
