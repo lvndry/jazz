@@ -43,6 +43,8 @@ export const WEB_SEARCH_PROVIDERS = [
   { name: "Tavily", value: "tavily" },
 ] as const;
 
+export const DEFAULT_MAX_RESULTS = 50;
+
 export type WebSearchProviderName = (typeof WEB_SEARCH_PROVIDERS)[number]["value"];
 
 export function createWebSearchTool(): ReturnType<
@@ -254,6 +256,7 @@ function executeExaSearch(
         const searchOptions: Parameters<typeof exa.search>[1] = {
           type: "auto",
           useAutoprompt: true,
+          numResults: DEFAULT_MAX_RESULTS,
         };
 
         if (args.fromDate) {
@@ -314,6 +317,7 @@ function executeParallelSearch(
         return await parallel.beta.search({
           objective: args.query,
           mode: "agentic",
+          max_results: DEFAULT_MAX_RESULTS,
         });
       },
       catch: (error) =>
@@ -366,7 +370,7 @@ function executeTavilySearch(
       try: async () => {
         const searchOptions = {
           searchDepth: args.depth === "deep" ? ("advanced" as const) : ("basic" as const),
-          maxResults: 50,
+          maxResults: DEFAULT_MAX_RESULTS,
           ...(args.fromDate && { startDate: args.fromDate }),
           ...(args.toDate && { endDate: args.toDate }),
         };
