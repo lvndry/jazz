@@ -27,10 +27,10 @@ import {
   StorageError,
   ValidationError,
 } from "../../core/types/errors";
-import { isAuthenticationRequired } from "../../core/utils/mcp-utils";
-import { toPascalCase } from "../../core/utils/string";
 import type { AgentConfig, LLMProviderListItem } from "../../core/types/index";
 import type { MCPTool } from "../../core/types/mcp";
+import { isAuthenticationRequired } from "../../core/utils/mcp-utils";
+import { toPascalCase } from "../../core/utils/string";
 
 /**
  * CLI commands for creating AI agents
@@ -179,7 +179,7 @@ export function createAgentCommand(): Effect.Effect<
                 const errorMessage =
                   error instanceof Error ? error.message : String(error);
                 const isAuthRequired = isAuthenticationRequired(error);
-                
+
                 if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
                   if (isAuthRequired) {
                     yield* logger.warn(
@@ -487,7 +487,9 @@ async function promptForAgentInfo(
     const selectedTools = await Effect.runPromise(
       terminal.checkbox<string>("Which tools should this agent have access to?", {
         choices: Object.entries(toolsByCategory).map(([category, toolsInCategory]) => ({
-          name: `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`,
+          name: toolsInCategory.length > 0
+            ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
+            : category,
           value: category,
         })),
       }),

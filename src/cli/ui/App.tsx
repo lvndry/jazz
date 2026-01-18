@@ -39,7 +39,7 @@ export const AppContext = createContext<{
  *
  * 1. **External Store (`store` object)**: Provides imperative access to state setters
  *    for Effect-based services that run outside React's lifecycle. Effect code calls
- *    `store.addLog()` directly without needing React context. The store functions are
+ *    `store.printOutput()` directly without needing React context. The store functions are
  *    updated during App's first render via the initializedRef guard.
  *
  * 2. **React Context (`AppContext`)**: Provides reactive state access for components
@@ -51,8 +51,8 @@ export const AppContext = createContext<{
  * populated synchronously during App's first render to prevent race conditions.
  */
 export const store = {
-  addLog: (_entry: LogEntryInput): string => "",
-  updateLog: (_id: string, _entry: Partial<LogEntryInput>): void => { },
+  printOutput: (_entry: LogEntryInput): string => "",
+  updateOutput: (_id: string, _entry: Partial<LogEntryInput>): void => { },
   setPrompt: (_prompt: PromptState | null): void => { },
   setStatus: (_status: string | null): void => { },
   setStream: (_stream: LiveStreamState | null): void => { },
@@ -74,12 +74,11 @@ export function App(): React.ReactElement {
   // Counter for generating unique log IDs
   const logIdCounterRef = useRef(0);
   // Maximum number of log entries to keep in memory for the UI
-  // Older logs are dropped from the state (but persist in log files on disk)
   // Keep this low for performance - Ink re-renders the entire tree
   const MAX_LOG_ENTRIES = 100;
 
   if (!initializedRef.current) {
-    store.addLog = (entry: LogEntryInput): string => {
+    store.printOutput = (entry: LogEntryInput): string => {
       const id = entry.id ?? `log-${++logIdCounterRef.current}`;
       setLogs((prev) => {
         // If ID is provided and entry already exists, update it
@@ -103,7 +102,8 @@ export function App(): React.ReactElement {
       });
       return id;
     };
-    store.updateLog = (id: string, updates: Partial<LogEntryInput>): void => {
+
+    store.updateOutput = (id: string, updates: Partial<LogEntryInput>): void => {
       setLogs((prev) =>
         prev.map((log): LogEntry => {
           if (log.id === id) {
