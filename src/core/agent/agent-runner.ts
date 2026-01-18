@@ -5,7 +5,7 @@ import type { ProviderName } from "../constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "../interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
-import type { MCPServerManager } from "../interfaces/mcp-server";
+import { MCPServerManagerTag, type MCPServerManager } from "../interfaces/mcp-server";
 import type { PresentationService } from "../interfaces/presentation";
 import { PresentationServiceTag } from "../interfaces/presentation";
 import type { TerminalService } from "../interfaces/terminal";
@@ -25,6 +25,7 @@ import { shouldEnableStreaming } from "../utils/stream-detector";
 import { agentPromptBuilder } from "./agent-prompt";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { ToolExecutor } from "./execution/tool-executor";
+import { registerMCPToolsForAgent } from "./tools/register-tools";
 import {
   beginIteration,
   completeIteration,
@@ -35,7 +36,6 @@ import {
   recordLLMUsage,
 } from "./tracking/agent-run-tracker";
 import { normalizeToolConfig } from "./utils/tool-config";
-import { registerMCPToolsForAgent } from "./tools/register-tools";
 
 const MAX_RETRIES = 3;
 const STREAM_CREATION_TIMEOUT = Duration.minutes(2);
@@ -188,6 +188,7 @@ interface AgentRunContext {
   readonly runTracker: ReturnType<typeof createAgentRunTracker>;
   readonly provider: ProviderName;
   readonly model: string;
+  readonly connectedMCPServers: readonly string[];
 }
 
 /**
@@ -230,13 +231,14 @@ function initializeAgentRun(
 
     // Register MCP tools for this agent if needed (only connects to relevant servers)
     // This happens before validation so MCP tools are available
-    yield* registerMCPToolsForAgent(agentToolNames).pipe(
+    const connectedMCPServers = yield* registerMCPToolsForAgent(agentToolNames).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
           const errorMessage = error instanceof Error ? error.message : String(error);
           yield* logger.warn(`Failed to register MCP tools for agent: ${errorMessage}`);
           // Continue even if MCP registration fails - tools might not be needed
+          return [];
         }),
       ),
     );
@@ -296,6 +298,7 @@ function initializeAgentRun(
       runTracker,
       provider,
       model,
+      connectedMCPServers,
     };
   });
 }
@@ -411,15 +414,16 @@ export class AgentRunner {
       Effect.gen(function* () {
         const logger = yield* LoggerServiceTag;
         const runContext = yield* initializeAgentRun(options);
+        const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
 
         yield* logger.setSessionId(options.sessionId);
 
         const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
           Option.none(),
         );
-        return { logger, runContext, finalizeFiberRef };
+        return { logger, runContext, mcpManager, finalizeFiberRef };
       }),
-      ({ logger, runContext, finalizeFiberRef }) =>
+      ({ logger, runContext, mcpManager: _mcpManager, finalizeFiberRef }) =>
         Effect.gen(function* () {
           const { agent, maxIterations = MAX_AGENT_STEPS } = options;
           const llmService = yield* LLMServiceTag;
@@ -464,6 +468,14 @@ export class AgentRunner {
                 }
               }
 
+              // Proactively compact context if approaching token limit
+              currentMessages = yield* AgentRunner.compactContextIfNeeded(
+                currentMessages,
+                agent,
+                options.sessionId,
+                actualConversationId,
+              );
+
               // Create streaming completion with retry and fallback
               const llmOptions = {
                 model,
@@ -472,6 +484,7 @@ export class AgentRunner {
                 toolChoice: "auto" as const,
                 reasoning_effort: agent.config.reasoningEffort ?? "disable",
               };
+
 
               // Log LLM request details
               yield* logger.debug("Sending LLM request", {
@@ -817,7 +830,7 @@ export class AgentRunner {
 
           return { ...response, messages: currentMessages };
         }),
-      ({ logger, finalizeFiberRef }) =>
+      ({ logger, runContext, mcpManager, finalizeFiberRef }) =>
         Effect.gen(function* () {
           const fiberOption = yield* Ref.get(finalizeFiberRef);
           if (Option.isSome(fiberOption)) {
@@ -826,6 +839,24 @@ export class AgentRunner {
               Effect.catchAll(() => Effect.void),
             );
           }
+
+          // Disconnect MCP servers used in this conversation
+          if (runContext.connectedMCPServers.length > 0 && Option.isSome(mcpManager)) {
+            yield* logger.debug(
+              `Disconnecting ${runContext.connectedMCPServers.length} MCP server(s) for conversation ${runContext.actualConversationId}`,
+            );
+            for (const serverName of runContext.connectedMCPServers) {
+              yield* mcpManager.value.disconnectServer(serverName).pipe(
+                Effect.catchAll((error) =>
+                  logger.warn(`Failed to disconnect MCP server ${serverName}`, {
+                    error: error instanceof Error ? error.message : String(error),
+                  }),
+                ),
+              );
+            }
+            yield* logger.debug("All MCP servers disconnected for this conversation");
+          }
+
           yield* logger.clearSessionId();
         }),
     );
@@ -852,13 +883,14 @@ export class AgentRunner {
       Effect.gen(function* () {
         const logger = yield* LoggerServiceTag;
         const runContext = yield* initializeAgentRun(options);
+        const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
         yield* logger.setSessionId(options.sessionId);
         const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
           Option.none(),
         );
-        return { logger, runContext, finalizeFiberRef };
+        return { logger, runContext, mcpManager, finalizeFiberRef };
       }),
-      ({ logger, runContext, finalizeFiberRef }) =>
+      ({ logger, runContext, mcpManager: _mcpManager, finalizeFiberRef }) =>
         Effect.gen(function* () {
           const { agent, maxIterations = MAX_AGENT_STEPS } = options;
           const llmService = yield* LLMServiceTag;
@@ -886,6 +918,14 @@ export class AgentRunner {
                   yield* presentationService.presentThinking(agent.name, false);
                 }
               }
+
+              // Proactively compact context if approaching token limit
+              currentMessages = yield* AgentRunner.compactContextIfNeeded(
+                currentMessages,
+                agent,
+                options.sessionId,
+                actualConversationId,
+              );
 
               // Create non-streaming completion with retry
               const llmOptions = {
@@ -1132,7 +1172,7 @@ export class AgentRunner {
 
           return { ...response, messages: currentMessages };
         }),
-      ({ logger, finalizeFiberRef }) =>
+      ({ logger, runContext, mcpManager, finalizeFiberRef }) =>
         Effect.gen(function* () {
           const fiberOption = yield* Ref.get(finalizeFiberRef);
           if (Option.isSome(fiberOption)) {
@@ -1141,10 +1181,145 @@ export class AgentRunner {
               Effect.catchAll(() => Effect.void),
             );
           }
+
+          // Disconnect MCP servers used in this conversation
+          if (runContext.connectedMCPServers.length > 0 && Option.isSome(mcpManager)) {
+            yield* logger.debug(
+              `Disconnecting ${runContext.connectedMCPServers.length} MCP server(s) for conversation ${runContext.actualConversationId}`,
+            );
+            for (const serverName of runContext.connectedMCPServers) {
+              yield* mcpManager.value.disconnectServer(serverName).pipe(
+                Effect.catchAll((error) =>
+                  logger.warn(`Failed to disconnect MCP server ${serverName}`, {
+                    error: error instanceof Error ? error.message : String(error),
+                  }),
+                ),
+              );
+            }
+            yield* logger.debug("All MCP servers disconnected for this conversation");
+          }
+
           yield* logger.clearSessionId();
         }),
     );
   }
+
+  /**
+   * Proactively check if context needs compaction and summarize if necessary.
+   * This prevents hitting the model's context window limit by summarizing old messages.
+   */
+  private static compactContextIfNeeded(
+    currentMessages: ConversationMessages,
+    agent: Agent,
+    sessionId: string,
+    conversationId: string,
+  ): Effect.Effect<
+    ConversationMessages,
+    Error,
+    | LLMService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | PresentationService
+    | ToolRequirements
+  > {
+    return Effect.gen(function* () {
+      const logger = yield* LoggerServiceTag;
+
+      // Check if summarization is needed
+      if (!DEFAULT_CONTEXT_WINDOW_MANAGER.shouldSummarize(currentMessages)) {
+        return currentMessages;
+      }
+
+      const currentTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages);
+      const maxTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens || 150000;
+
+      yield* logger.info("Conversation context approaching limit", {
+        currentTokens,
+        maxTokens,
+        threshold: Math.floor(maxTokens * 0.8),
+        agentId: agent.id,
+        conversationId,
+      });
+
+      yield* logger.info("Compacting history to preserve context...", {
+        messageCount: currentMessages.length,
+      });
+
+      // Keep system message [0] and recent messages that fit in token budget
+      const systemMessage = currentMessages[0];
+
+      // Reserve 20% of max tokens for recent context
+      // This ensures we keep recent context while preventing it from eating the entire window
+      const recentTokenBudget = Math.floor(maxTokens * 0.2);
+      let accumulatedTokens = 0;
+      let recentCount = 0;
+
+      // Scan backwards to fill budget
+      for (let i = currentMessages.length - 1; i > 0; i--) {
+        const msg = currentMessages[i];
+        if (!msg) continue;
+        // Calculate tokens for this single message
+        const tokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens([msg]);
+
+        // Stop if adding this message exceeds budget, unless it's the very first one we're checking
+        // (we always want to keep at least 1 recent message even if it's large, though extremely large messages are risky)
+        if (accumulatedTokens + tokens > recentTokenBudget && recentCount > 0) {
+          break;
+        }
+
+        accumulatedTokens += tokens;
+        recentCount++;
+      }
+
+      // Always keep at least the last message
+      recentCount = Math.max(1, recentCount);
+      // But don't exceed total messages available to separate
+      recentCount = Math.min(recentCount, currentMessages.length - 1);
+
+      const recentMessages = currentMessages.slice(-recentCount);
+      const messagesToSummarize = currentMessages.slice(1, -recentCount);
+
+      if (messagesToSummarize.length === 0) {
+        // Not enough to summarize, just return as-is
+        return currentMessages;
+      }
+
+      yield* logger.debug("Summarizing messages from conversation", {
+        totalMessages: currentMessages.length,
+        messagesToSummarize: messagesToSummarize.length,
+        recentKept: recentCount,
+      });
+
+      // Summarize the middle portion
+      const summaryMessage = yield* AgentRunner.summarizeHistory(
+        messagesToSummarize,
+        agent,
+        sessionId,
+        conversationId,
+      );
+
+      // Rebuild: [system, summary, ...recent]
+      const compactedMessages: ConversationMessages = [
+        systemMessage,
+        summaryMessage,
+        ...recentMessages,
+      ] as ConversationMessages;
+
+      const newTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(compactedMessages);
+
+      yield* logger.info("Context compacted successfully", {
+        originalMessages: currentMessages.length,
+        compactedMessages: compactedMessages.length,
+        originalTokens: currentTokens,
+        compactedTokens: newTokens,
+        tokensSaved: currentTokens - newTokens,
+      });
+
+      return compactedMessages;
+    });
+  }
+
   /**
    * Summarizes a portion of the conversation history using a specialized sub-agent.
    * Returns a single assistant message containing the summary.
