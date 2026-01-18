@@ -191,6 +191,19 @@ export class ContextWindowManager {
   }
 
   /**
+   * Check if messages should be summarized (80% of token limit)
+   * This provides early warning before hitting the hard limit
+   */
+  shouldSummarize(messages: ChatMessage[]): boolean {
+    if (!this.config.maxTokens) return false;
+
+    const currentTokens = this.calculateTotalTokens(messages);
+    const threshold = this.config.maxTokens * 0.8; // 80% threshold
+
+    return currentTokens > threshold;
+  }
+
+  /**
    * Get current configuration
    */
   getConfig(): ContextWindowConfig {
@@ -203,7 +216,6 @@ export class ContextWindowManager {
  */
 export const DEFAULT_CONTEXT_WINDOW_MANAGER = new ContextWindowManager({
   maxMessages: 200,
-  // Default safer token limit (conservative for most models)
-  maxTokens: 120000,
+  maxTokens: 100000,
   strategy: "token-based",
 });

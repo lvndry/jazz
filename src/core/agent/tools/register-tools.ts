@@ -13,7 +13,6 @@ import type { ToolRegistry } from "../../interfaces/tool-registry";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { ToolCategory } from "../../types";
 import type { MCPTool } from "../../types/mcp";
-import { extractServerNamesFromToolNames } from "../../utils/mcp-utils";
 import { toPascalCase } from "../../utils/string";
 import { calendarTools } from "./calendar-tools";
 import {
@@ -140,19 +139,16 @@ export function registerMCPToolsLazy(): Effect.Effect<
 /**
  * Register MCP tools for a specific agent based on their tool requirements
  *
- * Connects to all enabled MCP servers during agent setup to:
- * - Validate credentials early
- * - Make all tools available if the agent needs them
- * - Provide better error messages if connections fail
- *
- * Only registers tools that the agent actually uses, but connects to all enabled servers.
+ * Connects only to MCP servers that the agent actually uses based on its tool list.
+ * Returns the list of connected server names for cleanup when the conversation ends.
  *
  * @param agentToolNames - The list of tool names the agent uses
+ * @returns Array of connected MCP server names
  */
 export function registerMCPToolsForAgent(
   agentToolNames: readonly string[],
 ): Effect.Effect<
-  void,
+  readonly string[],
   Error,
   ToolRegistry | MCPServerManager | AgentConfigService | LoggerService | TerminalService
 > {
@@ -164,6 +160,12 @@ export function registerMCPToolsForAgent(
     // Extract MCP tool names (format: mcp_<servername>_<toolname>)
     const mcpToolNames = agentToolNames.filter((name) => name.startsWith("mcp_"));
 
+    // If agent has no MCP tools, skip connection entirely
+    if (mcpToolNames.length === 0) {
+      yield* logger.debug("Agent has no MCP tools, skipping MCP server connections");
+      return [];
+    }
+
     // Get all configured MCP servers
     const allServers = yield* mcpManager.listServers();
 
@@ -171,36 +173,47 @@ export function registerMCPToolsForAgent(
       `Found ${allServers.length} configured MCP server(s): ${allServers.map((s) => s.name).join(", ")}`,
     );
 
-    // Connect to all enabled MCP servers (not just ones the agent uses)
-    // This ensures credentials are validated early and all tools are available
-    const enabledServers = allServers.filter((server) => server.enabled !== false);
-
-    if (enabledServers.length === 0) {
-      yield* logger.debug("No enabled MCP servers to connect to");
-      return;
-    }
-
-    yield* logger.debug(
-      `Connecting to ${enabledServers.length} enabled MCP server(s) during agent setup`,
-    );
-
-    // Extract server names from agent's tool names for logging purposes
-    let expectedServerNames = new Set<string>();
-    if (mcpToolNames.length > 0) {
-      const serverNamesResult = yield* extractServerNamesFromToolNames(mcpToolNames).pipe(
-        Effect.catchAll(() => Effect.succeed(new Set<string>())),
-      );
-      expectedServerNames = serverNamesResult;
-      if (expectedServerNames.size > 0) {
-        yield* logger.debug(
-          `Agent uses tools from ${expectedServerNames.size} MCP server(s): ${Array.from(expectedServerNames).map(toPascalCase).join(", ")}`,
-        );
+    // Extract server names that the agent actually uses from its tool list
+    // Match tool names to known servers by prefix
+    // This handles cases where tool names contain underscores (e.g. mcp_server_tool_name)
+    // and avoids ambiguity in parsing
+    const requiredServerNames = new Set<string>();
+    for (const server of allServers) {
+      const prefix = `mcp_${server.name.toLowerCase()}_`;
+      if (mcpToolNames.some((name) => name.startsWith(prefix))) {
+        requiredServerNames.add(server.name);
       }
     }
 
-    // Connect to and register tools from all enabled servers
-    // We connect to all servers to validate credentials early, but only register tools the agent uses
-    for (const serverConfig of enabledServers) {
+    if (requiredServerNames.size > 0) {
+      yield* logger.debug(
+        `Agent uses tools from ${requiredServerNames.size} MCP server(s): ${Array.from(requiredServerNames).map(toPascalCase).join(", ")}`,
+      );
+    }
+
+    // Connect only to enabled servers that the agent actually uses
+    // This avoids unnecessary connections and improves startup performance
+    const serversToConnect = allServers.filter(
+      (server) =>
+        server.enabled !== false &&
+        requiredServerNames.has(server.name)
+    );
+
+    if (serversToConnect.length === 0) {
+      yield* logger.debug("No MCP servers to connect to for this agent");
+      return [];
+    }
+
+    yield* logger.debug(
+      `Connecting to ${serversToConnect.length} MCP server(s) required by agent during setup`,
+    );
+
+    // Track successfully connected servers for cleanup
+    const connectedServers: string[] = [];
+
+    // Connect to and register tools from required servers
+    // Credentials are validated early for servers the agent uses
+    for (const serverConfig of serversToConnect) {
       // Skip disabled servers
       if (serverConfig.enabled === false) {
         yield* logger.debug(`Skipping disabled MCP server: ${serverConfig.name}`);
@@ -361,6 +374,8 @@ export function registerMCPToolsForAgent(
           yield* logger.info(
             `Registered ${registeredToolNames.length} MCP tool(s) from ${serverConfig.name}: ${registeredToolNames.join(", ")}`,
           );
+          // Track this server as successfully connected
+          connectedServers.push(serverConfig.name);
         } else {
           yield* logger.debug(
             `MCP server ${serverConfig.name} connected but no tools were discovered`,
@@ -378,7 +393,9 @@ export function registerMCPToolsForAgent(
         ),
       );
     }
-  });
+
+    return connectedServers;
+  }).pipe(Effect.mapError((error: unknown) => (error instanceof Error ? error : new Error(String(error)))));
 }
 
 /**
