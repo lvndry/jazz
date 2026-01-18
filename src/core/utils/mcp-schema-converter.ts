@@ -232,7 +232,13 @@ export function convertMCPSchemaToZod(
     return convertAllOfSchema(schema.allOf, (s) => convertMCPSchemaToZod(s, toolName));
   }
 
-  // Handle basic types
-  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+  let type: string | undefined;
+  if (Array.isArray(schema.type)) {
+    type = schema.type.length > 0 ? (schema.type[0] as string) : undefined;
+  } else if (typeof schema.type === "string") {
+    type = schema.type;
+  } else {
+    type = undefined;
+  }
   return convertBasicType(type);
 }

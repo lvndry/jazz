@@ -114,3 +114,50 @@ export function retryWithBackoff<E, A, R>(
 
   return effect.pipe(Effect.retry(schedule));
 }
+
+/**
+ * Check if an error indicates that authentication is required
+ *
+ * MCP servers may require authentication and can take longer than normal timeouts.
+ * This function detects common patterns that indicate authentication is needed.
+ *
+ * @param error - The error to check
+ * @returns true if the error suggests authentication is required
+ */
+export function isAuthenticationRequired(error: unknown): boolean {
+  if (error === null || error === undefined) {
+    return false;
+  }
+
+  const errorMessage =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : String(error);
+
+  const lowerMessage = errorMessage.toLowerCase();
+
+  // Check for authentication-related keywords
+  const authKeywords = [
+    "authentication",
+    "authenticate",
+    "auth",
+    "login",
+    "credential",
+    "password",
+    "token",
+    "api key",
+    "api_key",
+    "authorization",
+    "unauthorized",
+    "401",
+    "403",
+    "please sign in",
+    "sign in required",
+    "authentication required",
+    "authentication needed",
+  ];
+
+  return authKeywords.some((keyword) => lowerMessage.includes(keyword));
+}

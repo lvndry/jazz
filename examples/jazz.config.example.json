@@ -29,6 +29,16 @@
     "clientId": "1234567890.apps.googleusercontent.com",
     "clientSecret": "1234567890"
   },
+  "mcpServers": {
+    "notionMCP": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.notion.com/mcp"
+      ]
+    }
+  },
   "web_search": {
     "priority_order": [
       "parallel",

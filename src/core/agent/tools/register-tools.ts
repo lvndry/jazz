@@ -14,6 +14,7 @@ import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { ToolCategory } from "../../types";
 import type { MCPTool } from "../../types/mcp";
 import { extractServerNamesFromToolNames } from "../../utils/mcp-utils";
+import { toPascalCase } from "../../utils/string";
 import { calendarTools } from "./calendar-tools";
 import {
   createCdTool,
@@ -139,8 +140,12 @@ export function registerMCPToolsLazy(): Effect.Effect<
 /**
  * Register MCP tools for a specific agent based on their tool requirements
  *
- * Only connects to and registers tools from MCP servers that the agent actually uses.
- * This avoids connecting to unnecessary servers.
+ * Connects to all enabled MCP servers during agent setup to:
+ * - Validate credentials early
+ * - Make all tools available if the agent needs them
+ * - Provide better error messages if connections fail
+ *
+ * Only registers tools that the agent actually uses, but connects to all enabled servers.
  *
  * @param agentToolNames - The list of tool names the agent uses
  */
@@ -159,55 +164,43 @@ export function registerMCPToolsForAgent(
     // Extract MCP tool names (format: mcp_<servername>_<toolname>)
     const mcpToolNames = agentToolNames.filter((name) => name.startsWith("mcp_"));
 
-    if (mcpToolNames.length === 0) {
-      // Agent doesn't use any MCP tools
-      return;
-    }
+    // Get all configured MCP servers
+    const allServers = yield* mcpManager.listServers();
 
-    // Extract unique server names from tool names using robust parsing
-    const serverNamesResult = yield* extractServerNamesFromToolNames(mcpToolNames).pipe(
-      Effect.catchAll((error) =>
-        Effect.gen(function* () {
-          const errorMessage =
-            typeof error === "object" && error !== null && "_tag" in error && "reason" in error
-              ? (error as { reason: string }).reason
-              : String(error);
-          yield* logger.warn(`Failed to parse server names from MCP tool names: ${errorMessage}`);
-          // Return empty set on error - agent won't use MCP tools
-          return Effect.succeed(new Set<string>());
-        }),
-      ),
+    yield* logger.debug(
+      `Found ${allServers.length} configured MCP server(s): ${allServers.map((s) => s.name).join(", ")}`,
     );
-    const serverNames = serverNamesResult as Set<string>;
 
-    if (serverNames.size === 0) {
-      yield* logger.debug("No MCP servers identified from agent tools");
+    // Connect to all enabled MCP servers (not just ones the agent uses)
+    // This ensures credentials are validated early and all tools are available
+    const enabledServers = allServers.filter((server) => server.enabled !== false);
+
+    if (enabledServers.length === 0) {
+      yield* logger.debug("No enabled MCP servers to connect to");
       return;
     }
 
     yield* logger.debug(
-      `Agent uses tools from ${serverNames.size} MCP server(s): ${Array.from(serverNames).join(", ")}`,
+      `Connecting to ${enabledServers.length} enabled MCP server(s) during agent setup`,
     );
 
-    // Get all configured MCP servers
-    const allServers = yield* mcpManager.listServers();
-
-    // Filter to only servers the agent needs (case-insensitive comparison)
-    const neededServers = allServers.filter((server) =>
-      Array.from(serverNames).some(
-        (name) => name.toLowerCase() === server.name.toLowerCase(),
-      ),
-    );
-
-    if (neededServers.length === 0) {
-      yield* logger.warn(
-        `Agent references MCP tools but no matching servers found. Expected: ${Array.from(serverNames).join(", ")}`,
+    // Extract server names from agent's tool names for logging purposes
+    let expectedServerNames = new Set<string>();
+    if (mcpToolNames.length > 0) {
+      const serverNamesResult = yield* extractServerNamesFromToolNames(mcpToolNames).pipe(
+        Effect.catchAll(() => Effect.succeed(new Set<string>())),
       );
-      return;
+      expectedServerNames = serverNamesResult;
+      if (expectedServerNames.size > 0) {
+        yield* logger.debug(
+          `Agent uses tools from ${expectedServerNames.size} MCP server(s): ${Array.from(expectedServerNames).map(toPascalCase).join(", ")}`,
+        );
+      }
     }
 
-    // Connect to and register tools from only the needed servers
-    for (const serverConfig of neededServers) {
+    // Connect to and register tools from all enabled servers
+    // We connect to all servers to validate credentials early, but only register tools the agent uses
+    for (const serverConfig of enabledServers) {
       // Skip disabled servers
       if (serverConfig.enabled === false) {
         yield* logger.debug(`Skipping disabled MCP server: ${serverConfig.name}`);
@@ -218,54 +211,133 @@ export function registerMCPToolsForAgent(
         const terminal = yield* TerminalServiceTag;
         const serverName = serverConfig.name;
 
-        // Generate a unique ID for this connection log entry
-        const logId = `mcp-connecting-${serverName}-${Date.now()}`;
+        // Check if server is already connected to avoid showing duplicate connection messages
+        const isAlreadyConnected = yield* mcpManager.isConnected(serverName);
 
-        // Show connecting message with spinner
-        yield* terminal.log(
-          ink(
-            React.createElement(
-              Box,
-              {},
-              React.createElement(Text, { color: "cyan" }, [
-                React.createElement(Spinner, { key: "spinner", type: "dots" }),
-              ]),
-              React.createElement(Text, {}, ` Connecting to ${serverName} MCP server...`),
+        let logId: string | undefined;
+        if (!isAlreadyConnected) {
+          // Generate a unique ID for this connection log entry
+          logId = `mcp-connecting-${serverName}-${Date.now()}`;
+
+          // Show connecting message with spinner only if not already connected
+          yield* terminal.log(
+            ink(
+              React.createElement(
+                Box,
+                {},
+                React.createElement(Text, { color: "cyan" }, [
+                  React.createElement(Spinner, { key: "spinner", type: "dots" }),
+                ]),
+                React.createElement(Text, {}, ` Connecting to ${toPascalCase(serverName)} MCP server...`),
+              ),
             ),
-          ),
-          logId,
-        );
+            logId,
+          );
 
-        yield* logger.debug(`Discovering tools from MCP server ${serverName}...`);
+          yield* logger.debug(`Connecting to MCP server ${serverName}...`);
+        } else {
+          yield* logger.debug(`MCP server ${serverName} already connected, skipping connection UI`);
+        }
 
-        // Use discoverTools() which handles connect/disconnect automatically
-        const mcpToolsResult = yield* mcpManager.discoverTools(serverConfig).pipe(
-          Effect.catchAll((error) =>
-            Effect.gen(function* () {
-              // Update log to show error
-              const errorMessage = String(error);
+        // Connect to server and maintain connection (don't disconnect after discovery)
+        // This ensures tools are available when needed and connections persist during the session
+        // If connection fails (e.g., invalid credentials), we show a clear message but continue
+        const connectResult = yield* Effect.either(mcpManager.connectServer(serverConfig));
+        if (connectResult._tag === "Left") {
+          const error = connectResult.left;
+          const errorMessage = String(error);
+
+          // Check if this looks like an authentication/credential error
+          const isAuthError =
+            errorMessage.toLowerCase().includes("auth") ||
+            errorMessage.toLowerCase().includes("credential") ||
+            errorMessage.toLowerCase().includes("api key") ||
+            errorMessage.toLowerCase().includes("invalid") ||
+            errorMessage.toLowerCase().includes("unauthorized") ||
+            errorMessage.toLowerCase().includes("401") ||
+            errorMessage.toLowerCase().includes("403");
+
+          // Update log to show error with helpful context (only if we showed connection UI)
+          if (logId !== undefined) {
+            const errorPrefix = isAuthError
+              ? `✗ ${toPascalCase(serverName)} MCP unavailable (invalid credentials)`
+              : `✗ Failed to connect to ${toPascalCase(serverName)} MCP server`;
+
+            yield* terminal.updateLog(
+              logId,
+              ink(
+                React.createElement(Text, { color: "yellow" }, errorPrefix),
+              ),
+            );
+
+            if (isAuthError) {
               yield* terminal.updateLog(
                 logId,
                 ink(
-                  React.createElement(Text, { color: "red" }, `✗ Failed to connect to ${serverName} MCP server: ${errorMessage}`),
+                  React.createElement(
+                    Box,
+                    { marginTop: 1 },
+                    React.createElement(Text, { color: "gray" }, `   The agent will continue without ${toPascalCase(serverName)} tools.`),
+                  ),
                 ),
               );
-              // Return empty array on error - skip this server
-              return Effect.succeed([] as readonly MCPTool[]);
-            }),
-          ),
-        );
-        const mcpTools = mcpToolsResult as readonly MCPTool[];
+            }
+          }
+
+          if (isAuthError) {
+            yield* logger.warn(
+              `MCP server ${serverName} connection failed due to invalid credentials: ${errorMessage}`,
+            );
+          } else {
+            yield* logger.error(`Failed to connect to MCP server ${serverName}: ${errorMessage}`);
+          }
+
+          // Skip this server but continue with others
+          return;
+        }
+
+        // Get tools from the connected server
+        const mcpToolsResult = yield* Effect.either(mcpManager.getServerTools(serverName));
+        let mcpTools: readonly MCPTool[];
+        if (mcpToolsResult._tag === "Right") {
+          mcpTools = mcpToolsResult.right;
+        } else {
+          const error = mcpToolsResult.left;
+          const errorMessage = String(error);
+          if (logId !== undefined) {
+            yield* terminal.updateLog(
+              logId,
+              ink(
+                React.createElement(Text, { color: "yellow" }, `✗ Failed to discover tools from ${toPascalCase(serverName)} MCP server`),
+              ),
+            );
+            yield* terminal.updateLog(
+              logId,
+              ink(
+                React.createElement(
+                  Box,
+                  { marginTop: 1 },
+                  React.createElement(Text, { color: "gray" }, `   The agent will continue without ${toPascalCase(serverName)} tools.`),
+                ),
+              ),
+            );
+          }
+          yield* logger.warn(`Failed to discover tools from MCP server ${serverName}: ${errorMessage}`);
+          // Return empty array on error - tools won't be available, but we continue
+          mcpTools = [];
+        }
 
         yield* logger.debug(`Discovered ${mcpTools.length} tool(s) from MCP server ${serverName}`);
 
-        // Update the log entry to show success (replaces spinner)
-        yield* terminal.updateLog(
-          logId,
-          ink(
-            React.createElement(Text, { color: "green" }, `✓ Successfully connected to ${serverName} MCP server`),
-          ),
-        );
+        // Update the log entry to show success (replaces spinner) - only if we showed connection UI
+        if (logId !== undefined && !isAlreadyConnected) {
+          yield* terminal.updateLog(
+            logId,
+            ink(
+              React.createElement(Text, { color: "green" }, `✓ Successfully connected to ${toPascalCase(serverName)} MCP server`),
+            ),
+          );
+        }
 
         // Determine category for tools
         const category: ToolCategory =
@@ -273,24 +345,30 @@ export function registerMCPToolsForAgent(
             ? MCP_MONGODB_CATEGORY
             : {
                 id: `mcp_${serverConfig.name.toLowerCase()}`,
-                displayName: `${serverConfig.name} (MCP)`,
+                displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
               };
 
         // Register tools with server config for lazy reconnection
+        // Agents always use all tools from their selected MCP servers, so register all discovered tools
         const registerTool = registry.registerForCategory(category);
         const jazzTools = yield* registerMCPServerTools(serverConfig, mcpTools);
 
+        // Register all tools from this MCP server (agents use all tools from selected MCPs)
+        const registeredToolNames: string[] = [];
         for (const tool of jazzTools) {
-          // Only register tools that the agent actually uses
-          const toolName = tool.name;
-          if (agentToolNames.includes(toolName)) {
-            yield* registerTool(tool);
-          }
+          yield* registerTool(tool);
+          registeredToolNames.push(tool.name);
         }
 
-        yield* logger.info(
-          `Registered ${jazzTools.filter((t) => agentToolNames.includes(t.name)).length} MCP tools from ${serverConfig.name} for agent`,
-        );
+        if (registeredToolNames.length > 0) {
+          yield* logger.info(
+            `Registered ${registeredToolNames.length} MCP tool(s) from ${serverConfig.name}: ${registeredToolNames.join(", ")}`,
+          );
+        } else {
+          yield* logger.debug(
+            `MCP server ${serverConfig.name} connected but no tools were discovered`,
+          );
+        }
       }).pipe(
         Effect.catchAll((error) =>
           Effect.gen(function* () {
@@ -366,7 +444,7 @@ export function registerMCPToolsForSelection(): Effect.Effect<
             ? MCP_MONGODB_CATEGORY
             : {
                 id: `mcp_${serverConfig.name.toLowerCase()}`,
-                displayName: `${serverConfig.name} (MCP)`,
+                displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
               };
 
         // Register tools with server config for lazy reconnection
@@ -466,7 +544,7 @@ export function getMCPServerCategories(): Effect.Effect<
       const categoryDisplayName =
         serverConfig.name.toLowerCase() === "mongodb"
           ? MCP_MONGODB_CATEGORY.displayName
-          : `${serverConfig.name} (MCP)`;
+          : `${toPascalCase(serverConfig.name)} (MCP)`;
 
       // Add category with empty array (we don't know tool count without connecting)
       categories[categoryDisplayName] = [];

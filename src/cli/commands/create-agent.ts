@@ -27,6 +27,8 @@ import {
   StorageError,
   ValidationError,
 } from "../../core/types/errors";
+import { isAuthenticationRequired } from "../../core/utils/mcp-utils";
+import { toPascalCase } from "../../core/utils/string";
 import type { AgentConfig, LLMProviderListItem } from "../../core/types/index";
 import type { MCPTool } from "../../core/types/mcp";
 
@@ -169,20 +171,32 @@ export function createAgentCommand(): Effect.Effect<
         Effect.gen(function* () {
           yield* logger.debug(`Registering tools from MCP server ${serverConfig.name}...`);
 
-          // Discover tools from server with timeout (10 seconds per server)
+          // Discover tools from server with timeout (30 seconds per server to allow for authentication)
           const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
-            Effect.timeout("10 seconds"),
+            Effect.timeout("30 seconds"),
             Effect.catchAll((error) =>
               Effect.gen(function* () {
                 const errorMessage =
                   error instanceof Error ? error.message : String(error);
+                const isAuthRequired = isAuthenticationRequired(error);
+                
                 if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
+                  if (isAuthRequired) {
+                    yield* logger.warn(
+                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 30 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
+                    );
+                  } else {
+                    yield* logger.warn(
+                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 30 seconds`,
+                    );
+                  }
+                } else if (isAuthRequired) {
                   yield* logger.warn(
-                    `MCP server ${serverConfig.name} connection timed out after 10 seconds`,
+                    `MCP server ${toPascalCase(serverConfig.name)} requires authentication: ${errorMessage}`,
                   );
                 } else {
                   yield* logger.warn(
-                    `Failed to connect to MCP server ${serverConfig.name}: ${errorMessage}`,
+                    `Failed to connect to MCP server ${toPascalCase(serverConfig.name)}: ${errorMessage}`,
                   );
                 }
                 // Return empty array on error/timeout
@@ -201,7 +215,7 @@ export function createAgentCommand(): Effect.Effect<
               ? MCP_MONGODB_CATEGORY
               : {
                   id: `mcp_${serverConfig.name.toLowerCase()}`,
-                  displayName: `${serverConfig.name} (MCP)`,
+                  displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
                 };
 
           // Register tools

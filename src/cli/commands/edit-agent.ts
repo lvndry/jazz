@@ -27,8 +27,9 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "../../core/types/errors";
+import { toPascalCase } from "../../core/utils/string";
 import type { MCPTool } from "../../core/types/mcp";
-import { extractServerNamesFromToolNames } from "../../core/utils/mcp-utils";
+import { extractServerNamesFromToolNames, isAuthenticationRequired } from "../../core/utils/mcp-utils";
 
 /**
  * CLI commands for editing existing agents
@@ -161,12 +162,12 @@ export function editAgentCommand(
               categoryDisplayName =
                 serverConfig.name.toLowerCase() === "mongodb"
                   ? MCP_MONGODB_CATEGORY.displayName
-                  : `${serverConfig.name} (MCP)`;
+                  : `${toPascalCase(serverConfig.name)} (MCP)`;
             }
 
-            // Discover tools from server with timeout (10 seconds per server)
+            // Discover tools from server with timeout (30 seconds per server to allow for authentication)
             const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
-              Effect.timeout("10 seconds"),
+              Effect.timeout("30 seconds"),
               Effect.catchAll((error) =>
                 Effect.gen(function* () {
                   // Log detailed error information
@@ -174,6 +175,7 @@ export function editAgentCommand(
                     error instanceof Error ? error.message : String(error);
                   const errorString = String(error);
                   const errorStack = error instanceof Error ? error.stack : undefined;
+                  const isAuthRequired = isAuthenticationRequired(error);
 
                   // Check for Effect tagged errors
                   let errorDetails = `Type: ${error instanceof Error ? error.constructor.name : typeof error}, Message: ${errorMessage}`;
@@ -193,19 +195,29 @@ export function editAgentCommand(
                   }
 
                   yield* terminal.debug(
-                    `Error discovering tools from ${serverConfig.name}: ${errorDetails}${errorStack ? `\nStack: ${errorStack}` : ""}`,
+                    `Error discovering tools from ${toPascalCase(serverConfig.name)}: ${errorDetails}${errorStack ? `\nStack: ${errorStack}` : ""}`,
                   );
                   yield* logger.warn(
-                    `Error discovering tools from ${serverConfig.name}: ${errorDetails}`,
+                    `Error discovering tools from ${toPascalCase(serverConfig.name)}: ${errorDetails}`,
                   );
 
                   if (errorMessage.includes("timeout") || errorMessage.includes("Timeout") || errorString.includes("timeout") || errorString.includes("Timeout")) {
+                    if (isAuthRequired) {
+                      yield* terminal.warn(
+                        `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 30 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
+                      );
+                    } else {
+                      yield* terminal.warn(
+                        `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 30 seconds`,
+                      );
+                    }
+                  } else if (isAuthRequired) {
                     yield* terminal.warn(
-                      `MCP server ${serverConfig.name} connection timed out after 10 seconds`,
+                      `MCP server ${toPascalCase(serverConfig.name)} requires authentication: ${errorMessage}`,
                     );
                   } else {
                     yield* terminal.warn(
-                      `Failed to discover tools from MCP server ${serverConfig.name}: ${errorMessage}`,
+                      `Failed to discover tools from MCP server ${toPascalCase(serverConfig.name)}: ${errorMessage}`,
                     );
                   }
                   // Return empty array on error/timeout
@@ -221,7 +233,7 @@ export function editAgentCommand(
             }
 
             yield* terminal.debug(
-              `Discovered ${mcpTools.length} tools from ${serverConfig.name}: ${mcpTools.map(t => t.name).slice(0, 5).join(", ")}${mcpTools.length > 5 ? "..." : ""}`,
+              `Discovered ${mcpTools.length} tools from ${toPascalCase(serverConfig.name)}: ${mcpTools.map(t => t.name).slice(0, 5).join(", ")}${mcpTools.length > 5 ? "..." : ""}`,
             );
 
             // Determine category for tools using the exact display name from the UI

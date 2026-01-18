@@ -18,6 +18,7 @@ import {
 } from "../../types/errors";
 import type { MCPTool } from "../../types/mcp";
 import { convertMCPSchemaToZod } from "../../utils/mcp-schema-converter";
+import { safeStringify, toPascalCase } from "../../utils/string";
 import { defineTool } from "./base-tool";
 
 /**
@@ -117,7 +118,7 @@ function executeMCPToolWithLazyConnection(
             React.createElement(Text, { color: "cyan" }, [
               React.createElement(Spinner, { key: "spinner", type: "dots" }),
             ]),
-            React.createElement(Text, {}, ` Connecting to ${serverName} MCP server...`),
+            React.createElement(Text, {}, ` Connecting to ${toPascalCase(serverName)} MCP server...`),
           ),
         ),
         logId,
@@ -136,7 +137,7 @@ function executeMCPToolWithLazyConnection(
       yield* terminal.updateLog(
         logId,
         ink(
-          React.createElement(Text, { color: "green" }, `✓ Successfully connected to ${serverName} MCP server`),
+          React.createElement(Text, { color: "green" }, `✓ Successfully connected to ${toPascalCase(serverName)} MCP server`),
         ),
       );
       yield* logger.info(`Lazy connection established to MCP server: ${serverName}`);
@@ -194,12 +195,12 @@ function executeMCPToolWithLazyConnection(
             } else if (taggedError.message) {
               errorMessage = taggedError.message;
             } else {
-              errorMessage = String(error);
+              errorMessage = safeStringify(error);
             }
           } else if (error instanceof Error) {
             errorMessage = error.message;
           } else {
-            errorMessage = String(error);
+            errorMessage = safeStringify(error);
           }
           yield* logger.error(`MCP tool execution failed: ${serverName}.${toolName}`, {
             error: errorMessage,
