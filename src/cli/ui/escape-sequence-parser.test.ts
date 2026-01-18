@@ -29,8 +29,8 @@ describe("escape-sequence-parser", () => {
       expect(result.parsed.type).toBe("word-left");
     });
 
-    test("double escape SS3 left (ESC ESC O D)", () => {
-      const result = parseInput("\x1b\x1bOD", mockKey, "");
+    test("double escape SS3 left (ESC ESC [ O D)", () => {
+      const result = parseInput("\x1b\x1b[OD", mockKey, "");
       expect(result.parsed.type).toBe("word-left");
     });
 
@@ -61,8 +61,8 @@ describe("escape-sequence-parser", () => {
       expect(result.parsed.type).toBe("word-right");
     });
 
-    test("double escape SS3 right (ESC ESC O C)", () => {
-      const result = parseInput("\x1b\x1bOC", mockKey, "");
+    test("double escape SS3 right (ESC ESC [ O C)", () => {
+      const result = parseInput("\x1b\x1b[OC", mockKey, "");
       expect(result.parsed.type).toBe("word-right");
     });
 

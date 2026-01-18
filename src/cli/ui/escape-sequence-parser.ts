@@ -221,6 +221,7 @@ function isCommandDelete(input: string, buffer: string): boolean {
 function isBufferingEscape(buffer: string): boolean {
   if (buffer === "\x1b") return true;
   if (buffer.startsWith("\x1b[") && buffer.length <= 12) return true;
+  if (buffer.startsWith("\x1bO") && buffer.length <= 6) return true;
   if (buffer.length <= 2 && ESC_BF_REGEX.test(buffer)) return true;
   return false;
 }
