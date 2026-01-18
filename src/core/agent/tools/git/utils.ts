@@ -1,8 +1,8 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "../../../interfaces/fs";
-import type { ToolExecutionContext } from "../../../types";
-import { createSanitizedEnv } from "../../../utils/env-utils";
+import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { ToolExecutionContext } from "@/core/types";
+import { createSanitizedEnv } from "@/core/utils/env-utils";
 import { buildKeyFromContext } from "../context-utils";
 
 /**

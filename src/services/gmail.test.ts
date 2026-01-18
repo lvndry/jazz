@@ -2,9 +2,9 @@ import { FileSystem } from "@effect/platform";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Either } from "effect";
 import { google, type gmail_v1 } from "googleapis";
-import type { TerminalService } from "../core/interfaces/terminal";
-import { GmailAuthenticationError, GmailOperationError } from "../core/types";
-import { GmailService } from "./../core/interfaces/gmail";
+import type { TerminalService } from "@/core/interfaces/terminal";
+import { GmailAuthenticationError, GmailOperationError } from "@/core/types";
+import { GmailService } from "@/core/interfaces/gmail";
 import { GmailServiceResource } from "./gmail";
 
 // Helper constant for test tokens with required scopes

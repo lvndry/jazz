@@ -1,6 +1,6 @@
 import type { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
-import type { Agent } from "../types/index";
+import type { Agent } from "@/core/types/index";
 import { AgentConfigServiceTag } from "./agent-config";
 import type { AgentService } from "./agent-service";
 import type { FileSystemContextService } from "./fs";

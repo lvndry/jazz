@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { MCPJSONSchema } from "../types/mcp";
+import type { MCPJSONSchema } from "@/core/types/mcp";
 
 /**
  * Convert MCP JSON Schema to Zod schema

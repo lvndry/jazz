@@ -3,7 +3,7 @@ import { spawn } from "child_process";
 import { Effect, Layer } from "effect";
 import { homedir } from "os";
 import * as nodePath from "path";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "../core/interfaces/fs";
+import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 
 /**
  * filesystem context service that tracks a working directory per agent/conversation.

@@ -1,16 +1,16 @@
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { GmailServiceTag, type GmailService } from "@/core/interfaces/gmail";
+import type { LoggerService } from "@/core/interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { GmailAuthenticationError, GmailOperationError } from "@/core/types/errors";
+import type { GmailEmail, GmailLabel } from "@/core/types/gmail";
+import { getHttpStatusFromError } from "@/core/utils/http-utils";
+import { resolveStorageDirectory } from "@/core/utils/storage-utils";
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
 import { google, type gmail_v1 } from "googleapis";
 import http from "node:http";
 import open from "open";
-import { AgentConfigServiceTag, type AgentConfigService } from "../core/interfaces/agent-config";
-import { GmailServiceTag, type GmailService } from "../core/interfaces/gmail";
-import type { LoggerService } from "../core/interfaces/logger";
-import { TerminalServiceTag, type TerminalService } from "../core/interfaces/terminal";
-import { GmailAuthenticationError, GmailOperationError } from "../core/types/errors";
-import type { GmailEmail, GmailLabel } from "../core/types/gmail";
-import { getHttpStatusFromError } from "../core/utils/http-utils";
-import { resolveStorageDirectory } from "../core/utils/storage-utils";
 import {
   ALL_GOOGLE_SCOPES,
   GMAIL_REQUIRED_SCOPES,

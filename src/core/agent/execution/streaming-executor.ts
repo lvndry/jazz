@@ -1,17 +1,17 @@
 import { Cause, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
 
-import { MAX_AGENT_STEPS } from "../../constants/agent";
-import { type AgentConfigService } from "../../interfaces/agent-config";
-import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
-import { MCPServerManagerTag } from "../../interfaces/mcp-server";
-import type { PresentationService } from "../../interfaces/presentation";
-import { PresentationServiceTag } from "../../interfaces/presentation";
-import type { ToolRegistry, ToolRequirements } from "../../interfaces/tool-registry";
-import type { ConversationMessages, StreamEvent, StreamingConfig } from "../../types";
-import { type ChatCompletionResponse } from "../../types/chat";
-import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "../../types/errors";
-import type { DisplayConfig } from "../../types/output";
+import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+import { type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
+import type { PresentationService } from "@/core/interfaces/presentation";
+import { PresentationServiceTag } from "@/core/interfaces/presentation";
+import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
+import type { ConversationMessages, StreamEvent, StreamingConfig } from "@/core/types";
+import { type ChatCompletionResponse } from "@/core/types/chat";
+import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
+import type { DisplayConfig } from "@/core/types/output";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "../context/context-window-manager";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import {

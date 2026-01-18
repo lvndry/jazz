@@ -1,5 +1,5 @@
-import { STATIC_PROVIDER_MODELS, type ProviderName } from "../../core/constants/models";
-import type { ModelInfo } from "../../core/types";
+import { STATIC_PROVIDER_MODELS, type ProviderName } from "@/core/constants/models";
+import type { ModelInfo } from "@/core/types";
 
 /**
  * This type represents how models are fetched for each provider.

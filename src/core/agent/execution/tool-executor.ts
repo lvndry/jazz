@@ -1,19 +1,19 @@
 import { Effect, Either } from "effect";
-import { type AgentConfigService } from "../../interfaces/agent-config";
-import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
+import { type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import {
   PresentationServiceTag,
   type PresentationService,
   type StreamingRenderer,
-} from "../../interfaces/presentation";
+} from "@/core/interfaces/presentation";
 import {
   ToolRegistryTag,
   type ToolRegistry,
   type ToolRequirements,
-} from "../../interfaces/tool-registry";
-import type { DisplayConfig } from "../../types/output";
-import type { ToolCall, ToolExecutionContext, ToolExecutionResult } from "../../types/tools";
-import { formatToolArguments } from "../../utils/tool-formatter";
+} from "@/core/interfaces/tool-registry";
+import type { DisplayConfig } from "@/core/types/output";
+import type { ToolCall, ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
+import { formatToolArguments } from "@/core/utils/tool-formatter";
 import {
   recordToolError,
   recordToolInvocation,

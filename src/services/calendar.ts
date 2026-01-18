@@ -1,12 +1,7 @@
-import { FileSystem } from "@effect/platform";
-import { Effect, Layer } from "effect";
-import { google, type calendar_v3 } from "googleapis";
-import http from "node:http";
-import open from "open";
-import { AgentConfigServiceTag, type AgentConfigService } from "../core/interfaces/agent-config";
-import { CalendarServiceTag, type CalendarService } from "../core/interfaces/calendar";
-import type { LoggerService } from "../core/interfaces/logger";
-import { TerminalServiceTag, type TerminalService } from "../core/interfaces/terminal";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { CalendarServiceTag, type CalendarService } from "@/core/interfaces/calendar";
+import type { LoggerService } from "@/core/interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type {
   CalendarEvent,
   CalendarEventAttendee,
@@ -16,10 +11,15 @@ import type {
   CreateEventOptions,
   ListEventsOptions,
   UpdateEventOptions,
-} from "../core/types/calendar";
-import { CalendarAuthenticationError, CalendarOperationError } from "../core/types/errors";
-import { getHttpStatusFromError } from "../core/utils/http-utils";
-import { resolveStorageDirectory } from "../core/utils/storage-utils";
+} from "@/core/types/calendar";
+import { CalendarAuthenticationError, CalendarOperationError } from "@/core/types/errors";
+import { getHttpStatusFromError } from "@/core/utils/http-utils";
+import { resolveStorageDirectory } from "@/core/utils/storage-utils";
+import { FileSystem } from "@effect/platform";
+import { Effect, Layer } from "effect";
+import { google, type calendar_v3 } from "googleapis";
+import http from "node:http";
+import open from "open";
 import {
   ALL_GOOGLE_SCOPES,
   CALENDAR_REQUIRED_SCOPES,

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { formatToolArguments } from "./tool-formatter";
 
 /**

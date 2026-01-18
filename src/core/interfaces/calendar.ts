@@ -5,8 +5,8 @@ import type {
   CreateEventOptions,
   ListEventsOptions,
   UpdateEventOptions,
-} from "../types/calendar";
-import { CalendarAuthenticationError, CalendarOperationError } from "../types/errors";
+} from "@/core/types/calendar";
+import { CalendarAuthenticationError, CalendarOperationError } from "@/core/types/errors";
 
 /**
  * Calendar service for interacting with Google Calendar API

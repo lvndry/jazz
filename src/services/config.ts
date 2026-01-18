@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer, Option } from "effect";
-import { ConfigurationError, ConfigurationNotFoundError } from "../core/types/errors";
+import { ConfigurationError, ConfigurationNotFoundError } from "@/core/types/errors";
 import type {
   AppConfig,
   GoogleConfig,
@@ -8,15 +8,15 @@ import type {
   LoggingConfig,
   StorageConfig,
   WebSearchConfig,
-} from "../core/types/index";
-import { safeParseJson } from "../core/utils/json";
-import { getDefaultDataDirectory } from "../core/utils/runtime-detection";
+} from "@/core/types/index";
+import { safeParseJson } from "@/core/utils/json";
+import { getDefaultDataDirectory } from "@/core/utils/runtime-detection";
 
 /**
  * Configuration service using Effect's Config module
  */
 
-import { AgentConfigServiceTag, type AgentConfigService } from "../core/interfaces/agent-config";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 
 export class AgentConfigServiceImpl implements AgentConfigService {
   private currentConfig: AppConfig;

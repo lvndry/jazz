@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import { GmailServiceTag, type GmailService } from "../../../interfaces/gmail";
-import type { Tool } from "../../../interfaces/tool-registry";
+import { GmailServiceTag, type GmailService } from "@/core/interfaces/gmail";
+import type { Tool } from "@/core/interfaces/tool-registry";
 import {
   defineTool,
   formatApprovalRequiredDescription,

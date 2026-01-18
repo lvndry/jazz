@@ -1,4 +1,4 @@
-import { AgentConfigurationError } from "../../types/errors";
+import { AgentConfigurationError } from "@/core/types/errors";
 
 export interface ToolNormalizationOptions {
   readonly agentId?: string;

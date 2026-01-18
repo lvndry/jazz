@@ -1,4 +1,4 @@
-import type { TerminalOutput } from "../../core/interfaces/terminal";
+import type { TerminalOutput } from "@/core/interfaces/terminal";
 
 export type LogType = "info" | "success" | "warn" | "error" | "debug" | "log" | "user";
 

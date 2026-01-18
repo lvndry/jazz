@@ -3,10 +3,10 @@ import { Effect } from "effect";
 import Exa from "exa-js";
 import Parallel from "parallel-web";
 import { z } from "zod";
-import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
-import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
-import type { ToolExecutionResult } from "../../types";
-import type { WebSearchConfig } from "../../types/config";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import type { ToolExecutionResult } from "@/core/types";
+import type { WebSearchConfig } from "@/core/types/config";
 import { defineTool } from "./base-tool";
 
 export interface WebSearchArgs extends Record<string, unknown> {

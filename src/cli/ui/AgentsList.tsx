@@ -7,7 +7,7 @@ import {
   formatToolsLine,
   padRight,
   truncateMiddle,
-} from "../utils/string-utils";
+} from "@/cli/utils/string-utils";
 
 interface AgentListItem {
   readonly id: string;

@@ -1,7 +1,7 @@
 import { Effect, Schedule } from "effect";
 import {
   MCPServerNameParseError,
-} from "../types/errors";
+} from "@/core/types/errors";
 
 /**
  * Parse server name from MCP tool name

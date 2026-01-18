@@ -3,22 +3,22 @@ import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
 import { z } from "zod";
-import type { AgentConfigService } from "../../interfaces/agent-config";
-import { AgentConfigServiceTag } from "../../interfaces/agent-config";
-import type { LoggerService } from "../../interfaces/logger";
-import { LoggerServiceTag } from "../../interfaces/logger";
-import type { MCPServerConfig, MCPServerManager } from "../../interfaces/mcp-server";
-import { MCPServerManagerTag } from "../../interfaces/mcp-server";
-import type { TerminalService } from "../../interfaces/terminal";
-import { ink, TerminalServiceTag } from "../../interfaces/terminal";
-import type { Tool } from "../../interfaces/tool-registry";
-import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
+import type { LoggerService } from "@/core/interfaces/logger";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
+import type { MCPServerConfig, MCPServerManager } from "@/core/interfaces/mcp-server";
+import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
+import type { TerminalService } from "@/core/interfaces/terminal";
+import { ink, TerminalServiceTag } from "@/core/interfaces/terminal";
+import type { Tool } from "@/core/interfaces/tool-registry";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import {
   MCPToolExecutionError,
-} from "../../types/errors";
-import type { MCPTool } from "../../types/mcp";
-import { convertMCPSchemaToZod } from "../../utils/mcp-schema-converter";
-import { safeStringify, toPascalCase } from "../../utils/string";
+} from "@/core/types/errors";
+import type { MCPTool } from "@/core/types/mcp";
+import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
+import { safeStringify, toPascalCase } from "@/core/utils/string";
 import { defineTool } from "./base-tool";
 
 /**

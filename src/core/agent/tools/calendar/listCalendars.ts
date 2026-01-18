@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import { CalendarServiceTag, type CalendarService } from "../../../interfaces/calendar";
-import type { Tool } from "../../../interfaces/tool-registry";
+import { CalendarServiceTag, type CalendarService } from "@/core/interfaces/calendar";
+import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool } from "../base-tool";
 import { formatCalendarsForDisplay } from "./utils";
 

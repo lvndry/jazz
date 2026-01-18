@@ -1,5 +1,5 @@
 import type { Effect } from "effect";
-import type { ProviderName } from "../constants/models";
+import type { ProviderName } from "@/core/constants/models";
 import type { LLMAuthenticationError } from "./errors";
 
 /**

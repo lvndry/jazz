@@ -2,10 +2,10 @@ import { FileSystem } from "@effect/platform";
 import { spawn } from "child_process";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "../../interfaces/fs";
-import type { Tool } from "../../interfaces/tool-registry";
-import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
-import { createSanitizedEnv } from "../../utils/env-utils";
+import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { Tool } from "@/core/interfaces/tool-registry";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import { createSanitizedEnv } from "@/core/utils/env-utils";
 import {
   defineTool,
   formatApprovalRequiredDescription,

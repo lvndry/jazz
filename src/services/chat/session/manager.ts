@@ -3,15 +3,15 @@ import { Effect } from "effect";
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import short from "short-uuid";
-import { store } from "../../../cli/ui/App";
-import { AgentConfigServiceTag } from "../../../core/interfaces/agent-config";
+import { store } from "@/cli/ui/App";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import {
     FileSystemContextServiceTag,
     type FileSystemContextService,
-} from "../../../core/interfaces/fs";
-import { LoggerServiceTag, type LoggerService } from "../../../core/interfaces/logger";
-import type { Agent } from "../../../core/types";
-import type { ChatMessage } from "../../../core/types/message";
+} from "@/core/interfaces/fs";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import type { Agent } from "@/core/types";
+import type { ChatMessage } from "@/core/types/message";
 import { getLogsDirectory } from "../../logger";
 
 /**

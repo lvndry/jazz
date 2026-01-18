@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import type { Tool } from "../../interfaces/tool-registry";
-import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
+import type { Tool } from "@/core/interfaces/tool-registry";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 
 /**
  * Lightweight, reusable tool builder with optional runtime validation.

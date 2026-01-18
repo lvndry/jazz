@@ -2,13 +2,13 @@ import chalk from "chalk";
 import { Effect, Layer } from "effect";
 import { render } from "ink";
 import React from "react";
-import App, { store } from "../cli/ui/App";
-import type { LogEntryInput } from "../cli/ui/types";
+import App, { store } from "@/cli/ui/App";
+import type { LogEntryInput } from "@/cli/ui/types";
 import {
   TerminalServiceTag,
   type TerminalOutput,
   type TerminalService,
-} from "../core/interfaces/terminal";
+} from "@/core/interfaces/terminal";
 
 // Singleton guard to prevent accidental double instantiation
 let instanceExists = false;

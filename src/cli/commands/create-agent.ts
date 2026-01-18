@@ -1,6 +1,5 @@
-import { Effect } from "effect";
-import { agentPromptBuilder } from "../../core/agent/agent-prompt";
-import { registerMCPServerTools } from "../../core/agent/tools/mcp-tools";
+import { agentPromptBuilder } from "@/core/agent/agent-prompt";
+import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
   createCategoryMappings,
   FILE_MANAGEMENT_CATEGORY,
@@ -10,26 +9,27 @@ import {
   HTTP_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
-} from "../../core/agent/tools/register-tools";
-import type { ProviderName } from "../../core/constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
-import { AgentServiceTag, type AgentService } from "../../core/interfaces/agent-service";
-import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
-import { MCPServerManagerTag, type MCPServerManager } from "../../core/interfaces/mcp-server";
-import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
-import { ToolRegistryTag, type ToolRegistry } from "../../core/interfaces/tool-registry";
+} from "@/core/agent/tools/register-tools";
+import type { ProviderName } from "@/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
+import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { MCPServerManagerTag, type MCPServerManager } from "@/core/interfaces/mcp-server";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
   LLMConfigurationError,
   StorageError,
   ValidationError,
-} from "../../core/types/errors";
-import type { AgentConfig, LLMProviderListItem } from "../../core/types/index";
-import type { MCPTool } from "../../core/types/mcp";
-import { isAuthenticationRequired } from "../../core/utils/mcp-utils";
-import { toPascalCase } from "../../core/utils/string";
+} from "@/core/types/errors";
+import type { AgentConfig, LLMProviderListItem } from "@/core/types/index";
+import type { MCPTool } from "@/core/types/mcp";
+import { isAuthenticationRequired } from "@/core/utils/mcp-utils";
+import { toPascalCase } from "@/core/utils/string";
+import { Effect } from "effect";
 
 /**
  * CLI commands for creating AI agents

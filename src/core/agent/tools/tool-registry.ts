@@ -1,24 +1,24 @@
 import { Effect, Layer } from "effect";
-import type { AgentConfigService } from "../../interfaces/agent-config";
-import type { LoggerService } from "../../interfaces/logger";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
+import type { LoggerService } from "@/core/interfaces/logger";
 import {
   ToolRegistryTag,
   type Tool,
   type ToolRegistry,
   type ToolRequirements,
-} from "../../interfaces/tool-registry";
+} from "@/core/interfaces/tool-registry";
 import type {
   ToolCategory,
   ToolDefinition,
   ToolExecutionContext,
   ToolExecutionResult,
-} from "../../types/tools";
+} from "@/core/types/tools";
 import {
   logToolExecutionApproval,
   logToolExecutionError,
   logToolExecutionStart,
   logToolExecutionSuccess,
-} from "../../utils/logging-helpers";
+} from "@/core/utils/logging-helpers";
 
 /**
  * Tool registry for managing agent tools
