@@ -8,6 +8,8 @@ export interface LogEntryInput {
   message: TerminalOutput;
   meta?: Record<string, unknown>;
   timestamp: Date;
+  /** Optional ID for logs that need to be updated later */
+  id?: string;
 }
 
 /** Full log entry with auto-generated id */

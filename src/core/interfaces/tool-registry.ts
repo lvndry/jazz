@@ -12,6 +12,8 @@ import type { CalendarService } from "./calendar";
 import type { FileSystemContextService } from "./fs";
 import type { GmailService } from "./gmail";
 import type { LoggerService } from "./logger";
+import type { MCPServerManager } from "./mcp-server";
+import type { TerminalService } from "./terminal";
 
 /**
  * Union type representing all possible tool requirements.
@@ -26,7 +28,9 @@ export type ToolRequirements =
   | GmailService
   | CalendarService
   | AgentConfigService
-  | LoggerService;
+  | LoggerService
+  | MCPServerManager
+  | TerminalService;
 
 export interface Tool<R = never> {
   readonly name: string;

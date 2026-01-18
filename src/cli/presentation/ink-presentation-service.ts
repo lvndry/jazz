@@ -37,7 +37,11 @@ class InkStreamingRenderer implements StreamingRenderer {
   private pendingUpdate: boolean = false;
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
   // Minimum time between stream updates (ms) - balances responsiveness vs performance
-  private static readonly UPDATE_THROTTLE_MS = 50;
+  private static readonly UPDATE_THROTTLE_MS = 30;
+
+  // Tool timeout warnings - show warning if tool takes longer than expected
+  private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  private static readonly TOOL_WARNING_MS = 10000; // 10 seconds
 
   constructor(
     private readonly agentName: string,
@@ -74,7 +78,7 @@ class InkStreamingRenderer implements StreamingRenderer {
       this.pendingUpdate = false;
 
       if (this.liveText.trim().length > 0) {
-        store.addLog({ type: "log", message: this.liveText, timestamp: new Date() });
+        store.printOutput({ type: "log", message: this.liveText, timestamp: new Date() });
       }
       this.liveText = "";
       store.setStream(null);
@@ -90,7 +94,7 @@ class InkStreamingRenderer implements StreamingRenderer {
           this.reasoningBuffer = "";
           this.completedReasoning = "";
           this.lastFormattedReasoning = "";
-          store.addLog({
+          store.printOutput({
             type: "info",
             message: `${this.agentName} (${event.provider}/${event.model})`,
             timestamp: new Date(),
@@ -144,7 +148,7 @@ class InkStreamingRenderer implements StreamingRenderer {
               return name;
             })
             .join(", ");
-          store.addLog({
+          store.printOutput({
             type: "info",
             message: ink(renderToolBadge(`Tools: ${formattedTools}`)),
             timestamp: new Date(),
@@ -153,7 +157,7 @@ class InkStreamingRenderer implements StreamingRenderer {
         }
 
         case "tool_call": {
-          store.addLog({
+          store.printOutput({
             type: "debug",
             message: `Tool call detected: ${event.toolCall.function.name}`,
             timestamp: new Date(),
@@ -168,22 +172,41 @@ class InkStreamingRenderer implements StreamingRenderer {
           const message = argsStr
             ? `⚙️  Executing tool: ${event.toolName}${argsStr}`
             : `⚙️  Executing tool: ${event.toolName}`;
-          store.addLog({
+          store.printOutput({
             type: "log",
             message,
             timestamp: new Date(),
           });
+
+          // Set timeout warning for long-running tools
+          const timeoutId = setTimeout(() => {
+            if (this.activeTools.has(event.toolCallId)) {
+              store.printOutput({
+                type: "warn",
+                message: `⏱️ Tool ${event.toolName} is taking longer than expected...`,
+                timestamp: new Date(),
+              });
+            }
+          }, InkStreamingRenderer.TOOL_WARNING_MS);
+          this.toolTimeouts.set(event.toolCallId, timeoutId);
           return;
         }
 
         case "tool_execution_complete": {
+          // Clear timeout warning
+          const timeoutId = this.toolTimeouts.get(event.toolCallId);
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            this.toolTimeouts.delete(event.toolCallId);
+          }
+
           const toolName = this.activeTools.get(event.toolCallId);
           this.activeTools.delete(event.toolCallId);
 
           const namePrefix = toolName ? `${toolName} ` : "";
           const summary = event.summary?.trim().length ? event.summary : namePrefix + "done";
 
-          store.addLog({
+          store.printOutput({
             type: "success",
             message: `${summary} (${event.durationMs}ms)`,
             timestamp: new Date(),
@@ -211,7 +234,7 @@ class InkStreamingRenderer implements StreamingRenderer {
         }
 
         case "error": {
-          store.addLog({
+          store.printOutput({
             type: "error",
             message: `Error: ${event.error.message}`,
             timestamp: new Date(),
@@ -224,7 +247,7 @@ class InkStreamingRenderer implements StreamingRenderer {
         case "complete": {
           // If streaming never started (fallback), we may still want to show the response.
           if (!this.lastAgentHeaderWritten) {
-            store.addLog({
+            store.printOutput({
               type: "info",
               message: this.agentName,
               timestamp: new Date(),
@@ -240,7 +263,7 @@ class InkStreamingRenderer implements StreamingRenderer {
           const formattedFinalText = formatMarkdownAnsi(finalText);
 
           if (formattedFinalText.length > 0) {
-            store.addLog({
+            store.printOutput({
               type: "log",
               message: ink(
                 React.createElement(AgentResponseCard, {
@@ -264,7 +287,7 @@ class InkStreamingRenderer implements StreamingRenderer {
               parts.push(`Total: ${event.metrics.totalTokens} tokens`);
             }
             if (parts.length > 0) {
-              store.addLog({
+              store.printOutput({
                 type: "debug",
                 message: `[${parts.join(" | ")}]`,
                 timestamp: new Date(),
@@ -346,7 +369,7 @@ class InkStreamingRenderer implements StreamingRenderer {
       return;
     }
     const formattedReasoning = formatMarkdownAnsi(reasoning);
-    store.addLog({
+    store.printOutput({
       type: "log",
       message: `🧠 Reasoning:\n${chalk.gray(formattedReasoning)}`,
       timestamp: new Date(),
@@ -393,21 +416,21 @@ class InkPresentationService implements PresentationService {
   presentCompletion(agentName: string): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       const msg = yield* this.getRenderer().formatCompletion(agentName);
-      store.addLog({ type: "info", message: msg, timestamp: new Date() });
+      store.printOutput({ type: "info", message: msg, timestamp: new Date() });
     });
   }
 
   presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       const msg = yield* this.getRenderer().formatWarning(agentName, message);
-      store.addLog({ type: "warn", message: msg, timestamp: new Date() });
+      store.printOutput({ type: "warn", message: msg, timestamp: new Date() });
     });
   }
 
   presentAgentResponse(agentName: string, content: string): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       const formatted = yield* this.getRenderer().formatAgentResponse(agentName, content);
-      store.addLog({
+      store.printOutput({
         type: "log", // 'log' type uses default coloring (white/reset) which allows ANSI codes to shine
         message: formatted,
         timestamp: new Date(),
@@ -468,13 +491,13 @@ class InkPresentationService implements PresentationService {
 
   writeOutput(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      store.addLog({ type: "log", message, timestamp: new Date() });
+      store.printOutput({ type: "log", message, timestamp: new Date() });
     });
   }
 
   writeBlankLine(): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      store.addLog({ type: "log", message: "", timestamp: new Date() });
+      store.printOutput({ type: "log", message: "", timestamp: new Date() });
     });
   }
 }

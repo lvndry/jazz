@@ -1,7 +1,20 @@
 import { Effect, Layer } from "effect";
+import { Box, Text } from "ink";
+import Spinner from "ink-spinner";
+import React from "react";
+import type { AgentConfigService } from "../../interfaces/agent-config";
+import type { LoggerService } from "../../interfaces/logger";
+import { LoggerServiceTag } from "../../interfaces/logger";
+import type { MCPServerManager } from "../../interfaces/mcp-server";
+import { MCPServerManagerTag } from "../../interfaces/mcp-server";
+import type { TerminalService } from "../../interfaces/terminal";
+import { ink, TerminalServiceTag } from "../../interfaces/terminal";
 import type { ToolRegistry } from "../../interfaces/tool-registry";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { ToolCategory } from "../../types";
+import type { MCPTool } from "../../types/mcp";
+import { extractServerNamesFromToolNames } from "../../utils/mcp-utils";
+import { toPascalCase } from "../../utils/string";
 import { calendarTools } from "./calendar-tools";
 import {
   createCdTool,
@@ -65,15 +78,34 @@ import {
   createUpdateLabelTool,
 } from "./gmail-tools";
 import { createHttpRequestTool } from "./http-tools";
+import { registerMCPServerTools } from "./mcp-tools";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
 import { createWebSearchTool } from "./web-search-tools";
+
+/**
+ * Dependencies required for MCP tool registration
+ */
+type MCPRegistrationDependencies =
+  | ToolRegistry
+  | MCPServerManager
+  | AgentConfigService
+  | LoggerService
+  | TerminalService;
 
 /**
  * Tool registration module
  */
 
-// Register all tools
-export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
+/**
+ * Register all tools including MCP tools
+ *
+ * MCP tools use lazy connections - servers connect only when tools are invoked.
+ * This prevents the CLI from hanging due to long-running child processes.
+ *
+ * MCP tool registration is deferred to avoid startup delays - tools are registered
+ * lazily when first accessed rather than at startup.
+ */
+export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDependencies> {
   return Effect.gen(function* () {
     yield* registerGmailTools();
     yield* registerCalendarTools();
@@ -82,7 +114,377 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerGitTools();
     yield* registerSearchTools();
     yield* registerHttpTools();
+    // MCP tools registered without connecting - they connect lazily on first use
+    yield* registerMCPToolsLazy();
   });
+}
+
+/**
+ * Register MCP server tools lazily without connecting
+ *
+ * This function skips MCP tool registration at startup to avoid delays.
+ * Tools will be discovered and registered on-demand when agents need them.
+ */
+export function registerMCPToolsLazy(): Effect.Effect<
+  void,
+  Error,
+  ToolRegistry | MCPServerManager | AgentConfigService | LoggerService
+> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+    yield* logger.debug("MCP tools will be registered on-demand when agents need them");
+    // No registration at startup - tools registered per-agent based on their tool requirements
+  });
+}
+
+/**
+ * Register MCP tools for a specific agent based on their tool requirements
+ *
+ * Connects to all enabled MCP servers during agent setup to:
+ * - Validate credentials early
+ * - Make all tools available if the agent needs them
+ * - Provide better error messages if connections fail
+ *
+ * Only registers tools that the agent actually uses, but connects to all enabled servers.
+ *
+ * @param agentToolNames - The list of tool names the agent uses
+ */
+export function registerMCPToolsForAgent(
+  agentToolNames: readonly string[],
+): Effect.Effect<
+  void,
+  Error,
+  ToolRegistry | MCPServerManager | AgentConfigService | LoggerService | TerminalService
+> {
+  return Effect.gen(function* () {
+    const mcpManager = yield* MCPServerManagerTag;
+    const registry = yield* ToolRegistryTag;
+    const logger = yield* LoggerServiceTag;
+
+    // Extract MCP tool names (format: mcp_<servername>_<toolname>)
+    const mcpToolNames = agentToolNames.filter((name) => name.startsWith("mcp_"));
+
+    // Get all configured MCP servers
+    const allServers = yield* mcpManager.listServers();
+
+    yield* logger.debug(
+      `Found ${allServers.length} configured MCP server(s): ${allServers.map((s) => s.name).join(", ")}`,
+    );
+
+    // Connect to all enabled MCP servers (not just ones the agent uses)
+    // This ensures credentials are validated early and all tools are available
+    const enabledServers = allServers.filter((server) => server.enabled !== false);
+
+    if (enabledServers.length === 0) {
+      yield* logger.debug("No enabled MCP servers to connect to");
+      return;
+    }
+
+    yield* logger.debug(
+      `Connecting to ${enabledServers.length} enabled MCP server(s) during agent setup`,
+    );
+
+    // Extract server names from agent's tool names for logging purposes
+    let expectedServerNames = new Set<string>();
+    if (mcpToolNames.length > 0) {
+      const serverNamesResult = yield* extractServerNamesFromToolNames(mcpToolNames).pipe(
+        Effect.catchAll(() => Effect.succeed(new Set<string>())),
+      );
+      expectedServerNames = serverNamesResult;
+      if (expectedServerNames.size > 0) {
+        yield* logger.debug(
+          `Agent uses tools from ${expectedServerNames.size} MCP server(s): ${Array.from(expectedServerNames).map(toPascalCase).join(", ")}`,
+        );
+      }
+    }
+
+    // Connect to and register tools from all enabled servers
+    // We connect to all servers to validate credentials early, but only register tools the agent uses
+    for (const serverConfig of enabledServers) {
+      // Skip disabled servers
+      if (serverConfig.enabled === false) {
+        yield* logger.debug(`Skipping disabled MCP server: ${serverConfig.name}`);
+        continue;
+      }
+
+      yield* Effect.gen(function* () {
+        const terminal = yield* TerminalServiceTag;
+        const serverName = serverConfig.name;
+
+        // Check if server is already connected to avoid showing duplicate connection messages
+        const isAlreadyConnected = yield* mcpManager.isConnected(serverName);
+
+        let logId: string | undefined;
+        if (!isAlreadyConnected) {
+          // Generate a unique ID for this connection log entry
+          logId = `mcp-connecting-${serverName}-${Date.now()}`;
+
+          // Show connecting message with spinner only if not already connected
+          yield* terminal.log(
+            ink(
+              React.createElement(
+                Box,
+                {},
+                React.createElement(Text, { color: "cyan" }, [
+                  React.createElement(Spinner, { key: "spinner", type: "dots" }),
+                ]),
+                React.createElement(Text, {}, ` Connecting to ${toPascalCase(serverName)} MCP server...`),
+              ),
+            ),
+            logId,
+          );
+
+          yield* logger.debug(`Connecting to MCP server ${serverName}...`);
+        } else {
+          yield* logger.debug(`MCP server ${serverName} already connected, skipping connection UI`);
+        }
+
+        // Connect to server and maintain connection (don't disconnect after discovery)
+        // This ensures tools are available when needed and connections persist during the session
+        // If connection fails (e.g., invalid credentials), we show a clear message but continue
+        const connectResult = yield* Effect.either(mcpManager.connectServer(serverConfig));
+        if (connectResult._tag === "Left") {
+          const error = connectResult.left;
+          const errorMessage = String(error);
+
+          // Check if this looks like an authentication/credential error
+          const isAuthError =
+            errorMessage.toLowerCase().includes("auth") ||
+            errorMessage.toLowerCase().includes("credential") ||
+            errorMessage.toLowerCase().includes("api key") ||
+            errorMessage.toLowerCase().includes("invalid") ||
+            errorMessage.toLowerCase().includes("unauthorized") ||
+            errorMessage.toLowerCase().includes("401") ||
+            errorMessage.toLowerCase().includes("403");
+
+          // Update log to show error with helpful context (only if we showed connection UI)
+          if (logId !== undefined) {
+            const errorPrefix = isAuthError
+              ? `✗ ${toPascalCase(serverName)} MCP unavailable (invalid credentials)`
+              : `✗ Failed to connect to ${toPascalCase(serverName)} MCP server`;
+
+            yield* terminal.updateLog(
+              logId,
+              ink(
+                React.createElement(Text, { color: "yellow" }, errorPrefix),
+              ),
+            );
+
+            if (isAuthError) {
+              yield* terminal.updateLog(
+                logId,
+                ink(
+                  React.createElement(
+                    Box,
+                    { marginTop: 1 },
+                    React.createElement(Text, { color: "gray" }, `   The agent will continue without ${toPascalCase(serverName)} tools.`),
+                  ),
+                ),
+              );
+            }
+          }
+
+          if (isAuthError) {
+            yield* logger.warn(
+              `MCP server ${serverName} connection failed due to invalid credentials: ${errorMessage}`,
+            );
+          } else {
+            yield* logger.error(`Failed to connect to MCP server ${serverName}: ${errorMessage}`);
+          }
+
+          // Skip this server but continue with others
+          return;
+        }
+
+        // Get tools from the connected server
+        const mcpToolsResult = yield* Effect.either(mcpManager.getServerTools(serverName));
+        let mcpTools: readonly MCPTool[];
+        if (mcpToolsResult._tag === "Right") {
+          mcpTools = mcpToolsResult.right;
+        } else {
+          const error = mcpToolsResult.left;
+          const errorMessage = String(error);
+          if (logId !== undefined) {
+            yield* terminal.updateLog(
+              logId,
+              ink(
+                React.createElement(Text, { color: "yellow" }, `✗ Failed to discover tools from ${toPascalCase(serverName)} MCP server`),
+              ),
+            );
+            yield* terminal.updateLog(
+              logId,
+              ink(
+                React.createElement(
+                  Box,
+                  { marginTop: 1 },
+                  React.createElement(Text, { color: "gray" }, `   The agent will continue without ${toPascalCase(serverName)} tools.`),
+                ),
+              ),
+            );
+          }
+          yield* logger.warn(`Failed to discover tools from MCP server ${serverName}: ${errorMessage}`);
+          // Return empty array on error - tools won't be available, but we continue
+          mcpTools = [];
+        }
+
+        yield* logger.debug(`Discovered ${mcpTools.length} tool(s) from MCP server ${serverName}`);
+
+        // Update the log entry to show success (replaces spinner) - only if we showed connection UI
+        if (logId !== undefined && !isAlreadyConnected) {
+          yield* terminal.updateLog(
+            logId,
+            ink(
+              React.createElement(Text, { color: "green" }, `✓ Successfully connected to ${toPascalCase(serverName)} MCP server`),
+            ),
+          );
+        }
+
+        // Determine category for tools
+        const category: ToolCategory = {
+          id: `mcp_${serverConfig.name.toLowerCase()}`,
+          displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
+        };
+
+        // Register tools with server config for lazy reconnection
+        // Agents always use all tools from their selected MCP servers, so register all discovered tools
+        const registerTool = registry.registerForCategory(category);
+        const jazzTools = yield* registerMCPServerTools(serverConfig, mcpTools);
+
+        // Register all tools from this MCP server (agents use all tools from selected MCPs)
+        const registeredToolNames: string[] = [];
+        for (const tool of jazzTools) {
+          yield* registerTool(tool);
+          registeredToolNames.push(tool.name);
+        }
+
+        if (registeredToolNames.length > 0) {
+          yield* logger.info(
+            `Registered ${registeredToolNames.length} MCP tool(s) from ${serverConfig.name}: ${registeredToolNames.join(", ")}`,
+          );
+        } else {
+          yield* logger.debug(
+            `MCP server ${serverConfig.name} connected but no tools were discovered`,
+          );
+        }
+      }).pipe(
+        Effect.catchAll((error) =>
+          Effect.gen(function* () {
+            // Log error but continue with other servers
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            yield* logger.warn(
+              `Failed to register tools from MCP server ${serverConfig.name}: ${errorMessage}`,
+            );
+          }),
+        ),
+      );
+    }
+  });
+}
+
+/**
+ * Register all MCP tools for tool selection/listing purposes
+ *
+ * This function connects to MCP servers, discovers their tools, and registers them
+ * so they appear in tool selection interfaces (e.g., when editing agents).
+ * Unlike registerMCPToolsLazy(), this actually registers the tools.
+ *
+ * Used when we need MCP tools to be available for selection, such as in
+ * agent creation/editing workflows.
+ */
+export function registerMCPToolsForSelection(): Effect.Effect<
+  void,
+  Error,
+  ToolRegistry | MCPServerManager | AgentConfigService | LoggerService | TerminalService
+> {
+  return Effect.gen(function* () {
+    const mcpManager = yield* MCPServerManagerTag;
+    const registry = yield* ToolRegistryTag;
+    const logger = yield* LoggerServiceTag;
+
+    // Get all configured MCP servers
+    const servers = yield* mcpManager.listServers();
+
+    if (servers.length === 0) {
+      yield* logger.debug("No MCP servers configured");
+      return;
+    }
+
+    yield* logger.debug(`Discovering tools from ${servers.length} MCP server(s)...`);
+
+    for (const serverConfig of servers) {
+      // Skip disabled servers
+      if (serverConfig.enabled === false) {
+        yield* logger.debug(`Skipping disabled MCP server: ${serverConfig.name}`);
+        continue;
+      }
+
+      yield* Effect.gen(function* () {
+        yield* logger.debug(`Connecting to MCP server ${serverConfig.name} for tool discovery...`);
+
+        // Connect to server to discover tools
+        yield* mcpManager.connectServer(serverConfig);
+
+        // Get tools from server
+        const mcpTools = yield* mcpManager.getServerTools(serverConfig.name);
+
+        yield* logger.debug(
+          `Discovered ${mcpTools.length} tools from MCP server ${serverConfig.name}`,
+        );
+
+        // Immediately disconnect - tools will reconnect lazily when invoked
+        yield* mcpManager.disconnectServer(serverConfig.name);
+        yield* logger.debug(`Disconnected from MCP server ${serverConfig.name} (lazy mode)`);
+
+        // Determine category for tools
+        const category: ToolCategory = {
+          id: `mcp_${serverConfig.name.toLowerCase()}`,
+          displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
+        };
+
+        // Register tools with server config for lazy reconnection
+        const registerTool = registry.registerForCategory(category);
+        const jazzTools = yield* registerMCPServerTools(serverConfig, mcpTools);
+
+        for (const tool of jazzTools) {
+          // MCP tools satisfy ToolRequirements as they use MCPServerManager, LoggerService, etc.
+          yield* registerTool(tool);
+        }
+
+        yield* logger.info(
+          `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name}`,
+        );
+      }).pipe(
+        Effect.catchAll((error) =>
+          Effect.gen(function* () {
+            // Log error but continue with other servers
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            yield* logger.warn(
+              `Failed to register tools from MCP server ${serverConfig.name}: ${errorMessage}`,
+            );
+          }),
+        ),
+      );
+    }
+  });
+}
+
+/**
+ * Register MCP server tools with lazy connection support
+ *
+ * This function uses a connect-get-disconnect pattern:
+ * 1. Connect to each MCP server to discover available tools
+ * 2. Immediately disconnect to prevent the CLI from hanging
+ * 3. Register tools with server config for lazy reconnection when invoked
+ *
+ * @deprecated Use registerMCPToolsLazy() instead to avoid startup delays, or registerMCPToolsForSelection() for tool selection
+ */
+export function registerMCPTools(): Effect.Effect<
+  void,
+  Error,
+  ToolRegistry | MCPServerManager | AgentConfigService | LoggerService | TerminalService
+> {
+  // Delegate to the new function to avoid code duplication
+  return registerMCPToolsForSelection();
 }
 
 export const GMAIL_CATEGORY: ToolCategory = { id: "gmail", displayName: "Gmail" };
@@ -98,6 +500,48 @@ export const SHELL_COMMANDS_CATEGORY: ToolCategory = {
 };
 export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
 export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Search" };
+
+/**
+ * Get MCP server names as tool categories without connecting to servers
+ *
+ * This allows showing MCP servers in tool selection UI without the overhead
+ * of connecting to databases or other MCP servers just to show their names.
+ *
+ * @returns Record of MCP server category display names to empty tool arrays, and a map of display names to server names
+ */
+export function getMCPServerCategories(): Effect.Effect<
+  {
+    categories: Record<string, readonly string[]>;
+    displayNameToServerName: Map<string, string>;
+  },
+  never,
+  MCPServerManager | AgentConfigService
+> {
+  return Effect.gen(function* () {
+    const mcpManager = yield* MCPServerManagerTag;
+    const servers = yield* mcpManager.listServers();
+
+    const categories: Record<string, string[]> = {};
+    const displayNameToServerName = new Map<string, string>();
+
+    for (const serverConfig of servers) {
+      // Skip disabled servers
+      if (serverConfig.enabled === false) {
+        continue;
+      }
+
+      // Use the same category naming as registerMCPToolsForSelection
+      const categoryDisplayName = `${toPascalCase(serverConfig.name)} (MCP)`;
+
+      // Add category with empty array (we don't know tool count without connecting)
+      categories[categoryDisplayName] = [];
+      // Map display name to server name for later tool registration
+      displayNameToServerName.set(categoryDisplayName, serverConfig.name);
+    }
+
+    return { categories, displayNameToServerName };
+  });
+}
 
 /**
  * All available tool categories
@@ -348,7 +792,20 @@ export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> 
   });
 }
 
-// Create a layer that registers all tools
-export function createToolRegistrationLayer(): Layer.Layer<never, Error, ToolRegistry> {
+/**
+ * Create a layer that registers all tools including MCP tools
+ *
+ * Requires:
+ * - ToolRegistry: For registering tools
+ * - MCPServerManager: For MCP server connections
+ * - AgentConfigService: For configuration access
+ * - LoggerService: For logging
+ * - TerminalService: For user prompts during MCP setup
+ */
+export function createToolRegistrationLayer(): Layer.Layer<
+  never,
+  Error,
+  MCPRegistrationDependencies
+> {
   return Layer.effectDiscard(registerAllTools());
 }

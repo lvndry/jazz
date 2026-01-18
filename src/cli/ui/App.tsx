@@ -1,4 +1,4 @@
-import { Box, Static } from "ink";
+import { Box } from "ink";
 import type { Dispatch, SetStateAction } from "react";
 import { createContext, useMemo, useRef, useState } from "react";
 import { Header } from "./Header";
@@ -32,9 +32,27 @@ export const AppContext = createContext<{
   setWorkingDirectory: () => { },
 });
 
-// Store logic decoupled from React for Effect integration
+/**
+ * Store Pattern Architecture
+ *
+ * This module uses a dual pattern for state management:
+ *
+ * 1. **External Store (`store` object)**: Provides imperative access to state setters
+ *    for Effect-based services that run outside React's lifecycle. Effect code calls
+ *    `store.printOutput()` directly without needing React context. The store functions are
+ *    updated during App's first render via the initializedRef guard.
+ *
+ * 2. **React Context (`AppContext`)**: Provides reactive state access for components
+ *    that need to consume and display logs, prompts, and streaming content within
+ *    the React component tree.
+ *
+ * This separation allows Effect services to push updates into React's render cycle
+ * without tight coupling. The store object starts with no-op functions and is
+ * populated synchronously during App's first render to prevent race conditions.
+ */
 export const store = {
-  addLog: (_entry: LogEntryInput): void => { },
+  printOutput: (_entry: LogEntryInput): string => "",
+  updateOutput: (_id: string, _entry: Partial<LogEntryInput>): void => { },
   setPrompt: (_prompt: PromptState | null): void => { },
   setStatus: (_status: string | null): void => { },
   setStream: (_stream: LiveStreamState | null): void => { },
@@ -56,21 +74,45 @@ export function App(): React.ReactElement {
   // Counter for generating unique log IDs
   const logIdCounterRef = useRef(0);
   // Maximum number of log entries to keep in memory for the UI
-  // Older logs are dropped from the state (but persist in log files on disk)
   // Keep this low for performance - Ink re-renders the entire tree
   const MAX_LOG_ENTRIES = 100;
 
   if (!initializedRef.current) {
-    store.addLog = (entry) =>
+    store.printOutput = (entry: LogEntryInput): string => {
+      const id = entry.id ?? `log-${++logIdCounterRef.current}`;
       setLogs((prev) => {
-        const id = `log-${++logIdCounterRef.current}`;
-        const entryWithId = { ...entry, id };
-        const next = [...prev, entryWithId];
-        if (next.length > MAX_LOG_ENTRIES) {
-          return next.slice(next.length - MAX_LOG_ENTRIES);
+        // If ID is provided and entry already exists, update it
+        if (entry.id && prev.some((log) => log.id === entry.id)) {
+          return prev.map((log): LogEntry => {
+            if (log.id === entry.id) {
+              return { ...log, ...entry, id } as LogEntry;
+            }
+            return log;
+          });
         }
-        return next;
+        // Otherwise, add new entry
+        const entryWithId: LogEntry = { ...entry, id } as LogEntry;
+        // Optimized: when at capacity, shift first element instead of full spread
+        if (prev.length >= MAX_LOG_ENTRIES) {
+          const next = prev.slice(1);
+          next.push(entryWithId);
+          return next;
+        }
+        return [...prev, entryWithId];
       });
+      return id;
+    };
+
+    store.updateOutput = (id: string, updates: Partial<LogEntryInput>): void => {
+      setLogs((prev) =>
+        prev.map((log): LogEntry => {
+          if (log.id === id) {
+            return { ...log, ...updates } as LogEntry;
+          }
+          return log;
+        }),
+      );
+    };
     store.setPrompt = (prompt) => setPrompt(prompt);
     store.setStatus = (status) => setStatus(status);
     store.setStream = (stream) => setStream(stream);
@@ -103,16 +145,14 @@ export function App(): React.ReactElement {
         padding={1}
       >
         <Header />
-        {/* Use Static for logs - they don't change once rendered, so Ink won't re-render them */}
-        <Static items={logs}>
-          {(log, index) => (
-            <LogEntryItem
-              key={log.id}
-              log={log}
-              addSpacing={log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user")}
-            />
-          )}
-        </Static>
+        {/* Render logs in order - Header first, then logs */}
+        {logs.map((log, index) => (
+          <LogEntryItem
+            key={log.id}
+            log={log}
+            addSpacing={log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user")}
+          />
+        ))}
         {stream && <LiveResponse stream={stream} />}
         {prompt && <Prompt prompt={prompt} />}
         <StatusFooter

@@ -54,8 +54,14 @@ export interface TerminalService {
 
   /**
    * Display a plain message without styling
+   * @returns The log ID if the message was logged (for potential updates)
    */
-  readonly log: (message: TerminalOutput) => Effect.Effect<void, never>;
+  readonly log: (message: TerminalOutput, id?: string) => Effect.Effect<string | undefined, never>;
+
+  /**
+   * Update an existing log entry by ID
+   */
+  readonly updateLog: (id: string, message: TerminalOutput) => Effect.Effect<void, never>;
 
   /**
    * Display a debug message (only shown in debug mode)
@@ -134,6 +140,12 @@ export interface TerminalService {
       default?: readonly T[];
     },
   ) => Effect.Effect<readonly T[], never>;
+
+  /**
+   * Cleanup method for terminal service (e.g., unmount Ink UI)
+   * Optional - not all implementations need this
+   */
+  readonly cleanup?: () => void;
 }
 
 export const TerminalServiceTag = Context.GenericTag<TerminalService>("TerminalService");

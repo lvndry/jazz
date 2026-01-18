@@ -13,9 +13,9 @@
 ## 📑 Table of Contents
 
 - [Why Jazz?](#why-jazz)
-- [See Jazz in Action](#see-jazz-in-action)
 - [Quick Start](#-quick-start)
 - [Usage Highlights](#-usage-highlights)
+- [See Jazz in Action](#see-jazz-in-action)
 - [Built for Production](#️-built-for-production)
 - [What's Next](#️-whats-next)
 - [Documentation & Community](#-documentation--community)
@@ -38,9 +38,11 @@ This isn't a chatbot, it's an autonomous agent that executes multi-step workflow
 
 Jazz is designed from the ground up for autonomous agents that handle multi-step, real-world tasks with contextual awareness.
 
-### 🛠️ 44 Tools, Ready to Use
+### 🛠️ 44+ Tools, Ready to Use
 
 Git, Gmail, filesystem, shell, web search, HTTP, PDF, and more. Just create an agent and start automating. See [`docs/integrations.md`](docs/integrations.md) for setup instructions.
+
+**Plus MCP Support**: Connect to any [Model Context Protocol](https://modelcontextprotocol.io/) server — Notion, MongoDB, GitHub, Slack, PostgreSQL, and hundreds more. Your agents can use any MCP-compatible tool.
 
 ### 🧠 Multi LLM, Model Agnostic
 
@@ -56,6 +58,58 @@ Switch between OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama, Openro
 - **Full audit trail**: Complete logs of every agent action for transparency and debugging
 
 You stay in control. Jazz won't delete files, push code, or send emails without showing you exactly what it will do and waiting for your "yes".
+
+---
+
+## 🚀 Quick Start
+
+### 1. Install the CLI
+
+```bash
+# npm
+npm install -g jazz-ai
+
+# bun
+bun add -g jazz-ai
+
+# pnpm
+pnpm add -g jazz-ai
+
+# yarn
+yarn global add jazz-ai
+```
+
+### 2. Create Your First Agent
+
+```bash
+jazz agent create
+```
+
+The wizard walks you through:
+
+- Name and description
+- Provider/model selection
+- Tool selection
+
+### 3. Chat With Your Agent
+
+```bash
+jazz agent list
+jazz agent chat <agent-name>
+```
+
+---
+
+## 📚 Usage Highlights
+
+| Command                  | Description                  |
+| ------------------------ | ---------------------------- |
+| `jazz agent create`      | Create a new agent           |
+| `jazz agent chat <name>` | Start chatting with an agent |
+| `jazz agent list`        | List all your agents         |
+| `jazz agent edit <id>`   | Edit an existing agent       |
+| `jazz config show`       | View your configuration      |
+| `jazz auth gmail login`  | Authenticate with Gmail      |
 
 ---
 
@@ -216,58 +270,6 @@ Agent: [Reading PDF file...]
 ```
 
 **Want more examples?** See the [`examples/`](examples/) folder for additional use cases.
-
----
-
-## 🚀 Quick Start
-
-### 1. Install the CLI
-
-```bash
-# npm
-npm install -g jazz-ai
-
-# bun
-bun add -g jazz-ai
-
-# pnpm
-pnpm add -g jazz-ai
-
-# yarn
-yarn global add jazz-ai
-```
-
-### 2. Create Your First Agent
-
-```bash
-jazz agent create
-```
-
-The wizard walks you through:
-
-- Name and description
-- Provider/model selection
-- Tool selection
-
-### 3. Chat With Your Agent
-
-```bash
-jazz agent list
-jazz agent chat <agent-name>
-```
-
----
-
-## 📚 Usage Highlights
-
-| Command                  | Description                  |
-| ------------------------ | ---------------------------- |
-| `jazz agent create`      | Create a new agent           |
-| `jazz agent chat <name>` | Start chatting with an agent |
-| `jazz agent list`        | List all your agents         |
-| `jazz agent edit <id>`   | Edit an existing agent       |
-| `jazz config show`       | View your configuration      |
-| `jazz auth gmail login`  | Authenticate with Gmail      |
 
 ---
 

@@ -1,59 +1,102 @@
+import chalk from "chalk";
 import { Effect, Layer } from "effect";
 import { render } from "ink";
 import React from "react";
 import App, { store } from "../cli/ui/App";
+import type { LogEntryInput } from "../cli/ui/types";
 import {
   TerminalServiceTag,
   type TerminalOutput,
   type TerminalService,
 } from "../core/interfaces/terminal";
 
+// Singleton guard to prevent accidental double instantiation
+let instanceExists = false;
+
 /**
  * Ink-based Terminal Service Implementation
  *
+ * This service is a singleton - only one instance should exist at a time.
+ * Creating a second instance while one is active will throw an error.
  */
 export class InkTerminalService implements TerminalService {
+  private inkInstance: ReturnType<typeof render> | null = null;
+
   constructor() {
+    // Guard against multiple instantiation
+    if (instanceExists) {
+      throw new Error(
+        "InkTerminalService is a singleton. An instance already exists. " +
+          "Call cleanup() on the existing instance before creating a new one.",
+      );
+    }
+
     // Initialize the Ink app on service creation
-    // We strictly assume this service is singleton and created once at startup
-    render(React.createElement(App));
+    this.inkInstance = render(React.createElement(App));
+    instanceExists = true;
+  }
+
+  /**
+   * Cleanup method to unmount the Ink app
+   * Called when the command completes
+   */
+  cleanup(): void {
+    if (this.inkInstance) {
+      this.inkInstance.unmount();
+      this.inkInstance = null;
+    }
+    // Reset singleton so a new instance can be created if needed
+    instanceExists = false;
   }
 
   // Basic Logging Methods
 
   info(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      store.addLog({ type: "info", message, timestamp: new Date() });
+      store.printOutput({ type: "info", message, timestamp: new Date() });
     });
   }
 
   success(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      store.addLog({ type: "success", message, timestamp: new Date() });
+      store.printOutput({ type: "success", message, timestamp: new Date() });
     });
   }
 
   error(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      store.addLog({ type: "error", message, timestamp: new Date() });
+      store.printOutput({ type: "error", message, timestamp: new Date() });
     });
   }
 
   warn(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      store.addLog({ type: "warn", message, timestamp: new Date() });
+      store.printOutput({ type: "warn", message, timestamp: new Date() });
     });
   }
 
-  log(message: TerminalOutput): Effect.Effect<void, never> {
+  log(message: TerminalOutput, id?: string): Effect.Effect<string | undefined, never> {
     return Effect.sync(() => {
-      store.addLog({ type: "log", message, timestamp: new Date() });
+      const entry: LogEntryInput = {
+        type: "log",
+        message,
+        timestamp: new Date(),
+        ...(id ? { id } : {}),
+      };
+      const logId = store.printOutput(entry);
+      return logId;
+    });
+  }
+
+  updateLog(id: string, message: TerminalOutput): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.updateOutput(id, { message, timestamp: new Date() });
     });
   }
 
   debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      store.addLog({
+      store.printOutput({
         type: "debug",
         message,
         timestamp: new Date(),
@@ -66,14 +109,14 @@ export class InkTerminalService implements TerminalService {
     return Effect.sync(() => {
       // Treating heading as a special log or just a log for now,
       // could be enhanced in UI to support multiple types
-      store.addLog({ type: "log", message: `\n${message}\n`, timestamp: new Date() });
+      store.printOutput({ type: "log", message: `\n${message}\n`, timestamp: new Date() });
     });
   }
 
   list(items: string[]): Effect.Effect<void, never> {
     return Effect.sync(() => {
       items.forEach((item) => {
-        store.addLog({ type: "log", message: `  • ${item}`, timestamp: new Date() });
+        store.printOutput({ type: "log", message: `  • ${item}`, timestamp: new Date() });
       });
     });
   }
@@ -120,9 +163,9 @@ export class InkTerminalService implements TerminalService {
           // The Prompt component validates before calling resolve, so we can trust the input
           const inputValue = String(val);
           store.setPrompt(null);
-          store.addLog({
+          store.printOutput({
             type: "user",
-            message: `${message} ${inputValue}`,
+            message: `${message} ${chalk.green(inputValue)}`,
             timestamp: new Date(),
           });
           resume(Effect.succeed(inputValue));
@@ -151,7 +194,7 @@ export class InkTerminalService implements TerminalService {
           // The Prompt component validates before calling resolve, so we can trust the input
           const inputValue = String(val);
           store.setPrompt(null);
-          store.addLog({ type: "log", message: `${message} *****`, timestamp: new Date() });
+          store.printOutput({ type: "log", message: `${message} *****`, timestamp: new Date() });
           resume(Effect.succeed(inputValue));
         },
       };
@@ -183,9 +226,9 @@ export class InkTerminalService implements TerminalService {
           store.setPrompt(null);
           // find label for log
           const choice = choices.find((c) => c.value === val);
-          store.addLog({
+          store.printOutput({
             type: "log",
-            message: `${message} ${choice?.label}`,
+            message: `${message} ${chalk.green(choice?.label ?? '')}`,
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as T));
@@ -202,9 +245,9 @@ export class InkTerminalService implements TerminalService {
         options: { defaultValue },
         resolve: (val: unknown) => {
           store.setPrompt(null);
-          store.addLog({
+          store.printOutput({
             type: "log",
-            message: `${message} ${val ? "Yes" : "No"}`,
+            message: `${message} ${chalk.green(val ? "Yes" : "No")}`,
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as boolean));
@@ -253,9 +296,9 @@ export class InkTerminalService implements TerminalService {
             .filter(Boolean)
             .join(", ");
 
-          store.addLog({
+          store.printOutput({
             type: "log",
-            message: `${message} [${selectedLabels}]`,
+            message: `${message} ${chalk.green(`[${selectedLabels}]`)}`,
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as readonly T[]));

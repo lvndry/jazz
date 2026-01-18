@@ -1,18 +1,22 @@
 import { Effect } from "effect";
 import { agentPromptBuilder } from "../../core/agent/agent-prompt";
+import { registerMCPServerTools } from "../../core/agent/tools/mcp-tools";
 import {
+  createCategoryMappings,
   FILE_MANAGEMENT_CATEGORY,
+  getMCPServerCategories,
   GIT_CATEGORY,
   GMAIL_CATEGORY,
   HTTP_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
-  createCategoryMappings,
 } from "../../core/agent/tools/register-tools";
 import type { ProviderName } from "../../core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "../../core/interfaces/agent-service";
 import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
+import { MCPServerManagerTag, type MCPServerManager } from "../../core/interfaces/mcp-server";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "../../core/interfaces/tool-registry";
 import {
@@ -23,6 +27,9 @@ import {
   ValidationError,
 } from "../../core/types/errors";
 import type { AgentConfig, LLMProviderListItem } from "../../core/types/index";
+import type { MCPTool } from "../../core/types/mcp";
+import { isAuthenticationRequired } from "../../core/utils/mcp-utils";
+import { toPascalCase } from "../../core/utils/string";
 
 /**
  * CLI commands for creating AI agents
@@ -92,7 +99,7 @@ export function createAgentCommand(): Effect.Effect<
   | AgentConfigurationError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry | TerminalService | AgentConfigService
+  AgentService | LLMService | ToolRegistry | TerminalService | AgentConfigService | MCPServerManager | LoggerService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -105,11 +112,20 @@ export function createAgentCommand(): Effect.Effect<
     const toolRegistry = yield* ToolRegistryTag;
 
     const agentTypes = yield* agentPromptBuilder.listTemplates();
-    const toolsByCategory = yield* toolRegistry.listToolsByCategory();
+    let toolsByCategory = yield* toolRegistry.listToolsByCategory();
+
+    const mcpServerData = yield* getMCPServerCategories();
+    toolsByCategory = { ...toolsByCategory, ...mcpServerData.categories };
 
     const categoryMappings = createCategoryMappings();
     const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
     const categoryIdToDisplayName: Map<string, string> = categoryMappings.idToDisplayName;
+
+    // Add MCP server category mappings (category ID format: mcp_<servername>)
+    for (const [displayName, serverName] of mcpServerData.displayNameToServerName.entries()) {
+      const categoryId = `mcp_${serverName.toLowerCase()}`;
+      categoryDisplayNameToId.set(displayName, categoryId);
+    }
 
     // Get agent basic information
     const agentAnswers = yield* Effect.promise(() =>
@@ -129,6 +145,100 @@ export function createAgentCommand(): Effect.Effect<
     const selectedModel = modelIds.includes(agentAnswers.llmModel)
       ? agentAnswers.llmModel
       : chosenProvider.defaultModel;
+
+    // Handle MCP server selections - register tools for selected MCP servers
+    const mcpManager = yield* MCPServerManagerTag;
+    const logger = yield* LoggerServiceTag;
+    const selectedMCPDisplayNames = agentAnswers.tools.filter((displayName) =>
+      mcpServerData.displayNameToServerName.has(displayName),
+    );
+
+    // Register tools for selected MCP servers
+    if (selectedMCPDisplayNames.length > 0) {
+      const selectedServerNames = selectedMCPDisplayNames.map(
+        (displayName) => mcpServerData.displayNameToServerName.get(displayName)!,
+      );
+      const allServers = yield* mcpManager.listServers();
+      const selectedServers = allServers.filter((server) =>
+        selectedServerNames.includes(server.name),
+      );
+
+      // Register tools from all selected MCP servers in parallel with timeout
+      const registrationEffects = selectedServers.map((serverConfig) =>
+        Effect.gen(function* () {
+          yield* logger.debug(`Registering tools from MCP server ${serverConfig.name}...`);
+
+          // Discover tools from server with timeout (45 seconds per server to allow for authentication)
+          const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
+            Effect.timeout("45 seconds"),
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                const errorMessage =
+                  error instanceof Error ? error.message : String(error);
+                const isAuthRequired = isAuthenticationRequired(error);
+
+                if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
+                  if (isAuthRequired) {
+                    yield* logger.warn(
+                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 30 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
+                    );
+                  } else {
+                    yield* logger.warn(
+                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 30 seconds`,
+                    );
+                  }
+                } else if (isAuthRequired) {
+                  yield* logger.warn(
+                    `MCP server ${toPascalCase(serverConfig.name)} requires authentication: ${errorMessage}`,
+                  );
+                } else {
+                  yield* logger.warn(
+                    `Failed to connect to MCP server ${toPascalCase(serverConfig.name)}: ${errorMessage}`,
+                  );
+                }
+                // Return empty array on error/timeout
+                return [] as readonly MCPTool[];
+              }),
+            ),
+          );
+
+          if (mcpTools.length === 0) {
+            return;
+          }
+
+          // Determine category for tools
+          const category = {
+            id: `mcp_${serverConfig.name.toLowerCase()}`,
+            displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
+          };
+
+          // Register tools
+          const registerTool = toolRegistry.registerForCategory(category);
+          const jazzTools = yield* registerMCPServerTools(serverConfig, mcpTools);
+
+          for (const tool of jazzTools) {
+            yield* registerTool(tool);
+          }
+
+          yield* logger.info(
+            `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name}`,
+          );
+        }).pipe(
+          Effect.catchAll(() =>
+            Effect.gen(function* () {
+              // If registration fails, continue without this server's tools
+              yield* logger.warn(`Failed to register tools from MCP server ${serverConfig.name}`);
+            }),
+          ),
+        ),
+      );
+
+      // Run all registrations in parallel
+      yield* Effect.all(registrationEffects, { concurrency: "unbounded" });
+
+      // Refresh tools list after MCP registration
+      toolsByCategory = yield* toolRegistry.listToolsByCategory();
+    }
 
     // Convert selected categories (display names) to category IDs, then get tools
     const selectedCategoryIds = agentAnswers.tools
@@ -371,7 +481,9 @@ async function promptForAgentInfo(
     const selectedTools = await Effect.runPromise(
       terminal.checkbox<string>("Which tools should this agent have access to?", {
         choices: Object.entries(toolsByCategory).map(([category, toolsInCategory]) => ({
-          name: `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`,
+          name: toolsInCategory.length > 0
+            ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
+            : category,
           value: category,
         })),
       }),

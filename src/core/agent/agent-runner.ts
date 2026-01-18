@@ -5,8 +5,10 @@ import type { ProviderName } from "../constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "../interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
+import type { MCPServerManager } from "../interfaces/mcp-server";
 import type { PresentationService } from "../interfaces/presentation";
 import { PresentationServiceTag } from "../interfaces/presentation";
+import type { TerminalService } from "../interfaces/terminal";
 import {
   ToolRegistryTag,
   type ToolRegistry,
@@ -33,6 +35,7 @@ import {
   recordLLMUsage,
 } from "./tracking/agent-run-tracker";
 import { normalizeToolConfig } from "./utils/tool-config";
+import { registerMCPToolsForAgent } from "./tools/register-tools";
 
 const MAX_RETRIES = 3;
 const STREAM_CREATION_TIMEOUT = Duration.minutes(2);
@@ -192,7 +195,15 @@ interface AgentRunContext {
  */
 function initializeAgentRun(
   options: AgentRunnerOptions,
-): Effect.Effect<AgentRunContext, Error, ToolRegistry | LoggerService | AgentConfigService> {
+): Effect.Effect<
+  AgentRunContext,
+  Error,
+  | ToolRegistry
+  | LoggerService
+  | AgentConfigService
+  | MCPServerManager
+  | TerminalService
+> {
   return Effect.gen(function* () {
     const { agent, userInput, conversationId } = options;
     const toolRegistry = yield* ToolRegistryTag;
@@ -212,12 +223,26 @@ function initializeAgentRun(
       maxIterations: options.maxIterations ?? MAX_AGENT_STEPS,
     });
 
-    // Get and validate tools
-    const allToolNames = yield* toolRegistry.listTools();
+    // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
       agentId: agent.id,
     });
 
+    // Register MCP tools for this agent if needed (only connects to relevant servers)
+    // This happens before validation so MCP tools are available
+    yield* registerMCPToolsForAgent(agentToolNames).pipe(
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          const logger = yield* LoggerServiceTag;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          yield* logger.warn(`Failed to register MCP tools for agent: ${errorMessage}`);
+          // Continue even if MCP registration fails - tools might not be needed
+        }),
+      ),
+    );
+
+    // Get and validate tools (after MCP tools are registered)
+    const allToolNames = yield* toolRegistry.listTools();
     const invalidTools = agentToolNames.filter((toolName) => !allToolNames.includes(toolName));
     if (invalidTools.length > 0) {
       return yield* Effect.fail(
