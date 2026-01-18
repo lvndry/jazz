@@ -32,7 +32,24 @@ export const AppContext = createContext<{
   setWorkingDirectory: () => { },
 });
 
-// Store logic decoupled from React for Effect integration
+/**
+ * Store Pattern Architecture
+ *
+ * This module uses a dual pattern for state management:
+ *
+ * 1. **External Store (`store` object)**: Provides imperative access to state setters
+ *    for Effect-based services that run outside React's lifecycle. Effect code calls
+ *    `store.addLog()` directly without needing React context. The store functions are
+ *    updated during App's first render via the initializedRef guard.
+ *
+ * 2. **React Context (`AppContext`)**: Provides reactive state access for components
+ *    that need to consume and display logs, prompts, and streaming content within
+ *    the React component tree.
+ *
+ * This separation allows Effect services to push updates into React's render cycle
+ * without tight coupling. The store object starts with no-op functions and is
+ * populated synchronously during App's first render to prevent race conditions.
+ */
 export const store = {
   addLog: (_entry: LogEntryInput): string => "",
   updateLog: (_id: string, _entry: Partial<LogEntryInput>): void => { },
@@ -76,11 +93,13 @@ export function App(): React.ReactElement {
         }
         // Otherwise, add new entry
         const entryWithId: LogEntry = { ...entry, id } as LogEntry;
-        const next = [...prev, entryWithId];
-        if (next.length > MAX_LOG_ENTRIES) {
-          return next.slice(next.length - MAX_LOG_ENTRIES);
+        // Optimized: when at capacity, shift first element instead of full spread
+        if (prev.length >= MAX_LOG_ENTRIES) {
+          const next = prev.slice(1);
+          next.push(entryWithId);
+          return next;
         }
-        return next;
+        return [...prev, entryWithId];
       });
       return id;
     };

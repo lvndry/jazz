@@ -9,17 +9,30 @@ import {
   type TerminalService,
 } from "../core/interfaces/terminal";
 
+// Singleton guard to prevent accidental double instantiation
+let instanceExists = false;
+
 /**
  * Ink-based Terminal Service Implementation
  *
+ * This service is a singleton - only one instance should exist at a time.
+ * Creating a second instance while one is active will throw an error.
  */
 export class InkTerminalService implements TerminalService {
   private inkInstance: ReturnType<typeof render> | null = null;
 
   constructor() {
+    // Guard against multiple instantiation
+    if (instanceExists) {
+      throw new Error(
+        "InkTerminalService is a singleton. An instance already exists. " +
+          "Call cleanup() on the existing instance before creating a new one.",
+      );
+    }
+
     // Initialize the Ink app on service creation
-    // We strictly assume this service is singleton and created once at startup
     this.inkInstance = render(React.createElement(App));
+    instanceExists = true;
   }
 
   /**
@@ -31,6 +44,8 @@ export class InkTerminalService implements TerminalService {
       this.inkInstance.unmount();
       this.inkInstance = null;
     }
+    // Reset singleton so a new instance can be created if needed
+    instanceExists = false;
   }
 
   // Basic Logging Methods

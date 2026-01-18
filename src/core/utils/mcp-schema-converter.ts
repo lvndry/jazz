@@ -202,6 +202,33 @@ export function convertMCPSchemaToZod(
 
   const schema = mcpSchema as MCPJSONSchema;
 
+  // Handle const values (exact value match)
+  if ("const" in schema && schema.const !== undefined) {
+    const constValue = schema.const;
+    if (
+      typeof constValue === "string" ||
+      typeof constValue === "number" ||
+      typeof constValue === "boolean" ||
+      constValue === null
+    ) {
+      return z.literal(constValue);
+    }
+    // Complex const values - use unknown
+    return z.unknown();
+  }
+
+  // Handle $ref (JSON Schema references)
+  // Note: Full $ref resolution requires schema registry support
+  // For now, log a warning and return unknown
+  if (schema.$ref) {
+    // $ref is not fully supported - would need a schema registry to resolve
+    // Return unknown to allow any value
+    console.warn(
+      `[MCP Schema Converter] $ref not supported: ${schema.$ref}${toolName ? ` (tool: ${toolName})` : ""}`,
+    );
+    return z.unknown();
+  }
+
   // Handle object type
   if (isObjectType(schema.type)) {
     return convertObjectSchema(schema, (s) => convertMCPSchemaToZod(s, toolName));
@@ -232,6 +259,7 @@ export function convertMCPSchemaToZod(
     return convertAllOfSchema(schema.allOf, (s) => convertMCPSchemaToZod(s, toolName));
   }
 
+  // Determine the type
   let type: string | undefined;
   if (Array.isArray(schema.type)) {
     type = schema.type.length > 0 ? (schema.type[0] as string) : undefined;
@@ -240,5 +268,17 @@ export function convertMCPSchemaToZod(
   } else {
     type = undefined;
   }
-  return convertBasicType(type);
+
+  // Get base schema for the type
+  let baseSchema = convertBasicType(type);
+
+  // Add description if available (includes format hint for better LLM understanding)
+  if (schema.description) {
+    const format = (schema as { format?: string }).format;
+    const formatHint = format ? ` (format: ${format})` : "";
+    baseSchema = baseSchema.describe(`${schema.description}${formatHint}`);
+  }
+
+  return baseSchema;
 }
+

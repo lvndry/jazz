@@ -101,8 +101,8 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
             </Box>
             {/* Validation error message */}
             {validationError && (
-              <Box marginTop={1} paddingLeft={2}>
-                <Text color="red">✗ {validationError}</Text>
+              <Box marginTop={1} paddingLeft={1} paddingRight={1} borderStyle="round" borderColor="red">
+                <Text color="red" bold>✗ {validationError}</Text>
               </Box>
             )}
           </>
@@ -120,8 +120,8 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
             </Box>
             {/* Validation error message */}
             {validationError && (
-              <Box marginTop={1} paddingLeft={2}>
-                <Text color="red">✗ {validationError}</Text>
+              <Box marginTop={1} paddingLeft={1} paddingRight={1} borderStyle="round" borderColor="red">
+                <Text color="red" bold>✗ {validationError}</Text>
               </Box>
             )}
           </>

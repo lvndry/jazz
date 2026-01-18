@@ -3,9 +3,9 @@ import { Effect, Layer } from "effect";
 import { Box, Text } from "ink";
 import React from "react";
 import type {
-  PresentationService,
-  StreamingRenderer,
-  StreamingRendererConfig,
+    PresentationService,
+    StreamingRenderer,
+    StreamingRendererConfig,
 } from "../../core/interfaces/presentation";
 import { PresentationServiceTag } from "../../core/interfaces/presentation";
 import { ink } from "../../core/interfaces/terminal";
@@ -37,7 +37,11 @@ class InkStreamingRenderer implements StreamingRenderer {
   private pendingUpdate: boolean = false;
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
   // Minimum time between stream updates (ms) - balances responsiveness vs performance
-  private static readonly UPDATE_THROTTLE_MS = 50;
+  private static readonly UPDATE_THROTTLE_MS = 30;
+
+  // Tool timeout warnings - show warning if tool takes longer than expected
+  private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  private static readonly TOOL_WARNING_MS = 10000; // 10 seconds
 
   constructor(
     private readonly agentName: string,
@@ -173,10 +177,29 @@ class InkStreamingRenderer implements StreamingRenderer {
             message,
             timestamp: new Date(),
           });
+
+          // Set timeout warning for long-running tools
+          const timeoutId = setTimeout(() => {
+            if (this.activeTools.has(event.toolCallId)) {
+              store.addLog({
+                type: "warn",
+                message: `⏱️ Tool ${event.toolName} is taking longer than expected...`,
+                timestamp: new Date(),
+              });
+            }
+          }, InkStreamingRenderer.TOOL_WARNING_MS);
+          this.toolTimeouts.set(event.toolCallId, timeoutId);
           return;
         }
 
         case "tool_execution_complete": {
+          // Clear timeout warning
+          const timeoutId = this.toolTimeouts.get(event.toolCallId);
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            this.toolTimeouts.delete(event.toolCallId);
+          }
+
           const toolName = this.activeTools.get(event.toolCallId);
           this.activeTools.delete(event.toolCallId);
 

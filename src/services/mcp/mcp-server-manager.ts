@@ -1,5 +1,6 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Effect, Layer } from "effect";
 import type { AgentConfigService } from "../../core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../core/interfaces/agent-config";
@@ -7,10 +8,17 @@ import type { LoggerService } from "../../core/interfaces/logger";
 import { LoggerServiceTag } from "../../core/interfaces/logger";
 import type {
   MCPServerConfig,
+  MCPServerConfigStdio,
   MCPServerConnection,
   MCPServerManager,
+  MCPTransport,
+  MCPTransportType
 } from "../../core/interfaces/mcp-server";
-import { MCPServerManagerTag } from "../../core/interfaces/mcp-server";
+import {
+  isHttpConfig,
+  isStdioConfig,
+  MCPServerManagerTag
+} from "../../core/interfaces/mcp-server";
 import type { TerminalService } from "../../core/interfaces/terminal";
 import { TerminalServiceTag } from "../../core/interfaces/terminal";
 import {
@@ -29,7 +37,7 @@ import { retryWithBackoff } from "../../core/utils/mcp-utils";
 /**
  * MCP Server Manager implementation
  *
- * Manages connections to MCP servers using stdio transport.
+ * Manages connections to MCP servers using stdio or HTTP (Streamable HTTP) transport.
  * Handles template variable resolution, process lifecycle, and tool discovery.
  */
 class MCPServerManagerImpl implements MCPServerManager {
@@ -61,28 +69,59 @@ class MCPServerManagerImpl implements MCPServerManager {
 
       yield* manager.logger.debug(`Connecting to MCP server: ${config.name}`);
 
-      // Resolve template variables
-      const resolvedArgs = yield* manager.resolveTemplateVariables(config).pipe(
-        Effect.mapError((error) => {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          return new MCPConnectionError({
-            serverName: config.name,
-            reason: `Failed to resolve template variables: ${errorMessage}`,
-            cause: error,
-            suggestion: `Check the MCP server configuration and ensure all required inputs are provided`,
-          });
-        }),
-      );
+      // Create transport based on config type
+      let transport: MCPTransport;
+      let transportType: MCPTransportType;
 
-      // Create sanitized environment
-      const sanitizedEnv = createSanitizedEnv(config.env || {});
+      if (isHttpConfig(config)) {
+        // HTTP (Streamable HTTP) transport
+        transportType = "http";
+        yield* manager.logger.debug(`Using HTTP transport for ${config.name}: ${config.url}`);
 
-      // Create stdio transport
-      const transport = new StdioClientTransport({
-        command: config.command,
-        args: [...resolvedArgs], // Convert readonly array to mutable
-        env: sanitizedEnv as Record<string, string>, // Type assertion for env
-      });
+        const httpOptions: { requestInit?: RequestInit; sessionId?: string } = {};
+
+        if (config.headers) {
+          httpOptions.requestInit = {
+            headers: config.headers,
+          };
+        }
+
+        if (config.sessionId) {
+          httpOptions.sessionId = config.sessionId;
+        }
+
+        transport = new StreamableHTTPClientTransport(
+          new URL(config.url),
+          httpOptions,
+        );
+      } else {
+        // Stdio transport (default)
+        transportType = "stdio";
+
+        // Resolve template variables for stdio transport
+        const resolvedArgs = yield* manager.resolveTemplateVariables(config).pipe(
+          Effect.mapError((error) => {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            return new MCPConnectionError({
+              serverName: config.name,
+              reason: `Failed to resolve template variables: ${errorMessage}`,
+              cause: error,
+              suggestion: `Check the MCP server configuration and ensure all required inputs are provided`,
+            });
+          }),
+        );
+
+        // Create sanitized environment (explicit env vars are always passed through)
+        const sanitizedEnv = createSanitizedEnv(config.env || {});
+
+        yield* manager.logger.debug(`Using stdio transport for ${config.name}: ${config.command}`);
+
+        transport = new StdioClientTransport({
+          command: config.command,
+          args: [...resolvedArgs], // Convert readonly array to mutable
+          env: sanitizedEnv as Record<string, string>, // Type assertion for env
+        });
+      }
 
       // Create MCP client with retry logic for transient failures
       const connectEffect = Effect.promise(() => createMCPClient({ transport })).pipe(
@@ -111,11 +150,14 @@ class MCPServerManagerImpl implements MCPServerManager {
       }).pipe(
         Effect.mapError((error: unknown) => {
           const errorMessage = error instanceof Error ? error.message : String(error);
+          const transportHint = isStdioConfig(config)
+            ? `Check that the command "${config.command}" is available and the server is configured correctly`
+            : `Check that the URL "${config.url}" is accessible and the server is running`;
           return new MCPConnectionError({
             serverName: config.name,
             reason: `Failed to connect to MCP server: ${errorMessage}`,
             cause: error,
-            suggestion: `Check that the command "${config.command}" is available and the server is configured correctly`,
+            suggestion: transportHint,
           });
         }),
       );
@@ -123,14 +165,15 @@ class MCPServerManagerImpl implements MCPServerManager {
       // Store connection (process is managed by transport)
       const connection: MCPServerConnection = {
         serverName: config.name,
-        process: null, // Process is managed internally by StdioClientTransport
+        process: null, // Process is managed internally by transport
         client,
         transport,
+        transportType,
       };
 
       manager.connections.set(config.name, connection);
 
-      yield* manager.logger.info(`Connected to MCP server: ${config.name}`);
+      yield* manager.logger.info(`Connected to MCP server: ${config.name} (${transportType} transport)`);
 
       return client;
     }).pipe(
@@ -305,7 +348,7 @@ class MCPServerManagerImpl implements MCPServerManager {
   }
 
   resolveTemplateVariables(
-    config: MCPServerConfig,
+    config: MCPServerConfigStdio,
   ): Effect.Effect<readonly string[], Error, AgentConfigService | TerminalService> {
     return Effect.gen(function* () {
       const configService = yield* AgentConfigServiceTag;
@@ -313,8 +356,9 @@ class MCPServerManagerImpl implements MCPServerManager {
 
       const resolvedArgs: string[] = [];
       const templatePattern = /\$\{input:(\w+)\}/g;
+      const args = config.args ?? [];
 
-      for (const arg of config.args || []) {
+      for (const arg of args) {
         const matches = [...arg.matchAll(templatePattern)];
 
         if (matches.length === 0) {

@@ -1,5 +1,13 @@
 import { Box, Text, useStdout } from "ink";
-import React from "react";
+import React, { useRef } from "react";
+
+import {
+  formatIsoShort,
+  formatProviderDisplayName,
+  formatToolsLine,
+  padRight,
+  truncateMiddle,
+} from "../utils/string-utils";
 
 interface AgentListItem {
   readonly id: string;
@@ -16,27 +24,33 @@ interface AgentListItem {
   };
 }
 
-/**
- * AgentsList displays a list of agents with a minimal header design.
- * Uses spacing and subtle separators instead of box borders for copy-friendly terminal output.
- */
 export function AgentsList(props: {
   readonly agents: readonly AgentListItem[];
   readonly verbose: boolean;
 }): React.ReactElement {
   const { stdout } = useStdout();
   const [columns, setColumns] = React.useState<number>(() => stdout.columns ?? 80);
+  const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => {
     function handleResize(): void {
-      setColumns(stdout.columns ?? 80);
+      // Debounce resize events to avoid excessive re-renders
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current);
+      }
+      resizeTimeoutRef.current = setTimeout(() => {
+        setColumns(stdout.columns ?? 80);
+      }, 100);
     }
 
     // Initial sync + subscribe
-    handleResize();
+    setColumns(stdout.columns ?? 80);
     stdout.on("resize", handleResize);
     return () => {
       stdout.off("resize", handleResize);
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current);
+      }
     };
   }, [stdout]);
 
@@ -136,37 +150,3 @@ export function AgentsList(props: {
     </Box>
   );
 }
-
-function padRight(text: string, width: number): string {
-  if (text.length >= width) return text;
-  return text + " ".repeat(width - text.length);
-}
-
-function truncateMiddle(text: string, max: number): string {
-  if (max <= 0) return "";
-  if (text.length <= max) return text;
-  if (max <= 1) return "…";
-  if (max <= 10) return text.slice(0, max - 1) + "…";
-  const keep = max - 1;
-  const left = Math.ceil(keep * 0.6);
-  const right = keep - left;
-  return text.slice(0, left) + "…" + text.slice(text.length - right);
-}
-
-function formatIsoShort(d: Date): string {
-  const iso = d.toISOString();
-  return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
-}
-
-function formatProviderDisplayName(provider: string): string {
-  if (provider === "ai_gateway") return "ai gateway";
-  return provider;
-}
-
-function formatToolsLine(tools: readonly string[] | undefined, maxWidth: number): string {
-  const list = tools ?? [];
-  if (list.length === 0) return "tools none configured";
-  const joined = list.join(", ");
-  return truncateMiddle(`tools ${list.length} — ${joined}`, Math.max(20, maxWidth - 2));
-}
-
