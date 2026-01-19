@@ -9,27 +9,28 @@ import { type MCPServerManager } from "@/core/interfaces/mcp-server";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
-  ToolRegistryTag,
-  type ToolRegistry,
-  type ToolRequirements,
+    ToolRegistryTag,
+    type ToolRegistry,
+    type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import type { ConversationMessages, StreamingConfig } from "../types";
-import { type Agent } from "../types";
+import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
+import type { ConversationMessages, StreamingConfig } from "../types";
+import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
 import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 import { registerMCPToolsForAgent } from "./tools/register-tools";
 import {
-  DEFAULT_DISPLAY_CONFIG,
-  type AgentResponse,
-  type AgentRunContext,
-  type AgentRunnerOptions,
+    DEFAULT_DISPLAY_CONFIG,
+    type AgentResponse,
+    type AgentRunContext,
+    type AgentRunnerOptions,
 } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
 
@@ -46,10 +47,12 @@ function initializeAgentRun(
   | AgentConfigService
   | MCPServerManager
   | TerminalService
+  | SkillService
 > {
   return Effect.gen(function* () {
     const { agent, userInput, conversationId } = options;
     const toolRegistry = yield* ToolRegistryTag;
+    const skillService = yield* SkillServiceTag;
 
     const actualConversationId = conversationId || `${Date.now()}`;
     const history: ChatMessage[] = options.conversationHistory || [];
@@ -65,6 +68,9 @@ function initializeAgentRun(
       reasoningEffort: agent.config.reasoningEffort ?? "disable",
       maxIterations: options.maxIterations ?? MAX_AGENT_STEPS,
     });
+
+    // Level 1: Find Relevant Skills (Startup)
+    const relevantSkills = yield* skillService.findRelevantSkills(userInput);
 
     // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
@@ -141,6 +147,7 @@ function initializeAgentRun(
       provider,
       model,
       connectedMCPServers,
+      knownSkills: relevantSkills, // Pass skills to context
     };
   });
 }
@@ -167,7 +174,9 @@ export class AgentRunner {
     | LoggerService
     | AgentConfigService
     | PresentationService
+
     | ToolRequirements
+    | SkillService
   > {
     return AgentRunner.run({ ...options, internal: true });
   }
@@ -188,7 +197,9 @@ export class AgentRunner {
     | LoggerService
     | AgentConfigService
     | PresentationService
+
     | ToolRequirements
+    | SkillService
   > {
     return Effect.gen(function* () {
       // Get services
@@ -276,8 +287,10 @@ export class AgentRunner {
     | ToolRegistry
     | LoggerService
     | AgentConfigService
+
     | PresentationService
     | ToolRequirements
+    | SkillService
   > {
     const runRecursive = (runOpts: {
       agent: Agent;

@@ -1,7 +1,3 @@
-import { Effect, Layer } from "effect";
-import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
-import React from "react";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -14,8 +10,13 @@ import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import type { ToolCategory } from "@/core/types";
 import type { MCPTool } from "@/core/types/mcp";
 import { toPascalCase } from "@/core/utils/string";
+import { Effect, Layer } from "effect";
+import { Box, Text } from "ink";
+import Spinner from "ink-spinner";
+import React from "react";
 import { calendarTools } from "./calendar";
 import { fs } from "./fs";
+import { git } from "./git";
 import {
     createAddLabelsToEmailTool,
     createBatchModifyEmailsTool,
@@ -34,10 +35,10 @@ import {
     createTrashEmailTool,
     createUpdateLabelTool,
 } from "./gmail";
-import { git } from "./git";
 import { createHttpRequestTool } from "./http-tools";
 import { registerMCPServerTools } from "./mcp-tools";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
+import { skillTools } from "./skill-tools";
 import { createWebSearchTool } from "./web-search-tools";
 
 /**
@@ -72,6 +73,7 @@ export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDe
     yield* registerGitTools();
     yield* registerSearchTools();
     yield* registerHttpTools();
+    yield* registerSkillSystemTools();
     // MCP tools registered without connecting - they connect lazily on first use
     yield* registerMCPToolsLazy();
   });
@@ -457,6 +459,7 @@ export const SHELL_COMMANDS_CATEGORY: ToolCategory = {
 };
 export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
 export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Search" };
+export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
 
 /**
  * Get MCP server names as tool categories without connecting to servers
@@ -511,6 +514,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   WEB_SEARCH_CATEGORY,
   GMAIL_CATEGORY,
   CALENDAR_CATEGORY,
+  SKILLS_CATEGORY,
 ] as const;
 
 /**
@@ -709,6 +713,19 @@ export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> 
     const webSearchTool = createWebSearchTool();
 
     yield* registerTool(webSearchTool);
+    yield* registerTool(webSearchTool);
+  });
+}
+
+// Register Skill system tools
+export function registerSkillSystemTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(SKILLS_CATEGORY);
+
+    for (const tool of skillTools) {
+      yield* registerTool(tool);
+    }
   });
 }
 

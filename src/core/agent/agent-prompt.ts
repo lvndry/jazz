@@ -1,6 +1,6 @@
+import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { Effect } from "effect";
 import * as os from "os";
-import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { CODER_PROMPT_V1 } from "./prompts/coder/v1";
 import { DEFAULT_PROMPT_V2 } from "./prompts/default/v2";
 import { GMAIL_PROMPT_V2 } from "./prompts/gmail/v2";
@@ -20,6 +20,7 @@ export interface AgentPromptOptions {
   readonly conversationHistory?: ChatMessage[];
   readonly toolNames?: readonly string[];
   readonly availableTools?: Record<string, string>;
+  readonly knownSkills?: readonly { readonly name: string; readonly description: string; readonly path: string }[];
 }
 
 export class AgentPromptBuilder {
@@ -121,6 +122,24 @@ export class AgentPromptBuilder {
           .replace("{currentDate}", currentDate)
           .replace("{systemInfo}", systemInfo)
           .replace("{userInfo}", userInfo);
+
+        if (options.knownSkills && options.knownSkills.length > 0) {
+            const skillsXml = options.knownSkills
+                .map(s => `  <skill>\n    <name>${s.name}</name>\n    <description>${s.description}</description>\n  </skill>`)
+                .join("\n");
+
+            // Append available skills to system prompt
+            /*
+            <available_skills>
+              <skill>
+                <name>pdf-processing</name>
+                <description>Extracts text and tables from PDF files, fills forms, merges documents.</description>
+              </skill>
+            </available_skills>
+             */
+             const skillsSection = `\n\n<available_skills>\n${skillsXml}\n</available_skills>\n\nUse the 'load_skill' tool to load the full instructions for a skill if it seems relevant. \nIMPORTANT: If a skill appears to offer similar functionality to a built-in tool or has the same name/goal, PRIORITIZE investigating and using the skill via 'load_skill' over using the built-in tool.`;
+             return systemPrompt + skillsSection;
+        }
 
         return systemPrompt;
       }.bind(this),

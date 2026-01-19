@@ -224,9 +224,10 @@ export function LineInput({
         {value.length > 0 ? renderedValue : placeholder ? renderedPlaceholder : renderedValue}
       </Text>
       {focus && value.length === 0 && (
-        <Text dimColor>{SHORTCUTS_HINT}</Text>
+        <Box marginTop={1}>
+          <Text dimColor>{SHORTCUTS_HINT}</Text>
+        </Box>
       )}
     </Box>
   );
 }
-

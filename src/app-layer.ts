@@ -9,6 +9,7 @@ import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
 import { AgentConfigServiceTag } from "./core/interfaces/agent-config";
 import { CLIOptionsTag } from "./core/interfaces/cli-options";
 import { StorageServiceTag } from "./core/interfaces/storage";
+import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
@@ -111,6 +112,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(configLayer),
     Layer.provide(loggerLayer),
     Layer.provide(terminalLayer),
+    Layer.provide(SkillsLive.layer),
   );
 
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
@@ -123,6 +125,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(toolRegistryLayer),
     Layer.provide(agentLayer),
     Layer.provide(mcpServerManagerLayer),
+    Layer.provide(SkillsLive.layer),
   );
 
   // In TTY mode, keep Ink UI intact by routing all presentation output into Ink.
@@ -146,6 +149,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     agentLayer,
     chatLayer,
     presentationLayer,
+    SkillsLive.layer,
   );
 }
 

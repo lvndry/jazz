@@ -1,8 +1,8 @@
 import type { ProviderName } from "@/core/constants/models";
-import type { Agent } from "../types";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { ToolCall, ToolDefinition, ToolExecutionContext } from "@/core/types/tools";
+import type { Agent } from "../types";
 import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 
 /**
@@ -149,4 +149,5 @@ export interface AgentRunContext {
   readonly provider: ProviderName;
   readonly model: string;
   readonly connectedMCPServers: readonly string[];
+  readonly knownSkills: readonly { readonly name: string; readonly description: string; readonly path: string }[];
 }

@@ -36,6 +36,8 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "compact", args };
     case "copy":
       return { type: "copy", args };
+    case "skills":
+      return { type: "skills", args };
     default:
       return { type: "unknown", args: [command, ...args] };
   }
