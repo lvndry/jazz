@@ -13,15 +13,62 @@ export interface ModelFetcherService {
   ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never>;
 }
 
+type OpenRouterModel = {
+  id: string;
+  name: string;
+  context_length?: number;
+  supported_parameters?: string[];
+};
+
+type OllamaModel = {
+  name: string;
+  model?: string;
+  details?: {
+    family?: string;
+    parameter_size?: string;
+    metadata?: Record<string, unknown>;
+  };
+};
+
+const TOOL_PARAMS = new Set([
+  "tools",
+  "tool_choice",
+  "function_call",
+  "functions",
+  "response_format:json_schema",
+]);
+
+const KNOWN_OLLAMA_TOOL_MODELS = new Set<string>([
+  "llama3.1",
+  "llama3.1:8b-instruct",
+  "llama3.1:70b-instruct",
+  "qwen2.5:14b-instruct",
+  "qwen2.5:72b-instruct",
+  "phi3.5",
+]);
+
+function looksToolCapable(model: OllamaModel): boolean {
+  const name = model.name.toLowerCase();
+  if (KNOWN_OLLAMA_TOOL_MODELS.has(model.name)) return true;
+  if (name.includes("tool") || name.includes("function")) return true;
+
+  const metadata = model.details?.metadata;
+  if (metadata && typeof metadata === "object") {
+    const flag = (metadata["supports_tools"] ??
+      metadata["tool_use"] ??
+      metadata["function_calling"]) as unknown;
+    if (typeof flag === "boolean") return flag;
+  }
+
+  return false;
+}
+
 // Provider-specific response transformers
 const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => ModelInfo[]>> = {
   ollama: (data: unknown) => {
     // Transform Ollama API response
     const response = data as {
-      models?: {
-        name: string;
-        model?: string;
-      }[];
+      models?: OllamaModel[];
     };
 
     const ollamaReasoningModels: string[] = [
@@ -38,27 +85,27 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       isReasoningModel: ollamaReasoningModels.some((reasoningModel) =>
         model.name.includes(reasoningModel),
       ),
+      supportsTools: looksToolCapable(model),
     }));
   },
   openrouter: (data: unknown) => {
     // Transform OpenRouter API response
     const response = data as {
-      data?: {
-        id: string;
-        name: string;
-        supported_parameters: string[];
-      }[];
+      data?: OpenRouterModel[];
     };
 
     return (response.data ?? []).map((model) => {
+      const supportedParameters = model.supported_parameters ?? [];
       const isReasoningModel =
-        model.supported_parameters.includes("reasoning") ||
-        model.supported_parameters.includes("include_reasoning");
+        supportedParameters.includes("reasoning") ||
+        supportedParameters.includes("include_reasoning");
+      const supportsTools = supportedParameters.some((param) => TOOL_PARAMS.has(param));
 
       return {
         id: model.id,
         displayName: model.name,
         isReasoningModel,
+        supportsTools,
       };
     });
   },
@@ -72,6 +119,7 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       id: model.id,
       displayName: model.name,
       isReasoningModel: false,
+      supportsTools: false,
     }));
   },
   groq: (data: unknown) => {
@@ -86,6 +134,7 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       id: model.id,
       displayName: `${model.owned_by.toLowerCase()}/${model.id.toLowerCase()}`,
       isReasoningModel: false,
+      supportsTools: false,
     }));
   },
 };

@@ -11,6 +11,7 @@ export interface ChatCompletionResponse {
     completionTokens: number;
     totalTokens: number;
   };
+  toolsDisabled?: boolean;
 }
 
 export interface ChatCompletionOptions {

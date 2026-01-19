@@ -40,11 +40,7 @@ import type {
   StreamEvent,
   StreamingResult,
 } from "@/core/types";
-import {
-  LLMAuthenticationError,
-  LLMConfigurationError,
-  type LLMError,
-} from "@/core/types/errors";
+import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
 import type { ToolCall } from "@/core/types/tools";
 import { safeParseJson } from "@/core/utils/json";
 import {
@@ -69,6 +65,42 @@ function parseToolArguments(input: string): Record<string, unknown> {
   });
 }
 
+function toAISDKToolChoice(
+  toolChoice: ChatCompletionOptions["toolChoice"],
+): AISDKToolChoice | undefined {
+  if (!toolChoice) return undefined;
+  if (toolChoice === "auto" || toolChoice === "none") return toolChoice;
+
+  return {
+    type: "tool",
+    toolName: toolChoice.function.name,
+  };
+}
+
+function buildToolConfig(
+  supportsTools: boolean,
+  tools: ChatCompletionOptions["tools"],
+  toolChoice: ChatCompletionOptions["toolChoice"],
+): {
+  tools: ChatCompletionOptions["tools"] | undefined;
+  toolChoice: AISDKToolChoice | undefined;
+  toolsDisabled: boolean;
+} {
+  if (!tools || tools.length === 0 || !supportsTools) {
+    return {
+      tools: undefined,
+      toolChoice: undefined,
+      toolsDisabled: !!tools && tools.length > 0 && !supportsTools,
+    };
+  }
+
+  return {
+    tools,
+    toolChoice: toAISDKToolChoice(toolChoice),
+    toolsDisabled: false,
+  };
+}
+
 function toCoreMessages(
   messages: ReadonlyArray<{
     role: "system" | "user" | "assistant" | "tool";
@@ -78,7 +110,7 @@ function toCoreMessages(
     tool_calls?: ReadonlyArray<{
       id: string;
       type: "function";
-      function: { name: string; arguments: string; };
+      function: { name: string; arguments: string };
       thought_signature?: string;
     }>;
   }>,
@@ -102,14 +134,14 @@ function toCoreMessages(
 
     if (role === "assistant") {
       const contentParts: Array<
-        | { type: "text"; text: string; }
+        | { type: "text"; text: string }
         | {
-          type: "tool-call";
-          toolCallId: string;
-          toolName: string;
-          input: unknown;
-          thoughtSignature?: string;
-        }
+            type: "tool-call";
+            toolCallId: string;
+            toolName: string;
+            input: unknown;
+            thoughtSignature?: string;
+          }
       > = [];
 
       if (m.content && m.content.length > 0) {
@@ -123,7 +155,7 @@ function toCoreMessages(
             toolCallId: string;
             toolName: string;
             input: unknown;
-            providerOptions?: { google?: { thoughtSignature?: string; }; };
+            providerOptions?: { google?: { thoughtSignature?: string } };
           } = {
             type: "tool-call",
             toolCallId: tc.id,
@@ -168,15 +200,16 @@ function toCoreMessages(
 
 type ModelName = string;
 type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
+type AISDKToolChoice = Parameters<typeof generateText>[0]["toolChoice"];
 
 /**
  * Extract all configured providers from LLMConfig with their API keys
  */
 function getConfiguredProviders(
   llmConfig?: LLMConfig,
-): { name: ProviderName; apiKey: string; displayName?: string; }[] {
+): { name: ProviderName; apiKey: string; displayName?: string }[] {
   if (!llmConfig) return [];
-  const providers: { name: ProviderName; apiKey: string; displayName?: string; }[] = [];
+  const providers: { name: ProviderName; apiKey: string; displayName?: string }[] = [];
 
   if (llmConfig.openai?.api_key) {
     providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
@@ -200,7 +233,11 @@ function getConfiguredProviders(
     providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
   }
   if (llmConfig.ai_gateway?.api_key) {
-    providers.push({ name: "ai_gateway", displayName: "ai gateway", apiKey: llmConfig.ai_gateway.api_key });
+    providers.push({
+      name: "ai_gateway",
+      displayName: "ai gateway",
+      apiKey: llmConfig.ai_gateway.api_key,
+    });
   }
   if (llmConfig.groq?.api_key) {
     providers.push({ name: "groq", apiKey: llmConfig.groq.api_key });
@@ -371,6 +408,7 @@ class AISDKService implements LLMService {
   private readonly modelFetcher: ModelFetcherService;
   // Model instance cache: key = "provider:modelId"
   private readonly modelCache = new Map<string, LanguageModel>();
+  private readonly modelInfoCache = new Map<ProviderName, readonly ModelInfo[]>();
 
   constructor(
     config: AISDKConfig,
@@ -400,9 +438,15 @@ class AISDKService implements LLMService {
   private getProviderModels(
     providerName: ProviderName,
   ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never> {
+    const cached = this.modelInfoCache.get(providerName);
+    if (cached) {
+      return Effect.succeed(cached);
+    }
+
     const modelSource = this.providerModels[providerName];
 
     if (modelSource.type === "static") {
+      this.modelInfoCache.set(providerName, modelSource.models);
       return Effect.succeed(modelSource.models);
     }
 
@@ -418,7 +462,23 @@ class AISDKService implements LLMService {
 
     const apiKey = providerConfig?.api_key;
 
-    return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey);
+    return this.modelFetcher
+      .fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey)
+      .pipe(
+        Effect.tap((models) =>
+          Effect.sync(() => {
+            this.modelInfoCache.set(providerName, models);
+          }),
+        ),
+      );
+  }
+
+  private async resolveModelInfo(
+    providerName: ProviderName,
+    modelId: ModelName,
+  ): Promise<ModelInfo | undefined> {
+    const models = await Effect.runPromise(this.getProviderModels(providerName));
+    return models.find((model) => model.id === modelId);
   }
 
   readonly getProvider = (
@@ -492,20 +552,27 @@ class AISDKService implements LLMService {
           `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
         );
 
+        const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        const {
+          tools: requestedTools,
+          toolChoice: requestedToolChoice,
+          toolsDisabled,
+        } = buildToolConfig(modelInfo?.supportsTools ?? false, options.tools, options.toolChoice);
+
         // Prepare tools for AI SDK if present
         let tools: ToolSet | undefined;
-        if (options.tools && options.tools.length > 0) {
+        if (requestedTools && requestedTools.length > 0) {
           const toolConversionStart = Date.now();
           tools = {};
 
-          for (const toolDef of options.tools) {
+          for (const toolDef of requestedTools) {
             tools[toolDef.function.name] = tool({
               description: toolDef.function.description,
               inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
             });
           }
           void this.logger.debug(
-            `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
+            `[LLM Timing] Tool conversion (${requestedTools.length} tools) took ${Date.now() - toolConversionStart}ms`,
           );
         }
 
@@ -524,6 +591,7 @@ class AISDKService implements LLMService {
           messages: coreMessages,
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(tools ? { tools } : {}),
+          ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
           ...(providerOptions ? { providerOptions } : {}),
           stopWhen: stepCountIs(MAX_AGENT_STEPS),
         });
@@ -531,6 +599,12 @@ class AISDKService implements LLMService {
           `[LLM Timing] generateText completed in ${Date.now() - generateTextStart}ms`,
         );
         void this.logger.info(`[LLM Timing] Total completion time: ${Date.now() - timingStart}ms`);
+
+        if (toolsDisabled) {
+          void this.logger.info(
+            `Tools were provided but skipped because ${options.model} does not support tools`,
+          );
+        }
 
         const responseModel = options.model;
         const content = result.text ?? "";
@@ -563,10 +637,10 @@ class AISDKService implements LLMService {
             // The AI SDK includes it in providerMetadata.google.thoughtSignature
             if ("providerMetadata" in tc && tc.providerMetadata) {
               const providerMetadata = tc.providerMetadata as {
-                google?: { thoughtSignature?: string; };
+                google?: { thoughtSignature?: string };
               };
               if (providerMetadata?.google?.thoughtSignature) {
-                (toolCall as { thought_signature?: string; }).thought_signature =
+                (toolCall as { thought_signature?: string }).thought_signature =
                   providerMetadata.google.thoughtSignature;
               }
             }
@@ -581,6 +655,7 @@ class AISDKService implements LLMService {
           content,
           ...(toolCalls ? { toolCalls } : {}),
           ...(usage ? { usage } : {}),
+          ...(toolsDisabled ? { toolsDisabled } : {}),
         };
         return resultObj;
       },
@@ -637,21 +712,6 @@ class AISDKService implements LLMService {
     const model = selectModel(providerName, options.model, this.config.llmConfig, this.modelCache);
     void this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`);
 
-    let tools: ToolSet | undefined;
-    if (options.tools && options.tools.length > 0) {
-      const toolConversionStart = Date.now();
-      tools = {};
-      for (const toolDef of options.tools) {
-        tools[toolDef.function.name] = tool({
-          description: toolDef.function.description,
-          inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-        });
-      }
-      void this.logger.debug(
-        `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
-      );
-    }
-
     const providerOptions = buildProviderOptions(providerName, options);
 
     // Message conversion timing
@@ -682,6 +742,38 @@ class AISDKService implements LLMService {
               `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
             );
 
+            const modelInfo = await this.resolveModelInfo(providerName, options.model);
+            const {
+              tools: requestedTools,
+              toolChoice: requestedToolChoice,
+              toolsDisabled,
+            } = buildToolConfig(
+              modelInfo?.supportsTools ?? false,
+              options.tools,
+              options.toolChoice,
+            );
+
+            let tools: ToolSet | undefined;
+            if (requestedTools && requestedTools.length > 0) {
+              const toolConversionStart = Date.now();
+              tools = {};
+              for (const toolDef of requestedTools) {
+                tools[toolDef.function.name] = tool({
+                  description: toolDef.function.description,
+                  inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+                });
+              }
+              void this.logger.debug(
+                `[LLM Timing] Tool conversion (${requestedTools.length} tools) took ${Date.now() - toolConversionStart}ms`,
+              );
+            }
+
+            if (toolsDisabled) {
+              void this.logger.info(
+                `Tools were provided but skipped because ${options.model} does not support tools`,
+              );
+            }
+
             const result = streamText({
               model,
               messages: coreMessages,
@@ -689,6 +781,7 @@ class AISDKService implements LLMService {
                 ? { temperature: options.temperature }
                 : {}),
               ...(tools ? { tools } : {}),
+              ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
               ...(providerOptions ? { providerOptions } : {}),
               abortSignal: abortController.signal,
               stopWhen: stepCountIs(MAX_AGENT_STEPS),
@@ -708,6 +801,7 @@ class AISDKService implements LLMService {
                   options.reasoning_effort && options.reasoning_effort !== "disable"
                 ),
                 startTime: Date.now(),
+                toolsDisabled,
               },
               emit,
               this.logger,
@@ -788,7 +882,7 @@ class AISDKService implements LLMService {
         };
 
         if (error && typeof error === "object" && "code" in error) {
-          const e = error as { code?: string; status?: number; statusCode?: number; type?: string; };
+          const e = error as { code?: string; status?: number; statusCode?: number; type?: string };
           if (e.code) errorDetails["code"] = e.code;
           if (e.status) errorDetails["status"] = e.status;
           if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
