@@ -9,9 +9,9 @@ import { type MCPServerManager } from "@/core/interfaces/mcp-server";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
-    ToolRegistryTag,
-    type ToolRegistry,
-    type ToolRequirements,
+  ToolRegistryTag,
+  type ToolRegistry,
+  type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { LLMRateLimitError } from "@/core/types/errors";
@@ -27,10 +27,10 @@ import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 import { registerMCPToolsForAgent } from "./tools/register-tools";
 import {
-    DEFAULT_DISPLAY_CONFIG,
-    type AgentResponse,
-    type AgentRunContext,
-    type AgentRunnerOptions,
+  DEFAULT_DISPLAY_CONFIG,
+  type AgentResponse,
+  type AgentRunContext,
+  type AgentRunnerOptions,
 } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
 
@@ -129,6 +129,7 @@ function initializeAgentRun(
       conversationHistory: history,
       toolNames: expandedToolNames,
       availableTools,
+      knownSkills: relevantSkills,
     });
 
     const toolContext: ToolExecutionContext = {
