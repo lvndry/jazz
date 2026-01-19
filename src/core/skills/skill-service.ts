@@ -50,7 +50,7 @@ export class SkillsLive implements SkillService {
   private constructor(
     private readonly globalCachePath: string,
     private readonly loadedSkills: Ref.Ref<Map<string, SkillContent>>
-  ) {}
+  ) { }
 
   public static readonly layer = Layer.effect(
     SkillServiceTag,
@@ -122,27 +122,27 @@ export class SkillsLive implements SkillService {
 
   loadSkillSection(skillName: string, sectionName: string): Effect.Effect<string, Error> {
     return Effect.gen(function* (this: SkillsLive) {
-        const skill = yield* this.loadSkill(skillName);
+      const skill = yield* this.loadSkill(skillName);
 
-        // Security check: ensure sectionName doesn't escape directory
-        const safeSectionName = path.normalize(sectionName).replace(/^(\.\.(\/|\\|$))+/, '');
-        const sectionPath = path.join(skill.metadata.path, safeSectionName);
+      // Security check: ensure sectionName doesn't escape directory
+      const safeSectionName = path.normalize(sectionName).replace(/^(\.\.(\/|\\|$))+/, '');
+      const sectionPath = path.join(skill.metadata.path, safeSectionName);
 
-        // Verify file exists
-        const exists = yield* Effect.tryPromise(async () => {
-            try {
-                await fs.access(sectionPath);
-                return true;
-            } catch {
-                return false;
-            }
-        });
-
-        if (!exists) {
-            return yield* Effect.fail(new Error(`Section not found: ${sectionName} in skill ${skillName}`));
+      // Verify file exists
+      const exists = yield* Effect.tryPromise(async () => {
+        try {
+          await fs.access(sectionPath);
+          return true;
+        } catch {
+          return false;
         }
+      });
 
-        return yield* Effect.tryPromise(() => fs.readFile(sectionPath, "utf-8"));
+      if (!exists) {
+        return yield* Effect.fail(new Error(`Section not found: ${sectionName} in skill ${skillName}`));
+      }
+
+      return yield* Effect.tryPromise(() => fs.readFile(sectionPath, "utf-8"));
     }.bind(this));
   }
 
@@ -184,38 +184,38 @@ export class SkillsLive implements SkillService {
 
   private scanDirectory(dir: string, depth: number): Effect.Effect<readonly SkillMetadata[], Error> {
     return Effect.gen(function* () {
-        const patterns = ["**/SKILL.md"];
-        const ignore = ["**/node_modules/**", "**/.git/**"];
+      const patterns = ["**/SKILL.md"];
+      const ignore = ["**/node_modules/**", "**/.git/**"];
 
-        const matches = yield* Effect.tryPromise(() =>
-            glob(patterns, {
-                cwd: dir,
-                deep: depth,
-                ignore: ignore,
-                absolute: true,
-                caseSensitiveMatch: false // "SKILL.md" or "skill.md" usually, but spec says SKILL.md
-            })
-        );
+      const matches = yield* Effect.tryPromise(() =>
+        glob(patterns, {
+          cwd: dir,
+          deep: depth,
+          ignore: ignore,
+          absolute: true,
+          caseSensitiveMatch: false // "SKILL.md" or "skill.md" usually, but spec says SKILL.md
+        })
+      );
 
-        const skills: SkillMetadata[] = [];
-        for (const match of matches) {
-            try {
-                const content = yield* Effect.tryPromise(() => fs.readFile(match, 'utf-8'));
-                const { data } = matter(content);
+      const skills: SkillMetadata[] = [];
+      for (const match of matches) {
+        try {
+          const content = yield* Effect.tryPromise(() => fs.readFile(match, 'utf-8'));
+          const { data } = matter(content);
 
-                if (data["name"] && data["description"]) {
-                    skills.push({
-                        name: String(data["name"]),
-                        description: String(data["description"]),
-                        path: path.dirname(match)
-                    });
-                }
-            } catch {
-                // Ignore malformed skills
-                continue;
-            }
+          if (data["name"] && data["description"]) {
+            skills.push({
+              name: String(data["name"]),
+              description: String(data["description"]),
+              path: path.dirname(match)
+            });
+          }
+        } catch {
+          // Ignore malformed skills
+          continue;
         }
-        return skills;
+      }
+      return skills;
     });
   }
 }

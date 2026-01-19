@@ -1,3 +1,27 @@
+import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+import type { ProviderName } from "@/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import type {
+  ChatCompletionOptions,
+  ChatCompletionResponse,
+  LLMConfig,
+  LLMProvider,
+  LLMProviderListItem,
+  ModelInfo,
+  StreamEvent,
+  StreamingResult,
+} from "@/core/types";
+import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
+import type { ToolCall } from "@/core/types/tools";
+import { safeParseJson } from "@/core/utils/json";
+import {
+  convertToLLMError,
+  extractCleanErrorMessage,
+  truncateRequestBodyValues,
+} from "@/core/utils/llm-error";
+import { createDeferred } from "@/core/utils/promise";
 import { anthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { deepseek } from "@ai-sdk/deepseek";
 import { google, type GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
@@ -25,34 +49,6 @@ import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { z } from "zod";
-import { MAX_AGENT_STEPS } from "@/core/constants/agent";
-import type { ProviderName } from "@/core/constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
-import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import type {
-  ChatCompletionOptions,
-  ChatCompletionResponse,
-  LLMConfig,
-  LLMProvider,
-  LLMProviderListItem,
-  ModelInfo,
-  StreamEvent,
-  StreamingResult,
-} from "@/core/types";
-import {
-  LLMAuthenticationError,
-  LLMConfigurationError,
-  type LLMError,
-} from "@/core/types/errors";
-import type { ToolCall } from "@/core/types/tools";
-import { safeParseJson } from "@/core/utils/json";
-import {
-  convertToLLMError,
-  extractCleanErrorMessage,
-  truncateRequestBodyValues,
-} from "@/core/utils/llm-error";
-import { createDeferred } from "@/core/utils/promise";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
 import { StreamProcessor } from "./stream-processor";
@@ -78,7 +74,7 @@ function toCoreMessages(
     tool_calls?: ReadonlyArray<{
       id: string;
       type: "function";
-      function: { name: string; arguments: string; };
+      function: { name: string; arguments: string };
       thought_signature?: string;
     }>;
   }>,
@@ -102,7 +98,7 @@ function toCoreMessages(
 
     if (role === "assistant") {
       const contentParts: Array<
-        | { type: "text"; text: string; }
+        | { type: "text"; text: string }
         | {
           type: "tool-call";
           toolCallId: string;
@@ -123,7 +119,7 @@ function toCoreMessages(
             toolCallId: string;
             toolName: string;
             input: unknown;
-            providerOptions?: { google?: { thoughtSignature?: string; }; };
+            providerOptions?: { google?: { thoughtSignature?: string } };
           } = {
             type: "tool-call",
             toolCallId: tc.id,
@@ -174,9 +170,9 @@ type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerO
  */
 function getConfiguredProviders(
   llmConfig?: LLMConfig,
-): { name: ProviderName; apiKey: string; displayName?: string; }[] {
+): { name: ProviderName; apiKey: string; displayName?: string }[] {
   if (!llmConfig) return [];
-  const providers: { name: ProviderName; apiKey: string; displayName?: string; }[] = [];
+  const providers: { name: ProviderName; apiKey: string; displayName?: string }[] = [];
 
   if (llmConfig.openai?.api_key) {
     providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
@@ -200,7 +196,11 @@ function getConfiguredProviders(
     providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
   }
   if (llmConfig.ai_gateway?.api_key) {
-    providers.push({ name: "ai_gateway", displayName: "ai gateway", apiKey: llmConfig.ai_gateway.api_key });
+    providers.push({
+      name: "ai_gateway",
+      displayName: "ai gateway",
+      apiKey: llmConfig.ai_gateway.api_key,
+    });
   }
   if (llmConfig.groq?.api_key) {
     providers.push({ name: "groq", apiKey: llmConfig.groq.api_key });
@@ -563,10 +563,10 @@ class AISDKService implements LLMService {
             // The AI SDK includes it in providerMetadata.google.thoughtSignature
             if ("providerMetadata" in tc && tc.providerMetadata) {
               const providerMetadata = tc.providerMetadata as {
-                google?: { thoughtSignature?: string; };
+                google?: { thoughtSignature?: string };
               };
               if (providerMetadata?.google?.thoughtSignature) {
-                (toolCall as { thought_signature?: string; }).thought_signature =
+                (toolCall as { thought_signature?: string }).thought_signature =
                   providerMetadata.google.thoughtSignature;
               }
             }
@@ -788,7 +788,7 @@ class AISDKService implements LLMService {
         };
 
         if (error && typeof error === "object" && "code" in error) {
-          const e = error as { code?: string; status?: number; statusCode?: number; type?: string; };
+          const e = error as { code?: string; status?: number; statusCode?: number; type?: string };
           if (e.code) errorDetails["code"] = e.code;
           if (e.status) errorDetails["status"] = e.status;
           if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
