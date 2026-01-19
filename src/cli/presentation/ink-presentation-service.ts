@@ -1,7 +1,3 @@
-import chalk from "chalk";
-import { Effect, Layer } from "effect";
-import { Box, Text } from "ink";
-import React from "react";
 import type {
   PresentationService,
   StreamingRenderer,
@@ -10,6 +6,10 @@ import type {
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { ink } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
+import chalk from "chalk";
+import { Effect, Layer } from "effect";
+import { Box, Text } from "ink";
+import React from "react";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/App";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
@@ -203,14 +203,37 @@ class InkStreamingRenderer implements StreamingRenderer {
           const toolName = this.activeTools.get(event.toolCallId);
           this.activeTools.delete(event.toolCallId);
 
-          const namePrefix = toolName ? `${toolName} ` : "";
-          const summary = event.summary?.trim().length ? event.summary : namePrefix + "done";
+          // Get summary from event or generate from result (for diff display)
+          let summary = event.summary?.trim();
+          if (!summary && toolName && event.result) {
+            summary = CLIRenderer.formatToolResult(toolName, event.result);
+          }
 
-          store.printOutput({
-            type: "success",
-            message: `${summary} (${event.durationMs}ms)`,
-            timestamp: new Date(),
-          });
+          const namePrefix = toolName ? `${toolName} ` : "";
+          const displayText = summary && summary.length > 0 ? summary : namePrefix + "done";
+
+          // Check if summary has multi-line content (e.g., diff output)
+          const hasMultiLine = displayText.includes("\n");
+
+          if (hasMultiLine) {
+            // Print the completion first, then the diff on separate lines
+            store.printOutput({
+              type: "success",
+              message: `${namePrefix}done (${event.durationMs}ms)`,
+              timestamp: new Date(),
+            });
+            store.printOutput({
+              type: "log",
+              message: displayText,
+              timestamp: new Date(),
+            });
+          } else {
+            store.printOutput({
+              type: "success",
+              message: `${displayText} (${event.durationMs}ms)`,
+              timestamp: new Date(),
+            });
+          }
 
           store.setStatus(this.activeTools.size > 0 ? this.formatToolStatus() : null);
           return;

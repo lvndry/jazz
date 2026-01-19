@@ -1,7 +1,3 @@
-import chalk from "chalk";
-import { Effect } from "effect";
-import { marked } from "marked";
-import TerminalRenderer from "marked-terminal";
 import { type LLMError } from "@/core/types/errors";
 import type { ColorProfile, DisplayConfig, OutputMode, RenderTheme } from "@/core/types/output";
 import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
@@ -10,6 +6,10 @@ import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,
 } from "@/core/utils/tool-formatter";
+import chalk from "chalk";
+import { Effect } from "effect";
+import { marked } from "marked";
+import TerminalRenderer from "marked-terminal";
 import {
   applyProgressiveFormatting,
   type FormattingResult,
@@ -313,6 +313,20 @@ export class CLIRenderer {
     // Clean up
     this.toolNameMap.delete(event.toolCallId);
 
+    // Check if summary contains multi-line content (like a diff)
+    const hasMultiLine = summary && summary.includes("\n");
+
+    if (hasMultiLine) {
+      // For multi-line output, put on separate lines
+      return (
+        ` ${colors.success(icons.success)}` +
+        ` ${colors.dim(`(${event.durationMs}ms)`)}` +
+        `${summary}` +
+        "\n"
+      );
+    }
+
+    // Single-line output
     return (
       ` ${colors.success(icons.success)}` +
       (summary ? ` ${summary}` : "") +

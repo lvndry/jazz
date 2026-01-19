@@ -1,8 +1,9 @@
+import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { Tool } from "@/core/interfaces/tool-registry";
+import { generateDiff } from "@/core/utils/diff-utils";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
-import type { Tool } from "@/core/interfaces/tool-registry";
 import {
   defineTool,
   formatApprovalRequiredDescription,
@@ -427,6 +428,9 @@ export function createExecuteEditFileTool(): Tool<
           const newContent = currentLines.join("\n");
           yield* fs.writeFileString(target, newContent);
 
+          // Generate diff for terminal output
+          const diff = generateDiff(fileContent, newContent, target);
+
           return {
             success: true,
             result: {
@@ -435,6 +439,7 @@ export function createExecuteEditFileTool(): Tool<
               totalEdits: args.edits.length,
               originalLines: lines.length,
               newLines: currentLines.length,
+              diff,
             },
           };
         } catch (error) {
