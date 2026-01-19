@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import { agentPromptBuilder } from "@/core/agent/agent-prompt";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
@@ -29,6 +28,7 @@ import {
 import type { MCPTool } from "@/core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp-utils";
 import { toPascalCase } from "@/core/utils/string";
+import { Effect } from "effect";
 
 /**
  * CLI commands for editing existing agents
@@ -127,6 +127,11 @@ export function editAgentCommand(
         ...(currentModelIsReasoning ? [{ name: "Reasoning Effort", value: "reasoningEffort" }] : []),
       ],
     });
+
+    if (!fieldToUpdate) {
+      yield* terminal.info("Edit cancelled.");
+      return;
+    }
 
     // Get logger and MCP manager for use throughout
     const logger = yield* LoggerServiceTag;
@@ -461,6 +466,11 @@ async function promptForAgentUpdates(
           : {}),
       }),
     );
+
+    if (!agentType) {
+      throw new Error("Edit cancelled");
+    }
+
     answers.agentType = agentType;
   }
 
@@ -474,6 +484,10 @@ async function promptForAgentUpdates(
         })),
       }),
     );
+
+    if (!llmProvider) {
+      throw new Error("Edit cancelled");
+    }
 
     answers.llmProvider = llmProvider;
     const providerDisplayName =
@@ -531,6 +545,11 @@ async function promptForAgentUpdates(
         })),
       }),
     );
+
+    if (!llmModel) {
+      throw new Error("Edit cancelled");
+    }
+
     answers.llmModel = llmModel;
 
     // Check if the selected model is a reasoning model
@@ -562,6 +581,11 @@ async function promptForAgentUpdates(
         })),
       }),
     );
+
+    if (!llmModel) {
+      throw new Error("Edit cancelled");
+    }
+
     answers.llmModel = llmModel;
 
     // Check if the selected model is a reasoning model
@@ -671,7 +695,7 @@ async function promptForReasoningEffort(
   terminal: TerminalService,
   currentAgent: Agent,
 ): Promise<"disable" | "low" | "medium" | "high"> {
-  return Effect.runPromise(
+  const result = await Effect.runPromise(
     terminal.select<"disable" | "low" | "medium" | "high">(
       "What reasoning effort level would you like?",
       {
@@ -688,4 +712,10 @@ async function promptForReasoningEffort(
       },
     ),
   );
+
+  if (!result) {
+    throw new Error("Edit cancelled");
+  }
+
+  return result;
 }

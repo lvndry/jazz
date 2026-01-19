@@ -1,4 +1,4 @@
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
@@ -76,6 +76,13 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
   const handleSelect = useCallback((item: { value: unknown; }): void => {
     promptRef.current.resolve(item.value);
   }, []);
+
+  // Handle Escape key for cancellation (only for select/confirm prompts)
+  useInput((_input: string, key: { escape?: boolean }) => {
+    if (key.escape && promptRef.current.reject) {
+      promptRef.current.reject();
+    }
+  });
 
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>

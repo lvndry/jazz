@@ -69,8 +69,10 @@ function initializeAgentRun(
       maxIterations: options.maxIterations ?? MAX_AGENT_STEPS,
     });
 
-    // Level 1: Find Relevant Skills (Startup)
-    const relevantSkills = yield* skillService.findRelevantSkills(userInput);
+    // Level 1: List all available skills (metadata only)
+    const relevantSkills = yield* skillService.listSkills();
+    const logger = yield* LoggerServiceTag;
+    yield* logger.debug(`[Skills] Discovered ${relevantSkills.length} skills: ${relevantSkills.map(s => s.name).join(", ")}`);
 
     // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
@@ -91,9 +93,15 @@ function initializeAgentRun(
       ),
     );
 
+    // Always include skill tools so agents can use skills
+    const SKILL_TOOLS = ["load_skill", "load_skill_section"];
+
+    // Combine agent tools with skill tools (skill tools always available)
+    const combinedToolNames = [...new Set([...agentToolNames, ...SKILL_TOOLS])];
+
     // Get and validate tools (after MCP tools are registered)
     const allToolNames = yield* toolRegistry.listTools();
-    const invalidTools = agentToolNames.filter((toolName) => !allToolNames.includes(toolName));
+    const invalidTools = combinedToolNames.filter((toolName) => !allToolNames.includes(toolName));
     if (invalidTools.length > 0) {
       return yield* Effect.fail(
         new Error(`Agent ${agent.id} references non-existent tools: ${invalidTools.join(", ")}`),
@@ -101,8 +109,8 @@ function initializeAgentRun(
     }
 
     // Expand tool names to include approval execute tools
-    const expandedToolNameSet = new Set(agentToolNames);
-    for (const toolName of agentToolNames) {
+    const expandedToolNameSet = new Set(combinedToolNames);
+    for (const toolName of combinedToolNames) {
       const tool = yield* toolRegistry.getTool(toolName);
       if (tool.approvalExecuteToolName) {
         expandedToolNameSet.add(tool.approvalExecuteToolName);

@@ -362,6 +362,11 @@ function handleSwitchCommand(
       default: currentAgent.id,
     });
 
+    // User cancelled selection (Escape key)
+    if (!selectedAgentId) {
+      return { shouldContinue: true };
+    }
+
     // If user selected the same agent, do nothing
     if (selectedAgentId === currentAgent.id) {
       yield* terminal.info("Already using this agent.");
@@ -569,7 +574,7 @@ function handleSkillsCommand(
 ): Effect.Effect<CommandResult, Error, SkillService> {
   return Effect.gen(function* () {
     const skillService = yield* SkillServiceTag;
-    const skills = yield* skillService.findRelevantSkills("");
+    const skills = yield* skillService.listSkills();
 
     if (skills.length === 0) {
       yield* terminal.warn("No skills found in ~/.jazz or local folder.");
@@ -588,6 +593,11 @@ function handleSkillsCommand(
     const selectedSkillName = yield* terminal.select<string>("Select a skill to view:", {
       choices,
     });
+
+    // User cancelled selection (Escape key)
+    if (!selectedSkillName) {
+      return { shouldContinue: true };
+    }
 
     const skillContent = yield* skillService.loadSkill(selectedSkillName);
 

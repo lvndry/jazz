@@ -4,6 +4,7 @@ import * as os from "os";
 import { CODER_PROMPT_V1 } from "./prompts/coder/v1";
 import { DEFAULT_PROMPT_V2 } from "./prompts/default/v2";
 import { GMAIL_PROMPT_V2 } from "./prompts/gmail/v2";
+import { SKILLS_INSTRUCTIONS } from "./prompts/shared";
 import { SUMMARIZER_PROMPT_V1 } from "./prompts/summarizer/v1";
 
 export interface AgentPromptTemplate {
@@ -137,7 +138,12 @@ export class AgentPromptBuilder {
               </skill>
             </available_skills>
              */
-             const skillsSection = `\n\n<available_skills>\n${skillsXml}\n</available_skills>\n\nUse the 'load_skill' tool to load the full instructions for a skill if it seems relevant. \nIMPORTANT: If a skill appears to offer similar functionality to a built-in tool or has the same name/goal, PRIORITIZE investigating and using the skill via 'load_skill' over using the built-in tool.`;
+             const skillsSection = `
+${SKILLS_INSTRUCTIONS}
+<available_skills>
+${skillsXml}
+</available_skills>
+`;
              return systemPrompt + skillsSection;
         }
 

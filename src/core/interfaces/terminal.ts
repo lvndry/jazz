@@ -105,7 +105,8 @@ export interface TerminalService {
   ) => Effect.Effect<string, never>;
 
   /**
-   * Prompt the user to select from a list of options
+   * Prompt the user to select from a list of options.
+   * Returns undefined if cancelled (e.g., Escape key).
    */
   readonly select: <T = string>(
     message: string,
@@ -113,7 +114,7 @@ export interface TerminalService {
       choices: readonly (string | { name: string; value: T; description?: string })[];
       default?: T;
     },
-  ) => Effect.Effect<T, never>;
+  ) => Effect.Effect<T | undefined, never>;
 
   /**
    * Prompt the user for confirmation (yes/no)
@@ -121,14 +122,15 @@ export interface TerminalService {
   readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>;
 
   /**
-   * Search and select from a list of options with filtering
+   * Search and select from a list of options with filtering.
+   * Returns undefined if cancelled (e.g., Escape key).
    */
   readonly search: <T = string>(
     message: string,
     options: {
       choices: readonly (string | { name: string; value: T; description?: string })[];
     },
-  ) => Effect.Effect<T, never>;
+  ) => Effect.Effect<T | undefined, never>;
 
   /**
    * Prompt the user to select multiple options (checkbox)

@@ -20,12 +20,10 @@ export interface SkillContent {
 
 export interface SkillService {
   /**
-   * Find skills relevant to a query.
+   * List all available skills.
    * Returns a list of skills with their metadata (Level 1 Progressive Disclosure).
    */
-  readonly findRelevantSkills: (
-    query: string
-  ) => Effect.Effect<readonly SkillMetadata[], Error>;
+  readonly listSkills: () => Effect.Effect<readonly SkillMetadata[], Error>;
 
   /**
    * Load full skill content (Level 2 Progressive Disclosure).
@@ -65,7 +63,7 @@ export class SkillsLive implements SkillService {
     })
   );
 
-  findRelevantSkills(_query: string): Effect.Effect<readonly SkillMetadata[], Error> {
+  listSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
     return Effect.gen(function* (this: SkillsLive) {
       // 1. Get Global Skills (Cached)
       const globalSkills = yield* this.getGlobalSkills();
@@ -82,10 +80,6 @@ export class SkillsLive implements SkillService {
         skillMap.set(skill.name, skill);
       }
 
-      // 4. Filter relevant skills
-      // For now, return all available skills.
-      // In the future, we can use LLM or vector search to filter based on 'query'.
-      // Progressive disclosure relies on the agent seeing the list and deciding.
       return Array.from(skillMap.values());
     }.bind(this));
   }
@@ -98,8 +92,8 @@ export class SkillsLive implements SkillService {
       if (cached) return cached;
 
       // Find skill path
-      const allSkills = yield* this.findRelevantSkills("");
-      const metadata = allSkills.find((s) => s.name === skillName);
+      const allSkills = yield* this.listSkills();
+      const metadata = allSkills.find((skill: SkillMetadata) => skill.name === skillName);
       if (!metadata) {
         return yield* Effect.fail(new Error(`Skill not found: ${skillName}`));
       }
