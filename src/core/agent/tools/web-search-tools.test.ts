@@ -1,21 +1,9 @@
 import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { Effect, Layer } from "effect";
-import type { AppConfig } from "../../../core/types";
-import { AgentConfigServiceTag } from "../../interfaces/agent-config";
-import { LoggerServiceTag } from "../../interfaces/logger";
+import type { AppConfig } from "@/core/types";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { createWebSearchTool } from "./web-search-tools";
-
-// Mock the linkup-sdk
-const mockLinkupClient = mock();
-const mockSearch = mock();
-
-// Mock the LinkupClient constructor and search method
-mockLinkupClient.mockImplementation(() => ({
-  search: mockSearch,
-}));
-
-// Replace the LinkupClient import
-(globalThis as unknown as { LinkupClient: unknown }).LinkupClient = mockLinkupClient;
 
 // Mock exa-js
 const mockExaSearch = mock();
@@ -31,6 +19,9 @@ describe("WebSearchTool", () => {
   const mockAppConfig: AppConfig = {
     storage: { type: "file", path: "./.jazz" },
     logging: { level: "info", format: "pretty", output: "console" },
+    web_search: {
+      priority_order: ["parallel", "exa"],
+    },
   };
 
   beforeEach(() => {
@@ -64,7 +55,8 @@ describe("WebSearchTool", () => {
     const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
     expect(schema._def.shape).toHaveProperty("query");
     expect(schema._def.shape).toHaveProperty("depth");
-    expect(schema._def.shape).toHaveProperty("includeImages");
+    expect(schema._def.shape).toHaveProperty("fromDate");
+    expect(schema._def.shape).toHaveProperty("toDate");
   });
 
   it("should validate arguments correctly", async () => {
@@ -74,8 +66,8 @@ describe("WebSearchTool", () => {
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
       getOrElse: vi.fn().mockImplementation((key) => {
-        if (key === "linkup.api_key") return Effect.succeed("");
-        if (key === "exa.api_key") return Effect.succeed("");
+        if (key === "web_search.exa.api_key") return Effect.succeed("");
+        if (key === "web_search.parallel.api_key") return Effect.succeed("");
         return Effect.succeed("default");
       }),
       getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),
@@ -90,6 +82,9 @@ describe("WebSearchTool", () => {
       warn: vi.fn().mockReturnValue(Effect.void),
       error: vi.fn().mockReturnValue(Effect.void),
       writeToFile: vi.fn().mockReturnValue(Effect.void),
+      logToolCall: vi.fn().mockReturnValue(Effect.void),
+      setSessionId: vi.fn().mockReturnValue(Effect.void),
+      clearSessionId: vi.fn().mockReturnValue(Effect.void),
     };
 
     const mockLayer = Layer.merge(
@@ -113,18 +108,18 @@ describe("WebSearchTool", () => {
     expect(invalidResult).toBeDefined();
   });
 
-  it("should fallback to Exa when Linkup is unavailable", async () => {
+  it("should fallback to Exa when Parallel is unavailable", async () => {
     const tool = createWebSearchTool();
 
-    // Mock config service: Linkup missing, Exa present
+    // Mock config service: Parallel missing, Exa present
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
       getOrElse: vi.fn().mockImplementation((key) => {
-        if (key === "linkup.api_key") return Effect.succeed("");
-        if (key === "exa.api_key") return Effect.succeed("exa-key");
+        if (key === "web_search.exa.api_key") return Effect.succeed("exa-key");
+        if (key === "web_search.parallel.api_key") return Effect.succeed("");
         return Effect.succeed("default");
       }),
-      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("Linkup API key not found"))),
+      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("Parallel API key not found"))),
       has: vi.fn().mockReturnValue(Effect.succeed(false)),
       set: vi.fn().mockReturnValue(Effect.succeed(undefined)),
       appConfig: Effect.succeed(mockAppConfig),
@@ -136,6 +131,9 @@ describe("WebSearchTool", () => {
       warn: vi.fn().mockReturnValue(Effect.void),
       error: vi.fn().mockReturnValue(Effect.void),
       writeToFile: vi.fn().mockReturnValue(Effect.void),
+      logToolCall: vi.fn().mockReturnValue(Effect.void),
+      setSessionId: vi.fn().mockReturnValue(Effect.void),
+      clearSessionId: vi.fn().mockReturnValue(Effect.void),
     };
 
     const mockLayer = Layer.merge(
@@ -190,12 +188,12 @@ describe("WebSearchTool", () => {
       result: {
         totalResults: 5,
         query: "test search",
-        provider: "linkup",
+        provider: "exa",
       },
     };
 
     const summary = tool.createSummary?.(mockResult);
-    expect(summary).toBe('Found 5 results for "test search" using linkup');
+    expect(summary).toBe('Found 5 results for "test search" using exa');
   });
 
   it("should handle web search fallback summary", () => {

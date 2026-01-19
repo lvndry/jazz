@@ -20,6 +20,11 @@ export interface ToolCall {
     name: string;
     arguments: string;
   };
+  /**
+   * Google Gemini thought_signature - encrypted representation of model's
+   * internal reasoning. Must be preserved when present to maintain context.
+   */
+  thought_signature?: string;
 }
 
 export interface ToolCallResult {
@@ -43,6 +48,5 @@ export interface ToolCategory {
 export interface ToolExecutionContext {
   readonly agentId: string;
   readonly conversationId?: string;
-  readonly userId?: string;
   readonly [key: string]: unknown;
 }

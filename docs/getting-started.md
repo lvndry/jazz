@@ -4,7 +4,7 @@ This guide is for contributors who want to develop Jazz locally.
 
 ## Prerequisites
 
-- Node.js 18 or higher
+- Node.js 20 or higher
 - Bun (recommended) or npm/pnpm/yarn
 
 ## Setup

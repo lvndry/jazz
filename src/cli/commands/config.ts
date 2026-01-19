@@ -1,9 +1,12 @@
 import { Effect } from "effect";
-import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
-import { ConfigurationValidationError } from "../../core/types/errors";
-
-import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
-import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
+import React from "react";
+import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
+import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import type { LoggingConfig } from "@/core/types/config";
+import { ConfigurationValidationError } from "@/core/types/errors";
+import { ConfigCard } from "../ui/ConfigCard";
 
 /**
  * CLI commands for configuration management
@@ -21,8 +24,23 @@ export function listConfigCommand(): Effect.Effect<
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
     const config = yield* configService.appConfig;
-    yield* terminal.heading("Current Configuration");
-    yield* terminal.log(JSON.stringify(config, null, 2));
+
+    const json = JSON.stringify(config, null, 2);
+
+    if (process.stdout.isTTY) {
+      yield* terminal.log(
+        ink(
+          React.createElement(ConfigCard, {
+            title: "Current configuration",
+            note: "Showing full values (including secrets).",
+            json,
+          }),
+        ),
+      );
+      return;
+    }
+
+    yield* terminal.log(`Current configuration\n\n${json}`);
   });
 }
 
@@ -69,7 +87,12 @@ export function setConfigCommand(
 
     if (value === undefined) {
       if (key === "llm") {
-        const provider = yield* terminal.select("Select LLM provider:", AVAILABLE_PROVIDERS);
+        const provider = yield* terminal.select<ProviderName>("Select LLM provider:", {
+          choices: AVAILABLE_PROVIDERS.map((provider) => ({
+            name: provider,
+            value: provider,
+          })),
+        });
 
         yield* terminal.info(`Configuring ${provider}...`);
 
@@ -89,27 +112,25 @@ export function setConfigCommand(
         return;
       }
 
-      if (key === "linkup") {
-        const apiKey = yield* terminal.password("Enter Linkup API Key:");
-        yield* configService.set("linkup.api_key", apiKey);
-        yield* terminal.success("Linkup configuration updated.");
-        return;
-      }
+      if (key === "web_search") {
+        const provider = yield* terminal.select<string>("Select web search provider:", {
+          choices: WEB_SEARCH_PROVIDERS,
+        });
 
-      if (key === "exa") {
-        const apiKey = yield* terminal.password("Enter Exa API Key:");
-        yield* configService.set("exa.api_key", apiKey);
-        yield* terminal.success("Exa configuration updated.");
+        yield* terminal.info(`Configuring ${provider}...`);
+
+        const apiKey = yield* terminal.password("Enter API Key:");
+        yield* configService.set(`web_search.${provider}.api_key`, apiKey);
+
+        yield* terminal.success(`Configuration for ${provider} updated.`);
         return;
       }
 
       if (key === "logging") {
-        const level = yield* terminal.select("Select logging level:", [
-          "debug",
-          "info",
-          "warn",
-          "error",
-        ]);
+        const level = yield* terminal.select<LoggingConfig["level"]>("Select logging level:", {
+          choices: ["debug", "info", "warn", "error"],
+        });
+
         yield* configService.set("logging.level", level);
         yield* terminal.success("Logging configuration updated.");
         return;

@@ -1,17 +1,17 @@
 import { Effect, Layer } from "effect";
 import shortuuid from "short-uuid";
-import { normalizeToolConfig } from "../core/agent/utils/tool-config";
-import { AgentServiceTag, type AgentService } from "../core/interfaces/agent-service";
-import { StorageServiceTag, type StorageService } from "../core/interfaces/storage";
+import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
+import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
+import { StorageServiceTag, type StorageService } from "@/core/interfaces/storage";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
   StorageError,
   StorageNotFoundError,
   ValidationError,
-} from "../core/types/errors";
-import { type Agent, type AgentConfig } from "../core/types/index";
-import { CommonSuggestions } from "../core/utils/error-handler";
+} from "@/core/types/errors";
+import { type Agent, type AgentConfig } from "@/core/types/index";
+import { CommonSuggestions } from "@/core/utils/error-handler";
 
 export class AgentServiceImpl implements AgentService {
   constructor(private readonly storage: StorageService) {}
@@ -26,7 +26,6 @@ export class AgentServiceImpl implements AgentService {
   > {
     return Effect.gen(
       function* (this: AgentServiceImpl) {
-        // Validate input parameters
         yield* validateAgentName(name);
         if (description !== undefined) {
           yield* validateAgentDescription(description);
@@ -36,7 +35,6 @@ export class AgentServiceImpl implements AgentService {
 
         // Create default agent configuration
         const defaultConfig: AgentConfig = {
-          environment: {},
           agentType: "default",
           llmProvider: "openai",
           llmModel: "gpt-4o",
@@ -47,7 +45,6 @@ export class AgentServiceImpl implements AgentService {
         const baseConfig: AgentConfig = {
           ...defaultConfig,
           ...config,
-          environment: { ...defaultConfig.environment, ...(config.environment ?? {}) },
         };
 
         const agentConfig: AgentConfig =

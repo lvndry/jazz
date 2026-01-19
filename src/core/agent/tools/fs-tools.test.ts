@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import {
   createCdTool,
   createFindPathTool,
@@ -11,9 +11,8 @@ import {
   createReadFileTool,
   createStatTool,
   createTailTool,
-} from "./fs-tools";
+} from "./fs";
 
-// Consolidated and categorized FS tests to make intent clear and prevent regressions
 // Tests create a unique temp base directory and clean up after running
 
 const BASE = `/tmp/jazz-tests-${Date.now()}`;

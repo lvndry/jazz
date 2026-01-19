@@ -200,6 +200,18 @@ export class GmailTaskError extends Data.TaggedError("GmailTaskError")<{
   readonly suggestion?: string;
 }> {}
 
+export class CalendarAuthenticationError extends Data.TaggedError("CalendarAuthenticationError")<{
+  readonly message: string;
+  readonly suggestion?: string;
+}> {}
+
+export class CalendarOperationError extends Data.TaggedError("CalendarOperationError")<{
+  readonly operation?: string;
+  readonly message: string;
+  readonly status?: number;
+  readonly suggestion?: string;
+}> {}
+
 // Update Errors
 export class UpdateCheckError extends Data.TaggedError("UpdateCheckError")<{
   readonly message: string;
@@ -237,11 +249,68 @@ export class LLMConfigurationError extends Data.TaggedError("LLMConfigurationErr
   readonly suggestion?: string;
 }> {}
 
+// MCP (Model Context Protocol) Errors
+export class MCPConnectionError extends Data.TaggedError("MCPConnectionError")<{
+  readonly serverName: string;
+  readonly reason: string;
+  readonly cause?: unknown;
+  readonly suggestion?: string;
+}> {}
+
+export class MCPDisconnectionError extends Data.TaggedError("MCPDisconnectionError")<{
+  readonly serverName: string;
+  readonly reason: string;
+  readonly suggestion?: string;
+}> {}
+
+export class MCPToolNotFoundError extends Data.TaggedError("MCPToolNotFoundError")<{
+  readonly serverName: string;
+  readonly toolName: string;
+  readonly suggestion?: string;
+}> {}
+
+export class MCPToolExecutionError extends Data.TaggedError("MCPToolExecutionError")<{
+  readonly serverName: string;
+  readonly toolName: string;
+  readonly reason: string;
+  readonly cause?: unknown;
+  readonly suggestion?: string;
+}> {}
+
+export class MCPToolDiscoveryError extends Data.TaggedError("MCPToolDiscoveryError")<{
+  readonly serverName: string;
+  readonly reason: string;
+  readonly cause?: unknown;
+  readonly suggestion?: string;
+}> {}
+
+export class MCPSchemaConversionError extends Data.TaggedError("MCPSchemaConversionError")<{
+  readonly toolName: string;
+  readonly reason: string;
+  readonly schema?: unknown;
+  readonly suggestion?: string;
+}> {}
+
+export class MCPServerNameParseError extends Data.TaggedError("MCPServerNameParseError")<{
+  readonly toolName: string;
+  readonly reason: string;
+  readonly suggestion?: string;
+}> {}
+
 export type LLMError =
   | LLMAuthenticationError
   | LLMRequestError
   | LLMRateLimitError
   | LLMConfigurationError;
+
+export type MCPError =
+  | MCPConnectionError
+  | MCPDisconnectionError
+  | MCPToolNotFoundError
+  | MCPToolExecutionError
+  | MCPToolDiscoveryError
+  | MCPSchemaConversionError
+  | MCPServerNameParseError;
 
 export type JazzError =
   | AgentNotFoundError
@@ -276,5 +345,14 @@ export type JazzError =
   | GmailAuthenticationError
   | GmailOperationError
   | GmailTaskError
+  | CalendarAuthenticationError
+  | CalendarOperationError
   | UpdateCheckError
-  | UpdateInstallError;
+  | UpdateInstallError
+  | MCPConnectionError
+  | MCPDisconnectionError
+  | MCPToolNotFoundError
+  | MCPToolExecutionError
+  | MCPToolDiscoveryError
+  | MCPSchemaConversionError
+  | MCPServerNameParseError;

@@ -1,7 +1,8 @@
+import { gateway } from "ai";
 import { Effect } from "effect";
-import type { ProviderName } from "../../core/constants/models";
-import type { ModelInfo } from "../../core/types";
-import { LLMConfigurationError } from "../../core/types/errors";
+import type { ProviderName } from "@/core/constants/models";
+import type { ModelInfo } from "@/core/types";
+import { LLMConfigurationError } from "@/core/types/errors";
 
 export interface ModelFetcherService {
   fetchModels(
@@ -12,16 +13,62 @@ export interface ModelFetcherService {
   ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never>;
 }
 
+type OpenRouterModel = {
+  id: string;
+  name: string;
+  context_length?: number;
+  supported_parameters?: string[];
+};
+
+type OllamaModel = {
+  name: string;
+  model?: string;
+  details?: {
+    family?: string;
+    parameter_size?: string;
+    metadata?: Record<string, unknown>;
+  };
+};
+
+const TOOL_PARAMS = new Set([
+  "tools",
+  "tool_choice",
+  "function_call",
+  "functions",
+  "response_format:json_schema",
+]);
+
+const KNOWN_OLLAMA_TOOL_MODELS = new Set<string>([
+  "llama3.1",
+  "llama3.1:8b-instruct",
+  "llama3.1:70b-instruct",
+  "qwen2.5:14b-instruct",
+  "qwen2.5:72b-instruct",
+  "phi3.5",
+]);
+
+function looksToolCapable(model: OllamaModel): boolean {
+  const name = model.name.toLowerCase();
+  if (KNOWN_OLLAMA_TOOL_MODELS.has(model.name)) return true;
+  if (name.includes("tool") || name.includes("function")) return true;
+
+  const metadata = model.details?.metadata;
+  if (metadata && typeof metadata === "object") {
+    const flag = (metadata["supports_tools"] ??
+      metadata["tool_use"] ??
+      metadata["function_calling"]) as unknown;
+    if (typeof flag === "boolean") return flag;
+  }
+
+  return false;
+}
+
 // Provider-specific response transformers
 const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => ModelInfo[]>> = {
   ollama: (data: unknown) => {
     // Transform Ollama API response
-    // Example: { models: [{ name: "llama3:latest", model: "llama3:latest", ... }] }
     const response = data as {
-      models?: Array<{
-        name: string;
-        model?: string;
-      }>;
+      models?: OllamaModel[];
     };
 
     const ollamaReasoningModels: string[] = [
@@ -32,77 +79,63 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       "magistral",
     ];
 
-    // Known Ollama models with tool/function calling support
-    // This list includes model families that support tools
-    const ollamaToolSupportPatterns: string[] = [
-      "llama3.1", // Llama 3.1+ supports tools
-      "llama3.2",
-      "llama3.3",
-      "llama-3.1",
-      "llama-3.2",
-      "llama-3.3",
-      "mistral", // Mistral models support tools
-      "mixtral",
-      "qwen2.5", // Qwen 2.5+ supports tools
-      "qwen3",
-      "qwq",
-      "command-r", // Cohere Command R supports tools
-      "deepseek", // DeepSeek models support tools
-      "hermes", // Hermes models (function calling variants)
-      "functionary", // Functionary models are designed for function calling
-      "gorilla", // Gorilla models for function calling
-      "granite3", // IBM Granite 3+ supports tools
-      "granite-3",
-    ];
-
-    return (response.models ?? []).map((model) => {
-      const modelNameLower = model.name.toLowerCase();
-
-      // Check if model supports tools based on name patterns
-      const supportsTools = ollamaToolSupportPatterns.some((pattern) =>
-        modelNameLower.includes(pattern.toLowerCase()),
-      );
-
-      return {
-        id: model.name,
-        displayName: model.name,
-        isReasoningModel: ollamaReasoningModels.some((reasoningModel) =>
-          model.name.includes(reasoningModel),
-        ),
-        supportsTools,
-      };
-    });
+    return (response.models ?? []).map((model) => ({
+      id: model.name,
+      displayName: model.name,
+      isReasoningModel: ollamaReasoningModels.some((reasoningModel) =>
+        model.name.includes(reasoningModel),
+      ),
+      supportsTools: looksToolCapable(model),
+    }));
   },
   openrouter: (data: unknown) => {
     // Transform OpenRouter API response
-    // Example: { data: [{ id: "openai/gpt-4o", name: "GPT-4o", ... }] }
     const response = data as {
-      data?: Array<{
-        id: string;
-        name?: string;
-        supported_parameters: string[];
-      }>;
+      data?: OpenRouterModel[];
     };
 
     return (response.data ?? []).map((model) => {
+      const supportedParameters = model.supported_parameters ?? [];
       const isReasoningModel =
-        model.supported_parameters.includes("reasoning") ||
-        model.supported_parameters.includes("include_reasoning");
-
-      // Check if model supports tools by looking for tool-related parameters
-      const supportsTools =
-        model.supported_parameters.includes("tools") ||
-        model.supported_parameters.includes("tool_choice") ||
-        model.supported_parameters.includes("function_calling") ||
-        model.supported_parameters.includes("functions");
+        supportedParameters.includes("reasoning") ||
+        supportedParameters.includes("include_reasoning");
+      const supportsTools = supportedParameters.some((param) => TOOL_PARAMS.has(param));
 
       return {
         id: model.id,
-        displayName: model.name ?? model.id,
+        displayName: model.name,
         isReasoningModel,
         supportsTools,
       };
     });
+  },
+  ai_gateway: (data: unknown) => {
+    const response = data as {
+      id: string;
+      name: string;
+    }[];
+
+    return response.map((model) => ({
+      id: model.id,
+      displayName: model.name,
+      isReasoningModel: false,
+      supportsTools: false,
+    }));
+  },
+  groq: (data: unknown) => {
+    const response = data as {
+      data: {
+        id: string;
+        owned_by: string;
+      }[];
+    };
+
+    return response.data.map((model) => ({
+      id: model.id,
+      displayName: `${model.owned_by.toLowerCase()}/${model.id.toLowerCase()}`,
+      isReasoningModel: false,
+      supportsTools: false,
+    }));
   },
 };
 
@@ -118,6 +151,11 @@ export function createModelFetcher(): ModelFetcherService {
 
           if (apiKey) {
             headers["Authorization"] = `Bearer ${apiKey}`;
+          }
+
+          if (providerName === "ai_gateway") {
+            const availableModels = await gateway.getAvailableModels();
+            return PROVIDER_TRANSFORMERS["ai_gateway"]!(availableModels.models);
           }
 
           const response = await fetch(url, {

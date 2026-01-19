@@ -1,142 +1,92 @@
-import { Cause, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
+import { Effect } from "effect";
 
-import { MAX_AGENT_STEPS } from "../constants/agent";
-import type { ProviderName } from "../constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "../interfaces/agent-config";
-import { LLMServiceTag, type LLMService } from "../interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
-import type { PresentationService, StreamingRenderer } from "../interfaces/presentation";
-import { PresentationServiceTag } from "../interfaces/presentation";
+import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+import type { ProviderName } from "@/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import type { LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { type MCPServerManager } from "@/core/interfaces/mcp-server";
+import type { PresentationService } from "@/core/interfaces/presentation";
+import type { TerminalService } from "@/core/interfaces/terminal";
 import {
   ToolRegistryTag,
   type ToolRegistry,
   type ToolRequirements,
-} from "../interfaces/tool-registry";
+} from "@/core/interfaces/tool-registry";
+import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
-import { type ChatCompletionResponse } from "../types/chat";
-import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "../types/errors";
-import { type ChatMessage } from "../types/message";
-import type { DisplayConfig, StreamingConfig } from "../types/output";
-import type { StreamEvent } from "../types/streaming";
-import {
-  type ToolCall,
-  type ToolDefinition,
-  type ToolExecutionContext,
-  type ToolExecutionResult,
-} from "../types/tools";
-import { shouldEnableStreaming } from "../utils/stream-detector";
-import { formatToolArguments } from "../utils/tool-formatter";
+import { LLMRateLimitError } from "@/core/types/errors";
+import type { ChatMessage } from "@/core/types/message";
+import type { DisplayConfig } from "@/core/types/output";
+import type { ToolExecutionContext } from "@/core/types/tools";
+import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import { agentPromptBuilder } from "./agent-prompt";
-import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
+import { Summarizer } from "./context/summarizer";
+import { executeWithStreaming, executeWithoutStreaming } from "./execution";
+import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
+import { registerMCPToolsForAgent } from "./tools/register-tools";
 import {
-  beginIteration,
-  completeIteration,
-  createAgentRunTracker,
-  finalizeAgentRun,
-  recordFirstTokenLatency,
-  recordLLMRetry,
-  recordLLMUsage,
-  recordToolError,
-  recordToolInvocation,
-} from "./tracking/agent-run-tracker";
+  DEFAULT_DISPLAY_CONFIG,
+  type AgentResponse,
+  type AgentRunContext,
+  type AgentRunnerOptions,
+} from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
 
-const MAX_RETRIES = 3;
-const STREAM_CREATION_TIMEOUT = Duration.minutes(2);
-const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
-
 /**
- * Agent runner for executing agent conversations
- */
-
-export interface AgentRunnerOptions {
-  readonly agent: Agent;
-  readonly userInput: string;
-  readonly conversationId?: string;
-  readonly userId?: string;
-  readonly maxIterations?: number;
-  /**
-   * Full conversation history to date, including prior assistant, user, and tool messages.
-   * Use this to preserve context across turns (e.g., approval flows).
-   */
-  readonly conversationHistory?: ChatMessage[];
-  /**
-   * Override streaming behavior (from --stream or --no-stream CLI flags).
-   * - `true`: Force streaming on
-   * - `false`: Force streaming off
-   * - `undefined`: Use auto-detection (default)
-   */
-  readonly stream?: boolean;
-}
-
-export interface AgentResponse {
-  readonly content: string;
-  readonly conversationId: string;
-  readonly toolCalls?: ToolCall[];
-  readonly toolResults?: Record<string, unknown>;
-  /**
-   * The full message list used for this turn, including system, user, assistant, and tool messages.
-   * Pass this back on the next turn to retain context across approvals and multi-step tasks.
-   */
-  readonly messages?: ChatMessage[] | undefined;
-}
-
-/**
- * Default display configuration (applies to both modes)
- */
-const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
-  showThinking: true,
-  showToolExecution: true,
-  mode: "markdown",
-};
-
-/**
- * Common initialization data for agent runs
- */
-interface AgentRunContext {
-  readonly agent: Agent;
-  readonly actualConversationId: string;
-  readonly context: ToolExecutionContext;
-  readonly tools: ToolDefinition[];
-  readonly expandedToolNames: readonly string[];
-  readonly messages: ChatMessage[];
-  readonly runTracker: ReturnType<typeof createAgentRunTracker>;
-  readonly provider: ProviderName;
-  readonly model: string;
-}
-
-/**
- * Initialize common agent run context (tools, messages, tracker)
+ * Initialize common agent run context (tools, messages, metrics)
  */
 function initializeAgentRun(
   options: AgentRunnerOptions,
-): Effect.Effect<AgentRunContext, Error, ToolRegistry | LoggerService | AgentConfigService> {
+): Effect.Effect<
+  AgentRunContext,
+  Error,
+  | ToolRegistry
+  | LoggerService
+  | AgentConfigService
+  | MCPServerManager
+  | TerminalService
+> {
   return Effect.gen(function* () {
-    const { agent, userInput, conversationId, userId } = options;
+    const { agent, userInput, conversationId } = options;
     const toolRegistry = yield* ToolRegistryTag;
 
-    const actualConversationId = conversationId || `conv-${Date.now()}`;
+    const actualConversationId = conversationId || `${Date.now()}`;
     const history: ChatMessage[] = options.conversationHistory || [];
     const agentType = agent.config.agentType;
     const provider: ProviderName = agent.config.llmProvider;
     const model = agent.config.llmModel;
 
-    const runTracker = createAgentRunTracker({
+    const runMetrics = createAgentRunMetrics({
       agent,
       conversationId: actualConversationId,
-      ...(userId ? { userId } : {}),
       provider,
       model,
       reasoningEffort: agent.config.reasoningEffort ?? "disable",
       maxIterations: options.maxIterations ?? MAX_AGENT_STEPS,
     });
 
-    // Get and validate tools
-    const allToolNames = yield* toolRegistry.listTools();
+    // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
       agentId: agent.id,
     });
 
+    // Register MCP tools for this agent if needed (only connects to relevant servers)
+    // This happens before validation so MCP tools are available
+    const connectedMCPServers = yield* registerMCPToolsForAgent(agentToolNames).pipe(
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          const logger = yield* LoggerServiceTag;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          yield* logger.warn(`Failed to register MCP tools for agent: ${errorMessage}`);
+          // Continue even if MCP registration fails - tools might not be needed
+          return [];
+        }),
+      ),
+    );
+
+    // Get and validate tools (after MCP tools are registered)
+    const allToolNames = yield* toolRegistry.listTools();
     const invalidTools = agentToolNames.filter((toolName) => !allToolNames.includes(toolName));
     if (invalidTools.length > 0) {
       return yield* Effect.fail(
@@ -166,7 +116,7 @@ function initializeAgentRun(
     }
 
     // Build messages
-    const messages = yield* agentPromptBuilder.buildAgentMessages(agentType, {
+    const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(agentType, {
       agentName: agent.name,
       agentDescription: agent.description || "",
       userInput,
@@ -175,307 +125,58 @@ function initializeAgentRun(
       availableTools,
     });
 
-    const context: ToolExecutionContext = {
+    const toolContext: ToolExecutionContext = {
       agentId: agent.id,
       conversationId: actualConversationId,
-      ...(userId ? { userId } : {}),
     };
 
     return {
       agent,
       actualConversationId,
-      context,
+      context: toolContext,
       tools,
       expandedToolNames,
       messages,
-      runTracker,
+      runMetrics,
       provider,
       model,
+      connectedMCPServers,
     };
   });
 }
 
 /**
- * Execute a tool by name with the provided arguments
+ * Agent runner for executing agent conversations.
  *
- * Finds the specified tool in the registry and executes it with the given arguments
- * and context. Provides comprehensive logging of the execution process including
- * start, success, and error states.
- *
- * @param name - The name of the tool to execute
- * @param args - The arguments to pass to the tool
- * @param context - The execution context containing agent and conversation information
- * @returns An Effect that resolves to the tool execution result
- *
- * @throws {Error} When the tool is not found or execution fails
- *
- * @example
- * ```typescript
- * const result = yield* executeTool(
- *   "gmail_list_emails",
- *   { query: "is:unread" },
- *   { agentId: "agent-123", conversationId: "conv-456" }
- * );
- * ```
+ * This class serves as the orchestrator for agent execution, delegating to
+ * specialized executors for streaming vs batch mode, and managing context
+ * initialization and cleanup.
  */
-function executeTool(
-  name: string,
-  args: Record<string, unknown>,
-  context: ToolExecutionContext,
-): Effect.Effect<
-  ToolExecutionResult,
-  Error,
-  ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
-> {
-  return Effect.gen(function* () {
-    const registry = yield* ToolRegistryTag;
-    return yield* registry.executeTool(name, args, context);
-  });
-}
-
-/**
- * Execute a single tool call and return result
- */
-function executeToolCall(
-  toolCall: ToolCall,
-  context: ToolExecutionContext,
-  displayConfig: DisplayConfig,
-  renderer: StreamingRenderer | null,
-  presentationService: PresentationService,
-  runTracker: ReturnType<typeof createAgentRunTracker>,
-  logger: LoggerService,
-  agentId: string,
-  conversationId: string,
-): Effect.Effect<
-  { result: unknown; success: boolean },
-  Error,
-  ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
-> {
-  return Effect.gen(function* () {
-    if (toolCall.type !== "function") {
-      return { result: null, success: false };
-    }
-
-    const { name, arguments: argsString } = toolCall.function;
-    recordToolInvocation(runTracker, name);
-    const toolStartTime = Date.now();
-
-    try {
-      // Parse arguments
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(argsString);
-      } catch (parseError) {
-        throw new Error(
-          `Invalid JSON in tool arguments: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
-        );
-      }
-
-      const args: Record<string, unknown> =
-        parsed && typeof parsed === "object" && !Array.isArray(parsed)
-          ? (parsed as Record<string, unknown>)
-          : {};
-
-      // Emit tool execution start
-      if (displayConfig.showToolExecution) {
-        if (renderer) {
-          yield* renderer.handleEvent({
-            type: "tool_execution_start",
-            toolName: name,
-            toolCallId: toolCall.id,
-            arguments: args,
-          });
-        } else {
-          const message = yield* presentationService.formatToolExecutionStart(name, args);
-          yield* presentationService.writeOutput(message);
-        }
-      }
-
-      // Execute tool
-      const result = yield* executeTool(name, args, context);
-      const toolDuration = Date.now() - toolStartTime;
-      const resultString = JSON.stringify(result.result);
-
-      // Emit tool execution complete
-      if (displayConfig.showToolExecution) {
-        if (renderer) {
-          yield* renderer.handleEvent({
-            type: "tool_execution_complete",
-            toolCallId: toolCall.id,
-            result: resultString,
-            durationMs: toolDuration,
-          });
-        } else {
-          if (result.success) {
-            const summary = presentationService.formatToolResult(name, resultString);
-            const message = yield* presentationService.formatToolExecutionComplete(
-              summary,
-              toolDuration,
-            );
-            yield* presentationService.writeOutput(message);
-          } else {
-            const errorMsg = result.error || "Tool execution failed";
-            const message = yield* presentationService.formatToolExecutionError(
-              errorMsg,
-              toolDuration,
-            );
-            yield* presentationService.writeOutput(message);
-          }
-        }
-      }
-
-      return { result: result.result, success: result.success };
-    } catch (error) {
-      // Fail fast on missing tools
-      if (error instanceof Error && error.message.startsWith("Tool not found")) {
-        throw error;
-      }
-
-      const toolDuration = Date.now() - toolStartTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
-
-      // Emit error
-      if (displayConfig.showToolExecution) {
-        if (renderer) {
-          yield* renderer.handleEvent({
-            type: "tool_execution_complete",
-            toolCallId: toolCall.id,
-            result: `Error: ${errorMessage}`,
-            durationMs: toolDuration,
-          });
-        } else {
-          const message = yield* presentationService.formatToolExecutionError(
-            errorMessage,
-            toolDuration,
-          );
-          yield* presentationService.writeOutput(message);
-        }
-      }
-
-      recordToolError(runTracker, name, error);
-      yield* logger.error("Tool execution failed", {
-        agentId,
-        conversationId,
-        toolName: name,
-        toolCallId: toolCall.id,
-        error: errorMessage,
-      });
-
-      return { result: { error: errorMessage }, success: false };
-    }
-  });
-}
-
-/**
- * Execute all tool calls and return results
- */
-function executeToolCalls(
-  toolCalls: readonly ToolCall[],
-  context: ToolExecutionContext,
-  displayConfig: DisplayConfig,
-  renderer: StreamingRenderer | null,
-  presentationService: PresentationService,
-  runTracker: ReturnType<typeof createAgentRunTracker>,
-  logger: LoggerService,
-  agentId: string,
-  conversationId: string,
-  agentName: string,
-): Effect.Effect<
-  Record<string, unknown>,
-  Error,
-  ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
-> {
-  return Effect.gen(function* () {
-    const toolResults: Record<string, unknown> = {};
-    const toolNames = toolCalls.map((tc) => tc.function.name);
-
-    // Show tools detected
-    if (displayConfig.showToolExecution) {
-      if (renderer) {
-        yield* renderer.handleEvent({
-          type: "tools_detected",
-          toolNames,
-          agentName,
-        });
-      } else {
-        const message = yield* presentationService.formatToolsDetected(agentName, toolNames);
-        yield* presentationService.writeOutput(message);
-      }
-    }
-
-    // Log tool details
-    const toolDetails: string[] = [];
-    for (const toolCall of toolCalls) {
-      if (toolCall.type === "function") {
-        const { name, arguments: argsString } = toolCall.function;
-        try {
-          const parsed: unknown = JSON.parse(argsString);
-          const args: Record<string, unknown> =
-            parsed && typeof parsed === "object" && !Array.isArray(parsed)
-              ? (parsed as Record<string, unknown>)
-              : {};
-          const argsText = formatToolArguments(name, args, { style: "plain" });
-          toolDetails.push(argsText ? `${name} ${argsText}` : name);
-        } catch {
-          toolDetails.push(name);
-        }
-      }
-    }
-    const toolsList = toolDetails.join(", ");
-    yield* logger.info(`${agentName} is using tools: ${toolsList}`);
-
-    // Execute each tool
-    for (const toolCall of toolCalls) {
-      const { result } = yield* executeToolCall(
-        toolCall,
-        context,
-        displayConfig,
-        renderer,
-        presentationService,
-        runTracker,
-        logger,
-        agentId,
-        conversationId,
-      );
-      toolResults[toolCall.function.name] = result;
-    }
-
-    return toolResults;
-  });
-}
-
-/**
- * Ensure messages array is never empty
- */
-function ensureMessagesNotEmpty(
-  messages: ChatMessage[],
-  userInput: string,
-  logger: LoggerService,
-  agentId: string,
-  conversationId: string,
-  iteration: number,
-): Effect.Effect<ChatMessage[], never, LoggerService | AgentConfigService> {
-  if (messages.length === 0) {
-    return Effect.gen(function* () {
-      yield* logger.warn("messagesToSend was empty; using fallback single user message", {
-        agentId,
-        conversationId,
-        iteration,
-      });
-      return [
-        {
-          role: "user",
-          content: userInput && userInput.trim().length > 0 ? userInput : "Continue",
-        },
-      ];
-    });
-  }
-  return Effect.succeed(messages);
-}
-
 export class AgentRunner {
   /**
-   * Run an agent conversation
+   * Internal execution mode for sub-agents (e.g., summarizers, researchers).
+   * Does not trigger UI events like thinking indicators or incremental rendering.
+   */
+  public static runRecursive(
+    options: Omit<AgentRunnerOptions, "internal">,
+  ): Effect.Effect<
+    AgentResponse,
+    Error,
+    | LLMService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | PresentationService
+    | ToolRequirements
+  > {
+    return AgentRunner.run({ ...options, internal: true });
+  }
+
+  /**
+   * Run an agent conversation.
+   *
+   * This is the main entry point for executing agent conversations.
+   * It automatically selects streaming or batch mode based on configuration.
    */
   static run(
     options: AgentRunnerOptions,
@@ -494,13 +195,19 @@ export class AgentRunner {
       const configService = yield* AgentConfigServiceTag;
       const appConfig = yield* configService.appConfig;
 
-      // Determine if streaming should be enabled
-      const streamDetection = shouldEnableStreaming(
-        appConfig,
-        options.stream !== undefined ? { stream: options.stream } : {},
-      );
+      // Initialize run context
+      const runContext = yield* initializeAgentRun(options);
 
-      // Get display config with defaults (applies to both modes)
+      // Determine if streaming should be enabled
+      // Force non-streaming for internal runs
+      const streamDetection = options.internal
+        ? { shouldStream: false, reason: "Internal sub-agent run" }
+        : shouldEnableStreaming(
+            appConfig,
+            options.stream !== undefined ? { stream: options.stream } : {},
+          );
+
+      // Get display config with defaults
       const displayConfig: DisplayConfig = {
         showThinking: appConfig.output?.showThinking ?? DEFAULT_DISPLAY_CONFIG.showThinking,
         showToolExecution:
@@ -510,7 +217,7 @@ export class AgentRunner {
       };
 
       // Check if we should show metrics
-      const showMetrics = appConfig.logging?.showMetrics ?? true;
+      const showMetrics = appConfig.output?.showMetrics ?? true;
 
       // Get streaming config with defaults (streaming-specific)
       const streamingConfig: StreamingConfig = {
@@ -522,30 +229,49 @@ export class AgentRunner {
           : {}),
       };
 
+      const runRecursive = (runOpts: {
+        agent: Agent;
+        userInput: string;
+        sessionId: string;
+        conversationId: string;
+        maxIterations: number;
+      }) => AgentRunner.runRecursive(runOpts);
+
       if (streamDetection.shouldStream) {
-        return yield* AgentRunner.runWithStreaming(
+        return yield* executeWithStreaming(
           options,
+          runContext,
           displayConfig,
           streamingConfig,
           showMetrics,
+          runRecursive,
         );
       } else {
-        return yield* AgentRunner.runWithoutStreaming(options, displayConfig, showMetrics);
+        return yield* executeWithoutStreaming(
+          options,
+          runContext,
+          displayConfig,
+          showMetrics,
+          runRecursive,
+        );
       }
     });
   }
 
   /**
-   * Streaming implementation that processes LLM responses in real-time.
+   * Summarizes a portion of the conversation history using a specialized sub-agent.
+   * Returns a single assistant message containing the summary.
+   *
+   * This is a public convenience method that delegates to the Summarizer module.
    */
-  private static runWithStreaming(
-    options: AgentRunnerOptions,
-    displayConfig: DisplayConfig,
-    streamingConfig: StreamingConfig,
-    showMetrics: boolean,
+  public static summarizeHistory(
+    messagesToSummarize: ChatMessage[],
+    agent: Agent,
+    sessionId: string,
+    conversationId: string,
   ): Effect.Effect<
-    AgentResponse,
-    LLMRateLimitError | Error,
+    ChatMessage,
+    Error,
     | LLMService
     | ToolRegistry
     | LoggerService
@@ -553,551 +279,23 @@ export class AgentRunner {
     | PresentationService
     | ToolRequirements
   > {
-    return Effect.gen(function* () {
-      const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
-      const llmService = yield* LLMServiceTag;
-      const logger = yield* LoggerServiceTag;
-      const presentationService = yield* PresentationServiceTag;
+    const runRecursive = (runOpts: {
+      agent: Agent;
+      userInput: string;
+      sessionId: string;
+      conversationId: string;
+      maxIterations: number;
+    }) => AgentRunner.runRecursive(runOpts);
 
-      // Initialize common context
-      const runContext = yield* initializeAgentRun(options);
-      const { actualConversationId, context, tools, messages, runTracker, provider, model } =
-        runContext;
-
-      // Create renderer
-      const normalizedStreamingConfig: StreamingConfig = {
-        enabled: true, // Always enabled in streaming mode
-        ...(streamingConfig.textBufferMs !== undefined && {
-          textBufferMs: streamingConfig.textBufferMs,
-        }),
-      };
-
-      const renderer = yield* presentationService.createStreamingRenderer({
-        displayConfig,
-        streamingConfig: normalizedStreamingConfig,
-        showMetrics,
-        agentName: agent.name,
-        reasoningEffort: agent.config.reasoningEffort,
-      });
-
-      // Run agent loop
-      const currentMessages = [...messages];
-      let response: AgentResponse = {
-        content: "",
-        conversationId: actualConversationId,
-      };
-      let finished = false;
-      let iterationsUsed = 0;
-
-      for (let i = 0; i < maxIterations; i++) {
-        yield* Effect.sync(() => beginIteration(runTracker, i + 1));
-        try {
-          // Log thinking indicator
-          if (i === 0) {
-            const thinkingMsg = yield* presentationService.formatThinking(agent.name, true);
-            yield* logger.info(thinkingMsg);
-          } else {
-            const thinkingMsg = yield* presentationService.formatThinking(agent.name, false);
-            yield* logger.info(thinkingMsg);
-          }
-
-          // Ensure messages are not empty
-          const messagesToSend = yield* ensureMessagesNotEmpty(
-            currentMessages,
-            userInput,
-            logger,
-            agent.id,
-            actualConversationId,
-            i + 1,
-          );
-
-          // Create streaming completion with retry and fallback
-          const llmOptions = {
-            model,
-            messages: messagesToSend,
-            tools,
-            toolChoice: "auto" as const,
-            reasoning_effort: agent.config.reasoningEffort ?? "disable",
-          };
-
-          const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
-          const pendingToolCalls: ToolCall[] = [];
-
-          const streamingResult = yield* Effect.retry(
-            Effect.gen(function* () {
-              try {
-                return yield* llmService.createStreamingChatCompletion(provider, llmOptions);
-              } catch (error) {
-                recordLLMRetry(runTracker, error);
-                // Log LLM error details
-                if (
-                  error instanceof LLMRequestError ||
-                  error instanceof LLMRateLimitError ||
-                  error instanceof LLMAuthenticationError
-                ) {
-                  yield* logger.error("LLM request error", {
-                    provider,
-                    model: agent.config.llmModel,
-                    errorType: error._tag,
-                    message: error.message,
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                  });
-                }
-                throw error;
-              }
-            }),
-            Schedule.exponential("1 second").pipe(
-              Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
-              Schedule.whileInput((error) => error instanceof LLMRateLimitError),
-            ),
-          ).pipe(
-            Effect.timeout(STREAM_CREATION_TIMEOUT),
-            Effect.catchAll((error) =>
-              Effect.gen(function* () {
-                // Log the error that caused fallback
-                if (
-                  error instanceof LLMRequestError ||
-                  error instanceof LLMRateLimitError ||
-                  error instanceof LLMAuthenticationError
-                ) {
-                  yield* logger.error("Streaming failed, falling back to non-streaming mode", {
-                    provider,
-                    model: agent.config.llmModel,
-                    errorType: error._tag,
-                    message: error.message,
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                  });
-                } else {
-                  yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
-                    provider,
-                    model: agent.config.llmModel,
-                    error: error instanceof Error ? error.message : String(error),
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                  });
-                }
-                const fallback = yield* llmService.createChatCompletion(provider, llmOptions);
-                return {
-                  stream: Stream.empty,
-                  response: Effect.succeed(fallback),
-                  cancel: Effect.void,
-                };
-              }),
-            ),
-          );
-
-          // Process stream events
-          const streamFiber = yield* Effect.fork(
-            Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
-              Effect.gen(function* () {
-                yield* renderer.handleEvent(event);
-
-                if (event.type === "tool_call") {
-                  pendingToolCalls.push(event.toolCall);
-                }
-
-                if (event.type === "complete") {
-                  yield* Ref.set(completionRef, event.response);
-                  if (event.metrics?.firstTokenLatencyMs) {
-                    recordFirstTokenLatency(runTracker, event.metrics.firstTokenLatencyMs);
-                  }
-                }
-
-                if (event.type === "error") {
-                  // Log the error
-                  const error = event.error as
-                    | LLMAuthenticationError
-                    | LLMRateLimitError
-                    | LLMRequestError;
-                  yield* logger.error("Stream event error", {
-                    provider,
-                    model: agent.config.llmModel,
-                    errorType: error._tag,
-                    message: error.message,
-                    recoverable: event.recoverable,
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                  });
-                  if (!event.recoverable) {
-                    yield* streamingResult.cancel;
-                  }
-                }
-              }),
-            ),
-          );
-
-          // Wait for stream completion - the stream is cancelled on completion event
-          // so the fiber should complete naturally without needing a timeout
-          const streamExit = yield* Fiber.await(streamFiber);
-
-          let completion: ChatCompletionResponse;
-          if (Exit.isFailure(streamExit)) {
-            yield* streamingResult.cancel;
-            const error = Cause.failureOption(streamExit.cause);
-            if (Option.isSome(error)) {
-              yield* logger.error("Stream processing failed", {
-                error: error.value instanceof Error ? error.value.message : String(error.value),
-              });
-              return yield* Effect.fail(error.value);
-            } else {
-              const fromRef = yield* Ref.get(completionRef);
-              if (fromRef) {
-                completion = fromRef;
-              } else {
-                completion = yield* streamingResult.response.pipe(
-                  Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
-                  Effect.catchAll(() =>
-                    Effect.gen(function* () {
-                      yield* streamingResult.cancel;
-                      return yield* llmService.createChatCompletion(provider, llmOptions);
-                    }),
-                  ),
-                );
-              }
-            }
-          } else {
-            const fromRef = yield* Ref.get(completionRef);
-            if (fromRef) {
-              completion = fromRef;
-            } else {
-              completion = yield* streamingResult.response.pipe(
-                Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
-                Effect.catchAll(() =>
-                  Effect.gen(function* () {
-                    yield* streamingResult.cancel;
-                    return yield* llmService.createChatCompletion(provider, llmOptions);
-                  }),
-                ),
-              );
-            }
-          }
-
-          if (completion.usage) {
-            recordLLMUsage(runTracker, completion.usage);
-          }
-
-          // Add assistant response to conversation
-          const assistantMessage = {
-            role: "assistant" as const,
-            content: completion.content,
-            ...(completion.toolCalls
-              ? {
-                  tool_calls: completion.toolCalls.map((tc) => ({
-                    id: tc.id,
-                    type: tc.type,
-                    function: { name: tc.function.name, arguments: tc.function.arguments },
-                  })),
-                }
-              : {}),
-          };
-
-          currentMessages.push(assistantMessage);
-
-          yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
-            currentMessages,
-            logger,
-            agent.id,
-            actualConversationId,
-          );
-
-          // Handle tool calls
-          if (completion.toolCalls && completion.toolCalls.length > 0) {
-            const toolResults = yield* executeToolCalls(
-              completion.toolCalls,
-              context,
-              displayConfig,
-              renderer,
-              presentationService,
-              runTracker,
-              logger,
-              agent.id,
-              actualConversationId,
-              agent.name,
-            );
-
-            // Add tool results to conversation
-            for (const toolCall of completion.toolCalls) {
-              if (toolCall.type === "function") {
-                const result = toolResults[toolCall.function.name];
-                currentMessages.push({
-                  role: "tool",
-                  name: toolCall.function.name,
-                  content: JSON.stringify(result),
-                  tool_call_id: toolCall.id,
-                });
-              }
-            }
-
-            response = { ...response, toolCalls: completion.toolCalls, toolResults };
-            continue;
-          }
-
-          // No tool calls - final response
-          response = { ...response, content: completion.content };
-          const completionMsg = yield* presentationService.formatCompletion(agent.name);
-          yield* logger.info(completionMsg);
-
-          iterationsUsed = i + 1;
-          finished = true;
-          break;
-        } finally {
-          yield* Effect.sync(() => completeIteration(runTracker));
-        }
-      }
-
-      // Post-loop cleanup
-      if (!finished) {
-        iterationsUsed = maxIterations;
-        const warningMessage = yield* presentationService.formatWarning(
-          agent.name,
-          `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
-        );
-        yield* presentationService.writeBlankLine();
-        yield* presentationService.writeOutput(warningMessage);
-        yield* presentationService.writeBlankLine();
-        yield* logger.warn(warningMessage);
-      } else if (!response.content?.trim() && !response.toolCalls) {
-        const warningMessage = yield* presentationService.formatWarning(
-          agent.name,
-          "model returned an empty response",
-        );
-        yield* presentationService.writeBlankLine();
-        yield* presentationService.writeOutput(warningMessage);
-        yield* presentationService.writeBlankLine();
-        yield* logger.warn(warningMessage);
-      }
-
-      // Finalize run asynchronously
-      yield* finalizeAgentRun(runTracker, { iterationsUsed, finished }).pipe(
-        Effect.catchAll((error) =>
-          logger.warn("Failed to write agent token usage log", { error: error.message }),
-        ),
-        Effect.fork,
-        Effect.asVoid,
-      );
-
-      return { ...response, messages: currentMessages };
-    });
-  }
-
-  /**
-   * Non-streaming implementation that waits for complete LLM responses before rendering.
-   */
-  private static runWithoutStreaming(
-    options: AgentRunnerOptions,
-    displayConfig: DisplayConfig,
-    showMetrics: boolean,
-  ): Effect.Effect<
-    AgentResponse,
-    LLMRateLimitError | Error,
-    | LLMService
-    | ToolRegistry
-    | LoggerService
-    | AgentConfigService
-    | PresentationService
-    | ToolRequirements
-  > {
-    return Effect.gen(function* () {
-      const { agent, userInput, maxIterations = MAX_AGENT_STEPS } = options;
-      const llmService = yield* LLMServiceTag;
-      const logger = yield* LoggerServiceTag;
-      const presentationService = yield* PresentationServiceTag;
-
-      // Initialize common context
-      const runContext = yield* initializeAgentRun(options);
-      const { actualConversationId, context, tools, messages, runTracker, provider, model } =
-        runContext;
-
-      // Run agent loop
-      const currentMessages = [...messages];
-      let response: AgentResponse = {
-        content: "",
-        conversationId: actualConversationId,
-      };
-      let finished = false;
-      let iterationsUsed = 0;
-
-      for (let i = 0; i < maxIterations; i++) {
-        yield* Effect.sync(() => beginIteration(runTracker, i + 1));
-        try {
-          // Log thinking indicator
-          if (displayConfig.showThinking) {
-            if (i === 0) {
-              const thinkingMsg = yield* presentationService.formatThinking(agent.name, true);
-              yield* logger.info(thinkingMsg);
-            } else {
-              const thinkingMsg = yield* presentationService.formatThinking(agent.name, false);
-              yield* logger.info(thinkingMsg);
-            }
-          }
-
-          // Ensure messages are not empty
-          const messagesToSend = yield* ensureMessagesNotEmpty(
-            currentMessages,
-            userInput,
-            logger,
-            agent.id,
-            actualConversationId,
-            i + 1,
-          );
-
-          // Create non-streaming completion with retry
-          const llmOptions = {
-            model,
-            messages: messagesToSend,
-            tools,
-            toolChoice: "auto" as const,
-            reasoning_effort: agent.config.reasoningEffort ?? "disable",
-          };
-
-          const completion = yield* Effect.retry(
-            Effect.gen(function* () {
-              try {
-                return yield* llmService.createChatCompletion(provider, llmOptions);
-              } catch (error) {
-                recordLLMRetry(runTracker, error);
-                throw error;
-              }
-            }),
-            Schedule.exponential("1 second").pipe(
-              Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
-              Schedule.whileInput((error) => error instanceof LLMRateLimitError),
-            ),
-          );
-
-          if (completion.usage) {
-            recordLLMUsage(runTracker, completion.usage);
-          }
-
-          // Add assistant response to conversation
-          const assistantMessage = {
-            role: "assistant" as const,
-            content: completion.content,
-            ...(completion.toolCalls
-              ? {
-                  tool_calls: completion.toolCalls.map((tc) => ({
-                    id: tc.id,
-                    type: tc.type,
-                    function: { name: tc.function.name, arguments: tc.function.arguments },
-                  })),
-                }
-              : {}),
-          };
-
-          currentMessages.push(assistantMessage);
-
-          yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
-            currentMessages,
-            logger,
-            agent.id,
-            actualConversationId,
-          );
-
-          // Format content - always use markdown since LLMs output markdown
-          let formattedContent = completion.content;
-          if (formattedContent) {
-            formattedContent = yield* presentationService.renderMarkdown(formattedContent);
-          }
-
-          // Handle tool calls
-          if (completion.toolCalls && completion.toolCalls.length > 0) {
-            const toolResults = yield* executeToolCalls(
-              completion.toolCalls,
-              context,
-              displayConfig,
-              null, // No renderer for non-streaming
-              presentationService,
-              runTracker,
-              logger,
-              agent.id,
-              actualConversationId,
-              agent.name,
-            );
-
-            // Add tool results to conversation
-            for (const toolCall of completion.toolCalls) {
-              if (toolCall.type === "function") {
-                const result = toolResults[toolCall.function.name];
-                currentMessages.push({
-                  role: "tool",
-                  name: toolCall.function.name,
-                  content: JSON.stringify(result),
-                  tool_call_id: toolCall.id,
-                });
-              }
-            }
-
-            response = { ...response, toolCalls: completion.toolCalls, toolResults };
-            continue;
-          }
-
-          // No tool calls - final response
-          response = { ...response, content: formattedContent };
-
-          // Display final response
-          if (formattedContent && formattedContent.trim().length > 0) {
-            const formattedResponse = yield* presentationService.formatAgentResponse(
-              agent.name,
-              formattedContent,
-            );
-            yield* presentationService.writeBlankLine();
-            yield* presentationService.writeOutput(formattedResponse);
-            yield* presentationService.writeBlankLine();
-          }
-
-          const completionMsg = yield* presentationService.formatCompletion(agent.name);
-          yield* logger.info(completionMsg);
-
-          // Show metrics if enabled
-          if (showMetrics && completion.usage) {
-            const parts: string[] = [];
-            if (completion.usage.totalTokens)
-              parts.push(`Total: ${completion.usage.totalTokens} tokens`);
-            if (completion.usage.promptTokens)
-              parts.push(`Prompt: ${completion.usage.promptTokens}`);
-            if (completion.usage.completionTokens)
-              parts.push(`Completion: ${completion.usage.completionTokens}`);
-            if (parts.length > 0) {
-              yield* logger.info(`[${parts.join(" | ")}]`);
-            }
-          }
-
-          iterationsUsed = i + 1;
-          finished = true;
-          break;
-        } finally {
-          yield* Effect.sync(() => completeIteration(runTracker));
-        }
-      }
-
-      // Post-loop cleanup
-      if (!finished) {
-        iterationsUsed = maxIterations;
-        const warningMsg = yield* presentationService.formatWarning(
-          agent.name,
-          `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
-        );
-        yield* logger.warn(warningMsg);
-      } else if (!response.content?.trim() && !response.toolCalls) {
-        const warningMsg = yield* presentationService.formatWarning(
-          agent.name,
-          "model returned an empty response",
-        );
-        yield* logger.warn(warningMsg);
-      }
-
-      // Finalize run asynchronously
-      yield* finalizeAgentRun(runTracker, { iterationsUsed, finished }).pipe(
-        Effect.catchAll((error) =>
-          logger.warn("Failed to write agent token usage log", { error: error.message }),
-        ),
-        Effect.fork,
-        Effect.asVoid,
-      );
-
-      return { ...response, messages: currentMessages };
-    });
+    return Summarizer.summarizeHistory(
+      messagesToSummarize,
+      agent,
+      sessionId,
+      conversationId,
+      runRecursive,
+    );
   }
 }
+
+// Re-export types for convenience
+export type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "./types";

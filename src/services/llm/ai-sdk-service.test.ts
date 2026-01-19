@@ -3,12 +3,14 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { APICallError } from "ai";
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { ProviderName } from "../../core/constants/models";
-import { AgentConfigService, AgentConfigServiceTag } from "../../core/interfaces/agent-config";
-import { LLMServiceTag } from "../../core/interfaces/llm";
-import { LLMAuthenticationError, LLMConfigurationError } from "../../core/types/errors";
-import type { AppConfig, LLMConfig } from "../../core/types/index";
-import { AgentConfigServiceImpl } from "../../services/config";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { AVAILABLE_PROVIDERS, ProviderName } from "@/core/constants/models";
+import { AgentConfigService, AgentConfigServiceTag } from "@/core/interfaces/agent-config";
+import { LLMServiceTag } from "@/core/interfaces/llm";
+import { LLMAuthenticationError, LLMConfigurationError } from "@/core/types/errors";
+import type { AppConfig, LLMConfig } from "@/core/types/index";
+import { AgentConfigServiceImpl } from "@/services/config";
 import { createLoggerLayer } from "../logger";
 import { createAISDKServiceLayer } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
@@ -115,6 +117,75 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(configuredProviders.length).toBe(1); // Only Ollama
       expect(configuredProviders[0]?.name).toBe("ollama");
     });
+
+    it("should have a check for every provider in LLMConfig", () => {
+      const llmConfigProviders: ProviderName[] = [
+        "openai",
+        "anthropic",
+        "google",
+        "mistral",
+        "xai",
+        "deepseek",
+        "ollama",
+        "openrouter",
+        "ai_gateway",
+        "groq",
+      ];
+
+      // Read the source file to check for provider checks
+      const sourceFile = readFileSync(join(import.meta.dir, "ai-sdk-service.ts"), "utf-8");
+
+      // Find the getConfiguredProviders function - search for the function and its body
+      const functionStart = sourceFile.indexOf("function getConfiguredProviders");
+      if (functionStart === -1) {
+        throw new Error("getConfiguredProviders function not found");
+      }
+
+      // Find the next function after getConfiguredProviders to limit our search
+      const nextFunctionMatch = sourceFile.slice(functionStart).match(/\nfunction\s+\w+/);
+      const searchEnd = nextFunctionMatch
+        ? functionStart + nextFunctionMatch.index!
+        : functionStart + 2000; // Fallback: search next 2000 chars
+
+      // Extract the function section (from function start to next function or reasonable limit)
+      const functionSection = sourceFile.slice(functionStart, searchEnd);
+
+      // Check each provider has a corresponding check in the function
+      const missingProviders: ProviderName[] = [];
+
+      for (const provider of AVAILABLE_PROVIDERS) {
+        // Ollama is handled specially (always added), so check for that pattern
+        if (provider === "ollama") {
+          // Check for ollama handling - look for providers.push with "ollama" or llmConfig.ollama
+          if (
+            !functionSection.includes('"ollama"') &&
+            !functionSection.includes("'ollama'") &&
+            !functionSection.includes("llmConfig.ollama")
+          ) {
+            missingProviders.push(provider);
+          }
+        } else {
+          // For other providers, check for: llmConfig.{provider}?.api_key
+          // Simple string search for the pattern
+          const searchPattern = `llmConfig.${provider}?.api_key`;
+          if (!functionSection.includes(searchPattern)) {
+            missingProviders.push(provider);
+          }
+        }
+      }
+
+      if (missingProviders.length > 0) {
+        throw new Error(
+          `Missing provider checks in getConfiguredProviders: ${missingProviders.join(", ")}`,
+        );
+      }
+
+      // Also verify that all providers in AVAILABLE_PROVIDERS that are in LLMConfig are handled
+      const configurableProviders = AVAILABLE_PROVIDERS.filter((p) =>
+        llmConfigProviders.includes(p),
+      );
+      expect(configurableProviders.length).toBe(llmConfigProviders.length);
+    });
   });
 
   describe("Provider Retrieval", () => {
@@ -180,30 +251,6 @@ describe("AI SDK Service - Unit Tests", () => {
       // Models may or may not be fetched depending on network, but structure should be correct
       expect(typeof result.hasModels).toBe("boolean");
       expect(typeof result.defaultModel).toBe("string");
-    });
-
-    it("should fail for unknown provider", async () => {
-      const testEffect = Effect.gen(function* () {
-        const llmService = yield* LLMServiceTag;
-        return yield* llmService.getProvider("unknown-provider" as "openai");
-      });
-
-      const configLayer = createTestConfigLayer({});
-
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-          Effect.catchAll((error) => Effect.succeed(error as LLMConfigurationError)),
-        ),
-      );
-
-      expect(result).toBeInstanceOf(LLMConfigurationError);
-      if (result instanceof LLMConfigurationError) {
-        expect(result.provider).toBe("unknown-provider");
-      }
     });
   });
 

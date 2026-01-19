@@ -10,11 +10,10 @@
 
 import type { streamText } from "ai";
 import { Chunk, Effect, Option } from "effect";
-import type { LoggerService } from "../../core/interfaces/logger";
-import type { StreamEvent } from "../../core/types";
-import { type LLMError } from "../../core/types/errors";
-import type { ToolCall } from "../../core/types/tools";
-import { type ChatCompletionResponse } from "./chat";
+import type { LoggerService } from "@/core/interfaces/logger";
+import type { ChatCompletionResponse, StreamEvent } from "@/core/types";
+import { type LLMError } from "@/core/types/errors";
+import type { ToolCall } from "@/core/types/tools";
 
 /**
  * Type for AI SDK StreamText result
@@ -36,6 +35,7 @@ interface StreamProcessorConfig {
   readonly modelName: string;
   readonly hasReasoningEnabled: boolean;
   readonly startTime: number;
+  readonly toolsDisabled?: boolean;
 }
 
 /**
@@ -166,7 +166,32 @@ export class StreamProcessor {
 
         switch (part.type) {
           case "text-delta": {
-            const textChunk = part.text;
+            let textChunk: string;
+            if (typeof part.text === "string") {
+              textChunk = part.text;
+            } else if (Array.isArray(part.text)) {
+              // Extract text from structured content array
+              // e.g Mistral may return content as array of objects or strings
+              const textArray = part.text as Array<unknown>;
+              textChunk = textArray
+                .map((item: unknown) => {
+                  if (typeof item === "object" && item !== null) {
+                    const obj = item as Record<string, unknown>;
+                    if (obj["type"] === "text" && "text" in obj) {
+                      return String(obj["text"]);
+                    }
+                    if (obj["type"] === "reference") {
+                      // Skip reference items for now, could be enhanced to handle citations
+                      return "";
+                    }
+                  }
+                  return typeof item === "string" ? item : "";
+                })
+                .join("");
+            } else {
+              // Fallback: convert to string
+              textChunk = String(part.text ?? "");
+            }
 
             // Emit text start on first chunk
             if (!this.state.hasStartedText && textChunk.length > 0) {
@@ -192,6 +217,24 @@ export class StreamProcessor {
             break;
           }
 
+          case "reasoning-start": {
+            // Handle reasoning start event (emitted before reasoning-delta chunks)
+            if (!this.config.hasReasoningEnabled) {
+              break;
+            }
+
+            // Emit thinking start on reasoning-start event
+            if (this.state.reasoningSequence === 0) {
+              const firstReasoningLatency = Date.now() - this.config.startTime;
+              void this.logger.debug(
+                `[LLM Timing] 🧠 REASONING START arrived after ${firstReasoningLatency}ms`,
+              );
+              void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+              this.recordFirstToken("reasoning");
+            }
+            break;
+          }
+
           case "reasoning-delta": {
             if (!this.config.hasReasoningEnabled) {
               break;
@@ -200,7 +243,7 @@ export class StreamProcessor {
             const textDelta = part.text;
 
             if (textDelta && textDelta.length > 0) {
-              // Emit thinking start if this is the first reasoning chunk
+              // Emit thinking start if we haven't received reasoning-start event
               if (this.state.reasoningSequence === 0) {
                 const firstReasoningLatency = Date.now() - this.config.startTime;
                 void this.logger.debug(
@@ -261,6 +304,18 @@ export class StreamProcessor {
                 arguments: JSON.stringify(part.input),
               },
             };
+
+            // Preserve thought_signature for Google/Gemini models if present
+            // The AI SDK includes it in providerMetadata.google.thoughtSignature
+            if ("providerMetadata" in part && part.providerMetadata) {
+              const providerMetadata = part.providerMetadata as {
+                google?: { thoughtSignature?: string };
+              };
+              if (providerMetadata?.google?.thoughtSignature) {
+                toolCall.thought_signature = providerMetadata.google.thoughtSignature;
+              }
+            }
+
             this.state.collectedToolCalls.push(toolCall);
 
             void this.emitEvent({
@@ -276,13 +331,20 @@ export class StreamProcessor {
             this.state.finishEventReceived = true;
             this.state.finishReason = finishReason;
 
-            // Validate expected finish reasons
+            // Handle error finish reason
+            if (finishReason === "error") {
+              const error = new Error(
+                `Unexpected error during stream processing: ${JSON.stringify(part)}`,
+              );
+              throw error;
+            }
+
             if (
               finishReason !== "stop" &&
               finishReason !== "length" &&
               finishReason !== "tool-calls"
             ) {
-              console.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
+              void this.logger.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
             }
             break;
           }
@@ -292,6 +354,21 @@ export class StreamProcessor {
           }
         }
       }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AI_TypeValidationError") {
+        void this.logger.warn(
+          `[StreamProcessor] AI SDK validation error (likely due to provider-specific content format): ${error.message}`,
+          {
+            provider: this.config.providerName,
+            model: this.config.modelName,
+            errorName: error.name,
+          },
+        );
+
+        throw error;
+      }
+      // Re-throw other errors
+      throw error;
     } finally {
       this.resolveCompletion();
     }
@@ -305,8 +382,7 @@ export class StreamProcessor {
     const toolCalls =
       this.state.collectedToolCalls.length > 0 ? this.state.collectedToolCalls : undefined;
 
-    // Try to get usage quickly (50ms timeout)
-    let usage: ChatCompletionResponse["usage"] | undefined;
+    let usage: ChatCompletionResponse["usage"];
     try {
       const usageResult = await Promise.race([
         result.usage,
@@ -333,6 +409,7 @@ export class StreamProcessor {
       content: finalText,
       ...(toolCalls && { toolCalls }),
       ...(usage && { usage }),
+      ...(this.config.toolsDisabled ? { toolsDisabled: true } : {}),
     };
   }
 

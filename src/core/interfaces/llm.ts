@@ -1,19 +1,22 @@
 import { Context, Effect } from "effect";
-import type { ProviderName } from "../constants/models";
-import type { LLMConfigurationError, LLMError } from "../types/errors";
-import type {
-  ChatCompletionOptions,
-  ChatCompletionResponse,
-  LLMProvider,
-  StreamingResult,
-} from "../types/llm";
+import type { ProviderName } from "@/core/constants/models";
+import type { LLMProvider, LLMProviderListItem, StreamingResult } from "../types";
+import type { ChatCompletionOptions, ChatCompletionResponse } from "@/core/types/chat";
+import type { LLMConfigurationError, LLMError } from "@/core/types/errors";
 
 export interface LLMService {
+  /**
+   * Get a provider by name
+   */
   readonly getProvider: (
     providerName: ProviderName,
   ) => Effect.Effect<LLMProvider, LLMConfigurationError>;
+
+  /**
+   * List all providers
+   */
   readonly listProviders: () => Effect.Effect<
-    readonly { name: ProviderName; configured: boolean }[],
+    readonly LLMProviderListItem[],
     never
   >;
 

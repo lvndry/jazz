@@ -1,11 +1,21 @@
 import { Effect } from "effect";
-import { LoggerServiceTag, type LoggerService } from "../interfaces/logger";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { formatToolArguments } from "./tool-formatter";
 
 /**
  * Helper functions for tool execution logging
  * These functions format messages and use LoggerService directly
  */
+
+/**
+ * Custom replacer for JSON.stringify to handle BigInt values
+ */
+export function jsonBigIntReplacer(_key: string, value: unknown): unknown {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+  return value;
+}
 
 /**
  * Get emoji for a tool based on its name
@@ -101,7 +111,7 @@ export function logToolExecutionSuccess(
             : resultString;
 
         yield* logger
-          .writeToFile("info", `Tool result for ${toolName}`, {
+          .info(`Tool result for ${toolName}`, {
             toolName,
             resultLength: resultString.length,
             result: truncatedResult,
@@ -110,7 +120,7 @@ export function logToolExecutionSuccess(
       } catch (error) {
         // If serialization fails, log a warning to file
         yield* logger
-          .writeToFile("warn", `Failed to log full result for ${toolName}`, {
+          .warn(`Failed to log full result for ${toolName}`, {
             toolName,
             error: error instanceof Error ? error.message : String(error),
           })

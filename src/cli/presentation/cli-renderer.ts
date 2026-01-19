@@ -2,39 +2,25 @@ import chalk from "chalk";
 import { Effect } from "effect";
 import { marked } from "marked";
 import TerminalRenderer from "marked-terminal";
-import { type LLMError } from "../../core/types/errors";
-import type { StreamEvent } from "../../core/types/llm";
-import type {
-  ColorProfile,
-  DisplayConfig,
-  OutputMode,
-  RenderTheme,
-  StreamingConfig,
-} from "../../core/types/output";
-import type { ToolCall } from "../../core/types/tools";
+import { type LLMError } from "@/core/types/errors";
+import type { ColorProfile, DisplayConfig, OutputMode, RenderTheme } from "@/core/types/output";
+import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
+import type { ToolCall } from "@/core/types/tools";
 import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,
-} from "../../core/utils/tool-formatter";
+} from "@/core/utils/tool-formatter";
+import {
+  applyProgressiveFormatting,
+  type FormattingResult,
+  type StreamingState,
+} from "./markdown-formatter";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
 import { JSONWriter, TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
 
-/**
- * Streaming state for progressive markdown formatting
- */
-interface StreamingState {
-  readonly isInCodeBlock: boolean;
-}
 
-/**
- * Result of progressive formatting
- */
-interface FormattingResult {
-  readonly formatted: string;
-  readonly state: StreamingState;
-}
 
 /**
  * Get terminal width, with fallback to 80
@@ -251,9 +237,8 @@ export class CLIRenderer {
       try {
         const rendered: string = this.renderChunk(delta, bufferMs);
         return rendered;
-      } catch (error) {
+      } catch {
         // Fallback to plain text if markdown rendering fails
-        console.warn("Markdown rendering failed:", error);
         return delta;
       }
     }
@@ -272,13 +257,25 @@ export class CLIRenderer {
     );
   }
 
-  private renderToolsDetected(event: { toolNames: readonly string[]; agentName: string }): string {
+  private renderToolsDetected(event: {
+    toolNames: readonly string[];
+    toolsRequiringApproval: readonly string[];
+    agentName: string;
+  }): string {
     const { colors, icons } = this.theme;
-    const tools = event.toolNames.join(", ");
+    const approvalSet = new Set(event.toolsRequiringApproval);
+    const formattedTools = event.toolNames
+      .map((name) => {
+        if (approvalSet.has(name)) {
+          return `${name} ${colors.dim("(requires approval)")}`;
+        }
+        return name;
+      })
+      .join(", ");
     return (
       "\n" +
       colors.warning(`${icons.tool} ${event.agentName} is using tools: `) +
-      colors.toolName(tools) +
+      colors.toolName(formattedTools) +
       "\n"
     );
   }
@@ -326,7 +323,19 @@ export class CLIRenderer {
 
   private renderError(error: LLMError): string {
     const { colors, icons } = this.theme;
-    return "\n" + colors.error(`${icons.error} Error: ${error.message}`) + "\n";
+    // Clean the error message to remove " | " separators and extra details
+    let cleanMessage = error.message;
+    if (cleanMessage.includes(" | ")) {
+      cleanMessage = cleanMessage.split(" | ")[0] || cleanMessage;
+    }
+    // Also handle cases where message might have "|" without spaces
+    if (cleanMessage.includes("|") && !cleanMessage.includes(" | ")) {
+      const parts = cleanMessage.split("|");
+      if (parts[0] && parts[0].trim().length > 0) {
+        cleanMessage = parts[0].trim();
+      }
+    }
+    return "\n" + colors.error(`${icons.error} Error: ${cleanMessage}`) + "\n";
   }
 
   private renderComplete(event: {
@@ -448,10 +457,9 @@ export class CLIRenderer {
         });
 
         this.markedInitialized = true;
-      } catch (error: unknown) {
+      } catch {
         // Log error but don't throw - allow fallback to plain text
-        const message = error instanceof Error ? error.message : String(error);
-        console.error("Error initializing markdown renderer:", message);
+        // Silently fall back - markdown initialization failure is not critical
       }
     });
   }
@@ -469,10 +477,8 @@ export class CLIRenderer {
         // Use marked.parse for synchronous parsing
         const result = marked.parse(markdown) as string;
         return result;
-      } catch (error) {
+      } catch {
         // Fallback to plain text if markdown parsing fails
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn("Markdown parsing failed, falling back to plain text:", message);
         return markdown;
       }
     });
@@ -558,249 +564,14 @@ export class CLIRenderer {
   /**
    * Format text using progressive formatting for streaming chunks
    */
-  private formatText(text: string, state: StreamingState): FormattingResult {
-    if (!text || text.trim().length === 0) {
-      return { formatted: text, state };
-    }
-
-    return this.applyProgressiveFormatting(text, state);
-  }
-
   /**
-   * Apply progressive markdown formatting
-   * Handles common markdown constructs that can be rendered incrementally
+   * Format text using progressive formatting for streaming chunks
    */
-  private applyProgressiveFormatting(text: string, state: StreamingState): FormattingResult {
-    if (!text || text.trim().length === 0) {
-      return { formatted: text, state };
-    }
-
-    // Handle code blocks first (stateful)
-    const codeBlockResult = this.formatCodeBlocks(text, state);
-    let formatted = codeBlockResult.formatted;
-    const currentState = codeBlockResult.state;
-
-    // If we're inside a code block, don't apply other formatting
-    if (currentState.isInCodeBlock && !text.includes("```")) {
-      return { formatted: codeBlockResult.formatted, state: currentState };
-    }
-
-    // Apply formatting in order (order matters for overlapping patterns)
-    formatted = this.formatEscapedText(formatted);
-    formatted = this.formatStrikethrough(formatted);
-    formatted = this.formatBold(formatted);
-    formatted = this.formatItalic(formatted);
-    formatted = this.formatInlineCode(formatted);
-    formatted = this.formatHeaders(formatted);
-    formatted = this.formatBlockquotes(formatted);
-    formatted = this.formatTaskLists(formatted);
-    formatted = this.formatLists(formatted);
-    formatted = this.formatHorizontalRules(formatted);
-    formatted = this.formatLinks(formatted);
-
-    return { formatted, state: currentState };
+  private formatText(text: string, state: StreamingState): FormattingResult {
+    return applyProgressiveFormatting(text, state);
   }
 
-  // ==================== Progressive Formatting Methods ====================
 
-  private formatCodeBlocks(text: string, state: StreamingState): FormattingResult {
-    let isInCodeBlock = state.isInCodeBlock;
-
-    if (text.includes("```")) {
-      const lines = text.split("\n");
-      const processedLines: string[] = [];
-
-      // Process lines sequentially to maintain correct state
-      for (const line of lines) {
-        if (line.trim().startsWith("```")) {
-          // Toggle state when we see a code fence
-          isInCodeBlock = !isInCodeBlock;
-          processedLines.push(chalk.yellow(line));
-        } else if (isInCodeBlock) {
-          // If we're inside a code block, color the line cyan
-          processedLines.push(chalk.cyan(line));
-        } else {
-          // Outside code block, leave as-is
-          processedLines.push(line);
-        }
-      }
-
-      return {
-        formatted: processedLines.join("\n"),
-        state: { isInCodeBlock },
-      };
-    }
-
-    // If no code fences in this chunk, but we're in a code block, color everything cyan
-    if (isInCodeBlock) {
-      return {
-        formatted: chalk.cyan(text),
-        state: { isInCodeBlock },
-      };
-    }
-
-    // Not in a code block, return as-is
-    return { formatted: text, state: { isInCodeBlock } };
-  }
-
-  private formatEscapedText(text: string): string {
-    return text.replace(/\\([*_`\\[\]()#+\-.!])/g, "$1");
-  }
-
-  private formatStrikethrough(text: string): string {
-    return text.replace(/~~([^~]+)~~/g, (_match, content) => {
-      return chalk.strikethrough(content);
-    });
-  }
-
-  private formatBold(text: string): string {
-    return text.replace(/\*\*([^*]+)\*\*/g, (_match, bold) => {
-      return chalk.bold(bold);
-    });
-  }
-
-  private formatItalic(text: string): string {
-    let formatted = text;
-
-    // Handle *text* (single asterisk, not part of **)
-    formatted = formatted.replace(/\*([^*\n]+?)\*/g, (match, italic: string, offset: number) => {
-      const beforeChar = offset > 0 ? text.charAt(offset - 1) : "";
-      const afterIndex = offset + match.length;
-      const afterChar = afterIndex < text.length ? text.charAt(afterIndex) : "";
-
-      if (beforeChar === "*" || afterChar === "*") {
-        return match;
-      }
-
-      return chalk.italic(italic);
-    });
-
-    // Handle _text_ (underscore, not part of __)
-    formatted = formatted.replace(/_([^_\n]+?)_/g, (match, italic, offset) => {
-      const offsetNum = Number(offset);
-      const beforeChar = offsetNum > 0 ? text.charAt(offsetNum - 1) : "";
-      const afterIndex = offsetNum + match.length;
-      const afterChar = afterIndex < text.length ? text.charAt(afterIndex) : "";
-
-      if (beforeChar === "_" || afterChar === "_") {
-        return match;
-      }
-
-      return chalk.italic(italic);
-    });
-
-    return formatted;
-  }
-
-  private formatInlineCode(text: string): string {
-    return text.replace(/`([^`\n]+)`/g, (_match, code) => {
-      return chalk.cyan(code);
-    });
-  }
-
-  private formatHeaders(text: string): string {
-    let formatted = text;
-
-    // H3 (###)
-    formatted = formatted.replace(/^\s*###\s+(.+)$/gm, (_match, header) => {
-      return chalk.bold.blue(header);
-    });
-
-    // H2 (##)
-    formatted = formatted.replace(/^\s*##\s+(.+)$/gm, (_match, header) => {
-      return chalk.bold.blue.underline(header);
-    });
-
-    // H1 (#)
-    formatted = formatted.replace(/^\s*#\s+(.+)$/gm, (_match, header) => {
-      return chalk.bold.blue.underline(header);
-    });
-
-    return formatted;
-  }
-
-  private formatBlockquotes(text: string): string {
-    return text.replace(/^\s*>\s+(.+)$/gm, (_match, content) => {
-      return chalk.gray(`│ ${content}`);
-    });
-  }
-
-  private formatTaskLists(text: string): string {
-    // Task list items: - [ ] or - [x] or - [X]
-    return text.replace(
-      /^\s*-\s+\[([ xX])\]\s+(.+)$/gm,
-      (_match, checked: string, content: string) => {
-        const isChecked = checked.toLowerCase() === "x";
-        const checkbox = isChecked ? chalk.green("✓") : chalk.gray("○");
-        const indent = "  ";
-        return `${indent}${checkbox} ${content}`;
-      },
-    );
-  }
-
-  private formatLists(text: string): string {
-    const formatted = text;
-
-    // Process lines to detect indentation levels
-    const lines = formatted.split("\n");
-    const processedLines = lines.map((line) => {
-      // Skip if already processed as task list
-      if (line.includes("✓") || line.includes("○")) {
-        return line;
-      }
-
-      // Unordered lists (-, *, +) with nested support
-      const unorderedMatch = line.match(/^(\s*)([-*+])\s+(.+)$/);
-      if (
-        unorderedMatch &&
-        unorderedMatch[1] !== undefined &&
-        unorderedMatch[2] !== undefined &&
-        unorderedMatch[3] !== undefined
-      ) {
-        const indent = unorderedMatch[1];
-        const bullet = unorderedMatch[2];
-        const content = unorderedMatch[3];
-        const indentLevel = Math.floor(indent.length / 2); // Assume 2 spaces per level
-        const indentStr = "  ".repeat(indentLevel + 1);
-        return `${indentStr}${chalk.yellow(bullet)} ${content}`;
-      }
-
-      // Ordered lists (1., 2., etc.) with nested support
-      const orderedMatch = line.match(/^(\s*)(\d+\.)\s+(.+)$/);
-      if (
-        orderedMatch &&
-        orderedMatch[1] !== undefined &&
-        orderedMatch[2] !== undefined &&
-        orderedMatch[3] !== undefined
-      ) {
-        const indent = orderedMatch[1];
-        const number = orderedMatch[2];
-        const content = orderedMatch[3];
-        const indentLevel = Math.floor(indent.length / 2);
-        const indentStr = "  ".repeat(indentLevel + 1);
-        return `${indentStr}${chalk.yellow(number)} ${content}`;
-      }
-
-      return line;
-    });
-
-    return processedLines.join("\n");
-  }
-
-  private formatHorizontalRules(text: string): string {
-    const terminalWidth = getTerminalWidth();
-    const ruleLength = Math.min(terminalWidth - 4, 40); // Max 40 chars, or terminal width - 4
-    const rule = "─".repeat(ruleLength);
-    return text.replace(/^\s*([-*_]){3,}\s*$/gm, () => {
-      return chalk.gray(rule) + "\n";
-    });
-  }
-
-  private formatLinks(text: string): string {
-    return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text, _url) => {
-      return chalk.blue.underline(text);
-    });
-  }
 
   // ==================== Public Formatting Methods ====================
 
@@ -851,10 +622,19 @@ export class CLIRenderer {
   formatToolsDetected(
     agentName: string,
     toolNames: readonly string[],
+    toolsRequiringApproval: readonly string[],
   ): Effect.Effect<string, never> {
     return Effect.sync(() => {
-      const tools = toolNames.join(", ");
-      return `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${chalk.cyan(tools)}\n`;
+      const approvalSet = new Set(toolsRequiringApproval);
+      const formattedTools = toolNames
+        .map((name) => {
+          if (approvalSet.has(name)) {
+            return `${name} ${chalk.dim("(requires approval)")}`;
+          }
+          return name;
+        })
+        .join(", ");
+      return `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${chalk.cyan(formattedTools)}\n`;
     });
   }
 

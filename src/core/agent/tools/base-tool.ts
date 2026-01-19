@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import type { Tool } from "../../interfaces/tool-registry";
-import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
+import type { Tool } from "@/core/interfaces/tool-registry";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 
 /**
  * Lightweight, reusable tool builder with optional runtime validation.
@@ -19,9 +19,52 @@ export type ToolValidator<Args extends Record<string, unknown>> = (
 ) => ToolValidatorResult<Args>;
 
 export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
+  /**
+   * name for the tool.
+   */
   readonly name: string;
+  /**
+   * Human-readable description of what the tool does.
+   *
+   * This description is provided to the LLM to help it understand when and
+   * how to use the tool. It should be clear, concise, and explain the tool's
+   * purpose, what it accomplishes, and any important context about when it
+   * should be used. The LLM uses this description to decide whether to call
+   * the tool in a given situation.
+   *
+   */
   readonly description: string;
+  /**
+   * Optional array of tags for categorizing and organizing tools.
+   *
+   * Tags can be used to group related tools together, filter tools by category,
+   * or provide additional metadata about the tool's purpose or domain. Common
+   * tag categories include domain (e.g., "git", "email", "filesystem"),
+   * operation type (e.g., "read", "write", "delete"), or feature area
+   * (e.g., "communication", "version-control", "data-processing").
+   *
+   * @example
+   * ```typescript
+   * tags: ["git", "version-control", "write"]
+   * tags: ["email", "communication", "send"]
+   * tags: ["filesystem", "read", "file"]
+   * ```
+   */
   readonly tags?: readonly string[];
+  /**
+   * Zod schema defining the structure and validation rules for tool arguments.
+   *
+   * This schema is used to:
+   * - Generate JSON Schema for LLM tool definitions
+   * - Validate arguments at runtime when the tool is executed
+   * - Provide type safety and ensure arguments match expected structure
+   *
+   * The schema should define all required and optional parameters that the tool
+   * accepts, including their types, descriptions, and any validation constraints.
+   * When combined with the `validate` function, this provides both schema-level
+   * and custom validation logic.
+   *
+   */
   readonly parameters: z.ZodTypeAny;
   /** If true, hide this tool from UI listings while keeping it callable. */
   readonly hidden?: boolean;
@@ -238,22 +281,39 @@ export function makeZodValidator<Args extends Record<string, unknown>>(
 }
 
 /**
- * Utility to extend a JSON schema object with a standard approval boolean field.
- * This does not mutate the original schema object.
+ * Format a tool description with the "APPROVAL REQUIRED" prefix.
+ * Standardizes the format for tools that require user approval before execution.
+ *
+ * @param description - The base description of the tool
+ * @returns The description prefixed with the approval required marker
+ *
+ * @example
+ * ```typescript
+ * description: formatApprovalRequiredDescription(
+ *   "Create a new event in Google Calendar with specified details."
+ * )
+ * // Returns: "⚠️ APPROVAL REQUIRED: Create a new event in Google Calendar with specified details."
+ * ```
  */
-export function withApprovalBoolean(
-  schema: z.ZodTypeAny,
-  options?: { fieldName?: string; description?: string },
-): z.ZodTypeAny {
-  const fieldName = options?.fieldName ?? "confirm";
-  const description = options?.description ?? "Set to true to confirm this action.";
+export function formatApprovalRequiredDescription(description: string): string {
+  return `⚠️ APPROVAL REQUIRED: ${description}`;
+}
 
-  // If provided a Zod object, extend it in-place with a boolean confirm field
-  if (schema instanceof z.ZodObject) {
-    return schema.extend({
-      [fieldName]: z.boolean().describe(description),
-    });
-  }
-  // If it's some other Zod type, intersect with an object carrying confirm
-  return z.object({ [fieldName]: z.boolean().describe(description) }).and(schema);
+/**
+ * Format a tool description with the "EXECUTION TOOL" prefix.
+ * Standardizes the format for execution tools that perform actions after approval.
+ *
+ * @param description - The base description of the tool
+ * @returns The description prefixed with the execution tool marker
+ *
+ * @example
+ * ```typescript
+ * description: formatExecutionToolDescription(
+ *   "Performs the actual calendar event creation after user approval."
+ * )
+ * // Returns: "🔧 EXECUTION TOOL: Performs the actual calendar event creation after user approval."
+ * ```
+ */
+export function formatExecutionToolDescription(description: string): string {
+  return `🔧 EXECUTION TOOL: ${description}`;
 }

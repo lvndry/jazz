@@ -1,5 +1,5 @@
-import { STATIC_PROVIDER_MODELS, type ProviderName } from "../../core/constants/models";
-import type { ModelInfo } from "../../core/types";
+import { STATIC_PROVIDER_MODELS, type ProviderName } from "@/core/constants/models";
+import type { ModelInfo } from "@/core/types";
 
 /**
  * This type represents how models are fetched for each provider.
@@ -45,5 +45,14 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     type: "dynamic",
     endpointPath: "/api/v1/models",
     defaultBaseUrl: "https://openrouter.ai",
+  },
+  ai_gateway: {
+    type: "dynamic",
+    endpointPath: "",
+  },
+  groq: {
+    type: "dynamic",
+    endpointPath: "/models",
+    defaultBaseUrl: "https://api.groq.com/openai/v1",
   },
 } as const;

@@ -29,25 +29,34 @@
     "clientId": "1234567890.apps.googleusercontent.com",
     "clientSecret": "1234567890"
   },
-  "linkup": {
-    "api_key": "your-linkup-api-key-here"
+  "mcpServers": {
+    "notionMCP": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.notion.com/mcp"]
+    },
+    "slack": {
+      "command": "npx",
+      "args": ["-y", "slack-mcp-server@latest", "--transport", "stdio"],
+      "env": {
+        "SLACK_MCP_XOXP_TOKEN": "xoxp-..."
+      }
+    }
   },
-  "exa": {
-    "api_key": "your-exa-api-key-here"
-  },
-  "logging": {
-    "level": "info",
-    "format": "pretty",
-    "output": "console"
+  "web_search": {
+    "priority_order": ["parallel", "exa", "tivaly"],
+    "parallel": {
+      "api_key": "your-parallel-api-key-here"
+    },
+    "exa": {
+      "api_key": "your-exa-api-key-here"
+    },
+    "tivaly": {
+      "api_key": "your-linkup-api-key-here"
+    }
   },
   "output": {
     "showThinking": true,
     "showToolExecution": true,
-    "mode": "markdown",
-    "colorProfile": "full",
-    "streaming": {
-      "enabled": "auto",
-      "textBufferMs": 50
-    }
+    "showMetrics": true
   }
 }

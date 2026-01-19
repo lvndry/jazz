@@ -1,37 +1,30 @@
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { GmailServiceTag, type GmailService } from "@/core/interfaces/gmail";
+import type { LoggerService } from "@/core/interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { GmailAuthenticationError, GmailOperationError } from "@/core/types/errors";
+import type { GmailEmail, GmailLabel } from "@/core/types/gmail";
+import { getHttpStatusFromError } from "@/core/utils/http-utils";
+import { resolveStorageDirectory } from "@/core/utils/storage-utils";
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
-import { GaxiosError } from "gaxios";
 import { google, type gmail_v1 } from "googleapis";
 import http from "node:http";
 import open from "open";
-import { AgentConfigServiceTag, type AgentConfigService } from "../core/interfaces/agent-config";
-import { GmailServiceTag, type GmailService } from "../core/interfaces/gmail";
-import type { LoggerService } from "../core/interfaces/logger";
-import { TerminalServiceTag, type TerminalService } from "../core/interfaces/terminal";
-import { GmailAuthenticationError, GmailOperationError } from "../core/types/errors";
-import type { GmailEmail, GmailLabel } from "../core/types/gmail";
-import { resolveStorageDirectory } from "./storage/utils";
-
-// Helper function to extract HTTP status code from gaxios errors
-function getHttpStatusFromError(error: unknown): number | undefined {
-  if (error instanceof GaxiosError) {
-    return error.status ?? error.response?.status;
-  }
-  return undefined;
-}
+import {
+  ALL_GOOGLE_SCOPES,
+  GMAIL_REQUIRED_SCOPES,
+  getGoogleOAuthPort,
+  getGoogleOAuthRedirectUri,
+  getGoogleTokenFilePath,
+  hasAnyRequiredScope,
+  type GoogleOAuthToken,
+} from "./google/auth";
 
 /**
  * Gmail service for interacting with Gmail API
  * Implements the core GmailService interface
  */
-
-interface GoogleOAuthToken {
-  access_token?: string;
-  refresh_token?: string;
-  scope?: string;
-  token_type?: string;
-  expiry_date?: number;
-}
 
 export class GmailServiceResource implements GmailService {
   constructor(
@@ -49,6 +42,29 @@ export class GmailServiceResource implements GmailService {
         const exists = yield* this.readTokenIfExists();
         if (!exists) {
           yield* this.performOAuthFlow();
+        } else {
+          // Validate the token by attempting to refresh it
+          // If refresh fails with invalid_grant, the token is invalid and we need to re-authenticate
+          const validationResult = yield* this.validateAndRefreshToken().pipe(
+            Effect.map(() => true as const),
+            Effect.catchAll((error) => {
+              // If token refresh fails with invalid_grant, token is invalid - need to re-authenticate
+              const errorMessage = error.message || String(error);
+              if (errorMessage.includes("invalid_grant") || errorMessage.includes("Failed to refresh")) {
+                return Effect.succeed(false as const);
+              }
+              // For other errors, propagate them
+              return Effect.fail(error);
+            }),
+          );
+
+          if (!validationResult) {
+            // Token is invalid, remove it and re-authenticate
+            yield* this.fs.remove(this.tokenFilePath).pipe(
+              Effect.catchAll(() => Effect.void),
+            );
+            yield* this.performOAuthFlow();
+          }
         }
         return void 0;
       }.bind(this),
@@ -349,6 +365,8 @@ export class GmailServiceResource implements GmailService {
         const tokenLoaded = yield* this.readTokenIfExists();
         if (!tokenLoaded) {
           yield* this.performOAuthFlow();
+        } else {
+          yield* this.validateAndRefreshToken();
         }
         return void 0;
       }.bind(this),
@@ -365,6 +383,11 @@ export class GmailServiceResource implements GmailService {
         if (!token) return false;
         try {
           const parsed = JSON.parse(token) as GoogleOAuthToken;
+          // Check if token has required Gmail scopes
+          if (!hasAnyRequiredScope(parsed, GMAIL_REQUIRED_SCOPES)) {
+            // Token exists but doesn't have required scopes, need to re-authenticate
+            return false;
+          }
           this.oauthClient.setCredentials(parsed);
           return true;
         } catch {
@@ -374,11 +397,63 @@ export class GmailServiceResource implements GmailService {
     );
   }
 
+  private validateAndRefreshToken(): Effect.Effect<void, GmailAuthenticationError> {
+    return Effect.gen(
+      function* (this: GmailServiceResource) {
+        const credentials = this.oauthClient.credentials as GoogleOAuthToken;
+
+        // Check if access token exists
+        if (!credentials.access_token) {
+          throw new GmailAuthenticationError({
+            message:
+              "Access token is missing. Please run 'bun run cli auth google login' to authenticate.",
+          });
+        }
+
+        // Check if token is expired (with 5 minute buffer for clock skew)
+        const now = Date.now();
+        const expiryDate = credentials.expiry_date;
+        const isExpired = expiryDate !== undefined && expiryDate <= now + 5 * 60 * 1000;
+
+        if (isExpired) {
+          // Try to refresh the token
+          if (!credentials.refresh_token) {
+            throw new GmailAuthenticationError({
+              message:
+                "Access token expired and no refresh token available. Please run 'bun run cli auth google login' to re-authenticate.",
+            });
+          }
+
+          try {
+            // Attempt to refresh the token
+            const refreshed = yield* Effect.tryPromise({
+              try: () => this.oauthClient.refreshAccessToken(),
+              catch: (err) =>
+                new GmailAuthenticationError({
+                  message: `Failed to refresh access token: ${err instanceof Error ? err.message : String(err)}. Please run 'bun run cli auth google login' to re-authenticate.`,
+                }),
+            });
+
+            // Update credentials with refreshed token
+            this.oauthClient.setCredentials(refreshed.credentials);
+            // Persist the refreshed token
+            yield* this.persistToken(refreshed.credentials as GoogleOAuthToken);
+          } catch {
+            throw new GmailAuthenticationError({
+              message:
+                "Failed to refresh access token. Please run 'bun run cli auth google login' to re-authenticate.",
+            });
+          }
+        }
+      }.bind(this),
+    );
+  }
+
   private performOAuthFlow(): Effect.Effect<void, GmailAuthenticationError> {
     return Effect.gen(
       function* (this: GmailServiceResource) {
-        const port = Number(process.env["GOOGLE_REDIRECT_PORT"] || 53682);
-        const redirectUri = `http://localhost:${port}/oauth2callback`;
+        const port = getGoogleOAuthPort();
+        const redirectUri = getGoogleOAuthRedirectUri(port);
         // Recreate OAuth client with runtime redirectUri (property is readonly)
         const currentCreds = this.oauthClient.credentials as GoogleOAuthToken;
         const clientId = this.oauthClient._clientId;
@@ -398,17 +473,12 @@ export class GmailServiceResource implements GmailService {
         this.oauthClient = freshClient;
         this.gmail = google.gmail({ version: "v1", auth: this.oauthClient });
 
-        const scopes = [
-          "https://www.googleapis.com/auth/gmail.readonly",
-          "https://www.googleapis.com/auth/gmail.send",
-          "https://www.googleapis.com/auth/gmail.modify",
-          "https://www.googleapis.com/auth/gmail.labels",
-          "https://www.googleapis.com/auth/gmail.compose",
-        ];
+        // Include both Gmail and Calendar scopes since they share the same token file
+        const scopes = ALL_GOOGLE_SCOPES;
 
         const authUrl = this.oauthClient.generateAuthUrl({
           access_type: "offline",
-          scope: scopes,
+          scope: [...scopes],
           prompt: "consent",
         });
 
@@ -504,7 +574,7 @@ export class GmailServiceResource implements GmailService {
       : undefined;
     const date = headers["date"] || new Date().toISOString();
 
-    const attachments: GmailEmail["attachments"] | undefined = [];
+    const attachments: GmailEmail["attachments"] = [];
 
     let bodyText: string | undefined;
     if (includeBody) {
@@ -586,13 +656,28 @@ export class GmailServiceResource implements GmailService {
   private wrapGmailCall<A>(
     operation: () => Promise<A>,
     failureMessage: string,
-  ): Effect.Effect<A, GmailOperationError> {
+  ): Effect.Effect<A, GmailOperationError | GmailAuthenticationError> {
     return Effect.tryPromise({
       try: operation,
       catch: (err) => {
+        const errorMessage = err instanceof Error ? err.message : String(err);
         const status = getHttpStatusFromError(err);
+
+        // Check if this is an authentication error (invalid_grant, unauthorized, etc.)
+        if (
+          errorMessage.includes("invalid_grant") ||
+          errorMessage.includes("invalid_token") ||
+          errorMessage.includes("unauthorized") ||
+          status === 401
+        ) {
+          return new GmailAuthenticationError({
+            message: `${failureMessage}: ${errorMessage}`,
+            suggestion: "Please run 'bun run cli auth google login' to re-authenticate.",
+          });
+        }
+
         return new GmailOperationError({
-          message: `${failureMessage}: ${err instanceof Error ? err.message : String(err)}`,
+          message: `${failureMessage}: ${errorMessage}`,
           ...(status !== undefined ? { status } : {}),
         });
       },
@@ -632,14 +717,14 @@ export function createGmailServiceLayer(): Layer.Layer<
         return Effect.void as Effect.Effect<void, GmailAuthenticationError>;
       }
 
-      const port = 53682;
-      const redirectUri = `http://localhost:${port}/oauth2callback`;
+      const port = getGoogleOAuthPort();
+      const redirectUri = getGoogleOAuthRedirectUri(port);
       const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
       const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
       const { storage } = yield* agentConfig.appConfig;
       const dataDir = resolveStorageDirectory(storage);
-      const tokenFilePath = `${dataDir}/google/gmail-token.json`;
+      const tokenFilePath = getGoogleTokenFilePath(dataDir);
       const service: GmailService = new GmailServiceResource(
         fs,
         tokenFilePath,

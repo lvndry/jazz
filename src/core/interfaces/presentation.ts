@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
-import type { StreamEvent } from "../types/llm";
-import type { DisplayConfig, StreamingConfig } from "../types/output";
+import type { DisplayConfig } from "../types";
+import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
 
 /**
  * Presentation service interface for rendering agent output
@@ -11,30 +11,27 @@ import type { DisplayConfig, StreamingConfig } from "../types/output";
  */
 export interface PresentationService {
   /**
-   * Format a thinking/processing message
+   * Present a thinking/processing status to the user
    */
-  readonly formatThinking: (
+  readonly presentThinking: (
     agentName: string,
     isFirstIteration: boolean,
-  ) => Effect.Effect<string, never>;
+  ) => Effect.Effect<void, never>;
 
   /**
-   * Format a completion message
+   * Present a completion status to the user
    */
-  readonly formatCompletion: (agentName: string) => Effect.Effect<string, never>;
+  readonly presentCompletion: (agentName: string) => Effect.Effect<void, never>;
 
   /**
-   * Format a warning message
+   * Present a warning to the user
    */
-  readonly formatWarning: (agentName: string, message: string) => Effect.Effect<string, never>;
+  readonly presentWarning: (agentName: string, message: string) => Effect.Effect<void, never>;
 
   /**
-   * Format an agent response with proper styling
+   * Present an agent response to the user
    */
-  readonly formatAgentResponse: (
-    agentName: string,
-    content: string,
-  ) => Effect.Effect<string, never>;
+  readonly presentAgentResponse: (agentName: string, content: string) => Effect.Effect<void, never>;
 
   /**
    * Render markdown content to formatted text
@@ -81,6 +78,7 @@ export interface PresentationService {
   readonly formatToolsDetected: (
     agentName: string,
     toolNames: readonly string[],
+    toolsRequiringApproval: readonly string[],
   ) => Effect.Effect<string, never>;
 
   /**

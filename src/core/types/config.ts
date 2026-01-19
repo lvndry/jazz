@@ -9,9 +9,17 @@ export interface AppConfig {
   readonly logging: LoggingConfig;
   readonly google?: GoogleConfig;
   readonly llm?: LLMConfig;
-  readonly linkup?: LinkupConfig;
-  readonly exa?: ExaConfig;
+  readonly web_search?: WebSearchConfig;
   readonly output?: OutputConfig;
+  readonly mcpServers?: Record<string, MCPServerConfig>;
+}
+
+export interface MCPServerConfig {
+  readonly command: string;
+  readonly args?: readonly string[];
+  readonly env?: Record<string, string>;
+  readonly enabled?: boolean;
+  readonly inputs?: Record<string, string>;
 }
 
 export type StorageConfig =
@@ -29,12 +37,6 @@ export interface LoggingConfig {
   readonly format: "json" | "pretty";
   readonly output: "console" | "file" | "both";
   readonly filePath?: string;
-  /**
-   * Show performance metrics (first token latency, tokens/sec, duration)
-   * Useful for debugging and monitoring performance
-   * Default: false (enable with "debug" level or explicitly)
-   */
-  readonly showMetrics?: boolean;
 }
 
 export interface GoogleConfig {
@@ -59,12 +61,17 @@ export interface LLMConfig {
   readonly deepseek?: LLMProviderConfig;
   readonly ollama?: OllamaProviderConfig;
   readonly openrouter?: LLMProviderConfig;
+  readonly ai_gateway?: LLMProviderConfig;
+  readonly groq?: LLMProviderConfig;
 }
 
-export interface LinkupConfig {
+export interface WebSearchProviderConfig {
   readonly api_key: string;
 }
 
-export interface ExaConfig {
-  readonly api_key: string;
+export interface WebSearchConfig {
+  readonly exa?: WebSearchProviderConfig;
+  readonly parallel?: WebSearchProviderConfig;
+  readonly tavily?: WebSearchProviderConfig;
+  readonly priority_order?: readonly string[];
 }

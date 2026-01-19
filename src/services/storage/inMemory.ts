@@ -1,7 +1,7 @@
 import { Effect, Layer, Ref } from "effect";
-import { StorageServiceTag, type StorageService } from "../../core/interfaces/storage";
-import { StorageError, StorageNotFoundError } from "../../core/types/errors";
-import type { Agent } from "../../core/types/index";
+import { StorageServiceTag, type StorageService } from "@/core/interfaces/storage";
+import { StorageError, StorageNotFoundError } from "@/core/types/errors";
+import type { Agent } from "@/core/types/index";
 
 export class InMemoryStorageService implements StorageService {
   constructor(private readonly agents: Ref.Ref<Map<string, Agent>>) {}

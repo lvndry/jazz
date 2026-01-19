@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
-import type { JazzError } from "../types/errors";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import type { JazzError } from "@/core/types/errors";
 
 /**
  * Enhanced error handling utilities with actionable suggestions
@@ -542,11 +542,11 @@ export function handleError(error: JazzError | Error): Effect.Effect<void, never
     // Check if it's a JazzError (has _tag property)
     if ("_tag" in error && typeof error._tag === "string") {
       const formattedError = formatError(error);
-      console.error(formattedError);
+      yield* terminal.log(formattedError);
     } else {
       // Handle generic Error objects
       const genericError = error;
-      console.error(
+      yield* terminal.log(
         `❌ Error\n   ${genericError.message}\n\n💡 Suggestion: Check the error details and try again\n\n📚 Related Commands:\n   • jazz --help\n   • jazz logs`,
       );
     }

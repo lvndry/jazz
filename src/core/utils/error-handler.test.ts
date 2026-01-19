@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "bun:test";
 import { Effect, Layer } from "effect";
-import { TerminalServiceTag, type TerminalService } from "../interfaces/terminal";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import {
   AgentAlreadyExistsError,
   AgentNotFoundError,
   ConfigurationError,
   ValidationError,
-} from "../types/errors";
+} from "@/core/types/errors";
 import { formatError, handleError } from "./error-handler";
 
 describe("Error Handler", () => {
@@ -91,6 +91,8 @@ describe("Error Handler", () => {
       password: vi.fn().mockReturnValue(Effect.succeed("")),
       select: vi.fn().mockReturnValue(Effect.succeed("")),
       confirm: vi.fn().mockReturnValue(Effect.succeed(true)),
+      search: vi.fn().mockReturnValue(Effect.succeed("")),
+      checkbox: vi.fn().mockReturnValue(Effect.succeed([])),
     };
 
     const terminalLayer = Layer.succeed(TerminalServiceTag, mockTerminalService);

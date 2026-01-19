@@ -1,7 +1,7 @@
 # Jazz CLI Makefile
 # Provides convenient commands for development, building, and testing
 
-.PHONY: help install build dev test test-watch lint lint-fix format clean start cli install-global uninstall-global
+.PHONY: help install build dev test test-watch lint lint-fix format clean start cli install-global uninstall-global push-tag patch minor major
 
 # Default target
 help: ## Show this help message
@@ -171,14 +171,21 @@ update: ## Update dependencies
 	bun update
 
 # Version bumping
+push-tag: ## Push tags to remote (git push --follow-tags)
+	@echo "Pushing tags to remote..."
+	@git push --follow-tags
+
 patch: ## Bump patch version (e.g., 0.4.5 -> 0.4.6)
 	@echo "Bumping patch version..."
-	@bun version patch
+	@npm version patch
+	@$(MAKE) push-tag
 
 minor: ## Bump minor version (e.g., 0.4.5 -> 0.5.0)
 	@echo "Bumping minor version..."
-	@bun version minor
+	@npm version minor
+	@$(MAKE) push-tag
 
 major: ## Bump major version (e.g., 0.4.5 -> 1.0.0)
 	@echo "Bumping major version..."
-	@bun version major
+	@npm version major
+	@$(MAKE) push-tag

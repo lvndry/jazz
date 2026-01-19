@@ -1,9 +1,13 @@
 import { Effect } from "effect";
 import packageJson from "../../../package.json";
-import { type AgentConfigService } from "../../core/interfaces/agent-config";
-import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
-import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
-import { UpdateCheckError, UpdateInstallError } from "../../core/types/errors";
+import { type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { UpdateCheckError, UpdateInstallError } from "@/core/types/errors";
+import {
+  detectInstalledPackageManager,
+  findJazzInstallationPath,
+} from "@/core/utils/runtime-detection";
 
 /**
  * CLI command for updating Jazz to the latest version
@@ -12,7 +16,7 @@ import { UpdateCheckError, UpdateInstallError } from "../../core/types/errors";
 /**
  * Version information from npm registry
  */
-interface NpmPackageInfo {
+export interface NpmPackageInfo {
   "dist-tags": {
     latest: string;
     [key: string]: string;
@@ -42,7 +46,7 @@ function compareVersions(v1: string, v2: string): number {
 /**
  * Check if a newer version is available on npm
  */
-function checkForUpdate(): Effect.Effect<
+export function checkForUpdate(): Effect.Effect<
   { hasUpdate: boolean; currentVersion: string; latestVersion: string },
   UpdateCheckError
 > {
@@ -107,139 +111,6 @@ function checkForUpdate(): Effect.Effect<
 interface PackageManagerInfo {
   readonly name: string;
   readonly version: string;
-}
-
-/**
- * Find where the jazz command is installed
- * Returns the full path to the jazz executable, or null if not found
- */
-function findJazzInstallationPath(): Effect.Effect<string | null, never> {
-  return Effect.gen(function* () {
-    const { spawn } = yield* Effect.promise(() => import("child_process"));
-    const isWindows = process.platform === "win32";
-    const checkCommand = isWindows ? "where" : "which";
-
-    return yield* Effect.async<string | null, never>((resume) => {
-      const child = spawn(checkCommand, ["jazz"], {
-        stdio: ["ignore", "pipe", "ignore"],
-        shell: true,
-      });
-
-      let stdout = "";
-
-      if (child.stdout) {
-        child.stdout.on("data", (data: Buffer) => {
-          stdout += data.toString();
-        });
-      }
-
-      child.on("close", (code) => {
-        if (code === 0 && stdout.trim()) {
-          // Found the path (take first line in case of multiple matches)
-          const lines = stdout.trim().split("\n");
-          const path = lines[0]?.trim();
-
-          if (path) {
-            resume(Effect.succeed(path));
-          } else {
-            resume(Effect.succeed(null));
-          }
-        } else {
-          // Command not found
-          resume(Effect.succeed(null));
-        }
-      });
-
-      child.on("error", () => {
-        // Command not found
-        resume(Effect.succeed(null));
-      });
-    });
-  });
-}
-
-/**
- * Detect which package manager was used to install Jazz based on installation path
- * Returns the package manager name or null if cannot be determined
- */
-function detectInstalledPackageManager(installPath: string): Effect.Effect<string | null, never> {
-  return Effect.gen(function* () {
-    const fs = yield* Effect.promise(() => import("fs"));
-
-    // Try to resolve symlinks to get the actual path
-    const resolvedPath = yield* Effect.gen(function* () {
-      const statsResult = yield* Effect.tryPromise({
-        try: () => fs.promises.lstat(installPath),
-        catch: () => new Error("Cannot stat file"),
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-      if (statsResult && statsResult.isSymbolicLink()) {
-        const realPathResult = yield* Effect.tryPromise({
-          try: () => fs.promises.realpath(installPath),
-          catch: () => new Error("Cannot resolve symlink"),
-        }).pipe(Effect.catchAll(() => Effect.succeed(installPath)));
-        return realPathResult;
-      }
-
-      return installPath;
-    });
-
-    const normalizedPath = resolvedPath.toLowerCase().replace(/\\/g, "/");
-
-    // Check for bun installation paths
-    // Bun typically installs to: ~/.bun/bin/jazz or similar
-    if (normalizedPath.includes("/.bun/") || normalizedPath.includes("\\bun\\")) {
-      return "bun" as const;
-    }
-
-    // Check for pnpm installation paths
-    // pnpm typically installs to: ~/.local/share/pnpm/global/5/node_modules/.bin/jazz
-    // or ~/.pnpm-global/ or similar
-    if (
-      normalizedPath.includes("/pnpm/") ||
-      normalizedPath.includes("\\pnpm\\") ||
-      normalizedPath.includes("/.pnpm") ||
-      normalizedPath.includes("\\.pnpm")
-    ) {
-      return "pnpm" as const;
-    }
-
-    // Check for npm installation paths
-    // npm typically installs to:
-    // - /usr/local/bin/jazz (standard Unix location)
-    // - ~/.npm-global/bin/jazz (custom npm global)
-    // - node_modules/.bin/jazz in global node_modules
-    // - Windows: AppData\Roaming\npm\jazz.cmd
-    if (
-      normalizedPath.includes("/npm/") ||
-      normalizedPath.includes("\\npm\\") ||
-      normalizedPath.includes("/.npm") ||
-      normalizedPath.includes("\\.npm") ||
-      normalizedPath.includes("/node_modules/.bin/") ||
-      normalizedPath.includes("\\node_modules\\.bin\\") ||
-      normalizedPath.includes("appdata/roaming/npm") ||
-      normalizedPath.includes("appdata\\roaming\\npm")
-    ) {
-      return "npm" as const;
-    }
-
-    // Check if it's in a standard bin directory (likely npm)
-    // Common locations: /usr/local/bin, /usr/bin, ~/.local/bin
-    // But exclude bun and pnpm specific directories
-    if (
-      (normalizedPath.includes("/usr/local/bin/") ||
-        normalizedPath.includes("/usr/bin/") ||
-        normalizedPath.includes("/.local/bin/")) &&
-      !normalizedPath.includes("/.bun/") &&
-      !normalizedPath.includes("/pnpm/") &&
-      !normalizedPath.includes("/.pnpm")
-    ) {
-      return "npm" as const;
-    }
-
-    // Cannot determine from path - return null
-    return null;
-  });
 }
 
 /**

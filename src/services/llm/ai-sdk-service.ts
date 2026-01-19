@@ -1,11 +1,13 @@
 import { anthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { deepseek } from "@ai-sdk/deepseek";
 import { google, type GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
+import { groq } from "@ai-sdk/groq";
 import { mistral } from "@ai-sdk/mistral";
 import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import { createOpenRouter, type OpenRouterProviderSettings } from "@openrouter/ai-sdk-provider";
 import {
+  gateway,
   generateText,
   stepCountIs,
   streamText,
@@ -23,27 +25,30 @@ import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { z } from "zod";
-import { MAX_AGENT_STEPS } from "../../core/constants/agent";
-import type { ProviderName } from "../../core/constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
-import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "../../core/interfaces/logger";
+import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+import type { ProviderName } from "@/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type {
+  ChatCompletionOptions,
+  ChatCompletionResponse,
   LLMConfig,
   LLMProvider,
+  LLMProviderListItem,
   ModelInfo,
   StreamEvent,
   StreamingResult,
-} from "../../core/types";
+} from "@/core/types";
+import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
+import type { ToolCall } from "@/core/types/tools";
+import { safeParseJson } from "@/core/utils/json";
 import {
-  LLMAuthenticationError,
-  LLMConfigurationError,
-  type LLMError,
-} from "../../core/types/errors";
-import { safeParseJson } from "../../core/utils/json";
-import { convertToLLMError } from "../../core/utils/llm-error";
-import { createDeferred } from "../../core/utils/promise";
-import { type ChatCompletionOptions, type ChatCompletionResponse } from "./chat";
+  convertToLLMError,
+  extractCleanErrorMessage,
+  truncateRequestBodyValues,
+} from "@/core/utils/llm-error";
+import { createDeferred } from "@/core/utils/promise";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
 import { StreamProcessor } from "./stream-processor";
@@ -60,6 +65,42 @@ function parseToolArguments(input: string): Record<string, unknown> {
   });
 }
 
+function toAISDKToolChoice(
+  toolChoice: ChatCompletionOptions["toolChoice"],
+): AISDKToolChoice | undefined {
+  if (!toolChoice) return undefined;
+  if (toolChoice === "auto" || toolChoice === "none") return toolChoice;
+
+  return {
+    type: "tool",
+    toolName: toolChoice.function.name,
+  };
+}
+
+function buildToolConfig(
+  supportsTools: boolean,
+  tools: ChatCompletionOptions["tools"],
+  toolChoice: ChatCompletionOptions["toolChoice"],
+): {
+  tools: ChatCompletionOptions["tools"] | undefined;
+  toolChoice: AISDKToolChoice | undefined;
+  toolsDisabled: boolean;
+} {
+  if (!tools || tools.length === 0 || !supportsTools) {
+    return {
+      tools: undefined,
+      toolChoice: undefined,
+      toolsDisabled: !!tools && tools.length > 0 && !supportsTools,
+    };
+  }
+
+  return {
+    tools,
+    toolChoice: toAISDKToolChoice(toolChoice),
+    toolsDisabled: false,
+  };
+}
+
 function toCoreMessages(
   messages: ReadonlyArray<{
     role: "system" | "user" | "assistant" | "tool";
@@ -70,6 +111,7 @@ function toCoreMessages(
       id: string;
       type: "function";
       function: { name: string; arguments: string };
+      thought_signature?: string;
     }>;
   }>,
 ): ModelMessage[] {
@@ -93,7 +135,13 @@ function toCoreMessages(
     if (role === "assistant") {
       const contentParts: Array<
         | { type: "text"; text: string }
-        | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
+        | {
+            type: "tool-call";
+            toolCallId: string;
+            toolName: string;
+            input: unknown;
+            thoughtSignature?: string;
+          }
       > = [];
 
       if (m.content && m.content.length > 0) {
@@ -102,12 +150,30 @@ function toCoreMessages(
 
       if (m.tool_calls && m.tool_calls.length > 0) {
         for (const tc of m.tool_calls) {
-          contentParts.push({
+          const toolCallPart: {
+            type: "tool-call";
+            toolCallId: string;
+            toolName: string;
+            input: unknown;
+            providerOptions?: { google?: { thoughtSignature?: string } };
+          } = {
             type: "tool-call",
             toolCallId: tc.id,
             toolName: tc.function.name,
             input: parseToolArguments(tc.function.arguments),
-          });
+          };
+
+          // Preserve thought_signature for Google/Gemini models
+          // The AI SDK expects it in providerOptions.google.thoughtSignature format
+          if (tc.thought_signature) {
+            toolCallPart.providerOptions = {
+              google: {
+                thoughtSignature: tc.thought_signature,
+              },
+            };
+          }
+
+          contentParts.push(toolCallPart);
         }
       }
 
@@ -134,13 +200,16 @@ function toCoreMessages(
 
 type ModelName = string;
 type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
+type AISDKToolChoice = Parameters<typeof generateText>[0]["toolChoice"];
 
 /**
  * Extract all configured providers from LLMConfig with their API keys
  */
-function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; apiKey: string }> {
+function getConfiguredProviders(
+  llmConfig?: LLMConfig,
+): { name: ProviderName; apiKey: string; displayName?: string }[] {
   if (!llmConfig) return [];
-  const providers: Array<{ name: string; apiKey: string }> = [];
+  const providers: { name: ProviderName; apiKey: string; displayName?: string }[] = [];
 
   if (llmConfig.openai?.api_key) {
     providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
@@ -163,7 +232,16 @@ function getConfiguredProviders(llmConfig?: LLMConfig): Array<{ name: string; ap
   if (llmConfig.openrouter?.api_key) {
     providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
   }
-
+  if (llmConfig.ai_gateway?.api_key) {
+    providers.push({
+      name: "ai_gateway",
+      displayName: "ai gateway",
+      apiKey: llmConfig.ai_gateway.api_key,
+    });
+  }
+  if (llmConfig.groq?.api_key) {
+    providers.push({ name: "groq", apiKey: llmConfig.groq.api_key });
+  }
   providers.push({ name: "ollama", apiKey: llmConfig.ollama?.api_key ?? "" });
 
   return providers;
@@ -230,6 +308,14 @@ function selectModel(
       model = openrouter(modelId);
       break;
     }
+    case "ai_gateway": {
+      model = gateway(modelId);
+      break;
+    }
+    case "groq": {
+      model = groq(modelId);
+      break;
+    }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
   }
@@ -252,8 +338,9 @@ function buildProviderOptions(
         return {
           openai: {
             reasoningEffort,
-            store: false,
-            include: ["reasoning.encrypted_content"],
+            reasoningSummary: "auto",
+            // store: false,
+            // include: ["reasoning.encrypted_content"],
           } satisfies OpenAIResponsesProviderOptions,
         };
       }
@@ -321,8 +408,7 @@ class AISDKService implements LLMService {
   private readonly modelFetcher: ModelFetcherService;
   // Model instance cache: key = "provider:modelId"
   private readonly modelCache = new Map<string, LanguageModel>();
-  // Model info cache: key = "provider:modelId"
-  private readonly modelInfoCache = new Map<string, ModelInfo>();
+  private readonly modelInfoCache = new Map<ProviderName, readonly ModelInfo[]>();
 
   constructor(
     config: AISDKConfig,
@@ -335,13 +421,11 @@ class AISDKService implements LLMService {
       const providers = getConfiguredProviders(this.config.llmConfig);
 
       providers.forEach(({ name, apiKey }) => {
-        if (this.isProviderName(name)) {
-          if (name === "google") {
-            // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
-            process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
-          } else {
-            process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
-          }
+        if (name === "google") {
+          // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
+          process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
+        } else {
+          process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
         }
       });
     }
@@ -354,31 +438,23 @@ class AISDKService implements LLMService {
   private getProviderModels(
     providerName: ProviderName,
   ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never> {
-    const modelSource = this.providerModels[providerName];
-
-    if (!modelSource) {
-      return Effect.fail(
-        new LLMConfigurationError({
-          provider: providerName,
-          message: `Unknown provider: ${providerName}`,
-        }),
-      );
+    const cached = this.modelInfoCache.get(providerName);
+    if (cached) {
+      return Effect.succeed(cached);
     }
 
+    const modelSource = this.providerModels[providerName];
+
     if (modelSource.type === "static") {
-      // Cache static models
-      modelSource.models.forEach((model) => {
-        const cacheKey = `${providerName}:${model.id}`;
-        this.modelInfoCache.set(cacheKey, model);
-      });
+      this.modelInfoCache.set(providerName, modelSource.models);
       return Effect.succeed(modelSource.models);
     }
 
-    const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
+    const providerConfig = this.config.llmConfig?.[providerName];
     const baseUrl = modelSource.defaultBaseUrl;
 
     if (!baseUrl) {
-      console.warn(
+      void this.logger.warn(
         `[LLM Warning] Provider '${providerName}' requires dynamic model fetching but no defaultBaseUrl is defined. Skipping provider.`,
       );
       return Effect.succeed([]);
@@ -386,24 +462,23 @@ class AISDKService implements LLMService {
 
     const apiKey = providerConfig?.api_key;
 
-    return this.modelFetcher.fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey).pipe(
-      Effect.map((models) => {
-        // Cache dynamic models
-        models.forEach((model) => {
-          const cacheKey = `${providerName}:${model.id}`;
-          this.modelInfoCache.set(cacheKey, model);
-        });
-        return models;
-      }),
-    );
+    return this.modelFetcher
+      .fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey)
+      .pipe(
+        Effect.tap((models) =>
+          Effect.sync(() => {
+            this.modelInfoCache.set(providerName, models);
+          }),
+        ),
+      );
   }
 
-  /**
-   * Get model info from cache. Returns undefined if not found.
-   */
-  private getModelInfo(providerName: ProviderName, modelId: string): ModelInfo | undefined {
-    const cacheKey = `${providerName}:${modelId}`;
-    return this.modelInfoCache.get(cacheKey);
+  private async resolveModelInfo(
+    providerName: ProviderName,
+    modelId: ModelName,
+  ): Promise<ModelInfo | undefined> {
+    const models = await Effect.runPromise(this.getProviderModels(providerName));
+    return models.find((model) => model.id === modelId);
   }
 
   readonly getProvider = (
@@ -440,7 +515,7 @@ class AISDKService implements LLMService {
     );
   };
 
-  listProviders(): Effect.Effect<readonly { name: ProviderName; configured: boolean }[], never> {
+  listProviders(): Effect.Effect<readonly LLMProviderListItem[], never> {
     const configuredProviders = getConfiguredProviders(this.config.llmConfig);
     const configuredNames = new Set(configuredProviders.map((p) => p.name));
 
@@ -448,6 +523,7 @@ class AISDKService implements LLMService {
       .filter((provider): provider is ProviderName => this.isProviderName(provider))
       .map((name) => ({
         name,
+        ...(name === "ai_gateway" ? { displayName: "ai gateway" } : {}),
         configured: configuredNames.has(name),
       }));
 
@@ -461,7 +537,7 @@ class AISDKService implements LLMService {
     return Effect.tryPromise({
       try: async () => {
         const timingStart = Date.now();
-        void this.logger.info(
+        void this.logger.debug(
           `[LLM Timing] Starting non-streaming completion for ${providerName}:${options.model}`,
         );
 
@@ -472,67 +548,68 @@ class AISDKService implements LLMService {
           this.config.llmConfig,
           this.modelCache,
         );
-        void this.logger.info(
+        void this.logger.debug(
           `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
         );
 
-        // Get model info to check tool support
-        const modelInfo = this.getModelInfo(providerName, options.model);
-        const supportsTools = modelInfo?.supportsTools ?? true; // Default to true for backward compatibility
+        const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        const {
+          tools: requestedTools,
+          toolChoice: requestedToolChoice,
+          toolsDisabled,
+        } = buildToolConfig(modelInfo?.supportsTools ?? false, options.tools, options.toolChoice);
 
-        // Prepare tools for AI SDK if present and model supports them
+        // Prepare tools for AI SDK if present
         let tools: ToolSet | undefined;
-        if (options.tools && options.tools.length > 0) {
-          if (supportsTools) {
-            const toolConversionStart = Date.now();
-            tools = {};
+        if (requestedTools && requestedTools.length > 0) {
+          const toolConversionStart = Date.now();
+          tools = {};
 
-            for (const toolDef of options.tools) {
-              tools[toolDef.function.name] = tool({
-                description: toolDef.function.description,
-                inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-              });
-            }
-            void this.logger.info(
-              `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
-            );
-          } else {
-            void this.logger.info(
-              `[LLM] Model ${providerName}:${options.model} does not support tools. Skipping ${options.tools.length} tool(s).`,
-            );
-            console.warn(
-              `[LLM Warning] Model ${providerName}:${options.model} does not support tools. Tools will not be available for this request.`,
-            );
+          for (const toolDef of requestedTools) {
+            tools[toolDef.function.name] = tool({
+              description: toolDef.function.description,
+              inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+            });
           }
+          void this.logger.debug(
+            `[LLM Timing] Tool conversion (${requestedTools.length} tools) took ${Date.now() - toolConversionStart}ms`,
+          );
         }
 
         const providerOptions = buildProviderOptions(providerName, options);
 
         const messageConversionStart = Date.now();
         const coreMessages = toCoreMessages(options.messages);
-        void this.logger.info(
+        void this.logger.debug(
           `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
         );
 
         const generateTextStart = Date.now();
-        void this.logger.info(`[LLM Timing] Calling generateText...`);
+        void this.logger.debug(`[LLM Timing] Calling generateText...`);
         const result = await generateText({
           model,
           messages: coreMessages,
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(tools ? { tools } : {}),
+          ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
           ...(providerOptions ? { providerOptions } : {}),
           stopWhen: stepCountIs(MAX_AGENT_STEPS),
         });
-        void this.logger.info(
+        void this.logger.debug(
           `[LLM Timing] generateText completed in ${Date.now() - generateTextStart}ms`,
         );
         void this.logger.info(`[LLM Timing] Total completion time: ${Date.now() - timingStart}ms`);
 
+        if (toolsDisabled) {
+          void this.logger.info(
+            `Tools were provided but skipped because ${options.model} does not support tools`,
+          );
+        }
+
         const responseModel = options.model;
         const content = result.text ?? "";
-        let toolCalls: ChatCompletionResponse["toolCalls"] | undefined = undefined;
-        let usage: ChatCompletionResponse["usage"] | undefined = undefined;
+        let toolCalls: ChatCompletionResponse["toolCalls"] = undefined;
+        let usage: ChatCompletionResponse["usage"] = undefined;
 
         // Extract usage information
         if (result.usage) {
@@ -546,14 +623,30 @@ class AISDKService implements LLMService {
 
         // Extract tool calls if present
         if (result.toolCalls && result.toolCalls.length > 0) {
-          toolCalls = result.toolCalls.map((tc: TypedToolCall<ToolSet>) => ({
-            id: tc.toolCallId,
-            type: "function" as const,
-            function: {
-              name: tc.toolName,
-              arguments: JSON.stringify(tc.input ?? {}),
-            },
-          }));
+          toolCalls = result.toolCalls.map((tc: TypedToolCall<ToolSet>) => {
+            const toolCall: ToolCall = {
+              id: tc.toolCallId,
+              type: "function" as const,
+              function: {
+                name: tc.toolName,
+                arguments: JSON.stringify(tc.input ?? {}),
+              },
+            };
+
+            // Preserve thought_signature for Google/Gemini models if present
+            // The AI SDK includes it in providerMetadata.google.thoughtSignature
+            if ("providerMetadata" in tc && tc.providerMetadata) {
+              const providerMetadata = tc.providerMetadata as {
+                google?: { thoughtSignature?: string };
+              };
+              if (providerMetadata?.google?.thoughtSignature) {
+                (toolCall as { thought_signature?: string }).thought_signature =
+                  providerMetadata.google.thoughtSignature;
+              }
+            }
+
+            return toolCall;
+          });
         }
 
         const resultObj: ChatCompletionResponse = {
@@ -562,13 +655,19 @@ class AISDKService implements LLMService {
           content,
           ...(toolCalls ? { toolCalls } : {}),
           ...(usage ? { usage } : {}),
+          ...(toolsDisabled ? { toolsDisabled } : {}),
         };
         return resultObj;
       },
       catch: (error: unknown) => {
         const llmError = convertToLLMError(error, providerName);
 
-        // Log error details
+        const cleanMessage = extractCleanErrorMessage(error);
+
+        // Log clean error message at error level (user-facing)
+        void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+
+        // Log detailed error information at debug level (for debugging)
         const errorDetails: Record<string, unknown> = {
           provider: providerName,
           errorType: llmError._tag,
@@ -588,8 +687,12 @@ class AISDKService implements LLMService {
           if (e.type) errorDetails["type"] = e.type;
         }
 
-        console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
-        void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+        const truncatedRequestBody = truncateRequestBodyValues(error);
+        if (truncatedRequestBody) {
+          errorDetails["requestBodyValues"] = truncatedRequestBody;
+        }
+
+        void this.logger.debug("LLM Error Details", errorDetails);
 
         return llmError;
       },
@@ -601,7 +704,7 @@ class AISDKService implements LLMService {
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
     const timingStart = Date.now();
-    void this.logger.info(
+    void this.logger.debug(
       `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
     );
 
@@ -609,41 +712,12 @@ class AISDKService implements LLMService {
     const model = selectModel(providerName, options.model, this.config.llmConfig, this.modelCache);
     void this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`);
 
-    // Get model info to check tool support
-    const modelInfo = this.getModelInfo(providerName, options.model);
-    const supportsTools = modelInfo?.supportsTools ?? true; // Default to true for backward compatibility
-
-    // Prepare tools for AI SDK if present and model supports them
-    let tools: ToolSet | undefined;
-    if (options.tools && options.tools.length > 0) {
-      if (supportsTools) {
-        const toolConversionStart = Date.now();
-        tools = {};
-        for (const toolDef of options.tools) {
-          tools[toolDef.function.name] = tool({
-            description: toolDef.function.description,
-            inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-          });
-        }
-        void this.logger.info(
-          `[LLM Timing] Tool conversion (${options.tools.length} tools) took ${Date.now() - toolConversionStart}ms`,
-        );
-      } else {
-        void this.logger.info(
-          `[LLM] Model ${providerName}:${options.model} does not support tools. Skipping ${options.tools.length} tool(s).`,
-        );
-        console.warn(
-          `[LLM Warning] Model ${providerName}:${options.model} does not support tools. Tools will not be available for this request.`,
-        );
-      }
-    }
-
     const providerOptions = buildProviderOptions(providerName, options);
 
     // Message conversion timing
     const messageConversionStart = Date.now();
     const coreMessages = toCoreMessages(options.messages);
-    void this.logger.info(
+    void this.logger.debug(
       `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
     );
 
@@ -664,9 +738,41 @@ class AISDKService implements LLMService {
         void (async (): Promise<void> => {
           try {
             const streamTextStart = Date.now();
-            void this.logger.info(
+            void this.logger.debug(
               `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
             );
+
+            const modelInfo = await this.resolveModelInfo(providerName, options.model);
+            const {
+              tools: requestedTools,
+              toolChoice: requestedToolChoice,
+              toolsDisabled,
+            } = buildToolConfig(
+              modelInfo?.supportsTools ?? false,
+              options.tools,
+              options.toolChoice,
+            );
+
+            let tools: ToolSet | undefined;
+            if (requestedTools && requestedTools.length > 0) {
+              const toolConversionStart = Date.now();
+              tools = {};
+              for (const toolDef of requestedTools) {
+                tools[toolDef.function.name] = tool({
+                  description: toolDef.function.description,
+                  inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+                });
+              }
+              void this.logger.debug(
+                `[LLM Timing] Tool conversion (${requestedTools.length} tools) took ${Date.now() - toolConversionStart}ms`,
+              );
+            }
+
+            if (toolsDisabled) {
+              void this.logger.info(
+                `Tools were provided but skipped because ${options.model} does not support tools`,
+              );
+            }
 
             const result = streamText({
               model,
@@ -675,12 +781,15 @@ class AISDKService implements LLMService {
                 ? { temperature: options.temperature }
                 : {}),
               ...(tools ? { tools } : {}),
+              ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
               ...(providerOptions ? { providerOptions } : {}),
               abortSignal: abortController.signal,
               stopWhen: stepCountIs(MAX_AGENT_STEPS),
             });
 
-            void this.logger.info(
+            result.toUIMessageStream({ sendReasoning: true });
+
+            void this.logger.debug(
               `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
             );
 
@@ -692,6 +801,7 @@ class AISDKService implements LLMService {
                   options.reasoning_effort && options.reasoning_effort !== "disable"
                 ),
                 startTime: Date.now(),
+                toolsDisabled,
               },
               emit,
               this.logger,
@@ -735,12 +845,17 @@ class AISDKService implements LLMService {
               }
             }
 
-            console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
+            // Truncate requestBodyValues to keep only last 5 messages
+            const truncatedRequestBody = truncateRequestBodyValues(error, 5);
+            if (truncatedRequestBody) {
+              errorDetails["requestBodyValues"] = truncatedRequestBody;
+            }
 
-            void this.logger.error(
-              `LLM Error: ${llmError._tag} - ${llmError.message}`,
-              errorDetails,
-            );
+            const cleanMessage = extractCleanErrorMessage(error);
+            // Log clean error message at error level (user-facing)
+            void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+            // Log detailed error information at debug level (for debugging)
+            void this.logger.debug("LLM Error Details", errorDetails);
 
             void emit(Effect.fail(Option.some(llmError)));
 
@@ -774,9 +889,17 @@ class AISDKService implements LLMService {
           if (e.type) errorDetails["type"] = e.type;
         }
 
-        console.error(`[LLM Error] ${llmError._tag}: ${llmError.message}`, errorDetails);
+        // Truncate requestBodyValues to keep only last 5 messages
+        const truncatedRequestBody = truncateRequestBodyValues(error, 5);
+        if (truncatedRequestBody) {
+          errorDetails["requestBodyValues"] = truncatedRequestBody;
+        }
 
-        void this.logger.error(`LLM Error: ${llmError._tag} - ${llmError.message}`, errorDetails);
+        const cleanMessage = extractCleanErrorMessage(error);
+        // Log clean error message at error level (user-facing)
+        void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+        // Log detailed error information at debug level (for debugging)
+        void this.logger.debug("LLM Error Details", errorDetails);
 
         return Effect.fail(llmError);
       }),
