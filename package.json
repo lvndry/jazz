@@ -64,11 +64,11 @@
     "@ai-sdk/anthropic": "^3.0.15",
     "@ai-sdk/deepseek": "^2.0.8",
     "@ai-sdk/google": "^3.0.10",
-    "@ai-sdk/groq": "^3.0.10",
+    "@ai-sdk/groq": "^3.0.11",
     "@ai-sdk/mcp": "^1.0.10",
     "@ai-sdk/mistral": "^3.0.9",
     "@ai-sdk/openai": "^3.0.12",
-    "@ai-sdk/react": "^3.0.41",
+    "@ai-sdk/react": "^3.0.44",
     "@ai-sdk/xai": "^3.0.26",
     "@effect/platform": "^0.90.10",
     "@effect/platform-node": "^0.96.1",
@@ -76,8 +76,8 @@
     "@inquirer/prompts": "^8.2.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@openrouter/ai-sdk-provider": "^1.5.4",
-    "@tavily/core": "^0.5.11",
-    "ai": "^6.0.39",
+    "@tavily/core": "^0.5.14",
+    "ai": "^6.0.42",
     "chalk": "^4.1.2",
     "commander": "^14.0.2",
     "diff": "^8.0.3",
@@ -117,7 +117,7 @@
     "eslint-plugin-n": "^17.23.2",
     "prettier": "^3.8.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.53.0"
+    "typescript-eslint": "^8.53.1"
   },
   "engines": {
     "node": ">=22.0.0",
