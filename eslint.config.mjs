@@ -31,7 +31,7 @@ export default [
     ignores: ["**/*.test.ts"],
     languageOptions: {
       parserOptions: {
-        project: "./tsconfig.json",
+        project: ["./tsconfig.json", "./tsconfig.build.json"],
         tsconfigRootDir,
       },
       globals: {
