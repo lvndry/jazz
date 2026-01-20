@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import { FileSystemContextServiceTag } from "../../interfaces/fs";
 import {
   createCdTool,
   createFindPathTool,

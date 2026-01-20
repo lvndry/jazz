@@ -3,7 +3,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { exec } from "node:child_process";
-import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 import {
   createGitAddTool,
   createGitBranchTool,

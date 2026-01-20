@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
+
 import { autoCheckForUpdate } from "./cli/auto-update";
 import { CLIPresentationServiceLayer } from "./cli/presentation/cli-presentation-service";
 import { InkPresentationServiceLayer } from "./cli/presentation/ink-presentation-service";
@@ -127,7 +128,9 @@ export function createAppLayer(config: AppLayerConfig = {}) {
 
   // In TTY mode, keep Ink UI intact by routing all presentation output into Ink.
   // The legacy CLI presentation writes directly to stdout, which clobbers Ink rendering.
-  const presentationLayer = process.stdout.isTTY ? InkPresentationServiceLayer : CLIPresentationServiceLayer;
+  const presentationLayer = process.stdout.isTTY
+    ? InkPresentationServiceLayer
+    : CLIPresentationServiceLayer;
 
   // Create a complete layer by providing all dependencies
   return Layer.mergeAll(

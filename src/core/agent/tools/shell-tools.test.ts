@@ -2,7 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 

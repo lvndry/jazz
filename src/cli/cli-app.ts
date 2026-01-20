@@ -7,7 +7,11 @@ import {
   getAgentCommand,
   listAgentsCommand,
 } from "./commands/agent-management";
-import { googleLoginCommand, googleLogoutCommand, googleStatusCommand } from "./commands/auth/google";
+import {
+  googleLoginCommand,
+  googleLogoutCommand,
+  googleStatusCommand,
+} from "./commands/auth/google";
 import { chatWithAIAgentCommand } from "./commands/chat-agent";
 import { getConfigCommand, listConfigCommand, setConfigCommand } from "./commands/config";
 import { createAgentCommand } from "./commands/create-agent";
