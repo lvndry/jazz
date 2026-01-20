@@ -1,5 +1,4 @@
 import { Cause, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
-
 import { MAX_AGENT_STEPS } from "@/core/constants/agent";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -12,6 +11,7 @@ import type { ConversationMessages, StreamEvent, StreamingConfig } from "@/core/
 import { type ChatCompletionResponse } from "@/core/types/chat";
 import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
+import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "../context/context-window-manager";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import {
@@ -23,7 +23,6 @@ import {
   recordLLMUsage,
 } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
-import { ToolExecutor } from "./tool-executor";
 
 const MAX_RETRIES = 3;
 const STREAM_CREATION_TIMEOUT = Duration.minutes(2);

@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { generateDiff } from "@/core/utils/diff-utils";
 import {
   defineTool,
   formatApprovalRequiredDescription,
@@ -117,10 +118,37 @@ export function createExecuteWriteFileTool(): Tool<
             }
           }
 
+          // Check if file exists and read original content for diff
+          const fileExists = yield* fs
+            .exists(target)
+            .pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+          let originalContent = "";
+          const isNewFile = !fileExists;
+
+          if (fileExists) {
+            try {
+              originalContent = yield* fs.readFileString(target);
+            } catch {
+              // If we can't read, treat as new file
+            }
+          }
+
           // Write the file content
           yield* fs.writeFileString(target, args.content);
 
-          return { success: true, result: `File written: ${target}` };
+          // Generate diff for terminal output
+          const diff = generateDiff(originalContent, args.content, target, { isNewFile });
+
+          return {
+            success: true,
+            result: {
+              path: target,
+              message: isNewFile ? `File created: ${target}` : `File written: ${target}`,
+              isNewFile,
+              diff,
+            },
+          };
         } catch (error) {
           return {
             success: false,

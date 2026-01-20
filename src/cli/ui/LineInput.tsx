@@ -1,6 +1,5 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useRef, useState } from "react";
-
 import { parseInput, type KeyInfo } from "./escape-sequence-parser";
 import { findNextWordBoundary, findPrevWordBoundary } from "./text-utils";
 
@@ -224,9 +223,10 @@ export function LineInput({
         {value.length > 0 ? renderedValue : placeholder ? renderedPlaceholder : renderedValue}
       </Text>
       {focus && value.length === 0 && (
-        <Text dimColor>{SHORTCUTS_HINT}</Text>
+        <Box marginTop={1}>
+          <Text dimColor>{SHORTCUTS_HINT}</Text>
+        </Box>
       )}
     </Box>
   );
 }
-

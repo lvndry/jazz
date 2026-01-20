@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { Effect } from "effect";
 import { createCLIApp } from "./cli/cli-app";
 
@@ -16,5 +14,5 @@ function main(): Effect.Effect<void, never> {
 
 Effect.runPromise(main()).catch((error) => {
   console.error("Fatal error:", error);
-  process.exit(1);
+  throw error;
 });

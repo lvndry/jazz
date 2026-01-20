@@ -1,11 +1,11 @@
 import { FileSystem } from "@effect/platform";
+import { auth, type calendar_v3 } from "@googleapis/calendar";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Either } from "effect";
-import { google, type calendar_v3 } from "googleapis";
-import type { TerminalService } from "@/core/interfaces/terminal";
-import { CalendarAuthenticationError, CalendarOperationError } from "@/core/types";
-import { CalendarService } from "@/core/interfaces/calendar";
 import { CalendarServiceResource } from "./calendar";
+import { CalendarService } from "../core/interfaces/calendar";
+import type { TerminalService } from "../core/interfaces/terminal";
+import { CalendarAuthenticationError, CalendarOperationError } from "../core/types";
 
 // Helper constant for test tokens with required scopes
 const TEST_TOKEN_WITH_SCOPES = JSON.stringify({
@@ -17,7 +17,7 @@ const TEST_TOKEN_WITH_SCOPES = JSON.stringify({
 describe("CalendarService", () => {
   let mockFileSystem: FileSystem.FileSystem;
   let mockCalendar: calendar_v3.Calendar;
-  let mockOAuthClient: InstanceType<typeof google.auth.OAuth2>;
+  let mockOAuthClient: InstanceType<typeof auth.OAuth2>;
   let mockRequireCredentials: () => Effect.Effect<void, CalendarAuthenticationError>;
   let mockTerminal: TerminalService;
   let calendarService: CalendarService;
@@ -44,7 +44,7 @@ describe("CalendarService", () => {
       get credentials() {
         return credentials;
       },
-    } as unknown as InstanceType<typeof google.auth.OAuth2>;
+    } as unknown as InstanceType<typeof auth.OAuth2>;
 
     // Mock Calendar API client
     mockCalendar = {
@@ -75,6 +75,7 @@ describe("CalendarService", () => {
       debug: mock(() => Effect.void),
       heading: mock(() => Effect.void),
       list: mock(() => Effect.void),
+      updateLog: mock(() => Effect.void),
       ask: mock(() => Effect.succeed("")),
       password: mock(() => Effect.succeed("")),
       select: mock(() => Effect.succeed("")),

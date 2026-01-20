@@ -1,9 +1,10 @@
-import { Effect } from "effect";
 import * as os from "os";
+import { Effect } from "effect";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { CODER_PROMPT_V1 } from "./prompts/coder/v1";
 import { DEFAULT_PROMPT_V2 } from "./prompts/default/v2";
 import { GMAIL_PROMPT_V2 } from "./prompts/gmail/v2";
+import { SKILLS_INSTRUCTIONS } from "./prompts/shared";
 import { SUMMARIZER_PROMPT_V1 } from "./prompts/summarizer/v1";
 
 export interface AgentPromptTemplate {
@@ -20,6 +21,7 @@ export interface AgentPromptOptions {
   readonly conversationHistory?: ChatMessage[];
   readonly toolNames?: readonly string[];
   readonly availableTools?: Record<string, string>;
+  readonly knownSkills?: readonly { readonly name: string; readonly description: string; readonly path: string }[];
 }
 
 export class AgentPromptBuilder {
@@ -121,6 +123,29 @@ export class AgentPromptBuilder {
           .replace("{currentDate}", currentDate)
           .replace("{systemInfo}", systemInfo)
           .replace("{userInfo}", userInfo);
+
+        if (options.knownSkills && options.knownSkills.length > 0) {
+          const skillsXml = options.knownSkills
+            .map(s => `  <skill>\n    <name>${s.name}</name>\n    <description>${s.description}</description>\n  </skill>`)
+            .join("\n");
+
+          // Append available skills to system prompt
+          /*
+          <available_skills>
+            <skill>
+              <name>pdf-processing</name>
+              <description>Extracts text and tables from PDF files, fills forms, merges documents.</description>
+            </skill>
+          </available_skills>
+           */
+          const skillsSection = `
+${SKILLS_INSTRUCTIONS}
+<available_skills>
+${skillsXml}
+</available_skills>
+`;
+          return systemPrompt + skillsSection;
+        }
 
         return systemPrompt;
       }.bind(this),

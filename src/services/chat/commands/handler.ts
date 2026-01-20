@@ -1,5 +1,6 @@
-import { Effect } from "effect";
 import { spawn } from "node:child_process";
+import { Effect } from "effect";
+import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
 import { store } from "@/cli/ui/App";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
@@ -19,6 +20,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
@@ -43,6 +45,7 @@ export function handleSpecialCommand(
   | AgentConfigService
   | PresentationService
   | ToolRequirements
+  | SkillService
 > {
   const { agent, conversationId, conversationHistory, sessionId } = context;
 
@@ -79,6 +82,9 @@ export function handleSpecialCommand(
 
       case "copy":
         return yield* handleCopyCommand(terminal, conversationHistory);
+
+      case "skills":
+        return yield* handleSkillsCommand(terminal);
 
       case "clear":
         return yield* handleClearCommand(terminal, agent);
@@ -130,6 +136,7 @@ function handleHelpCommand(
     yield* terminal.log("   /clear           - Clear the screen");
     yield* terminal.log("   /compact         - Summarize background history to save tokens");
     yield* terminal.log("   /copy            - Copy the last agent response to clipboard");
+    yield* terminal.log("   /skills          - List and view available skills");
     yield* terminal.log("   /help            - Show this help message");
     yield* terminal.log("   /exit            - Exit the chat");
     yield* terminal.log("");
@@ -355,6 +362,11 @@ function handleSwitchCommand(
       default: currentAgent.id,
     });
 
+    // User cancelled selection (Escape key)
+    if (!selectedAgentId) {
+      return { shouldContinue: true };
+    }
+
     // If user selected the same agent, do nothing
     if (selectedAgentId === currentAgent.id) {
       yield* terminal.info("Already using this agent.");
@@ -550,6 +562,54 @@ function handleUnknownCommand(
     yield* terminal.error(`Unknown command: /${args.join(" ")}`);
     yield* terminal.info("Type '/help' to see available commands.");
     yield* terminal.log("");
+    return { shouldContinue: true };
+  });
+}
+
+/**
+ * Handle /skills command - List and view skills
+ */
+function handleSkillsCommand(
+  terminal: TerminalService,
+): Effect.Effect<CommandResult, Error, SkillService> {
+  return Effect.gen(function* () {
+    const skillService = yield* SkillServiceTag;
+    const skills = yield* skillService.listSkills();
+
+    if (skills.length === 0) {
+      yield* terminal.warn("No skills found in ~/.jazz or local folder.");
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    // Sort by name
+    const sortedSkills = [...skills].sort((a, b) => a.name.localeCompare(b.name));
+
+    const choices = sortedSkills.map((s) => ({
+      name: `${s.name} - ${s.description}`,
+      value: s.name,
+    }));
+
+    const selectedSkillName = yield* terminal.select<string>("Select a skill to view:", {
+      choices,
+    });
+
+    // User cancelled selection (Escape key)
+    if (!selectedSkillName) {
+      return { shouldContinue: true };
+    }
+
+    const skillContent = yield* skillService.loadSkill(selectedSkillName);
+
+    yield* terminal.heading(`📜 Skill: ${skillContent.metadata.name}`);
+    if (skillContent.metadata.description) {
+      yield* terminal.log(skillContent.metadata.description);
+    }
+    yield* terminal.log("");
+    // Use formatMarkdown to make it pretty
+    yield* terminal.log(formatMarkdown(skillContent.core));
+    yield* terminal.log("");
+
     return { shouldContinue: true };
   });
 }

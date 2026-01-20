@@ -14,7 +14,6 @@ export const LiveResponse = React.memo(function LiveResponse({
 }): React.ReactElement {
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>
-      {/* Minimal header with spinner */}
       <Box>
         <Text color="magenta">
           <Spinner type="dots" />
@@ -26,24 +25,22 @@ export const LiveResponse = React.memo(function LiveResponse({
         <Text dimColor> is responding…</Text>
       </Box>
 
-      {/* Subtle separator line */}
       <Box marginTop={0}>
         <Text dimColor>{"─".repeat(40)}</Text>
       </Box>
 
-      {/* Content area - no borders for easy copying */}
+      {stream.reasoning && (
+        <Box marginTop={1} paddingLeft={1} flexDirection="column">
+          <Text dimColor italic>
+            🧠 Reasoning
+          </Text>
+          <Text dimColor>{stream.reasoning}</Text>
+        </Box>
+      )}
+
       <Box marginTop={1} paddingLeft={1}>
         <Text>{stream.text}</Text>
       </Box>
-
-    {stream.reasoning && (
-      <Box marginTop={2} paddingLeft={1} flexDirection="column">
-        <Text dimColor italic>
-          🧠 Reasoning
-        </Text>
-        <Text dimColor>{stream.reasoning}</Text>
-      </Box>
-    )}
     </Box>
   );
 });

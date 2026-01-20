@@ -1,7 +1,7 @@
-import { Effect, Layer, Option, Ref } from "effect";
 import { appendFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Effect, Layer, Option, Ref } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { jsonBigIntReplacer } from "@/core/utils/logging-helpers";
 import { isInstalledGlobally } from "@/core/utils/runtime-detection";
@@ -34,7 +34,9 @@ class LogWriteQueue {
       })
       .catch((error) => {
         // Log errors to stderr but don't throw - logging should not break the app
-        console.error(`[LogWriteQueue] Failed to write log: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(
+          `[LogWriteQueue] Failed to write log: ${error instanceof Error ? error.message : String(error)}`,
+        );
       });
   }
 

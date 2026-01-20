@@ -1,5 +1,4 @@
 import { Effect, Fiber, Option, Ref, Schedule } from "effect";
-
 import { MAX_AGENT_STEPS } from "@/core/constants/agent";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -11,6 +10,7 @@ import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-regi
 import type { ConversationMessages } from "@/core/types";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
+import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "../context/context-window-manager";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import {
@@ -21,7 +21,6 @@ import {
   recordLLMUsage,
 } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
-import { ToolExecutor } from "./tool-executor";
 
 const MAX_RETRIES = 3;
 

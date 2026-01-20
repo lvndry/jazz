@@ -128,6 +128,11 @@ export function editAgentCommand(
       ],
     });
 
+    if (!fieldToUpdate) {
+      yield* terminal.info("Edit cancelled.");
+      return;
+    }
+
     // Get logger and MCP manager for use throughout
     const logger = yield* LoggerServiceTag;
     const mcpManager = yield* MCPServerManagerTag;
@@ -461,6 +466,11 @@ async function promptForAgentUpdates(
           : {}),
       }),
     );
+
+    if (!agentType) {
+      throw new Error("Edit cancelled");
+    }
+
     answers.agentType = agentType;
   }
 
@@ -474,6 +484,10 @@ async function promptForAgentUpdates(
         })),
       }),
     );
+
+    if (!llmProvider) {
+      throw new Error("Edit cancelled");
+    }
 
     answers.llmProvider = llmProvider;
     const providerDisplayName =
@@ -531,6 +545,11 @@ async function promptForAgentUpdates(
         })),
       }),
     );
+
+    if (!llmModel) {
+      throw new Error("Edit cancelled");
+    }
+
     answers.llmModel = llmModel;
 
     // Check if the selected model is a reasoning model
@@ -562,6 +581,11 @@ async function promptForAgentUpdates(
         })),
       }),
     );
+
+    if (!llmModel) {
+      throw new Error("Edit cancelled");
+    }
+
     answers.llmModel = llmModel;
 
     // Check if the selected model is a reasoning model
@@ -671,7 +695,7 @@ async function promptForReasoningEffort(
   terminal: TerminalService,
   currentAgent: Agent,
 ): Promise<"disable" | "low" | "medium" | "high"> {
-  return Effect.runPromise(
+  const result = await Effect.runPromise(
     terminal.select<"disable" | "low" | "medium" | "high">(
       "What reasoning effort level would you like?",
       {
@@ -688,4 +712,10 @@ async function promptForReasoningEffort(
       },
     ),
   );
+
+  if (!result) {
+    throw new Error("Edit cancelled");
+  }
+
+  return result;
 }

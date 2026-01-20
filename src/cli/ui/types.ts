@@ -42,4 +42,6 @@ export interface PromptState<T = unknown> {
   message: string;
   options?: PromptOptions<T>;
   resolve: (value: T) => void;
+  /** Optional reject callback for cancellation (e.g., Escape key) */
+  reject?: (reason?: unknown) => void;
 }

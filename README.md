@@ -44,6 +44,17 @@ Git, Gmail, filesystem, shell, web search, HTTP, PDF, and more. Just create an a
 
 **Plus MCP Support**: Connect to any [Model Context Protocol](https://modelcontextprotocol.io/) server — Notion, MongoDB, GitHub, Slack, PostgreSQL, and hundreds more. Your agents can use any MCP-compatible tool.
 
+### 🧠 Agent Skills, Built for Complex Workflows
+
+**Jazz agents can learn and follow specialized procedures.**
+
+[Agent Skills](https://agentskills.io/home) provides a way to give agents detailed, multi-step instructions for specific domains without overloading their context window.
+
+- **Progressive Disclosure**: Agents only load the instructions they need when they need them.
+- **Smart Discovery**: Agents automatically "see" available skills and decide which one to use based on your request.
+- **Local & Global**: Skills can be stored globally in `~/.jazz` or locally in your project.
+- **Interactive Inspection**: Use the `/skills` command during chat to browse and read available skills yourself.
+
 ### 🧠 Multi LLM, Model Agnostic
 
 Switch between OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama, Openrouter and more, even mid-conversation. Your agents aren't locked to one provider.
@@ -98,18 +109,28 @@ jazz agent list
 jazz agent chat <agent-name>
 ```
 
+### 4. Update Jazz
+
+Keep Jazz up to date with the latest features and improvements:
+
+```bash
+jazz update
+```
+
 ---
 
 ## 📚 Usage Highlights
 
-| Command                  | Description                  |
-| ------------------------ | ---------------------------- |
-| `jazz agent create`      | Create a new agent           |
-| `jazz agent chat <name>` | Start chatting with an agent |
-| `jazz agent list`        | List all your agents         |
-| `jazz agent edit <id>`   | Edit an existing agent       |
-| `jazz config show`       | View your configuration      |
-| `jazz auth gmail login`  | Authenticate with Gmail      |
+| Command                  | Description                       |
+| ------------------------ | --------------------------------- |
+| `jazz agent create`      | Create a new agent                |
+| `jazz agent chat <name>` | Start chatting with an agent      |
+| `jazz agent list`        | List all your agents              |
+| `jazz agent edit <id>`   | Edit an existing agent            |
+| `jazz config show`       | View your configuration           |
+| `jazz auth gmail login`  | Authenticate with Google (Gmail)  |
+| `jazz update`            | Update Jazz to the latest version |
+| `/skills` (in chat)      | List and view available skills    |
 
 ---
 

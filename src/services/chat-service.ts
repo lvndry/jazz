@@ -11,25 +11,26 @@ import { MCPServerManagerTag, type MCPServerManager } from "@/core/interfaces/mc
 import { type PresentationService } from "@/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import {
-    ToolRegistryTag,
-    type ToolRegistry,
-    type ToolRequirements,
+  ToolRegistryTag,
+  type ToolRegistry,
+  type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import type { SkillService } from "@/core/skills/skill-service";
 import {
-    LLMAuthenticationError,
-    LLMRateLimitError,
-    LLMRequestError,
+  LLMAuthenticationError,
+  LLMRateLimitError,
+  LLMRequestError,
 } from "@/core/types/errors";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
 import {
-    generateConversationId,
-    generateSessionId,
-    initializeSession,
-    logMessageToSession,
-    setupAgent,
-    updateWorkingDirectoryInStore,
+  generateConversationId,
+  generateSessionId,
+  initializeSession,
+  logMessageToSession,
+  setupAgent,
+  updateWorkingDirectoryInStore,
 } from "./chat/session";
 
 /**
@@ -55,6 +56,7 @@ export class ChatServiceImpl implements ChatService {
     | PresentationService
     | MCPServerManager
     | ToolRequirements
+    | SkillService
   > {
     return Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;

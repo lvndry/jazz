@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-
 import { MAX_AGENT_STEPS } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -13,13 +12,14 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import type { ConversationMessages, StreamingConfig } from "../types";
-import { type Agent } from "../types";
+import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
+import type { ConversationMessages, StreamingConfig } from "../types";
+import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
 import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
@@ -46,10 +46,12 @@ function initializeAgentRun(
   | AgentConfigService
   | MCPServerManager
   | TerminalService
+  | SkillService
 > {
   return Effect.gen(function* () {
     const { agent, userInput, conversationId } = options;
     const toolRegistry = yield* ToolRegistryTag;
+    const skillService = yield* SkillServiceTag;
 
     const actualConversationId = conversationId || `${Date.now()}`;
     const history: ChatMessage[] = options.conversationHistory || [];
@@ -65,6 +67,11 @@ function initializeAgentRun(
       reasoningEffort: agent.config.reasoningEffort ?? "disable",
       maxIterations: options.maxIterations ?? MAX_AGENT_STEPS,
     });
+
+    // Level 1: List all available skills (metadata only)
+    const relevantSkills = yield* skillService.listSkills();
+    const logger = yield* LoggerServiceTag;
+    yield* logger.debug(`[Skills] Discovered ${relevantSkills.length} skills: ${relevantSkills.map(s => s.name).join(", ")}`);
 
     // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
@@ -85,9 +92,15 @@ function initializeAgentRun(
       ),
     );
 
+    // Always include skill tools so agents can use skills
+    const SKILL_TOOLS = ["load_skill", "load_skill_section"];
+
+    // Combine agent tools with skill tools (skill tools always available)
+    const combinedToolNames = [...new Set([...agentToolNames, ...SKILL_TOOLS])];
+
     // Get and validate tools (after MCP tools are registered)
     const allToolNames = yield* toolRegistry.listTools();
-    const invalidTools = agentToolNames.filter((toolName) => !allToolNames.includes(toolName));
+    const invalidTools = combinedToolNames.filter((toolName) => !allToolNames.includes(toolName));
     if (invalidTools.length > 0) {
       return yield* Effect.fail(
         new Error(`Agent ${agent.id} references non-existent tools: ${invalidTools.join(", ")}`),
@@ -95,8 +108,8 @@ function initializeAgentRun(
     }
 
     // Expand tool names to include approval execute tools
-    const expandedToolNameSet = new Set(agentToolNames);
-    for (const toolName of agentToolNames) {
+    const expandedToolNameSet = new Set(combinedToolNames);
+    for (const toolName of combinedToolNames) {
       const tool = yield* toolRegistry.getTool(toolName);
       if (tool.approvalExecuteToolName) {
         expandedToolNameSet.add(tool.approvalExecuteToolName);
@@ -123,6 +136,7 @@ function initializeAgentRun(
       conversationHistory: history,
       toolNames: expandedToolNames,
       availableTools,
+      knownSkills: relevantSkills,
     });
 
     const toolContext: ToolExecutionContext = {
@@ -141,6 +155,7 @@ function initializeAgentRun(
       provider,
       model,
       connectedMCPServers,
+      knownSkills: relevantSkills,
     };
   });
 }
@@ -167,7 +182,9 @@ export class AgentRunner {
     | LoggerService
     | AgentConfigService
     | PresentationService
+
     | ToolRequirements
+    | SkillService
   > {
     return AgentRunner.run({ ...options, internal: true });
   }
@@ -189,6 +206,7 @@ export class AgentRunner {
     | AgentConfigService
     | PresentationService
     | ToolRequirements
+    | SkillService
   > {
     return Effect.gen(function* () {
       // Get services
@@ -203,9 +221,9 @@ export class AgentRunner {
       const streamDetection = options.internal
         ? { shouldStream: false, reason: "Internal sub-agent run" }
         : shouldEnableStreaming(
-            appConfig,
-            options.stream !== undefined ? { stream: options.stream } : {},
-          );
+          appConfig,
+          options.stream !== undefined ? { stream: options.stream } : {},
+        );
 
       // Get display config with defaults
       const displayConfig: DisplayConfig = {
@@ -276,8 +294,10 @@ export class AgentRunner {
     | ToolRegistry
     | LoggerService
     | AgentConfigService
+
     | PresentationService
     | ToolRequirements
+    | SkillService
   > {
     const runRecursive = (runOpts: {
       agent: Agent;

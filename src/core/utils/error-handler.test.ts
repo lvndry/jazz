@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "bun:test";
 import { Effect, Layer } from "effect";
-import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { formatError, handleError } from "./error-handler";
+import { TerminalServiceTag, type TerminalService } from "../interfaces/terminal";
 import {
   AgentAlreadyExistsError,
   AgentNotFoundError,
   ConfigurationError,
   ValidationError,
-} from "@/core/types/errors";
-import { formatError, handleError } from "./error-handler";
+} from "../types/errors";
 
 describe("Error Handler", () => {
   it("should format AgentNotFoundError with actionable suggestions", () => {

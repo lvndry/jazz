@@ -43,3 +43,4 @@ jazz.config.*.json
 # IDE
 CLAUDE.md
 .kiro/
+.agent/

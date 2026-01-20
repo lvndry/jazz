@@ -1,11 +1,11 @@
 import { FileSystem } from "@effect/platform";
+import { auth, type gmail_v1 } from "@googleapis/gmail";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Either } from "effect";
-import { google, type gmail_v1 } from "googleapis";
-import type { TerminalService } from "@/core/interfaces/terminal";
-import { GmailAuthenticationError, GmailOperationError } from "@/core/types";
-import { GmailService } from "@/core/interfaces/gmail";
 import { GmailServiceResource } from "./gmail";
+import { GmailService } from "../core/interfaces/gmail";
+import type { TerminalService } from "../core/interfaces/terminal";
+import { GmailAuthenticationError, GmailOperationError } from "../core/types";
 
 // Helper constant for test tokens with required scopes
 const TEST_TOKEN_WITH_SCOPES = JSON.stringify({
@@ -17,7 +17,7 @@ const TEST_TOKEN_WITH_SCOPES = JSON.stringify({
 describe("GmailService", () => {
   let mockFileSystem: FileSystem.FileSystem;
   let mockGmail: gmail_v1.Gmail;
-  let mockOAuthClient: InstanceType<typeof google.auth.OAuth2>;
+  let mockOAuthClient: InstanceType<typeof auth.OAuth2>;
   let mockRequireCredentials: () => Effect.Effect<void, GmailAuthenticationError>;
   let mockTerminal: TerminalService;
   let gmailService: GmailService;
@@ -44,7 +44,7 @@ describe("GmailService", () => {
       get credentials() {
         return credentials;
       },
-    } as unknown as InstanceType<typeof google.auth.OAuth2>;
+    } as unknown as InstanceType<typeof auth.OAuth2>;
 
     // Mock Gmail API client
     mockGmail = {
@@ -83,6 +83,7 @@ describe("GmailService", () => {
       heading: mock(() => Effect.void),
       list: mock(() => Effect.void),
       clear: mock(() => Effect.void),
+      updateLog: mock(() => Effect.void),
       ask: mock(() => Effect.succeed("")),
       password: mock(() => Effect.succeed("")),
       select: mock(() => Effect.succeed("")),
