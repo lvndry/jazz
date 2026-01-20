@@ -319,6 +319,10 @@ async function promptForAgentInfo(
     }),
   );
 
+  if (!llmProvider) {
+    throw new Error("Agent creation cancelled");
+  }
+
   // STEP 2.A: Check if API key exists for the selected provider
   const providerName = llmProvider;
   const providerDisplayName =
@@ -383,11 +387,15 @@ async function promptForAgentInfo(
     }),
   );
 
+  if (!llmModel) {
+    throw new Error("Agent creation cancelled");
+  }
+
   // Check if it's a reasoning model and ask for effort if needed
   const selectedModel = chosenProviderInfo.supportedModels.find((m) => m.id === llmModel);
   let reasoningEffort: "disable" | "low" | "medium" | "high" | undefined;
   if (selectedModel?.isReasoningModel) {
-    reasoningEffort = await Effect.runPromise(
+    const selectedEffort = await Effect.runPromise(
       terminal.select<"disable" | "low" | "medium" | "high">(
         "What reasoning effort level would you like?",
         {
@@ -404,6 +412,10 @@ async function promptForAgentInfo(
         },
       ),
     );
+    if (!selectedEffort) {
+      throw new Error("Agent creation cancelled");
+    }
+    reasoningEffort = selectedEffort;
   }
 
   // STEP 3: Ask for agent type
@@ -413,6 +425,10 @@ async function promptForAgentInfo(
       default: "default",
     }),
   );
+
+  if (!agentType) {
+    throw new Error("Agent creation cancelled");
+  }
 
   // STEP 4: Ask for name
   const name = await Effect.runPromise(

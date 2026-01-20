@@ -22,7 +22,8 @@
 - [ ] Trigger system (schedule, file, webhook, manual) — hooks/cronjobs. Might require being able to execute jazz tasks
 - [ ] Memory architecture — define long-term memory (storage, schema, retrieval) for
       agent personalization.
-- [ ] Skills - Similar to Claude Skills, but for Jazz
+- [x] Skills - Similar to Claude Skills, but for Jazz
+- [x] When editing a file, part of the output should be the diff of the file
 
 ## CLI Feature Depth & Docs
 

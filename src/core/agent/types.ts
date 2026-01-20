@@ -149,4 +149,5 @@ export interface AgentRunContext {
   readonly provider: ProviderName;
   readonly model: string;
   readonly connectedMCPServers: readonly string[];
+  readonly knownSkills: readonly { readonly name: string; readonly description: string; readonly path: string }[];
 }

@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { AVAILABLE_PROVIDERS, ProviderName } from "../../core/constants/models";
 import { AgentConfigService, AgentConfigServiceTag } from "../../core/interfaces/agent-config";
-import { LLMServiceTag } from "../../core/interfaces/llm";
+import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
 import { LLMAuthenticationError, LLMConfigurationError } from "../../core/types/errors";
 import type { AppConfig, LLMConfig } from "../../core/types/index";
 import { AgentConfigServiceImpl } from "../config";
@@ -37,6 +37,25 @@ describe("AI SDK Service - Unit Tests", () => {
     );
   }
 
+  function runWithTestLayers<A, E>(
+    program: Effect.Effect<A, E, LLMService>,
+    configLayer: Layer.Layer<AgentConfigService, never, FileSystem.FileSystem>,
+  ): Promise<A> {
+    // `NodeFileSystem.layer`'s exported type can be overly-generic, which can
+    // cause `Effect.provide(...)` to infer `any` for the remaining requirements.
+    // Narrow it here so the program environment resolves to `never`.
+    const fsLayer = NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>;
+
+    const runnable = program.pipe(
+      Effect.provide(createAISDKServiceLayer()),
+      Effect.provide(configLayer),
+      Effect.provide(createLoggerLayer()),
+      Effect.provide(fsLayer),
+    ) as Effect.Effect<A, E, never>;
+
+    return Effect.runPromise(runnable);
+  }
+
   describe("Provider Configuration", () => {
     it("should list all providers with correct configured status", async () => {
       const testEffect = Effect.gen(function* () {
@@ -49,14 +68,7 @@ describe("AI SDK Service - Unit Tests", () => {
         openrouter: { api_key: "sk-or-test" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       // Should include all providers
       const providerNames = result.map((p) => p.name);
@@ -83,14 +95,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const configLayer = createTestConfigLayer({});
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       const ollamaProvider = result.find((p) => p.name === "ollama");
       expect(ollamaProvider?.configured).toBe(true);
@@ -104,14 +109,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const configLayer = createTestConfigLayer({});
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       const configuredProviders = result.filter((p) => p.configured);
       expect(configuredProviders.length).toBe(1); // Only Ollama
@@ -199,14 +197,7 @@ describe("AI SDK Service - Unit Tests", () => {
         openai: { api_key: "sk-test" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       expect(result.name).toBe("openai");
       expect(result.supportedModels.length).toBeGreaterThan(0);
@@ -231,12 +222,8 @@ describe("AI SDK Service - Unit Tests", () => {
         openrouter: { api_key: "sk-test" },
       });
 
-      const result = await Effect.runPromise(
+      const result = await runWithTestLayers(
         testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
           Effect.catchAll(() =>
             Effect.succeed({
               name: "openrouter",
@@ -245,6 +232,7 @@ describe("AI SDK Service - Unit Tests", () => {
             }),
           ),
         ),
+        configLayer,
       );
 
       expect(result.name).toBe("openrouter");
@@ -267,14 +255,7 @@ describe("AI SDK Service - Unit Tests", () => {
         openai: { api_key: "sk-test-key" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       expect(result).toBe("authenticated");
     });
@@ -289,14 +270,9 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const configLayer = createTestConfigLayer({});
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-          Effect.catchAll((error) => Effect.succeed(error)),
-        ),
+      const result = await runWithTestLayers(
+        testEffect.pipe(Effect.catchAll((error) => Effect.succeed(error))),
+        configLayer,
       );
 
       expect(result).toBeInstanceOf(LLMAuthenticationError);
@@ -317,14 +293,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const configLayer = createTestConfigLayer({});
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       expect(result).toBe("authenticated");
     });
@@ -349,14 +318,7 @@ describe("AI SDK Service - Unit Tests", () => {
         openai: { api_key: "sk-openai-test" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       expect(result).toBe("sk-openai-test");
     });
@@ -371,14 +333,7 @@ describe("AI SDK Service - Unit Tests", () => {
         openrouter: { api_key: "sk-or-test" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       expect(result).toBe("sk-or-test");
     });
@@ -393,14 +348,7 @@ describe("AI SDK Service - Unit Tests", () => {
         google: { api_key: "sk-google-test" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       expect(result).toBe("sk-google-test");
     });
@@ -423,14 +371,7 @@ describe("AI SDK Service - Unit Tests", () => {
         google: { api_key: "sk-google" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       expect(result.openai).toBe("sk-openai");
       expect(result.openrouter).toBe("sk-openrouter");
@@ -451,14 +392,7 @@ describe("AI SDK Service - Unit Tests", () => {
         openai: { api_key: "sk-test" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       expect(result.length).toBeGreaterThan(0);
       const openaiModels = PROVIDER_MODELS.openai;
@@ -478,14 +412,7 @@ describe("AI SDK Service - Unit Tests", () => {
         openai: { api_key: "sk-test" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       for (const model of result) {
         expect(model.id).toBeDefined();
@@ -508,14 +435,7 @@ describe("AI SDK Service - Unit Tests", () => {
         openai: { api_key: "sk-test" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       expect(result.defaultModel).toBe(result.firstModel);
       expect(result.defaultModel.length).toBeGreaterThan(0);
@@ -578,14 +498,7 @@ describe("AI SDK Service - Unit Tests", () => {
         openai: { api_key: "sk-test" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       expect(result).toBe(true);
     });
@@ -600,14 +513,9 @@ describe("AI SDK Service - Unit Tests", () => {
 
       // The service layer should fail if no providers are configured
       // But Ollama is always available, so this should actually succeed
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-          Effect.catchAll((error) => Effect.succeed(error)),
-        ),
+      const result = await runWithTestLayers(
+        testEffect.pipe(Effect.catchAll((error) => Effect.succeed(error))),
+        configLayer,
       );
 
       // With Ollama as fallback, this should succeed, not fail
@@ -625,14 +533,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const configLayer = createTestConfigLayer({});
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       // Check that all providers from PROVIDER_MODELS are listed
       const expectedProviders = Object.keys(PROVIDER_MODELS) as ProviderName[];
@@ -652,14 +553,7 @@ describe("AI SDK Service - Unit Tests", () => {
         openai: { api_key: "sk-test" },
       });
 
-      const result = await Effect.runPromise(
-        testEffect.pipe(
-          Effect.provide(createAISDKServiceLayer()),
-          Effect.provide(configLayer),
-          Effect.provide(createLoggerLayer()),
-          Effect.provide(NodeFileSystem.layer),
-        ),
-      );
+      const result = await runWithTestLayers(testEffect, configLayer);
 
       // Should find OpenAI regardless of case in config
       const openaiProvider = result.find((p) => p.name === "openai");

@@ -1,5 +1,6 @@
 import type { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
+import type { SkillService } from "@/core/skills/skill-service";
 import type { Agent } from "@/core/types/index";
 import { AgentConfigServiceTag } from "./agent-config";
 import type { AgentService } from "./agent-service";
@@ -45,6 +46,7 @@ export interface ChatService {
     | LLMService
     | PresentationService
     | ToolRequirements
+    | SkillService
   >;
 }
 

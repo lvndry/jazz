@@ -58,3 +58,16 @@ export const CONTEXT_AWARENESS = `
 4. **Session Context**: Previous commands, user preferences, working memory
 5. **Domain Context**: Type of task (development, DevOps, data, communication)
 `;
+
+export const SKILLS_INSTRUCTIONS = `
+## Skills
+
+Skills are specialized instruction sets that guide you through complex, multi-step workflows. Each skill contains detailed procedures, best practices, and templates for specific tasks.
+
+**How to use skills:**
+1. When a user request matches a skill's description, use the \`load_skill\` tool to load the full instructions
+2. Follow the loaded skill's workflow step-by-step
+3. Skills may reference additional resources you can load with \`load_skill_section\`
+
+**IMPORTANT:** If a skill matches the user's request, ALWAYS load and follow it before attempting to solve the task with general knowledge. Skills contain tested, proven approaches.
+`;

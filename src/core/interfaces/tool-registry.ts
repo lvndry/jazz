@@ -1,11 +1,12 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type z from "zod";
+import type { SkillService } from "@/core/skills/skill-service";
 import type {
-  ToolCategory,
-  ToolDefinition,
-  ToolExecutionContext,
-  ToolExecutionResult,
+    ToolCategory,
+    ToolDefinition,
+    ToolExecutionContext,
+    ToolExecutionResult,
 } from "../types";
 import type { AgentConfigService } from "./agent-config";
 import type { CalendarService } from "./calendar";
@@ -30,7 +31,8 @@ export type ToolRequirements =
   | AgentConfigService
   | LoggerService
   | MCPServerManager
-  | TerminalService;
+  | TerminalService
+  | SkillService;
 
 export interface Tool<R = never> {
   readonly name: string;

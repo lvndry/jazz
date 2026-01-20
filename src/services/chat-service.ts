@@ -15,7 +15,12 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
+import type { SkillService } from "@/core/skills/skill-service";
+import {
+  LLMAuthenticationError,
+  LLMRateLimitError,
+  LLMRequestError,
+} from "@/core/types/errors";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
@@ -51,6 +56,7 @@ export class ChatServiceImpl implements ChatService {
     | PresentationService
     | MCPServerManager
     | ToolRequirements
+    | SkillService
   > {
     return Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;
