@@ -1,7 +1,7 @@
 import http from "node:http";
 import { FileSystem } from "@effect/platform";
+import { gmail, auth, type gmail_v1 } from "@googleapis/gmail";
 import { Effect, Layer } from "effect";
-import { google, type gmail_v1 } from "googleapis";
 import open from "open";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { GmailServiceTag, type GmailService } from "@/core/interfaces/gmail";
@@ -30,8 +30,8 @@ export class GmailServiceResource implements GmailService {
   constructor(
     private readonly fs: FileSystem.FileSystem,
     private readonly tokenFilePath: string,
-    private oauthClient: InstanceType<typeof google.auth.OAuth2>,
-    private gmail: gmail_v1.Gmail,
+    private oauthClient: InstanceType<typeof auth.OAuth2>,
+    private gmailClient: gmail_v1.Gmail,
     private readonly requireCredentials: () => Effect.Effect<void, GmailAuthenticationError>,
     private readonly terminal: TerminalService,
   ) {}
@@ -84,7 +84,7 @@ export class GmailServiceResource implements GmailService {
             ? { userId: "me", maxResults, q: query }
             : { userId: "me", maxResults };
         const listResp = yield* this.wrapGmailCall(
-          () => this.gmail.users.messages.list(paramsList),
+          () => this.gmailClient.users.messages.list(paramsList),
           "Failed to list emails",
         );
         const messages = listResp.data.messages || [];
@@ -99,7 +99,7 @@ export class GmailServiceResource implements GmailService {
             metadataHeaders: ["Subject", "From", "To", "Date", "Cc", "Bcc"],
           };
           const full = yield* this.wrapGmailCall(
-            () => this.gmail.users.messages.get(paramsGet),
+            () => this.gmailClient.users.messages.get(paramsGet),
             "Failed to fetch email metadata",
           );
           const email = this.parseMessageToEmail(full.data);
@@ -122,7 +122,7 @@ export class GmailServiceResource implements GmailService {
           format: "full",
         };
         const full = yield* this.wrapGmailCall(
-          () => this.gmail.users.messages.get(paramsGet),
+          () => this.gmailClient.users.messages.get(paramsGet),
           "Failed to get email",
         );
         const email = this.parseMessageToEmail(full.data, true);
@@ -158,7 +158,7 @@ export class GmailServiceResource implements GmailService {
         // Attachments not implemented in this first pass
         yield* this.wrapGmailCall(
           () =>
-            this.gmail.users.drafts.create({
+            this.gmailClient.users.drafts.create({
               userId: "me",
               requestBody: { message: { raw } },
             }),
@@ -182,7 +182,7 @@ export class GmailServiceResource implements GmailService {
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
         const response = yield* this.wrapGmailCall(
-          () => this.gmail.users.labels.list({ userId: "me" }),
+          () => this.gmailClient.users.labels.list({ userId: "me" }),
           "Failed to list labels",
         );
         const labels = (response.data.labels || []).map((label) =>
@@ -215,7 +215,7 @@ export class GmailServiceResource implements GmailService {
           ...(options?.color && { color: options.color }),
         };
         const response = yield* this.wrapGmailCall(
-          () => this.gmail.users.labels.create({ userId: "me", requestBody }),
+          () => this.gmailClient.users.labels.create({ userId: "me", requestBody }),
           "Failed to create label",
         );
         return this.parseLabelToGmailLabel(response.data);
@@ -245,7 +245,7 @@ export class GmailServiceResource implements GmailService {
 
         const response = yield* this.wrapGmailCall(
           () =>
-            this.gmail.users.labels.update({
+            this.gmailClient.users.labels.update({
               userId: "me",
               id: labelId,
               requestBody,
@@ -264,7 +264,7 @@ export class GmailServiceResource implements GmailService {
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
         yield* this.wrapGmailCall(
-          () => this.gmail.users.labels.delete({ userId: "me", id: labelId }),
+          () => this.gmailClient.users.labels.delete({ userId: "me", id: labelId }),
           "Failed to delete label",
         );
         return void 0;
@@ -289,7 +289,7 @@ export class GmailServiceResource implements GmailService {
 
         const response = yield* this.wrapGmailCall(
           () =>
-            this.gmail.users.messages.modify({
+            this.gmailClient.users.messages.modify({
               userId: "me",
               id: emailId,
               requestBody,
@@ -319,7 +319,7 @@ export class GmailServiceResource implements GmailService {
 
         yield* this.wrapGmailCall(
           () =>
-            this.gmail.users.messages.batchModify({
+            this.gmailClient.users.messages.batchModify({
               userId: "me",
               requestBody,
             }),
@@ -335,7 +335,7 @@ export class GmailServiceResource implements GmailService {
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
         yield* this.wrapGmailCall(
-          () => this.gmail.users.messages.trash({ userId: "me", id: emailId }),
+          () => this.gmailClient.users.messages.trash({ userId: "me", id: emailId }),
           "Failed to trash email",
         );
         return void 0;
@@ -350,7 +350,7 @@ export class GmailServiceResource implements GmailService {
       function* (this: GmailServiceResource) {
         yield* this.ensureAuthenticated();
         yield* this.wrapGmailCall(
-          () => this.gmail.users.messages.delete({ userId: "me", id: emailId }),
+          () => this.gmailClient.users.messages.delete({ userId: "me", id: emailId }),
           "Failed to delete email",
         );
         return void 0;
@@ -465,14 +465,14 @@ export class GmailServiceResource implements GmailService {
         if (!clientSecret) {
           throw new GmailAuthenticationError({ message: "Missing client secret" });
         }
-        const freshClient = new google.auth.OAuth2({
+        const freshClient = new auth.OAuth2({
           clientId,
           clientSecret,
           redirectUri,
         });
         freshClient.setCredentials(currentCreds);
         this.oauthClient = freshClient;
-        this.gmail = google.gmail({ version: "v1", auth: this.oauthClient });
+        this.gmailClient = gmail({ version: "v1", auth: this.oauthClient });
 
         // Include both Gmail and Calendar scopes since they share the same token file
         const scopes = ALL_GOOGLE_SCOPES;
@@ -720,8 +720,8 @@ export function createGmailServiceLayer(): Layer.Layer<
 
       const port = getGoogleOAuthPort();
       const redirectUri = getGoogleOAuthRedirectUri(port);
-      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
-      const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+      const oauth2Client = new auth.OAuth2(clientId, clientSecret, redirectUri);
+      const gmailInstance = gmail({ version: "v1", auth: oauth2Client });
 
       const { storage } = yield* agentConfig.appConfig;
       const dataDir = resolveStorageDirectory(storage);
@@ -730,7 +730,7 @@ export function createGmailServiceLayer(): Layer.Layer<
         fs,
         tokenFilePath,
         oauth2Client,
-        gmail,
+        gmailInstance,
         requireCredentials,
         terminal,
       );

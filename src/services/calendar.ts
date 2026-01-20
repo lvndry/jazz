@@ -1,7 +1,7 @@
 import http from "node:http";
 import { FileSystem } from "@effect/platform";
+import { calendar, auth, type calendar_v3 } from "@googleapis/calendar";
 import { Effect, Layer } from "effect";
-import { google, type calendar_v3 } from "googleapis";
 import open from "open";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { CalendarServiceTag, type CalendarService } from "@/core/interfaces/calendar";
@@ -39,8 +39,8 @@ export class CalendarServiceResource implements CalendarService {
   constructor(
     private readonly fs: FileSystem.FileSystem,
     private readonly tokenFilePath: string,
-    private oauthClient: InstanceType<typeof google.auth.OAuth2>,
-    private calendar: calendar_v3.Calendar,
+    private oauthClient: InstanceType<typeof auth.OAuth2>,
+    private calendarClient: calendar_v3.Calendar,
     private readonly requireCredentials: () => Effect.Effect<void, CalendarAuthenticationError>,
     private readonly terminal: TerminalService,
   ) {}
@@ -100,7 +100,7 @@ export class CalendarServiceResource implements CalendarService {
           ...(options?.updatedMin && { updatedMin: options.updatedMin }),
         };
         const response = yield* this.wrapCalendarCall(
-          () => this.calendar.events.list(params),
+          () => this.calendarClient.events.list(params),
           "Failed to list events",
         );
         const events = (response.data.items || []).map((item) =>
@@ -119,7 +119,7 @@ export class CalendarServiceResource implements CalendarService {
       function* (this: CalendarServiceResource) {
         yield* this.ensureAuthenticated();
         const response = yield* this.wrapCalendarCall(
-          () => this.calendar.events.get({ calendarId, eventId }),
+          () => this.calendarClient.events.get({ calendarId, eventId }),
           "Failed to get event",
         );
         return this.parseEventToCalendarEvent(response.data);
@@ -138,7 +138,7 @@ export class CalendarServiceResource implements CalendarService {
         const requestBody = this.buildEventRequestBody(event);
         const response = yield* this.wrapCalendarCall(
           () =>
-            this.calendar.events.insert({
+            this.calendarClient.events.insert({
               calendarId,
               requestBody,
               ...(options?.sendNotifications !== undefined && {
@@ -170,7 +170,7 @@ export class CalendarServiceResource implements CalendarService {
         const requestBody = this.buildEventRequestBody(event);
         const response = yield* this.wrapCalendarCall(
           () =>
-            this.calendar.events.patch({
+            this.calendarClient.events.patch({
               calendarId,
               eventId,
               requestBody,
@@ -201,7 +201,7 @@ export class CalendarServiceResource implements CalendarService {
         yield* this.ensureAuthenticated();
         yield* this.wrapCalendarCall(
           () =>
-            this.calendar.events.delete({
+            this.calendarClient.events.delete({
               calendarId,
               eventId,
               ...(sendNotifications !== undefined && { sendNotifications }),
@@ -221,7 +221,7 @@ export class CalendarServiceResource implements CalendarService {
       function* (this: CalendarServiceResource) {
         yield* this.ensureAuthenticated();
         const response = yield* this.wrapCalendarCall(
-          () => this.calendar.calendarList.list(),
+          () => this.calendarClient.calendarList.list(),
           "Failed to list calendars",
         );
         const calendars = (response.data.items || []).map((item) =>
@@ -239,7 +239,7 @@ export class CalendarServiceResource implements CalendarService {
       function* (this: CalendarServiceResource) {
         yield* this.ensureAuthenticated();
         const response = yield* this.wrapCalendarCall(
-          () => this.calendar.calendarList.get({ calendarId }),
+          () => this.calendarClient.calendarList.get({ calendarId }),
           "Failed to get calendar",
         );
         return this.parseCalendarToCalendarInfo(response.data);
@@ -270,7 +270,7 @@ export class CalendarServiceResource implements CalendarService {
         yield* this.ensureAuthenticated();
         const response = yield* this.wrapCalendarCall(
           () =>
-            this.calendar.events.quickAdd({
+            this.calendarClient.events.quickAdd({
               calendarId,
               text,
               ...(sendNotifications !== undefined && { sendNotifications }),
@@ -390,14 +390,14 @@ export class CalendarServiceResource implements CalendarService {
         if (!clientSecret) {
           throw new CalendarAuthenticationError({ message: "Missing client secret" });
         }
-        const freshClient = new google.auth.OAuth2({
+        const freshClient = new auth.OAuth2({
           clientId,
           clientSecret,
           redirectUri,
         });
         freshClient.setCredentials(currentCreds);
         this.oauthClient = freshClient;
-        this.calendar = google.calendar({ version: "v3", auth: this.oauthClient });
+        this.calendarClient = calendar({ version: "v3", auth: this.oauthClient });
 
         // Include both Calendar and Gmail scopes since they share the same token file
         const scopes = [...ALL_GOOGLE_SCOPES];
@@ -719,8 +719,8 @@ export function createCalendarServiceLayer(): Layer.Layer<
 
       const port = getGoogleOAuthPort();
       const redirectUri = getGoogleOAuthRedirectUri(port);
-      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
-      const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+      const oauth2Client = new auth.OAuth2(clientId, clientSecret, redirectUri);
+      const calendarInstance = calendar({ version: "v3", auth: oauth2Client });
 
       const { storage } = yield* agentConfig.appConfig;
       const dataDir = resolveStorageDirectory(storage);
@@ -729,7 +729,7 @@ export function createCalendarServiceLayer(): Layer.Layer<
         fs,
         tokenFilePath,
         oauth2Client,
-        calendar,
+        calendarInstance,
         requireCredentials,
         terminal,
       );

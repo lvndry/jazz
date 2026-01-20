@@ -1,4 +1,3 @@
-
 import { Effect } from "effect";
 import { createCLIApp } from "./cli/cli-app";
 
