@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import type { Agent, AgentConfig } from "@/core/types";
-import type { ChatMessage, ConversationMessages } from "@/core/types/message";
-import type { AgentResponse } from "../types";
 import { Summarizer, type RecursiveRunner } from "./summarizer";
+import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
+import type { Agent, AgentConfig } from "../../types";
+import type { ChatMessage, ConversationMessages } from "../../types/message";
+import type { AgentResponse } from "../types";
 
 // Helper to create a mock agent
 function createMockAgent(overrides: Partial<Agent> = {}): Agent {

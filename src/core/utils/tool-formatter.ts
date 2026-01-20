@@ -353,6 +353,15 @@ export function formatToolResult(toolName: string, result: string): string {
         }
         return "";
       }
+      case "execute_edit_file":
+      case "execute_write_file": {
+        // Check for diff in the result
+        const diff = obj["diff"];
+        if (typeof diff === "string" && diff.length > 0) {
+          return `\n${diff}`;
+        }
+        return "";
+      }
       default:
         return "";
     }

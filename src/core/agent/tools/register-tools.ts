@@ -16,6 +16,7 @@ import type { MCPTool } from "@/core/types/mcp";
 import { toPascalCase } from "@/core/utils/string";
 import { calendarTools } from "./calendar";
 import { fs } from "./fs";
+import { git } from "./git";
 import {
     createAddLabelsToEmailTool,
     createBatchModifyEmailsTool,
@@ -34,7 +35,6 @@ import {
     createTrashEmailTool,
     createUpdateLabelTool,
 } from "./gmail";
-import { git } from "./git";
 import { createHttpRequestTool } from "./http-tools";
 import { registerMCPServerTools } from "./mcp-tools";
 import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";

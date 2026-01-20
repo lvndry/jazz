@@ -1,6 +1,5 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useMemo, useState } from "react";
-
 import type { Choice } from "./types";
 
 interface ScrollableMultiSelectProps<T = unknown> {

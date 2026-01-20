@@ -1,5 +1,5 @@
-import { Effect } from "effect";
 import { spawn } from "node:child_process";
+import { Effect } from "effect";
 import { store } from "@/cli/ui/App";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";

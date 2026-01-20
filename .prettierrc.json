@@ -9,5 +9,6 @@
   "bracketSpacing": true,
   "arrowParens": "always",
   "proseWrap": "preserve",
-  "singleAttributePerLine": true
+  "singleAttributePerLine": true,
+  "endOfLine": "lf"
 }

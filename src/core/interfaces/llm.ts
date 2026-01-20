@@ -1,8 +1,8 @@
 import { Context, Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
-import type { LLMProvider, LLMProviderListItem, StreamingResult } from "../types";
 import type { ChatCompletionOptions, ChatCompletionResponse } from "@/core/types/chat";
 import type { LLMConfigurationError, LLMError } from "@/core/types/errors";
+import type { LLMProvider, LLMProviderListItem, StreamingResult } from "../types";
 
 export interface LLMService {
   /**

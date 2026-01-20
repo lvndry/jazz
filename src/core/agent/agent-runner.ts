@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-
 import { MAX_AGENT_STEPS } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -13,13 +12,13 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import type { ConversationMessages, StreamingConfig } from "../types";
-import { type Agent } from "../types";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
+import { type Agent } from "../types";
+import type { ConversationMessages, StreamingConfig } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
 import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";

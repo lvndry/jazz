@@ -1,6 +1,5 @@
-import { Effect } from "effect";
 import { randomUUID } from "node:crypto";
-
+import { Effect } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { type Agent } from "@/core/types";

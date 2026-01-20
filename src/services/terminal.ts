@@ -228,7 +228,7 @@ export class InkTerminalService implements TerminalService {
           const choice = choices.find((c) => c.value === val);
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.green(choice?.label ?? '')}`,
+            message: `${message} ${chalk.green(choice?.label ?? "")}`,
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as T));

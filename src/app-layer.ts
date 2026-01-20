@@ -127,7 +127,9 @@ export function createAppLayer(config: AppLayerConfig = {}) {
 
   // In TTY mode, keep Ink UI intact by routing all presentation output into Ink.
   // The legacy CLI presentation writes directly to stdout, which clobbers Ink rendering.
-  const presentationLayer = process.stdout.isTTY ? InkPresentationServiceLayer : CLIPresentationServiceLayer;
+  const presentationLayer = process.stdout.isTTY
+    ? InkPresentationServiceLayer
+    : CLIPresentationServiceLayer;
 
   // Create a complete layer by providing all dependencies
   return Layer.mergeAll(
@@ -182,7 +184,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
         Effect.runFork(Fiber.interrupt(fiber));
       } else {
         process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");
-        process.exit(1);
+        throw new Error("Force exit requested (second termination signal)");
       }
     }
 
