@@ -467,9 +467,28 @@ async function promptForAgentInfo(
   }
 
   // STEP 6: Tools selection
-  // Check if this is a predefined agent with auto-assigned tools
+  // Check if the selected model supports tools
+  const selectedModelInfo = chosenProviderInfo.supportedModels.find((m) => m.id === llmModel);
+  const supportsTools = selectedModelInfo?.supportsTools ?? false;
+
+  let tools: string[] = [];
   const currentPredefinedAgent = PREDEFINED_AGENTS[agentType];
-  if (currentPredefinedAgent) {
+
+  if (!supportsTools) {
+    if (currentPredefinedAgent && currentPredefinedAgent.toolCategoryIds.length > 0) {
+      await Effect.runPromise(
+        terminal.warn(
+          `\n⚠️  The selected model (${llmModel}) does not support tools. The "${currentPredefinedAgent.displayName}" agent template's tools will be ignored.`,
+        ),
+      );
+    } else {
+      await Effect.runPromise(
+        terminal.info(
+          `\nℹ️  Skipping tool selection as the selected model (${llmModel}) does not support tools.`,
+        ),
+      );
+    }
+  } else if (currentPredefinedAgent) {
     // Filter to only categories that exist in toolsByCategory (by checking if display name exists)
     const availableCategoryIds = currentPredefinedAgent.toolCategoryIds.filter((categoryId) => {
       const displayName = categoryIdToDisplayName.get(categoryId);
@@ -489,11 +508,8 @@ async function promptForAgentInfo(
         yield* terminal.log("");
       }),
     );
-  }
-
-  let tools: string[] = [];
-
-  if (!currentPredefinedAgent) {
+  } else {
+    // Custom agent - manual tool selection
     const selectedTools = await Effect.runPromise(
       terminal.checkbox<string>("Which tools should this agent have access to?", {
         choices: Object.entries(toolsByCategory).map(([category, toolsInCategory]) => ({
@@ -507,12 +523,13 @@ async function promptForAgentInfo(
     tools = [...selectedTools];
   }
 
-  // Calculate final tools
-  const finalTools = currentPredefinedAgent
-    ? currentPredefinedAgent.toolCategoryIds
-        .map((id) => categoryIdToDisplayName.get(id))
-        .filter((name): name is string => name !== undefined && name in toolsByCategory)
-    : tools;
+  const finalTools = supportsTools
+    ? currentPredefinedAgent
+      ? currentPredefinedAgent.toolCategoryIds
+          .map((id) => categoryIdToDisplayName.get(id))
+          .filter((name): name is string => name !== undefined && name in toolsByCategory)
+      : tools
+    : [];
 
   return {
     llmProvider,

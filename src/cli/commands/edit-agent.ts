@@ -111,9 +111,23 @@ export function editAgentCommand(
       .pipe(Effect.catchAll(() => Effect.succeed(null as LLMProvider | null)));
 
     // Check if current model is reasoning model (needed for field choices)
-    const currentModelIsReasoning = yield* Effect.promise(() =>
-      isCurrentReasoningModel(agent, llmService, currentProviderInfo),
+    const currentModelInfo = currentProviderInfo?.supportedModels.find(
+      (model) => model.id === agent.config.llmModel,
     );
+    const currentModelIsReasoning = currentModelInfo?.isReasoningModel ?? false;
+    const supportsTools = currentModelInfo?.supportsTools ?? false;
+
+    // Auto-cleanup: if model doesn't support tools but agent has them, clear them
+    if (!supportsTools && agent.config.tools && agent.config.tools.length > 0) {
+      yield* terminal.warn(
+        `\n⚠️  The current model (${agent.config.llmModel}) does not support tools. Clearing configured tools.`,
+      );
+      
+      // Clear tools in the database
+      yield* agentService.updateAgent(agent.id, {
+        config: { ...agent.config, tools: [] },
+      });
+    }
 
     // First, ask what field to update
     const fieldToUpdate = yield* terminal.select<string>("What would you like to update?", {
@@ -123,7 +137,11 @@ export function editAgentCommand(
         { name: "Agent Type", value: "agentType" },
         { name: "LLM Provider", value: "llmProvider" },
         { name: "LLM Model", value: "llmModel" },
-        { name: "Tools", value: "tools" },
+        { name: "LLM Model", value: "llmModel" },
+        { 
+          name: supportsTools ? "Tools" : "Tools (Not supported by current model) 🚫", 
+          value: "tools",
+        },
         ...(currentModelIsReasoning ? [{ name: "Reasoning Effort", value: "reasoningEffort" }] : []),
       ],
     });
@@ -140,6 +158,12 @@ export function editAgentCommand(
     // If user selected "tools", connect to all configured MCP servers and discover their tools
     // BEFORE showing the tool selection, so all MCP tools are available
     if (fieldToUpdate === "tools") {
+      if (!supportsTools) {
+        yield* terminal.warn(`\n⚠️  The current model (${agent.config.llmModel}) does not support tools.`);
+        // Re-run the command to let user pick something else, or just exit
+        return; 
+      }
+      
       const allServers = yield* mcpManager.listServers();
       const enabledServers = allServers.filter((server) => server.enabled !== false);
 
@@ -666,30 +690,7 @@ async function promptForAgentUpdates(
   return answers;
 }
 
-async function isCurrentReasoningModel(
-  currentAgent: Agent,
-  llmService: LLMService,
-  currentProviderInfo: LLMProvider | null,
-): Promise<boolean> {
-  if (!currentAgent.config.llmProvider || !currentAgent.config.llmModel) {
-    return false;
-  }
 
-  let providerInfo = currentProviderInfo;
-  if (!providerInfo) {
-    try {
-      providerInfo = await Effect.runPromise(llmService.getProvider(currentAgent.config.llmProvider));
-    } catch {
-      return false;
-    }
-  }
-
-  const currentModelInfo = providerInfo.supportedModels.find(
-    (model) => model.id === currentAgent.config.llmModel,
-  );
-
-  return currentModelInfo?.isReasoningModel ?? false;
-}
 
 async function promptForReasoningEffort(
   terminal: TerminalService,

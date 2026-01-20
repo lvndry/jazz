@@ -49,14 +49,15 @@ const KNOWN_OLLAMA_TOOL_MODELS = new Set<string>([
 
 function looksToolCapable(model: OllamaModel): boolean {
   const name = model.name.toLowerCase();
-  if (KNOWN_OLLAMA_TOOL_MODELS.has(model.name)) return true;
+  if (KNOWN_OLLAMA_TOOL_MODELS.has(name)) return true;
   if (name.includes("tool") || name.includes("function")) return true;
 
   const metadata = model.details?.metadata;
   if (metadata && typeof metadata === "object") {
-    const flag = (metadata["supports_tools"] ??
+    const flag =
+      metadata["supports_tools"] ??
       metadata["tool_use"] ??
-      metadata["function_calling"]) as unknown;
+      metadata["function_calling"];
     if (typeof flag === "boolean") return flag;
   }
 
