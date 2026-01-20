@@ -23,7 +23,7 @@
 - [ ] Memory architecture — define long-term memory (storage, schema, retrieval) for
       agent personalization.
 - [x] Skills - Similar to Claude Skills, but for Jazz
-- [ ] When editing a file, part of the output should be the diff of the file
+- [x] When editing a file, part of the output should be the diff of the file
 
 ## CLI Feature Depth & Docs
 

@@ -55,7 +55,6 @@ export class ChatServiceImpl implements ChatService {
     | LLMService
     | PresentationService
     | MCPServerManager
-
     | ToolRequirements
     | SkillService
   > {

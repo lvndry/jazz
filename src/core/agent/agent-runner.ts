@@ -155,7 +155,7 @@ function initializeAgentRun(
       provider,
       model,
       connectedMCPServers,
-      knownSkills: relevantSkills, // Pass skills to context
+      knownSkills: relevantSkills,
     };
   });
 }
@@ -205,7 +205,6 @@ export class AgentRunner {
     | LoggerService
     | AgentConfigService
     | PresentationService
-
     | ToolRequirements
     | SkillService
   > {

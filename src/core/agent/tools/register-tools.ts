@@ -717,7 +717,6 @@ export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> 
   });
 }
 
-// Register Skill system tools
 export function registerSkillSystemTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
