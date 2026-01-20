@@ -1,3 +1,7 @@
+import { Effect, Layer } from "effect";
+import { Box, Text } from "ink";
+import Spinner from "ink-spinner";
+import React from "react";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -10,10 +14,6 @@ import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import type { ToolCategory } from "@/core/types";
 import type { MCPTool } from "@/core/types/mcp";
 import { toPascalCase } from "@/core/utils/string";
-import { Effect, Layer } from "effect";
-import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
-import React from "react";
 import { calendarTools } from "./calendar";
 import { fs } from "./fs";
 import { git } from "./git";

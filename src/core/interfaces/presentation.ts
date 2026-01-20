@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
-import type { DisplayConfig } from "../types";
 import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
+import type { DisplayConfig } from "../types";
 
 /**
  * Presentation service interface for rendering agent output

@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { Effect } from "effect";
 import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
 import { store } from "@/cli/ui/App";
 import { AgentRunner } from "@/core/agent/agent-runner";
@@ -20,8 +22,6 @@ import {
 } from "@/core/interfaces/tool-registry";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
-import { Effect } from "effect";
-import { spawn } from "node:child_process";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 

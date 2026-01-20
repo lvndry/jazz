@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-
 import { MAX_AGENT_STEPS } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -223,9 +222,9 @@ export class AgentRunner {
       const streamDetection = options.internal
         ? { shouldStream: false, reason: "Internal sub-agent run" }
         : shouldEnableStreaming(
-            appConfig,
-            options.stream !== undefined ? { stream: options.stream } : {},
-          );
+          appConfig,
+          options.stream !== undefined ? { stream: options.stream } : {},
+        );
 
       // Get display config with defaults
       const displayConfig: DisplayConfig = {

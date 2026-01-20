@@ -35,7 +35,11 @@
     "assistant",
     "task-automation",
     "developer-tools",
-    "ai-agent"
+    "ai-assistant",
+    "ai-agent",
+    "mcp",
+    "mcp-server",
+    "agent-skills"
   ],
   "bugs": {
     "url": "https://github.com/lvndry/jazz/issues"
@@ -46,9 +50,9 @@
     "dev": "bun --watch src/main.ts",
     "start": "bun dist/main.js",
     "cli": "bun src/main.ts",
-    "lint": "bun eslint src/**/*.ts",
-    "lint:fix": "bun eslint src/**/*.ts --fix",
-    "format": "bun prettier --write src/**/*.ts",
+    "lint": "bun eslint src",
+    "lint:fix": "bun eslint src --fix",
+    "format": "bun prettier --write src",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:typecheck": "bunx tsc --project tsconfig.test.json",
@@ -60,11 +64,11 @@
     "@ai-sdk/anthropic": "^3.0.15",
     "@ai-sdk/deepseek": "^2.0.8",
     "@ai-sdk/google": "^3.0.10",
-    "@ai-sdk/groq": "^3.0.10",
+    "@ai-sdk/groq": "^3.0.11",
     "@ai-sdk/mcp": "^1.0.10",
     "@ai-sdk/mistral": "^3.0.9",
     "@ai-sdk/openai": "^3.0.12",
-    "@ai-sdk/react": "^3.0.41",
+    "@ai-sdk/react": "^3.0.44",
     "@ai-sdk/xai": "^3.0.26",
     "@effect/platform": "^0.90.10",
     "@effect/platform-node": "^0.96.1",
@@ -73,10 +77,10 @@
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@openrouter/ai-sdk-provider": "^1.5.4",
     "@tavily/core": "^0.5.14",
-    "@types/fs-extra": "^11.0.4",
-    "ai": "^6.0.39",
+    "ai": "^6.0.42",
     "chalk": "^4.1.2",
     "commander": "^14.0.2",
+    "diff": "^8.0.3",
     "effect": "^3.19.14",
     "exa-js": "^2.0.12",
     "fast-glob": "^3.3.3",
@@ -103,6 +107,8 @@
   },
   "devDependencies": {
     "@types/bun": "^1.3.6",
+    "@types/diff": "^8.0.0",
+    "@types/fs-extra": "^11.0.4",
     "@types/ink-big-text": "^1.2.4",
     "@types/ink-gradient": "^2.0.4",
     "@types/marked": "^6.0.0",
@@ -110,14 +116,16 @@
     "@types/node": "^24.10.9",
     "@types/react": "^19.2.8",
     "eslint": "^9.39.2",
+    "eslint-plugin-import": "^2.32.0",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-n": "^17.23.2",
     "prettier": "^3.8.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.53.0"
+    "typescript-eslint": "^8.53.1"
   },
   "engines": {
-    "node": ">=20.0.0",
-    "npm": ">=8.0.0"
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
   },
   "files": [
     "dist/",

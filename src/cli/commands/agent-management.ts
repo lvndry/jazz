@@ -1,13 +1,6 @@
 import chalk from "chalk";
 import { Effect } from "effect";
 import React from "react";
-import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
-import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
-import { CLIOptionsTag, type CLIOptions } from "@/core/interfaces/cli-options";
-import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
-import { StorageError, StorageNotFoundError } from "@/core/types/errors";
-import { AgentDetailsCard } from "../ui/AgentDetailsCard";
-import { AgentsList } from "../ui/AgentsList";
 import {
   formatIsoShort,
   getTerminalWidth,
@@ -15,6 +8,13 @@ import {
   truncateMiddle,
   wrapCommaList,
 } from "@/cli/utils/string-utils";
+import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
+import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
+import { CLIOptionsTag, type CLIOptions } from "@/core/interfaces/cli-options";
+import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { StorageError, StorageNotFoundError } from "@/core/types/errors";
+import { AgentDetailsCard } from "../ui/AgentDetailsCard";
+import { AgentsList } from "../ui/AgentsList";
 
 function formatAgentsListBlock(
   agents: readonly {

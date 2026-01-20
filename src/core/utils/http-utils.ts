@@ -1,10 +1,7 @@
-import { GaxiosError } from "gaxios";
-
 /**
- * Extract HTTP status code from gaxios errors.
+ * Extract HTTP status code from HTTP client errors.
  *
- * This utility function safely extracts HTTP status codes from GaxiosError instances,
- * which are commonly thrown by Google API clients (gmail, calendar, etc.).
+ * Google API clients often throw errors with a `status` and/or `response.status` shape.
  *
  * @param error - The unknown error to extract status from
  * @returns The HTTP status code if available, undefined otherwise
@@ -22,8 +19,17 @@ import { GaxiosError } from "gaxios";
  * ```
  */
 export function getHttpStatusFromError(error: unknown): number | undefined {
-  if (error instanceof GaxiosError) {
-    return error.status ?? error.response?.status;
-  }
+  if (!isRecord(error)) return undefined;
+
+  const status = error["status"];
+  if (typeof status === "number") return status;
+
+  const response = error["response"];
+  if (isRecord(response) && typeof response["status"] === "number") return response["status"];
+
   return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

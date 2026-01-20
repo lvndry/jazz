@@ -1,6 +1,5 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
-
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { GmailServiceTag, type GmailService } from "@/core/interfaces/gmail";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";

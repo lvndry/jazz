@@ -1,3 +1,7 @@
+import chalk from "chalk";
+import { Effect, Layer } from "effect";
+import { render } from "ink";
+import React from "react";
 import App, { store } from "@/cli/ui/App";
 import type { LogEntryInput } from "@/cli/ui/types";
 import {
@@ -5,10 +9,6 @@ import {
   type TerminalOutput,
   type TerminalService,
 } from "@/core/interfaces/terminal";
-import chalk from "chalk";
-import { Effect, Layer } from "effect";
-import { render } from "ink";
-import React from "react";
 
 // Singleton guard to prevent accidental double instantiation
 let instanceExists = false;
@@ -228,7 +228,7 @@ export class InkTerminalService implements TerminalService {
           const choice = choices.find((c) => c.value === val);
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.green(choice?.label ?? '')}`,
+            message: `${message} ${chalk.green(choice?.label ?? "")}`,
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as T));

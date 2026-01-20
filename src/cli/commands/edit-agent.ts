@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { agentPromptBuilder } from "@/core/agent/agent-prompt";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
@@ -28,7 +29,6 @@ import {
 import type { MCPTool } from "@/core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp-utils";
 import { toPascalCase } from "@/core/utils/string";
-import { Effect } from "effect";
 
 /**
  * CLI commands for editing existing agents

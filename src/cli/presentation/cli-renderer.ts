@@ -313,6 +313,20 @@ export class CLIRenderer {
     // Clean up
     this.toolNameMap.delete(event.toolCallId);
 
+    // Check if summary contains multi-line content (like a diff)
+    const hasMultiLine = summary && summary.includes("\n");
+
+    if (hasMultiLine) {
+      // For multi-line output, put on separate lines
+      return (
+        ` ${colors.success(icons.success)}` +
+        ` ${colors.dim(`(${event.durationMs}ms)`)}` +
+        `${summary}` +
+        "\n"
+      );
+    }
+
+    // Single-line output
     return (
       ` ${colors.success(icons.success)}` +
       (summary ? ` ${summary}` : "") +

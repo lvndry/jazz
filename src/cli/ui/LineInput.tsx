@@ -1,6 +1,5 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useRef, useState } from "react";
-
 import { parseInput, type KeyInfo } from "./escape-sequence-parser";
 import { findNextWordBoundary, findPrevWordBoundary } from "./text-utils";
 

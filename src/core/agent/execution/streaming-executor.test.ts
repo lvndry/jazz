@@ -1,16 +1,16 @@
 import { FileSystem } from "@effect/platform";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
-import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
-import { CalendarServiceTag } from "@/core/interfaces/calendar";
-import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
-import { GmailServiceTag } from "@/core/interfaces/gmail";
-import { LLMServiceTag } from "@/core/interfaces/llm";
-import { LoggerServiceTag } from "@/core/interfaces/logger";
-import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
-import { PresentationServiceTag } from "@/core/interfaces/presentation";
-import { TerminalServiceTag } from "@/core/interfaces/terminal";
-import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
+import { AgentConfigServiceTag } from "../../interfaces/agent-config";
+import { CalendarServiceTag } from "../../interfaces/calendar";
+import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import { GmailServiceTag } from "../../interfaces/gmail";
+import { LLMServiceTag } from "../../interfaces/llm";
+import { LoggerServiceTag } from "../../interfaces/logger";
+import { MCPServerManagerTag } from "../../interfaces/mcp-server";
+import { PresentationServiceTag } from "../../interfaces/presentation";
+import { TerminalServiceTag } from "../../interfaces/terminal";
+import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
   AgentRunContext,

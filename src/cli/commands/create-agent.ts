@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { agentPromptBuilder } from "@/core/agent/agent-prompt";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
@@ -29,7 +30,6 @@ import type { AgentConfig, LLMProviderListItem } from "@/core/types/index";
 import type { MCPTool } from "@/core/types/mcp";
 import { isAuthenticationRequired } from "@/core/utils/mcp-utils";
 import { toPascalCase } from "@/core/utils/string";
-import { Effect } from "effect";
 
 /**
  * CLI commands for creating AI agents

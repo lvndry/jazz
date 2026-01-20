@@ -1,8 +1,8 @@
-import { FileSystem } from "@effect/platform";
 import { spawn } from "child_process";
-import { Effect, Layer } from "effect";
 import { homedir } from "os";
 import * as nodePath from "path";
+import { FileSystem } from "@effect/platform";
+import { Effect, Layer } from "effect";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 
 /**

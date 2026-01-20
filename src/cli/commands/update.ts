@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import packageJson from "../../../package.json";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
@@ -8,6 +7,7 @@ import {
   detectInstalledPackageManager,
   findJazzInstallationPath,
 } from "@/core/utils/runtime-detection";
+import packageJson from "../../../package.json";
 
 /**
  * CLI command for updating Jazz to the latest version

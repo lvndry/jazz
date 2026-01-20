@@ -1,7 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-
 import { LineInput } from "./LineInput";
 import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
 import type { PromptState } from "./types";

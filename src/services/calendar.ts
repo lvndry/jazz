@@ -1,3 +1,8 @@
+import http from "node:http";
+import { FileSystem } from "@effect/platform";
+import { Effect, Layer } from "effect";
+import { google, type calendar_v3 } from "googleapis";
+import open from "open";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { CalendarServiceTag, type CalendarService } from "@/core/interfaces/calendar";
 import type { LoggerService } from "@/core/interfaces/logger";
@@ -15,11 +20,6 @@ import type {
 import { CalendarAuthenticationError, CalendarOperationError } from "@/core/types/errors";
 import { getHttpStatusFromError } from "@/core/utils/http-utils";
 import { resolveStorageDirectory } from "@/core/utils/storage-utils";
-import { FileSystem } from "@effect/platform";
-import { Effect, Layer } from "effect";
-import { google, type calendar_v3 } from "googleapis";
-import http from "node:http";
-import open from "open";
 import {
   ALL_GOOGLE_SCOPES,
   CALENDAR_REQUIRED_SCOPES,
@@ -59,7 +59,10 @@ export class CalendarServiceResource implements CalendarService {
             Effect.catchAll((error) => {
               // If token refresh fails with invalid_grant, token is invalid - need to re-authenticate
               const errorMessage = error.message || String(error);
-              if (errorMessage.includes("invalid_grant") || errorMessage.includes("Failed to refresh")) {
+              if (
+                errorMessage.includes("invalid_grant") ||
+                errorMessage.includes("Failed to refresh")
+              ) {
                 return Effect.succeed(false as const);
               }
               // For other errors, propagate them
@@ -69,9 +72,7 @@ export class CalendarServiceResource implements CalendarService {
 
           if (!validationResult) {
             // Token is invalid, remove it and re-authenticate
-            yield* this.fs.remove(this.tokenFilePath).pipe(
-              Effect.catchAll(() => Effect.void),
-            );
+            yield* this.fs.remove(this.tokenFilePath).pipe(Effect.catchAll(() => Effect.void));
             yield* this.performOAuthFlow();
           }
         }
