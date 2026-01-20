@@ -1,6 +1,5 @@
 import { Box, Text, useStdout } from "ink";
 import React, { useRef } from "react";
-
 import {
   formatIsoShort,
   formatProviderDisplayName,

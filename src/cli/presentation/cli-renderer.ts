@@ -1,3 +1,7 @@
+import chalk from "chalk";
+import { Effect } from "effect";
+import { marked } from "marked";
+import TerminalRenderer from "marked-terminal";
 import { type LLMError } from "@/core/types/errors";
 import type { ColorProfile, DisplayConfig, OutputMode, RenderTheme } from "@/core/types/output";
 import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
@@ -6,10 +10,6 @@ import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,
 } from "@/core/utils/tool-formatter";
-import chalk from "chalk";
-import { Effect } from "effect";
-import { marked } from "marked";
-import TerminalRenderer from "marked-terminal";
 import {
   applyProgressiveFormatting,
   type FormattingResult,

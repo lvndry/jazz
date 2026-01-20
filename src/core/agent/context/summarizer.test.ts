@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import { Summarizer, type RecursiveRunner } from "./summarizer";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import type { Agent, AgentConfig } from "../../types";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
 import type { AgentResponse } from "../types";
-import { Summarizer, type RecursiveRunner } from "./summarizer";
 
 // Helper to create a mock agent
 function createMockAgent(overrides: Partial<Agent> = {}): Agent {

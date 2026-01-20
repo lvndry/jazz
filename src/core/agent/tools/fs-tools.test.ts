@@ -1,7 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { FileSystemContextServiceTag } from "../../interfaces/fs";
 import {
   createCdTool,
   createFindPathTool,
@@ -12,6 +11,7 @@ import {
   createStatTool,
   createTailTool,
 } from "./fs";
+import { FileSystemContextServiceTag } from "../../interfaces/fs";
 
 // Tests create a unique temp base directory and clean up after running
 

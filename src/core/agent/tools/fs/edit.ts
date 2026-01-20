@@ -1,9 +1,9 @@
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
-import type { Tool } from "@/core/interfaces/tool-registry";
-import { generateDiff } from "@/core/utils/diff-utils";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
+import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { Tool } from "@/core/interfaces/tool-registry";
+import { generateDiff } from "@/core/utils/diff-utils";
 import {
   defineTool,
   formatApprovalRequiredDescription,

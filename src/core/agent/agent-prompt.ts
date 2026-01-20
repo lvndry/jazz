@@ -1,5 +1,5 @@
-import { Effect } from "effect";
 import * as os from "os";
+import { Effect } from "effect";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { CODER_PROMPT_V1 } from "./prompts/coder/v1";
 import { DEFAULT_PROMPT_V2 } from "./prompts/default/v2";

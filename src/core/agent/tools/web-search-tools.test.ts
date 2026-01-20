@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { Effect, Layer } from "effect";
-import type { AppConfig } from "../../types";
+import { createWebSearchTool } from "./web-search-tools";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { LoggerServiceTag } from "../../interfaces/logger";
-import { createWebSearchTool } from "./web-search-tools";
+import type { AppConfig } from "../../types";
 
 // Mock exa-js
 const mockExaSearch = mock();

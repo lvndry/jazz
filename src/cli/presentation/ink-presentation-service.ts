@@ -1,3 +1,7 @@
+import chalk from "chalk";
+import { Effect, Layer } from "effect";
+import { Box, Text } from "ink";
+import React from "react";
 import type {
   PresentationService,
   StreamingRenderer,
@@ -6,14 +10,10 @@ import type {
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { ink } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
-import chalk from "chalk";
-import { Effect, Layer } from "effect";
-import { Box, Text } from "ink";
-import React from "react";
-import { AgentResponseCard } from "../ui/AgentResponseCard";
-import { store } from "../ui/App";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { formatMarkdownAnsi } from "./markdown-ansi";
+import { AgentResponseCard } from "../ui/AgentResponseCard";
+import { store } from "../ui/App";
 
 function renderToolBadge(label: string): React.ReactElement {
   return React.createElement(

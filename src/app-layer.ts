@@ -1,7 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
-
 import { autoCheckForUpdate } from "./cli/auto-update";
 import { CLIPresentationServiceLayer } from "./cli/presentation/cli-presentation-service";
 import { InkPresentationServiceLayer } from "./cli/presentation/ink-presentation-service";
@@ -185,7 +184,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
         Effect.runFork(Fiber.interrupt(fiber));
       } else {
         process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");
-        process.exit(1);
+        throw new Error("Force exit requested (second termination signal)");
       }
     }
 

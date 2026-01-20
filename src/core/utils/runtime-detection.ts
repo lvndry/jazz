@@ -1,7 +1,7 @@
-import { Effect } from "effect";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 
 /**
  * Runtime detection utilities for determining execution context
