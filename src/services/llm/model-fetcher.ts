@@ -38,18 +38,32 @@ const TOOL_PARAMS = new Set([
   "response_format:json_schema",
 ]);
 
-const KNOWN_OLLAMA_TOOL_MODELS = new Set<string>([
+// Prefixes for known Ollama models that support tool/function calling
+const KNOWN_OLLAMA_TOOL_MODEL_PREFIXES = [
   "llama3.1",
-  "llama3.1:8b-instruct",
-  "llama3.1:70b-instruct",
-  "qwen2.5:14b-instruct",
-  "qwen2.5:72b-instruct",
+  "llama3.2",
+  "llama3.3",
+  "qwen2.5",
+  "qwen3",
+  "qwen3-coder",
+  "qwen3-vl",
   "phi3.5",
-]);
+  "phi4",
+  "mistral",
+  "mixtral",
+  "nemotron",
+  "devstral",
+  "ministral",
+  "deepseek-v3",
+  "command-r",
+  "granite3",
+  "firefunction",
+  "functiongemma",
+];
 
 function looksToolCapable(model: OllamaModel): boolean {
   const name = model.name.toLowerCase();
-  if (KNOWN_OLLAMA_TOOL_MODELS.has(name)) return true;
+  if (KNOWN_OLLAMA_TOOL_MODEL_PREFIXES.some((prefix) => name.startsWith(prefix))) return true;
   if (name.includes("tool") || name.includes("function")) return true;
 
   const metadata = model.details?.metadata;
@@ -114,13 +128,14 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
     const response = data as {
       id: string;
       name: string;
+      tags?: string[];
     }[];
 
     return response.map((model) => ({
       id: model.id,
       displayName: model.name,
-      isReasoningModel: false,
-      supportsTools: false,
+      isReasoningModel: model.tags?.includes("reasoning") ?? false,
+      supportsTools: model.tags?.includes("tool-use") ?? false,
     }));
   },
   groq: (data: unknown) => {
@@ -131,12 +146,28 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       }[];
     };
 
-    return response.data.map((model) => ({
-      id: model.id,
-      displayName: `${model.owned_by.toLowerCase()}/${model.id.toLowerCase()}`,
-      isReasoningModel: false,
-      supportsTools: false,
-    }));
+    // Groq models that support tool use (per https://console.groq.com/docs/tool-use/overview)
+    const groqToolModelPrefixes = [
+      "llama",
+      "llama3",
+      "mixtral",
+      "gemma",
+      "gemma2",
+      "qwen",
+      "deepseek",
+    ];
+
+    return response.data.map((model) => {
+      const modelId = model.id.toLowerCase();
+      const supportsTools = groqToolModelPrefixes.some((prefix) => modelId.startsWith(prefix));
+
+      return {
+        id: model.id,
+        displayName: `${model.owned_by.toLowerCase()}/${model.id.toLowerCase()}`,
+        isReasoningModel: false,
+        supportsTools,
+      };
+    });
   },
 };
 

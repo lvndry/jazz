@@ -478,7 +478,7 @@ async function promptForAgentInfo(
     if (currentPredefinedAgent && currentPredefinedAgent.toolCategoryIds.length > 0) {
       await Effect.runPromise(
         terminal.warn(
-          `\n⚠️  The selected model (${llmModel}) does not support tools. The "${currentPredefinedAgent.displayName}" agent template's tools will be ignored.`,
+          `\n⚠️  The selected model (${llmModel}) does not support tools. The "${currentPredefinedAgent.displayName}" agent's preconfigured tools will be ignored.`,
         ),
       );
     } else {
