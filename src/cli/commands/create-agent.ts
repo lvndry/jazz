@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { agentPromptBuilder } from "@/core/agent/agent-prompt";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
@@ -508,19 +509,46 @@ async function promptForAgentInfo(
         yield* terminal.log("");
       }),
     );
-  } else {
-    // Custom agent - manual tool selection
-    const selectedTools = await Effect.runPromise(
-      terminal.checkbox<string>("Which tools should this agent have access to?", {
-        choices: Object.entries(toolsByCategory).map(([category, toolsInCategory]) => ({
-          name: toolsInCategory.length > 0
-            ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
-            : category,
-          value: category,
-        })),
-      }),
+  }
+
+  if (!currentPredefinedAgent) {
+    const supportsNativeWebSearch = await Effect.runPromise(
+      llmService.supportsNativeWebSearch(llmProvider),
     );
-    tools = [...selectedTools];
+
+    const searchCategoryName = WEB_SEARCH_CATEGORY.displayName;
+    let selectedTools: readonly string[] = supportsNativeWebSearch ? [searchCategoryName] : [];
+
+    // Loop for tool selection to allow "Go Back" from web search config
+    while (true) {
+      selectedTools = await Effect.runPromise(
+        terminal.checkbox<string>("Which tools should this agent have access to?", {
+          choices: Object.entries(toolsByCategory).map(([category, toolsInCategory]) => ({
+            name:
+              toolsInCategory.length > 0
+                ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
+                : category,
+            value: category,
+            selected: selectedTools.includes(category),
+          })),
+        }),
+      );
+
+      if (selectedTools.includes(searchCategoryName)) {
+        const configured = await Effect.runPromise(
+          handleWebSearchConfiguration(terminal, configService, llmService, llmProvider),
+        );
+
+        if (!configured) {
+          selectedTools = selectedTools.filter((t) => t !== searchCategoryName);
+          await Effect.runPromise(terminal.log(""));
+          continue;
+        }
+      }
+
+      tools = [...selectedTools];
+      break;
+    }
   }
 
   const finalTools = supportsTools

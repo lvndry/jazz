@@ -25,7 +25,13 @@ import {
  */
 export class ToolExecutor {
   /**
+   * Timeout for tool execution in milliseconds (3 minutes)
+   */
+  private static readonly TOOL_TIMEOUT_MS = 3 * 60 * 1000;
+
+  /**
    * Execute a tool by name with the provided arguments
+   * Applies a 3-minute timeout to prevent indefinite hanging
    */
   static executeTool(
     name: string,
@@ -38,7 +44,25 @@ export class ToolExecutor {
   > {
     return Effect.gen(function* () {
       const registry = yield* ToolRegistryTag;
-      return yield* registry.executeTool(name, args, context);
+      const logger = yield* LoggerServiceTag;
+
+      const result = yield* registry.executeTool(name, args, context).pipe(
+        Effect.timeoutFail({
+          duration: ToolExecutor.TOOL_TIMEOUT_MS,
+          onTimeout: () =>
+            new Error(
+              `Tool '${name}' timed out after 3 minutes. The operation took too long to complete.`,
+            ),
+        }),
+        Effect.catchAll((error) => {
+          if (error instanceof Error && error.message.includes("timed out")) {
+            void logger.warn(`Tool timeout: ${error.message}`);
+          }
+          return Effect.fail(error);
+        }),
+      );
+
+      return result;
     });
   }
 

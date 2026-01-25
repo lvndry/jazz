@@ -78,7 +78,18 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
             };
           }
 
-          const { PDFParse } = yield* Effect.promise(() => import("pdf-parse"));
+          let PDFParse;
+          try {
+            const pdfModule = yield* Effect.promise(() => import("pdf-parse"));
+            PDFParse = pdfModule.PDFParse;
+          } catch (importError) {
+            return {
+              success: false,
+              result: null,
+              error: `Failed to read PDF file: ${importError instanceof Error ? importError.message : String(importError)}`,
+            };
+          }
+
           const fileBuffer = yield* fs.readFile(filePathResult);
 
           const pdfParser = new PDFParse({ data: fileBuffer });
@@ -116,8 +127,13 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
                 fileType: "pdf",
               },
             };
+          } catch (parseError) {
+            return {
+              success: false,
+              result: null,
+              error: `PDF parsing failed: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+            };
           } finally {
-            // Clean up PDF parser resources
             yield* Effect.promise(() => pdfParser.destroy()).pipe(
               Effect.catchAll(() => Effect.void),
             );

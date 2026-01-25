@@ -35,6 +35,13 @@ export interface LLMService {
     providerName: ProviderName,
     options: ChatCompletionOptions,
   ) => Effect.Effect<StreamingResult, LLMError>;
+
+  /**
+   * Check if a provider supports native web search
+   */
+  readonly supportsNativeWebSearch: (
+    providerName: ProviderName,
+  ) => Effect.Effect<boolean, never>;
 }
 
 /**

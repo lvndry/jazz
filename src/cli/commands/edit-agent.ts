@@ -1,10 +1,12 @@
 import { Effect } from "effect";
+import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { agentPromptBuilder } from "@/core/agent/agent-prompt";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
-  createCategoryMappings,
-  getMCPServerCategories,
+    createCategoryMappings,
+    getMCPServerCategories,
+    WEB_SEARCH_CATEGORY,
 } from "@/core/agent/tools/register-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { ProviderName } from "@/core/constants/models";
@@ -19,12 +21,12 @@ import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/term
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent, AgentConfig, LLMProvider } from "@/core/types";
 import {
-  AgentAlreadyExistsError,
-  AgentConfigurationError,
-  LLMConfigurationError,
-  StorageError,
-  StorageNotFoundError,
-  ValidationError,
+    AgentAlreadyExistsError,
+    AgentConfigurationError,
+    LLMConfigurationError,
+    StorageError,
+    StorageNotFoundError,
+    ValidationError,
 } from "@/core/types/errors";
 import type { MCPTool } from "@/core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp-utils";
@@ -666,21 +668,50 @@ async function promptForAgentUpdates(
       }
     }
 
-    const toolCategories = await Effect.runPromise(
-      terminal.checkbox<string>("Select tool categories:", {
-        choices: Object.keys(toolsByCategory).map((category) => ({
-          name: `${category} ${toolsByCategory[category]?.length ? `(${toolsByCategory[category]?.length} tools)` : ''}`,
-          value: category,
-          selected: defaultCategories.includes(category),
-        })),
-        ...(defaultCategories.length > 0
-          ? { default: defaultCategories as readonly string[] }
-          : {}),
-      }),
-    );
+
+
+    const searchCategoryName = WEB_SEARCH_CATEGORY.displayName;
+    let selectedCategories: readonly string[] = [...defaultCategories];
+
+    // Loop for tool selection
+    while (true) {
+      selectedCategories = await Effect.runPromise(
+        terminal.checkbox<string>("Select tool categories:", {
+          choices: Object.keys(toolsByCategory).map((category) => ({
+            name: `${category} ${toolsByCategory[category]?.length ? `(${toolsByCategory[category]?.length} tools)` : ""}`,
+            value: category,
+            selected: selectedCategories.includes(category),
+          })),
+          ...(selectedCategories.length > 0
+            ? { default: selectedCategories }
+            : {}),
+        }),
+      );
+
+      // If Search is selected, verify configuration
+      if (selectedCategories.includes(searchCategoryName)) {
+        // Use current agent's provider since we are editing tools, not provider (unless provider was updated in same flow? No, fieldToUpdate is single selection)
+        // Actually, if we allow multi-field edit later this assumption might break, but for now it's single field.
+        const providerName = currentAgent.config.llmProvider;
+        if (providerName) {
+           const configured = await Effect.runPromise(
+            handleWebSearchConfiguration(terminal, configService, llmService, providerName),
+          );
+
+          if (!configured) {
+            // User wants to go back
+            selectedCategories = selectedCategories.filter((c) => c !== searchCategoryName);
+            await Effect.runPromise(terminal.log("")); // Spacing
+            continue;
+          }
+        }
+      }
+
+      break;
+    }
 
     // Store display names - will be converted to tool names in the calling function
-    answers.tools = [...toolCategories];
+    answers.tools = [...selectedCategories];
   }
 
   if (fieldToUpdate === "reasoningEffort") {
