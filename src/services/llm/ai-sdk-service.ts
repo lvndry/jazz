@@ -624,6 +624,67 @@ class AISDKService implements LLMService {
     return Effect.succeed(allProviders);
   }
 
+  private prepareTools(
+    providerName: ProviderName,
+    requestedTools: ChatCompletionOptions["tools"],
+  ): ToolSet | undefined {
+    if (!requestedTools || requestedTools.length === 0) {
+      return undefined;
+    }
+
+    const toolConversionStart = Date.now();
+    const tools: ToolSet = {};
+
+    // Check if web_search is in the tool list and if we should use provider-native tool
+    const hasWebSearch = requestedTools.some((t) => t.function.name === "web_search");
+    const providerNativeWebSearch = hasWebSearch
+      ? getProviderNativeWebSearchTool(providerName)
+      : null;
+    const hasExternalKeys = hasExternalWebSearchKeys(this.config.webSearchConfig);
+    const shouldUseProviderNative = hasWebSearch && providerNativeWebSearch && !hasExternalKeys;
+
+    if (shouldUseProviderNative) {
+      void this.logger.info(
+        `[Web Search] Using provider-native web search tool for ${providerName} (no external API keys configured)`,
+      );
+      // Filter out web_search from Jazz tools and add provider-native tool
+      for (const toolDef of requestedTools) {
+        if (toolDef.function.name !== "web_search") {
+          tools[toolDef.function.name] = tool({
+            description: toolDef.function.description,
+            inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+          });
+        }
+      }
+      if (providerNativeWebSearch) {
+        tools["web_search"] = providerNativeWebSearch;
+      }
+    } else {
+      if (hasWebSearch && providerNativeWebSearch && hasExternalKeys) {
+        void this.logger.info(
+          `[Web Search] Using Jazz web_search tool (external API keys configured, overriding provider-native tool)`,
+        );
+      } else if (hasWebSearch && !providerNativeWebSearch) {
+        void this.logger.debug(
+          `[Web Search] Using Jazz web_search tool (provider ${providerName} does not support native web search)`,
+        );
+      }
+
+      for (const toolDef of requestedTools) {
+        tools[toolDef.function.name] = tool({
+          description: toolDef.function.description,
+          inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+        });
+      }
+    }
+
+    void this.logger.debug(
+      `[LLM Timing] Tool conversion (${Object.keys(tools).length} tools) took ${Date.now() - toolConversionStart}ms`,
+    );
+
+    return tools;
+  }
+
   createChatCompletion(
     providerName: ProviderName,
     options: ChatCompletionOptions,
@@ -657,57 +718,8 @@ class AISDKService implements LLMService {
         } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
 
         // Prepare tools for AI SDK if present
-        let tools: ToolSet | undefined;
-        if (requestedTools && requestedTools.length > 0) {
-          const toolConversionStart = Date.now();
-          tools = {};
-
-          // Check if web_search is in the tool list and if we should use provider-native tool
-          const currentTools = options.tools ?? [];
-          const hasWebSearch = currentTools.some((t) => t.function.name === "web_search");
-          const providerNativeWebSearch = hasWebSearch
-            ? getProviderNativeWebSearchTool(providerName)
-            : null;
-          const hasExternalKeys = hasExternalWebSearchKeys(this.config.webSearchConfig);
-          const shouldUseProviderNative = hasWebSearch && providerNativeWebSearch && !hasExternalKeys;
-
-          if (shouldUseProviderNative) {
-            void this.logger.info(
-              `[Web Search] Using provider-native web search tool for ${providerName} (no external API keys configured)`,
-            );
-            // Filter out web_search from Jazz tools and add provider-native tool
-            for (const toolDef of currentTools) {
-              if (toolDef.function.name !== "web_search") {
-                tools[toolDef.function.name] = tool({
-                  description: toolDef.function.description,
-                  inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-                });
-              }
-            }
-            tools["web_search"] = providerNativeWebSearch;
-          } else {
-            if (hasWebSearch && providerNativeWebSearch && hasExternalKeys) {
-              void this.logger.info(
-                `[Web Search] Using Jazz web_search tool (external API keys configured, overriding provider-native tool)`,
-              );
-            } else if (hasWebSearch && !providerNativeWebSearch) {
-              void this.logger.debug(
-                `[Web Search] Using Jazz web_search tool (provider ${providerName} does not support native web search)`,
-              );
-            }
-
-            for (const toolDef of currentTools) {
-              tools[toolDef.function.name] = tool({
-                description: toolDef.function.description,
-                inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-              });
-            }
-          }
-
-          void this.logger.debug(
-            `[LLM Timing] Tool conversion (${Object.keys(tools).length} tools) took ${Date.now() - toolConversionStart}ms`,
-          );
-        }
+        // Prepare tools for AI SDK if present
+        const tools = this.prepareTools(providerName, requestedTools);
 
         const providerOptions = buildProviderOptions(providerName, options);
 
@@ -851,58 +863,7 @@ class AISDKService implements LLMService {
     const model = selectModel(providerName, options.model, this.config.llmConfig, this.modelCache);
     void this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`);
 
-    let tools: ToolSet | undefined;
-    if (options.tools && options.tools.length > 0) {
-      const toolConversionStart = Date.now();
-      tools = {};
 
-      // Check if web_search is in the tool list and if we should use provider-native tool
-      const hasWebSearch = options.tools.some((t) => t.function.name === "web_search");
-      const providerNativeWebSearch = hasWebSearch
-        ? getProviderNativeWebSearchTool(providerName)
-        : null;
-      const hasExternalKeys = hasExternalWebSearchKeys(this.config.webSearchConfig);
-      const shouldUseProviderNative = hasWebSearch && providerNativeWebSearch && !hasExternalKeys;
-
-      if (shouldUseProviderNative) {
-        void this.logger.info(
-          `[Web Search] Using provider-native web search tool for ${providerName} (no external API keys configured)`,
-        );
-        // Filter out web_search from Jazz tools and add provider-native tool
-        for (const toolDef of options.tools) {
-          if (toolDef.function.name !== "web_search") {
-            tools[toolDef.function.name] = tool({
-              description: toolDef.function.description,
-              inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-            });
-          }
-        }
-        // Add provider-native tool - use web_search name for consistency with agent prompts
-        // The provider-native tool implementation will handle internal mapping
-        tools["web_search"] = providerNativeWebSearch;
-      } else {
-        if (hasWebSearch && providerNativeWebSearch && hasExternalKeys) {
-          void this.logger.info(
-            `[Web Search] Using Jazz web_search tool (external API keys configured, overriding provider-native tool)`,
-          );
-        } else if (hasWebSearch && !providerNativeWebSearch) {
-          void this.logger.debug(
-            `[Web Search] Using Jazz web_search tool (provider ${providerName} does not support native web search)`,
-          );
-        }
-        // Use Jazz tools as normal
-        for (const toolDef of options.tools) {
-          tools[toolDef.function.name] = tool({
-            description: toolDef.function.description,
-            inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-          });
-        }
-      }
-
-      void this.logger.debug(
-        `[LLM Timing] Tool conversion (${Object.keys(tools).length} tools) took ${Date.now() - toolConversionStart}ms`,
-      );
-    }
 
     const providerOptions = buildProviderOptions(providerName, options);
 
@@ -945,20 +906,7 @@ class AISDKService implements LLMService {
               options.toolChoice,
             );
 
-            let tools: ToolSet | undefined;
-            if (requestedTools && requestedTools.length > 0) {
-              const toolConversionStart = Date.now();
-              tools = {};
-              for (const toolDef of requestedTools) {
-                tools[toolDef.function.name] = tool({
-                  description: toolDef.function.description,
-                  inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-                });
-              }
-              void this.logger.debug(
-                `[LLM Timing] Tool conversion (${requestedTools.length} tools) took ${Date.now() - toolConversionStart}ms`,
-              );
-            }
+            const tools = this.prepareTools(providerName, requestedTools);
 
             if (toolsDisabled) {
               void this.logger.info(
