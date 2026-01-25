@@ -114,6 +114,10 @@ export interface AgentResponse {
    */
   readonly toolResults?: Record<string, unknown>;
   /**
+   * Indicates tools were provided but disabled for the selected model.
+   */
+  readonly toolsDisabled?: boolean;
+  /**
    * The full message list used for this turn, including system, user, assistant, and tool messages.
    * Pass this back on the next turn to retain context across approvals and multi-step tasks.
    *

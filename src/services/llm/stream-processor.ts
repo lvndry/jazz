@@ -35,6 +35,7 @@ interface StreamProcessorConfig {
   readonly modelName: string;
   readonly hasReasoningEnabled: boolean;
   readonly startTime: number;
+  readonly toolsDisabled?: boolean;
 }
 
 /**
@@ -408,6 +409,7 @@ export class StreamProcessor {
       content: finalText,
       ...(toolCalls && { toolCalls }),
       ...(usage && { usage }),
+      ...(this.config.toolsDisabled ? { toolsDisabled: true } : {}),
     };
   }
 

@@ -44,3 +44,5 @@ jazz.config.*.json
 CLAUDE.md
 .kiro/
 .agent/
+.history/
+.claude/

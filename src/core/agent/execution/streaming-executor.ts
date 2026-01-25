@@ -15,12 +15,12 @@ import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "../context/context-window-manager";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import {
-    beginIteration,
-    completeIteration,
-    finalizeAgentRun,
-    recordFirstTokenLatency,
-    recordLLMRetry,
-    recordLLMUsage,
+  beginIteration,
+  completeIteration,
+  finalizeAgentRun,
+  recordFirstTokenLatency,
+  recordLLMRetry,
+  recordLLMUsage,
 } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
@@ -302,6 +302,10 @@ export function executeWithStreaming(
               recordLLMUsage(runMetrics, completion.usage);
             }
 
+            if (completion.toolsDisabled) {
+              response = { ...response, toolsDisabled: true };
+            }
+
             // Add assistant response to conversation
             const assistantMessage = {
               role: "assistant" as const,
@@ -445,10 +449,7 @@ export function executeWithStreaming(
             `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
           );
         } else if (!response.content?.trim() && !response.toolCalls) {
-          yield* presentationService.presentWarning(
-            agent.name,
-            "model returned an empty response",
-          );
+          yield* presentationService.presentWarning(agent.name, "model returned an empty response");
         }
 
         const finalizeFiber = yield* finalizeAgentRun(runMetrics, {
