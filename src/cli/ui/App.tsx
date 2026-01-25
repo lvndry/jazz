@@ -58,6 +58,7 @@ export const store = {
   setStatus: (_status: string | null): void => { },
   setStream: (_stream: LiveStreamState | null): void => { },
   setWorkingDirectory: (_workingDirectory: string | null): void => { },
+  setCustomView: (_view: React.ReactNode | null): void => { },
   clearLogs: (): void => { },
 };
 
@@ -67,6 +68,7 @@ export function App(): React.ReactElement {
   const [status, setStatus] = useState<string | null>(null);
   const [stream, setStream] = useState<LiveStreamState | null>(null);
   const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
+  const [customView, setCustomView] = useState<React.ReactNode | null>(null);
 
   // Use a ref to track initialization and ensure store functions are set synchronously
   // during render, preventing race conditions where store methods are called before
@@ -118,9 +120,21 @@ export function App(): React.ReactElement {
     store.setStatus = (status) => setStatus(status);
     store.setStream = (stream) => setStream(stream);
     store.setWorkingDirectory = (workingDirectory) => setWorkingDirectory(workingDirectory);
+    store.setCustomView = (view) => setCustomView(view);
     store.clearLogs = () => setLogs([]);
     initializedRef.current = true;
   }
+
+  // Pre-compute addSpacing for each log entry to avoid recalculating on every render
+  // This makes LogEntryItem props more stable and reduces re-renders
+  const logsWithSpacing = useMemo(
+    () =>
+      logs.map((log, index) => ({
+        log,
+        addSpacing: log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user"),
+      })),
+    [logs],
+  );
 
   // Memoize context value to prevent unnecessary re-renders of context consumers
   const contextValue = useMemo(
@@ -142,26 +156,30 @@ export function App(): React.ReactElement {
   return (
     <ErrorBoundary>
       <AppContext.Provider value={contextValue}>
-        <Box
-          flexDirection="column"
-          padding={1}
-        >
-          <Header />
-          {/* Render logs in order - Header first, then logs */}
-          {logs.map((log, index) => (
-            <LogEntryItem
-              key={log.id}
-              log={log}
-              addSpacing={log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user")}
+        {customView ? (
+          customView
+        ) : (
+          <Box
+            flexDirection="column"
+            padding={1}
+          >
+            <Header />
+            {/* Render logs in order - Header first, then logs */}
+            {logsWithSpacing.map(({ log, addSpacing }) => (
+              <LogEntryItem
+                key={log.id}
+                log={log}
+                addSpacing={addSpacing}
+              />
+            ))}
+            {stream && <LiveResponse stream={stream} />}
+            {prompt && <Prompt prompt={prompt} />}
+            <StatusFooter
+              status={status}
+              workingDirectory={workingDirectory}
             />
-          ))}
-          {stream && <LiveResponse stream={stream} />}
-          {prompt && <Prompt prompt={prompt} />}
-          <StatusFooter
-            status={status}
-            workingDirectory={workingDirectory}
-          />
-        </Box>
+          </Box>
+        )}
       </AppContext.Provider>
     </ErrorBoundary>
   );

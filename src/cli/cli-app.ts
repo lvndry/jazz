@@ -17,6 +17,7 @@ import { getConfigCommand, listConfigCommand, setConfigCommand } from "./command
 import { createAgentCommand } from "./commands/create-agent";
 import { editAgentCommand } from "./commands/edit-agent";
 import { updateCommand } from "./commands/update";
+import { wizardCommand } from "./commands/wizard";
 
 /**
  * CLI Application setup and command registration
@@ -274,6 +275,43 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     registerConfigCommands(program);
     registerAuthCommands(program);
     registerUpdateCommand(program);
+
+    if (process.argv.length <= 2) {
+      program.action(() => {
+        const opts = program.opts<CliOptions>();
+        runCliEffect(wizardCommand(), {
+          verbose: opts.verbose,
+          debug: opts.debug,
+          configPath: opts.config,
+        });
+      });
+    }
+
+    // Default action (wizard) if no arguments provided
+    // We check process.argv to ensure no command was matched
+    if (process.argv.length <= 2) {
+      program.action(() => {
+        const opts = program.opts<CliOptions>();
+        runCliEffect(wizardCommand(), {
+          verbose: opts.verbose,
+          debug: opts.debug,
+          configPath: opts.config,
+        });
+      });
+    }
+
+    // Default action (wizard) if no arguments provided
+    // We check process.argv to ensure no command was matched
+    if (process.argv.length <= 2) {
+      program.action(() => {
+        const opts = program.opts<CliOptions>();
+        runCliEffect(wizardCommand(), {
+          verbose: opts.verbose,
+          debug: opts.debug,
+          configPath: opts.config,
+        });
+      });
+    }
 
     return program;
   });

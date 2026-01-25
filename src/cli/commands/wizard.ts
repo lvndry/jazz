@@ -1,0 +1,272 @@
+import { Effect } from "effect";
+import React from "react";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentServiceTag } from "@/core/interfaces/agent-service";
+import { ChatServiceTag } from "@/core/interfaces/chat-service";
+import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import type { Agent } from "@/core/types/index";
+import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
+import { createAgentCommand } from "./create-agent";
+import { editAgentCommand } from "./edit-agent";
+import { store } from "../ui/App";
+import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
+
+/**
+ * Wizard menu option identifiers
+ */
+type MenuAction =
+  | "continue"
+  | "new-conversation"
+  | "create-agent"
+  | "edit-agent"
+  | "list-agents"
+  | "delete-agent"
+  | "exit";
+
+/**
+ * Interactive wizard command - the main entry point when `jazz` is run with no arguments
+ */
+export function wizardCommand() {
+  return Effect.gen(function* () {
+    const agentService = yield* AgentServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const terminal = yield* TerminalServiceTag;
+
+    // Main wizard loop - keeps running until user exits
+    let shouldExit = false;
+
+    while (!shouldExit) {
+      // Get all agents for the menu
+      const agents = yield* agentService.listAgents();
+
+      // Get last used agent ID from config
+      const lastUsedAgentId = yield* Effect.tryPromise({
+        try: async () => {
+          const value = await Effect.runPromise(configService.get("wizard.lastUsedAgentId"));
+          return typeof value === "string" ? value : null;
+        },
+        catch: () => null,
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+      // Check if last used agent still exists
+      let lastUsedAgent: Agent | null = null;
+      if (lastUsedAgentId) {
+        const agentResult = yield* Effect.either(
+          agentService.getAgent(lastUsedAgentId)
+        );
+        if (agentResult._tag === "Right") {
+          lastUsedAgent = agentResult.right;
+        }
+      }
+
+      // Build menu options dynamically
+      const menuOptions: WizardMenuOption[] = [];
+
+      if (lastUsedAgent) {
+        menuOptions.push({
+          label: `Resume: ${lastUsedAgent.name}`,
+          value: "continue",
+        });
+      }
+
+      if (agents.length > 0) {
+        menuOptions.push({
+          label: "New conversation",
+          value: "new-conversation",
+        });
+      }
+
+      menuOptions.push(
+        { label: "Create agent", value: "create-agent" },
+      );
+
+      if (agents.length > 0) {
+        menuOptions.push(
+          { label: "Edit agent", value: "edit-agent" },
+          { label: "List agents", value: "list-agents" },
+          { label: "Delete agent", value: "delete-agent" },
+        );
+      }
+
+      menuOptions.push({ label: "Exit", value: "exit" });
+
+      // Show wizard menu and wait for selection
+      const selection = yield* showWizardMenu(menuOptions);
+
+      // Handle the selected action
+      switch (selection) {
+        case "continue": {
+          if (lastUsedAgent) {
+            yield* startChatWithAgent(lastUsedAgent, configService);
+            yield* terminal.clear();
+          }
+          break;
+        }
+
+        case "new-conversation": {
+          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to chat with:");
+          if (selectedAgent) {
+            yield* startChatWithAgent(selectedAgent, configService);
+            yield* terminal.clear();
+          }
+          break;
+        }
+
+        case "create-agent": {
+          yield* createAgentCommand().pipe(
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                yield* terminal.error(`Failed to create agent: ${String(error)}`);
+              })
+            )
+          );
+          yield* terminal.clear();
+          break;
+        }
+
+        case "edit-agent": {
+          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to edit:");
+          if (selectedAgent) {
+            yield* editAgentCommand(selectedAgent.id).pipe(
+              Effect.catchAll((error) =>
+                Effect.gen(function* () {
+                  yield* terminal.error(`Failed to edit agent: ${String(error)}`);
+                })
+              )
+            );
+            yield* terminal.clear();
+          }
+          break;
+        }
+
+        case "list-agents": {
+          yield* listAgentsCommand().pipe(
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                yield* terminal.error(`Failed to list agents: ${String(error)}`);
+              })
+            )
+          );
+          // Pause to let user see the list
+          yield* terminal.ask("Press Enter to continue...");
+          yield* terminal.clear();
+          break;
+        }
+
+        case "delete-agent": {
+          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to delete:");
+          if (selectedAgent) {
+            yield* deleteAgentCommand(selectedAgent.id).pipe(
+              Effect.catchAll((error) =>
+                Effect.gen(function* () {
+                  yield* terminal.error(`Failed to delete agent: ${String(error)}`);
+                })
+              )
+            );
+            yield* terminal.clear();
+          }
+          break;
+        }
+
+        case "exit":
+        default:
+          shouldExit = true;
+          break;
+      }
+    }
+
+    yield* terminal.log("");
+  }).pipe(
+    Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e))))
+  );
+}
+
+/**
+ * Show the wizard menu and return the selected action
+ */
+function showWizardMenu(
+  options: WizardMenuOption[]
+): Effect.Effect<MenuAction, never, never> {
+  return Effect.async<MenuAction>((resume) => {
+    store.setCustomView(
+      React.createElement(WizardHome, {
+        options,
+        onSelect: (value: string) => {
+          store.setCustomView(null);
+          resume(Effect.succeed(value as MenuAction));
+        },
+        onExit: () => {
+          store.setCustomView(null);
+          resume(Effect.succeed("exit" as MenuAction));
+        },
+      })
+    );
+  });
+}
+
+/**
+ * Show agent selection menu
+ */
+function selectAgent(
+  agents: readonly Agent[],
+  terminal: TerminalService,
+  message: string
+): Effect.Effect<Agent | null, never, never> {
+  return Effect.gen(function* () {
+    if (agents.length === 0) {
+      yield* terminal.warn("No agents available.");
+      return null;
+    }
+
+    const choices = agents.map((agent) => ({
+      name: `${agent.name} - ${agent.description || agent.config.agentType || "default"}`,
+      value: agent.id,
+    }));
+
+    const selectedId = yield* terminal.select<string>(message, { choices });
+
+    if (!selectedId) {
+      return null;
+    }
+
+    return agents.find((a) => a.id === selectedId) ?? null;
+  });
+}
+
+/**
+ * Start a chat session with an agent and save as last used
+ */
+function startChatWithAgent(
+  agent: Agent,
+  configService: AgentConfigService
+) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+
+    // Save as last used agent
+    yield* Effect.tryPromise({
+      try: () => Effect.runPromise(configService.set("wizard.lastUsedAgentId", agent.id)),
+      catch: () => undefined,
+    }).pipe(Effect.catchAll(() => Effect.void));
+
+    yield* terminal.clear();
+    yield* terminal.heading(`Starting chat with: ${agent.name}`);
+    if (agent.description) {
+      yield* terminal.log(`   Description: ${agent.description}`);
+    }
+    yield* terminal.log("");
+    yield* terminal.info("Type '/exit' to end the conversation.");
+    yield* terminal.info("Type '/help' to see available special commands.");
+    yield* terminal.log("");
+
+    // Start the chat session
+    const chatService = yield* ChatServiceTag;
+    yield* chatService.startChatSession(agent).pipe(
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          yield* terminal.error(`Chat session error: ${String(error)}`);
+        })
+      )
+    );
+  });
+}

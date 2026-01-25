@@ -27,9 +27,13 @@ const COLORS: Record<LogType, string> = {
  * Individual log entry component - memoized to prevent re-renders
  * when other logs are added to the list.
  *
- * IMPORTANT: Props must be stable for memoization to work.
+ * IMPORTANT: Props must be stable for memoization to work effectively.
  * - `log` object reference should be stable (not recreated)
- * - `addSpacing` is a primitive boolean
+ * - `addSpacing` is a primitive boolean (pre-computed in parent)
+ *
+ * Without React.memo, every log entry would re-render whenever ANY log
+ * is added to the list, causing significant performance degradation
+ * during streaming responses.
  */
 export const LogEntryItem = React.memo(function LogEntryItem({
   log,
