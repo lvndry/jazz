@@ -15,12 +15,10 @@
 - [Why Jazz?](#why-jazz)
 - [Quick Start](#-quick-start)
 - [Usage Highlights](#-usage-highlights)
-- [See Jazz in Action](#see-jazz-in-action)
 - [Built for Production](#️-built-for-production)
 - [What's Next](#️-whats-next)
 - [Documentation & Community](#-documentation--community)
 - [Contributing](#-contributing)
-- [License](#-license)
 
 ---
 
@@ -90,26 +88,15 @@ pnpm add -g jazz-ai
 yarn global add jazz-ai
 ```
 
-### 2. Create Your First Agent
+### 2. Chat With Your Agent
+
+Simply run `jazz` to start a chat with your agent:
 
 ```bash
-jazz agent create
+jazz
 ```
 
-The wizard walks you through:
-
-- Name and description
-- Provider/model selection
-- Tool selection
-
-### 3. Chat With Your Agent
-
-```bash
-jazz agent list
-jazz agent chat <agent-name>
-```
-
-### 4. Update Jazz
+### 3. Update Jazz
 
 Keep Jazz up to date with the latest features and improvements:
 
@@ -130,167 +117,6 @@ jazz update
 | `jazz config show`       | View your configuration           |
 | `jazz auth gmail login`  | Authenticate with Google (Gmail)  |
 | `jazz update`            | Update Jazz to the latest version |
-| `/skills` (in chat)      | List and view available skills    |
-
----
-
-## See Jazz in Action
-
-### Example 1: Email Triage
-
-```bash
-$ jazz agent chat email-assistant
-
-You: Summarize unread emails from yesterday and organize them
-
-Agent: 📧 Found 23 unread emails from yesterday
-
-📊 Summary:
-- Work: 12 emails (5 from team, 4 PRs, 3 meetings)
-- Newsletters: 8 emails
-- Social: 3 emails
-
-I can:
-1. Archive all newsletters
-2. Label work emails by sender
-3. Draft replies for urgent items
-
-What would you like me to do?
-
-You: Archive newsletters and label work emails
-
-Agent: ⚠️ About to:
-- Archive 8 newsletter emails
-- Add labels to 12 work emails
-
-Proceed? (yes/no): yes
-
-Agent: ✓ Done! Inbox organized.
-```
-
-### Example 2: Git Assistant
-
-```bash
-$ jazz agent chat git-helper
-
-You: What changed in my code?
-
-Agent: [Running git status...]
-
-Found 3 modified files:
-1. src/auth/jwt.ts - Token refresh logic added
-2. src/middleware/auth.ts - New authentication middleware
-3. tests/auth.test.ts - 12 new test cases
-
-Summary:
-- Added automatic token refresh before expiration
-- Implemented refresh token rotation
-- Added comprehensive test coverage
-
-Suggested commit message:
-"feat: implement JWT token refresh with rotation
-
-- Add automatic refresh 5min before expiration
-- Implement single-use refresh token rotation
-- Add Redis caching for token blacklist
-- Add 12 new tests covering refresh flow"
-
-Should I commit these changes? (yes/no):
-
-You: yes
-
-Agent: ✓ Committed successfully
-```
-
-### Example 3: Code Analyzer - Bug Analysis
-
-```bash
-$ jazz agent chat code-analyzer
-
-You: I'm getting an error "Cannot read property 'id' of undefined" in src/api/users.ts. Help me analyze this bug.
-
-Agent: [Reading src/api/users.ts...]
-       [Analyzing error context...]
-
-       Found the issue at line 45:
-
-       const user = await getUserById(userId);
-       return user.id;  // ← Error: user might be undefined
-
-       Analysis:
-       - The `getUserById` function can return `undefined` if user not found
-       - Line 45 accesses `user.id` without checking if user exists
-       - This causes the error when a non-existent user ID is requested
-
-       Suggested fix:
-       1. Add null check before accessing user.id
-       2. Return appropriate error response for not found cases
-       3. Consider updating getUserById to throw an error instead
-
-       Should I show you the fix?
-
-You: yes, apply the fix
-
-Agent: [Applying fix...]
-
-       Updated code:
-       const user = await getUserById(userId);
-       if (!user) {
-         throw new NotFoundError(`User ${userId} not found`);
-       }
-       return user.id;
-
-       ✓ Fix applied
-       ✓ Added error handling
-```
-
-### Example 4: PDF Summary
-
-```bash
-$ jazz agent chat pdf-reader
-
-You: Read the PDF at ~/Documents/bitcoin.pdf and make a summary
-
-Agent: [Reading PDF file...]
-       ✓ Successfully read ~/Documents/bitcoin.pdf
-
-       [Analyzing content...]
-       Document: "Bitcoin: A Peer-to-Peer Electronic Cash System"
-       Pages: 9
-
-       # Summary
-
-       ## Overview
-       This paper introduces Bitcoin, a decentralized digital currency system
-       that enables peer-to-peer electronic transactions without requiring a
-       trusted third party.
-
-       ## Key Topics
-
-       ### 1. The Double-Spending Problem
-       - Traditional digital cash requires a trusted central authority
-       - Bitcoin solves this through cryptographic proof instead of trust
-
-       ### 2. Network Architecture
-       - Peer-to-peer network using proof-of-work
-       - Transactions are broadcast to all nodes
-       - Nodes accept the longest proof-of-work chain as valid
-
-       ### 3. Proof-of-Work Mechanism
-       - Nodes compete to solve computational puzzles
-       - Difficulty adjusts to maintain ~10 minute block times
-       - Network is resistant to attacks as long as honest nodes control
-         majority of CPU power
-
-       ## Key Findings
-       - Eliminates need for financial institutions as intermediaries
-       - Transactions are irreversible once confirmed
-       - Privacy maintained through public keys (pseudonymous, not anonymous)
-
-       ✓ Summary complete
-```
-
-**Want more examples?** See the [`examples/`](examples/) folder for additional use cases.
 
 ---
 
