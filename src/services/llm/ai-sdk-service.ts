@@ -647,11 +647,14 @@ class AISDKService implements LLMService {
         );
 
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        // STEP 6: Tools selection
+        // Check if the selected model supports tools
+        const supportsTools: boolean = modelInfo?.supportsTools ?? false;
         const {
           tools: requestedTools,
           toolChoice: requestedToolChoice,
           toolsDisabled,
-        } = buildToolConfig(modelInfo?.supportsTools ?? false, options.tools, options.toolChoice);
+        } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
 
         // Prepare tools for AI SDK if present
         let tools: ToolSet | undefined;
@@ -660,7 +663,8 @@ class AISDKService implements LLMService {
           tools = {};
 
           // Check if web_search is in the tool list and if we should use provider-native tool
-          const hasWebSearch = options.tools.some((t) => t.function.name === "web_search");
+          const currentTools = options.tools ?? [];
+          const hasWebSearch = currentTools.some((t) => t.function.name === "web_search");
           const providerNativeWebSearch = hasWebSearch
             ? getProviderNativeWebSearchTool(providerName)
             : null;
@@ -672,7 +676,7 @@ class AISDKService implements LLMService {
               `[Web Search] Using provider-native web search tool for ${providerName} (no external API keys configured)`,
             );
             // Filter out web_search from Jazz tools and add provider-native tool
-            for (const toolDef of options.tools) {
+            for (const toolDef of currentTools) {
               if (toolDef.function.name !== "web_search") {
                 tools[toolDef.function.name] = tool({
                   description: toolDef.function.description,
@@ -691,8 +695,8 @@ class AISDKService implements LLMService {
                 `[Web Search] Using Jazz web_search tool (provider ${providerName} does not support native web search)`,
               );
             }
-            // Use Jazz tools as normal
-            for (const toolDef of options.tools) {
+
+            for (const toolDef of currentTools) {
               tools[toolDef.function.name] = tool({
                 description: toolDef.function.description,
                 inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
