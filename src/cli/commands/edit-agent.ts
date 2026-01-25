@@ -4,9 +4,9 @@ import { agentPromptBuilder } from "@/core/agent/agent-prompt";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
-    createCategoryMappings,
-    getMCPServerCategories,
-    WEB_SEARCH_CATEGORY,
+  createCategoryMappings,
+  getMCPServerCategories,
+  WEB_SEARCH_CATEGORY,
 } from "@/core/agent/tools/register-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { ProviderName } from "@/core/constants/models";
@@ -21,12 +21,12 @@ import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/term
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent, AgentConfig, LLMProvider } from "@/core/types";
 import {
-    AgentAlreadyExistsError,
-    AgentConfigurationError,
-    LLMConfigurationError,
-    StorageError,
-    StorageNotFoundError,
-    ValidationError,
+  AgentAlreadyExistsError,
+  AgentConfigurationError,
+  LLMConfigurationError,
+  StorageError,
+  StorageNotFoundError,
+  ValidationError,
 } from "@/core/types/errors";
 import type { MCPTool } from "@/core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp-utils";
@@ -124,7 +124,7 @@ export function editAgentCommand(
       yield* terminal.warn(
         `\n⚠️  The current model (${agent.config.llmModel}) does not support tools. Clearing configured tools.`,
       );
-      
+
       // Clear tools in the database
       yield* agentService.updateAgent(agent.id, {
         config: { ...agent.config, tools: [] },
@@ -139,9 +139,8 @@ export function editAgentCommand(
         { name: "Agent Type", value: "agentType" },
         { name: "LLM Provider", value: "llmProvider" },
         { name: "LLM Model", value: "llmModel" },
-        { name: "LLM Model", value: "llmModel" },
-        { 
-          name: supportsTools ? "Tools" : "Tools (Not supported by current model) 🚫", 
+        {
+          name: supportsTools ? "Tools" : "Tools (Not supported by current model) 🚫",
           value: "tools",
         },
         ...(currentModelIsReasoning ? [{ name: "Reasoning Effort", value: "reasoningEffort" }] : []),
@@ -163,9 +162,9 @@ export function editAgentCommand(
       if (!supportsTools) {
         yield* terminal.warn(`\n⚠️  The current model (${agent.config.llmModel}) does not support tools.`);
         // Re-run the command to let user pick something else, or just exit
-        return; 
+        return;
       }
-      
+
       const allServers = yield* mcpManager.listServers();
       const enabledServers = allServers.filter((server) => server.enabled !== false);
 
