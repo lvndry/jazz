@@ -316,6 +316,7 @@ class InkStreamingRenderer implements StreamingRenderer {
                 timestamp: new Date(),
               });
             }
+            store.printOutput({ type: "log", message: "", timestamp: new Date() });
           }
 
           store.setStatus(null);

@@ -1,3 +1,29 @@
+/* eslint-disable import/order */
+import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+import type { ProviderName } from "@/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import type {
+  ChatCompletionOptions,
+  ChatCompletionResponse,
+  LLMConfig,
+  LLMProvider,
+  LLMProviderListItem,
+  ModelInfo,
+  StreamEvent,
+  StreamingResult,
+} from "@/core/types";
+import type { WebSearchConfig } from "@/core/types/config";
+import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
+import type { ToolCall } from "@/core/types/tools";
+import { safeParseJson } from "@/core/utils/json";
+import {
+  convertToLLMError,
+  extractCleanErrorMessage,
+  truncateRequestBodyValues,
+} from "@/core/utils/llm-error";
+import { createDeferred } from "@/core/utils/promise";
 import { anthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { deepseek } from "@ai-sdk/deepseek";
 import { google, type GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
@@ -25,36 +51,13 @@ import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { z } from "zod";
-import { MAX_AGENT_STEPS } from "@/core/constants/agent";
-import type { ProviderName } from "@/core/constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
-import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import type {
-  ChatCompletionOptions,
-  ChatCompletionResponse,
-  LLMConfig,
-  LLMProvider,
-  LLMProviderListItem,
-  ModelInfo,
-  StreamEvent,
-  StreamingResult,
-} from "@/core/types";
-import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
-import type { ToolCall } from "@/core/types/tools";
-import { safeParseJson } from "@/core/utils/json";
-import {
-  convertToLLMError,
-  extractCleanErrorMessage,
-  truncateRequestBodyValues,
-} from "@/core/utils/llm-error";
-import { createDeferred } from "@/core/utils/promise";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
 import { StreamProcessor } from "./stream-processor";
 
 interface AISDKConfig {
   llmConfig?: LLMConfig;
+  webSearchConfig?: WebSearchConfig;
 }
 
 function parseToolArguments(input: string): Record<string, unknown> {
@@ -201,6 +204,106 @@ function toCoreMessages(
 type ModelName = string;
 type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
 type AISDKToolChoice = Parameters<typeof generateText>[0]["toolChoice"];
+
+/**
+ * Check if any external web search API keys are configured
+ * Returns true if at least one external provider (exa, parallel, tavily) has an API key
+ */
+function hasExternalWebSearchKeys(webSearchConfig?: WebSearchConfig): boolean {
+  if (!webSearchConfig) return false;
+
+  return !!(
+    webSearchConfig.exa?.api_key ||
+    webSearchConfig.parallel?.api_key ||
+    webSearchConfig.tavily?.api_key
+  );
+}
+
+/**
+ * Get provider-native web search tool if supported by the provider
+ * Returns the tool instance or null if not supported
+ */
+function getProviderNativeWebSearchTool(
+  providerName: ProviderName,
+  logger?: LoggerService,
+): ToolSet[string] | null {
+  const normalizedProvider = providerName.toLowerCase();
+
+  try {
+    switch (normalizedProvider) {
+      case "openai": {
+        const openaiWithTools = openai as typeof openai & {
+          tools?: { webSearch?: (config?: { externalWebAccess?: boolean; searchContextSize?: string }) => ToolSet[string] };
+        };
+        if (typeof openaiWithTools.tools?.webSearch === "function") {
+          return openaiWithTools.tools.webSearch({
+            externalWebAccess: true,
+            searchContextSize: "high",
+          });
+        }
+        return null;
+      }
+      case "anthropic": {
+        const anthropicWithTools = anthropic as typeof anthropic & {
+          tools?: { webSearch_20250305?: (config?: { maxUses?: number }) => ToolSet[string] };
+        };
+        if (typeof anthropicWithTools.tools?.webSearch_20250305 === "function") {
+          return anthropicWithTools.tools.webSearch_20250305({
+            maxUses: 5,
+          });
+        }
+        return null;
+      }
+      case "google": {
+        const googleWithTools = google as typeof google & {
+          tools?: { googleSearch?: (config?: Record<string, unknown>) => ToolSet[string] };
+        };
+        if (typeof googleWithTools.tools?.googleSearch === "function") {
+          return googleWithTools.tools.googleSearch({});
+        }
+        return null;
+      }
+      case "xai": {
+        const xaiWithTools = xai as typeof xai & {
+          tools?: { webSearch?: (config?: Record<string, unknown>) => ToolSet[string] };
+        };
+        if (typeof xaiWithTools.tools?.webSearch === "function") {
+          return xaiWithTools.tools.webSearch({});
+        }
+        return null;
+      }
+      case "groq": {
+        const groqWithTools = groq as typeof groq & {
+          tools?: { browserSearch?: (config?: Record<string, unknown>) => ToolSet[string] };
+        };
+        if (typeof groqWithTools.tools?.browserSearch === "function") {
+          return groqWithTools.tools.browserSearch({});
+        }
+        return null;
+      }
+      default:
+        return null;
+    }
+  } catch (error) {
+    if (logger) {
+      void logger.warn(
+        `[Web Search Error] Failed to get native web search tool for ${providerName}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return null;
+  }
+}
+
+/**
+ * Check if a provider supports native web search
+ * This is exposed via LLMService for CLI logic
+ */
+function checkProviderNativeWebSearchSupport(
+  providerName: ProviderName,
+  logger?: LoggerService,
+): boolean {
+  return getProviderNativeWebSearchTool(providerName, logger) !== null;
+}
 
 /**
  * Extract all configured providers from LLMConfig with their API keys
@@ -530,6 +633,57 @@ class AISDKService implements LLMService {
     return Effect.succeed(allProviders);
   }
 
+  private prepareTools(
+    providerName: ProviderName,
+    requestedTools: ChatCompletionOptions["tools"],
+  ): ToolSet | undefined {
+    if (!requestedTools || requestedTools.length === 0) {
+      return undefined;
+    }
+
+    const toolConversionStart = Date.now();
+    const tools: ToolSet = {};
+
+    // First, map all requested tools to the AI SDK format.
+    for (const toolDef of requestedTools) {
+      tools[toolDef.function.name] = tool({
+        description: toolDef.function.description,
+        inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+      });
+    }
+
+    // Now, handle the special case for web_search.
+    const hasWebSearch = requestedTools.some((t) => t.function.name === "web_search");
+    if (hasWebSearch) {
+      const providerNativeWebSearch = getProviderNativeWebSearchTool(providerName, this.logger);
+      const hasExternalKeys = hasExternalWebSearchKeys(this.config.webSearchConfig);
+      const shouldUseProviderNative = providerNativeWebSearch && !hasExternalKeys;
+
+      if (shouldUseProviderNative) {
+        void this.logger.debug(
+          `[Web Search] Using provider-native web search tool for ${providerName} (no external API keys configured)`,
+        );
+        tools["web_search"] = providerNativeWebSearch;
+      } else {
+        if (providerNativeWebSearch && hasExternalKeys) {
+          void this.logger.debug(
+            `[Web Search] Using Jazz web_search tool (external API keys configured, overriding provider-native tool)`,
+          );
+        } else if (!providerNativeWebSearch) {
+          void this.logger.debug(
+            `[Web Search] Using Jazz web_search tool (provider ${providerName} does not support native web search)`,
+          );
+        }
+      }
+    }
+
+    void this.logger.debug(
+      `[LLM Timing] Tool conversion (${Object.keys(tools).length} tools) took ${Date.now() - toolConversionStart}ms`,
+    );
+
+    return tools;
+  }
+
   createChatCompletion(
     providerName: ProviderName,
     options: ChatCompletionOptions,
@@ -553,28 +707,18 @@ class AISDKService implements LLMService {
         );
 
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        // STEP 6: Tools selection
+        // Check if the selected model supports tools
+        const supportsTools: boolean = modelInfo?.supportsTools ?? false;
         const {
           tools: requestedTools,
           toolChoice: requestedToolChoice,
           toolsDisabled,
-        } = buildToolConfig(modelInfo?.supportsTools ?? false, options.tools, options.toolChoice);
+        } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
 
         // Prepare tools for AI SDK if present
-        let tools: ToolSet | undefined;
-        if (requestedTools && requestedTools.length > 0) {
-          const toolConversionStart = Date.now();
-          tools = {};
-
-          for (const toolDef of requestedTools) {
-            tools[toolDef.function.name] = tool({
-              description: toolDef.function.description,
-              inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-            });
-          }
-          void this.logger.debug(
-            `[LLM Timing] Tool conversion (${requestedTools.length} tools) took ${Date.now() - toolConversionStart}ms`,
-          );
-        }
+        // Prepare tools for AI SDK if present
+        const tools = this.prepareTools(providerName, requestedTools);
 
         const providerOptions = buildProviderOptions(providerName, options);
 
@@ -699,6 +843,12 @@ class AISDKService implements LLMService {
     });
   }
 
+  readonly supportsNativeWebSearch = (
+    providerName: ProviderName,
+  ): Effect.Effect<boolean, never> => {
+    return Effect.succeed(checkProviderNativeWebSearchSupport(providerName, this.logger));
+  };
+
   createStreamingChatCompletion(
     providerName: ProviderName,
     options: ChatCompletionOptions,
@@ -712,6 +862,8 @@ class AISDKService implements LLMService {
     const model = selectModel(providerName, options.model, this.config.llmConfig, this.modelCache);
     void this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`);
 
+
+
     const providerOptions = buildProviderOptions(providerName, options);
 
     // Message conversion timing
@@ -721,12 +873,9 @@ class AISDKService implements LLMService {
       `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
     );
 
-    // Create AbortController for cancellation
     const abortController = new AbortController();
 
-    // Create a deferred to collect final response
     const responseDeferred = createDeferred<ChatCompletionResponse>();
-    // Prevent unhandled promise rejection if the caller never awaits the response effect
     void responseDeferred.promise.catch((err) => {
       throw err;
     });
@@ -753,20 +902,7 @@ class AISDKService implements LLMService {
               options.toolChoice,
             );
 
-            let tools: ToolSet | undefined;
-            if (requestedTools && requestedTools.length > 0) {
-              const toolConversionStart = Date.now();
-              tools = {};
-              for (const toolDef of requestedTools) {
-                tools[toolDef.function.name] = tool({
-                  description: toolDef.function.description,
-                  inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-                });
-              }
-              void this.logger.debug(
-                `[LLM Timing] Tool conversion (${requestedTools.length} tools) took ${Date.now() - toolConversionStart}ms`,
-              );
-            }
+            const tools = this.prepareTools(providerName, requestedTools);
 
             if (toolsDisabled) {
               void this.logger.info(
@@ -933,6 +1069,7 @@ export function createAISDKServiceLayer(): Layer.Layer<
 
       const cfg: AISDKConfig = {
         ...(appConfig.llm ? { llmConfig: appConfig.llm } : {}),
+        ...(appConfig.web_search ? { webSearchConfig: appConfig.web_search } : {}),
       };
       return new AISDKService(cfg, logger);
     }),

@@ -41,6 +41,8 @@ function main(): void {
     "cfonts",
     "--external",
     "ink-big-text",
+    "--external",
+    "pdf-parse",
     "--banner",
     banner,
   ];
