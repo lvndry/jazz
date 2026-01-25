@@ -225,6 +225,7 @@ function hasExternalWebSearchKeys(webSearchConfig?: WebSearchConfig): boolean {
  */
 function getProviderNativeWebSearchTool(
   providerName: ProviderName,
+  logger?: LoggerService,
 ): ToolSet[string] | null {
   const normalizedProvider = providerName.toLowerCase();
 
@@ -283,7 +284,12 @@ function getProviderNativeWebSearchTool(
       default:
         return null;
     }
-  } catch {
+  } catch (error) {
+    if (logger) {
+      void logger.warn(
+        `[Web Search Error] Failed to get native web search tool for ${providerName}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     return null;
   }
 }
@@ -292,8 +298,11 @@ function getProviderNativeWebSearchTool(
  * Check if a provider supports native web search
  * This is exposed via LLMService for CLI logic
  */
-function checkProviderNativeWebSearchSupport(providerName: ProviderName): boolean {
-  return getProviderNativeWebSearchTool(providerName) !== null;
+function checkProviderNativeWebSearchSupport(
+  providerName: ProviderName,
+  logger?: LoggerService,
+): boolean {
+  return getProviderNativeWebSearchTool(providerName, logger) !== null;
 }
 
 /**
@@ -635,46 +644,36 @@ class AISDKService implements LLMService {
     const toolConversionStart = Date.now();
     const tools: ToolSet = {};
 
-    // Check if web_search is in the tool list and if we should use provider-native tool
+    // First, map all requested tools to the AI SDK format.
+    for (const toolDef of requestedTools) {
+      tools[toolDef.function.name] = tool({
+        description: toolDef.function.description,
+        inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+      });
+    }
+
+    // Now, handle the special case for web_search.
     const hasWebSearch = requestedTools.some((t) => t.function.name === "web_search");
-    const providerNativeWebSearch = hasWebSearch
-      ? getProviderNativeWebSearchTool(providerName)
-      : null;
-    const hasExternalKeys = hasExternalWebSearchKeys(this.config.webSearchConfig);
-    const shouldUseProviderNative = hasWebSearch && providerNativeWebSearch && !hasExternalKeys;
+    if (hasWebSearch) {
+      const providerNativeWebSearch = getProviderNativeWebSearchTool(providerName, this.logger);
+      const hasExternalKeys = hasExternalWebSearchKeys(this.config.webSearchConfig);
+      const shouldUseProviderNative = providerNativeWebSearch && !hasExternalKeys;
 
-    if (shouldUseProviderNative) {
-      void this.logger.info(
-        `[Web Search] Using provider-native web search tool for ${providerName} (no external API keys configured)`,
-      );
-      // Filter out web_search from Jazz tools and add provider-native tool
-      for (const toolDef of requestedTools) {
-        if (toolDef.function.name !== "web_search") {
-          tools[toolDef.function.name] = tool({
-            description: toolDef.function.description,
-            inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-          });
-        }
-      }
-      if (providerNativeWebSearch) {
-        tools["web_search"] = providerNativeWebSearch;
-      }
-    } else {
-      if (hasWebSearch && providerNativeWebSearch && hasExternalKeys) {
-        void this.logger.info(
-          `[Web Search] Using Jazz web_search tool (external API keys configured, overriding provider-native tool)`,
-        );
-      } else if (hasWebSearch && !providerNativeWebSearch) {
+      if (shouldUseProviderNative) {
         void this.logger.debug(
-          `[Web Search] Using Jazz web_search tool (provider ${providerName} does not support native web search)`,
+          `[Web Search] Using provider-native web search tool for ${providerName} (no external API keys configured)`,
         );
-      }
-
-      for (const toolDef of requestedTools) {
-        tools[toolDef.function.name] = tool({
-          description: toolDef.function.description,
-          inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
-        });
+        tools["web_search"] = providerNativeWebSearch;
+      } else {
+        if (providerNativeWebSearch && hasExternalKeys) {
+          void this.logger.debug(
+            `[Web Search] Using Jazz web_search tool (external API keys configured, overriding provider-native tool)`,
+          );
+        } else if (!providerNativeWebSearch) {
+          void this.logger.debug(
+            `[Web Search] Using Jazz web_search tool (provider ${providerName} does not support native web search)`,
+          );
+        }
       }
     }
 
@@ -847,7 +846,7 @@ class AISDKService implements LLMService {
   readonly supportsNativeWebSearch = (
     providerName: ProviderName,
   ): Effect.Effect<boolean, never> => {
-    return Effect.succeed(checkProviderNativeWebSearchSupport(providerName));
+    return Effect.succeed(checkProviderNativeWebSearchSupport(providerName, this.logger));
   };
 
   createStreamingChatCompletion(
@@ -874,12 +873,9 @@ class AISDKService implements LLMService {
       `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
     );
 
-    // Create AbortController for cancellation
     const abortController = new AbortController();
 
-    // Create a deferred to collect final response
     const responseDeferred = createDeferred<ChatCompletionResponse>();
-    // Prevent unhandled promise rejection if the caller never awaits the response effect
     void responseDeferred.promise.catch((err) => {
       throw err;
     });
