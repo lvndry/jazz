@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { IndicatorComponent, ItemComponent } from "./ItemComponents";
 import { LineInput } from "./LineInput";
 import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
 import type { PromptState } from "./types";
@@ -136,6 +137,8 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
           <SelectInput
             items={prompt.options?.choices || []}
             onSelect={handleSelect}
+            indicatorComponent={IndicatorComponent}
+            itemComponent={ItemComponent}
           />
         )}
         {prompt.type === "checkbox" && (
@@ -154,6 +157,8 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
               { label: "No", value: false },
             ]}
             onSelect={handleSelect}
+            indicatorComponent={IndicatorComponent}
+            itemComponent={ItemComponent}
           />
         )}
       </Box>

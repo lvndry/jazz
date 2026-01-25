@@ -1,7 +1,9 @@
 import { Box, Text, useApp, useInput } from "ink";
+import BigText from "ink-big-text";
+import Gradient from "ink-gradient";
 import SelectInput from "ink-select-input";
-import React from "react";
-import { Header } from "./Header";
+import React, { useState, useEffect } from "react";
+import packageJson from "../../../package.json";
 
 /**
  * Menu option for the wizard
@@ -17,50 +19,110 @@ interface WizardHomeProps {
   onExit: () => void;
 }
 
+const TIPS = [
+  // CLI Shortcuts
+  "Type '/help' in chat to see special commands like /clear and /debug",
+  "Use 'Arrow Up' in chat to recall your previous messages",
+  "Run 'jazz agent list' to see all your active agents",
+  "You can pipe input to jazz: 'cat file.txt | jazz agent chat coder'",
+
+  // Agent Management
+  "Give your agents distinct personalities in their system prompt",
+  "Agents work best with specific, focused descriptions",
+  "Use 'jazz agent edit' to tweak an agent's instructions on the fly",
+  "Delete unused agents to keep your workspace clean",
+
+  // Integrations & Tools
+  "Connect Gmail to let agents draft and prioritize your emails",
+  "Agents can manage your schedule if you enable the Calendar tool",
+  "The 'fs' tool allows agents to read and write files in your project",
+  "Enable Web Search to give your agent up-to-date knowledge",
+  "Agents can use 'grep' to search your codebase instantly",
+
+  // Advanced Features
+  "Jazz supports MCP! Connect to Notion, GitHub, and 100+ other services",
+  "Use Agent Skills to teach complex workflows to your agents",
+  "Switch LLM models mid-chat if you need more intelligence or speed",
+  "Local models via Ollama are supported for offline privacy",
+
+  // Workflow Tips
+  "Ask agents to 'plan first' for complex coding tasks",
+  "You can paste images into the terminal for multimodal analysis",
+  "Agents can read PDFs! Just give them the file path",
+  "Ask an agent to 'summarize this conversation' to catch up",
+  "Chain commands: 'Find TODOs then create a summary file'",
+
+  // Troubleshooting
+  "If an agent gets stuck, try typing '/reset' to clear context",
+  "Use 'jazz config show' to debug your configuration",
+  "Check 'jazz update' regularly for new features",
+
+  // Fun/Power User
+  "You can have multiple agents running in different terminal tabs",
+  "Agents can write their own tests before writing code",
+  "Try asking an agent to 'optimize your system prompt'",
+  "Jazz agents never execute dangerous commands without approval",
+  "The 'shell' tool is sandboxed but powerful - use with care!",
+];
+
 /**
  * WizardHome - The main interactive home screen for Jazz CLI
- *
- * Displays a branded header with menu options for all Jazz functionality.
- * Uses ink-select-input for keyboard navigation.
  */
 export function WizardHome({ options, onSelect, onExit }: WizardHomeProps): React.ReactElement {
   const { exit } = useApp();
+  const [tipIndex, setTipIndex] = useState(0);
 
-  // Handle escape key to exit
+  // Rotate tips occasionally or just on mount
+  useEffect(() => {
+    setTipIndex(Math.floor(Math.random() * TIPS.length));
+  }, []);
+
   useInput((input, key) => {
     if (key.escape) {
       onExit();
       exit();
     }
-    // Also handle 'q' as a quick exit
     if (input === "q") {
       onExit();
       exit();
     }
   });
 
-  // Convert options to ink-select-input format
   const items = options.map((option) => ({
     label: option.label,
     value: option.value,
   }));
 
   return (
-    <Box flexDirection="column" paddingX={2} paddingY={1}>
-      <Header />
-
-      {/* Divider */}
-      <Box marginY={1}>
-        <Text dimColor>{"─".repeat(60)}</Text>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="cyan"
+      paddingX={2}
+      paddingY={1}
+      width={80} // Fixed width for consistent look
+    >
+      {/* Top Header Section */}
+      <Box flexDirection="row" justifyContent="space-between" alignItems="center" marginBottom={1}>
+        <Box flexDirection="column">
+            <Gradient name="morning">
+                <BigText text="Jazz" font="tiny" />
+            </Gradient>
+            <Text dimColor>v{packageJson.version} • Your AI Agent Framework</Text>
+        </Box>
+        <Box>
+           <Text>🎷</Text>
+        </Box>
       </Box>
 
-      {/* Menu */}
-      <Box flexDirection="column" marginLeft={2}>
-        <Box marginBottom={1}>
-          <Text dimColor>Select an action:</Text>
-        </Box>
+      {/* Main Content Split */}
+      <Box flexDirection="row" marginTop={1}>
+        {/* Left Column: Menu */}
+        <Box flexDirection="column" width="55%" paddingRight={2}>
+          <Box marginBottom={1}>
+            <Text bold color="white">What would you like to do?</Text>
+          </Box>
 
-        <Box marginTop={1}>
           <SelectInput
             items={items}
             onSelect={(item) => onSelect(item.value)}
@@ -68,34 +130,45 @@ export function WizardHome({ options, onSelect, onExit }: WizardHomeProps): Reac
             itemComponent={ItemComponent}
           />
         </Box>
+
+        {/* Vertical Separator */}
+        <Box marginRight={2}>
+            <Text dimColor>│</Text>
+        </Box>
+
+        {/* Right Column: Info/Tips */}
+        <Box flexDirection="column" width="40%">
+          <Box marginBottom={1}>
+            <Text bold color="cyan">💡 Pro Tip</Text>
+          </Box>
+          <Box>
+            <Text dimColor wrap="wrap">
+              {TIPS[tipIndex]}
+            </Text>
+          </Box>
+        </Box>
       </Box>
 
-      {/* Footer hint */}
-      <Box marginTop={2} marginLeft={2}>
+      {/* Footer */}
+      <Box marginTop={2} borderStyle="single" borderTop={false} borderLeft={false} borderRight={false} borderBottom={false}>
         <Text dimColor>
-          Navigate: ↑/↓  •  Select: Enter  •  Exit: Esc
+          Use <Text bold color="cyan">↑/↓</Text> to navigate, <Text bold color="cyan">Enter</Text> to select
         </Text>
       </Box>
     </Box>
   );
 }
 
-/**
- * Custom indicator component for the menu
- */
 function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): React.ReactElement {
   return (
-    <Box marginRight={2} width={2}>
-      <Text {...(isSelected ? { color: "cyan" } : {})}>
-        {isSelected ? "›" : " "}
+    <Box marginRight={1}>
+      <Text color="cyan">
+        {isSelected ? "●" : " "}
       </Text>
     </Box>
   );
 }
 
-/**
- * Custom item component for styled menu items
- */
 function ItemComponent({
   isSelected = false,
   label
@@ -104,9 +177,10 @@ function ItemComponent({
   label: string;
 }): React.ReactElement {
   return (
-    <Box paddingY={0}>
+    <Box>
       <Text
-        {...(isSelected ? { color: "cyan" } : { dimColor: true })}
+        color={isSelected ? "cyan" : "white"}
+        bold={isSelected}
       >
         {label}
       </Text>

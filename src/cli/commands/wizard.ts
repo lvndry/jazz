@@ -251,6 +251,7 @@ function startChatWithAgent(
 
     yield* terminal.clear();
     yield* terminal.heading(`Starting chat with: ${agent.name}`);
+    yield* terminal.log(`${agent.model} - Reasoning: ${agent.config.reasoningEffort ?? "disabled"}`);
     if (agent.description) {
       yield* terminal.log(`   Description: ${agent.description}`);
     }

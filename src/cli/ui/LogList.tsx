@@ -7,8 +7,8 @@ const ICONS: Record<LogType, React.ReactElement> = {
   success: <Text color="green">✔</Text>,
   error: <Text color="red">✖</Text>,
   warn: <Text color="yellow">⚠</Text>,
-  info: <Text color="blue">ℹ</Text>,
-  debug: <Text dimColor>🐛</Text>,
+  info: <Text color="cyan">ℹ</Text>,
+  debug: <Text dimColor>•</Text>,
   user: <Text color="cyan">›</Text>,
   log: <></>,
 };
@@ -19,7 +19,7 @@ const COLORS: Record<LogType, string> = {
   warn: "yellow",
   debug: "gray",
   user: "cyan",
-  info: "white",
+  info: "cyan",
   log: "white",
 };
 
