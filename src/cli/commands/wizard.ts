@@ -40,13 +40,10 @@ export function wizardCommand() {
       const agents = yield* agentService.listAgents();
 
       // Get last used agent ID from config
-      const lastUsedAgentId = yield* Effect.tryPromise({
-        try: async () => {
-          const value = await Effect.runPromise(configService.get("wizard.lastUsedAgentId"));
-          return typeof value === "string" ? value : null;
-        },
-        catch: () => null,
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      const lastUsedAgentId = yield* configService.get("wizard.lastUsedAgentId").pipe(
+        Effect.map((value) => (typeof value === "string" ? value : null)),
+        Effect.catchAll(() => Effect.succeed(null))
+      );
 
       // Check if last used agent still exists
       let lastUsedAgent: Agent | null = null;
@@ -276,10 +273,9 @@ function startChatWithAgent(
     const terminal = yield* TerminalServiceTag;
 
     // Save as last used agent
-    yield* Effect.tryPromise({
-      try: () => Effect.runPromise(configService.set("wizard.lastUsedAgentId", agent.id)),
-      catch: () => undefined,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    yield* configService.set("wizard.lastUsedAgentId", agent.id).pipe(
+      Effect.catchAll(() => Effect.void)
+    );
 
     yield* terminal.clear();
     yield* terminal.heading(`Starting chat with: ${agent.name}`);
