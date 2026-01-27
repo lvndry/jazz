@@ -113,13 +113,45 @@ export function wizardCommand() {
         }
 
         case "create-agent": {
-          yield* createAgentCommand().pipe(
+          // Run create agent flow and start chat with newly created agent
+          const creationResult = yield* createAgentCommand().pipe(Effect.either);
+
+          if (creationResult._tag === "Left") {
+            // Creation failed
+            yield* terminal.error(`Failed to create agent: ${String(creationResult.left)}`);
+            yield* terminal.clear();
+            break;
+          }
+
+          // Fetch agents after creation and pick the most recently created one
+          const agentsAfterCreate = yield* agentService.listAgents().pipe(
             Effect.catchAll((error) =>
               Effect.gen(function* () {
-                yield* terminal.error(`Failed to create agent: ${String(error)}`);
-              })
-            )
+                yield* terminal.error(`Failed to retrieve agents: ${String(error)}`);
+                return [] as Agent[];
+              }),
+            ),
           );
+
+          if (agentsAfterCreate.length === 0) {
+            yield* terminal.clear();
+            break;
+          }
+
+          // Find newest agent by createdAt timestamp
+          const newest = agentsAfterCreate.reduce((prev, curr) =>
+            prev.createdAt.getTime() > curr.createdAt.getTime() ? prev : curr,
+          );
+
+          // Start chat with the newly created agent
+          yield* startChatWithAgent(newest, configService).pipe(
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                yield* terminal.error(`Failed to start chat with created agent: ${String(error)}`);
+              }),
+            ),
+          );
+
           yield* terminal.clear();
           break;
         }
