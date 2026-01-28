@@ -6,6 +6,7 @@ import { ChatServiceTag } from "@/core/interfaces/chat-service";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/index";
 import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
+import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
 import { store } from "../ui/App";
@@ -20,6 +21,7 @@ type MenuAction =
   | "create-agent"
   | "edit-agent"
   | "list-agents"
+  | "config"
   | "delete-agent"
   | "exit";
 
@@ -81,8 +83,12 @@ export function wizardCommand() {
         menuOptions.push(
           { label: "Edit agent", value: "edit-agent" },
           { label: "List agents", value: "list-agents" },
+          { label: "Update configuration", value: "config" },
           { label: "Delete agent", value: "delete-agent" },
         );
+      } else {
+        // Even if no agents, allow configuration
+        menuOptions.push({ label: "Update configuration", value: "config" });
       }
 
       menuOptions.push({ label: "Exit", value: "exit" });
@@ -194,6 +200,12 @@ export function wizardCommand() {
             );
             yield* terminal.clear();
           }
+          break;
+        }
+
+        case "config": {
+          yield* configWizardCommand();
+          yield* terminal.clear();
           break;
         }
 

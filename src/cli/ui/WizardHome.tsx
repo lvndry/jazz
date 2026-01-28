@@ -17,6 +17,7 @@ interface WizardHomeProps {
   options: WizardMenuOption[];
   onSelect: (value: string) => void;
   onExit: () => void;
+  title?: string;
 }
 
 const TIPS = [
@@ -68,7 +69,7 @@ const TIPS = [
 /**
  * WizardHome - The main interactive home screen for Jazz CLI
  */
-export function WizardHome({ options, onSelect, onExit }: WizardHomeProps): React.ReactElement {
+export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps): React.ReactElement {
   const { exit } = useApp();
   const [tipIndex, setTipIndex] = useState(0);
 
@@ -120,7 +121,7 @@ export function WizardHome({ options, onSelect, onExit }: WizardHomeProps): Reac
         {/* Left Column: Menu */}
         <Box flexDirection="column" width="55%" paddingRight={2}>
           <Box marginBottom={1}>
-            <Text bold color="white">What would you like to do?</Text>
+            <Text bold color="white">{title || "What would you like to do?"}</Text>
           </Box>
 
           <SelectInput
