@@ -880,6 +880,9 @@ class AISDKService implements LLMService {
       throw err;
     });
 
+
+
+    let processorRef: StreamProcessor | null = null;
     const stream = Stream.async<StreamEvent, LLMError>(
       (
         emit: (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void,
@@ -923,8 +926,6 @@ class AISDKService implements LLMService {
               stopWhen: stepCountIs(MAX_AGENT_STEPS),
             });
 
-            result.toUIMessageStream({ sendReasoning: true });
-
             void this.logger.debug(
               `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
             );
@@ -942,6 +943,7 @@ class AISDKService implements LLMService {
               emit,
               this.logger,
             );
+            processorRef = processor;
 
             // Process the stream and get final response
             const finalResponse = await processor.process(result);
@@ -1005,6 +1007,9 @@ class AISDKService implements LLMService {
       stream,
       response: Effect.promise(() => responseDeferred.promise),
       cancel: Effect.sync(() => {
+        if (processorRef) {
+          processorRef.cancel();
+        }
         abortController.abort();
       }),
     }).pipe(

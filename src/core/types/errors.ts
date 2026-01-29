@@ -30,6 +30,10 @@ export class AgentConfigurationError extends Data.TaggedError("AgentConfiguratio
   readonly suggestion?: string;
 }> {}
 
+export class GenerationInterruptedError extends Data.TaggedError("GenerationInterruptedError")<{
+  readonly reason: string;
+}> {}
+
 // Task Errors
 export class TaskNotFoundError extends Data.TaggedError("TaskNotFoundError")<{
   readonly taskId: string;

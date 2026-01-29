@@ -7,7 +7,7 @@ import packageJson from "../../../package.json";
 interface LayoutProps {
   children: React.ReactNode;
   sidebar?: React.ReactNode | undefined;
-  title?: string | undefined;
+  title?: React.ReactNode | undefined;
   footer?: string | undefined;
 }
 

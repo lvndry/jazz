@@ -5,7 +5,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
-import type { PresentationService } from "@/core/interfaces/presentation";
+import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
   ToolRegistryTag,
@@ -211,7 +211,13 @@ export class AgentRunner {
     return Effect.gen(function* () {
       // Get services
       const configService = yield* AgentConfigServiceTag;
+      const presentationService = yield* PresentationServiceTag;
       const appConfig = yield* configService.appConfig;
+
+      // Show thinking indicator immediately to provide instant feedback
+      if (!options.internal) {
+        yield* presentationService.presentThinking(options.agent.name, true);
+      }
 
       // Initialize run context
       const runContext = yield* initializeAgentRun(options);

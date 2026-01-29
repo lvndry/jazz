@@ -23,6 +23,12 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
       staged: z.boolean().optional().describe("Show staged changes (cached)"),
       branch: z.string().optional().describe("Compare with a specific branch"),
       commit: z.string().optional().describe("Compare with a specific commit"),
+      maxLines: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Maximum number of diff lines to return (default: 500, hard cap: 2000)"),
     })
     .strict();
 
@@ -31,7 +37,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
     name: "git_diff",
     description:
-      "Display differences between commits, branches, or working tree. Shows what has changed in files (additions, deletions, modifications). Use to review changes before committing, compare branches, or see what differs from a specific commit. Supports staged changes and branch comparisons.",
+      "Display differences between commits, branches, or working tree. Shows what has changed in files (additions, deletions, modifications). Supports staged changes and branch comparisons. Defaults to 500 lines (hard cap 2000) to avoid oversized diffs.",
     tags: ["git", "diff"],
     parameters,
     validate: (args) => {
@@ -107,17 +113,39 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
         const trimmedDiff = gitResult.stdout.trimEnd();
         const hasChanges = trimmedDiff.length > 0;
+        const requestedMaxLines = args.maxLines ?? 500;
+        const maxLines = Math.min(requestedMaxLines, 2000);
+        let diff = trimmedDiff;
+        let truncated = false;
+        let totalLines = 0;
+        let returnedLines = 0;
+
+        if (hasChanges) {
+          const lines = trimmedDiff.split("\n");
+          totalLines = lines.length;
+          if (lines.length > maxLines) {
+            diff = lines.slice(0, maxLines).join("\n");
+            truncated = true;
+            returnedLines = maxLines;
+          } else {
+            returnedLines = lines.length;
+          }
+        }
 
         return {
           success: true,
           result: {
             workingDirectory: workingDir,
-            diff: trimmedDiff || "No differences",
+            diff: diff || "No differences",
             hasChanges,
+            truncated,
+            totalLines,
+            returnedLines,
             options: {
               staged: args.staged ?? false,
               branch: args.branch,
               commit: args.commit,
+              maxLines,
             },
           },
         };

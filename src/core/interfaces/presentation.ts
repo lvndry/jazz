@@ -120,6 +120,13 @@ export interface StreamingRenderer {
   readonly handleEvent: (event: StreamEvent) => Effect.Effect<void, never>;
 
   /**
+   * Register or clear a user interrupt handler for the active stream.
+   */
+  readonly setInterruptHandler: (
+    handler: (() => void) | null,
+  ) => Effect.Effect<void, never>;
+
+  /**
    * Reset renderer state (call between conversations)
    */
   readonly reset: () => Effect.Effect<void, never>;

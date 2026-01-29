@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect";
+import { Effect, Either, Fiber } from "effect";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import {
@@ -11,6 +11,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import { GenerationInterruptedError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import type { ToolCall, ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { formatToolArguments } from "@/core/utils/tool-formatter";
@@ -227,6 +228,7 @@ export class ToolExecutor {
     agentId: string,
     conversationId: string,
     agentName: string,
+    interruptSignal?: Effect.Effect<void, never>,
   ): Effect.Effect<
     Array<{ toolCallId: string; result: unknown; name: string; success: boolean }>,
     Error,
@@ -290,20 +292,48 @@ export class ToolExecutor {
       const toolsList = toolDetails.join(", ");
       yield* logger.info(`${agentName} is using tools: ${toolsList}`);
 
-      return yield* Effect.all(
+      const toolFibers = yield* Effect.all(
         toolCalls.map((toolCall) =>
-          ToolExecutor.executeToolCall(
-            toolCall,
-            context,
-            displayConfig,
-            renderer,
-            runMetrics,
-            agentId,
-            conversationId,
+          Effect.fork(
+            ToolExecutor.executeToolCall(
+              toolCall,
+              context,
+              displayConfig,
+              renderer,
+              runMetrics,
+              agentId,
+              conversationId,
+            ),
           ),
         ),
         { concurrency: "unbounded" },
       );
+
+      const awaitResults = Effect.all(
+        toolFibers.map((fiber) => Fiber.join(fiber)),
+        { concurrency: "unbounded" },
+      );
+
+      if (!interruptSignal) {
+        return yield* awaitResults;
+      }
+
+      const resultsOrInterrupt = yield* Effect.race(
+        awaitResults.pipe(Effect.map((results) => ({ type: "results" as const, results }))),
+        interruptSignal.pipe(Effect.as({ type: "interrupt" as const })),
+      );
+
+      if (resultsOrInterrupt.type === "interrupt") {
+        yield* Effect.all(
+          toolFibers.map((fiber) => Fiber.interrupt(fiber)),
+          { concurrency: "unbounded" },
+        );
+        return yield* Effect.fail(
+          new GenerationInterruptedError({ reason: "Tool execution interrupted by user" }),
+        );
+      }
+
+      return resultsOrInterrupt.results;
     });
   }
 }

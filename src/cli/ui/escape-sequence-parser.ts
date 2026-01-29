@@ -63,6 +63,8 @@ const CMD_RIGHT_SEQUENCES = [`\x1b[1;2C`, `\x1b[F`, `\x1bOF`, `\x1b[4~`];
  */
 const OPTION_DELETE_SEQUENCE = `\x1bd`;
 const CMD_DELETE_SEQUENCE = `\x1b[3;2~`;
+const DELETE_KEY_SEQUENCE = `\x1b[3~`;
+const DELETE_KEY_INPUT_REGEX = new RegExp(`\\x1b\\[3~`);
 
 /**
  * Key information from useInput hook
@@ -216,6 +218,16 @@ function isCommandDelete(input: string, buffer: string): boolean {
 }
 
 /**
+ * Check if input is a Delete key sequence (forward delete)
+ */
+function isDeleteKey(input: string, buffer: string): boolean {
+  const newBuffer = buffer + input;
+  if (input === DELETE_KEY_SEQUENCE || newBuffer === DELETE_KEY_SEQUENCE) return true;
+  if (input.includes(DELETE_KEY_SEQUENCE) || DELETE_KEY_INPUT_REGEX.test(input)) return true;
+  return false;
+}
+
+/**
  * Check if we're still building an escape sequence
  */
 function isBufferingEscape(buffer: string): boolean {
@@ -242,6 +254,7 @@ export function parseInput(input: string, key: KeyInfo, escapeBuffer: string): P
   let isCmdRight = false;
   let isOptDel = false;
   let isCmdDel = false;
+  let isDelete = false;
 
   // Check for single-character escape sequences first
   if (input === "\x1bb") {
@@ -250,6 +263,8 @@ export function parseInput(input: string, key: KeyInfo, escapeBuffer: string): P
     isOptRight = true;
   } else if (input === OPTION_DELETE_SEQUENCE) {
     isOptDel = true;
+  } else if (input === DELETE_KEY_SEQUENCE) {
+    isDelete = true;
   }
   // Check if we're building an escape sequence character by character
   else if (input === "\x1b" || escapeBuffer.length > 0) {
@@ -267,6 +282,8 @@ export function parseInput(input: string, key: KeyInfo, escapeBuffer: string): P
       isOptDel = true;
     } else if (isCommandDelete(input, escapeBuffer)) {
       isCmdDel = true;
+    } else if (isDeleteKey(input, escapeBuffer)) {
+      isDelete = true;
     } else if (isBufferingEscape(newBuffer)) {
       // Still building the sequence, wait for more input
       return { parsed: { type: "buffering" }, newBuffer };
@@ -287,6 +304,8 @@ export function parseInput(input: string, key: KeyInfo, escapeBuffer: string): P
       isOptDel = true;
     } else if (isCommandDelete(input, "")) {
       isCmdDel = true;
+    } else if (isDeleteKey(input, "")) {
+      isDelete = true;
     }
   }
 
@@ -337,6 +356,11 @@ export function parseInput(input: string, key: KeyInfo, escapeBuffer: string): P
     return { parsed: { type: "kill-line-back" }, newBuffer: clearedBuffer };
   }
 
+  // Forward delete: only when we detect the actual Delete sequence (\x1b[3~).
+  if (isDelete) {
+    return { parsed: { type: "delete-char-forward" }, newBuffer: clearedBuffer };
+  }
+
   // Readline shortcuts
   if (key.ctrl && input === "a") {
     return { parsed: { type: "line-start" }, newBuffer: clearedBuffer };
@@ -367,13 +391,24 @@ export function parseInput(input: string, key: KeyInfo, escapeBuffer: string): P
     return { parsed: { type: "right" }, newBuffer: clearedBuffer };
   }
 
-  // Deletion
-  if (key.backspace || key.delete) {
+  // Deletion (Mac "Delete" often arrives as backspace or key.delete without \x1b[3~).
+  if (key.backspace || (key.delete && !isDelete) || input === "\x7f") {
     return { parsed: { type: "backspace" }, newBuffer: clearedBuffer };
   }
 
   // Regular input (skip if escape sequence detected)
-  if (!key.ctrl && !key.meta && !isOptLeft && !isOptRight && !isCmdLeft && !isCmdRight && !isOptDel && !isCmdDel && !input.includes("\x1b")) {
+  if (
+    !key.ctrl &&
+    !key.meta &&
+    !isOptLeft &&
+    !isOptRight &&
+    !isCmdLeft &&
+    !isCmdRight &&
+    !isOptDel &&
+    !isCmdDel &&
+    !isDelete &&
+    !input.includes("\x1b")
+  ) {
     return { parsed: { type: "char", char: input }, newBuffer: clearedBuffer };
   }
 
