@@ -70,7 +70,7 @@ export function Layout({ children, sidebar, title, footer }: LayoutProps): React
 
       {/* Footer */}
       {(footer) && (
-        <Box marginTop={2} borderStyle="single" borderTop={false} borderLeft={false} borderRight={false} borderBottom={false}>
+        <Box marginTop={2}>
           <Text dimColor>{footer}</Text>
         </Box>
       )}

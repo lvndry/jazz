@@ -151,7 +151,7 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
       </Box>
 
       {/* Footer */}
-      <Box marginTop={2} borderStyle="single" borderTop={false} borderLeft={false} borderRight={false} borderBottom={false}>
+      <Box marginTop={2}>
         <Text dimColor>
           Use <Text bold color="cyan">↑/↓</Text> to navigate, <Text bold color="cyan">Enter</Text> to select
         </Text>
