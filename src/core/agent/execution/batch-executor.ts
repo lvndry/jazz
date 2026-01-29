@@ -316,7 +316,7 @@ export function executeWithoutStreaming(
           iterationsUsed = maxIterations;
           yield* presentationService.presentWarning(
             agent.name,
-            `reached maximum iterations (${maxIterations}) - type 'resume' to continue`,
+            `iteration limit reached (${maxIterations}) - type 'continue' to resume`,
           );
         } else if (!response.content?.trim() && !response.toolCalls) {
           yield* presentationService.presentWarning(agent.name, "model returned an empty response");

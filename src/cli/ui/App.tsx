@@ -1,12 +1,11 @@
-import { Box } from "ink";
+import { Box, Text } from "ink";
 import type { Dispatch, SetStateAction } from "react";
 import { createContext, useMemo, useRef, useState } from "react";
 import ErrorBoundary from "./ErrorBoundary";
-import { Header } from "./Header";
+import { Layout } from "./Layout";
 import { LiveResponse } from "./LiveResponse";
 import { LogEntryItem } from "./LogList";
 import { Prompt } from "./Prompt";
-import StatusFooter from "./StatusFooter";
 import type { LiveStreamState, LogEntry, LogEntryInput, PromptState } from "./types";
 
 export const AppContext = createContext<{
@@ -33,24 +32,6 @@ export const AppContext = createContext<{
   setWorkingDirectory: () => { },
 });
 
-/**
- * Store Pattern Architecture
- *
- * This module uses a dual pattern for state management:
- *
- * 1. **External Store (`store` object)**: Provides imperative access to state setters
- *    for Effect-based services that run outside React's lifecycle. Effect code calls
- *    `store.printOutput()` directly without needing React context. The store functions are
- *    updated during App's first render via the initializedRef guard.
- *
- * 2. **React Context (`AppContext`)**: Provides reactive state access for components
- *    that need to consume and display logs, prompts, and streaming content within
- *    the React component tree.
- *
- * This separation allows Effect services to push updates into React's render cycle
- * without tight coupling. The store object starts with no-op functions and is
- * populated synchronously during App's first render to prevent race conditions.
- */
 export const store = {
   printOutput: (_entry: LogEntryInput): string => "",
   updateOutput: (_id: string, _entry: Partial<LogEntryInput>): void => { },
@@ -58,6 +39,7 @@ export const store = {
   setStatus: (_status: string | null): void => { },
   setStream: (_stream: LiveStreamState | null): void => { },
   setWorkingDirectory: (_workingDirectory: string | null): void => { },
+  setCustomView: (_view: React.ReactNode | null): void => { },
   clearLogs: (): void => { },
 };
 
@@ -67,22 +49,16 @@ export function App(): React.ReactElement {
   const [status, setStatus] = useState<string | null>(null);
   const [stream, setStream] = useState<LiveStreamState | null>(null);
   const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
+  const [customView, setCustomView] = useState<React.ReactNode | null>(null);
 
-  // Use a ref to track initialization and ensure store functions are set synchronously
-  // during render, preventing race conditions where store methods are called before
-  // initialization completes (e.g., between render() returning and useEffect running)
   const initializedRef = useRef(false);
-  // Counter for generating unique log IDs
   const logIdCounterRef = useRef(0);
-  // Maximum number of log entries to keep in memory for the UI
-  // Keep this low for performance - Ink re-renders the entire tree
   const MAX_LOG_ENTRIES = 100;
 
   if (!initializedRef.current) {
     store.printOutput = (entry: LogEntryInput): string => {
       const id = entry.id ?? `log-${++logIdCounterRef.current}`;
       setLogs((prev) => {
-        // If ID is provided and entry already exists, update it
         if (entry.id && prev.some((log) => log.id === entry.id)) {
           return prev.map((log): LogEntry => {
             if (log.id === entry.id) {
@@ -91,9 +67,7 @@ export function App(): React.ReactElement {
             return log;
           });
         }
-        // Otherwise, add new entry
         const entryWithId: LogEntry = { ...entry, id } as LogEntry;
-        // Optimized: when at capacity, shift first element instead of full spread
         if (prev.length >= MAX_LOG_ENTRIES) {
           const next = prev.slice(1);
           next.push(entryWithId);
@@ -118,11 +92,20 @@ export function App(): React.ReactElement {
     store.setStatus = (status) => setStatus(status);
     store.setStream = (stream) => setStream(stream);
     store.setWorkingDirectory = (workingDirectory) => setWorkingDirectory(workingDirectory);
+    store.setCustomView = (view) => setCustomView(view);
     store.clearLogs = () => setLogs([]);
     initializedRef.current = true;
   }
 
-  // Memoize context value to prevent unnecessary re-renders of context consumers
+  const logsWithSpacing = useMemo(
+    () =>
+      logs.map((log, index) => ({
+        log,
+        addSpacing: log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user"),
+      })),
+    [logs],
+  );
+
   const contextValue = useMemo(
     () => ({
       logs,
@@ -142,26 +125,55 @@ export function App(): React.ReactElement {
   return (
     <ErrorBoundary>
       <AppContext.Provider value={contextValue}>
-        <Box
-          flexDirection="column"
-          padding={1}
-        >
-          <Header />
-          {/* Render logs in order - Header first, then logs */}
-          {logs.map((log, index) => (
-            <LogEntryItem
-              key={log.id}
-              log={log}
-              addSpacing={log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user")}
-            />
-          ))}
-          {stream && <LiveResponse stream={stream} />}
-          {prompt && <Prompt prompt={prompt} />}
-          <StatusFooter
-            status={status}
-            workingDirectory={workingDirectory}
-          />
-        </Box>
+        {customView ? (
+          customView
+        ) : (
+          <Box flexDirection="column">
+            {/* Top Dashboard: uses Layout for the framed look */}
+            <Layout
+               title={status ? `• ${status}` : undefined}
+               sidebar={
+                 <Box flexDirection="column">
+                   <Box marginBottom={1}>
+                     <Text bold color="cyan">💡 Tip</Text>
+                   </Box>
+                   <Text dimColor>Type '/help' for commands</Text>
+                 </Box>
+               }
+            >
+               <Box flexDirection="column">
+                 {stream ? (
+                   <>
+                     <Text bold color="cyan">🤖 Active Session</Text>
+                     <Text bold>{stream.agentName}</Text>
+                   </>
+                 ) : (
+                    <>
+                      <Text bold color="cyan">👋 Welcome</Text>
+                      <Text>Ready to assist.</Text>
+                    </>
+                 )}
+               </Box>
+            </Layout>
+
+            {/* Main Chat Area - Unboxed for easy text selection/copying */}
+            <Box
+              flexDirection="column"
+              paddingX={1}
+              marginTop={1}
+            >
+              {logsWithSpacing.map(({ log, addSpacing }) => (
+                <LogEntryItem
+                  key={log.id}
+                  log={log}
+                  addSpacing={addSpacing}
+                />
+              ))}
+              {stream && <LiveResponse stream={stream} />}
+              {prompt && <Prompt prompt={prompt} />}
+            </Box>
+          </Box>
+        )}
       </AppContext.Provider>
     </ErrorBoundary>
   );

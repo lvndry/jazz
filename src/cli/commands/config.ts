@@ -75,7 +75,6 @@ export function getConfigCommand(
 
 /**
  * Set a configuration value
- * Supports nested keys (e.g., "llm.openai.api_key")
  */
 export function setConfigCommand(
   key: string,
@@ -85,14 +84,26 @@ export function setConfigCommand(
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
 
+    // Intelligent handling for provider keys
+    let targetKey = key;
+    if (AVAILABLE_PROVIDERS.includes(key as ProviderName)) {
+      targetKey = `llm.${key}.api_key`;
+    } else if (key.startsWith("llm.") && AVAILABLE_PROVIDERS.includes(key.split(".")[1] as ProviderName) && key.split(".").length === 2) {
+      targetKey = `${key}.api_key`;
+    } else if (WEB_SEARCH_PROVIDERS.some(p => p.value === key)) {
+      targetKey = `web_search.${key}.api_key`;
+    } else if (key.startsWith("web_search.") && WEB_SEARCH_PROVIDERS.some(p => p.value === key.split(".")[1]) && key.split(".").length === 2) {
+      targetKey = `${key}.api_key`;
+    }
+
     if (value === undefined) {
-      if (key === "llm") {
-        const provider = yield* terminal.select<ProviderName>("Select LLM provider:", {
+      if (key === "llm" || targetKey.startsWith("llm.")) {
+        const provider = targetKey.split(".")[1] || (yield* terminal.select<ProviderName>("Select LLM provider:", {
           choices: AVAILABLE_PROVIDERS.map((provider) => ({
             name: provider,
             value: provider,
           })),
-        });
+        }));
 
         yield* terminal.info(`Configuring ${provider}...`);
 
@@ -103,7 +114,7 @@ export function setConfigCommand(
         return;
       }
 
-      if (key === "google") {
+      if (key === "google" || targetKey.startsWith("google.")) {
         const clientId = yield* terminal.ask("Enter Client ID:");
         const clientSecret = yield* terminal.password("Enter Client Secret:");
         yield* configService.set("google.clientId", clientId);
@@ -112,10 +123,10 @@ export function setConfigCommand(
         return;
       }
 
-      if (key === "web_search") {
-        const provider = yield* terminal.select<string>("Select web search provider:", {
-          choices: WEB_SEARCH_PROVIDERS,
-        });
+      if (key === "web_search" || targetKey.startsWith("web_search.")) {
+        const provider = targetKey.split(".")[1] || (yield* terminal.select<string>("Select web search provider:", {
+          choices: WEB_SEARCH_PROVIDERS.map(p => ({ name: p.name, value: p.value as string })),
+        }));
 
         yield* terminal.info(`Configuring ${provider}...`);
 
@@ -126,7 +137,7 @@ export function setConfigCommand(
         return;
       }
 
-      if (key === "logging") {
+      if (key === "logging" || targetKey.startsWith("logging.")) {
         const level = yield* terminal.select<LoggingConfig["level"]>("Select logging level:", {
           choices: ["debug", "info", "warn", "error"],
         });
@@ -136,15 +147,15 @@ export function setConfigCommand(
         return;
       }
 
-      const answer = yield* terminal.ask(`Enter value for ${key}:`);
-      yield* terminal.info(`Setting config: ${key} = ${answer}`);
-      yield* configService.set(key, answer);
-      yield* terminal.success(`Config set: ${key} = ${answer}`);
+      const answer = yield* terminal.ask(`Enter value for ${targetKey}:`);
+      yield* terminal.info(`Setting config: ${targetKey} = ${answer}`);
+      yield* configService.set(targetKey, answer);
+      yield* terminal.success(`Config set: ${targetKey} = ${answer}`);
       return;
     }
 
     // Validation: Check if we are trying to overwrite an object with a string
-    const currentValue = yield* configService.getOrElse(key, undefined);
+    const currentValue = yield* configService.getOrElse(targetKey, undefined);
     if (
       currentValue !== undefined &&
       currentValue !== null &&
@@ -153,16 +164,16 @@ export function setConfigCommand(
     ) {
       return yield* Effect.fail(
         new ConfigurationValidationError({
-          field: key,
+          field: targetKey,
           expected: "object",
           actual: "string",
-          suggestion: `Cannot overwrite complex configuration object '${key}' with a string value. Use specific sub-keys (e.g., '${key}.someField') or interactive mode.`,
+          suggestion: `Cannot overwrite complex configuration object '${targetKey}' with a string value. Use specific sub-keys (e.g., '${targetKey}.someField') or interactive mode.`,
         }),
       );
     }
 
-    yield* terminal.info(`Setting config: ${key} = ${value}`);
-    yield* configService.set(key, value);
-    yield* terminal.success(`Config set: ${key} = ${value}`);
+    yield* terminal.info(`Setting config: ${targetKey} = ${value}`);
+    yield* configService.set(targetKey, value);
+    yield* terminal.success(`Config set: ${targetKey} = ${value}`);
   });
 }

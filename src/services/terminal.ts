@@ -32,7 +32,11 @@ export class InkTerminalService implements TerminalService {
     }
 
     // Initialize the Ink app on service creation
-    this.inkInstance = render(React.createElement(App));
+    // patchConsole: false prevents Ink from intercepting console.* methods,
+    // which can cause flickering when external code writes to console during renders
+    this.inkInstance = render(React.createElement(App), {
+      patchConsole: false,
+    });
     instanceExists = true;
   }
 

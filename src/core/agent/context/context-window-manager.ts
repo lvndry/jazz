@@ -15,6 +15,13 @@ export interface ContextWindowConfig {
 
   /** Strategy for trimming messages */
   readonly strategy?: "recent" | "semantic" | "token-based";
+
+  /**
+   * Number of recent messages to always keep intact (never trim).
+   * This protects recent tool call/result pairs from being broken.
+   * Default: 10
+   */
+  readonly protectedRecentMessages?: number;
 }
 
 /**
@@ -66,7 +73,7 @@ export class ContextWindowManager {
   /**
    * Trim message history to fit within context window limits.
    * Returns a new array of messages and the trim metadata.
-   * Preserves system message and ensures tool call/result pairing.
+   * Preserves system message, protected recent messages, and ensures tool call/result pairing.
    */
   trim(
     messages: ConversationMessages,
@@ -88,8 +95,17 @@ export class ContextWindowManager {
     }
 
     const originalLength = messages.length;
+    const protectedCount = this.config.protectedRecentMessages ?? 10;
 
-    // Step 1: Build tool call ID map
+    // Step 1: Identify protected zone (last N messages are never trimmed)
+    // This prevents breaking recent tool call/result pairs
+    const protectedStartIndex = Math.max(1, messages.length - protectedCount);
+    const protectedIndices = new Set<number>();
+    for (let i = protectedStartIndex; i < messages.length; i++) {
+      protectedIndices.add(i);
+    }
+
+    // Step 2: Build tool call ID map
     const toolCallToAssistant = new Map<string, number>();
 
     for (let i = 0; i < messages.length; i++) {
@@ -101,15 +117,22 @@ export class ContextWindowManager {
       }
     }
 
-    // Step 2: Determine valid trimming candidates (keeping system msg at index 0)
+    // Step 3: Calculate tokens for system message and protected zone
     const systemTokens = this.estimateTokens(messages[0]);
+    let protectedTokens = 0;
+    for (const idx of protectedIndices) {
+      const msg = messages[idx];
+      if (msg) {
+        protectedTokens += this.estimateTokens(msg);
+      }
+    }
 
-    // Scan backwards from end to collect messages until limit reached
+    // Step 4: Scan backwards from the message before protected zone to collect messages until limit reached
     const recentIndices: number[] = [];
-    let accumulatedTokens = systemTokens;
-    let accumulatedMessages = 1; // System message
+    let accumulatedTokens = systemTokens + protectedTokens;
+    let accumulatedMessages = 1 + protectedIndices.size; // System message + protected messages
 
-    for (let i = messages.length - 1; i >= 1; i--) {
+    for (let i = protectedStartIndex - 1; i >= 1; i--) {
       const msg = messages[i];
       if (!msg) continue;
 
@@ -132,11 +155,11 @@ export class ContextWindowManager {
     // Reverse to get chronological order [oldest ... newest]
     recentIndices.reverse();
 
-    // Step 3: Validate tool integrity
-    const keptSet = new Set([0, ...recentIndices]);
+    // Step 5: Validate tool integrity for non-protected messages
+    const keptSet = new Set([0, ...recentIndices, ...protectedIndices]);
     const finalIndices: number[] = [0]; // Always keep system
 
-    // Process recent messages
+    // Process non-protected messages (validate tool integrity)
     for (const idx of recentIndices) {
       const msg = messages[idx];
       if (!msg) continue;
@@ -150,7 +173,15 @@ export class ContextWindowManager {
       finalIndices.push(idx);
     }
 
-    // Step 4: Rebuild messages array
+    // Add all protected messages (always kept intact)
+    for (const idx of protectedIndices) {
+      finalIndices.push(idx);
+    }
+
+    // Sort to maintain chronological order
+    finalIndices.sort((a, b) => a - b);
+
+    // Step 6: Rebuild messages array
     const keptMessages: ChatMessage[] = finalIndices.map((i) => messages[i] as ChatMessage);
 
     // Structural guarantee: finalIndices always contains 0,
@@ -171,7 +202,11 @@ export class ContextWindowManager {
       .warn("Message history trimmed", {
         agentId,
         conversationId,
-        limits: { maxMessages: this.config.maxMessages, maxTokens: this.config.maxTokens },
+        limits: {
+          maxMessages: this.config.maxMessages,
+          maxTokens: this.config.maxTokens,
+          protectedRecentMessages: protectedCount,
+        },
         originalCount: trimResult.originalCount,
         trimmedCount: trimResult.trimmedCount,
         estimatedTokens: trimResult.estimatedTokens,
@@ -218,4 +253,5 @@ export const DEFAULT_CONTEXT_WINDOW_MANAGER = new ContextWindowManager({
   maxMessages: 200,
   maxTokens: 150000,
   strategy: "token-based",
+  protectedRecentMessages: 10,
 });

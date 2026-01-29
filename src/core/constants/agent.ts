@@ -1,1 +1,1 @@
-export const MAX_AGENT_STEPS = 25;
+export const MAX_AGENT_STEPS = 50;

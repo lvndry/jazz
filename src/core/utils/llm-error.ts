@@ -211,6 +211,12 @@ export function extractCleanErrorMessage(error: unknown): string {
     return message;
   }
 
+  // Handle AI SDK specific error types that might be strings or plain objects
+  const errorString = String(error);
+  if (errorString.includes("AI_LoadAPIKeyError")) {
+    return "API key is missing. Use 'jazz config set' or the wizard to configure it.";
+  }
+
   if (error && typeof error === "object") {
     const obj = error as Record<string, unknown>;
     // Try to find a message property
@@ -236,7 +242,6 @@ export function extractCleanErrorMessage(error: unknown): string {
     }
   }
 
-  const errorString = String(error);
   // Clean the string representation too
   if (errorString.includes(" | ")) {
     return errorString.split(" | ")[0] || errorString;
@@ -428,7 +433,16 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
       errorMessage.toLowerCase().includes("authentication") ||
       errorMessage.toLowerCase().includes("api key")
     ) {
-      llmError = new LLMAuthenticationError({ provider: providerName, message: errorMessage });
+      // Create a more user-friendly message for API key issues
+      const providerDisplayName = providerName.charAt(0).toUpperCase() + providerName.slice(1);
+      const friendlyMessage = `${providerDisplayName} API key is missing or invalid.
+You can set it by running: jazz config set llm.${providerName}.api_key <your-key>
+Or update it in the interactive wizard: jazz wizard -> Update configuration`;
+
+      llmError = new LLMAuthenticationError({
+        provider: providerName,
+        message: friendlyMessage
+      });
     } else {
       llmError = new LLMRequestError({
         provider: providerName,
