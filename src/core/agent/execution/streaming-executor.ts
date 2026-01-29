@@ -1,4 +1,4 @@
-import { Cause, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
+import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
 import { MAX_AGENT_STEPS } from "@/core/constants/agent";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -9,7 +9,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ConversationMessages, StreamEvent, StreamingConfig } from "@/core/types";
 import { type ChatCompletionResponse } from "@/core/types/chat";
-import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
+import { type LLMError, LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "../context/context-window-manager";
@@ -84,6 +84,14 @@ export function executeWithStreaming(
           reasoningEffort: agent.config.reasoningEffort,
         });
 
+        // Create interruption signal
+        const interruptDeferred = yield* Deferred.make<void>();
+        const onInterrupt = () => {
+          // Safely complete the deferred; ignore if already completed
+          Effect.runSync(Deferred.succeed(interruptDeferred, void 0));
+        };
+        yield* renderer.setInterruptHandler(onInterrupt);
+
         // Run agent loop
         let currentMessages: ConversationMessages = [messages[0], ...messages.slice(1)];
         let response: AgentResponse = {
@@ -91,6 +99,7 @@ export function executeWithStreaming(
           conversationId: actualConversationId,
         };
         let finished = false;
+        let interrupted = false;
         let iterationsUsed = 0;
 
         for (let i = 0; i < maxIterations; i++) {
@@ -241,20 +250,70 @@ export function executeWithStreaming(
               ),
             );
 
-            // Wait for stream completion - the stream is cancelled on completion event
-            // so the fiber should complete naturally without needing a timeout
-            const streamExit = yield* Fiber.await(streamFiber);
+            // Wait for stream completion or interruption
+            const streamExit = yield* Fiber.await(streamFiber).pipe(
+              Effect.raceFirst(Deferred.await(interruptDeferred)),
+            );
+
+            // Check if we were interrupted (stream fiber still running or race won by deferred)
+            const isInterrupted = yield* Deferred.isDone(interruptDeferred);
+
+            if (isInterrupted) {
+              // Gracefully cancel stream and interrupt fiber - don't crash if these fail
+              yield* streamingResult.cancel.pipe(
+                Effect.catchAll((e) => logger.debug(`Stream cancel error (safe to ignore): ${String(e)}`)),
+              );
+              yield* Fiber.interrupt(streamFiber).pipe(
+                Effect.catchAll((e) => logger.debug(`Fiber interrupt error (safe to ignore): ${String(e)}`)),
+              );
+
+              // Reset the renderer to clear any pending state
+              yield* renderer.reset().pipe(
+                Effect.catchAll((e) => logger.debug(`Renderer reset error (safe to ignore): ${String(e)}`)),
+              );
+
+              const fromRef = yield* Ref.get(completionRef);
+              if (fromRef) {
+                // We have a partial completion from the stream
+                response = {
+                  ...response,
+                  content: fromRef.content,
+                  ...(fromRef.toolCalls ? { toolCalls: fromRef.toolCalls } : {}),
+                };
+              }
+              yield* presentationService.presentWarning(agent.name, "generation stopped by user");
+
+              finished = true;
+              interrupted = true;
+              yield* logger.debug("Interruption handled, breaking loop");
+              break;
+            }
 
             let completion: ChatCompletionResponse;
-            if (Exit.isFailure(streamExit)) {
+            // streamExit can be void (if interrupted) or Exit (if finished)
+            // But if isInterrupted is false, it MUST be Exit
+            const exit = streamExit as Exit.Exit<void, LLMError>;
+
+            if (Exit.isFailure(exit)) {
               yield* streamingResult.cancel;
-              const error = Cause.failureOption(streamExit.cause);
-              if (Option.isSome(error)) {
+              // We need to handle potential defects (panics) or failures
+              // Cause.failureOption returns existing failure or none if it's a defect/interruption
+              const errorOption = Cause.failureOption(exit.cause);
+              if (Option.isSome(errorOption)) {
                 yield* logger.error("Stream processing failed", {
-                  error: error.value instanceof Error ? error.value.message : String(error.value),
+                  error: errorOption.value instanceof Error ? errorOption.value.message : String(errorOption.value),
                 });
-                return yield* Effect.fail(error.value);
+                return yield* Effect.fail(errorOption.value);
               } else {
+                // Determine if it was a defect or interruption
+                const defectOption = Cause.dieOption(exit.cause);
+                if (Option.isSome(defectOption)) {
+                   // Re-die if it was a defect
+                   return yield* Effect.die(defectOption.value);
+                }
+
+                // If we are here, it might be that we just didn't get a result but it wasn't a failure-failure?
+                // Fallback to previous logic
                 const fromRef = yield* Ref.get(completionRef);
                 if (fromRef) {
                   completion = fromRef;
@@ -448,9 +507,11 @@ export function executeWithStreaming(
             agent.name,
             `iteration limit reached (${maxIterations}) - type 'continue' to resume`,
           );
-        } else if (!response.content?.trim() && !response.toolCalls) {
+        } else if (!response.content?.trim() && !response.toolCalls && !interrupted) {
           yield* presentationService.presentWarning(agent.name, "model returned an empty response");
         }
+
+        yield* logger.debug("Finalizing agent run", { interrupted, finished });
 
         const finalizeFiber = yield* finalizeAgentRun(runMetrics, {
           iterationsUsed,

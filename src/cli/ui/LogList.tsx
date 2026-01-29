@@ -48,7 +48,7 @@ export const LogEntryItem = React.memo(function LogEntryItem({
   if (typeof log.message === "string") {
     if (log.type === "user") {
       return (
-        <Box marginTop={addSpacing ? 1 : 0}>
+        <Box marginTop={addSpacing ? 1 : 0} marginBottom={1}>
           {icon}
           <Text> </Text>
           <Text color="cyan" bold>{log.message}</Text>
@@ -57,7 +57,7 @@ export const LogEntryItem = React.memo(function LogEntryItem({
     }
 
     return (
-      <Box marginTop={addSpacing ? 1 : 0}>
+      <Box marginTop={addSpacing ? 1 : 0} marginBottom={1}>
         {icon}
         <Text> </Text>
         {log.type === "log" ? (
@@ -74,11 +74,11 @@ export const LogEntryItem = React.memo(function LogEntryItem({
   }
 
   if (log.message._tag === "ink" && React.isValidElement(log.message.node)) {
-    return <Box marginTop={addSpacing ? 1 : 0}>{log.message.node}</Box>;
+    return <Box marginTop={addSpacing ? 1 : 0} marginBottom={1}>{log.message.node}</Box>;
   }
 
   return (
-    <Box marginTop={0}>
+    <Box marginTop={0} marginBottom={1}>
       {ICONS.warn}
       <Text> </Text>
       <Text color="yellow">[Unsupported UI output]</Text>

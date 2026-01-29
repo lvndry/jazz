@@ -65,6 +65,7 @@ class InkStreamingRenderer implements StreamingRenderer {
       }
       store.setStatus(null);
       store.setStream(null);
+      store.setInterruptHandler(null);
     });
   }
 
@@ -82,6 +83,13 @@ class InkStreamingRenderer implements StreamingRenderer {
       }
       this.liveText = "";
       store.setStream(null);
+      store.setInterruptHandler(null);
+    });
+  }
+
+  setInterruptHandler(handler: (() => void) | null): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.setInterruptHandler(handler);
     });
   }
 
@@ -97,6 +105,11 @@ class InkStreamingRenderer implements StreamingRenderer {
           store.printOutput({
             type: "info",
             message: `${this.agentName} (${event.provider}/${event.model})`,
+            timestamp: new Date(),
+          });
+          store.printOutput({
+            type: "log",
+            message: chalk.dim("(Tip: Press Ctrl+I to stop generation)"),
             timestamp: new Date(),
           });
           return;
@@ -264,6 +277,7 @@ class InkStreamingRenderer implements StreamingRenderer {
           });
           store.setStatus(null);
           store.setStream(null);
+          store.setInterruptHandler(null);
           return;
         }
 
@@ -321,6 +335,7 @@ class InkStreamingRenderer implements StreamingRenderer {
 
           store.setStatus(null);
           store.setStream(null);
+          store.setInterruptHandler(null);
           this.liveText = "";
           this.reasoningBuffer = "";
           this.completedReasoning = "";

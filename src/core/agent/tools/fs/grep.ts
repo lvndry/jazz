@@ -20,7 +20,14 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       recursive: z.boolean().optional().describe("Recurse into directories"),
       regex: z.boolean().optional().describe("Treat pattern as regex (overrides re:<...>)"),
       ignoreCase: z.boolean().optional().describe("Case-insensitive match"),
-      maxResults: z.number().int().positive().optional().describe("Max matches to return"),
+      maxResults: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Max matches to return (default: 200, hard cap: 2000). Use smaller values and narrow paths first.",
+        ),
       filePattern: z
         .string()
         .optional()
@@ -53,7 +60,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GrepArgs>({
     name: "grep",
     description:
-      "Search for text patterns within file contents using grep. Supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers. **Tip: Use contextLines and filters to have more precise results.**",
+      "Search for text patterns within file contents using grep. Supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers. Defaults to 200 results (hard cap 2000). **Tip: Start with narrow paths or filePattern, then read specific files if needed.**",
     tags: ["search", "text"],
     parameters,
     validate: (args) => {
@@ -73,8 +80,9 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           ? yield* shell.resolvePath(buildKeyFromContext(context), args.path)
           : yield* shell.getCwd(buildKeyFromContext(context));
         const recursive = args.recursive !== false;
-        const maxResults =
-          typeof args.maxResults === "number" && args.maxResults > 0 ? args.maxResults : 5000;
+        const requestedMaxResults =
+          typeof args.maxResults === "number" && args.maxResults > 0 ? args.maxResults : 200;
+        const maxResults = Math.min(requestedMaxResults, 2000);
 
         // Check if the path exists and determine if it's a file or directory
         const stat = yield* fs.stat(start).pipe(Effect.catchAll(() => Effect.succeed(null)));
@@ -265,7 +273,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
                 ? `No matches found for pattern "${args.pattern}"`
                 : `Found ${matches.length} matches for pattern "${args.pattern}"${
                     args.contextLines ? ` (with ${args.contextLines} context lines)` : ""
-                  }`,
+                  }${requestedMaxResults > maxResults ? ` (capped at ${maxResults})` : ""}`,
           },
         };
       }),

@@ -1,4 +1,5 @@
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
+import Spinner from "ink-spinner";
 import type { Dispatch, SetStateAction } from "react";
 import { createContext, useMemo, useRef, useState } from "react";
 import ErrorBoundary from "./ErrorBoundary";
@@ -40,8 +41,22 @@ export const store = {
   setStream: (_stream: LiveStreamState | null): void => { },
   setWorkingDirectory: (_workingDirectory: string | null): void => { },
   setCustomView: (_view: React.ReactNode | null): void => { },
+  setInterruptHandler: (_handler: (() => void) | null): void => { },
   clearLogs: (): void => { },
 };
+
+function isSameStream(
+  previous: LiveStreamState | null,
+  next: LiveStreamState | null,
+): boolean {
+  if (previous === next) return true;
+  if (!previous || !next) return false;
+  return (
+    previous.agentName === next.agentName &&
+    previous.text === next.text &&
+    previous.reasoning === next.reasoning
+  );
+}
 
 export function App(): React.ReactElement {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -50,6 +65,18 @@ export function App(): React.ReactElement {
   const [stream, setStream] = useState<LiveStreamState | null>(null);
   const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
   const [customView, setCustomView] = useState<React.ReactNode | null>(null);
+  // Store interrupt handler in a ref since it's imperative and invoked by input event
+  // We use a ref so useInput cleanup/setup doesn't re-run or rely on stale closures
+  const interruptHandlerRef = useRef<(() => void) | null>(null);
+
+  useInput((input, key) => {
+    // Check for Ctrl+i (which comes through as tab)
+    if ((key.ctrl && input === "i") || key.tab) {
+      if (interruptHandlerRef.current) {
+         interruptHandlerRef.current();
+      }
+    }
+  });
 
   const initializedRef = useRef(false);
   const logIdCounterRef = useRef(0);
@@ -81,18 +108,30 @@ export function App(): React.ReactElement {
     store.updateOutput = (id: string, updates: Partial<LogEntryInput>): void => {
       setLogs((prev) =>
         prev.map((log): LogEntry => {
-          if (log.id === id) {
-            return { ...log, ...updates } as LogEntry;
+          if (log.id !== id) {
+            return log;
           }
-          return log;
+
+          const next = { ...log, ...updates } as LogEntry;
+          const isSame =
+            log.type === next.type &&
+            log.message === next.message &&
+            log.timestamp === next.timestamp &&
+            log.meta === next.meta;
+
+          return isSame ? log : next;
         }),
       );
     };
     store.setPrompt = (prompt) => setPrompt(prompt);
     store.setStatus = (status) => setStatus(status);
-    store.setStream = (stream) => setStream(stream);
+    store.setStream = (nextStream) =>
+      setStream((prev) => (isSameStream(prev, nextStream) ? prev : nextStream));
     store.setWorkingDirectory = (workingDirectory) => setWorkingDirectory(workingDirectory);
     store.setCustomView = (view) => setCustomView(view);
+    store.setInterruptHandler = (handler) => {
+      interruptHandlerRef.current = handler;
+    };
     store.clearLogs = () => setLogs([]);
     initializedRef.current = true;
   }
@@ -101,9 +140,23 @@ export function App(): React.ReactElement {
     () =>
       logs.map((log, index) => ({
         log,
-        addSpacing: log.type === "user" || (log.type === "info" && index > 0 && logs[index - 1]?.type === "user"),
+        addSpacing:
+          log.type === "user" ||
+          (log.type === "info" && index > 0 && logs[index - 1]?.type === "user"),
       })),
     [logs],
+  );
+
+  const logItems = useMemo(
+    () =>
+      logsWithSpacing.map(({ log, addSpacing }) => (
+        <LogEntryItem
+          key={log.id}
+          log={log}
+          addSpacing={addSpacing}
+        />
+      )),
+    [logsWithSpacing],
   );
 
   const contextValue = useMemo(
@@ -131,7 +184,12 @@ export function App(): React.ReactElement {
           <Box flexDirection="column">
             {/* Top Dashboard: uses Layout for the framed look */}
             <Layout
-               title={status ? `• ${status}` : undefined}
+               title={status ? (
+                 <Text>
+                   {status.includes("thinking") ? <Text color="yellow"><Spinner type="dots" /> </Text> : "• "}
+                   {status}
+                 </Text>
+               ) : undefined}
                sidebar={
                  <Box flexDirection="column">
                    <Box marginBottom={1}>
@@ -162,13 +220,12 @@ export function App(): React.ReactElement {
               paddingX={1}
               marginTop={1}
             >
-              {logsWithSpacing.map(({ log, addSpacing }) => (
-                <LogEntryItem
-                  key={log.id}
-                  log={log}
-                  addSpacing={addSpacing}
-                />
-              ))}
+              {logItems}
+              {!!(status?.includes("thinking") && !stream) && (
+                 <Box paddingY={1}>
+                   <Text color="yellow"><Spinner type="dots" /> {status}</Text>
+                 </Box>
+              )}
               {stream && <LiveResponse stream={stream} />}
               {prompt && <Prompt prompt={prompt} />}
             </Box>

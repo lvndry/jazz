@@ -63,7 +63,11 @@ interface StreamProcessorState {
   // Completion tracking
   finishEventReceived: boolean;
   finishReason: string | undefined;
+
+  // Interruption
+  cancelled: boolean;
 }
+
 
 /**
  * Create initial processor state
@@ -82,6 +86,7 @@ function createInitialState(): StreamProcessorState {
     firstReasoningTime: null,
     finishEventReceived: false,
     finishReason: undefined,
+    cancelled: false,
   };
 }
 
@@ -106,6 +111,14 @@ export class StreamProcessor {
       this.completionResolver = resolve;
     });
   }
+
+  /**
+   * Signal that the stream has been cancelled externally
+   */
+  cancel(): void {
+    this.state.cancelled = true;
+  }
+
 
   /**
    * Get the completion promise
@@ -139,7 +152,7 @@ export class StreamProcessor {
     await this.completionPromise;
 
     // Validate that we received finish event
-    if (!this.state.finishEventReceived) {
+    if (!this.state.finishEventReceived && !this.state.cancelled) {
       const error = new Error("Stream completed without finish event");
       throw error;
     }

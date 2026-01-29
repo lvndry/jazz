@@ -24,9 +24,9 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
         .number()
         .int()
         .min(1)
-        .max(100)
+        .max(50)
         .optional()
-        .describe("Limit the number of commits to show"),
+        .describe("Limit the number of commits to show (default: 20, hard cap: 50)"),
       oneline: z.boolean().optional().describe("Show commits in one-line format"),
     })
     .strict();
@@ -36,7 +36,7 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitLogArgs>({
     name: "git_log",
     description:
-      "Display commit history of a Git repository. Shows commit hashes, authors, dates, and messages. Supports limiting results and one-line format for quick overview. Use to review recent changes, find specific commits, or understand repository evolution.",
+      "Display commit history of a Git repository. Shows commit hashes, authors, dates, and messages. Supports limiting results and one-line format for quick overview. Defaults to 20 commits (hard cap 50). Use to review recent changes, find specific commits, or understand repository evolution.",
     tags: ["git", "history"],
     parameters,
     validate: (args) => {
@@ -66,7 +66,8 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
           };
         }
 
-        const limit = args?.limit ?? 10;
+        const requestedLimit = args?.limit ?? 20;
+        const limit = Math.min(requestedLimit, 50);
         const prettyFormat = "%H%x1f%h%x1f%an%x1f%ar%x1f%s%x1e";
 
         let commandError: string | null = null;

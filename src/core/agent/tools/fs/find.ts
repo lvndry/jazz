@@ -25,7 +25,12 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         .nonnegative()
         .optional()
         .describe("Maximum depth to traverse (0=current dir)"),
-      maxResults: z.number().int().positive().optional().describe("Maximum results to return"),
+      maxResults: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Maximum results to return (default: 200, hard cap: 2000)"),
       includeHidden: z.boolean().optional().describe("Include dotfiles and dot-directories"),
       smart: z
         .boolean()
@@ -39,7 +44,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, FindArgs>({
     name: "find",
     description:
-      "Advanced file and directory search with smart hierarchical search strategy (searches cwd, home, and parent directories in order). Supports deep traversal (default 25 levels), regex patterns, type filters, and hidden files. Use for comprehensive searches when find_path doesn't locate what you need.",
+      "Advanced file and directory search with smart hierarchical search strategy (searches cwd, home, and parent directories in order). Supports deep traversal (default 25 levels), regex patterns, type filters, and hidden files. Defaults to 200 results (hard cap 2000). Use for comprehensive searches when find_path doesn't locate what you need.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {
@@ -56,8 +61,9 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const shell = yield* FileSystemContextServiceTag;
 
         const includeHidden = args.includeHidden === true;
-        const maxResults =
-          typeof args.maxResults === "number" && args.maxResults > 0 ? args.maxResults : 5000;
+        const requestedMaxResults =
+          typeof args.maxResults === "number" && args.maxResults > 0 ? args.maxResults : 200;
+        const maxResults = Math.min(requestedMaxResults, 2000);
         const maxDepth = typeof args.maxDepth === "number" ? args.maxDepth : 25;
         const typeFilter = args.type ?? "all";
         const useSmart = args.smart !== false;

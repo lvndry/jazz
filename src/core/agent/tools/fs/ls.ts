@@ -26,7 +26,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         .int()
         .positive()
         .optional()
-        .describe("Maximum number of results to return"),
+        .describe("Maximum number of results to return (default: 200, hard cap: 2000)"),
     })
     .strict();
 
@@ -35,7 +35,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
   return defineTool<FileSystem.FileSystem | FileSystemContextService, LsParams>({
     name: "ls",
     description:
-      "List files and directories within a specified path. Supports recursive traversal, filtering by name patterns (substring or regex), showing hidden files, and limiting results. Returns file/directory names, paths, and types.",
+      "List files and directories within a specified path. Supports recursive traversal, filtering by name patterns (substring or regex), showing hidden files, and limiting results. Defaults to 200 results (hard cap 2000). Returns file/directory names, paths, and types.",
     tags: ["filesystem", "listing"],
     parameters,
     validate: (args) => {
@@ -78,8 +78,9 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
 
         const includeHidden = args.showHidden === true;
         const recursive = args.recursive === true;
-        const maxResults =
-          typeof args.maxResults === "number" && args.maxResults > 0 ? args.maxResults : 2000;
+        const requestedMaxResults =
+          typeof args.maxResults === "number" && args.maxResults > 0 ? args.maxResults : 200;
+        const maxResults = Math.min(requestedMaxResults, 2000);
         const filter = normalizeFilterPattern(args.pattern);
 
         function matches(name: string): boolean {

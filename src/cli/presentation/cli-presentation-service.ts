@@ -138,6 +138,8 @@ class CLIPresentationService implements PresentationService {
       const streamingRenderer: StreamingRenderer = {
         handleEvent: (event: StreamEvent): Effect.Effect<void, never> =>
           renderer.handleEvent(event),
+        setInterruptHandler: (_handler: (() => void) | null): Effect.Effect<void, never> =>
+          Effect.void,
         reset: (): Effect.Effect<void, never> => renderer.reset(),
         flush: (): Effect.Effect<void, never> => renderer.flush(),
       };

@@ -21,7 +21,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         .int()
         .positive()
         .optional()
-        .describe("Maximum number of bytes to return (content is truncated if exceeded)"),
+        .describe(
+          "Maximum number of bytes to return (default: 128KB, hard cap: 512KB). Content is truncated if exceeded.",
+        ),
       encoding: z.string().optional().describe("Text encoding (currently utf-8)"),
     })
     .strict();
@@ -31,7 +33,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadFileParams>({
     name: "read_file",
     description:
-      "Read the contents of a text file with optional line range selection (startLine/endLine). Automatically handles UTF-8 BOM, enforces size limits to prevent memory issues (default 128KB), and reports truncation. Returns file content, encoding, line counts, and range information.",
+      "Read the contents of a text file with optional line range selection (startLine/endLine). Automatically handles UTF-8 BOM, enforces size limits to prevent memory issues (default 128KB, hard cap 512KB), and reports truncation. Returns file content, encoding, line counts, and range information.",
     tags: ["filesystem", "read"],
     parameters,
     validate: (args) => {
@@ -95,8 +97,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
           }
 
           // Enforce maxBytes safeguard (approximate by string length)
-          const maxBytes =
+          const requestedMaxBytes =
             typeof args.maxBytes === "number" && args.maxBytes > 0 ? args.maxBytes : 131072;
+          const maxBytes = Math.min(requestedMaxBytes, 524288);
           let truncated = false;
           if (content.length > maxBytes) {
             content = content.slice(0, maxBytes);
