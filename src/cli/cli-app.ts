@@ -276,32 +276,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     registerAuthCommands(program);
     registerUpdateCommand(program);
 
-    if (process.argv.length <= 2) {
-      program.action(() => {
-        const opts = program.opts<CliOptions>();
-        runCliEffect(wizardCommand(), {
-          verbose: opts.verbose,
-          debug: opts.debug,
-          configPath: opts.config,
-        });
-      });
-    }
 
-    // Default action (wizard) if no arguments provided
-    // We check process.argv to ensure no command was matched
-    if (process.argv.length <= 2) {
-      program.action(() => {
-        const opts = program.opts<CliOptions>();
-        runCliEffect(wizardCommand(), {
-          verbose: opts.verbose,
-          debug: opts.debug,
-          configPath: opts.config,
-        });
-      });
-    }
-
-    // Default action (wizard) if no arguments provided
-    // We check process.argv to ensure no command was matched
     if (process.argv.length <= 2) {
       program.action(() => {
         const opts = program.opts<CliOptions>();
