@@ -507,10 +507,6 @@ export function executeWithStreaming(
             agent.name,
             `iteration limit reached (${maxIterations}) - type 'continue' to resume`,
           );
-          yield* presentationService.presentWarning(
-            agent.name,
-            `iteration limit reached (${maxIterations}) - type 'continue' to resume`,
-          );
         } else if (!response.content?.trim() && !response.toolCalls && !interrupted) {
           yield* presentationService.presentWarning(agent.name, "model returned an empty response");
         }
