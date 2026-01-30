@@ -222,7 +222,7 @@ export function LineInput({
       <Text>
         {value.length > 0 ? renderedValue : placeholder ? renderedPlaceholder : renderedValue}
       </Text>
-      {focus && value.length === 0 && (
+      {focus && (
         <Box marginTop={1}>
           <Text dimColor>{SHORTCUTS_HINT}</Text>
         </Box>

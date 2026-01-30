@@ -97,14 +97,24 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
       <Box marginTop={1} paddingLeft={1} flexDirection="column">
         {prompt.type === "text" && (
           <>
-            <Box>
-              <Text color="green">{">"} </Text>
-              <LineInput
-                value={value}
-                onChange={handleChange}
-                onSubmit={handleSubmit}
-                showCursor
-              />
+            <Box
+              borderStyle="round"
+              borderColor="gray"
+              borderDimColor
+              backgroundColor="black"
+              paddingX={2}
+              paddingY={1}
+              flexDirection="column"
+            >
+              <Box>
+                <LineInput
+                  value={value}
+                  onChange={handleChange}
+                  onSubmit={handleSubmit}
+                  placeholder="Ask anything..."
+                  showCursor
+                />
+              </Box>
             </Box>
             {/* Validation error message */}
             {validationError && (
@@ -116,14 +126,24 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
         )}
         {prompt.type === "password" && (
           <>
-            <Box>
-              <Text color="green">{">"} </Text>
-              <LineInput
-                value={value}
-                onChange={handleChange}
-                onSubmit={handleSubmit}
-                mask="*"
-              />
+            <Box
+              borderStyle="round"
+              borderColor="gray"
+              borderDimColor
+              backgroundColor="black"
+              paddingX={2}
+              paddingY={1}
+              flexDirection="column"
+            >
+              <Box>
+                <Text color="green">{">"} </Text>
+                <LineInput
+                  value={value}
+                  onChange={handleChange}
+                  onSubmit={handleSubmit}
+                  mask="*"
+                />
+              </Box>
             </Box>
             {/* Validation error message */}
             {validationError && (
