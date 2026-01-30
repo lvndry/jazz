@@ -1,11 +1,15 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
+import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
+import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
+import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 
 /**
@@ -15,6 +19,8 @@ import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 class CLIPresentationService implements PresentationService {
   private renderer: CLIRenderer | null = null;
 
+  constructor(private readonly displayConfig: DisplayConfig) {}
+
   /**
    * Get or create a singleton CLI renderer for formatting operations
    * This is used for non-streaming formatting methods
@@ -22,11 +28,7 @@ class CLIPresentationService implements PresentationService {
   private getRenderer(): CLIRenderer {
     if (!this.renderer) {
       const config: CLIRendererConfig = {
-        displayConfig: {
-          mode: "markdown",
-          showThinking: false,
-          showToolExecution: false,
-        },
+        displayConfig: this.displayConfig,
         streamingConfig: {},
         showMetrics: false,
         agentName: "Agent",
@@ -163,7 +165,13 @@ class CLIPresentationService implements PresentationService {
 /**
  * Layer providing the CLI presentation service
  */
-export const CLIPresentationServiceLayer = Layer.succeed(
+export const CLIPresentationServiceLayer = Layer.effect(
   PresentationServiceTag,
-  new CLIPresentationService(),
+  Effect.gen(function* () {
+    const configServiceOption = yield* Effect.serviceOption(AgentConfigServiceTag);
+    const displayConfig = Option.isSome(configServiceOption)
+      ? resolveDisplayConfig(yield* configServiceOption.value.appConfig)
+      : DEFAULT_DISPLAY_CONFIG;
+    return new CLIPresentationService(displayConfig);
+  }),
 );

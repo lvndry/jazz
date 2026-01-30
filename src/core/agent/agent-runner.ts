@@ -17,6 +17,7 @@ import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { ToolExecutionContext } from "@/core/types/tools";
+import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
@@ -26,7 +27,6 @@ import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 import { registerMCPToolsForAgent } from "./tools/register-tools";
 import {
-  DEFAULT_DISPLAY_CONFIG,
   type AgentResponse,
   type AgentRunContext,
   type AgentRunnerOptions,
@@ -232,13 +232,7 @@ export class AgentRunner {
         );
 
       // Get display config with defaults
-      const displayConfig: DisplayConfig = {
-        showThinking: appConfig.output?.showThinking ?? DEFAULT_DISPLAY_CONFIG.showThinking,
-        showToolExecution:
-          appConfig.output?.showToolExecution ?? DEFAULT_DISPLAY_CONFIG.showToolExecution,
-        mode: appConfig.output?.mode ?? DEFAULT_DISPLAY_CONFIG.mode,
-        colorProfile: appConfig.output?.colorProfile,
-      };
+      const displayConfig: DisplayConfig = resolveDisplayConfig(appConfig);
 
       // Check if we should show metrics
       const showMetrics = appConfig.output?.showMetrics ?? true;

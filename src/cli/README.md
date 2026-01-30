@@ -146,7 +146,7 @@ const agentId = await select({
 The CLI uses a sophisticated output rendering system (`src/cli/presentation/`) that:
 
 - Auto-detects terminal capabilities (256 colors, 16 colors, or plain text)
-- Renders markdown content
+- Renders raw markdown by default (optional ANSI styling in markdown mode)
 - Handles streaming LLM responses
 - Shows progress indicators and thinking states
 
