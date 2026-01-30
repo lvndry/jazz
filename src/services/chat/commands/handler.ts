@@ -5,7 +5,7 @@ import { store } from "@/cli/ui/App";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
-import type { AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import {
   FileSystemContextServiceTag,
@@ -22,6 +22,7 @@ import {
 } from "@/core/interfaces/tool-registry";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
+import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
@@ -571,9 +572,12 @@ function handleUnknownCommand(
  */
 function handleSkillsCommand(
   terminal: TerminalService,
-): Effect.Effect<CommandResult, Error, SkillService> {
+): Effect.Effect<CommandResult, Error, AgentConfigService | SkillService> {
   return Effect.gen(function* () {
     const skillService = yield* SkillServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const displayConfig = resolveDisplayConfig(appConfig);
     const skills = yield* skillService.listSkills();
 
     if (skills.length === 0) {
@@ -606,8 +610,11 @@ function handleSkillsCommand(
       yield* terminal.log(skillContent.metadata.description);
     }
     yield* terminal.log("");
-    // Use formatMarkdown to make it pretty
-    yield* terminal.log(formatMarkdown(skillContent.core));
+    const formattedSkill =
+      displayConfig.mode === "markdown"
+        ? formatMarkdown(skillContent.core)
+        : skillContent.core;
+    yield* terminal.log(formattedSkill);
     yield* terminal.log("");
 
     return { shouldContinue: true };

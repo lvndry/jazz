@@ -176,9 +176,9 @@ export function executeWithoutStreaming(
             );
             currentMessages = trimUpdate.messages;
 
-            // Format content - always use markdown since LLMs output markdown
+            // Format content only when markdown mode is enabled
             let formattedContent = completion.content;
-            if (formattedContent) {
+            if (formattedContent && displayConfig.mode === "markdown") {
               formattedContent = yield* presentationService.renderMarkdown(formattedContent);
             }
 

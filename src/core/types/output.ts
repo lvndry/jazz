@@ -63,10 +63,10 @@ export interface OutputConfig {
 
   /**
    * Output mode
-   * - "markdown": Rich, styled markdown output with colors (default)
+   * - "markdown": Rich, styled markdown output with colors
    * - "json": Structured JSON for programmatic consumption
-   * - "raw": Plain text stream without markdown formatting
-   * Default: "markdown"
+   * - "raw": Plain text stream that keeps markdown as-is
+   * Default: "raw"
    */
   readonly mode?: OutputMode;
 

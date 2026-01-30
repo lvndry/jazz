@@ -76,7 +76,7 @@ export class CLIRenderer {
 
   constructor(private config: CLIRendererConfig) {
     // Determine output mode
-    this.mode = config.displayConfig.mode ?? "markdown";
+    this.mode = config.displayConfig.mode ?? "raw";
 
     const isMarkdownMode = this.mode === "markdown";
 
@@ -482,8 +482,13 @@ export class CLIRenderer {
 
   /**
    * Render markdown content to terminal-friendly text
+   * (or pass through raw markdown when markdown mode is disabled)
    */
   renderMarkdown(markdown: string): Effect.Effect<string, never> {
+    if (this.mode !== "markdown") {
+      return Effect.succeed(markdown);
+    }
+
     return Effect.gen(this, function* () {
       yield* this.initializeMarkdown();
 

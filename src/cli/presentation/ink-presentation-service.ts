@@ -1,7 +1,9 @@
 import chalk from "chalk";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { Box, Text } from "ink";
 import React from "react";
+import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import type {
   PresentationService,
   StreamingRenderer,
@@ -9,7 +11,9 @@ import type {
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { ink } from "@/core/interfaces/terminal";
+import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
+import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { formatMarkdownAnsi } from "./markdown-ansi";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
@@ -46,6 +50,7 @@ class InkStreamingRenderer implements StreamingRenderer {
   constructor(
     private readonly agentName: string,
     private readonly showMetrics: boolean,
+    private readonly displayConfig: DisplayConfig,
   ) {}
 
   reset(): Effect.Effect<void, never> {
@@ -297,7 +302,7 @@ class InkStreamingRenderer implements StreamingRenderer {
               : event.response.content.trim().length > 0
                 ? event.response.content
                 : "";
-          const formattedFinalText = formatMarkdownAnsi(finalText);
+          const formattedFinalText = this.formatMarkdown(finalText);
 
           if (formattedFinalText.length > 0) {
             store.printOutput({
@@ -376,7 +381,7 @@ class InkStreamingRenderer implements StreamingRenderer {
     this.lastUpdateTime = now;
     this.pendingUpdate = false;
 
-    const formattedText = formatMarkdownAnsi(this.liveText);
+    const formattedText = this.formatMarkdown(this.liveText);
     // Show reasoning if: (1) we're including it, and (2) either buffer has content (during thinking) or completed reasoning exists
     const reasoningToShow = this.reasoningBuffer.trim().length > 0
       ? this.reasoningBuffer
@@ -384,7 +389,7 @@ class InkStreamingRenderer implements StreamingRenderer {
         ? this.completedReasoning
         : "";
     const shouldShowReasoning = includeReasoning && reasoningToShow.length > 0;
-    const formattedReasoning = shouldShowReasoning ? formatMarkdownAnsi(reasoningToShow) : "";
+    const formattedReasoning = shouldShowReasoning ? this.formatMarkdown(reasoningToShow) : "";
 
     // Only update if the formatted content actually changed
     // This prevents unnecessary re-renders that cause blinking
@@ -407,12 +412,21 @@ class InkStreamingRenderer implements StreamingRenderer {
     if (reasoning.length === 0) {
       return;
     }
-    const formattedReasoning = formatMarkdownAnsi(reasoning);
+    const formattedReasoning = this.formatMarkdown(reasoning);
+    const displayReasoning =
+      this.displayConfig.mode === "markdown" ? chalk.gray(formattedReasoning) : formattedReasoning;
     store.printOutput({
       type: "log",
-      message: `🧠 Reasoning:\n${chalk.gray(formattedReasoning)}`,
+      message: `🧠 Reasoning:\n${displayReasoning}`,
       timestamp: new Date(),
     });
+  }
+
+  private formatMarkdown(text: string): string {
+    if (this.displayConfig.mode === "markdown") {
+      return formatMarkdownAnsi(text);
+    }
+    return text;
   }
 }
 
@@ -425,14 +439,12 @@ class InkStreamingRenderer implements StreamingRenderer {
 class InkPresentationService implements PresentationService {
   private renderer: CLIRenderer | null = null;
 
+  constructor(private readonly displayConfig: DisplayConfig) {}
+
   private getRenderer(): CLIRenderer {
     if (!this.renderer) {
       const config: CLIRendererConfig = {
-        displayConfig: {
-          mode: "markdown",
-          showThinking: false,
-          showToolExecution: false,
-        },
+        displayConfig: this.displayConfig,
         streamingConfig: {},
         showMetrics: false,
         agentName: "Agent",
@@ -524,7 +536,7 @@ class InkPresentationService implements PresentationService {
     config: StreamingRendererConfig,
   ): Effect.Effect<StreamingRenderer, never> {
     return Effect.sync(() => {
-      return new InkStreamingRenderer(config.agentName, config.showMetrics);
+      return new InkStreamingRenderer(config.agentName, config.showMetrics, config.displayConfig);
     });
   }
 
@@ -543,5 +555,11 @@ class InkPresentationService implements PresentationService {
 
 export const InkPresentationServiceLayer = Layer.effect(
   PresentationServiceTag,
-  Effect.sync(() => new InkPresentationService()),
+  Effect.gen(function* () {
+    const configServiceOption = yield* Effect.serviceOption(AgentConfigServiceTag);
+    const displayConfig = Option.isSome(configServiceOption)
+      ? resolveDisplayConfig(yield* configServiceOption.value.appConfig)
+      : DEFAULT_DISPLAY_CONFIG;
+    return new InkPresentationService(displayConfig);
+  }),
 );
