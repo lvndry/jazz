@@ -169,6 +169,16 @@ function configureOutputDisplay() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
+    const handleBooleanToggle = function* (options: {
+      prompt: string;
+      currentValue: boolean;
+      configKey: `output.${string}`;
+      label: string;
+    }) {
+      const nextValue = yield* terminal.confirm(options.prompt, options.currentValue);
+      yield* configService.set(options.configKey, nextValue);
+      yield* terminal.success(`${options.label} ${nextValue ? "enabled" : "disabled"}.`);
+    };
 
     while (true) {
       const appConfig = yield* configService.appConfig;
@@ -233,27 +243,30 @@ function configureOutputDisplay() {
           break;
         }
         case "show-thinking": {
-          const nextValue = yield* terminal.confirm(
-            "Show thinking output?",
-            displayConfig.showThinking,
-          );
-          yield* configService.set("output.showThinking", nextValue);
-          yield* terminal.success(`Show thinking ${nextValue ? "enabled" : "disabled"}.`);
+          yield* handleBooleanToggle({
+            prompt: "Show thinking output?",
+            currentValue: displayConfig.showThinking,
+            configKey: "output.showThinking",
+            label: "Show thinking",
+          });
           break;
         }
         case "show-tool-execution": {
-          const nextValue = yield* terminal.confirm(
-            "Show tool execution?",
-            displayConfig.showToolExecution,
-          );
-          yield* configService.set("output.showToolExecution", nextValue);
-          yield* terminal.success(`Show tool execution ${nextValue ? "enabled" : "disabled"}.`);
+          yield* handleBooleanToggle({
+            prompt: "Show tool execution?",
+            currentValue: displayConfig.showToolExecution,
+            configKey: "output.showToolExecution",
+            label: "Show tool execution",
+          });
           break;
         }
         case "show-metrics": {
-          const nextValue = yield* terminal.confirm("Show performance metrics?", showMetrics);
-          yield* configService.set("output.showMetrics", nextValue);
-          yield* terminal.success(`Show metrics ${nextValue ? "enabled" : "disabled"}.`);
+          yield* handleBooleanToggle({
+            prompt: "Show performance metrics?",
+            currentValue: showMetrics,
+            configKey: "output.showMetrics",
+            label: "Show metrics",
+          });
           break;
         }
       }
