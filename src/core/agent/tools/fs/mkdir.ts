@@ -95,6 +95,6 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
       }),
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- Types are correct, ESLint can't resolve generics
+   
   return defineApprovalTool<MkdirDeps, MkdirArgs>(config);
 }

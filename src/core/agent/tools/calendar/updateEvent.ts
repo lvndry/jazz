@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { z } from "zod";
 import { CalendarServiceTag, type CalendarService } from "@/core/interfaces/calendar";
-import type { CalendarEvent } from "@/core/types/calendar";
 import type { ToolExecutionContext } from "@/core/types";
+import type { CalendarEvent } from "@/core/types/calendar";
 import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
 import { formatEventForDisplay } from "./utils";
 

@@ -62,22 +62,35 @@ export class AgentPromptBuilder {
    * Get current system information including date and OS details
    */
   private getSystemInfo(): Effect.Effect<
-    { currentDate: string; systemInfo: string; userInfo: string; workingDirectory: string },
+    {
+      currentDate: string;
+      osInfo: string;
+      shell: string;
+      hostname: string;
+      username: string;
+      workingDirectory: string;
+    },
     never
   > {
     return Effect.sync(() => {
-      const currentDate = new Date().toString();
+      const now = new Date();
+      const currentDate = now.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
       const platform = os.platform();
       const arch = os.arch();
       const release = os.release();
       const username = os.userInfo().username;
       const shell = process.env["SHELL"] || "unknown";
+      const hostname = os.hostname();
       const workingDirectory = process.cwd();
 
-      const systemInfo = `${platform} ${release} (${arch})`;
-      const userInfo = `${username} using ${shell.split("/").pop() || "shell"}`;
+      const osInfo = `${platform} ${release} (${arch})`;
 
-      return { currentDate, systemInfo, userInfo, workingDirectory };
+      return { currentDate, osInfo, shell, hostname, username, workingDirectory };
     });
   }
 
@@ -114,15 +127,17 @@ export class AgentPromptBuilder {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
         const template = yield* this.getTemplate(templateName);
-        const { currentDate, systemInfo, userInfo } = yield* this.getSystemInfo();
+        const { currentDate, osInfo, shell, hostname, username } = yield* this.getSystemInfo();
 
         // Replace placeholders in system prompt
         const systemPrompt = template.systemPrompt
           .replace("{agentName}", options.agentName)
           .replace("{agentDescription}", options.agentDescription)
           .replace("{currentDate}", currentDate)
-          .replace("{systemInfo}", systemInfo)
-          .replace("{userInfo}", userInfo);
+          .replace("{osInfo}", osInfo)
+          .replace("{shell}", shell)
+          .replace("{hostname}", hostname)
+          .replace("{username}", username);
 
         if (options.knownSkills && options.knownSkills.length > 0) {
           const skillsXml = options.knownSkills

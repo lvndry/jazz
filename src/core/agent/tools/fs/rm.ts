@@ -106,6 +106,6 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
       }),
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- Types are correct, ESLint can't resolve generics
+   
   return defineApprovalTool<RmDeps, RmArgs>(config);
 }

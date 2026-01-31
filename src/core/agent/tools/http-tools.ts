@@ -135,6 +135,15 @@ const HttpRequestSchema = z
       .enum(RESPONSE_TYPES)
       .optional()
       .describe("How to interpret the response body (default: json)."),
+    cacheTtlSeconds: z
+      .number()
+      .int("Cache TTL must be an integer number of seconds.")
+      .positive("Cache TTL must be greater than zero.")
+      .max(3600, "Cache TTL cannot exceed one hour.")
+      .optional()
+      .describe(
+        "Optional cache duration in seconds. Adds a Cache-Control: max-age header to hint caching to proxies/CDNs.",
+      ),
   })
   .strict();
 
@@ -396,6 +405,12 @@ export function createHttpRequestTool(): Tool<never> {
             result: null,
             error: headerMap.error,
           } satisfies ToolExecutionResult;
+        }
+
+        ensureHeader(headerMap, "User-Agent", "Jazz/1.0");
+
+        if (args.cacheTtlSeconds) {
+          ensureHeader(headerMap, "Cache-Control", `max-age=${args.cacheTtlSeconds}`);
         }
 
         const preparedBody = prepareRequestBody(method, args.body, headerMap);

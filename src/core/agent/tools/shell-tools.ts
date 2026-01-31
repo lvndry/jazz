@@ -313,6 +313,6 @@ This command will be executed on your system. Only approve commands you trust.`;
     },
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- Types are correct, ESLint can't resolve generics
+   
   return defineApprovalTool<ShellCommandDeps, ExecuteCommandArgs>(config);
 }
