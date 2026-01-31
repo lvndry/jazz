@@ -1,5 +1,6 @@
 import { Context, Effect } from "effect";
 import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
+import type { ApprovalRequest } from "@/core/types/tools";
 import type { DisplayConfig } from "../types";
 
 /**
@@ -97,6 +98,23 @@ export interface PresentationService {
    * Write a blank line
    */
   readonly writeBlankLine: () => Effect.Effect<void, never>;
+
+  /**
+   * Request user approval for a tool action.
+   * 
+   * Shows a confirmation prompt with details about what action will be performed.
+   * The user can approve (Yes) or reject (No) the action.
+   * 
+   * This enables the Cursor/Claude-style approval flow where:
+   * 1. A tool returns approvalRequired: true
+   * 2. The system intercepts this and shows approval UI
+   * 3. If approved, the system automatically calls the execution tool
+   * 4. The combined result is returned to the LLM
+   * 
+   * @param request - The approval request containing tool info and action details
+   * @returns true if user approved, false if rejected
+   */
+  readonly requestApproval: (request: ApprovalRequest) => Effect.Effect<boolean, never>;
 }
 
 /**

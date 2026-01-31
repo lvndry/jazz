@@ -13,6 +13,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { ink } from "@/core/interfaces/terminal";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
+import type { ApprovalRequest } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { formatMarkdownAnsi } from "./markdown-ansi";
@@ -549,6 +550,52 @@ class InkPresentationService implements PresentationService {
   writeBlankLine(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       store.printOutput({ type: "log", message: "", timestamp: new Date() });
+    });
+  }
+
+  requestApproval(request: ApprovalRequest): Effect.Effect<boolean, never> {
+    return Effect.async((resume) => {
+      // Format the approval message
+      const toolLabel = chalk.cyan(request.toolName);
+      const separator = chalk.dim("─".repeat(50));
+
+      // Show approval details in Ink UI
+      store.printOutput({
+        type: "log",
+        message: `\n${separator}`,
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "log",
+        message: `${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n`,
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "log",
+        message: `${request.message}\n`,
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "log",
+        message: separator,
+        timestamp: new Date(),
+      });
+
+      // Use confirm prompt (default to Yes for faster workflow)
+      store.setPrompt({
+        type: "confirm",
+        message: "Approve this action?",
+        options: { defaultValue: true },
+        resolve: (val: unknown) => {
+          store.setPrompt(null);
+          store.printOutput({
+            type: "log",
+            message: `Approve this action? ${chalk.green(val ? "Yes" : "No")}`,
+            timestamp: new Date(),
+          });
+          resume(Effect.succeed(val as boolean));
+        },
+      });
     });
   }
 }

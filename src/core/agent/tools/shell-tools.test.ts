@@ -2,7 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
+import { createShellCommandTools } from "./shell-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 
@@ -44,8 +44,10 @@ describe("Shell Tools", () => {
     );
   };
 
+  const shellTools = createShellCommandTools();
+
   it("should create execute_command tool with proper structure", () => {
-    const tool = createExecuteCommandTool();
+    const tool = shellTools.approval;
 
     expect(tool.name).toBe("execute_command");
     expect(tool.description).toBeTruthy();
@@ -53,7 +55,7 @@ describe("Shell Tools", () => {
     expect(tool.hidden).toBe(false);
     expect(tool.execute).toBeDefined();
     expect(typeof tool.execute).toBe("function");
-    expect(tool.approvalExecuteToolName).toBe("execute_command_approved");
+    expect(tool.approvalExecuteToolName).toBe("execute_execute_command");
 
     // Check if parameters is a Zod schema (it should be)
     expect(tool.parameters).toBeDefined();
@@ -66,10 +68,10 @@ describe("Shell Tools", () => {
     expect(schema._def.shape).not.toHaveProperty("confirm");
   });
 
-  it("should create execute_command_approved tool with proper structure", () => {
-    const tool = createExecuteCommandApprovedTool();
+  it("should create execute_execute_command tool with proper structure", () => {
+    const tool = shellTools.execute;
 
-    expect(tool.name).toBe("execute_command_approved");
+    expect(tool.name).toBe("execute_execute_command");
     expect(tool.description).toBeTruthy();
     expect(tool.description.length).toBeGreaterThan(20); // Ensure description is meaningful
     expect(tool.hidden).toBe(true);
@@ -88,7 +90,7 @@ describe("Shell Tools", () => {
   });
 
   it("should require approval for command execution", async () => {
-    const tool = createExecuteCommandTool();
+    const tool = shellTools.approval;
     const context = {
       agentId: "test-agent",
       conversationId: "test-conversation",
@@ -113,7 +115,7 @@ describe("Shell Tools", () => {
   });
 
   it("should validate command arguments", async () => {
-    const tool = createExecuteCommandTool();
+    const tool = shellTools.approval;
     const context = {
       agentId: "test-agent",
       conversationId: "test-conversation",
@@ -129,7 +131,7 @@ describe("Shell Tools", () => {
   });
 
   it("should block dangerous commands", async () => {
-    const tool = createExecuteCommandApprovedTool();
+    const tool = shellTools.execute;
     const context = {
       agentId: "test-agent",
       conversationId: "test-conversation",
@@ -167,7 +169,7 @@ describe("Shell Tools", () => {
   });
 
   it("should execute safe commands successfully", async () => {
-    const tool = createExecuteCommandApprovedTool();
+    const tool = shellTools.execute;
     const context = {
       agentId: "test-agent",
       conversationId: "test-conversation",
@@ -194,7 +196,7 @@ describe("Shell Tools", () => {
   });
 
   it("should handle invalid commands gracefully", async () => {
-    const tool = createExecuteCommandApprovedTool();
+    const tool = shellTools.execute;
     const context = {
       agentId: "test-agent",
       conversationId: "test-conversation",

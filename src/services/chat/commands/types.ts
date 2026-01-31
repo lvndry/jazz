@@ -15,6 +15,7 @@ export type CommandType =
   | "compact"
   | "copy"
   | "skills"
+  | "context"
   | "unknown";
 
 /**

@@ -3,14 +3,9 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
-import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { createSanitizedEnv } from "@/core/utils/env-utils";
-import {
-  defineTool,
-  formatApprovalRequiredDescription,
-  formatExecutionToolDescription,
-} from "./base-tool";
+import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 
 // Enhanced security checks for potentially dangerous commands
@@ -71,168 +66,82 @@ const FORBIDDEN_COMMANDS = [
   /htop\s*$/, // system monitor
 ];
 
-interface ExecuteCommandArgs extends Record<string, unknown> {
-  readonly command: string;
-  readonly workingDirectory?: string;
-  readonly timeout?: number;
-}
+type ExecuteCommandArgs = {
+  command: string;
+  workingDirectory?: string;
+  timeout?: number;
+};
+
+const executeCommandParameters = z
+  .object({
+    command: z
+      .string()
+      .min(1, "command cannot be empty")
+      .describe("The shell command to execute (e.g., 'npm install', 'ls -la', 'git status')"),
+    workingDirectory: z
+      .string()
+      .optional()
+      .describe(
+        "Optional working directory to execute the command in. If not provided, uses the current working directory.",
+      ),
+    timeout: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        "Optional timeout in milliseconds (default: 30000). Commands that take longer will be terminated.",
+      ),
+  })
+  .strict();
+
+type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService;
 
 /**
- * Create a tool for executing shell commands with user approval
+ * Create shell command tools (approval + execution pair).
  *
  * SECURITY WARNING: This tool can execute arbitrary commands on the system.
- * Only enable this feature if you trust the LLM and have proper approval mechanisms in place.
  * Consider the following security implications:
  * - Commands run with the same privileges as the jazz process
  * - Environment variables may be exposed to executed commands
  * - Network access is available to executed commands
  * - File system access is available within the working directory context
  */
-export function createExecuteCommandTool(): Tool<FileSystemContextService> {
-  return defineTool<FileSystemContextService, ExecuteCommandArgs>({
+export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
+  const config: ApprovalToolConfig<ShellCommandDeps, ExecuteCommandArgs> = {
     name: "execute_command",
-    description: formatApprovalRequiredDescription(
-      "Execute a shell command on the system. Runs commands in a specified working directory with configurable timeout. Includes security checks to block dangerous operations (file deletion, system commands, etc.). All command executions are logged for security auditing. This tool requests user approval and does NOT perform the command execution directly. After the user confirms, you MUST call execute_command_approved with the exact arguments provided in the approval response.",
-    ),
+    description:
+      "Execute a shell command on the system. Runs commands in a specified working directory with configurable timeout. Includes security checks to block dangerous operations. All command executions are logged for security auditing.",
     tags: ["shell", "execution"],
-    parameters: z
-      .object({
-        command: z
-          .string()
-          .min(1, "command cannot be empty")
-          .describe("The shell command to execute (e.g., 'npm install', 'ls -la', 'git status')"),
-        workingDirectory: z
-          .string()
-          .optional()
-          .describe(
-            "Optional working directory to execute the command in. If not provided, uses the current working directory.",
-          ),
-        timeout: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe(
-            "Optional timeout in milliseconds (default: 30000). Commands that take longer will be terminated.",
-          ),
-      })
-      .strict(),
+    parameters: executeCommandParameters,
     validate: (args) => {
-      const schema = z
-        .object({
-          command: z.string().min(1),
-          workingDirectory: z.string().optional(),
-          timeout: z.number().int().positive().optional(),
-        })
-        .strict();
-      const result = schema.safeParse(args);
-      if (!result.success) {
-        return { valid: false, errors: result.error.issues.map((i) => i.message) } as const;
-      }
-      return { valid: true, value: result.data as ExecuteCommandArgs } as const;
+      const result = executeCommandParameters.safeParse(args);
+      return result.success
+        ? { valid: true, value: result.data as ExecuteCommandArgs }
+        : { valid: false, errors: result.error.issues.map((i) => i.message) };
     },
-    approval: {
-      message: (args: ExecuteCommandArgs, context: ToolExecutionContext) =>
-        Effect.gen(function* () {
-          const shell = yield* FileSystemContextServiceTag;
-          const cwd = yield* shell.getCwd({
-            agentId: context.agentId,
-            ...(context.conversationId && { conversationId: context.conversationId }),
-          });
 
-          const workingDir = args.workingDirectory || cwd;
-          const timeout = args.timeout || 30000;
+    approvalMessage: (args: ExecuteCommandArgs, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const cwd = yield* shell.getCwd({
+          agentId: context.agentId,
+          ...(context.conversationId && { conversationId: context.conversationId }),
+        });
 
-          return `⚠️  COMMAND EXECUTION REQUEST ⚠️
+        const workingDir = args.workingDirectory || cwd;
+        const timeout = args.timeout || 30000;
 
-Command: ${args.command}
+        return `Command: ${args.command}
 Working Directory: ${workingDir}
 Timeout: ${timeout}ms
-Agent: ${context.agentId}
 
-This command will be executed on your system. Please review it carefully and confirm if you want to proceed.
+This command will be executed on your system. Only approve commands you trust.`;
+      }),
 
-⚠️  WARNING: This tool can execute any command on your system. Only approve commands you trust! ⚠️
+    approvalErrorMessage: "Command execution requires explicit user approval for security reasons.",
 
-IMPORTANT: After getting user confirmation, you MUST call the execute_command_approved tool with these exact arguments: {"command": ${JSON.stringify(args.command)}, "workingDirectory": ${args.workingDirectory ? JSON.stringify(args.workingDirectory) : "undefined"}, "timeout": ${args.timeout ?? "undefined"}}`;
-        }),
-      errorMessage: "Command execution requires explicit user approval for security reasons.",
-      execute: {
-        toolName: "execute_command_approved",
-        buildArgs: (args: Record<string, unknown>): Record<string, unknown> => {
-          const typedArgs = args as ExecuteCommandArgs;
-          return {
-            command: typedArgs.command,
-            workingDirectory: typedArgs.workingDirectory,
-            timeout: typedArgs.timeout,
-          };
-        },
-      },
-    },
-    handler: (_args: Record<string, unknown>, _context: ToolExecutionContext) =>
-      Effect.succeed({
-        success: false,
-        result: null,
-        error:
-          "Command execution requires approval. After user approval, call execute_command_approved tool.",
-      } as ToolExecutionResult),
-    createSummary: (result: ToolExecutionResult) => {
-      if (!result.success) {
-        return "Command execution requires approval";
-      }
-      return undefined;
-    },
-  });
-}
-
-interface ExecuteCommandApprovedArgs extends Record<string, unknown> {
-  readonly command: string;
-  readonly workingDirectory?: string;
-  readonly timeout?: number;
-}
-
-/**
- * Create a tool for executing approved shell commands
- */
-export function createExecuteCommandApprovedTool(): Tool<
-  FileSystem.FileSystem | FileSystemContextService
-> {
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, ExecuteCommandApprovedArgs>({
-    name: "execute_command_approved",
-    description: formatExecutionToolDescription(
-      "Performs the actual shell command execution after user approval of execute_command. Performs additional security validation, runs the command with sanitized environment variables, and logs execution details. This tool should only be called after execute_command receives user approval.",
-    ),
-    hidden: true,
-    parameters: z
-      .object({
-        command: z.string().min(1).describe("The shell command to execute"),
-        workingDirectory: z
-          .string()
-          .optional()
-          .describe("Working directory to execute the command in"),
-        timeout: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe("Timeout in milliseconds (default: 30000)"),
-      })
-      .strict(),
-    validate: (args) => {
-      const schema = z
-        .object({
-          command: z.string().min(1),
-          workingDirectory: z.string().optional(),
-          timeout: z.number().int().positive().optional(),
-        })
-        .strict();
-      const result = schema.safeParse(args);
-      if (!result.success) {
-        return { valid: false, errors: result.error.issues.map((i) => i.message) } as const;
-      }
-      return { valid: true, value: result.data as ExecuteCommandApprovedArgs } as const;
-    },
-    handler: (args: ExecuteCommandApprovedArgs, context: ToolExecutionContext) =>
+    handler: (args: ExecuteCommandArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
 
@@ -388,6 +297,7 @@ export function createExecuteCommandApprovedTool(): Tool<
           } as ToolExecutionResult;
         }
       }),
+
     createSummary: (result: ToolExecutionResult) => {
       if (!result.success) {
         return "Command execution failed";
@@ -401,5 +311,8 @@ export function createExecuteCommandApprovedTool(): Tool<
       }
       return "Command executed";
     },
-  });
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- Types are correct, ESLint can't resolve generics
+  return defineApprovalTool<ShellCommandDeps, ExecuteCommandArgs>(config);
 }

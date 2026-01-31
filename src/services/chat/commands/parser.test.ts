@@ -50,6 +50,12 @@ describe("parseSpecialCommand", () => {
       expect(result.type).toBe("copy");
       expect(result.args).toEqual([]);
     });
+
+    it("should parse /context command", () => {
+      const result = parseSpecialCommand("/context");
+      expect(result.type).toBe("context");
+      expect(result.args).toEqual([]);
+    });
   });
 
   describe("commands with arguments", () => {

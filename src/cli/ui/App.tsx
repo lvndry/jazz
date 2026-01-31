@@ -70,8 +70,10 @@ export function App(): React.ReactElement {
   const interruptHandlerRef = useRef<(() => void) | null>(null);
 
   useInput((input, key) => {
-    // Check for Ctrl+i (which comes through as tab)
-    if ((key.ctrl && input === "i") || key.tab) {
+    // Check for Ctrl+I (which comes through as tab in terminals - ASCII 9)
+    // Also check for tab character directly in case key.tab isn't set
+    const isTabOrCtrlI = key.tab || input === "\t" || input.charCodeAt(0) === 9;
+    if (isTabOrCtrlI) {
       if (interruptHandlerRef.current) {
          interruptHandlerRef.current();
       }
@@ -186,7 +188,7 @@ export function App(): React.ReactElement {
             <Layout
                title={status ? (
                  <Text>
-                   {status.includes("thinking") ? <Text color="yellow"><Spinner type="dots" /> </Text> : "• "}
+                   <Text color="yellow"><Spinner type="dots" /> </Text>
                    {status}
                  </Text>
                ) : undefined}
@@ -221,7 +223,7 @@ export function App(): React.ReactElement {
               marginTop={1}
             >
               {logItems}
-              {!!(status?.includes("thinking") && !stream) && (
+              {!!(status && !stream) && (
                  <Box paddingY={1}>
                    <Text color="yellow"><Spinner type="dots" /> {status}</Text>
                  </Box>

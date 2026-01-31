@@ -222,7 +222,7 @@ export function formatToolArguments(
       return usePlain ? `{ branch: ${branchName} }` : formatKeyValue("branch", branchName);
     }
     case "execute_command":
-    case "execute_command_approved": {
+    case "execute_execute_command": {
       const command = safeString(args["command"]);
       if (!command) return "";
       const truncated = command.length > 60 ? command.substring(0, 60) + "..." : command;
@@ -330,7 +330,7 @@ export function formatToolResult(toolName: string, result: string): string {
         return count > 0 ? ` ${chalk.dim(`(${count} item${count !== 1 ? "s" : ""})`)}` : "";
       }
       case "execute_command":
-      case "execute_command_approved": {
+      case "execute_execute_command": {
         const exitCode = obj["exitCode"];
         const output = obj["output"];
         if (exitCode !== undefined && exitCode !== null) {

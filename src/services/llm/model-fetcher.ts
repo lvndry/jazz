@@ -1,6 +1,6 @@
 import { gateway } from "ai";
 import { Effect } from "effect";
-import type { ProviderName } from "@/core/constants/models";
+import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@/core/constants/models";
 import type { ModelInfo } from "@/core/types";
 import { LLMConfigurationError } from "@/core/types/errors";
 
@@ -29,6 +29,57 @@ type OllamaModel = {
     metadata?: Record<string, unknown>;
   };
 };
+
+/**
+ * Response from Ollama /api/show endpoint
+ */
+type OllamaShowResponse = {
+  model_info?: Record<string, unknown>;
+  details?: {
+    family?: string;
+  };
+};
+
+/**
+ * Extract context length from Ollama model_info
+ * The key format is `<family>.context_length` (e.g., "gemma3.context_length")
+ */
+function extractOllamaContextLength(modelInfo: Record<string, unknown> | undefined): number | undefined {
+  if (!modelInfo) return undefined;
+
+  for (const [key, value] of Object.entries(modelInfo)) {
+    if (key.endsWith(".context_length") && typeof value === "number") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Fetch detailed model info from Ollama /api/show endpoint
+ * Returns the context window size, or undefined if not available
+ */
+async function fetchOllamaModelDetails(
+  baseUrl: string,
+  modelName: string,
+): Promise<number | undefined> {
+  try {
+    const response = await fetch(`${baseUrl}/api/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelName }),
+    });
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const data = await response.json() as OllamaShowResponse;
+    return extractOllamaContextLength(data.model_info);
+  } catch {
+    return undefined;
+  }
+}
 
 const TOOL_PARAMS = new Set([
   "tools",
@@ -78,33 +129,10 @@ function looksToolCapable(model: OllamaModel): boolean {
   return false;
 }
 
-// Provider-specific response transformers
+// Provider-specific response transformers (sync)
 const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => ModelInfo[]>> = {
-  ollama: (data: unknown) => {
-    // Transform Ollama API response
-    const response = data as {
-      models?: OllamaModel[];
-    };
-
-    const ollamaReasoningModels: string[] = [
-      "gpt-oss",
-      "deepseek-r1",
-      "deepseek-v3.1",
-      "qwen3",
-      "magistral",
-    ];
-
-    return (response.models ?? []).map((model) => ({
-      id: model.name,
-      displayName: model.name,
-      isReasoningModel: ollamaReasoningModels.some((reasoningModel) =>
-        model.name.includes(reasoningModel),
-      ),
-      supportsTools: looksToolCapable(model),
-    }));
-  },
   openrouter: (data: unknown) => {
-    // Transform OpenRouter API response
+    // Transform OpenRouter API response - includes context_length
     const response = data as {
       data?: OpenRouterModel[];
     };
@@ -121,6 +149,8 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
         displayName: model.name,
         isReasoningModel,
         supportsTools,
+        // Use context_length from API if available, otherwise use default
+        contextWindow: model.context_length ?? DEFAULT_CONTEXT_WINDOW,
       };
     });
   },
@@ -136,6 +166,7 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
       displayName: model.name,
       isReasoningModel: model.tags?.includes("reasoning") ?? false,
       supportsTools: model.tags?.includes("tool-use") ?? false,
+      contextWindow: DEFAULT_CONTEXT_WINDOW,
     }));
   },
   groq: (data: unknown) => {
@@ -166,10 +197,60 @@ const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => Mod
         displayName: `${model.owned_by.toLowerCase()}/${model.id.toLowerCase()}`,
         isReasoningModel: false,
         supportsTools,
+        contextWindow: DEFAULT_CONTEXT_WINDOW,
       };
     });
   },
 };
+
+// Ollama reasoning model prefixes
+const OLLAMA_REASONING_MODELS = [
+  "gpt-oss",
+  "deepseek-r1",
+  "deepseek-v3.1",
+  "qwen3",
+  "magistral",
+];
+
+/**
+ * Async transformer for Ollama that fetches context window from /api/show
+ */
+async function transformOllamaModels(
+  data: unknown,
+  baseUrl: string,
+): Promise<ModelInfo[]> {
+  const response = data as {
+    models?: OllamaModel[];
+  };
+
+  const models = response.models ?? [];
+
+  // Fetch details for each model in parallel (with concurrency limit)
+  const CONCURRENCY_LIMIT = 5;
+  const results: ModelInfo[] = [];
+
+  for (let i = 0; i < models.length; i += CONCURRENCY_LIMIT) {
+    const batch = models.slice(i, i + CONCURRENCY_LIMIT);
+    const batchResults = await Promise.all(
+      batch.map(async (model) => {
+        const contextWindow = await fetchOllamaModelDetails(baseUrl, model.name);
+
+        return {
+          id: model.name,
+          displayName: model.name,
+          isReasoningModel: OLLAMA_REASONING_MODELS.some((reasoningModel) =>
+            model.name.includes(reasoningModel),
+          ),
+          supportsTools: looksToolCapable(model),
+          contextWindow: contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+        };
+      }),
+    );
+    results.push(...batchResults);
+  }
+
+  return results;
+}
 
 export function createModelFetcher(): ModelFetcherService {
   return {
@@ -209,7 +290,12 @@ export function createModelFetcher(): ModelFetcherService {
 
           const data: unknown = await response.json();
 
-          // Select transformer based on provider name
+          // Ollama uses async transformer to fetch context window from /api/show
+          if (providerName === "ollama") {
+            return transformOllamaModels(data, baseUrl);
+          }
+
+          // Select sync transformer based on provider name
           const transformer = PROVIDER_TRANSFORMERS[providerName];
           if (!transformer) {
             throw new Error(`No transformer found for provider: ${providerName}`);

@@ -10,6 +10,8 @@ export interface ModelInfo {
   readonly displayName?: string;
   readonly isReasoningModel?: boolean;
   readonly supportsTools: boolean;
+  /** Context window size in tokens. If not specified, defaults to 128000. */
+  readonly contextWindow?: number;
 }
 
 /**

@@ -19,35 +19,12 @@ export const CLI_OUTPUT_FORMATTING = `
 `;
 
 export const SMART_TOOL_USAGE = `
-### Smart Tool Usage
-When calling tools, intelligently leverage available arguments to maximize efficiency and result quality:
-
-**Argument Selection Strategy:**
-- **Review All Available Arguments**: Before calling a tool, examine all available parameters and their purposes
-- **Use Filtering Arguments**: Prefer tool-level filtering (e.g., \`--pattern\`, \`--type\`, \`--include\`) over post-processing results
-- **Leverage Search Arguments**: Use search/filter parameters to narrow results at the source rather than processing large result sets
-- **Specify Output Formats**: When tools support format options (JSON, structured output), use them to reduce parsing complexity
-- **Set Appropriate Limits**: Use pagination/limit arguments to control result size and avoid overwhelming responses
-- **Enable Verbose Modes Selectively**: Use verbose/debug flags only when needed for troubleshooting, not for routine operations
-
-**Efficiency Principles:**
-- **Narrow Scope Early**: Filter at the tool level (e.g., \`search --type=file --pattern="*.ts"\`) rather than filtering after retrieval
-- **Request Only What's Needed**: Use projection/field selection arguments when available to reduce data transfer
-- **Batch Operations**: When tools support batch processing, use it instead of multiple individual calls
-- **Use Smart Defaults**: Understand tool defaults and only override when necessary for the specific use case
-
-**Quality Assurance:**
-- **Validate Arguments**: Ensure argument values match expected formats and constraints before calling
-- **Use Type-Specific Arguments**: When tools offer type-specific options (e.g., file vs directory), use them for better accuracy
-- **Leverage Validation Flags**: Use built-in validation arguments (e.g., \`--dry-run\`, \`--check\`) when available before actual execution
-- **Combine Arguments Strategically**: Some argument combinations provide better results than individual flags
-
-**Example Patterns:**
-- ❌ **Inefficient**: \`list_files\` → filter results in code → process subset
-- ✅ **Efficient**: \`list_files(path: ".", pattern: "*.ts", recursive: true)\` → process directly
-
-- ❌ **Inefficient**: \`read_file\` → parse entire file → extract needed section
-- ✅ **Efficient**: \`read_file(path: "file.ts", lines: "10-50")\` → get only needed portion
+Smart Tool Usage:
+- Prefer tool-level filters (pattern/type/include) to reduce returned data.
+- Narrow scope early; request only required fields and set result limits.
+- Use structured output (JSON) and pagination/dry-run flags for safety.
+- Batch operations and validate arguments before execution.
+- Move long examples to docs: /docs/agent-guides#tool-usage
 `;
 
 export const CONTEXT_AWARENESS = `
@@ -60,14 +37,9 @@ export const CONTEXT_AWARENESS = `
 `;
 
 export const SKILLS_INSTRUCTIONS = `
-## Skills
-
-Skills are specialized instruction sets that guide you through complex, multi-step workflows. Each skill contains detailed procedures, best practices, and templates for specific tasks.
-
-**How to use skills:**
-1. When a user request matches a skill's description, use the \`load_skill\` tool to load the full instructions
-2. Follow the loaded skill's workflow step-by-step
-3. Skills may reference additional resources you can load with \`load_skill_section\`
-
-**IMPORTANT:** If a skill matches the user's request, ALWAYS load and follow it before attempting to solve the task with general knowledge. Skills contain tested, proven approaches.
+Skills:
+1. If a request matches a skill (code-review, pull-request, release-notes), load it with load_skill.
+2. Follow the loaded skill's step-by-step workflow.
+3. For complex skills, load referenced sections via load_skill_section.
+Note: Prefer skill workflows over ad-hoc handling for matched tasks.
 `;
