@@ -178,7 +178,7 @@ export function createGitMergeTools(): ApprovalToolPair<GitDeps> {
         const commandResult = yield* runGitCommand({
           args: mergeArgs,
           workingDirectory: workingDir,
-          timeoutMs: 30000,
+          timeoutMs: 30_000,
         }).pipe(
           Effect.catchAll((error) => {
             const errorMsg = error instanceof Error ? error.message : String(error);

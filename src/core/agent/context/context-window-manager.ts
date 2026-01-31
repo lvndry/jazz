@@ -251,7 +251,7 @@ export class ContextWindowManager {
  */
 export const DEFAULT_CONTEXT_WINDOW_MANAGER = new ContextWindowManager({
   maxMessages: 200,
-  maxTokens: 150000,
+  maxTokens: 150_000,
   strategy: "token-based",
   protectedRecentMessages: 10,
 });

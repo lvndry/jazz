@@ -52,11 +52,11 @@ export function getToolEmoji(toolName: string): string {
 export function formatDuration(ms: number): string {
   if (ms < 1000) {
     return `${ms}ms`;
-  } else if (ms < 60000) {
+  } else if (ms < 60_000) {
     return `${(ms / 1000).toFixed(1)}s`;
   } else {
-    const minutes = Math.floor(ms / 60000);
-    const seconds = ((ms % 60000) / 1000).toFixed(1);
+    const minutes = Math.floor(ms / 60_000);
+    const seconds = ((ms % 60_000) / 1000).toFixed(1);
     return `${minutes}m ${seconds}s`;
   }
 }
@@ -103,7 +103,7 @@ export function logToolExecutionSuccess(
           typeof fullResult === "string" ? fullResult : JSON.stringify(fullResult, null, 2);
 
         // Truncate very long results to avoid overwhelming logs
-        const maxLength = 10000;
+        const maxLength = 10_000;
         const truncatedResult =
           resultString.length > maxLength
             ? resultString.substring(0, maxLength) +

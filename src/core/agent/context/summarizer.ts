@@ -68,7 +68,7 @@ export const Summarizer = {
       }
 
       const currentTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages);
-      const maxTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens || 150000;
+      const maxTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens || 150_000;
 
       yield* logger.info("Conversation context approaching limit", {
         currentTokens,

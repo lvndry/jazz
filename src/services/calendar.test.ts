@@ -100,7 +100,7 @@ describe("CalendarService", () => {
       const mockToken = JSON.stringify({
         access_token: "test-token",
         refresh_token: "test-refresh",
-        expiry_date: Date.now() + 3600000,
+        expiry_date: Date.now() + 3_600_000,
         scope:
           "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events",
       });

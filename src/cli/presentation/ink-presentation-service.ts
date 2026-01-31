@@ -46,7 +46,7 @@ class InkStreamingRenderer implements StreamingRenderer {
 
   // Tool timeout warnings - show warning if tool takes longer than expected
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
-  private static readonly TOOL_WARNING_MS = 10000; // 10 seconds
+  private static readonly TOOL_WARNING_MS = 10_000; // 10 seconds
 
   constructor(
     private readonly agentName: string,

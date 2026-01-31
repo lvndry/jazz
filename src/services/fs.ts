@@ -92,7 +92,7 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
               new Promise((resolve, reject) => {
                 const child = spawn("sh", ["-c", command], {
                   stdio: ["ignore", "pipe", "pipe"],
-                  timeout: 10000,
+                  timeout: 10_000,
                 });
 
                 let stdout = "";

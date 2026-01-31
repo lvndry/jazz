@@ -10,7 +10,7 @@ import { buildKeyFromContext } from "../context-utils";
  * Shared utilities for running Git commands safely
  */
 
-export const DEFAULT_GIT_TIMEOUT = 15000;
+export const DEFAULT_GIT_TIMEOUT = 15_000;
 
 export interface GitCommandResult {
   readonly stdout: string;

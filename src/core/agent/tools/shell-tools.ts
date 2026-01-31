@@ -130,7 +130,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
         });
 
         const workingDir = args.workingDirectory || cwd;
-        const timeout = args.timeout || 30000;
+        const timeout = args.timeout || 30_000;
 
         return `Command: ${args.command}
 Working Directory: ${workingDir}
@@ -150,7 +150,7 @@ This command will be executed on your system. Only approve commands you trust.`;
         const workingDir = args.workingDirectory
           ? yield* shell.resolvePath(key, args.workingDirectory)
           : yield* shell.getCwd(key);
-        const timeout = args.timeout || 30000;
+        const timeout = args.timeout || 30_000;
 
         // Basic safety checks
         const command = args.command.trim();

@@ -96,7 +96,7 @@ export function createGitBlameTool(): Tool<FileSystem.FileSystem | FileSystemCon
         const commandResult = yield* runGitCommand({
           args: blameArgs,
           workingDirectory: workingDir,
-          timeoutMs: 20000,
+          timeoutMs: 20_000,
         }).pipe(
           Effect.catchAll((error) => {
             const errorMsg = error instanceof Error ? error.message : String(error);

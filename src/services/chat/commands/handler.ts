@@ -5,7 +5,7 @@ import { store } from "@/cli/ui/App";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
-import { DEFAULT_CONTEXT_WINDOW, STATIC_PROVIDER_MODELS, type ProviderName } from "@/core/constants/models";
+import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import {
@@ -25,6 +25,7 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
+import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
@@ -646,14 +647,16 @@ const TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
 const AUTOCOMPACT_BUFFER_PERCENT = 0.165;
 
 /**
- * Get context window size for a specific model
+ * Get context window size for a specific model from models.dev
  */
-function getModelContextWindow(provider: string, modelId: string): number {
-  const providerModels = STATIC_PROVIDER_MODELS[provider as ProviderName];
-  if (!providerModels) return DEFAULT_CONTEXT_WINDOW;
-
-  const model = providerModels.find((m) => m.id === modelId);
-  return model?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+function getModelContextWindowEffect(modelId: string): Effect.Effect<number, never, never> {
+  return Effect.tryPromise({
+    try: async () => {
+      const meta = await getModelsDevMetadata(modelId);
+      return meta?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+    },
+    catch: () => new Error("Failed to fetch model metadata"),
+  }).pipe(Effect.catchAll(() => Effect.succeed(DEFAULT_CONTEXT_WINDOW)));
 }
 
 /**
@@ -679,8 +682,8 @@ function estimateMessageTokens(message: ChatMessage): number {
  * Format token count for display (e.g., 18000 -> "18k", 150000 -> "150k")
  */
 function formatTokenCount(tokens: number): string {
-  if (tokens >= 1000000) {
-    return `${(tokens / 1000000).toFixed(1)}M`;
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(1)}M`;
   }
   if (tokens >= 1000) {
     return `${(tokens / 1000).toFixed(1)}k`;
@@ -801,7 +804,7 @@ function handleContextCommand(
     // Get model information
     const provider = agent.config.llmProvider;
     const modelId = agent.config.llmModel;
-    const contextWindow = getModelContextWindow(provider, modelId);
+    const contextWindow = yield* getModelContextWindowEffect(modelId);
 
     // Get tool definitions for more accurate tool token estimation
     const toolDefinitions = yield* toolRegistry.getToolDefinitions();
