@@ -83,7 +83,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
         const commandResult = yield* runGitCommand({
           args: diffArgs,
           workingDirectory: workingDir,
-          timeoutMs: 20000,
+          timeoutMs: 20_000,
         }).pipe(
           Effect.catchAll((error) => {
             const errorMsg = error instanceof Error ? error.message : String(error);

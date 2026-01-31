@@ -105,7 +105,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
             // Enforce maxChars safeguard
             const maxChars =
-              typeof args.maxChars === "number" && args.maxChars > 0 ? args.maxChars : 512000;
+              typeof args.maxChars === "number" && args.maxChars > 0 ? args.maxChars : 512_000;
             let truncated = false;
             if (content.length > maxChars) {
               content = content.slice(0, maxChars);

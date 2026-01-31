@@ -5,6 +5,7 @@ import { store } from "@/cli/ui/App";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
+import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import {
@@ -22,7 +23,9 @@ import {
 } from "@/core/interfaces/tool-registry";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
+import type { ChatMessage } from "@/core/types/message";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
+import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
@@ -87,6 +90,9 @@ export function handleSpecialCommand(
       case "skills":
         return yield* handleSkillsCommand(terminal);
 
+      case "context":
+        return yield* handleContextCommand(terminal, agent, conversationHistory);
+
       case "clear":
         return yield* handleClearCommand(terminal, agent);
 
@@ -136,6 +142,7 @@ function handleHelpCommand(
     );
     yield* terminal.log("   /clear           - Clear the screen");
     yield* terminal.log("   /compact         - Summarize background history to save tokens");
+    yield* terminal.log("   /context         - Show context window usage and token breakdown");
     yield* terminal.log("   /copy            - Copy the last agent response to clipboard");
     yield* terminal.log("   /skills          - List and view available skills");
     yield* terminal.log("   /help            - Show this help message");
@@ -615,6 +622,247 @@ function handleSkillsCommand(
         ? formatMarkdown(skillContent.core)
         : skillContent.core;
     yield* terminal.log(formattedSkill);
+    yield* terminal.log("");
+
+    return { shouldContinue: true };
+  });
+}
+
+// ============================================================================
+// Context Command Utilities
+// ============================================================================
+
+/** Symbols for context visualization */
+const CONTEXT_SYMBOLS = {
+  used: "⛁",
+  free: "⛶",
+  buffer: "⛝",
+} as const;
+
+/** Grid dimensions for visualization (10x10 = 100 cells) */
+const GRID_SIZE = 10;
+const TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
+
+/** Buffer percentage reserved for autocompact (16.5% like Claude Code) */
+const AUTOCOMPACT_BUFFER_PERCENT = 0.165;
+
+/**
+ * Get context window size for a specific model from models.dev
+ */
+function getModelContextWindowEffect(modelId: string): Effect.Effect<number, never, never> {
+  return Effect.tryPromise({
+    try: async () => {
+      const meta = await getModelsDevMetadata(modelId);
+      return meta?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+    },
+    catch: () => new Error("Failed to fetch model metadata"),
+  }).pipe(Effect.catchAll(() => Effect.succeed(DEFAULT_CONTEXT_WINDOW)));
+}
+
+/**
+ * Estimate tokens for a message
+ */
+function estimateMessageTokens(message: ChatMessage): number {
+  let contentTokens = 0;
+  if (message.content) {
+    contentTokens = Math.ceil(message.content.length / 4);
+  }
+
+  let toolTokens = 0;
+  if (message.tool_calls) {
+    toolTokens = Math.ceil(JSON.stringify(message.tool_calls).length / 4);
+  } else if (message.role === "tool" && message.tool_call_id) {
+    toolTokens = 10;
+  }
+
+  return contentTokens + toolTokens + 4;
+}
+
+/**
+ * Format token count for display (e.g., 18000 -> "18k", 150000 -> "150k")
+ */
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(1)}M`;
+  }
+  if (tokens >= 1000) {
+    return `${(tokens / 1000).toFixed(1)}k`;
+  }
+  return tokens.toString();
+}
+
+/**
+ * Calculate context usage breakdown
+ */
+interface ContextUsageBreakdown {
+  systemPromptTokens: number;
+  toolsTokens: number;
+  skillsTokens: number;
+  messagesTokens: number;
+  totalUsed: number;
+  freeSpace: number;
+  autocompactBuffer: number;
+  contextWindow: number;
+}
+
+function calculateContextUsage(
+  conversationHistory: ChatMessage[],
+  contextWindow: number,
+): ContextUsageBreakdown {
+  // Calculate autocompact buffer (reserved space)
+  const autocompactBuffer = Math.floor(contextWindow * AUTOCOMPACT_BUFFER_PERCENT);
+  const effectiveWindow = contextWindow - autocompactBuffer;
+
+  // Separate system message from other messages
+  const systemMessage = conversationHistory.find((m) => m.role === "system");
+  const otherMessages = conversationHistory.filter((m) => m.role !== "system");
+
+  // Estimate system prompt tokens
+  const systemPromptTokens = systemMessage ? estimateMessageTokens(systemMessage) : 0;
+
+  // Tool tokens are estimated from tool calls in messages
+  let toolsTokens = 0;
+  let messagesTokens = 0;
+
+  for (const msg of otherMessages) {
+    const tokens = estimateMessageTokens(msg);
+    if (msg.role === "tool" || (msg.role === "assistant" && msg.tool_calls)) {
+      toolsTokens += tokens;
+    } else {
+      messagesTokens += tokens;
+    }
+  }
+
+  // Skills tokens are part of system prompt but we can't easily separate them
+  // For now, we'll estimate them as 0 (they're included in systemPromptTokens)
+  const skillsTokens = 0;
+
+  const totalUsed = systemPromptTokens + toolsTokens + skillsTokens + messagesTokens;
+  const freeSpace = Math.max(0, effectiveWindow - totalUsed);
+
+  return {
+    systemPromptTokens,
+    toolsTokens,
+    skillsTokens,
+    messagesTokens,
+    totalUsed,
+    freeSpace,
+    autocompactBuffer,
+    contextWindow,
+  };
+}
+
+/**
+ * Generate the visual context grid
+ */
+function generateContextGrid(usage: ContextUsageBreakdown): string[] {
+  const { totalUsed, freeSpace, autocompactBuffer, contextWindow } = usage;
+
+  // Calculate cell allocations
+  const usedCells = Math.round((totalUsed / contextWindow) * TOTAL_CELLS);
+  const freeCells = Math.round((freeSpace / contextWindow) * TOTAL_CELLS);
+  const bufferCells = Math.round((autocompactBuffer / contextWindow) * TOTAL_CELLS);
+
+  // Ensure we fill exactly 100 cells
+  const adjusted = usedCells + freeCells + bufferCells;
+  let adjustedFreeCells = freeCells;
+  if (adjusted !== TOTAL_CELLS) {
+    adjustedFreeCells = TOTAL_CELLS - usedCells - bufferCells;
+  }
+
+  // Build the grid string
+  const cells: string[] = [];
+  for (let i = 0; i < usedCells; i++) cells.push(CONTEXT_SYMBOLS.used);
+  for (let i = 0; i < Math.max(0, adjustedFreeCells); i++) cells.push(CONTEXT_SYMBOLS.free);
+  for (let i = 0; i < bufferCells; i++) cells.push(CONTEXT_SYMBOLS.buffer);
+
+  // Pad or trim to exactly 100 cells
+  while (cells.length < TOTAL_CELLS) cells.push(CONTEXT_SYMBOLS.free);
+  cells.length = TOTAL_CELLS;
+
+  // Format into rows
+  const rows: string[] = [];
+  for (let row = 0; row < GRID_SIZE; row++) {
+    const rowCells = cells.slice(row * GRID_SIZE, (row + 1) * GRID_SIZE);
+    rows.push(rowCells.join(" "));
+  }
+
+  return rows;
+}
+
+/**
+ * Handle /context command - Show context window usage
+ */
+function handleContextCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  conversationHistory: CommandContext["conversationHistory"],
+): Effect.Effect<CommandResult, never, ToolRegistry> {
+  return Effect.gen(function* () {
+    const toolRegistry = yield* ToolRegistryTag;
+
+    // Get model information
+    const provider = agent.config.llmProvider;
+    const modelId = agent.config.llmModel;
+    const contextWindow = yield* getModelContextWindowEffect(modelId);
+
+    // Get tool definitions for more accurate tool token estimation
+    const toolDefinitions = yield* toolRegistry.getToolDefinitions();
+    const toolDefinitionsJson = JSON.stringify(toolDefinitions);
+    const toolDefinitionTokens = Math.ceil(toolDefinitionsJson.length / 4);
+
+    // Calculate usage breakdown
+    const usage = calculateContextUsage(conversationHistory, contextWindow);
+
+    // Add tool definition tokens (these are sent with every request)
+    const adjustedUsage: ContextUsageBreakdown = {
+      ...usage,
+      toolsTokens: usage.toolsTokens + toolDefinitionTokens,
+      totalUsed: usage.totalUsed + toolDefinitionTokens,
+      freeSpace: Math.max(0, usage.freeSpace - toolDefinitionTokens),
+    };
+
+    // Calculate percentages
+    const usagePercent = Math.round((adjustedUsage.totalUsed / contextWindow) * 100);
+    const systemPercent = ((adjustedUsage.systemPromptTokens / contextWindow) * 100).toFixed(1);
+    const toolsPercent = ((adjustedUsage.toolsTokens / contextWindow) * 100).toFixed(1);
+    const skillsPercent = ((adjustedUsage.skillsTokens / contextWindow) * 100).toFixed(1);
+    const messagesPercent = ((adjustedUsage.messagesTokens / contextWindow) * 100).toFixed(1);
+    const freePercent = ((adjustedUsage.freeSpace / contextWindow) * 100).toFixed(1);
+    const bufferPercent = ((adjustedUsage.autocompactBuffer / contextWindow) * 100).toFixed(1);
+
+    // Generate visual grid
+    const gridRows = generateContextGrid(adjustedUsage);
+
+    // Display header
+    yield* terminal.heading("Context Usage");
+
+    // Display model info and total usage on first row
+    const modelDisplay = `${provider}/${modelId}`;
+    const usageDisplay = `${formatTokenCount(adjustedUsage.totalUsed)}/${formatTokenCount(contextWindow)} tokens (${usagePercent}%)`;
+
+    yield* terminal.log(`   ${gridRows[0]}   ${modelDisplay} · ${usageDisplay}`);
+    yield* terminal.log(`   ${gridRows[1]}`);
+    yield* terminal.log(`   ${gridRows[2]}   Estimated usage by category`);
+    yield* terminal.log(
+      `   ${gridRows[3]}   ${CONTEXT_SYMBOLS.used} System prompt: ${formatTokenCount(adjustedUsage.systemPromptTokens)} tokens (${systemPercent}%)`,
+    );
+    yield* terminal.log(
+      `   ${gridRows[4]}   ${CONTEXT_SYMBOLS.used} System tools: ${formatTokenCount(adjustedUsage.toolsTokens)} tokens (${toolsPercent}%)`,
+    );
+    yield* terminal.log(
+      `   ${gridRows[5]}   ${CONTEXT_SYMBOLS.used} Skills: ${formatTokenCount(adjustedUsage.skillsTokens)} tokens (${skillsPercent}%)`,
+    );
+    yield* terminal.log(
+      `   ${gridRows[6]}   ${CONTEXT_SYMBOLS.used} Messages: ${formatTokenCount(adjustedUsage.messagesTokens)} tokens (${messagesPercent}%)`,
+    );
+    yield* terminal.log(
+      `   ${gridRows[7]}   ${CONTEXT_SYMBOLS.free} Free space: ${formatTokenCount(adjustedUsage.freeSpace)} (${freePercent}%)`,
+    );
+    yield* terminal.log(
+      `   ${gridRows[8]}   ${CONTEXT_SYMBOLS.buffer} Autocompact buffer: ${formatTokenCount(adjustedUsage.autocompactBuffer)} tokens (${bufferPercent}%)`,
+    );
+    yield* terminal.log(`   ${gridRows[9]}`);
     yield* terminal.log("");
 
     return { shouldContinue: true };

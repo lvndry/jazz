@@ -4,24 +4,24 @@
  * Provides organized access to Git operations through a unified namespace.
  * Tools are organized by operation type:
  * - Read operations: Safe, read-only git commands
- * - Write operations: Approval-required destructive commands
+ * - Write operations: Approval-required commands (return ApprovalToolPair)
  */
 
 // Re-export from individual tool modules
-import { createExecuteGitAddTool, createGitAddTool } from "./add";
+import { createGitAddTools } from "./add";
 import { createGitBlameTool } from "./blame";
 import { createGitBranchTool } from "./branch";
-import { createExecuteGitCheckoutTool, createGitCheckoutTool } from "./checkout";
-import { createExecuteGitCommitTool, createGitCommitTool } from "./commit";
+import { createGitCheckoutTools } from "./checkout";
+import { createGitCommitTools } from "./commit";
 import { createGitDiffTool } from "./diff";
 import { createGitLogTool } from "./log";
-import { createExecuteGitMergeTool, createGitMergeTool } from "./merge";
-import { createExecuteGitPullTool, createGitPullTool } from "./pull";
-import { createExecuteGitPushTool, createGitPushTool } from "./push";
+import { createGitMergeTools } from "./merge";
+import { createGitPullTools } from "./pull";
+import { createGitPushTools } from "./push";
 import { createGitReflogTool } from "./reflog";
-import { createExecuteGitRmTool, createGitRmTool } from "./rm";
+import { createGitRmTools } from "./rm";
 import { createGitStatusTool } from "./status";
-import { createExecuteGitTagTool, createGitTagTool } from "./tag";
+import { createGitTagListTool, createGitTagTools } from "./tag";
 
 /**
  * Git tools namespace
@@ -34,9 +34,9 @@ import { createExecuteGitTagTool, createGitTagTool } from "./tag";
  * const statusTool = git.status();
  * const logTool = git.log();
  *
- * // Create write tools (require approval)
- * const addTool = git.add();
- * const commitTool = git.commit();
+ * // Create write tools (return { approval, execute } pair)
+ * const addTools = git.add();
+ * const commitTools = git.commit();
  * ```
  */
 export const git = {
@@ -60,86 +60,55 @@ export const git = {
   /** Show reference log of HEAD updates */
   reflog: createGitReflogTool,
 
-  /** List tags */
-  tag: createGitTagTool,
+  /** List Git tags */
+  tagList: createGitTagListTool,
 
-  // === Write Operations (approval required) ===
+  // === Write Operations (approval required - return ApprovalToolPair) ===
 
-  /** Stage files for commit */
-  add: createGitAddTool,
+  /** Stage files for commit (returns { approval, execute }) */
+  add: createGitAddTools,
 
-  /** Create a commit with staged changes */
-  commit: createGitCommitTool,
+  /** Create a commit with staged changes (returns { approval, execute }) */
+  commit: createGitCommitTools,
 
-  /** Push commits to remote repository */
-  push: createGitPushTool,
+  /** Push commits to remote repository (returns { approval, execute }) */
+  push: createGitPushTools,
 
-  /** Pull changes from remote repository */
-  pull: createGitPullTool,
+  /** Pull changes from remote repository (returns { approval, execute }) */
+  pull: createGitPullTools,
 
-  /** Switch branches or restore working tree files */
-  checkout: createGitCheckoutTool,
+  /** Switch branches or restore working tree files (returns { approval, execute }) */
+  checkout: createGitCheckoutTools,
 
-  /** Merge branches */
-  merge: createGitMergeTool,
+  /** Merge branches (returns { approval, execute }) */
+  merge: createGitMergeTools,
 
-  /** Remove files from working tree and index */
-  rm: createGitRmTool,
+  /** Remove files from working tree and index (returns { approval, execute }) */
+  rm: createGitRmTools,
 
-  // === Execute Tools (internal - called after approval) ===
-
-  /** Execute git add after approval */
-  executeAdd: createExecuteGitAddTool,
-
-  /** Execute git commit after approval */
-  executeCommit: createExecuteGitCommitTool,
-
-  /** Execute git push after approval */
-  executePush: createExecuteGitPushTool,
-
-  /** Execute git pull after approval */
-  executePull: createExecuteGitPullTool,
-
-  /** Execute git checkout after approval */
-  executeCheckout: createExecuteGitCheckoutTool,
-
-  /** Execute git merge after approval */
-  executeMerge: createExecuteGitMergeTool,
-
-  /** Execute git tag after approval */
-  executeTag: createExecuteGitTagTool,
-
-  /** Execute git rm after approval */
-  executeRm: createExecuteGitRmTool,
+  /** Create or delete tags (returns { approval, execute }) */
+  tag: createGitTagTools,
 } as const;
 
-// Export individual tool creators for backwards compatibility
+// Export individual tool creators
 export {
-  createExecuteGitAddTool,
-  createExecuteGitCheckoutTool,
-  createExecuteGitCommitTool,
-  createExecuteGitMergeTool,
-  createExecuteGitPullTool,
-  createExecuteGitPushTool,
-  createExecuteGitRmTool,
-  createExecuteGitTagTool,
-  createGitAddTool,
+  createGitAddTools,
   createGitBlameTool,
   createGitBranchTool,
-  createGitCheckoutTool,
-  createGitCommitTool,
+  createGitCheckoutTools,
+  createGitCommitTools,
   createGitDiffTool,
   createGitLogTool,
-  createGitMergeTool,
-  createGitPullTool,
-  createGitPushTool,
+  createGitMergeTools,
+  createGitPullTools,
+  createGitPushTools,
   createGitReflogTool,
-  createGitRmTool,
+  createGitRmTools,
   createGitStatusTool,
-  createGitTagTool
+  createGitTagListTool,
+  createGitTagTools,
 };
 
 // Export utility types and functions
-  export { DEFAULT_GIT_TIMEOUT, resolveGitWorkingDirectory, runGitCommand } from "./utils";
-  export type { GitCommandResult } from "./utils";
-
+export { DEFAULT_GIT_TIMEOUT, resolveGitWorkingDirectory, runGitCommand } from "./utils";
+export type { GitCommandResult } from "./utils";

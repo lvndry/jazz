@@ -4,19 +4,19 @@
  * Provides organized access to Google Calendar operations through a unified namespace.
  * Tools are organized by operation type:
  * - Read operations: Safe, read-only calendar commands
- * - Write operations: Approval-required destructive commands
+ * - Write operations: Approval-required destructive commands (return ApprovalToolPair)
  */
 
 // Re-export from individual tool modules
-import { createCreateCalendarEventTool, createExecuteCreateCalendarEventTool } from "./createEvent";
-import { createDeleteCalendarEventTool, createExecuteDeleteCalendarEventTool } from "./deleteEvent";
+import { createCalendarEventTools } from "./createEvent";
+import { createDeleteCalendarEventTools } from "./deleteEvent";
 import { createGetCalendarEventTool } from "./getEvent";
 import { createGetUpcomingEventsTool } from "./getUpcoming";
 import { createListCalendarsTool } from "./listCalendars";
 import { createListCalendarEventsTool } from "./listEvents";
-import { createQuickAddCalendarEventTool, createExecuteQuickAddCalendarEventTool } from "./quickAdd";
+import { createQuickAddCalendarEventTools } from "./quickAdd";
 import { createSearchCalendarEventsTool } from "./searchEvents";
-import { createUpdateCalendarEventTool, createExecuteUpdateCalendarEventTool } from "./updateEvent";
+import { createUpdateCalendarEventTools } from "./updateEvent";
 
 /**
  * Calendar tools namespace
@@ -29,9 +29,9 @@ import { createUpdateCalendarEventTool, createExecuteUpdateCalendarEventTool } f
  * const listTool = calendar.listEvents();
  * const getTool = calendar.getEvent();
  *
- * // Create write tools (require approval)
- * const createTool = calendar.createEvent();
- * const updateTool = calendar.updateEvent();
+ * // Create write tools (return { approval, execute } pair)
+ * const createTools = calendar.createEvent();
+ * const updateTools = calendar.updateEvent();
  * ```
  */
 export const calendar = {
@@ -52,67 +52,30 @@ export const calendar = {
   /** Get upcoming events starting from now */
   getUpcoming: createGetUpcomingEventsTool,
 
-  // === Write Operations (approval required) ===
+  // === Write Operations (approval required - return ApprovalToolPair) ===
 
-  /** Create a new calendar event */
-  createEvent: createCreateCalendarEventTool,
+  /** Create a new calendar event (returns { approval, execute }) */
+  createEvent: createCalendarEventTools,
 
-  /** Update an existing calendar event */
-  updateEvent: createUpdateCalendarEventTool,
+  /** Update an existing calendar event (returns { approval, execute }) */
+  updateEvent: createUpdateCalendarEventTools,
 
-  /** Delete a calendar event */
-  deleteEvent: createDeleteCalendarEventTool,
+  /** Delete a calendar event (returns { approval, execute }) */
+  deleteEvent: createDeleteCalendarEventTools,
 
-  /** Quick add event from natural language */
-  quickAdd: createQuickAddCalendarEventTool,
-
-  // === Execute Tools (internal - called after approval) ===
-
-  /** Execute create event after approval */
-  executeCreateEvent: createExecuteCreateCalendarEventTool,
-
-  /** Execute update event after approval */
-  executeUpdateEvent: createExecuteUpdateCalendarEventTool,
-
-  /** Execute delete event after approval */
-  executeDeleteEvent: createExecuteDeleteCalendarEventTool,
-
-  /** Execute quick add after approval */
-  executeQuickAdd: createExecuteQuickAddCalendarEventTool,
+  /** Quick add event from natural language (returns { approval, execute }) */
+  quickAdd: createQuickAddCalendarEventTools,
 } as const;
 
-// Export individual tool creators for backwards compatibility
+// Export individual tool creators
 export {
-  createCreateCalendarEventTool,
-  createDeleteCalendarEventTool,
-  createExecuteCreateCalendarEventTool,
-  createExecuteDeleteCalendarEventTool,
-  createExecuteQuickAddCalendarEventTool,
-  createExecuteUpdateCalendarEventTool,
+  createCalendarEventTools,
+  createDeleteCalendarEventTools,
   createGetCalendarEventTool,
   createGetUpcomingEventsTool,
   createListCalendarsTool,
   createListCalendarEventsTool,
-  createQuickAddCalendarEventTool,
+  createQuickAddCalendarEventTools,
   createSearchCalendarEventsTool,
-  createUpdateCalendarEventTool,
+  createUpdateCalendarEventTools,
 };
-
-/**
- * Export all calendar tools as an array (for registration)
- */
-export const calendarTools = [
-  createListCalendarEventsTool(),
-  createGetCalendarEventTool(),
-  createCreateCalendarEventTool(),
-  createExecuteCreateCalendarEventTool(),
-  createUpdateCalendarEventTool(),
-  createExecuteUpdateCalendarEventTool(),
-  createDeleteCalendarEventTool(),
-  createExecuteDeleteCalendarEventTool(),
-  createSearchCalendarEventsTool(),
-  createListCalendarsTool(),
-  createQuickAddCalendarEventTool(),
-  createExecuteQuickAddCalendarEventTool(),
-  createGetUpcomingEventsTool(),
-];

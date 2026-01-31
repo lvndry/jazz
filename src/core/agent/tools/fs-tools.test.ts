@@ -12,6 +12,7 @@ import {
   createTailTool,
 } from "./fs";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import type { ToolExecutionResult } from "../../types/tools";
 
 // Tests create a unique temp base directory and clean up after running
 
@@ -77,7 +78,7 @@ describe("fs tools — head & tail", () => {
     const layer = makeLayer(HEADTAIL_DIR);
 
     // Request fewer lines than file
-    const res = await Effect.runPromise(
+    const res: ToolExecutionResult = await Effect.runPromise(
       tool.execute({ path: filePath, lines: 3 }, { agentId: "t" }).pipe(Effect.provide(layer)),
     );
     expect(res.success).toBe(true);
@@ -86,7 +87,7 @@ describe("fs tools — head & tail", () => {
     expect(r.content.split(/\r?\n/)[0]).toBe("line1");
 
     // Request more lines than file -> should return available lines
-    const res2 = await Effect.runPromise(
+    const res2: ToolExecutionResult = await Effect.runPromise(
       tool.execute({ path: filePath, lines: 100 }, { agentId: "t" }).pipe(Effect.provide(layer)),
     );
     expect(res2.success).toBe(true);
@@ -99,7 +100,7 @@ describe("fs tools — head & tail", () => {
     const tool = createTailTool();
     const layer = makeLayer(HEADTAIL_DIR);
 
-    const res = await Effect.runPromise(
+    const res: ToolExecutionResult = await Effect.runPromise(
       tool.execute({ path: filePath, lines: 2 }, { agentId: "t" }).pipe(Effect.provide(layer)),
     );
     expect(res.success).toBe(true);
@@ -116,7 +117,7 @@ describe("fs tools — read_file", () => {
     const tool = createReadFileTool();
     const layer = makeLayer(EXTRA_DIR);
 
-    const res = await Effect.runPromise(
+    const res: ToolExecutionResult = await Effect.runPromise(
       tool.execute({ path: filePath }, { agentId: "t" }).pipe(Effect.provide(layer)),
     );
     expect(res.success).toBe(true);
@@ -131,7 +132,7 @@ describe("fs tools — read_file", () => {
     const tool = createReadFileTool();
     const layer = makeLayer(EXTRA_DIR);
 
-    const res = await Effect.runPromise(
+    const res: ToolExecutionResult = await Effect.runPromise(
       tool
         .execute({ path: filePath, startLine: 2, endLine: 3 }, { agentId: "t" })
         .pipe(Effect.provide(layer)),
@@ -146,19 +147,19 @@ describe("fs tools — read_file", () => {
     const fs = await import("fs/promises");
     const p = `${EXTRA_DIR}/big.txt`;
     // Make a long file
-    const long = "a".repeat(200000);
+    const long = "a".repeat(200_000);
     await fs.writeFile(p, long, "utf8");
 
     const tool = createReadFileTool();
     const layer = makeLayer(EXTRA_DIR);
 
-    const res = await Effect.runPromise(
-      tool.execute({ path: p, maxBytes: 50000 }, { agentId: "t" }).pipe(Effect.provide(layer)),
+    const res: ToolExecutionResult = await Effect.runPromise(
+      tool.execute({ path: p, maxBytes: 50_000 }, { agentId: "t" }).pipe(Effect.provide(layer)),
     );
     expect(res.success).toBe(true);
     const r = res.result as any;
     expect(r.truncated).toBe(true);
-    expect(r.content.length).toBeLessThanOrEqual(50000);
+    expect(r.content.length).toBeLessThanOrEqual(50_000);
   });
 });
 
@@ -168,7 +169,7 @@ describe("fs tools — ls & find_path", () => {
     const tool = createLsTool();
     const layer = makeLayer(EXTRA_DIR);
 
-    const nonrec = await Effect.runPromise(
+    const nonrec: ToolExecutionResult = await Effect.runPromise(
       tool
         .execute({ path: EXTRA_DIR, recursive: false }, { agentId: "t" })
         .pipe(Effect.provide(layer)),
@@ -177,7 +178,7 @@ describe("fs tools — ls & find_path", () => {
     const arr = nonrec.result as any[];
     expect(arr.length).toBeGreaterThan(0);
 
-    const rec = await Effect.runPromise(
+    const rec: ToolExecutionResult = await Effect.runPromise(
       tool
         .execute({ path: EXTRA_DIR, recursive: true }, { agentId: "t" })
         .pipe(Effect.provide(layer)),
@@ -192,7 +193,7 @@ describe("fs tools — ls & find_path", () => {
     const tool = createFindPathTool();
     const layer = makeLayer(EXTRA_DIR);
 
-    const res = await Effect.runPromise(
+    const res: ToolExecutionResult = await Effect.runPromise(
       tool.execute({ name: "inner", maxDepth: 4 }, { agentId: "t" }).pipe(Effect.provide(layer)),
     );
     expect(res.success).toBe(true);
@@ -207,7 +208,7 @@ describe("fs tools — stat", () => {
     const tool = createStatTool();
     const layer = makeLayer(EXTRA_DIR);
 
-    const resFile = await Effect.runPromise(
+    const resFile: ToolExecutionResult = await Effect.runPromise(
       tool
         .execute({ path: `${EXTRA_DIR}/sample.txt` }, { agentId: "t" })
         .pipe(Effect.provide(layer)),
@@ -217,7 +218,7 @@ describe("fs tools — stat", () => {
     expect(rf.exists).toBe(true);
     expect(rf.type).toBeDefined();
 
-    const resMissing = await Effect.runPromise(
+    const resMissing: ToolExecutionResult | { success: false; error: string } = await Effect.runPromise(
       tool
         .execute({ path: `${EXTRA_DIR}/nope` }, { agentId: "t" })
         .pipe(Effect.provide(layer))
@@ -266,17 +267,17 @@ describe("fs tools — navigation (pwd/cd)", () => {
       }),
     );
 
-    const before = await Effect.runPromise(
+    const before: ToolExecutionResult = await Effect.runPromise(
       pwdTool.execute({}, { agentId: "t" }).pipe(Effect.provide(layer)),
     );
     expect(before.success).toBe(true);
 
-    const cdRes = await Effect.runPromise(
+    const cdRes: ToolExecutionResult = await Effect.runPromise(
       cdTool.execute({ path: EXTRA_DIR }, { agentId: "t" }).pipe(Effect.provide(layer)),
     );
     expect(cdRes.success).toBe(true);
 
-    const after = await Effect.runPromise(
+    const after: ToolExecutionResult = await Effect.runPromise(
       pwdTool.execute({}, { agentId: "t" }).pipe(Effect.provide(layer)),
     );
     expect(after.success).toBe(true);

@@ -2,134 +2,79 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
-import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import {
-  defineTool,
-  formatApprovalRequiredDescription,
-  formatExecutionToolDescription,
-} from "../base-tool";
+import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
- * Git checkout tool - switches branches or creates new branches
+ * Git checkout tools (approval + execution)
  */
 
-export function createGitCheckoutTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
-  const parameters = z
-    .object({
-      path: z
-        .string()
-        .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
-      branch: z.string().min(1).describe("Branch name to checkout"),
-      create: z.boolean().optional().describe("Create the branch if it doesn't exist"),
-      force: z.boolean().optional().describe("Force checkout (discards local changes)"),
-    })
-    .strict();
+type GitCheckoutArgs = {
+  path?: string;
+  branch: string;
+  create?: boolean;
+  force?: boolean;
+};
 
-  type GitCheckoutArgs = z.infer<typeof parameters>;
+const gitCheckoutParameters = z
+  .object({
+    path: z
+      .string()
+      .optional()
+      .describe("Path to the Git repository (defaults to current working directory)"),
+    branch: z.string().min(1).describe("Branch name to checkout"),
+    create: z.boolean().optional().describe("Create the branch if it doesn't exist"),
+    force: z.boolean().optional().describe("Force checkout (discards local changes)"),
+  })
+  .strict();
 
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
+type GitDeps = FileSystem.FileSystem | FileSystemContextService;
+
+export function createGitCheckoutTools(): ApprovalToolPair<GitDeps> {
+  const config: ApprovalToolConfig<GitDeps, GitCheckoutArgs> = {
     name: "git_checkout",
-    description: formatApprovalRequiredDescription(
-      "Switch to a different branch or create a new branch. Changes the working directory to match the specified branch. Can create new branches or force checkout (discarding local changes). Use to navigate between branches or start work on a new feature branch. This tool requests user approval and does NOT perform the checkout directly. After the user confirms, you MUST call execute_git_checkout with the exact arguments provided in the approval response.",
-    ),
+    description:
+      "Switch to a different branch or create a new branch. Changes the working directory to match the specified branch. Can create new branches or force checkout (discarding local changes). Use to navigate between branches or start work on a new feature branch.",
     tags: ["git", "checkout"],
-    parameters,
+    parameters: gitCheckoutParameters,
     validate: (args) => {
-      const params = parameters.safeParse(args);
+      const params = gitCheckoutParameters.safeParse(args);
       return params.success
-        ? ({ valid: true, value: params.data } as const)
-        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
+        ? { valid: true, value: params.data as GitCheckoutArgs }
+        : { valid: false, errors: params.error.issues.map((i) => i.message) };
     },
-    approval: {
-      message: (args: GitCheckoutArgs, context: ToolExecutionContext) =>
-        Effect.gen(function* () {
-          const shell = yield* FileSystemContextServiceTag;
-          const workingDir = args?.path
-            ? yield* shell.resolvePath(
-                {
-                  agentId: context.agentId,
-                  ...(context.conversationId && { conversationId: context.conversationId }),
-                },
-                args?.path,
-              )
-            : yield* shell.getCwd({
+
+    approvalMessage: (args: GitCheckoutArgs, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const workingDir = args.path
+          ? yield* shell.resolvePath(
+              {
                 agentId: context.agentId,
                 ...(context.conversationId && { conversationId: context.conversationId }),
-              });
+              },
+              args.path,
+            )
+          : yield* shell.getCwd({
+              agentId: context.agentId,
+              ...(context.conversationId && { conversationId: context.conversationId }),
+            });
 
-          const create = args?.create ? " (create new branch)" : "";
-          const force = args?.force ? " (force - discards changes)" : "";
-          return `Checkout branch "${args?.branch}"${create}${force} in ${workingDir}?\n\nIMPORTANT: After getting user confirmation, you MUST call the execute_git_checkout tool with these exact arguments: {"path": ${args?.path ? `"${args.path}"` : "undefined"}, "branch": "${args.branch}", "create": ${args?.create === true}, "force": ${args?.force === true}}`;
-        }),
-      errorMessage: "Approval required: Git checkout requires user confirmation.",
-      execute: {
-        toolName: "execute_git_checkout",
-        buildArgs: (args) => {
-          return {
-            path: args?.path,
-            branch: args?.branch,
-            create: args?.create,
-            force: args?.force,
-          };
-        },
-      },
-    },
-    handler: (_args: GitCheckoutArgs, _context: ToolExecutionContext) =>
-      Effect.succeed({
-        success: false,
-        result: null,
-        error: "Approval required",
-      } as ToolExecutionResult),
-    createSummary: (result: ToolExecutionResult) => {
-      if (result.success && typeof result.result === "object" && result.result !== null) {
-        const gitResult = result.result as { branch: string; created: boolean };
-        return `Switched to ${gitResult.branch}${gitResult.created ? " (newly created)" : ""}`;
-      }
-      return result.success ? "Git checkout successful" : "Git checkout failed";
-    },
-  });
-}
+        const create = args.create ? " (create new branch)" : "";
+        const force = args.force ? " (FORCE - discards changes)" : "";
+        return `Checkout branch "${args.branch}"${create}${force}\nDirectory: ${workingDir}`;
+      }),
 
-export function createExecuteGitCheckoutTool(): Tool<
-  FileSystem.FileSystem | FileSystemContextService
-> {
-  const parameters = z
-    .object({
-      path: z
-        .string()
-        .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
-      branch: z.string().min(1).describe("Branch name to checkout"),
-      create: z.boolean().optional().describe("Create the branch if it doesn't exist"),
-      force: z.boolean().optional().describe("Force checkout (discards local changes)"),
-    })
-    .strict();
+    approvalErrorMessage: "Git checkout requires user confirmation.",
 
-  type GitCheckoutArgs = z.infer<typeof parameters>;
-
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitCheckoutArgs>({
-    name: "execute_git_checkout",
-    description: formatExecutionToolDescription(
-      "Performs the actual git checkout operation after user approval of git_checkout. Switches to the specified branch or creates a new branch. This tool should only be called after git_checkout receives user approval.",
-    ),
-    hidden: true,
-    parameters,
-    validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
-    },
     handler: (args: GitCheckoutArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const fs = yield* FileSystem.FileSystem;
 
         let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args.path).pipe(
           Effect.catchAll((error) => {
             workingDirError = error instanceof Error ? error.message : String(error);
             return Effect.succeed(null);
@@ -194,6 +139,7 @@ export function createExecuteGitCheckoutTool(): Tool<
           },
         };
       }),
+
     createSummary: (result: ToolExecutionResult) => {
       if (result.success && typeof result.result === "object" && result.result !== null) {
         const gitResult = result.result as { branch: string; created: boolean };
@@ -201,5 +147,7 @@ export function createExecuteGitCheckoutTool(): Tool<
       }
       return result.success ? "Git checkout successful" : "Git checkout failed";
     },
-  });
+  };
+
+  return defineApprovalTool<GitDeps, GitCheckoutArgs>(config);
 }

@@ -13,7 +13,12 @@ import {
 } from "@/core/interfaces/tool-registry";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
-import type { ToolCall, ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
+import {
+  isApprovalRequiredResult,
+  type ToolCall,
+  type ToolExecutionContext,
+  type ToolExecutionResult,
+} from "@/core/types/tools";
 import { formatToolArguments } from "@/core/utils/tool-formatter";
 import {
   recordToolError,
@@ -130,15 +135,92 @@ export class ToolExecutor {
         }
 
         // Execute tool
-        const result = yield* ToolExecutor.executeTool(name, args, context);
-        const toolDuration = Date.now() - toolStartTime;
+        let result = yield* ToolExecutor.executeTool(name, args, context);
+        let toolDuration = Date.now() - toolStartTime;
+        let finalToolName = name;
+
+        // Check if this result requires approval (Cursor/Claude-style approval flow)
+        // If so, we intercept here, show approval UI, and auto-execute the follow-up tool
+        if (isApprovalRequiredResult(result.result)) {
+          const approvalResult = result.result;
+          
+          yield* logger.debug("Tool requires approval, showing approval prompt", {
+            toolName: name,
+            executeToolName: approvalResult.executeToolName,
+          });
+
+          // Show approval prompt to user
+          const approved = yield* presentationService.requestApproval({
+            toolName: name,
+            message: approvalResult.message,
+            executeToolName: approvalResult.executeToolName,
+            executeArgs: approvalResult.executeArgs,
+          });
+
+          if (approved) {
+            yield* logger.info("User approved tool execution", {
+              toolName: name,
+              executeToolName: approvalResult.executeToolName,
+            });
+
+            // Auto-execute the execution tool
+            const executeStartTime = Date.now();
+            
+            // Emit execution start for the follow-up tool
+            if (displayConfig.showToolExecution) {
+              if (renderer) {
+                yield* renderer.handleEvent({
+                  type: "tool_execution_start",
+                  toolName: approvalResult.executeToolName,
+                  toolCallId: toolCall.id,
+                  arguments: approvalResult.executeArgs,
+                });
+              } else {
+                const message = yield* presentationService.formatToolExecutionStart(
+                  approvalResult.executeToolName,
+                  approvalResult.executeArgs,
+                );
+                yield* presentationService.writeBlankLine();
+                yield* presentationService.writeOutput(message);
+              }
+            }
+
+            // Execute the actual tool
+            result = yield* ToolExecutor.executeTool(
+              approvalResult.executeToolName,
+              approvalResult.executeArgs,
+              context,
+            );
+            toolDuration = Date.now() - executeStartTime;
+            finalToolName = approvalResult.executeToolName;
+            
+            yield* logger.debug("Execution tool completed after approval", {
+              executeToolName: approvalResult.executeToolName,
+              success: result.success,
+              durationMs: toolDuration,
+            });
+          } else {
+            yield* logger.info("User rejected tool execution", { toolName: name });
+            
+            // Return a user-rejection result to the LLM
+            result = {
+              success: false,
+              result: {
+                rejected: true,
+                message: "User rejected the operation. Please acknowledge this and ask if they'd like to try something different.",
+              },
+              error: "User rejected the operation",
+            };
+          }
+        }
+
         const resultString = JSON.stringify(result.result);
 
         // Log tool result details for debugging
         yield* logger.debug("Tool execution succeeded", {
           agentId,
           conversationId,
-          toolName: name,
+          toolName: finalToolName,
           toolCallId: toolCall.id,
           durationMs: toolDuration,
           success: result.success,
@@ -157,7 +239,7 @@ export class ToolExecutor {
             });
           } else {
             if (result.success) {
-              const summary = presentationService.formatToolResult(name, resultString);
+              const summary = presentationService.formatToolResult(finalToolName, resultString);
               const message = yield* presentationService.formatToolExecutionComplete(
                 summary,
                 toolDuration,
@@ -174,7 +256,7 @@ export class ToolExecutor {
           }
         }
 
-        return { toolCallId: toolCall.id, result: result.result, success: result.success, name };
+        return { toolCallId: toolCall.id, result: result.result, success: result.success, name: finalToolName };
       } catch (error) {
         const toolDuration = Date.now() - toolStartTime;
         const errorMessage = error instanceof Error ? error.message : String(error);

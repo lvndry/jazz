@@ -154,7 +154,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
                   cwd: searchPath,
                   stdio: ["ignore", "pipe", "pipe"],
                   env: sanitizedEnv,
-                  timeout: 30000,
+                  timeout: 30_000,
                   detached: false,
                 });
 

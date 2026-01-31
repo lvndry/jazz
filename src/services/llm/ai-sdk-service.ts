@@ -53,7 +53,9 @@ import shortUUID from "short-uuid";
 import { z } from "zod";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
+import { getMetadataFromMap, getModelsDevMap } from "./models-dev-client";
 import { StreamProcessor } from "./stream-processor";
+import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 
 interface AISDKConfig {
   llmConfig?: LLMConfig;
@@ -549,8 +551,28 @@ class AISDKService implements LLMService {
     const modelSource = this.providerModels[providerName];
 
     if (modelSource.type === "static") {
-      this.modelInfoCache.set(providerName, modelSource.models);
-      return Effect.succeed(modelSource.models);
+      return Effect.tryPromise({
+        try: async () => {
+          const devMap = await getModelsDevMap();
+          const resolved: ModelInfo[] = modelSource.models.map((entry) => {
+            const dev = getMetadataFromMap(devMap, entry.id);
+            return {
+              id: entry.id,
+              displayName: entry.displayName ?? entry.id,
+              contextWindow: dev?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+              supportsTools: dev?.supportsTools ?? false,
+              isReasoningModel: dev?.isReasoningModel ?? false,
+            };
+          });
+          this.modelInfoCache.set(providerName, resolved);
+          return resolved;
+        },
+        catch: (error) =>
+          new LLMConfigurationError({
+            provider: providerName,
+            message: `Failed to resolve static models from models.dev: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+      });
     }
 
     const providerConfig = this.config.llmConfig?.[providerName];

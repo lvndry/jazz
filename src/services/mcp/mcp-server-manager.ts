@@ -136,7 +136,7 @@ class MCPServerManagerImpl implements MCPServerManager {
       const client = yield* retryWithBackoff(connectEffect, {
         maxRetries: 3,
         initialDelayMs: 1000,
-        maxDelayMs: 10000,
+        maxDelayMs: 10_000,
         shouldRetry: (error: unknown) => {
           // Retry on connection errors, but not on validation errors
           const errorMessage = error instanceof Error ? error.message : String(error);

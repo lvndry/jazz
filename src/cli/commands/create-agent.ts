@@ -10,6 +10,7 @@ import {
   GMAIL_CATEGORY,
   HTTP_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
+  SKILLS_CATEGORY,
   WEB_SEARCH_CATEGORY,
 } from "@/core/agent/tools/register-tools";
 import type { ProviderName } from "@/core/constants/models";
@@ -512,35 +513,41 @@ async function promptForAgentInfo(
   }
 
   if (!currentPredefinedAgent) {
-    const supportsNativeWebSearch = await Effect.runPromise(
-      llmService.supportsNativeWebSearch(llmProvider),
+    const defaultToolCategories = [
+      FILE_MANAGEMENT_CATEGORY.displayName,
+      HTTP_CATEGORY.displayName,
+      GIT_CATEGORY.displayName,
+      WEB_SEARCH_CATEGORY.displayName,
+      SHELL_COMMANDS_CATEGORY.displayName,
+    ];
+    let selectedTools: readonly string[] = defaultToolCategories.filter(
+      (name) => name in toolsByCategory,
     );
-
-    const searchCategoryName = WEB_SEARCH_CATEGORY.displayName;
-    let selectedTools: readonly string[] = supportsNativeWebSearch ? [searchCategoryName] : [];
 
     // Loop for tool selection to allow "Go Back" from web search config
     while (true) {
       selectedTools = await Effect.runPromise(
         terminal.checkbox<string>("Which tools should this agent have access to?", {
-          choices: Object.entries(toolsByCategory).map(([category, toolsInCategory]) => ({
-            name:
-              toolsInCategory.length > 0
-                ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
-                : category,
-            value: category,
-            selected: selectedTools.includes(category),
-          })),
+          choices: Object.entries(toolsByCategory)
+            .filter(([category]) => category !== SKILLS_CATEGORY.displayName)
+            .map(([category, toolsInCategory]) => ({
+              name:
+                toolsInCategory.length > 0
+                  ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
+                  : category,
+              value: category,
+            })),
+          default: [...selectedTools],
         }),
       );
 
-      if (selectedTools.includes(searchCategoryName)) {
+      if (selectedTools.includes(WEB_SEARCH_CATEGORY.displayName)) {
         const configured = await Effect.runPromise(
           handleWebSearchConfiguration(terminal, configService, llmService, llmProvider),
         );
 
         if (!configured) {
-          selectedTools = selectedTools.filter((t) => t !== searchCategoryName);
+          selectedTools = selectedTools.filter((t) => t !== WEB_SEARCH_CATEGORY.displayName);
           await Effect.runPromise(terminal.log(""));
           continue;
         }

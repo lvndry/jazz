@@ -4,14 +4,14 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
-  createGitAddTool,
+  createGitAddTools,
   createGitBranchTool,
-  createGitCheckoutTool,
-  createGitCommitTool,
+  createGitCheckoutTools,
+  createGitCommitTools,
   createGitDiffTool,
   createGitLogTool,
-  createGitPullTool,
-  createGitPushTool,
+  createGitPullTools,
+  createGitPushTools,
   createGitStatusTool,
 } from "./git";
 import { createToolRegistryLayer, type Tool, type ToolExecutionResult } from "./tool-registry";
@@ -82,8 +82,12 @@ describe("Git Tools", () => {
     expect(tool.parameters).toHaveProperty("_def");
     expect(tool.execute).toBeDefined();
     expect(typeof tool.execute).toBe("function");
-    expect(tool.createSummary).toBeDefined();
-    expect(typeof tool.createSummary).toBe("function");
+
+    // createSummary is only on non-approval tools (execute tools have it, approval tools don't)
+    if (!shouldHaveApproval) {
+      expect(tool.createSummary).toBeDefined();
+      expect(typeof tool.createSummary).toBe("function");
+    }
 
     if (shouldHaveApproval) {
       expect(tool.approvalExecuteToolName).toBeDefined();
@@ -102,13 +106,13 @@ describe("Git Tools", () => {
   });
 
   it("should create git_add tool with approval requirement", () => {
-    const tool = createGitAddTool();
-    verifyToolStructure(tool, "git_add", true);
+    const tools = createGitAddTools();
+    verifyToolStructure(tools.approval, "git_add", true);
   });
 
   it("should create git_commit tool with approval requirement", () => {
-    const tool = createGitCommitTool();
-    verifyToolStructure(tool, "git_commit", true);
+    const tools = createGitCommitTools();
+    verifyToolStructure(tools.approval, "git_commit", true);
   });
 
   it("should create git_diff tool with proper structure", () => {
@@ -117,13 +121,13 @@ describe("Git Tools", () => {
   });
 
   it("should create git_push tool with approval requirement", () => {
-    const tool = createGitPushTool();
-    verifyToolStructure(tool, "git_push", true);
+    const tools = createGitPushTools();
+    verifyToolStructure(tools.approval, "git_push", true);
   });
 
   it("should create git_pull tool with approval requirement", () => {
-    const tool = createGitPullTool();
-    verifyToolStructure(tool, "git_pull", true);
+    const tools = createGitPullTools();
+    verifyToolStructure(tools.approval, "git_pull", true);
   });
 
   it("should create git_branch tool with proper structure", () => {
@@ -132,35 +136,35 @@ describe("Git Tools", () => {
   });
 
   it("should create git_checkout tool with approval requirement", () => {
-    const tool = createGitCheckoutTool();
-    verifyToolStructure(tool, "git_checkout", true);
+    const tools = createGitCheckoutTools();
+    verifyToolStructure(tools.approval, "git_checkout", true);
   });
 
   it("should require approval for destructive git operations", async () => {
     const tools = [
       {
         name: "git_add",
-        create: createGitAddTool,
+        create: () => createGitAddTools().approval,
         validArgs: { files: ["test.txt"], all: false },
       },
       {
         name: "git_commit",
-        create: createGitCommitTool,
+        create: () => createGitCommitTools().approval,
         validArgs: { message: "test commit" },
       },
       {
         name: "git_push",
-        create: createGitPushTool,
+        create: () => createGitPushTools().approval,
         validArgs: {},
       },
       {
         name: "git_pull",
-        create: createGitPullTool,
+        create: () => createGitPullTools().approval,
         validArgs: {},
       },
       {
         name: "git_checkout",
-        create: createGitCheckoutTool,
+        create: () => createGitCheckoutTools().approval,
         validArgs: { branch: "test-branch" },
       },
     ];

@@ -6,6 +6,7 @@ import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
   createCategoryMappings,
   getMCPServerCategories,
+  SKILLS_CATEGORY,
   WEB_SEARCH_CATEGORY,
 } from "@/core/agent/tools/register-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
@@ -676,13 +677,14 @@ async function promptForAgentUpdates(
     while (true) {
       selectedCategories = await Effect.runPromise(
         terminal.checkbox<string>("Select tool categories:", {
-          choices: Object.keys(toolsByCategory).map((category) => ({
-            name: `${category} ${toolsByCategory[category]?.length ? `(${toolsByCategory[category]?.length} tools)` : ""}`,
-            value: category,
-            selected: selectedCategories.includes(category),
-          })),
-          ...(selectedCategories.length > 0
-            ? { default: selectedCategories }
+          choices: Object.keys(toolsByCategory)
+            .filter((category) => category !== SKILLS_CATEGORY.displayName)
+            .map((category) => ({
+              name: `${category} ${toolsByCategory[category]?.length ? `(${toolsByCategory[category]?.length} tools)` : ""}`,
+              value: category,
+            })),
+          ...(selectedCategories.filter((c) => c !== SKILLS_CATEGORY.displayName).length > 0
+            ? { default: selectedCategories.filter((c) => c !== SKILLS_CATEGORY.displayName) }
             : {}),
         }),
       );

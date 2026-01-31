@@ -1,8 +1,19 @@
 import { gateway } from "ai";
 import { Effect } from "effect";
-import type { ProviderName } from "@/core/constants/models";
+import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@/core/constants/models";
 import type { ModelInfo } from "@/core/types";
 import { LLMConfigurationError } from "@/core/types/errors";
+import { getMetadataFromMap, getModelsDevMap, type ModelsDevMetadata } from "./models-dev-client";
+
+/**
+ * Model fetcher: models.dev as single source of metadata
+ *
+ * Architecture:
+ * 1. Fetch models.dev once at start of fetchModels() for metadata (context, tool_call, reasoning).
+ * 2. Each provider only supplies the list of models: id + displayName + optional fallback metadata.
+ * 3. Shared resolve step: for each model, use models.dev when present, else provider fallback or defaults.
+ * 4. No per-provider metadata heuristics; fallbacks only for models not in models.dev (e.g. Ollama /api/show).
+ */
 
 export interface ModelFetcherService {
   fetchModels(
@@ -11,6 +22,38 @@ export interface ModelFetcherService {
     endpointPath: string,
     apiKey?: string,
   ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never>;
+}
+
+/** Per-model entry from a provider before resolving metadata (models.dev or fallback). */
+type RawModelEntry = {
+  id: string;
+  displayName: string;
+  fallback?: Partial<ModelsDevMetadata>;
+};
+
+/** Resolve to ModelInfo: models.dev first, then entry.fallback, then defaults. */
+function resolveToModelInfo(
+  entry: RawModelEntry,
+  devMap: Map<string, ModelsDevMetadata> | null,
+): ModelInfo {
+  const dev = getMetadataFromMap(devMap, entry.id);
+  if (dev) {
+    return {
+      id: entry.id,
+      displayName: entry.displayName,
+      contextWindow: dev.contextWindow,
+      supportsTools: dev.supportsTools,
+      isReasoningModel: dev.isReasoningModel,
+    };
+  }
+  const fb = entry.fallback;
+  return {
+    id: entry.id,
+    displayName: entry.displayName,
+    contextWindow: fb?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+    supportsTools: fb?.supportsTools ?? false,
+    isReasoningModel: fb?.isReasoningModel ?? false,
+  };
 }
 
 type OpenRouterModel = {
@@ -30,6 +73,57 @@ type OllamaModel = {
   };
 };
 
+/**
+ * Response from Ollama /api/show endpoint
+ */
+type OllamaShowResponse = {
+  model_info?: Record<string, unknown>;
+  details?: {
+    family?: string;
+  };
+};
+
+/**
+ * Extract context length from Ollama model_info
+ * The key format is `<family>.context_length` (e.g., "gemma3.context_length")
+ */
+function extractOllamaContextLength(modelInfo: Record<string, unknown> | undefined): number | undefined {
+  if (!modelInfo) return undefined;
+
+  for (const [key, value] of Object.entries(modelInfo)) {
+    if (key.endsWith(".context_length") && typeof value === "number") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Fetch detailed model info from Ollama /api/show endpoint
+ * Returns the context window size, or undefined if not available
+ */
+async function fetchOllamaModelDetails(
+  baseUrl: string,
+  modelName: string,
+): Promise<number | undefined> {
+  try {
+    const response = await fetch(`${baseUrl}/api/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelName }),
+    });
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const data = await response.json() as OllamaShowResponse;
+    return extractOllamaContextLength(data.model_info);
+  } catch {
+    return undefined;
+  }
+}
+
 const TOOL_PARAMS = new Set([
   "tools",
   "tool_choice",
@@ -38,138 +132,103 @@ const TOOL_PARAMS = new Set([
   "response_format:json_schema",
 ]);
 
-// Prefixes for known Ollama models that support tool/function calling
-const KNOWN_OLLAMA_TOOL_MODEL_PREFIXES = [
-  "llama3.1",
-  "llama3.2",
-  "llama3.3",
-  "qwen2.5",
-  "qwen3",
-  "qwen3-coder",
-  "qwen3-vl",
-  "phi3.5",
-  "phi4",
-  "mistral",
-  "mixtral",
-  "nemotron",
-  "devstral",
-  "ministral",
-  "deepseek-v3",
-  "command-r",
-  "granite3",
-  "firefunction",
-  "functiongemma",
-];
-
-function looksToolCapable(model: OllamaModel): boolean {
-  const name = model.name.toLowerCase();
-  if (KNOWN_OLLAMA_TOOL_MODEL_PREFIXES.some((prefix) => name.startsWith(prefix))) return true;
-  if (name.includes("tool") || name.includes("function")) return true;
-
+/**
+ * Fallback when model is not in models.dev: read tool support from Ollama manifest metadata.
+ */
+function ollamaToolSupportFromMetadata(model: OllamaModel): boolean {
   const metadata = model.details?.metadata;
-  if (metadata && typeof metadata === "object") {
-    const flag =
-      metadata["supports_tools"] ??
-      metadata["tool_use"] ??
-      metadata["function_calling"];
-    if (typeof flag === "boolean") return flag;
-  }
-
-  return false;
+  if (!metadata || typeof metadata !== "object") return false;
+  const flag =
+    metadata["supports_tools"] ??
+    metadata["tool_use"] ??
+    metadata["function_calling"];
+  return typeof flag === "boolean" && flag;
 }
 
-// Provider-specific response transformers
-const PROVIDER_TRANSFORMERS: Partial<Record<ProviderName, (data: unknown) => ModelInfo[]>> = {
-  ollama: (data: unknown) => {
-    // Transform Ollama API response
-    const response = data as {
-      models?: OllamaModel[];
-    };
-
-    const ollamaReasoningModels: string[] = [
-      "gpt-oss",
-      "deepseek-r1",
-      "deepseek-v3.1",
-      "qwen3",
-      "magistral",
-    ];
-
-    return (response.models ?? []).map((model) => ({
-      id: model.name,
-      displayName: model.name,
-      isReasoningModel: ollamaReasoningModels.some((reasoningModel) =>
-        model.name.includes(reasoningModel),
-      ),
-      supportsTools: looksToolCapable(model),
-    }));
-  },
+// List extractors: provider API response → RawModelEntry[] (metadata resolved via models.dev or fallback)
+const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelEntry[]>> = {
   openrouter: (data: unknown) => {
-    // Transform OpenRouter API response
-    const response = data as {
-      data?: OpenRouterModel[];
-    };
-
+    const response = data as { data?: OpenRouterModel[] };
     return (response.data ?? []).map((model) => {
       const supportedParameters = model.supported_parameters ?? [];
       const isReasoningModel =
         supportedParameters.includes("reasoning") ||
         supportedParameters.includes("include_reasoning");
       const supportsTools = supportedParameters.some((param) => TOOL_PARAMS.has(param));
-
       return {
         id: model.id,
         displayName: model.name,
-        isReasoningModel,
-        supportsTools,
+        fallback: {
+          contextWindow: model.context_length ?? DEFAULT_CONTEXT_WINDOW,
+          supportsTools,
+          isReasoningModel,
+        },
       };
     });
   },
   ai_gateway: (data: unknown) => {
-    const response = data as {
-      id: string;
-      name: string;
-      tags?: string[];
-    }[];
-
+    const response = data as { id: string; name: string; tags?: string[] }[];
     return response.map((model) => ({
       id: model.id,
       displayName: model.name,
-      isReasoningModel: model.tags?.includes("reasoning") ?? false,
-      supportsTools: model.tags?.includes("tool-use") ?? false,
+      fallback: {
+        contextWindow: DEFAULT_CONTEXT_WINDOW,
+        supportsTools: model.tags?.includes("tool-use") ?? false,
+        isReasoningModel: model.tags?.includes("reasoning") ?? false,
+      },
     }));
   },
   groq: (data: unknown) => {
     const response = data as {
-      data: {
-        id: string;
-        owned_by: string;
-      }[];
+      data: { id: string; owned_by: string }[];
     };
-
-    // Groq models that support tool use (per https://console.groq.com/docs/tool-use/overview)
-    const groqToolModelPrefixes = [
-      "llama",
-      "llama3",
-      "mixtral",
-      "gemma",
-      "gemma2",
-      "qwen",
-      "deepseek",
-    ];
-
-    return response.data.map((model) => {
-      const modelId = model.id.toLowerCase();
-      const supportsTools = groqToolModelPrefixes.some((prefix) => modelId.startsWith(prefix));
-
-      return {
-        id: model.id,
-        displayName: `${model.owned_by.toLowerCase()}/${model.id.toLowerCase()}`,
-        isReasoningModel: false,
-        supportsTools,
-      };
-    });
+    return response.data.map((model) => ({
+      id: model.id,
+      displayName: `${model.owned_by.toLowerCase()}/${model.id.toLowerCase()}`,
+      // no fallback; models.dev or defaults
+    }));
   },
 };
+
+/**
+ * Ollama: list from /api/tags, resolve via models.dev or async fallback (/api/show + metadata).
+ */
+async function transformOllamaModels(
+  data: unknown,
+  baseUrl: string,
+  modelsDevMap: Map<string, ModelsDevMetadata> | null,
+): Promise<ModelInfo[]> {
+  const response = data as { models?: OllamaModel[] };
+  const models = response.models ?? [];
+  const CONCURRENCY_LIMIT = 5;
+  const results: ModelInfo[] = [];
+
+  for (let i = 0; i < models.length; i += CONCURRENCY_LIMIT) {
+    const batch = models.slice(i, i + CONCURRENCY_LIMIT);
+    const batchResults = await Promise.all(
+      batch.map(async (model): Promise<ModelInfo> => {
+        const entry: RawModelEntry = {
+          id: model.name,
+          displayName: model.name,
+        };
+        const dev = getMetadataFromMap(modelsDevMap, model.name);
+        if (dev) {
+          return resolveToModelInfo(entry, modelsDevMap);
+        }
+        const contextWindow = await fetchOllamaModelDetails(baseUrl, model.name);
+        entry.fallback = {
+          contextWindow: contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+          supportsTools: ollamaToolSupportFromMetadata(model),
+          isReasoningModel: false, // Only models.dev knows reasoning; no Ollama manifest field for this
+        };
+        return resolveToModelInfo(entry, null);
+      }),
+    );
+    results.push(...batchResults);
+  }
+
+  return results;
+}
 
 export function createModelFetcher(): ModelFetcherService {
   return {
@@ -185,9 +244,13 @@ export function createModelFetcher(): ModelFetcherService {
             headers["Authorization"] = `Bearer ${apiKey}`;
           }
 
+          const modelsDevMap = await getModelsDevMap();
+
           if (providerName === "ai_gateway") {
             const availableModels = await gateway.getAvailableModels();
-            return PROVIDER_TRANSFORMERS["ai_gateway"]!(availableModels.models);
+            const extractor = LIST_EXTRACTORS["ai_gateway"]!;
+            const raw = extractor(availableModels.models);
+            return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
           }
 
           const response = await fetch(url, {
@@ -209,12 +272,16 @@ export function createModelFetcher(): ModelFetcherService {
 
           const data: unknown = await response.json();
 
-          // Select transformer based on provider name
-          const transformer = PROVIDER_TRANSFORMERS[providerName];
-          if (!transformer) {
-            throw new Error(`No transformer found for provider: ${providerName}`);
+          if (providerName === "ollama") {
+            return transformOllamaModels(data, baseUrl, modelsDevMap);
           }
-          return transformer(data);
+
+          const extractor = LIST_EXTRACTORS[providerName];
+          if (!extractor) {
+            throw new Error(`No list extractor found for provider: ${providerName}`);
+          }
+          const raw = extractor(data);
+          return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
         },
         catch: (error) =>
           new LLMConfigurationError({

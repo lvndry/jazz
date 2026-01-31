@@ -1,3 +1,4 @@
+import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -7,8 +8,10 @@ import type {
   StreamingRendererConfig,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
+import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
+import type { ApprovalRequest } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 
@@ -19,7 +22,10 @@ import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 class CLIPresentationService implements PresentationService {
   private renderer: CLIRenderer | null = null;
 
-  constructor(private readonly displayConfig: DisplayConfig) {}
+  constructor(
+    private readonly displayConfig: DisplayConfig,
+    private readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>,
+  ) {}
 
   /**
    * Get or create a singleton CLI renderer for formatting operations
@@ -160,18 +166,46 @@ class CLIPresentationService implements PresentationService {
       console.log();
     });
   }
+
+  requestApproval(request: ApprovalRequest): Effect.Effect<boolean, never> {
+    return Effect.gen(this, function* () {
+      // Format the approval message with details about the action
+      const toolLabel = chalk.cyan(request.toolName);
+      const separator = chalk.dim("─".repeat(50));
+      
+      // Write the approval details
+      yield* this.writeOutput(`\n${separator}\n`);
+      yield* this.writeOutput(`${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n\n`);
+      yield* this.writeOutput(`${request.message}\n\n`);
+      yield* this.writeOutput(`${separator}\n`);
+
+      // Prompt for confirmation (default to Yes for faster workflow)
+      const approved = yield* this.confirm(`Approve this action?`, true);
+      
+      return approved;
+    });
+  }
 }
 
 /**
  * Layer providing the CLI presentation service
+ * Requires TerminalService for user interaction (approval prompts)
  */
 export const CLIPresentationServiceLayer = Layer.effect(
   PresentationServiceTag,
   Effect.gen(function* () {
     const configServiceOption = yield* Effect.serviceOption(AgentConfigServiceTag);
+    const terminalServiceOption = yield* Effect.serviceOption(TerminalServiceTag);
+    
     const displayConfig = Option.isSome(configServiceOption)
       ? resolveDisplayConfig(yield* configServiceOption.value.appConfig)
       : DEFAULT_DISPLAY_CONFIG;
-    return new CLIPresentationService(displayConfig);
+    
+    // Get confirm function from terminal service, or use a fallback that always returns false
+    const confirmFn = Option.isSome(terminalServiceOption)
+      ? terminalServiceOption.value.confirm.bind(terminalServiceOption.value)
+      : (_message: string, _defaultValue?: boolean) => Effect.succeed(false);
+    
+    return new CLIPresentationService(displayConfig, confirmFn);
   }),
 );

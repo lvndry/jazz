@@ -87,7 +87,7 @@ export function createTailTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
           // Enforce maxBytes safeguard (approximate by string length)
           const maxBytes =
-            typeof args.maxBytes === "number" && args.maxBytes > 0 ? args.maxBytes : 131072;
+            typeof args.maxBytes === "number" && args.maxBytes > 0 ? args.maxBytes : 131_072;
           let truncated = false;
 
           if (tailContent.length > maxBytes) {

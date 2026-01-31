@@ -1,12 +1,12 @@
-import { STATIC_PROVIDER_MODELS, type ProviderName } from "@/core/constants/models";
-import type { ModelInfo } from "@/core/types";
+import { STATIC_PROVIDER_MODELS, type ProviderName, type StaticModelEntry } from "@/core/constants/models";
 
 /**
  * This type represents how models are fetched for each provider.
- * Static models come from core constants, dynamic models are fetch from an API endpoint.
+ * Static models come from core constants (just IDs + displayName); metadata resolved via models.dev.
+ * Dynamic models are fetched from provider API endpoints.
  */
 export type ModelSource =
-  | { type: "static"; models: readonly ModelInfo[] }
+  | { type: "static"; models: readonly StaticModelEntry[] }
   | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api";

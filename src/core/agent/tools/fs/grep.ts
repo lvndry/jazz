@@ -174,7 +174,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
                 cwd: workingDir,
                 stdio: ["ignore", "pipe", "pipe"],
                 env: sanitizedEnv,
-                timeout: 30000,
+                timeout: 30_000,
                 detached: false,
               });
 

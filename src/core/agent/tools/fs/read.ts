@@ -98,8 +98,8 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
 
           // Enforce maxBytes safeguard (approximate by string length)
           const requestedMaxBytes =
-            typeof args.maxBytes === "number" && args.maxBytes > 0 ? args.maxBytes : 131072;
-          const maxBytes = Math.min(requestedMaxBytes, 524288);
+            typeof args.maxBytes === "number" && args.maxBytes > 0 ? args.maxBytes : 131_072;
+          const maxBytes = Math.min(requestedMaxBytes, 524_288);
           let truncated = false;
           if (content.length > maxBytes) {
             content = content.slice(0, maxBytes);

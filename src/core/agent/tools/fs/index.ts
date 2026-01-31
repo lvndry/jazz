@@ -7,25 +7,32 @@
  * - Read: readFile, readPdf, head, tail
  * - Search: grep, find, findPath
  * - Write: writeFile, editFile, mkdir, rm (approval required)
+ *
+ * Write tools use defineApprovalTool to create approval + execution pairs.
  */
-
 
 // Re-export from individual tool modules
 import { createCdTool } from "./cd";
-import { createEditFileTool, createExecuteEditFileTool } from "./edit";
+import { createEditFileTools } from "./edit";
 import { createFindTool } from "./find";
 import { createFindPathTool } from "./findPath";
 import { createGrepTool } from "./grep";
 import { createHeadTool } from "./head";
 import { createLsTool } from "./ls";
-import { createExecuteMkdirTool, createMkdirTool } from "./mkdir";
+import { createMkdirTools } from "./mkdir";
 import { createPwdTool } from "./pwd";
 import { createReadFileTool } from "./read";
 import { createReadPdfTool } from "./readPdf";
-import { createExecuteRmTool, createRmTool } from "./rm";
+import { createRmTools } from "./rm";
 import { createStatTool } from "./stat";
 import { createTailTool } from "./tail";
-import { createExecuteWriteFileTool, createWriteFileTool } from "./write";
+import { createWriteFileTools } from "./write";
+
+// Create tool pairs for approval-required operations
+const writeFileTools = createWriteFileTools();
+const editFileTools = createEditFileTools();
+const mkdirTools = createMkdirTools();
+const rmTools = createRmTools();
 
 /**
  * Filesystem tools namespace
@@ -41,8 +48,10 @@ import { createExecuteWriteFileTool, createWriteFileTool } from "./write";
  * // Create read tools
  * const readTool = fs.read();
  *
- * // Create write tools (require approval)
- * const writeTool = fs.write();
+ * // Register write tools (approval + execution)
+ * yield* registerTool(fs.write.approval);
+ * yield* registerTool(fs.write.execute);
+ * // Or use fs.write.all() to get both as an array
  * ```
  */
 export const fs = {
@@ -86,54 +95,36 @@ export const fs = {
   findPath: createFindPathTool,
 
   // === Write Operations (approval required) ===
+  // These return ApprovalToolPair with .approval, .execute, and .all()
 
-  /** Write content to a file */
-  write: createWriteFileTool,
+  /** Write content to a file - returns { approval, execute, all() } */
+  write: () => writeFileTools,
 
-  /** Edit a file with structured operations */
-  edit: createEditFileTool,
+  /** Edit a file with structured operations - returns { approval, execute, all() } */
+  edit: () => editFileTools,
 
-  /** Create a directory */
-  mkdir: createMkdirTool,
+  /** Create a directory - returns { approval, execute, all() } */
+  mkdir: () => mkdirTools,
 
-  /** Remove files or directories */
-  rm: createRmTool,
-
-  // === Execute Tools (internal - called after approval) ===
-
-  /** Execute write after approval */
-  executeWrite: createExecuteWriteFileTool,
-
-  /** Execute edit after approval */
-  executeEdit: createExecuteEditFileTool,
-
-  /** Execute mkdir after approval */
-  executeMkdir: createExecuteMkdirTool,
-
-  /** Execute rm after approval */
-  executeRm: createExecuteRmTool,
+  /** Remove files or directories - returns { approval, execute, all() } */
+  rm: () => rmTools,
 } as const;
 
-// Export individual tool creators for backwards compatibility
+// Export tool creators for direct access
 export {
   createCdTool,
-  createEditFileTool,
-  createExecuteEditFileTool,
-  createExecuteMkdirTool,
-  createExecuteRmTool,
-  createExecuteWriteFileTool,
+  createEditFileTools,
   createFindPathTool,
   createFindTool,
   createGrepTool,
   createHeadTool,
   createLsTool,
-  createMkdirTool,
+  createMkdirTools,
   createPwdTool,
   createReadFileTool,
   createReadPdfTool,
-  createRmTool,
+  createRmTools,
   createStatTool,
   createTailTool,
-  createWriteFileTool
+  createWriteFileTools,
 };
-

@@ -14,30 +14,13 @@ import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import type { ToolCategory } from "@/core/types";
 import type { MCPTool } from "@/core/types/mcp";
 import { toPascalCase } from "@/core/utils/string";
-import { calendarTools } from "./calendar";
+import { calendar } from "./calendar";
 import { fs } from "./fs";
 import { git } from "./git";
-import {
-    createAddLabelsToEmailTool,
-    createBatchModifyEmailsTool,
-    createCreateLabelTool,
-    createDeleteEmailTool,
-    createDeleteLabelTool,
-    createExecuteDeleteEmailTool,
-    createExecuteDeleteLabelTool,
-    createExecuteTrashEmailTool,
-    createGetEmailTool,
-    createListEmailsTool,
-    createListLabelsTool,
-    createRemoveLabelsFromEmailTool,
-    createSearchEmailsTool,
-    createSendEmailTool,
-    createTrashEmailTool,
-    createUpdateLabelTool,
-} from "./gmail";
+import { gmail } from "./gmail";
 import { createHttpRequestTool } from "./http-tools";
 import { registerMCPServerTools } from "./mcp-tools";
-import { createExecuteCommandApprovedTool, createExecuteCommandTool } from "./shell-tools";
+import { createShellCommandTools } from "./shell-tools";
 import { skillTools } from "./skill-tools";
 import { createWebSearchTool } from "./web-search-tools";
 
@@ -544,53 +527,30 @@ export function registerGmailTools(): Effect.Effect<void, Error, ToolRegistry> {
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(GMAIL_CATEGORY);
 
-    // Create Gmail tools
-    const listEmailsTool = createListEmailsTool();
-    const getEmailTool = createGetEmailTool();
-    const searchEmailsTool = createSearchEmailsTool();
-    const sendEmailTool = createSendEmailTool();
-    const trashEmailTool = createTrashEmailTool();
-    const deleteEmailTool = createDeleteEmailTool();
+    // Read-only tools (no approval needed)
+    yield* registerTool(gmail.listEmails());
+    yield* registerTool(gmail.getEmail());
+    yield* registerTool(gmail.searchEmails());
+    yield* registerTool(gmail.sendEmail());
+    yield* registerTool(gmail.listLabels());
+    yield* registerTool(gmail.createLabel());
+    yield* registerTool(gmail.updateLabel());
+    yield* registerTool(gmail.addLabels());
+    yield* registerTool(gmail.removeLabels());
+    yield* registerTool(gmail.batchModify());
 
-    // Create execution tools
-    const executeTrashEmailTool = createExecuteTrashEmailTool();
-    const executeDeleteEmailTool = createExecuteDeleteEmailTool();
-    const executeDeleteLabelTool = createExecuteDeleteLabelTool();
+    // Approval-required tools - each returns { approval, execute }
+    const trashTools = gmail.trashEmail();
+    yield* registerTool(trashTools.approval);
+    yield* registerTool(trashTools.execute);
 
-    // Create Gmail label management tools
-    const listLabelsTool = createListLabelsTool();
-    const createLabelTool = createCreateLabelTool();
-    const updateLabelTool = createUpdateLabelTool();
-    const deleteLabelTool = createDeleteLabelTool();
+    const deleteEmailTools = gmail.deleteEmail();
+    yield* registerTool(deleteEmailTools.approval);
+    yield* registerTool(deleteEmailTools.execute);
 
-    // Create Gmail email organization tools
-    const addLabelsToEmailTool = createAddLabelsToEmailTool();
-    const removeLabelsFromEmailTool = createRemoveLabelsFromEmailTool();
-    const batchModifyEmailsTool = createBatchModifyEmailsTool();
-
-    // Register Gmail tools
-    yield* registerTool(listEmailsTool);
-    yield* registerTool(getEmailTool);
-    yield* registerTool(searchEmailsTool);
-    yield* registerTool(sendEmailTool);
-    yield* registerTool(trashEmailTool);
-    yield* registerTool(deleteEmailTool);
-
-    // Register execution tools
-    yield* registerTool(executeTrashEmailTool);
-    yield* registerTool(executeDeleteEmailTool);
-    yield* registerTool(executeDeleteLabelTool);
-
-    // Register Gmail label management tools
-    yield* registerTool(listLabelsTool);
-    yield* registerTool(createLabelTool);
-    yield* registerTool(updateLabelTool);
-    yield* registerTool(deleteLabelTool);
-
-    // Register Gmail email organization tools
-    yield* registerTool(addLabelsToEmailTool);
-    yield* registerTool(removeLabelsFromEmailTool);
-    yield* registerTool(batchModifyEmailsTool);
+    const deleteLabelTools = gmail.deleteLabel();
+    yield* registerTool(deleteLabelTools.approval);
+    yield* registerTool(deleteLabelTools.execute);
   });
 }
 
@@ -600,10 +560,29 @@ export function registerCalendarTools(): Effect.Effect<void, Error, ToolRegistry
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(CALENDAR_CATEGORY);
 
-    // Register all calendar tools
-    for (const tool of calendarTools) {
-      yield* registerTool(tool);
-    }
+    // Read-only tools (no approval needed)
+    yield* registerTool(calendar.listEvents());
+    yield* registerTool(calendar.getEvent());
+    yield* registerTool(calendar.searchEvents());
+    yield* registerTool(calendar.listCalendars());
+    yield* registerTool(calendar.getUpcoming());
+
+    // Write tools (approval required) - each returns { approval, execute }
+    const createTools = calendar.createEvent();
+    yield* registerTool(createTools.approval);
+    yield* registerTool(createTools.execute);
+
+    const updateTools = calendar.updateEvent();
+    yield* registerTool(updateTools.approval);
+    yield* registerTool(updateTools.execute);
+
+    const deleteTools = calendar.deleteEvent();
+    yield* registerTool(deleteTools.approval);
+    yield* registerTool(deleteTools.execute);
+
+    const quickAddTools = calendar.quickAdd();
+    yield* registerTool(quickAddTools.approval);
+    yield* registerTool(quickAddTools.execute);
   });
 }
 
@@ -642,17 +621,22 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(fs.find());
     yield* registerTool(fs.findPath());
 
-    // Write tools (approval required)
-    yield* registerTool(fs.write());
-    yield* registerTool(fs.edit());
-    yield* registerTool(fs.mkdir());
-    yield* registerTool(fs.rm());
+    // Write tools (approval required) - each returns { approval, execute }
+    const writeTools = fs.write();
+    yield* registerTool(writeTools.approval);
+    yield* registerTool(writeTools.execute);
 
-    // Execute tools (internal - called after approval)
-    yield* registerTool(fs.executeWrite());
-    yield* registerTool(fs.executeEdit());
-    yield* registerTool(fs.executeMkdir());
-    yield* registerTool(fs.executeRm());
+    const editTools = fs.edit();
+    yield* registerTool(editTools.approval);
+    yield* registerTool(editTools.execute);
+
+    const mkdirTools = fs.mkdir();
+    yield* registerTool(mkdirTools.approval);
+    yield* registerTool(mkdirTools.execute);
+
+    const rmTools = fs.rm();
+    yield* registerTool(rmTools.approval);
+    yield* registerTool(rmTools.execute);
   });
 }
 
@@ -662,11 +646,9 @@ export function registerShellTools(): Effect.Effect<void, Error, ToolRegistry> {
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(SHELL_COMMANDS_CATEGORY);
 
-    const executeCommandTool = createExecuteCommandTool();
-    const executeCommandApprovedTool = createExecuteCommandApprovedTool();
-
-    yield* registerTool(executeCommandTool);
-    yield* registerTool(executeCommandApprovedTool);
+    const shellTools = createShellCommandTools();
+    yield* registerTool(shellTools.approval);
+    yield* registerTool(shellTools.execute);
   });
 }
 
@@ -681,26 +663,42 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(git.log());
     yield* registerTool(git.diff());
     yield* registerTool(git.branch());
-    yield* registerTool(git.tag());
     yield* registerTool(git.blame());
     yield* registerTool(git.reflog());
+    yield* registerTool(git.tagList());
 
-    // Approval-required operations
-    yield* registerTool(git.add());
-    yield* registerTool(git.commit());
-    yield* registerTool(git.push());
-    yield* registerTool(git.pull());
-    yield* registerTool(git.checkout());
-    yield* registerTool(git.merge());
+    // Approval-required operations - each returns { approval, execute }
+    const addTools = git.add();
+    yield* registerTool(addTools.approval);
+    yield* registerTool(addTools.execute);
 
-    // Internal execution tools (called after approval)
-    yield* registerTool(git.executeAdd());
-    yield* registerTool(git.executeCommit());
-    yield* registerTool(git.executePush());
-    yield* registerTool(git.executePull());
-    yield* registerTool(git.executeCheckout());
-    yield* registerTool(git.executeTag());
-    yield* registerTool(git.executeMerge());
+    const commitTools = git.commit();
+    yield* registerTool(commitTools.approval);
+    yield* registerTool(commitTools.execute);
+
+    const pushTools = git.push();
+    yield* registerTool(pushTools.approval);
+    yield* registerTool(pushTools.execute);
+
+    const pullTools = git.pull();
+    yield* registerTool(pullTools.approval);
+    yield* registerTool(pullTools.execute);
+
+    const checkoutTools = git.checkout();
+    yield* registerTool(checkoutTools.approval);
+    yield* registerTool(checkoutTools.execute);
+
+    const mergeTools = git.merge();
+    yield* registerTool(mergeTools.approval);
+    yield* registerTool(mergeTools.execute);
+
+    const rmTools = git.rm();
+    yield* registerTool(rmTools.approval);
+    yield* registerTool(rmTools.execute);
+
+    const tagTools = git.tag();
+    yield* registerTool(tagTools.approval);
+    yield* registerTool(tagTools.execute);
   });
 }
 

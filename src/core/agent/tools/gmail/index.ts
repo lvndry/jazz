@@ -4,22 +4,22 @@
  * Provides organized access to Gmail operations through a unified namespace.
  * Tools are organized by operation type:
  * - Read operations: Safe, read-only Gmail commands
- * - Write operations: Approval-required destructive commands
+ * - Write operations: Approval-required destructive commands (return ApprovalToolPair)
  */
 
 // Re-export from individual tool modules
 import { createAddLabelsToEmailTool } from "./addLabels";
 import { createBatchModifyEmailsTool } from "./batchModify";
 import { createCreateLabelTool } from "./createLabel";
-import { createDeleteEmailTool, createExecuteDeleteEmailTool } from "./deleteEmail";
-import { createDeleteLabelTool, createExecuteDeleteLabelTool } from "./deleteLabel";
+import { createDeleteEmailTools } from "./deleteEmail";
+import { createDeleteLabelTools } from "./deleteLabel";
 import { createGetEmailTool } from "./getEmail";
 import { createListEmailsTool } from "./listEmails";
 import { createListLabelsTool } from "./listLabels";
 import { createRemoveLabelsFromEmailTool } from "./removeLabels";
 import { createSearchEmailsTool } from "./searchEmails";
 import { createSendEmailTool } from "./sendEmail";
-import { createTrashEmailTool, createExecuteTrashEmailTool } from "./trashEmail";
+import { createTrashEmailTools } from "./trashEmail";
 import { createUpdateLabelTool } from "./updateLabel";
 
 /**
@@ -33,9 +33,9 @@ import { createUpdateLabelTool } from "./updateLabel";
  * const listTool = gmail.listEmails();
  * const getTool = gmail.getEmail();
  *
- * // Create write tools (require approval)
- * const trashTool = gmail.trashEmail();
- * const deleteTool = gmail.deleteEmail();
+ * // Create write tools (return { approval, execute } pair)
+ * const trashTools = gmail.trashEmail();
+ * const deleteTools = gmail.deleteEmail();
  * ```
  */
 export const gmail = {
@@ -71,45 +71,31 @@ export const gmail = {
   /** Batch modify multiple emails */
   batchModify: createBatchModifyEmailsTool,
 
-  // === Write Operations (approval required) ===
+  // === Write Operations (approval required - return ApprovalToolPair) ===
 
-  /** Move email to trash */
-  trashEmail: createTrashEmailTool,
+  /** Move email to trash (returns { approval, execute }) */
+  trashEmail: createTrashEmailTools,
 
-  /** Permanently delete an email */
-  deleteEmail: createDeleteEmailTool,
+  /** Permanently delete an email (returns { approval, execute }) */
+  deleteEmail: createDeleteEmailTools,
 
-  /** Delete a label */
-  deleteLabel: createDeleteLabelTool,
-
-  // === Execute Tools (internal - called after approval) ===
-
-  /** Execute trash email after approval */
-  executeTrashEmail: createExecuteTrashEmailTool,
-
-  /** Execute delete email after approval */
-  executeDeleteEmail: createExecuteDeleteEmailTool,
-
-  /** Execute delete label after approval */
-  executeDeleteLabel: createExecuteDeleteLabelTool,
+  /** Delete a label (returns { approval, execute }) */
+  deleteLabel: createDeleteLabelTools,
 } as const;
 
-// Export individual tool creators for backwards compatibility
+// Export individual tool creators
 export {
   createAddLabelsToEmailTool,
   createBatchModifyEmailsTool,
   createCreateLabelTool,
-  createDeleteEmailTool,
-  createDeleteLabelTool,
-  createExecuteDeleteEmailTool,
-  createExecuteDeleteLabelTool,
-  createExecuteTrashEmailTool,
+  createDeleteEmailTools,
+  createDeleteLabelTools,
   createGetEmailTool,
   createListEmailsTool,
   createListLabelsTool,
   createRemoveLabelsFromEmailTool,
   createSearchEmailsTool,
   createSendEmailTool,
-  createTrashEmailTool,
+  createTrashEmailTools,
   createUpdateLabelTool,
 };
