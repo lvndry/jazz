@@ -2,18 +2,128 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import { defineApprovalTool, defineTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
- * Git tag tools (approval + execution)
- * Note: Tag listing is also handled here but doesn't require approval
+ * Git tag tools
+ * - List tool: Read-only, no approval required
+ * - Create/Delete tools: Mutating operations, require approval
  */
 
+type GitDeps = FileSystem.FileSystem | FileSystemContextService;
+
+/**
+ * Git tag list tool - read-only, no approval required
+ */
+export function createGitTagListTool(): Tool<GitDeps> {
+  const parameters = z
+    .object({
+      path: z
+        .string()
+        .optional()
+        .describe("Path to the Git repository (defaults to current working directory)"),
+    })
+    .strict();
+
+  type GitTagListArgs = z.infer<typeof parameters>;
+
+  return defineTool<GitDeps, GitTagListArgs>({
+    name: "git_tag_list",
+    description:
+      "List all Git tags. Tags are references to specific points in Git history, commonly used to mark release points (e.g., v1.0.0, v2.1.3). Tags are sorted by creation date (newest first).",
+    tags: ["git", "tag", "list"],
+    parameters,
+    validate: (args) => {
+      const params = parameters.safeParse(args);
+      return params.success
+        ? { valid: true, value: params.data }
+        : { valid: false, errors: params.error.issues.map((i) => i.message) };
+    },
+    handler: (args: GitTagListArgs, context: ToolExecutionContext) =>
+      Effect.gen(function* () {
+        const shell = yield* FileSystemContextServiceTag;
+        const fs = yield* FileSystem.FileSystem;
+
+        let workingDirError: string | null = null;
+        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args.path).pipe(
+          Effect.catchAll((error) => {
+            workingDirError = error instanceof Error ? error.message : String(error);
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (workingDir === null) {
+          return {
+            success: false,
+            result: null,
+            error: workingDirError || "Failed to resolve working directory",
+          };
+        }
+
+        let commandError: string | null = null;
+        const commandResult = yield* runGitCommand({
+          args: ["tag", "--list", "--sort=-creatordate"],
+          workingDirectory: workingDir,
+        }).pipe(
+          Effect.catchAll((error) => {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            commandError = `Failed to execute git tag list in directory '${workingDir}': ${errorMsg}`;
+            return Effect.succeed(null);
+          }),
+        );
+
+        if (commandResult === null) {
+          return {
+            success: false,
+            result: null,
+            error: commandError || `Failed to execute git tag list in directory '${workingDir}'`,
+          };
+        }
+
+        if (commandResult.exitCode !== 0) {
+          return {
+            success: false,
+            result: null,
+            error:
+              commandResult.stderr ||
+              `git tag list failed with exit code ${commandResult.exitCode}`,
+          };
+        }
+
+        const tags = commandResult.stdout
+          .split("\n")
+          .filter((line) => line.trim().length > 0)
+          .map((tag) => tag.trim());
+
+        return {
+          success: true,
+          result: {
+            workingDirectory: workingDir,
+            tags,
+            tagCount: tags.length,
+          },
+        };
+      }),
+    createSummary: (result: ToolExecutionResult) => {
+      if (result.success && typeof result.result === "object" && result.result !== null) {
+        const gitResult = result.result as { tagCount?: number };
+        if (gitResult.tagCount !== undefined) {
+          return `Found ${gitResult.tagCount} tags`;
+        }
+      }
+      return result.success ? "Git tag list successful" : "Git tag list failed";
+    },
+  });
+}
+
+/**
+ * Git tag create/delete tools - require approval
+ */
 type GitTagArgs = {
   path?: string;
-  list?: boolean;
   create?: string;
   message?: string;
   commit?: string;
@@ -27,7 +137,6 @@ const gitTagParameters = z
       .string()
       .optional()
       .describe("Path to the Git repository (defaults to current working directory)"),
-    list: z.boolean().optional().describe("List all tags"),
     create: z.string().optional().describe("Create a new tag with the specified name"),
     message: z
       .string()
@@ -42,13 +151,11 @@ const gitTagParameters = z
   })
   .strict();
 
-type GitDeps = FileSystem.FileSystem | FileSystemContextService;
-
 export function createGitTagTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitTagArgs> = {
     name: "git_tag",
     description:
-      "List, create, or delete Git tags. Tags are references to specific points in Git history, commonly used to mark release points. Supports lightweight and annotated tags.",
+      "Create or delete Git tags. Tags are references to specific points in Git history, commonly used to mark release points. Supports lightweight and annotated tags. Use git_tag_list to list existing tags without approval.",
     tags: ["git", "tag"],
     parameters: gitTagParameters,
     validate: (args) => {
@@ -86,8 +193,8 @@ export function createGitTagTools(): ApprovalToolPair<GitDeps> {
           return `Delete tag "${args.delete}"${force}\nDirectory: ${workingDir}`;
         }
 
-        // List tags (no approval needed, but message is still generated)
-        return `List tags\nDirectory: ${workingDir}`;
+        // Neither create nor delete specified
+        return `Invalid operation: must specify either 'create' or 'delete'\nDirectory: ${workingDir}`;
       }),
 
     approvalErrorMessage: "Git tag create/delete requires user confirmation.",
@@ -220,56 +327,17 @@ export function createGitTagTools(): ApprovalToolPair<GitDeps> {
           };
         }
 
-        // List tags (when neither create nor delete is specified)
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
-          args: ["tag", "--list", "--sort=-creatordate"],
-          workingDirectory: workingDir,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git tag list in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git tag list in directory '${workingDir}'`,
-          };
-        }
-
-        if (commandResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error:
-              commandResult.stderr ||
-              `git tag list failed with exit code ${commandResult.exitCode}`,
-          };
-        }
-
-        const tags = commandResult.stdout
-          .split("\n")
-          .filter((line) => line.trim().length > 0)
-          .map((tag) => tag.trim());
-
+        // Neither create nor delete specified - this should not happen as approval message checks this
         return {
-          success: true,
-          result: {
-            workingDirectory: workingDir,
-            tags,
-            tagCount: tags.length,
-          },
+          success: false,
+          result: null,
+          error: "Invalid operation: must specify either 'create' or 'delete'",
         };
       }),
 
     createSummary: (result: ToolExecutionResult) => {
       if (result.success && typeof result.result === "object" && result.result !== null) {
         const gitResult = result.result as {
-          tagCount?: number;
           tag?: string;
           deleted?: boolean;
           created?: boolean;
@@ -279,9 +347,6 @@ export function createGitTagTools(): ApprovalToolPair<GitDeps> {
         }
         if (gitResult.created) {
           return `Created tag: ${gitResult.tag}`;
-        }
-        if (gitResult.tagCount !== undefined) {
-          return `Found ${gitResult.tagCount} tags`;
         }
       }
       return result.success ? "Git tag operation successful" : "Git tag operation failed";

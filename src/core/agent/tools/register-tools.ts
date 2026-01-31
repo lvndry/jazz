@@ -665,6 +665,7 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(git.branch());
     yield* registerTool(git.blame());
     yield* registerTool(git.reflog());
+    yield* registerTool(git.tagList());
 
     // Approval-required operations - each returns { approval, execute }
     const addTools = git.add();

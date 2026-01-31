@@ -21,7 +21,7 @@ import { createGitPushTools } from "./push";
 import { createGitReflogTool } from "./reflog";
 import { createGitRmTools } from "./rm";
 import { createGitStatusTool } from "./status";
-import { createGitTagTools } from "./tag";
+import { createGitTagListTool, createGitTagTools } from "./tag";
 
 /**
  * Git tools namespace
@@ -60,6 +60,9 @@ export const git = {
   /** Show reference log of HEAD updates */
   reflog: createGitReflogTool,
 
+  /** List Git tags */
+  tagList: createGitTagListTool,
+
   // === Write Operations (approval required - return ApprovalToolPair) ===
 
   /** Stage files for commit (returns { approval, execute }) */
@@ -83,7 +86,7 @@ export const git = {
   /** Remove files from working tree and index (returns { approval, execute }) */
   rm: createGitRmTools,
 
-  /** List, create, or delete tags (returns { approval, execute }) */
+  /** Create or delete tags (returns { approval, execute }) */
   tag: createGitTagTools,
 } as const;
 
@@ -102,6 +105,7 @@ export {
   createGitReflogTool,
   createGitRmTools,
   createGitStatusTool,
+  createGitTagListTool,
   createGitTagTools,
 };
 
