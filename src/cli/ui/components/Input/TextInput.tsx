@@ -22,6 +22,8 @@ interface TextInputProps {
   showCursor?: boolean;
   /** Whether input is focused/active */
   focus?: boolean;
+  /** Current working directory to display above the hint */
+  currentDirectory?: string | null;
 }
 
 // ============================================================================
@@ -52,6 +54,7 @@ export function TextInput({
   placeholder = "",
   showCursor = true,
   focus = true,
+  currentDirectory = null,
 }: TextInputProps): React.ReactElement {
   const [cursor, setCursor] = useState(value.length);
 
@@ -142,7 +145,10 @@ export function TextInput({
             : renderedValue}
       </Text>
       {focus && (
-        <Box marginTop={1}>
+        <Box marginTop={1} flexDirection="column">
+          {currentDirectory && (
+            <Text dimColor>Current directory: {currentDirectory}</Text>
+          )}
           <Text dimColor>{SHORTCUTS_HINT}</Text>
         </Box>
       )}

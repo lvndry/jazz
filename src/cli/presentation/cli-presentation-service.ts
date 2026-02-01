@@ -11,7 +11,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
-import type { ApprovalRequest } from "@/core/types/tools";
+import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 
@@ -25,6 +25,7 @@ class CLIPresentationService implements PresentationService {
   constructor(
     private readonly displayConfig: DisplayConfig,
     private readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>,
+    private readonly ask: (message: string, options?: { defaultValue?: string }) => Effect.Effect<string, never>,
   ) {}
 
   /**
@@ -167,12 +168,12 @@ class CLIPresentationService implements PresentationService {
     });
   }
 
-  requestApproval(request: ApprovalRequest): Effect.Effect<boolean, never> {
+  requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
     return Effect.gen(this, function* () {
       // Format the approval message with details about the action
       const toolLabel = chalk.cyan(request.toolName);
       const separator = chalk.dim("─".repeat(50));
-      
+
       // Write the approval details
       yield* this.writeOutput(`\n${separator}\n`);
       yield* this.writeOutput(`${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n\n`);
@@ -180,9 +181,21 @@ class CLIPresentationService implements PresentationService {
       yield* this.writeOutput(`${separator}\n`);
 
       // Prompt for confirmation (default to Yes for faster workflow)
-      const approved = yield* this.confirm(`Approve this action?`, true);
-      
-      return approved;
+      const approved = yield* this.confirm("Approve this action?", true);
+
+      if (approved) {
+        return { approved: true };
+      }
+
+      // Rejected: prompt for optional message to guide the agent
+      const userMessage = (yield* this.ask(
+        "What should the agent do instead? (optional — press Enter to skip)",
+        {},
+      )).trim();
+
+      return userMessage
+        ? ({ approved: false, userMessage } as const)
+        : ({ approved: false } as const);
     });
   }
 }
@@ -196,16 +209,19 @@ export const CLIPresentationServiceLayer = Layer.effect(
   Effect.gen(function* () {
     const configServiceOption = yield* Effect.serviceOption(AgentConfigServiceTag);
     const terminalServiceOption = yield* Effect.serviceOption(TerminalServiceTag);
-    
+
     const displayConfig = Option.isSome(configServiceOption)
       ? resolveDisplayConfig(yield* configServiceOption.value.appConfig)
       : DEFAULT_DISPLAY_CONFIG;
-    
-    // Get confirm function from terminal service, or use a fallback that always returns false
+
+    // Get confirm and ask from terminal service, or fallbacks
     const confirmFn = Option.isSome(terminalServiceOption)
       ? terminalServiceOption.value.confirm.bind(terminalServiceOption.value)
       : (_message: string, _defaultValue?: boolean) => Effect.succeed(false);
-    
-    return new CLIPresentationService(displayConfig, confirmFn);
+    const askFn = Option.isSome(terminalServiceOption)
+      ? terminalServiceOption.value.ask.bind(terminalServiceOption.value)
+      : (_message: string) => Effect.succeed("");
+
+    return new CLIPresentationService(displayConfig, confirmFn, askFn);
   }),
 );

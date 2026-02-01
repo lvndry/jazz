@@ -150,14 +150,14 @@ export class ToolExecutor {
           });
 
           // Show approval prompt to user
-          const approved = yield* presentationService.requestApproval({
+          const outcome = yield* presentationService.requestApproval({
             toolName: name,
             message: approvalResult.message,
             executeToolName: approvalResult.executeToolName,
             executeArgs: approvalResult.executeArgs,
           });
 
-          if (approved) {
+          if (outcome.approved) {
             yield* logger.info("User approved tool execution", {
               toolName: name,
               executeToolName: approvalResult.executeToolName,
@@ -200,14 +200,20 @@ export class ToolExecutor {
               durationMs: toolDuration,
             });
           } else {
-            yield* logger.info("User rejected tool execution", { toolName: name });
-            
-            // Return a user-rejection result to the LLM
+            yield* logger.info("User rejected tool execution", {
+              toolName: name,
+              userMessage: outcome.userMessage,
+            });
+
+            const rejectionMessage =
+              outcome.userMessage?.trim() ||
+              "User rejected the operation. Please acknowledge this and ask if they'd like to try something different.";
+
             result = {
               success: false,
               result: {
                 rejected: true,
-                message: "User rejected the operation. Please acknowledge this and ask if they'd like to try something different.",
+                message: rejectionMessage,
               },
               error: "User rejected the operation",
             };

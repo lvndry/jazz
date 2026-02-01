@@ -254,7 +254,7 @@ export function App(): React.ReactElement {
             >
               {logItems}
               {stream && <LiveResponse stream={stream} />}
-              {prompt && <Prompt prompt={prompt} />}
+              {prompt && <Prompt prompt={prompt} workingDirectory={workingDirectory} />}
             </Box>
           </Box>
         )}

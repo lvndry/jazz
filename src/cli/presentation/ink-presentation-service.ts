@@ -13,7 +13,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { ink } from "@/core/interfaces/terminal";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
-import type { ApprovalRequest } from "@/core/types/tools";
+import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { formatMarkdown } from "./markdown-formatter";
@@ -472,7 +472,7 @@ class InkStreamingRenderer implements StreamingRenderer {
  */
 interface QueuedApproval {
   request: ApprovalRequest;
-  resume: (effect: Effect.Effect<boolean, never>) => void;
+  resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void;
 }
 
 /**
@@ -601,12 +601,25 @@ class InkPresentationService implements PresentationService {
     });
   }
 
-  requestApproval(request: ApprovalRequest): Effect.Effect<boolean, never> {
+  requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
     return Effect.async((resume) => {
       // Add to queue and process
       this.approvalQueue.push({ request, resume });
       this.processNextApproval();
     });
+  }
+
+  /**
+   * Resumes the approval effect with the given outcome and runs cleanup:
+   * clears processing flag and processes the next queued approval.
+   */
+  private completeApproval(
+    resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
+    outcome: ApprovalOutcome,
+  ): void {
+    resume(Effect.succeed(outcome));
+    this.isProcessingApproval = false;
+    this.processNextApproval();
   }
 
   /**
@@ -658,19 +671,44 @@ class InkPresentationService implements PresentationService {
       message: "Approve this action?",
       options: { defaultValue: true },
       resolve: (val: unknown) => {
-        store.setPrompt(null);
+        const approved = val as boolean;
         store.printOutput({
           type: "log",
-          message: `Approve this action? ${chalk.green(val ? "Yes" : "No")}`,
+          message: `Approve this action? ${chalk.green(approved ? "Yes" : "No")}`,
           timestamp: new Date(),
         });
 
-        // Resume the Effect for this approval
-        resume(Effect.succeed(val as boolean));
+        if (approved) {
+          store.setPrompt(null);
+          this.completeApproval(resume, { approved: true });
+          return;
+        }
 
-        // Mark as done processing and process next in queue
-        this.isProcessingApproval = false;
-        this.processNextApproval();
+        // Rejected: prompt for optional message to guide the agent
+        const followUpMessage =
+          "What should the agent do instead? (optional — press Enter to skip)";
+        store.setPrompt({
+          type: "text",
+          message: followUpMessage,
+          options: {},
+          resolve: (input: unknown) => {
+            store.setPrompt(null);
+            const userMessage = typeof input === "string" ? input.trim() : "";
+            if (userMessage) {
+              store.printOutput({
+                type: "log",
+                message: `${followUpMessage} ${chalk.green(userMessage)}`,
+                timestamp: new Date(),
+              });
+            }
+            this.completeApproval(
+              resume,
+              userMessage
+                ? ({ approved: false, userMessage } as const)
+                : ({ approved: false } as const),
+            );
+          },
+        });
       },
     });
   }

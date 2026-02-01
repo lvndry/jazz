@@ -38,7 +38,13 @@ function CommandSuggestionItem({
  * Uses spacing and color instead of box borders for copy-friendly terminal output.
  */
 
-function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactElement {
+function PromptComponent({
+  prompt,
+  workingDirectory = null,
+}: {
+  prompt: PromptState;
+  workingDirectory?: string | null;
+}): React.ReactElement {
   const [value, setValue] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
@@ -201,6 +207,7 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
                   onSubmit={handleSubmit}
                   placeholder="Ask anything..."
                   showCursor
+                  currentDirectory={workingDirectory}
                 />
               </Box>
               {/* Command suggestions when typing / */}
@@ -243,6 +250,7 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
                   onChange={handleChange}
                   onSubmit={handleSubmit}
                   mask="*"
+                  currentDirectory={workingDirectory}
                 />
               </Box>
             </Box>
