@@ -610,6 +610,19 @@ class InkPresentationService implements PresentationService {
   }
 
   /**
+   * Resumes the approval effect with the given outcome and runs cleanup:
+   * clears processing flag and processes the next queued approval.
+   */
+  private completeApproval(
+    resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
+    outcome: ApprovalOutcome,
+  ): void {
+    resume(Effect.succeed(outcome));
+    this.isProcessingApproval = false;
+    this.processNextApproval();
+  }
+
+  /**
    * Process the next approval request in the queue.
    * Only one approval prompt is shown at a time to avoid overwriting.
    */
@@ -667,9 +680,7 @@ class InkPresentationService implements PresentationService {
 
         if (approved) {
           store.setPrompt(null);
-          resume(Effect.succeed({ approved: true }));
-          this.isProcessingApproval = false;
-          this.processNextApproval();
+          this.completeApproval(resume, { approved: true });
           return;
         }
 
@@ -690,15 +701,12 @@ class InkPresentationService implements PresentationService {
                 timestamp: new Date(),
               });
             }
-            resume(
-              Effect.succeed(
-                userMessage
-                  ? ({ approved: false, userMessage } as const)
-                  : ({ approved: false } as const),
-              ),
+            this.completeApproval(
+              resume,
+              userMessage
+                ? ({ approved: false, userMessage } as const)
+                : ({ approved: false } as const),
             );
-            this.isProcessingApproval = false;
-            this.processNextApproval();
           },
         });
       },
