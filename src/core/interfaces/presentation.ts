@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
 import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
-import type { ApprovalRequest } from "@/core/types/tools";
+import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import type { DisplayConfig } from "../types";
 
 /**
@@ -101,20 +101,22 @@ export interface PresentationService {
 
   /**
    * Request user approval for a tool action.
-   * 
+   *
    * Shows a confirmation prompt with details about what action will be performed.
-   * The user can approve (Yes) or reject (No) the action.
-   * 
+   * The user can approve (Yes) or reject (No). When rejecting, the user may optionally
+   * provide a message to guide the agent (e.g. "Don't bump version; do X instead").
+   *
    * This enables the Cursor/Claude-style approval flow where:
    * 1. A tool returns approvalRequired: true
    * 2. The system intercepts this and shows approval UI
    * 3. If approved, the system automatically calls the execution tool
-   * 4. The combined result is returned to the LLM
-   * 
+   * 4. If rejected, the optional userMessage is passed to the LLM so it can adjust
+   * 5. The combined result is returned to the LLM
+   *
    * @param request - The approval request containing tool info and action details
-   * @returns true if user approved, false if rejected
+   * @returns ApprovalOutcome: { approved: true } or { approved: false, userMessage?: string }
    */
-  readonly requestApproval: (request: ApprovalRequest) => Effect.Effect<boolean, never>;
+  readonly requestApproval: (request: ApprovalRequest) => Effect.Effect<ApprovalOutcome, never>;
 }
 
 /**

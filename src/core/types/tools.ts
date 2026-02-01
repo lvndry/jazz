@@ -69,6 +69,14 @@ export interface ApprovalRequest {
 }
 
 /**
+ * Result of a user approval decision.
+ * When rejected, the user may optionally provide a message to guide the agent (e.g. "Don't bump version, do X instead").
+ */
+export type ApprovalOutcome =
+  | { readonly approved: true }
+  | { readonly approved: false; readonly userMessage?: string };
+
+/**
  * Type guard to check if a tool result requires approval
  */
 export function isApprovalRequiredResult(
