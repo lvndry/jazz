@@ -66,25 +66,25 @@ Use when the user’s main goal is hitting a savings target.
 [Income, total planned spending, planned savings, and one-line takeaway.]
 
 ## Income
-| Source        | Amount |
-|---------------|--------|
-| [Source]      | [Amount] |
+| Source   | Amount   |
+| -------- | -------- |
+| [Source] | [Amount] |
 
 ## Planned Spending
 
 ### Needs (or Fixed)
-| Category   | Amount |
-|-----------|--------|
+| Category   | Amount   |
+| ---------- | -------- |
 | [Category] | [Amount] |
 
 ### Wants (or Variable)
-| Category   | Amount |
-|-----------|--------|
+| Category   | Amount   |
+| ---------- | -------- |
 | [Category] | [Amount] |
 
 ### Savings & Debt
-| Category   | Amount |
-|-----------|--------|
+| Category       | Amount   |
+| -------------- | -------- |
 | [Savings/Debt] | [Amount] |
 
 ## Totals

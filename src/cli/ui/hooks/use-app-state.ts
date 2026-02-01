@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { useCallback, useContext, useSyncExternalStore } from "react";
 import type { AppStateService } from "../../services/app-state-service";
-import type { LogEntry, LiveStreamState, PromptState } from "../types";
 import { AppStateServiceContext } from "../contexts/AppStateContext";
+import type { LogEntry, LiveStreamState, PromptState } from "../types";
 
 // ============================================================================
 // Service Access Hook
@@ -153,7 +153,7 @@ export function useWorkingDirectory(): string | null {
  * Subscribe to custom view state only.
  * Component will only re-render when custom view changes.
  */
-export function useCustomView(): unknown | null {
+export function useCustomView(): unknown {
   const service = useAppStateService();
 
   const subscribe = useCallback(
@@ -298,7 +298,7 @@ export function useAppStateActions() {
 
     // Custom View
     setCustomView: useCallback(
-      (view: unknown | null) => Effect.runSync(service.setCustomView(view)),
+      (view: unknown) => Effect.runSync(service.setCustomView(view)),
       [service],
     ),
 
