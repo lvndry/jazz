@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect";
 import { render } from "ink";
 import React from "react";
 import App, { store } from "@/cli/ui/App";
+import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import type { LogEntryInput } from "@/cli/ui/types";
 import {
   TerminalServiceTag,
@@ -34,9 +35,11 @@ export class InkTerminalService implements TerminalService {
     // Initialize the Ink app on service creation
     // patchConsole: false prevents Ink from intercepting console.* methods,
     // which can cause flickering when external code writes to console during renders
-    this.inkInstance = render(React.createElement(App), {
-      patchConsole: false,
-    });
+    // Wrap App with InputProvider to provide the input service context
+    this.inkInstance = render(
+      React.createElement(InputProvider, null, React.createElement(App)),
+      { patchConsole: false },
+    );
     instanceExists = true;
   }
 

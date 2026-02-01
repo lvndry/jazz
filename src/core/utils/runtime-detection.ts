@@ -4,92 +4,256 @@ import path from "node:path";
 import { Effect } from "effect";
 
 /**
- * Runtime detection utilities for determining execution context
+ * ============================================================================
+ * RUNTIME DETECTION UTILITIES
+ * ============================================================================
+ *
+ * This module detects whether Jazz is running from a global installation or
+ * from source code (development mode). This distinction is critical because:
+ *
+ *   - **Production** (npm i -g jazz-ai): User data stored in `~/.jazz`
+ *   - **Development** (bun run cli):     User data stored in `./.jazz`
+ *
+ * This separation prevents development from accidentally overwriting production
+ * data (agents, configs, conversation history, skills, etc.).
+ *
+ * ## Directory Resolution (most commonly used)
+ *   - `getUserDataDirectory()` - Returns ~/.jazz (prod) or ./.jazz (dev)
+ *   - `getPackageRootDirectory()` - The jazz-ai package installation directory
+ *   - `getBuiltinSkillsDirectory()` - Where built-in skills are stored
+ *
+ * ## Environment Detection
+ *   - `isRunningFromGlobalInstall()` - Is Jazz installed globally?
+ *   - `isRunningInDevelopmentMode()` - Is Jazz running from source?
+ *
+ * ## Executable Discovery (rarely needed)
+ *   - `findExecutablePathViaShell()` - Find jazz binary via which/where
+ *   - `detectPackageManagerFromPath()` - Detect npm/bun/pnpm from path
+ *
+ * ============================================================================
  */
+
+// ============================================================================
+// SECTION 1: DIRECTORY RESOLUTION
+// ============================================================================
+// These functions resolve important directories for Jazz's operation.
+// They use synchronous fs operations since they're called during startup.
+// ============================================================================
 
 /**
- * Check if a normalized path indicates a global package manager installation
- * This is the core detection logic shared between sync and async functions
+ * Get the directory where Jazz stores user data (agents, configs, skills, etc.)
  *
- * @param normalizedPath - A normalized path (lowercase, forward slashes)
- * @returns The package manager name ("bun", "pnpm", "npm") or null if not detected
+ * - Global install (npm i -g jazz-ai): Returns ~/.jazz
+ * - Development mode (running from source): Returns {cwd}/.jazz
+ *
+ * This separation prevents development from overwriting production data.
+ *
+ * @example
+ * ```typescript
+ * const dataDir = getUserDataDirectory();
+ * // Global: "/Users/alice/.jazz"
+ * // Dev:    "/Users/alice/projects/jazz/.jazz"
+ * ```
  */
-function detectPackageManagerFromPath(normalizedPath: string): "bun" | "pnpm" | "npm" | null {
-  // Check for bun installation paths
-  // Bun typically installs to: ~/.bun/bin/jazz or similar
-  if (normalizedPath.includes("/.bun/") || normalizedPath.includes("\\bun\\")) {
-    return "bun";
+export function getUserDataDirectory(): string {
+  if (isRunningFromGlobalInstall()) {
+    const homeDir = os.homedir();
+    if (homeDir && homeDir.trim().length > 0) {
+      return path.join(homeDir, ".jazz");
+    }
   }
 
-  // Check for pnpm installation paths
-  // pnpm typically installs to: ~/.local/share/pnpm/global/5/node_modules/.bin/jazz
-  // or ~/.pnpm-global/ or similar
-  if (
-    normalizedPath.includes("/pnpm/") ||
-    normalizedPath.includes("\\pnpm\\") ||
-    normalizedPath.includes("/.pnpm") ||
-    normalizedPath.includes("\\.pnpm")
-  ) {
-    return "pnpm";
+  return path.resolve(process.cwd(), ".jazz");
+}
+
+/**
+ * Get the jazz-ai package's root directory (where package.json lives).
+ *
+ * This is used to locate built-in assets (skills, templates, etc.) that ship
+ * with the Jazz package. Works for both global installs and development mode.
+ *
+ * Detection: Walks up from __dirname looking for package.json with name "jazz-ai"
+ *
+ * @returns Package root directory, or null if not found
+ *
+ * @example
+ * ```typescript
+ * const pkgDir = getPackageRootDirectory();
+ * // Global: "/usr/local/lib/node_modules/jazz-ai"
+ * // Dev:    "/Users/alice/projects/jazz"
+ * ```
+ */
+export function getPackageRootDirectory(): string | null {
+  try {
+    let currentDir = path.resolve(__dirname);
+    const root = path.parse(currentDir).root;
+
+    while (currentDir !== root) {
+      const packageJsonPath = path.join(currentDir, "package.json");
+      if (fs.existsSync(packageJsonPath)) {
+        try {
+          const content = fs.readFileSync(packageJsonPath, "utf-8");
+          const pkg = JSON.parse(content) as { name?: string };
+          if (pkg.name === "jazz-ai") {
+            return currentDir;
+          }
+        } catch {
+          // Can't read/parse package.json, continue searching
+        }
+      }
+      currentDir = path.dirname(currentDir);
+    }
+  } catch {
+    // Can't determine package directory
   }
 
-  // Check for npm installation paths
-  // npm typically installs to:
-  // - /usr/local/bin/jazz (standard Unix location)
-  // - ~/.npm-global/bin/jazz (custom npm global)
-  // - node_modules/.bin/jazz in global node_modules
-  // - Windows: AppData\Roaming\npm\jazz.cmd
-  if (
-    normalizedPath.includes("/npm/") ||
-    normalizedPath.includes("\\npm\\") ||
-    normalizedPath.includes("/.npm") ||
-    normalizedPath.includes("\\.npm") ||
-    normalizedPath.includes("/node_modules/.bin/") ||
-    normalizedPath.includes("\\node_modules\\.bin\\") ||
-    normalizedPath.includes("appdata/roaming/npm") ||
-    normalizedPath.includes("appdata\\roaming\\npm")
-  ) {
-    return "npm";
-  }
-
-  // Check if it's in a standard bin directory (likely npm)
-  // Common locations: /usr/local/bin, /usr/bin, ~/.local/bin
-  // But exclude bun and pnpm specific directories
-  if (
-    (normalizedPath.includes("/usr/local/bin/") ||
-      normalizedPath.includes("/usr/bin/") ||
-      normalizedPath.includes("/.local/bin/")) &&
-    !normalizedPath.includes("/.bun/") &&
-    !normalizedPath.includes("/pnpm/") &&
-    !normalizedPath.includes("/.pnpm")
-  ) {
-    return "npm";
-  }
-
-  // Cannot determine from path - return null
   return null;
 }
 
 /**
- * Find where the jazz command is installed
- * Returns the full path to the jazz executable, or null if not found
+ * Get the directory containing built-in skills shipped with Jazz.
  *
- * @returns Effect that resolves to the executable path or null
+ * Built-in skills are located in the `skills/` folder within the Jazz package.
+ * These are read-only skills that provide core functionality (skill-creator, etc.)
+ *
+ * @returns Skills directory path, or null if not found
  *
  * @example
  * ```typescript
- * const path = yield* findJazzInstallationPath();
- * // path could be "/Users/user/.bun/bin/jazz" or null
+ * const skillsDir = getBuiltinSkillsDirectory();
+ * // "/usr/local/lib/node_modules/jazz-ai/skills"
+ * // or "/Users/alice/projects/jazz/skills"
  * ```
  */
-export function findJazzInstallationPath(): Effect.Effect<string | null, never> {
+export function getBuiltinSkillsDirectory(): string | null {
+  const packageDir = getPackageRootDirectory();
+  if (!packageDir) {
+    return null;
+  }
+
+  const skillsDir = path.join(packageDir, "skills");
+  if (fs.existsSync(skillsDir) && fs.statSync(skillsDir).isDirectory()) {
+    return skillsDir;
+  }
+
+  return null;
+}
+
+// ============================================================================
+// SECTION 2: ENVIRONMENT DETECTION
+// ============================================================================
+// These functions detect whether Jazz is running from a global installation
+// or from source code (development mode).
+// ============================================================================
+
+/**
+ * Check if Jazz is running from a global package manager installation.
+ *
+ * Used to determine runtime behavior:
+ * - Global install → Use ~/.jazz for data, production behavior
+ * - Development → Use ./.jazz for data, development behavior
+ *
+ * Detection logic (in priority order):
+ * 1. If running from jazz-ai source directory → false (development)
+ * 2. If path matches global PM patterns (bun/npm/pnpm) → true
+ * 3. If path is in system global directories → true
+ * 4. If path contains node_modules (but not jazz source) → true
+ * 5. Default → false (development, safe default)
+ *
+ * @example
+ * ```typescript
+ * if (isRunningFromGlobalInstall()) {
+ *   console.log("Running from: npm i -g jazz-ai");
+ * } else {
+ *   console.log("Running from source code");
+ * }
+ * ```
+ */
+export function isRunningFromGlobalInstall(): boolean {
+  const pathsToCheck = [
+    process.argv[1] ? path.resolve(process.argv[1]) : null,
+    __dirname
+  ].filter((p): p is string => p !== null);
+
+  for (const checkPath of pathsToCheck) {
+    try {
+      // Running from jazz source = development mode
+      if (isWithinJazzSourceDirectory(checkPath)) {
+        return false;
+      }
+
+      // Matches known global package manager patterns
+      if (matchesGlobalPackageManagerPath(checkPath)) {
+        return true;
+      }
+
+      // Is in system-wide global installation paths
+      if (isInSystemGlobalDirectory(checkPath)) {
+        return true;
+      }
+
+      // Is in node_modules but not jazz source
+      if (checkPath.includes("node_modules") && !isWithinJazzSourceDirectory(checkPath)) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // Default to development mode (safe)
+  return false;
+}
+
+/**
+ * Check if Jazz is running in development mode (from source code).
+ *
+ * This is the inverse of `isRunningFromGlobalInstall()`.
+ *
+ * @example
+ * ```typescript
+ * if (isRunningInDevelopmentMode()) {
+ *   console.log("Development mode - using local .jazz directory");
+ * }
+ * ```
+ */
+export function isRunningInDevelopmentMode(): boolean {
+  return !isRunningFromGlobalInstall();
+}
+
+// ============================================================================
+// SECTION 3: EXECUTABLE DISCOVERY
+// ============================================================================
+// These functions find the Jazz executable and detect installation method.
+// Primarily used for diagnostics and update checking.
+// ============================================================================
+
+/**
+ * Find the Jazz executable path using shell commands (which/where).
+ *
+ * This is useful for:
+ * - Diagnostics (where is jazz installed?)
+ * - Detecting the package manager used for installation
+ * - Update commands (knowing which PM to use for updates)
+ *
+ * Note: This is an Effect-based async function that spawns a subprocess.
+ *
+ * @returns Effect resolving to executable path or null if not found
+ *
+ * @example
+ * ```typescript
+ * const execPath = yield* findExecutablePathViaShell();
+ * // "/Users/alice/.bun/bin/jazz" or null
+ * ```
+ */
+export function findExecutablePathViaShell(): Effect.Effect<string | null, never> {
   return Effect.gen(function* () {
     const { spawn } = yield* Effect.promise(() => import("child_process"));
     const isWindows = process.platform === "win32";
-    const checkCommand = isWindows ? "where" : "which";
+    const whichCommand = isWindows ? "where" : "which";
 
     return yield* Effect.async<string | null, never>((resume) => {
-      const child = spawn(checkCommand, ["jazz"], {
+      const child = spawn(whichCommand, ["jazz"], {
         stdio: ["ignore", "pipe", "ignore"],
         shell: true,
       });
@@ -104,23 +268,15 @@ export function findJazzInstallationPath(): Effect.Effect<string | null, never> 
 
       child.on("close", (code) => {
         if (code === 0 && stdout.trim()) {
-          // Found the path (take first line in case of multiple matches)
           const lines = stdout.trim().split("\n");
-          const path = lines[0]?.trim();
-
-          if (path) {
-            resume(Effect.succeed(path));
-          } else {
-            resume(Effect.succeed(null));
-          }
+          const execPath = lines[0]?.trim();
+          resume(Effect.succeed(execPath || null));
         } else {
-          // Command not found
           resume(Effect.succeed(null));
         }
       });
 
       child.on("error", () => {
-        // Command not found
         resume(Effect.succeed(null));
       });
     });
@@ -128,90 +284,72 @@ export function findJazzInstallationPath(): Effect.Effect<string | null, never> 
 }
 
 /**
- * Detect which package manager was used to install Jazz based on installation path
- * Returns the package manager name or null if cannot be determined
+ * Detect which package manager installed Jazz based on a file path.
  *
- * @param installPath - The full path to the installed executable
- * @returns Effect that resolves to the package manager name ("bun", "pnpm", "npm") or null
+ * Analyzes the path structure to determine if it matches known patterns
+ * for bun, pnpm, or npm global installations.
+ *
+ * Note: This is an Effect-based async function (resolves symlinks).
+ *
+ * @param filePath - Path to analyze (typically from findExecutablePathViaShell)
+ * @returns Effect resolving to "bun" | "pnpm" | "npm" | null
  *
  * @example
  * ```typescript
- * const pm = yield* detectInstalledPackageManager("/usr/local/bin/jazz");
- * // pm could be "npm", "pnpm", "bun", or null
+ * const execPath = yield* findExecutablePathViaShell();
+ * if (execPath) {
+ *   const pm = yield* detectPackageManagerFromPath(execPath);
+ *   console.log(`Installed via: ${pm}`); // "bun", "pnpm", "npm", or null
+ * }
  * ```
  */
-export function detectInstalledPackageManager(
-  installPath: string,
-): Effect.Effect<string | null, never> {
+export function detectPackageManagerFromPath(
+  filePath: string,
+): Effect.Effect<"bun" | "pnpm" | "npm" | null, never> {
   return Effect.gen(function* () {
-    const fs = yield* Effect.promise(() => import("fs"));
+    const fsModule = yield* Effect.promise(() => import("fs"));
 
-    // Try to resolve symlinks to get the actual path
+    // Resolve symlinks to get the actual installation path
     const resolvedPath = yield* Effect.gen(function* () {
       const statsResult = yield* Effect.tryPromise({
-        try: () => fs.promises.lstat(installPath),
+        try: () => fsModule.promises.lstat(filePath),
         catch: () => new Error("Cannot stat file"),
       }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 
-      if (statsResult && statsResult.isSymbolicLink()) {
-        const realPathResult = yield* Effect.tryPromise({
-          try: () => fs.promises.realpath(installPath),
+      if (statsResult?.isSymbolicLink()) {
+        const realPath = yield* Effect.tryPromise({
+          try: () => fsModule.promises.realpath(filePath),
           catch: () => new Error("Cannot resolve symlink"),
-        }).pipe(Effect.catchAll(() => Effect.succeed(installPath)));
-        return realPathResult;
+        }).pipe(Effect.catchAll(() => Effect.succeed(filePath)));
+        return realPath;
       }
 
-      return installPath;
+      return filePath;
     });
 
-    const normalizedPath = resolvedPath.toLowerCase().replace(/\\/g, "/");
-
-    return detectPackageManagerFromPath(normalizedPath);
+    const normalized = resolvedPath.toLowerCase().replace(/\\/g, "/");
+    return inferPackageManagerFromNormalizedPath(normalized);
   });
 }
 
-/**
- * Check if a path indicates a global package manager installation
- * Uses the same detection logic as detectInstalledPackageManager
- */
-function isGlobalInstallationPath(installPath: string): boolean {
-  let resolvedPath = installPath;
-
-  // Try to resolve symlinks to get the actual path
-  try {
-    const stats = fs.lstatSync(installPath);
-    if (stats.isSymbolicLink()) {
-      try {
-        resolvedPath = fs.realpathSync(installPath);
-      } catch {
-        // If we can't resolve the symlink, use the original path
-        resolvedPath = installPath;
-      }
-    }
-  } catch {
-    // If we can't stat the file, use the original path
-    resolvedPath = installPath;
-  }
-
-  const normalizedPath = resolvedPath.toLowerCase().replace(/\\/g, "/");
-
-  // Use the shared detection logic
-  return detectPackageManagerFromPath(normalizedPath) !== null;
-}
+// ============================================================================
+// SECTION 4: INTERNAL HELPERS
+// ============================================================================
+// Private functions used by the public API above.
+// ============================================================================
 
 /**
- * Check if a given path is within the jazz project directory
- * by looking for package.json with name "jazz-ai" in parent directories
+ * Check if a path is within the jazz-ai source directory.
+ * Used to detect development mode.
  */
-function isInJazzProjectDirectory(filePath: string): boolean {
+function isWithinJazzSourceDirectory(filePath: string): boolean {
   try {
     let currentDir = path.resolve(filePath);
-    // If it's a file, get its directory
+
     if (!fs.statSync(currentDir).isDirectory()) {
       currentDir = path.dirname(currentDir);
     }
 
-    // Walk up the directory tree looking for package.json
     let searchDir = currentDir;
     const root = path.parse(searchDir).root;
 
@@ -219,35 +357,55 @@ function isInJazzProjectDirectory(filePath: string): boolean {
       const packageJsonPath = path.join(searchDir, "package.json");
       if (fs.existsSync(packageJsonPath)) {
         try {
-          const packageJsonContent = fs.readFileSync(packageJsonPath, "utf-8");
-          const packageJson = JSON.parse(packageJsonContent) as { name?: string };
-          if (packageJson.name === "jazz-ai") {
+          const content = fs.readFileSync(packageJsonPath, "utf-8");
+          const pkg = JSON.parse(content) as { name?: string };
+          if (pkg.name === "jazz-ai") {
             return true;
           }
         } catch {
-          // If we can't read/parse package.json, continue searching
+          // Continue searching
         }
       }
       searchDir = path.dirname(searchDir);
     }
   } catch {
-    // If we can't check, assume it's not in the project directory
+    // Can't check, assume not in source directory
   }
 
   return false;
 }
 
 /**
- * Check if a path is in a system-wide or user-level global installation location
- * This complements isGlobalInstallationPath() by catching system-wide paths
- * that might not match package manager patterns
+ * Check if a path matches known global package manager installation patterns.
  */
-function isInSystemGlobalPath(filePath: string): boolean {
-  const normalizedPath = filePath.toLowerCase().replace(/\\/g, "/");
+function matchesGlobalPackageManagerPath(filePath: string): boolean {
+  let resolvedPath = filePath;
+
+  try {
+    const stats = fs.lstatSync(filePath);
+    if (stats.isSymbolicLink()) {
+      try {
+        resolvedPath = fs.realpathSync(filePath);
+      } catch {
+        // Keep original path
+      }
+    }
+  } catch {
+    // Keep original path
+  }
+
+  const normalized = resolvedPath.toLowerCase().replace(/\\/g, "/");
+  return inferPackageManagerFromNormalizedPath(normalized) !== null;
+}
+
+/**
+ * Check if a path is in a system-wide global installation directory.
+ */
+function isInSystemGlobalDirectory(filePath: string): boolean {
+  const normalized = filePath.toLowerCase().replace(/\\/g, "/");
   const homeDir = os.homedir();
 
-  // System-wide installation paths (normalize after joining)
-  const systemPaths = [
+  const globalPaths = [
     "/usr/local/lib/node_modules",
     "/usr/lib/node_modules",
     path.join(homeDir, ".npm-global"),
@@ -259,93 +417,58 @@ function isInSystemGlobalPath(filePath: string): boolean {
     path.join(homeDir, ".config/yarn/global"),
   ].map((p) => p.toLowerCase().replace(/\\/g, "/"));
 
-  return systemPaths.some((globalPath) => normalizedPath.includes(globalPath));
+  return globalPaths.some((globalPath) => normalized.includes(globalPath));
 }
 
 /**
- * Detect if the CLI is running from a global npm/pnpm/bun/yarn installation
+ * Infer package manager from a normalized path string.
  *
- * This is useful for determining whether to use user-specific directories
- * (like ~/.jazz) or local development directories (like {cwd}/.jazz)
- *
- * Detection logic (in order):
- * 1. If executable/script is within jazz project directory → development mode
- * 2. If executable/script matches global installation patterns → global install
- * 3. If executable/script is in system-wide global paths → global install
- * 4. If executable/script is in node_modules (but not jazz project) → global install
- * 5. Otherwise → development mode (safe default)
- *
- * @returns true if running from a global package installation, false if in local development
- *
- * @example
- * ```typescript
- * if (isInstalledGlobally()) {
- *   // Use ~/.jazz for production
- * } else {
- *   // Use {cwd}/.jazz for development
- * }
- * ```
+ * @param normalizedPath - Lowercase path with forward slashes
+ * @returns Package manager name or null
  */
-export function isInstalledGlobally(): boolean {
-  // Check both the executable path and script directory
-  const pathsToCheck = [process.argv[1] ? path.resolve(process.argv[1]) : null, __dirname].filter(
-    (p): p is string => p !== null,
-  );
-
-  for (const checkPath of pathsToCheck) {
-    try {
-      // If in jazz project directory, definitely development mode
-      if (isInJazzProjectDirectory(checkPath)) {
-        return false;
-      }
-
-      // Check if it matches known global installation patterns
-      if (isGlobalInstallationPath(checkPath)) {
-        return true;
-      }
-
-      // Check if it's in system-wide global paths
-      if (isInSystemGlobalPath(checkPath)) {
-        return true;
-      }
-
-      // Check if it's in node_modules (but not in jazz project)
-      // This catches global installations in node_modules
-      if (checkPath.includes("node_modules") && !isInJazzProjectDirectory(checkPath)) {
-        return true;
-      }
-    } catch {
-      // If we can't check a path, continue to next one
-      continue;
-    }
+function inferPackageManagerFromNormalizedPath(
+  normalizedPath: string
+): "bun" | "pnpm" | "npm" | null {
+  // Bun: ~/.bun/bin/jazz
+  if (normalizedPath.includes("/.bun/") || normalizedPath.includes("\\bun\\")) {
+    return "bun";
   }
 
-  // Default to development mode if we can't determine
-  return false;
-}
-
-/**
- * Check if running in development mode
- *
- * @returns true if running in local development, false if in production/global install
- */
-export function isDevelopmentMode(): boolean {
-  return !isInstalledGlobally();
-}
-
-/**
- * Resolve the default directory where Jazz should persist user data
- * Uses the user's home directory (~/.jazz) when installed globally,
- * and the current working directory ({cwd}/.jazz) during local development
- * to prevent development from overwriting production agents
- */
-export function getDefaultDataDirectory(): string {
-  if (isInstalledGlobally()) {
-    const homeDir = os.homedir();
-    if (homeDir && homeDir.trim().length > 0) {
-      return path.join(homeDir, ".jazz");
-    }
+  // pnpm: ~/.local/share/pnpm/..., ~/.pnpm-global/...
+  if (
+    normalizedPath.includes("/pnpm/") ||
+    normalizedPath.includes("\\pnpm\\") ||
+    normalizedPath.includes("/.pnpm") ||
+    normalizedPath.includes("\\.pnpm")
+  ) {
+    return "pnpm";
   }
 
-  return path.resolve(process.cwd(), ".jazz");
+  // npm: Various locations
+  if (
+    normalizedPath.includes("/npm/") ||
+    normalizedPath.includes("\\npm\\") ||
+    normalizedPath.includes("/.npm") ||
+    normalizedPath.includes("\\.npm") ||
+    normalizedPath.includes("/node_modules/.bin/") ||
+    normalizedPath.includes("\\node_modules\\.bin\\") ||
+    normalizedPath.includes("appdata/roaming/npm") ||
+    normalizedPath.includes("appdata\\roaming\\npm")
+  ) {
+    return "npm";
+  }
+
+  // Standard Unix bin directories (likely npm)
+  if (
+    (normalizedPath.includes("/usr/local/bin/") ||
+      normalizedPath.includes("/usr/bin/") ||
+      normalizedPath.includes("/.local/bin/")) &&
+    !normalizedPath.includes("/.bun/") &&
+    !normalizedPath.includes("/pnpm/") &&
+    !normalizedPath.includes("/.pnpm")
+  ) {
+    return "npm";
+  }
+
+  return null;
 }

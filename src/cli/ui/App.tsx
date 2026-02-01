@@ -1,13 +1,53 @@
 import { Box, Text, useInput } from "ink";
 import Spinner from "ink-spinner";
 import type { Dispatch, SetStateAction } from "react";
-import { createContext, useMemo, useRef, useState } from "react";
+import React, { createContext, useMemo, useRef, useState } from "react";
 import ErrorBoundary from "./ErrorBoundary";
 import { Layout } from "./Layout";
 import { LiveResponse } from "./LiveResponse";
 import { LogEntryItem } from "./LogList";
 import { Prompt } from "./Prompt";
 import type { LiveStreamState, LogEntry, LogEntryInput, PromptState } from "./types";
+
+/**
+ * Stable header content - memoized to prevent Layout re-renders.
+ * This component renders inside Layout and should not change frequently.
+ */
+const HeaderContent = React.memo(function HeaderContent({
+  agentName,
+}: {
+  agentName: string | null;
+}): React.ReactElement {
+  if (agentName) {
+    return (
+      <Box flexDirection="column">
+        <Text bold color="cyan">🤖 Active Session</Text>
+        <Text bold>{agentName}</Text>
+      </Box>
+    );
+  }
+
+  return (
+    <Box flexDirection="column">
+      <Text bold color="cyan">👋 Welcome</Text>
+      <Text>Ready to assist.</Text>
+    </Box>
+  );
+});
+
+/**
+ * Stable sidebar content - memoized to prevent Layout re-renders.
+ */
+const SidebarContent = React.memo(function SidebarContent(): React.ReactElement {
+  return (
+    <Box flexDirection="column">
+      <Box marginBottom={1}>
+        <Text bold color="cyan">💡 Tip</Text>
+      </Box>
+      <Text dimColor>Type '/help' for commands</Text>
+    </Box>
+  );
+});
 
 export const AppContext = createContext<{
   logs: LogEntry[];
@@ -135,6 +175,7 @@ export function App(): React.ReactElement {
       interruptHandlerRef.current = handler;
     };
     store.clearLogs = () => setLogs([]);
+
     initializedRef.current = true;
   }
 
@@ -161,6 +202,17 @@ export function App(): React.ReactElement {
     [logsWithSpacing],
   );
 
+  const setters = useMemo(
+    () => ({
+      setLogs,
+      setPrompt,
+      setStatus,
+      setStream,
+      setWorkingDirectory,
+    }),
+    [],
+  );
+
   const contextValue = useMemo(
     () => ({
       logs,
@@ -168,13 +220,9 @@ export function App(): React.ReactElement {
       status,
       stream,
       workingDirectory,
-      setLogs,
-      setPrompt,
-      setStatus,
-      setStream,
-      setWorkingDirectory,
+      ...setters,
     }),
-    [logs, prompt, status, stream, workingDirectory],
+    [logs, prompt, status, stream, workingDirectory, setters],
   );
 
   return (
@@ -184,37 +232,19 @@ export function App(): React.ReactElement {
           customView
         ) : (
           <Box flexDirection="column">
-            {/* Top Dashboard: uses Layout for the framed look */}
-            <Layout
-               title={status ? (
-                 <Text>
-                   <Text color="yellow"><Spinner type="dots" /> </Text>
-                   {status}
-                 </Text>
-               ) : undefined}
-               sidebar={
-                 <Box flexDirection="column">
-                   <Box marginBottom={1}>
-                     <Text bold color="cyan">💡 Tip</Text>
-                   </Box>
-                   <Text dimColor>Type '/help' for commands</Text>
-                 </Box>
-               }
-            >
-               <Box flexDirection="column">
-                 {stream ? (
-                   <>
-                     <Text bold color="cyan">🤖 Active Session</Text>
-                     <Text bold>{stream.agentName}</Text>
-                   </>
-                 ) : (
-                    <>
-                      <Text bold color="cyan">👋 Welcome</Text>
-                      <Text>Ready to assist.</Text>
-                    </>
-                 )}
-               </Box>
+            <Layout sidebar={<SidebarContent />}>
+               <HeaderContent agentName={stream?.agentName ?? null} />
             </Layout>
+
+            {/* Status Bar - outside Layout to prevent re-renders of expensive BigText/Gradient */}
+            {status && (
+              <Box paddingX={2} marginTop={1}>
+                <Text color="yellow">
+                  <Spinner type="dots" />
+                </Text>
+                <Text color="yellow"> {status}</Text>
+              </Box>
+            )}
 
             {/* Main Chat Area - Unboxed for easy text selection/copying */}
             <Box
@@ -223,11 +253,6 @@ export function App(): React.ReactElement {
               marginTop={1}
             >
               {logItems}
-              {!!(status && !stream) && (
-                 <Box paddingY={1}>
-                   <Text color="yellow"><Spinner type="dots" /> {status}</Text>
-                 </Box>
-              )}
               {stream && <LiveResponse stream={stream} />}
               {prompt && <Prompt prompt={prompt} />}
             </Box>

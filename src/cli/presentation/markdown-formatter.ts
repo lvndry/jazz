@@ -12,6 +12,28 @@ const INLINE_CODE_PLACEHOLDER_START = "\uE002";
 const INLINE_CODE_PLACEHOLDER_END = "\uE003";
 const TASK_LIST_MARKER = "\uE004";
 
+// Pre-compiled regexes for performance - avoid creating RegExp in hot paths
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;]*m/g;
+const BLANK_LINES_REGEX = /\n{3,}/g;
+const ESCAPED_TEXT_REGEX = /\\([*_`\\[\]()#+\-.!])/g;
+const STRIKETHROUGH_REGEX = /~~([^~\n]+?)~~/g;
+const BOLD_REGEX = /(\*\*|__)([^*_\n]+?)\1/g;
+const ITALIC_ASTERISK_REGEX = /(?<!\*)\*([^*\n]+?)\*(?!\*)/g;
+const ITALIC_UNDERSCORE_REGEX = /(?<!_)_([^_\n]+?)_(?!_)/g;
+const INLINE_CODE_REGEX = /`([^`\n]+)`/g;
+const H4_REGEX = /^\s*####\s+(.+)$/gm;
+const H3_REGEX = /^\s*###\s+(.+)$/gm;
+const H2_REGEX = /^\s*##\s+(.+)$/gm;
+const H1_REGEX = /^\s*#\s+(.+)$/gm;
+const BLOCKQUOTE_REGEX = /^\s*>\s+(.+)$/gm;
+const TASK_LIST_REGEX = /^\s*-\s+\[([ xX])\]\s+(.+)$/gm;
+const HORIZONTAL_RULE_REGEX = /^\s*([-*_]){3,}\s*$/gm;
+// eslint-disable-next-line no-control-regex
+const LINK_REGEX = /(?<!\u001b)\[([^\]]+)\]\(([^)]+)\)/g;
+const CODE_BLOCK_EXTRACT_REGEX = /```[\s\S]*?```/g;
+const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;
+
 /**
  * Streaming state for progressive markdown formatting
  */
@@ -33,40 +55,31 @@ export interface FormattingResult {
 export const INITIAL_STREAMING_STATE: StreamingState = { isInCodeBlock: false };
 
 /**
- * Escape special regex characters in a string
- */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
  * Strip ANSI escape codes from text
  */
 export function stripAnsiCodes(text: string): string {
-  const ESC = String.fromCharCode(0x1b);
-  const ansiEscapeRegex = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
-  return text.replace(ansiEscapeRegex, "");
+  return text.replace(ANSI_ESCAPE_REGEX, "");
 }
 
 /**
  * Normalize excessive blank lines (3+ → 2)
  */
 export function normalizeBlankLines(text: string): string {
-  return text.replace(/\n{3,}/g, "\n\n");
+  return text.replace(BLANK_LINES_REGEX, "\n\n");
 }
 
 /**
  * Remove escape characters from markdown escaped text
  */
 export function formatEscapedText(text: string): string {
-  return text.replace(/\\([*_`\\[\]()#+\-.!])/g, "$1");
+  return text.replace(ESCAPED_TEXT_REGEX, "$1");
 }
 
 /**
  * Format markdown strikethrough text
  */
 export function formatStrikethrough(text: string): string {
-  return text.replace(/~~([^~\n]+?)~~/g, (_match: string, content: string) =>
+  return text.replace(STRIKETHROUGH_REGEX, (_match: string, content: string) =>
     chalk.strikethrough(content),
   );
 }
@@ -75,7 +88,7 @@ export function formatStrikethrough(text: string): string {
  * Format markdown bold text (** or __)
  */
 export function formatBold(text: string): string {
-  return text.replace(/(\*\*|__)([^*_\n]+?)\1/g, (_match: string, _delimiter: string, content: string) =>
+  return text.replace(BOLD_REGEX, (_match: string, _delimiter: string, content: string) =>
     chalk.bold(content),
   );
 }
@@ -87,12 +100,12 @@ export function formatItalic(text: string): string {
   let formatted = text;
 
   formatted = formatted.replace(
-    /(?<!\*)\*([^*\n]+?)\*(?!\*)/g,
+    ITALIC_ASTERISK_REGEX,
     (_match: string, content: string) => chalk.italic(content),
   );
 
   formatted = formatted.replace(
-    /(?<!_)_([^_\n]+?)_(?!_)/g,
+    ITALIC_UNDERSCORE_REGEX,
     (_match: string, content: string) => chalk.italic(content),
   );
 
@@ -103,7 +116,7 @@ export function formatItalic(text: string): string {
  * Format markdown inline code
  */
 export function formatInlineCode(text: string): string {
-  return text.replace(/`([^`\n]+)`/g, (_match, code) => chalk.cyan(code));
+  return text.replace(INLINE_CODE_REGEX, (_match, code) => chalk.cyan(code));
 }
 
 /**
@@ -113,18 +126,18 @@ export function formatHeadings(text: string): string {
   let formatted = text;
 
   // H4 (####)
-  formatted = formatted.replace(/^\s*####\s+(.+)$/gm, (_match, header) => chalk.bold(header));
+  formatted = formatted.replace(H4_REGEX, (_match, header) => chalk.bold(header));
 
   // H3 (###)
-  formatted = formatted.replace(/^\s*###\s+(.+)$/gm, (_match, header) => chalk.bold.blue(header));
+  formatted = formatted.replace(H3_REGEX, (_match, header) => chalk.bold.blue(header));
 
   // H2 (##)
-  formatted = formatted.replace(/^\s*##\s+(.+)$/gm, (_match, header) =>
+  formatted = formatted.replace(H2_REGEX, (_match, header) =>
     chalk.bold.blue.underline(header),
   );
 
   // H1 (#)
-  formatted = formatted.replace(/^\s*#\s+(.+)$/gm, (_match, header) =>
+  formatted = formatted.replace(H1_REGEX, (_match, header) =>
     chalk.bold.blue.underline(header),
   );
 
@@ -135,7 +148,7 @@ export function formatHeadings(text: string): string {
  * Format markdown blockquotes with gray color and visual bar
  */
 export function formatBlockquotes(text: string): string {
-  return text.replace(/^\s*>\s+(.+)$/gm, (_match: string, content: string) =>
+  return text.replace(BLOCKQUOTE_REGEX, (_match: string, content: string) =>
     chalk.gray(`│ ${content}`),
   );
 }
@@ -145,7 +158,7 @@ export function formatBlockquotes(text: string): string {
  */
 export function formatTaskLists(text: string): string {
   return text.replace(
-    /^\s*-\s+\[([ xX])\]\s+(.+)$/gm,
+    TASK_LIST_REGEX,
     (_match: string, checked: string, content: string) => {
       const isChecked = checked.toLowerCase() === "x";
       const checkbox = isChecked ? chalk.green("✓") : chalk.gray("○");
@@ -214,17 +227,14 @@ export function formatLists(text: string): string {
 export function formatHorizontalRules(text: string, terminalWidth: number = 80): string {
   const ruleLength = Math.min(terminalWidth - 4, 40);
   const rule = "─".repeat(ruleLength);
-  return text.replace(/^\s*([-*_]){3,}\s*$/gm, () => chalk.gray(rule) + "\n");
+  return text.replace(HORIZONTAL_RULE_REGEX, () => chalk.gray(rule) + "\n");
 }
 
 /**
  * Format markdown links with underlined blue text
  */
 export function formatLinks(text: string): string {
-  // Use negative lookbehind to ensure we don't match the '[' in ANSI escape sequences
-  // eslint-disable-next-line no-control-regex
-  const regex = new RegExp("(?<!\\u001b)\\[([^\\]]+)\\]\\(([^)]+)\\)", "g");
-  return text.replace(regex, (_match: string, linkText: string, _url: string) => chalk.blue.underline(linkText));
+  return text.replace(LINK_REGEX, (_match: string, linkText: string, _url: string) => chalk.blue.underline(linkText));
 }
 
 /**
@@ -335,13 +345,13 @@ export function formatMarkdown(text: string): string {
   const codeBlocks: string[] = [];
   const inlineCodes: string[] = [];
 
-  formatted = formatted.replace(/```[\s\S]*?```/g, (match) => {
+  formatted = formatted.replace(CODE_BLOCK_EXTRACT_REGEX, (match) => {
     const index = codeBlocks.length;
     codeBlocks.push(match);
     return `${CODE_BLOCK_PLACEHOLDER_START}${index}${CODE_BLOCK_PLACEHOLDER_END}`;
   });
 
-  formatted = formatted.replace(/`([^`\n]+?)`/g, (_match, code: string) => {
+  formatted = formatted.replace(INLINE_CODE_EXTRACT_REGEX, (_match, code: string) => {
     const index = inlineCodes.length;
     inlineCodes.push(code);
     return `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
@@ -358,20 +368,18 @@ export function formatMarkdown(text: string): string {
   formatted = formatItalic(formatted);
   formatted = formatLinks(formatted);
 
-  // Restore inline code
-  inlineCodes.forEach((code, index) => {
+  // Restore inline code - use simple string replace since placeholders are unique
+  for (let index = 0; index < inlineCodes.length; index++) {
     const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
-    const regex = new RegExp(escapeRegex(placeholder), "g");
-    formatted = formatted.replace(regex, chalk.cyan(code));
-  });
+    formatted = formatted.replace(placeholder, chalk.cyan(inlineCodes[index]!));
+  }
 
-  // Restore code blocks
-  codeBlocks.forEach((block, index) => {
+  // Restore code blocks - use simple string replace since placeholders are unique
+  for (let index = 0; index < codeBlocks.length; index++) {
     const placeholder = `${CODE_BLOCK_PLACEHOLDER_START}${index}${CODE_BLOCK_PLACEHOLDER_END}`;
-    const regex = new RegExp(escapeRegex(placeholder), "g");
-    const formattedBlock = formatCodeBlockContent(block);
-    formatted = formatted.replace(regex, formattedBlock);
-  });
+    const formattedBlock = formatCodeBlockContent(codeBlocks[index]!);
+    formatted = formatted.replace(placeholder, formattedBlock);
+  }
 
   return formatted;
 }

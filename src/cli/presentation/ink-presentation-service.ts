@@ -16,7 +16,7 @@ import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
-import { formatMarkdownAnsi } from "./markdown-ansi";
+import { formatMarkdown } from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/App";
 
@@ -34,19 +34,20 @@ class InkStreamingRenderer implements StreamingRenderer {
   private reasoningBuffer: string = "";
   private completedReasoning: string = "";
   private lastAgentHeaderWritten: boolean = false;
+  private lastRawText: string = "";
+  private lastRawReasoning: string = "";
   private lastFormattedText: string = "";
   private lastFormattedReasoning: string = "";
 
-  // Throttling for stream updates to reduce React re-renders
   private lastUpdateTime: number = 0;
   private pendingUpdate: boolean = false;
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  // Minimum time between stream updates (ms) - balances responsiveness vs performance
-  private static readonly UPDATE_THROTTLE_MS = 30;
+  private static readonly UPDATE_THROTTLE_MS = 50;
 
-  // Tool timeout warnings - show warning if tool takes longer than expected
+  private static readonly MAX_REASONING_LENGTH = 8000;
+
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
-  private static readonly TOOL_WARNING_MS = 10_000; // 10 seconds
+  private static readonly TOOL_WARNING_MS = 30_000; // 30 seconds
 
   constructor(
     private readonly agentName: string,
@@ -61,6 +62,8 @@ class InkStreamingRenderer implements StreamingRenderer {
       this.reasoningBuffer = "";
       this.completedReasoning = "";
       this.lastAgentHeaderWritten = false;
+      this.lastRawText = "";
+      this.lastRawReasoning = "";
       this.lastFormattedText = "";
       this.lastFormattedReasoning = "";
       this.lastUpdateTime = 0;
@@ -107,6 +110,7 @@ class InkStreamingRenderer implements StreamingRenderer {
           // Reset reasoning state for new stream
           this.reasoningBuffer = "";
           this.completedReasoning = "";
+          this.lastRawReasoning = "";
           this.lastFormattedReasoning = "";
           store.printOutput({
             type: "info",
@@ -149,6 +153,18 @@ class InkStreamingRenderer implements StreamingRenderer {
               this.completedReasoning += "\n\n---\n\n" + newReasoning;
             } else {
               this.completedReasoning = newReasoning;
+            }
+            // Cap reasoning to prevent unbounded growth and slow formatting
+            if (this.completedReasoning.length > InkStreamingRenderer.MAX_REASONING_LENGTH) {
+              // Keep the most recent reasoning, truncate older content
+              const truncatePoint = this.completedReasoning.length - InkStreamingRenderer.MAX_REASONING_LENGTH;
+              const nextSeparator = this.completedReasoning.indexOf("---", truncatePoint);
+              if (nextSeparator > 0) {
+                this.completedReasoning = "...(earlier reasoning truncated)...\n\n" +
+                  this.completedReasoning.substring(nextSeparator);
+              } else {
+                this.completedReasoning = this.completedReasoning.substring(truncatePoint);
+              }
             }
           }
           this.reasoningBuffer = "";
@@ -345,6 +361,8 @@ class InkStreamingRenderer implements StreamingRenderer {
           this.liveText = "";
           this.reasoningBuffer = "";
           this.completedReasoning = "";
+          this.lastRawText = "";
+          this.lastRawReasoning = "";
           this.lastFormattedText = "";
           this.lastFormattedReasoning = "";
           return;
@@ -382,30 +400,48 @@ class InkStreamingRenderer implements StreamingRenderer {
     this.lastUpdateTime = now;
     this.pendingUpdate = false;
 
-    const formattedText = this.formatMarkdown(this.liveText);
-    // Show reasoning if: (1) we're including it, and (2) either buffer has content (during thinking) or completed reasoning exists
+    // Determine raw content to show
+    const rawText = this.liveText;
     const reasoningToShow = this.reasoningBuffer.trim().length > 0
       ? this.reasoningBuffer
       : this.completedReasoning.trim().length > 0
         ? this.completedReasoning
         : "";
     const shouldShowReasoning = includeReasoning && reasoningToShow.length > 0;
-    const formattedReasoning = shouldShowReasoning ? this.formatMarkdown(reasoningToShow) : "";
+    const rawReasoning = shouldShowReasoning ? reasoningToShow : "";
 
-    // Only update if the formatted content actually changed
-    // This prevents unnecessary re-renders that cause blinking
-    if (
-      formattedText !== this.lastFormattedText ||
-      formattedReasoning !== this.lastFormattedReasoning
-    ) {
-      this.lastFormattedText = formattedText;
-      this.lastFormattedReasoning = formattedReasoning;
-      store.setStream({
-        agentName: this.agentName,
-        text: formattedText,
-        reasoning: formattedReasoning,
-      });
+    // Compare raw content first before expensive formatting
+    // This avoids running multiple regex passes when content hasn't changed
+    const textChanged = rawText !== this.lastRawText;
+    const reasoningChanged = rawReasoning !== this.lastRawReasoning;
+
+    if (!textChanged && !reasoningChanged) {
+      // No change in raw content, skip formatting entirely
+      return;
     }
+
+    // Only format what actually changed
+    let formattedText = this.lastFormattedText;
+    let formattedReasoning = this.lastFormattedReasoning;
+
+    if (textChanged) {
+      formattedText = this.formatMarkdown(rawText);
+      this.lastRawText = rawText;
+      this.lastFormattedText = formattedText;
+    }
+
+    if (reasoningChanged) {
+      formattedReasoning = rawReasoning.length > 0 ? this.formatMarkdown(rawReasoning) : "";
+      this.lastRawReasoning = rawReasoning;
+      this.lastFormattedReasoning = formattedReasoning;
+    }
+
+    // Update the stream with the formatted content
+    store.setStream({
+      agentName: this.agentName,
+      text: formattedText,
+      reasoning: formattedReasoning,
+    });
   }
 
   private logReasoning(): void {
@@ -425,10 +461,18 @@ class InkStreamingRenderer implements StreamingRenderer {
 
   private formatMarkdown(text: string): string {
     if (this.displayConfig.mode === "markdown") {
-      return formatMarkdownAnsi(text);
+      return formatMarkdown(text);
     }
     return text;
   }
+}
+
+/**
+ * Queued approval request with its resolve callback.
+ */
+interface QueuedApproval {
+  request: ApprovalRequest;
+  resume: (effect: Effect.Effect<boolean, never>) => void;
 }
 
 /**
@@ -439,6 +483,10 @@ class InkStreamingRenderer implements StreamingRenderer {
  */
 class InkPresentationService implements PresentationService {
   private renderer: CLIRenderer | null = null;
+
+  // Approval queue to handle parallel tool calls
+  private approvalQueue: QueuedApproval[] = [];
+  private isProcessingApproval: boolean = false;
 
   constructor(private readonly displayConfig: DisplayConfig) {}
 
@@ -555,47 +603,75 @@ class InkPresentationService implements PresentationService {
 
   requestApproval(request: ApprovalRequest): Effect.Effect<boolean, never> {
     return Effect.async((resume) => {
-      // Format the approval message
-      const toolLabel = chalk.cyan(request.toolName);
-      const separator = chalk.dim("─".repeat(50));
+      // Add to queue and process
+      this.approvalQueue.push({ request, resume });
+      this.processNextApproval();
+    });
+  }
 
-      // Show approval details in Ink UI
-      store.printOutput({
-        type: "log",
-        message: `\n${separator}`,
-        timestamp: new Date(),
-      });
-      store.printOutput({
-        type: "log",
-        message: `${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n`,
-        timestamp: new Date(),
-      });
-      store.printOutput({
-        type: "log",
-        message: `${request.message}\n`,
-        timestamp: new Date(),
-      });
-      store.printOutput({
-        type: "log",
-        message: separator,
-        timestamp: new Date(),
-      });
+  /**
+   * Process the next approval request in the queue.
+   * Only one approval prompt is shown at a time to avoid overwriting.
+   */
+  private processNextApproval(): void {
+    // If already processing or queue is empty, do nothing
+    if (this.isProcessingApproval || this.approvalQueue.length === 0) {
+      return;
+    }
 
-      // Use confirm prompt (default to Yes for faster workflow)
-      store.setPrompt({
-        type: "confirm",
-        message: "Approve this action?",
-        options: { defaultValue: true },
-        resolve: (val: unknown) => {
-          store.setPrompt(null);
-          store.printOutput({
-            type: "log",
-            message: `Approve this action? ${chalk.green(val ? "Yes" : "No")}`,
-            timestamp: new Date(),
-          });
-          resume(Effect.succeed(val as boolean));
-        },
-      });
+    this.isProcessingApproval = true;
+    const { request, resume } = this.approvalQueue.shift()!;
+
+    // Format the approval message
+    const toolLabel = chalk.cyan(request.toolName);
+    const separator = chalk.dim("─".repeat(50));
+    const pendingCount = this.approvalQueue.length;
+    const pendingIndicator = pendingCount > 0
+      ? chalk.dim(` (${pendingCount} more pending)`)
+      : "";
+
+    // Show approval details in Ink UI
+    store.printOutput({
+      type: "log",
+      message: `\n${separator}`,
+      timestamp: new Date(),
+    });
+    store.printOutput({
+      type: "log",
+      message: `${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}${pendingIndicator}\n`,
+      timestamp: new Date(),
+    });
+    store.printOutput({
+      type: "log",
+      message: `${request.message}\n`,
+      timestamp: new Date(),
+    });
+    store.printOutput({
+      type: "log",
+      message: separator,
+      timestamp: new Date(),
+    });
+
+    // Use confirm prompt (default to Yes for faster workflow)
+    store.setPrompt({
+      type: "confirm",
+      message: "Approve this action?",
+      options: { defaultValue: true },
+      resolve: (val: unknown) => {
+        store.setPrompt(null);
+        store.printOutput({
+          type: "log",
+          message: `Approve this action? ${chalk.green(val ? "Yes" : "No")}`,
+          timestamp: new Date(),
+        });
+
+        // Resume the Effect for this approval
+        resume(Effect.succeed(val as boolean));
+
+        // Mark as done processing and process next in queue
+        this.isProcessingApproval = false;
+        this.processNextApproval();
+      },
     });
   }
 }

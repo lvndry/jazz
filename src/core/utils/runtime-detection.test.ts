@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
-  getDefaultDataDirectory,
-  isDevelopmentMode,
-  isInstalledGlobally,
+  getUserDataDirectory,
+  isRunningFromGlobalInstall,
+  isRunningInDevelopmentMode,
 } from "./runtime-detection";
 
 describe("Runtime Detection", () => {
@@ -51,12 +51,12 @@ describe("Runtime Detection", () => {
     }
   });
 
-  describe("isInstalledGlobally", () => {
+  describe("isRunningFromGlobalInstall", () => {
     it("should return false when running from jazz project directory (development mode)", () => {
       // Mock process.argv[1] to point to jazz project
       process.argv[1] = path.join(jazzProjectDir, "src", "main.ts");
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(false);
     });
 
@@ -71,7 +71,7 @@ describe("Runtime Detection", () => {
 
       process.argv[1] = testPath;
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(false);
     });
 
@@ -80,14 +80,14 @@ describe("Runtime Detection", () => {
       const bunPath = path.join(homeDir, ".bun", "bin", "jazz");
       process.argv[1] = bunPath;
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(true);
     });
 
     it("should return true for npm global installation in /usr/local/bin", () => {
       process.argv[1] = "/usr/local/bin/jazz";
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(true);
     });
 
@@ -96,7 +96,7 @@ describe("Runtime Detection", () => {
       const npmPath = path.join(homeDir, ".npm-global", "bin", "jazz");
       process.argv[1] = npmPath;
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(true);
     });
 
@@ -115,7 +115,7 @@ describe("Runtime Detection", () => {
       );
       process.argv[1] = pnpmPath;
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(true);
     });
 
@@ -124,14 +124,14 @@ describe("Runtime Detection", () => {
       const yarnPath = path.join(homeDir, ".yarn", "bin", "jazz");
       process.argv[1] = yarnPath;
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(true);
     });
 
     it("should return true for system-wide node_modules installation", () => {
       process.argv[1] = "/usr/local/lib/node_modules/jazz-ai/dist/main.js";
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(true);
     });
 
@@ -144,7 +144,7 @@ describe("Runtime Detection", () => {
 
       process.argv[1] = nodeModulesPath;
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(true);
     });
 
@@ -155,14 +155,14 @@ describe("Runtime Detection", () => {
 
       process.argv[1] = nodeModulesPath;
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(false);
     });
 
     it("should return false when process.argv[1] is undefined", () => {
       delete process.argv[1];
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       // Should default to development mode
       expect(result).toBe(false);
     });
@@ -171,7 +171,7 @@ describe("Runtime Detection", () => {
       process.argv[1] = "/nonexistent/path/jazz";
 
       // Should not throw, should default to development mode
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(false);
     });
 
@@ -179,18 +179,18 @@ describe("Runtime Detection", () => {
       const windowsPath = "C:\\Users\\user\\.bun\\bin\\jazz.exe";
       process.argv[1] = windowsPath;
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(true);
     });
   });
 
-  describe("getDefaultDataDirectory", () => {
+  describe("getUserDataDirectory", () => {
     it("should return ~/.jazz when installed globally", () => {
       const homeDir = os.homedir();
       const bunPath = path.join(homeDir, ".bun", "bin", "jazz");
       process.argv[1] = bunPath;
 
-      const result = getDefaultDataDirectory();
+      const result = getUserDataDirectory();
       const expected = path.join(homeDir, ".jazz");
 
       expect(result).toBe(expected);
@@ -199,7 +199,7 @@ describe("Runtime Detection", () => {
     it("should return {cwd}/.jazz when in development mode", () => {
       process.argv[1] = path.join(jazzProjectDir, "src", "main.ts");
 
-      const result = getDefaultDataDirectory();
+      const result = getUserDataDirectory();
       const expected = path.resolve(process.cwd(), ".jazz");
 
       expect(result).toBe(expected);
@@ -211,7 +211,7 @@ describe("Runtime Detection", () => {
 
       // We can't easily mock os.homedir() to return empty, but we can test the fallback
       // by ensuring the function handles the case where homeDir might be empty
-      const result = getDefaultDataDirectory();
+      const result = getUserDataDirectory();
 
       // If homeDir is available, it should use it; otherwise fallback
       // Since we can't easily mock os.homedir(), we just verify it doesn't throw
@@ -222,11 +222,11 @@ describe("Runtime Detection", () => {
     });
   });
 
-  describe("isDevelopmentMode", () => {
+  describe("isRunningInDevelopmentMode", () => {
     it("should return true when not installed globally", () => {
       process.argv[1] = path.join(jazzProjectDir, "src", "main.ts");
 
-      const result = isDevelopmentMode();
+      const result = isRunningInDevelopmentMode();
       expect(result).toBe(true);
     });
 
@@ -235,11 +235,11 @@ describe("Runtime Detection", () => {
       const bunPath = path.join(homeDir, ".bun", "bin", "jazz");
       process.argv[1] = bunPath;
 
-      const result = isDevelopmentMode();
+      const result = isRunningInDevelopmentMode();
       expect(result).toBe(false);
     });
 
-    it("should be the inverse of isInstalledGlobally", () => {
+    it("should be the inverse of isRunningFromGlobalInstall", () => {
       const testPaths = [
         path.join(jazzProjectDir, "src", "main.ts"), // development
         path.join(os.homedir(), ".bun", "bin", "jazz"), // global
@@ -248,8 +248,8 @@ describe("Runtime Detection", () => {
 
       for (const testPath of testPaths) {
         process.argv[1] = testPath;
-        const isGlobal = isInstalledGlobally();
-        const isDev = isDevelopmentMode();
+        const isGlobal = isRunningFromGlobalInstall();
+        const isDev = isRunningInDevelopmentMode();
         expect(isDev).toBe(!isGlobal);
       }
     });
@@ -264,7 +264,7 @@ describe("Runtime Detection", () => {
         process.argv[1] = path.join(symlinkPath, "dist", "main.js");
 
         // Should detect as development mode because it resolves to jazz project
-        const result = isInstalledGlobally();
+        const result = isRunningFromGlobalInstall();
         expect(result).toBe(false);
       } catch (error) {
         // Symlinks might not work on all systems (Windows), skip test
@@ -282,7 +282,7 @@ describe("Runtime Detection", () => {
 
       process.argv[1] = deepPath;
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(false);
     });
 
@@ -294,7 +294,7 @@ describe("Runtime Detection", () => {
 
       process.argv[1] = path.join(specialDir, "dist", "main.js");
 
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(result).toBe(false);
     });
 
@@ -307,7 +307,7 @@ describe("Runtime Detection", () => {
 
       // Should still detect as development (name check is case-sensitive in implementation)
       // But we test that it works
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       // The current implementation is case-sensitive, so this should return true (not in project)
       // If we want case-insensitive, we'd need to update the implementation
       expect(typeof result).toBe("boolean");
@@ -320,7 +320,7 @@ describe("Runtime Detection", () => {
       process.argv[1] = path.join(projectWithoutPackageJson, "main.js");
 
       // Should not throw, should default to checking other conditions
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(typeof result).toBe("boolean");
     });
 
@@ -330,7 +330,7 @@ describe("Runtime Detection", () => {
       process.argv[1] = path.join(jazzProjectDir, "src", "main.ts");
 
       // Should not throw, should continue checking
-      const result = isInstalledGlobally();
+      const result = isRunningFromGlobalInstall();
       expect(typeof result).toBe("boolean");
     });
   });
@@ -340,9 +340,9 @@ describe("Runtime Detection", () => {
       // Simulate running from source in jazz project
       process.argv[1] = path.join(jazzProjectDir, "src", "main.ts");
 
-      expect(isInstalledGlobally()).toBe(false);
-      expect(isDevelopmentMode()).toBe(true);
-      expect(getDefaultDataDirectory()).toBe(path.resolve(process.cwd(), ".jazz"));
+      expect(isRunningFromGlobalInstall()).toBe(false);
+      expect(isRunningInDevelopmentMode()).toBe(true);
+      expect(getUserDataDirectory()).toBe(path.resolve(process.cwd(), ".jazz"));
     });
 
     it("should correctly identify global install when running 'jazz' command", () => {
@@ -350,17 +350,17 @@ describe("Runtime Detection", () => {
       const homeDir = os.homedir();
       process.argv[1] = path.join(homeDir, ".bun", "bin", "jazz");
 
-      expect(isInstalledGlobally()).toBe(true);
-      expect(isDevelopmentMode()).toBe(false);
-      expect(getDefaultDataDirectory()).toBe(path.join(homeDir, ".jazz"));
+      expect(isRunningFromGlobalInstall()).toBe(true);
+      expect(isRunningInDevelopmentMode()).toBe(false);
+      expect(getUserDataDirectory()).toBe(path.join(homeDir, ".jazz"));
     });
 
     it("should handle npm global installation correctly", () => {
       const homeDir = os.homedir();
       process.argv[1] = path.join(homeDir, ".npm-global", "bin", "jazz");
 
-      expect(isInstalledGlobally()).toBe(true);
-      expect(getDefaultDataDirectory()).toBe(path.join(homeDir, ".jazz"));
+      expect(isRunningFromGlobalInstall()).toBe(true);
+      expect(getUserDataDirectory()).toBe(path.join(homeDir, ".jazz"));
     });
 
     it("should handle pnpm global installation correctly", () => {
@@ -377,8 +377,8 @@ describe("Runtime Detection", () => {
         "jazz",
       );
 
-      expect(isInstalledGlobally()).toBe(true);
-      expect(getDefaultDataDirectory()).toBe(path.join(homeDir, ".jazz"));
+      expect(isRunningFromGlobalInstall()).toBe(true);
+      expect(getUserDataDirectory()).toBe(path.join(homeDir, ".jazz"));
     });
   });
 });

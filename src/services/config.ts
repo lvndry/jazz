@@ -11,7 +11,7 @@ import type {
   WebSearchConfig,
 } from "@/core/types/index";
 import { safeParseJson } from "@/core/utils/json";
-import { getDefaultDataDirectory } from "@/core/utils/runtime-detection";
+import { getUserDataDirectory } from "@/core/utils/runtime-detection";
 
 /**
  * Configuration service using Effect's Config module
@@ -144,7 +144,7 @@ export function requireConfigValue<T>(key: string): Effect.Effect<T, never, Agen
 // -----------------
 
 function defaultConfig(): AppConfig {
-  const storage: StorageConfig = { type: "file", path: getDefaultDataDirectory() };
+  const storage: StorageConfig = { type: "file", path: getUserDataDirectory() };
   const logging: LoggingConfig = {
     level: "info",
     format: "pretty",

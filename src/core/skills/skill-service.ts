@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { Context, Effect, Layer, Ref } from "effect";
 import glob from "fast-glob";
 import matter from "gray-matter";
+import { getBuiltinSkillsDirectory } from "../utils/runtime-detection.js";
 
 export interface SkillMetadata {
   readonly name: string;
@@ -65,14 +66,22 @@ export class SkillsLive implements SkillService {
 
   listSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
     return Effect.gen(function* (this: SkillsLive) {
-      // 1. Get Global Skills (Cached)
+      // 1. Get Built-in Skills (shipped with Jazz)
+      const builtinSkills = yield* this.getBuiltinSkills();
+
+      // 2. Get Global Skills (Cached, medium priority - ~/.jazz/skills)
       const globalSkills = yield* this.getGlobalSkills();
 
-      // 2. Get Local Skills (Fresh scan)
+      // 3. Get Local Skills (Fresh scan, highest priority - cwd)
       const localSkills = yield* this.scanLocalSkills();
 
-      // 3. Merge (Local overrides Global by name)
+      // 4. Merge (Local > Global > Built-in by name)
       const skillMap = new Map<string, SkillMetadata>();
+
+      // Add in priority order (later additions override earlier ones)
+      for (const skill of builtinSkills) {
+        skillMap.set(skill.name, skill);
+      }
       for (const skill of globalSkills) {
         skillMap.set(skill.name, skill);
       }
@@ -180,6 +189,19 @@ export class SkillsLive implements SkillService {
   private scanLocalSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
     const cwd = process.cwd();
     return this.scanDirectory(cwd, 4);
+  }
+
+  private getBuiltinSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
+    return Effect.gen(function* (this: SkillsLive) {
+      const builtinDir = getBuiltinSkillsDirectory();
+      if (!builtinDir) {
+        // No built-in skills directory found
+        return [];
+      }
+
+      // Scan built-in skills directory (depth 2 is enough for skills/skill-name/SKILL.md)
+      return yield* this.scanDirectory(builtinDir, 2);
+    }.bind(this));
   }
 
   private scanDirectory(dir: string, depth: number): Effect.Effect<readonly SkillMetadata[], Error> {

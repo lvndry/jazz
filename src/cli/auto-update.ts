@@ -2,7 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
-import { getDefaultDataDirectory } from "@/core/utils/runtime-detection";
+import { getUserDataDirectory } from "@/core/utils/runtime-detection";
 import { checkForUpdate } from "./commands/update";
 
 const UPDATE_CHECK_INTERVAL_DAYS = 10;
@@ -23,7 +23,7 @@ export function autoCheckForUpdate(): Effect.Effect<
     const logger = yield* LoggerServiceTag;
     const fs = yield* FileSystem.FileSystem;
 
-    const dataDir = getDefaultDataDirectory();
+    const dataDir = getUserDataDirectory();
     const checkFilePath = `${dataDir}/${UPDATE_CHECK_FILE}`;
 
     // Ensure data directory exists

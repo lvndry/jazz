@@ -20,8 +20,9 @@ interface LayoutProps {
  * - Gradient Logo Header
  * - Split content area (Main + Sidebar)
  * - Footer area
+ *
  */
-export function Layout({ children, sidebar, title, footer }: LayoutProps): React.ReactElement {
+export const Layout = React.memo(function Layout({ children, sidebar, title, footer }: LayoutProps): React.ReactElement {
   return (
     <Box
       flexDirection="column"
@@ -76,4 +77,4 @@ export function Layout({ children, sidebar, title, footer }: LayoutProps): React
       )}
     </Box>
   );
-}
+});
