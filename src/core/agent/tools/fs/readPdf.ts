@@ -14,7 +14,7 @@ import { buildKeyFromContext } from "../context-utils";
 function formatTableAsMarkdown(rows: readonly (readonly string[])[]): string {
   if (rows.length === 0) return "";
   const first = rows[0]!;
-  const safe = (s: string) => s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  const safe = (s: string) => s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
   const rowToLine = (row: readonly string[]) => "| " + row.map((c) => safe(String(c ?? ""))).join(" | ") + " |";
   const header = rowToLine(first);
   const separator = "| " + first.map(() => "---").join(" | ") + " |";
