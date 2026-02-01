@@ -94,6 +94,9 @@ export function handleSpecialCommand(
       case "context":
         return yield* handleContextCommand(terminal, agent, conversationHistory);
 
+      case "cost":
+        return yield* handleCostCommand(terminal, agent, context.sessionUsage);
+
       case "clear":
         return yield* handleClearCommand(terminal, agent);
 
@@ -144,6 +147,7 @@ function handleHelpCommand(
     yield* terminal.log("   /clear           - Clear the screen");
     yield* terminal.log("   /compact         - Summarize background history to save tokens");
     yield* terminal.log("   /context         - Show context window usage and token breakdown");
+    yield* terminal.log("   /cost            - Show conversation token usage and estimated cost");
     yield* terminal.log("   /copy            - Copy the last agent response to clipboard");
     yield* terminal.log("   /skills          - List and view available skills");
     yield* terminal.log("   /help            - Show this help message");
@@ -651,12 +655,17 @@ const TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
 const AUTOCOMPACT_BUFFER_PERCENT = 0.165;
 
 /**
- * Get context window size for a specific model from models.dev
+ * Get context window size for a specific model from models.dev.
+ * Pass provider when known so provider-scoped metadata is used
+ * otherwise model-only lookup can return another provider's limits.
  */
-function getModelContextWindowEffect(modelId: string): Effect.Effect<number, never, never> {
+function getModelContextWindowEffect(
+  modelId: string,
+  providerId?: string,
+): Effect.Effect<number, never, never> {
   return Effect.tryPromise({
     try: async () => {
-      const meta = await getModelsDevMetadata(modelId);
+      const meta = await getModelsDevMetadata(modelId, providerId);
       return meta?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
     },
     catch: () => new Error("Failed to fetch model metadata"),
@@ -808,7 +817,7 @@ function handleContextCommand(
     // Get model information
     const provider = agent.config.llmProvider;
     const modelId = agent.config.llmModel;
-    const contextWindow = yield* getModelContextWindowEffect(modelId);
+    const contextWindow = yield* getModelContextWindowEffect(modelId, provider);
 
     // Get tool definitions for more accurate tool token estimation
     const toolDefinitions = yield* toolRegistry.getToolDefinitions();
@@ -869,6 +878,77 @@ function handleContextCommand(
     yield* terminal.log(`   ${gridRows[9]}`);
     yield* terminal.log("");
 
+    return { shouldContinue: true };
+  });
+}
+
+/**
+ * Format a small USD amount for display (e.g. 0.0012 → "$0.0012", 0 → "$0.00").
+ */
+function formatUsd(amount: number): string {
+  if (amount === 0) return "$0.00";
+  if (amount >= 0.01) return `$${amount.toFixed(2)}`;
+  if (amount >= 0.0001) return `$${amount.toFixed(4)}`;
+  return `$${amount.toExponential(2)}`;
+}
+
+/**
+ * Handle /cost command - Show conversation token usage and estimated cost
+ */
+function handleCostCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  sessionUsage: { promptTokens: number; completionTokens: number },
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    yield* terminal.heading("Conversation cost");
+
+    const { promptTokens, completionTokens } = sessionUsage;
+    const totalTokens = promptTokens + completionTokens;
+
+    yield* terminal.log(`   Model: ${agent.config.llmProvider}/${agent.config.llmModel}`);
+    yield* terminal.log(`   Input tokens:  ${promptTokens.toLocaleString()}`);
+    yield* terminal.log(`   Output tokens: ${completionTokens.toLocaleString()}`);
+    yield* terminal.log(`   Total tokens:  ${totalTokens.toLocaleString()}`);
+
+    if (totalTokens === 0) {
+      yield* terminal.log("");
+      yield* terminal.info("No tokens used yet in this conversation.");
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    const meta = yield* Effect.promise(() =>
+      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+    );
+
+    const inputPricePerMillion = meta?.inputPricePerMillion ?? 0;
+    const outputPricePerMillion = meta?.outputPricePerMillion ?? 0;
+
+    yield* terminal.log("");
+    yield* terminal.log("   Pricing (from models.dev, $ per 1M tokens):");
+    yield* terminal.log(`   Input:  $${inputPricePerMillion.toFixed(2)}/1M`);
+    yield* terminal.log(`   Output: $${outputPricePerMillion.toFixed(2)}/1M`);
+
+    const inputCost = (promptTokens / 1_000_000) * inputPricePerMillion;
+    const outputCost = (completionTokens / 1_000_000) * outputPricePerMillion;
+    const totalCost = inputCost + outputCost;
+
+    yield* terminal.log("");
+    yield* terminal.log("   Estimated cost this conversation:");
+    yield* terminal.log(`   Input:  ${formatUsd(inputCost)}`);
+    yield* terminal.log(`   Output: ${formatUsd(outputCost)}`);
+    yield* terminal.log(`   Total:  ${formatUsd(totalCost)}`);
+
+    if (
+      meta?.inputPricePerMillion === undefined &&
+      meta?.outputPricePerMillion === undefined
+    ) {
+      yield* terminal.log("");
+      yield* terminal.warn("Pricing not available for this model on models.dev; total shown as $0.00.");
+    }
+
+    yield* terminal.log("");
     return { shouldContinue: true };
   });
 }

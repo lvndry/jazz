@@ -77,22 +77,33 @@ export function TextInput({
     [onSubmit],
   );
 
+  // Track value we set via onChange to distinguish external updates (e.g. command suggestion selection)
+  const lastValueWeSetRef = React.useRef<string | null>(null);
+
   // Register text input handler with InputService
   useTextInput({
     id: "text-input",
     value,
     cursor,
     isActive: focus,
-    onChange: handleChange,
+    onChange: (newValue, newCursor) => {
+      lastValueWeSetRef.current = newValue;
+      handleChange(newValue, newCursor);
+    },
     onSubmit: handleSubmit,
     findPrevWordBoundary,
     findNextWordBoundary,
   });
 
-  // Sync cursor when value changes externally (e.g., clear on submit)
+  // Sync cursor when value changes externally (e.g., command suggestion selection, clear on submit)
   React.useEffect(() => {
     if (cursor > value.length) {
       setCursor(value.length);
+    } else if (lastValueWeSetRef.current !== value) {
+      lastValueWeSetRef.current = value;
+      setCursor(value.length);
+    } else {
+      lastValueWeSetRef.current = null;
     }
   }, [value, cursor]);
 

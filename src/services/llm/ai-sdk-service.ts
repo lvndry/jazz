@@ -555,7 +555,7 @@ class AISDKService implements LLMService {
         try: async () => {
           const devMap = await getModelsDevMap();
           const resolved: ModelInfo[] = modelSource.models.map((entry) => {
-            const dev = getMetadataFromMap(devMap, entry.id);
+            const dev = getMetadataFromMap(devMap, entry.id, providerName);
             return {
               id: entry.id,
               displayName: entry.displayName ?? entry.id,

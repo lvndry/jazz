@@ -17,6 +17,7 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "clear", description: "Clear the screen" },
   { name: "compact", description: "Summarize background history to save tokens" },
   { name: "context", description: "Show context window usage and token breakdown" },
+  { name: "cost", description: "Show conversation token usage and estimated cost" },
   { name: "copy", description: "Copy the last agent response to clipboard" },
   { name: "skills", description: "List and view available skills" },
   { name: "exit", description: "Exit the chat" },

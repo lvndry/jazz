@@ -83,6 +83,7 @@ export class ToolExecutor {
     runMetrics: ReturnType<typeof createAgentRunMetrics>,
     agentId: string,
     conversationId: string,
+    toolsRequiringApproval: ReadonlySet<string>,
   ): Effect.Effect<
     { toolCallId: string; result: unknown; success: boolean; name: string },
     Error,
@@ -118,8 +119,11 @@ export class ToolExecutor {
 
         yield* logger.logToolCall(name, args);
 
-        // Emit tool execution start
-        if (displayConfig.showToolExecution) {
+        // Emit tool execution start - skip for approval tools to avoid interleaving with
+        // approval UI when multiple tools run in parallel (approval wrapper returns
+        // immediately; the real "Executing tool" is emitted after user approval)
+        const isApprovalTool = toolsRequiringApproval.has(name);
+        if (displayConfig.showToolExecution && !isApprovalTool) {
           if (renderer) {
             yield* renderer.handleEvent({
               type: "tool_execution_start",
@@ -143,7 +147,7 @@ export class ToolExecutor {
         // If so, we intercept here, show approval UI, and auto-execute the follow-up tool
         if (isApprovalRequiredResult(result.result)) {
           const approvalResult = result.result;
-          
+
           yield* logger.debug("Tool requires approval, showing approval prompt", {
             toolName: name,
             executeToolName: approvalResult.executeToolName,
@@ -165,7 +169,7 @@ export class ToolExecutor {
 
             // Auto-execute the execution tool
             const executeStartTime = Date.now();
-            
+
             // Emit execution start for the follow-up tool
             if (displayConfig.showToolExecution) {
               if (renderer) {
@@ -193,7 +197,7 @@ export class ToolExecutor {
             );
             toolDuration = Date.now() - executeStartTime;
             finalToolName = approvalResult.executeToolName;
-            
+
             yield* logger.debug("Execution tool completed after approval", {
               executeToolName: approvalResult.executeToolName,
               success: result.success,
@@ -380,6 +384,7 @@ export class ToolExecutor {
       const toolsList = toolDetails.join(", ");
       yield* logger.info(`${agentName} is using tools: ${toolsList}`);
 
+      const approvalSet = new Set(toolsRequiringApproval);
       const toolFibers = yield* Effect.all(
         toolCalls.map((toolCall) =>
           Effect.fork(
@@ -391,6 +396,7 @@ export class ToolExecutor {
               runMetrics,
               agentId,
               conversationId,
+              approvalSet,
             ),
           ),
         ),
