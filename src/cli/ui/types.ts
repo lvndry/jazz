@@ -34,6 +34,8 @@ export interface Choice<T = unknown> {
 export interface PromptOptions<T = unknown> {
   choices?: Choice<T>[];
   defaultSelected?: T | T[];
+  /** When true, show command suggestions when input starts with "/" (chat prompt) */
+  commandSuggestions?: boolean;
   [key: string]: unknown;
 }
 

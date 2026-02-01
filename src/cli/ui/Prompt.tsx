@@ -1,24 +1,111 @@
 import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  filterCommandsByPrefix,
+  type ChatCommandInfo,
+} from "@/services/chat/commands";
 import { TextInput } from "./components/Input/TextInput";
+import { useInputHandler, InputResults } from "./hooks/use-input-service";
 import { IndicatorComponent, ItemComponent } from "./ItemComponents";
 import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
 import type { PromptState } from "./types";
+
+const COMMAND_SUGGESTIONS_PRIORITY = 50;
+
+interface CommandSuggestionItemProps {
+  command: ChatCommandInfo;
+  isSelected: boolean;
+}
+
+function CommandSuggestionItem({
+  command,
+  isSelected,
+}: CommandSuggestionItemProps): React.ReactElement {
+  return (
+    <Box marginLeft={1}>
+      <Text color={isSelected ? "cyan" : "white"} bold={isSelected}>
+        {isSelected ? "▸ " : "  "}
+        /{command.name}
+      </Text>
+      <Text dimColor> – {command.description}</Text>
+    </Box>
+  );
+}
 
 /**
  * Prompt displays user input prompts with a minimal header design.
  * Uses spacing and color instead of box borders for copy-friendly terminal output.
  */
+
 function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactElement {
   const [value, setValue] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
 
   // Use refs to avoid recreating callbacks on every render
   const promptRef = useRef(prompt);
   const validationErrorRef = useRef(validationError);
   promptRef.current = prompt;
   validationErrorRef.current = validationError;
+
+  const commandSuggestionsEnabled =
+    prompt.type === "text" && Boolean(prompt.options?.commandSuggestions);
+  const suggestionPrefix = value.startsWith("/") ? value.slice(1) : "";
+  const filteredCommands = useMemo(
+    () =>
+      commandSuggestionsEnabled && value.startsWith("/")
+        ? filterCommandsByPrefix(suggestionPrefix)
+        : [],
+    [commandSuggestionsEnabled, suggestionPrefix, value],
+  );
+  const suggestionsVisible = filteredCommands.length > 0;
+
+  // Keep selected index in bounds when list changes
+  useEffect(() => {
+    if (filteredCommands.length > 0) {
+      setSelectedSuggestionIndex((i) =>
+        Math.min(i, filteredCommands.length - 1),
+      );
+    }
+  }, [filteredCommands.length]);
+
+  // Refs for command-suggestions handler so it sees latest state
+  const setValueRef = useRef(setValue);
+  const setSelectedSuggestionIndexRef = useRef(setSelectedSuggestionIndex);
+  const filteredCommandsRef = useRef(filteredCommands);
+  const selectedSuggestionIndexRef = useRef(selectedSuggestionIndex);
+  setValueRef.current = setValue;
+  setSelectedSuggestionIndexRef.current = setSelectedSuggestionIndex;
+  filteredCommandsRef.current = filteredCommands;
+  selectedSuggestionIndexRef.current = selectedSuggestionIndex;
+
+  useInputHandler({
+    id: "chat-command-suggestions",
+    priority: COMMAND_SUGGESTIONS_PRIORITY,
+    isActive: commandSuggestionsEnabled && suggestionsVisible,
+    onInput: (action) => {
+      const commands = filteredCommandsRef.current;
+      const idx = selectedSuggestionIndexRef.current;
+      if (action.type === "up") {
+        setSelectedSuggestionIndexRef.current(Math.max(0, idx - 1));
+        return InputResults.consumed();
+      }
+      if (action.type === "down") {
+        setSelectedSuggestionIndexRef.current(
+          Math.min(commands.length - 1, idx + 1),
+        );
+        return InputResults.consumed();
+      }
+      if (action.type === "submit" && commands[idx]) {
+        setValueRef.current("/" + commands[idx].name + " ");
+        setSelectedSuggestionIndexRef.current(0);
+        return InputResults.consumed();
+      }
+      return InputResults.ignored();
+    },
+    deps: [commandSuggestionsEnabled, suggestionsVisible],
+  });
 
   useEffect(() => {
     // React can batch `setPrompt(null)` + `setPrompt(nextPrompt)`, so this component
@@ -31,6 +118,7 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
 
     setValue(defaultValue);
     setValidationError(null);
+    setSelectedSuggestionIndex(0);
   }, [prompt]);
 
   // Stable callback - doesn't change between renders
@@ -115,6 +203,19 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
                   showCursor
                 />
               </Box>
+              {/* Command suggestions when typing / */}
+              {suggestionsVisible && (
+                <Box marginTop={1} flexDirection="column">
+                  <Text dimColor> Commands (↑/↓ select, Enter to pick):</Text>
+                  {filteredCommands.map((cmd, index) => (
+                    <CommandSuggestionItem
+                      key={cmd.name}
+                      command={cmd}
+                      isSelected={index === selectedSuggestionIndex}
+                    />
+                  ))}
+                </Box>
+              )}
             </Box>
             {/* Validation error message */}
             {validationError && (

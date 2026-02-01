@@ -91,6 +91,8 @@ export interface TerminalService {
     options?: {
       defaultValue?: string;
       validate?: (input: string) => boolean | string;
+      /** When true, show command suggestions when input starts with "/" (e.g. chat prompt) */
+      commandSuggestions?: boolean;
     },
   ) => Effect.Effect<string, never>;
 

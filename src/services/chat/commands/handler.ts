@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import * as path from "node:path";
 import { Effect } from "effect";
 import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
 import { store } from "@/cli/ui/App";
@@ -613,6 +614,9 @@ function handleSkillsCommand(
     const skillContent = yield* skillService.loadSkill(selectedSkillName);
 
     yield* terminal.heading(`📜 Skill: ${skillContent.metadata.name}`);
+    yield* terminal.log(
+      `${path.join(skillContent.metadata.path, "SKILL.md")}`,
+    );
     if (skillContent.metadata.description) {
       yield* terminal.log(skillContent.metadata.description);
     }
