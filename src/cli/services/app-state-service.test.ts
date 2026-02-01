@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import {
   AppStateServiceTag,
@@ -6,6 +6,7 @@ import {
   createLogEntry,
   type AppStateService,
 } from "./app-state-service";
+import type { LiveStreamState } from "../ui/types";
 
 // ============================================================================
 // Tests
@@ -157,10 +158,9 @@ describe("AppStateService", () => {
 
   describe("Stream Management", () => {
     test("setStream updates the stream state", async () => {
-      const streamState = {
+      const streamState: LiveStreamState = {
         agentName: "test",
         text: "Streaming...",
-        reasoning: null,
       };
 
       const result = await runWithService(
@@ -182,7 +182,6 @@ describe("AppStateService", () => {
           yield* service.setStream({
             agentName: "test",
             text: "Test",
-            reasoning: null,
           });
           yield* service.setStream(null);
           const stream = yield* service.getStream;
@@ -296,13 +295,13 @@ describe("AppStateService", () => {
     test("creates different types of log entries", () => {
       const logEntry = createLogEntry("log", "Log");
       const userEntry = createLogEntry("user", "User");
-      const assistantEntry = createLogEntry("assistant", "Assistant");
-      const toolEntry = createLogEntry("tool_call", "Tool");
+      const infoEntry = createLogEntry("info", "Info");
+      const debugEntry = createLogEntry("debug", "Debug");
 
       expect(logEntry.type).toBe("log");
       expect(userEntry.type).toBe("user");
-      expect(assistantEntry.type).toBe("assistant");
-      expect(toolEntry.type).toBe("tool_call");
+      expect(infoEntry.type).toBe("info");
+      expect(debugEntry.type).toBe("debug");
     });
   });
 });

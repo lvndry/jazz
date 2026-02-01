@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import {
   MarkdownServiceTag,
@@ -7,8 +7,6 @@ import {
   stripAnsiCodes,
   normalizeBlankLines,
   INITIAL_STREAMING_STATE,
-  type StreamingFormatter,
-  type StreamingState,
 } from "./markdown-service";
 
 // ============================================================================
@@ -233,7 +231,7 @@ describe("MarkdownService", () => {
       });
 
       const runnable = Effect.provide(program, MarkdownServiceLive);
-      const { out1, out2 } = await Effect.runPromise(runnable);
+      const { out1 } = await Effect.runPromise(runnable);
 
       expect(out1).toBeDefined();
     });

@@ -14,7 +14,7 @@ export interface AppState {
   readonly status: string | null;
   readonly stream: LiveStreamState | null;
   readonly workingDirectory: string | null;
-  readonly customView: unknown | null;
+  readonly customView: unknown;
 }
 
 /**
@@ -25,7 +25,7 @@ export type PromptSubscriber = (prompt: PromptState | null) => void;
 export type StatusSubscriber = (status: string | null) => void;
 export type StreamSubscriber = (stream: LiveStreamState | null) => void;
 export type WorkingDirectorySubscriber = (workingDirectory: string | null) => void;
-export type CustomViewSubscriber = (customView: unknown | null) => void;
+export type CustomViewSubscriber = (customView: unknown) => void;
 
 /**
  * Unsubscribe function returned by subscribe methods.
@@ -127,10 +127,10 @@ export interface AppStateService {
   // -------------------------------------------------------------------------
 
   /** Get current custom view */
-  readonly getCustomView: Effect.Effect<unknown | null>;
+  readonly getCustomView: Effect.Effect<unknown>;
 
   /** Set the current custom view */
-  readonly setCustomView: (customView: unknown | null) => Effect.Effect<void>;
+  readonly setCustomView: (customView: unknown) => Effect.Effect<void>;
 
   /** Subscribe to custom view changes */
   readonly subscribeCustomView: (callback: CustomViewSubscriber) => Effect.Effect<Unsubscribe>;
@@ -244,7 +244,7 @@ export function createAppStateService(): Effect.Effect<AppStateService, never, n
       }
     }
 
-    function notifyCustomViewSubscribers(customView: unknown | null): void {
+    function notifyCustomViewSubscribers(customView: unknown): void {
       for (const subscriber of customViewSubscribers) {
         try {
           subscriber(customView);
@@ -433,7 +433,7 @@ export function createAppStateService(): Effect.Effect<AppStateService, never, n
       // Custom View Management
       getCustomView: Effect.map(Ref.get(stateRef), (state) => state.customView),
 
-      setCustomView: (customView: unknown | null) =>
+      setCustomView: (customView: unknown) =>
         Effect.gen(function* () {
           const prev = yield* Effect.map(Ref.get(stateRef), (s) => s.customView);
           if (prev === customView) return;
