@@ -1,18 +1,42 @@
 import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { filterCommandsByPrefix } from "@/services/chat/commands";
-import { useInputHandler, InputResults } from "./hooks/use-input-service";
+import {
+  filterCommandsByPrefix,
+  type ChatCommandInfo,
+} from "@/services/chat/commands";
 import { TextInput } from "./components/Input/TextInput";
+import { useInputHandler, InputResults } from "./hooks/use-input-service";
 import { IndicatorComponent, ItemComponent } from "./ItemComponents";
 import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
 import type { PromptState } from "./types";
+
+const COMMAND_SUGGESTIONS_PRIORITY = 50;
+
+interface CommandSuggestionItemProps {
+  command: ChatCommandInfo;
+  isSelected: boolean;
+}
+
+function CommandSuggestionItem({
+  command,
+  isSelected,
+}: CommandSuggestionItemProps): React.ReactElement {
+  return (
+    <Box marginLeft={1}>
+      <Text color={isSelected ? "cyan" : "white"} bold={isSelected}>
+        {isSelected ? "▸ " : "  "}
+        /{command.name}
+      </Text>
+      <Text dimColor> – {command.description}</Text>
+    </Box>
+  );
+}
 
 /**
  * Prompt displays user input prompts with a minimal header design.
  * Uses spacing and color instead of box borders for copy-friendly terminal output.
  */
-const COMMAND_SUGGESTIONS_PRIORITY = 50; // Between PROMPT (20) and TEXT_INPUT (100)
 
 function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactElement {
   const [value, setValue] = useState("");
@@ -184,16 +208,11 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
                 <Box marginTop={1} flexDirection="column">
                   <Text dimColor> Commands (↑/↓ select, Enter to pick):</Text>
                   {filteredCommands.map((cmd, index) => (
-                    <Box key={cmd.name} marginLeft={1}>
-                      <Text
-                        color={index === selectedSuggestionIndex ? "cyan" : "white"}
-                        bold={index === selectedSuggestionIndex}
-                      >
-                        {index === selectedSuggestionIndex ? "▸ " : "  "}
-                        /{cmd.name}
-                      </Text>
-                      <Text dimColor> – {cmd.description}</Text>
-                    </Box>
+                    <CommandSuggestionItem
+                      key={cmd.name}
+                      command={cmd}
+                      isSelected={index === selectedSuggestionIndex}
+                    />
                   ))}
                 </Box>
               )}

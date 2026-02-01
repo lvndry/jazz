@@ -142,6 +142,7 @@ export class InkTerminalService implements TerminalService {
     options?: {
       defaultValue?: string;
       validate?: (input: string) => boolean | string;
+      commandSuggestions?: boolean;
     },
   ): Effect.Effect<string, never> {
     return Effect.async((resume) => {
@@ -160,14 +161,16 @@ export class InkTerminalService implements TerminalService {
       } = {
         type: "text",
         message,
-        ...(options || message === "You:"
+        ...(options
           ? {
               options: {
-                ...(options?.defaultValue !== undefined
+                ...(options.defaultValue !== undefined
                   ? { defaultValue: options.defaultValue }
                   : {}),
                 ...(validateFn ? { validate: validateFn } : {}),
-                ...(message === "You:" ? { commandSuggestions: true } : {}),
+                ...(options.commandSuggestions === true
+                  ? { commandSuggestions: true }
+                  : {}),
               },
             }
           : {}),

@@ -91,7 +91,9 @@ export class ChatServiceImpl implements ChatService {
 
       while (chatActive) {
         // Prompt for user input
-        const userMessage = yield* terminal.ask("You:").pipe(
+        const userMessage = yield* terminal.ask("You:", {
+          commandSuggestions: true,
+        }).pipe(
           Effect.catchAll((error: unknown) => {
             // Handle ExitPromptError from inquirer when user presses Ctrl+C
             if (
