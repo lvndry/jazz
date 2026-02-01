@@ -229,6 +229,8 @@ Combine findings into a coherent, well-cited report.
 
 ### Report Structure
 
+**Always end the report with a visible "Sources" or "References" section** listing every source used. Readers must be able to see and verify where information came from.
+
 ```markdown
 # [Research Question]
 
@@ -263,9 +265,19 @@ Combine findings into a coherent, well-cited report.
 | Claim 3 | Low        | Single source, recent    |
 
 ## Sources
-[1] Author, "Title", Publication, Date. URL
-[2] ...
+[Required — list every source used so readers can verify and follow up.]
+
+[1] Author or Publisher, "Title", Publication/Site, Date. URL
+[2] Author or Publisher, "Title", Publication/Site, Date. URL
+[3] ...
 ```
+
+### Showing Sources Used
+
+- **Include a "Sources" (or "References") section** at the end of every deep-research report.
+- **List every source** that was used to support findings, in citation order [1], [2] including, ...
+- **Format each entry** so it can be used to find the source: author/publisher, title, publication/site, date, and URL.
+- **Do not omit sources** or summarize them away; the full list must be visible in the delivered report.
 
 ---
 
@@ -295,6 +307,7 @@ Use this internal reasoning structure:
 - ❌ Presenting uncertain claims as facts
 - ❌ Forgetting to cite sources
 - ❌ Echo chamber sourcing (all sources same perspective)
+- ❌ Omitting or hiding the sources list (report must show all sources used)
 
 ## Quality Checklist
 
@@ -307,6 +320,7 @@ Before delivering final report:
 - [ ] Limitations documented
 - [ ] Sources are diverse and credible
 - [ ] Recency appropriate for topic
+- [ ] **Sources used are shown**: a "Sources" or "References" section lists every source with title, publication, date, and URL
 
 ## Additional Resources
 

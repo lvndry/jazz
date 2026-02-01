@@ -93,13 +93,13 @@ Stakeholder questions:
 
 ### Synonym Expansion Matrix
 
-| Original Term | Synonyms/Variants |
-|---------------|-------------------|
-| AI | artificial intelligence, machine learning, ML, deep learning |
-| impact | effect, influence, consequences, implications |
-| cost | price, expense, spending, investment, ROI |
-| research | study, analysis, investigation, paper, report |
-| best | top, leading, recommended, optimal |
+| Original Term | Synonyms/Variants                                            |
+| ------------- | ------------------------------------------------------------ |
+| AI            | artificial intelligence, machine learning, ML, deep learning |
+| impact        | effect, influence, consequences, implications                |
+| cost          | price, expense, spending, investment, ROI                    |
+| research      | study, analysis, investigation, paper, report                |
+| best          | top, leading, recommended, optimal                           |
 
 ### Specificity Ladder
 
@@ -116,13 +116,13 @@ Level 4 (Precise): "Viz.ai stroke detection clinical outcomes"
 
 Append source type to improve result quality:
 
-| Source Type | Query Suffix |
-|-------------|--------------|
-| Academic | "peer reviewed", "journal article", "research paper" |
-| Official | "government report", "white paper", "official statistics" |
-| Expert | "expert analysis", "industry report", "analyst opinion" |
-| Data | "statistics", "data", "survey results", "meta-analysis" |
-| Recent | "[year]", "latest", "recent study" |
+| Source Type | Query Suffix                                              |
+| ----------- | --------------------------------------------------------- |
+| Academic    | "peer reviewed", "journal article", "research paper"      |
+| Official    | "government report", "white paper", "official statistics" |
+| Expert      | "expert analysis", "industry report", "analyst opinion"   |
+| Data        | "statistics", "data", "survey results", "meta-analysis"   |
+| Recent      | "[year]", "latest", "recent study"                        |
 
 ### Negation Queries
 
@@ -179,10 +179,10 @@ Q5: How do alternatives compare? [Depends on Q2, Q4]
 
 ## Common Decomposition Mistakes
 
-| Mistake | Problem | Fix |
-|---------|---------|-----|
-| Too many sub-questions | Scope creep, budget exhaustion | Limit to 5-7, prioritize |
-| Too few sub-questions | Shallow coverage | Use framework above |
-| Overlapping queries | Redundant results | Check for duplication |
-| Missing negation | One-sided evidence | Add opposing view queries |
-| No dependency mapping | Inefficient ordering | Map before searching |
+| Mistake                | Problem                        | Fix                       |
+| ---------------------- | ------------------------------ | ------------------------- |
+| Too many sub-questions | Scope creep, budget exhaustion | Limit to 5-7, prioritize  |
+| Too few sub-questions  | Shallow coverage               | Use framework above       |
+| Overlapping queries    | Redundant results              | Check for duplication     |
+| Missing negation       | One-sided evidence             | Add opposing view queries |
+| No dependency mapping  | Inefficient ordering           | Map before searching      |

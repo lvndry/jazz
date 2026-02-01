@@ -17,6 +17,7 @@ import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { formatMarkdown } from "./markdown-formatter";
+import { applyTextChunkOrdered } from "./stream-text-order";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/App";
 
@@ -28,7 +29,7 @@ function renderToolBadge(label: string): React.ReactElement {
   );
 }
 
-class InkStreamingRenderer implements StreamingRenderer {
+export class InkStreamingRenderer implements StreamingRenderer {
   private readonly activeTools = new Map<string, string>();
   private liveText: string = "";
   private reasoningBuffer: string = "";
@@ -42,6 +43,8 @@ class InkStreamingRenderer implements StreamingRenderer {
   private lastUpdateTime: number = 0;
   private pendingUpdate: boolean = false;
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  /** Ignore out-of-order text_chunk events when streaming delivers them reordered. */
+  private lastAppliedTextSequence: number = -1;
   private static readonly UPDATE_THROTTLE_MS = 50;
 
   private static readonly MAX_REASONING_LENGTH = 8000;
@@ -66,6 +69,7 @@ class InkStreamingRenderer implements StreamingRenderer {
       this.lastRawReasoning = "";
       this.lastFormattedText = "";
       this.lastFormattedReasoning = "";
+      this.lastAppliedTextSequence = -1;
       this.lastUpdateTime = 0;
       this.pendingUpdate = false;
       if (this.updateTimeoutId) {
@@ -276,13 +280,19 @@ class InkStreamingRenderer implements StreamingRenderer {
 
         case "text_start": {
           this.liveText = "";
+          this.lastAppliedTextSequence = -1;
           // Include reasoning when text starts - reasoning should persist during text streaming
           this.updateLiveStream(true);
           return;
         }
 
         case "text_chunk": {
-          this.liveText = event.accumulated;
+          const next = applyTextChunkOrdered(
+            { liveText: this.liveText, lastAppliedSequence: this.lastAppliedTextSequence },
+            { sequence: event.sequence, accumulated: event.accumulated },
+          );
+          this.liveText = next.liveText;
+          this.lastAppliedTextSequence = next.lastAppliedSequence;
           this.updateLiveStream();
           return;
         }

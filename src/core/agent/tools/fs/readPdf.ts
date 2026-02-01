@@ -10,6 +10,45 @@ import { buildKeyFromContext } from "../context-utils";
  * Read PDF file contents tool
  */
 
+/** Format a single table (rows of cell strings) as markdown. */
+function formatTableAsMarkdown(rows: readonly (readonly string[])[]): string {
+  if (rows.length === 0) return "";
+  const first = rows[0]!;
+  const safe = (s: string) => s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  const rowToLine = (row: readonly string[]) => "| " + row.map((c) => safe(String(c ?? ""))).join(" | ") + " |";
+  const header = rowToLine(first);
+  const separator = "| " + first.map(() => "---").join(" | ") + " |";
+  const body = rows.slice(1).map((row) => rowToLine(row ?? [])).join("\n");
+  return [header, separator, body].join("\n");
+}
+
+/** Build tables section with page attribution from pdf-parse getTable result. */
+function buildTablesSection(
+  getTableResult: { pages?: Array<{ num?: number; tables?: (readonly (readonly string[])[])[] }> },
+): { section: string; tables: Array<{ pageNumber: number; rows: string[][] }> } {
+  const tables: Array<{ pageNumber: number; rows: string[][] }> = [];
+  const parts: string[] = [];
+  const pages = getTableResult.pages ?? [];
+  for (const page of pages) {
+    const pageNum = typeof page.num === "number" ? page.num : 0;
+    const pageTables = page.tables ?? [];
+    if (pageTables.length === 0) continue;
+    parts.push(`### Page ${pageNum + 1}`);
+    for (let i = 0; i < pageTables.length; i++) {
+      const table = pageTables[i];
+      if (table === undefined) continue;
+      const rows = table.map((row) => [...(row ?? []).map((c) => String(c ?? ""))]);
+      tables.push({ pageNumber: pageNum + 1, rows });
+      const label = pageTables.length > 1 ? ` (Table ${i + 1})` : "";
+      parts.push(`#### Table${label}`);
+      parts.push(formatTableAsMarkdown(rows));
+    }
+    parts.push("");
+  }
+  const section = parts.length === 0 ? "" : "\n\n## Extracted tables\n\n" + parts.join("\n").trimEnd();
+  return { section, tables };
+}
+
 export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
@@ -36,7 +75,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadPdfParams>({
     name: "read_pdf",
     description:
-      "Read and extract text content from a PDF file. Supports extracting text from specific pages or all pages. Returns extracted text, page count, and metadata. Use this tool specifically for PDF files; use read_file for text files.",
+      "Read and extract text and tables from a PDF file. Returns body text (with tables as markdown), plus metadata: path, content, truncated, totalLines, pageCount, pagesExtracted, fileType, and tables (array of { pageNumber: 1-based, rows } for structured use). Supports specific pages or all pages. Use for PDF files; use read_file for text files.",
     tags: ["filesystem", "read", "pdf"],
     parameters,
     validate: (args) => {
@@ -97,13 +136,34 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
           try {
             const parseParams = args.pages ? { partial: args.pages } : undefined;
             const textResult = yield* Effect.promise(() => pdfParser.getText(parseParams));
-            let content = (textResult as { text?: string }).text || "";
+            const textContent = (textResult as { text?: string }).text || "";
+
+            // Extract tables (with page attribution); ignore errors so text-only extraction still works
+            let tablesSection = "";
+            let extractedTables: Array<{ pageNumber: number; rows: string[][] }> = [];
+            try {
+              const tableResult = yield* Effect.promise(() =>
+                pdfParser.getTable(parseParams as { partial?: number[] }),
+              );
+              const built = buildTablesSection(
+                tableResult as {
+                  pages?: Array<{ num?: number; tables?: (readonly (readonly string[])[])[] }>;
+                },
+              );
+              tablesSection = built.section;
+              extractedTables = built.tables;
+            } catch {
+              // No tables or getTable failed; continue with text only
+            }
+
+            // Combine text and tables so reader sees one document with page-labeled tables
+            let content = textContent + tablesSection;
 
             // Get metadata
             const infoResult = yield* Effect.promise(() => pdfParser.getInfo());
             const pageCount = (infoResult as { pageCount?: number }).pageCount || 0;
 
-            // Enforce maxChars safeguard
+            // Enforce maxChars safeguard on combined content
             const maxChars =
               typeof args.maxChars === "number" && args.maxChars > 0 ? args.maxChars : 512_000;
             let truncated = false;
@@ -125,6 +185,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
                 pageCount,
                 pagesExtracted: args.pages || Array.from({ length: pageCount }, (_, i) => i + 1),
                 fileType: "pdf",
+                tables: extractedTables,
               },
             };
           } catch (parseError) {

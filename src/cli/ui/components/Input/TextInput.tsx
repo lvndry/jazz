@@ -22,15 +22,14 @@ interface TextInputProps {
   showCursor?: boolean;
   /** Whether input is focused/active */
   focus?: boolean;
-  /** Current working directory to display above the hint */
-  currentDirectory?: string | null;
 }
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const SHORTCUTS_HINT =
+/** Exported so parents can render hints below the input box (keeps selection inside box to input text only). */
+export const SHORTCUTS_HINT =
   "Ctrl+A/E: start/end · Ctrl+U/K: clear · Opt+←/→: word nav · Opt+Del: delete word";
 
 // ============================================================================
@@ -54,7 +53,6 @@ export function TextInput({
   placeholder = "",
   showCursor = true,
   focus = true,
-  currentDirectory = null,
 }: TextInputProps): React.ReactElement {
   const [cursor, setCursor] = useState(value.length);
 
@@ -80,8 +78,9 @@ export function TextInput({
   // Track value we set via onChange to distinguish external updates (e.g. command suggestion selection)
   const lastValueWeSetRef = React.useRef<string | null>(null);
 
-  // Register text input handler with InputService
-  useTextInput({
+  // Register text input handler; use ref-backed display value/cursor so we never show stale state
+  // when re-renders (logs, stream) run before our setState commits (fixes ordering in long chats).
+  const { displayValue, displayCursor } = useTextInput({
     id: "text-input",
     value,
     cursor,
@@ -107,32 +106,32 @@ export function TextInput({
     }
   }, [value, cursor]);
 
-  // Render
-  const displayValue = mask ? mask.repeat(value.length) : value;
+  // Render from displayValue/displayCursor (ref-backed) so we never flash stale state
+  const displayValueMasked = mask ? mask.repeat(displayValue.length) : displayValue;
 
-  let renderedValue: React.ReactNode = displayValue;
+  let renderedValue: React.ReactNode = displayValueMasked;
   let renderedPlaceholder: React.ReactNode = placeholder ? (
     <Text dimColor>{placeholder}</Text>
   ) : null;
 
   if (showCursor && focus) {
     // Placeholder with cursor
-    if (placeholder.length > 0 && displayValue.length === 0) {
+    if (placeholder.length > 0 && displayValueMasked.length === 0) {
       renderedPlaceholder = (
         <Text>
           <Text inverse>{placeholder[0]}</Text>
           <Text dimColor>{placeholder.slice(1)}</Text>
         </Text>
       );
-    } else if (displayValue.length === 0) {
+    } else if (displayValueMasked.length === 0) {
       renderedPlaceholder = <Text inverse> </Text>;
     }
 
     // Value with cursor
-    if (displayValue.length > 0) {
-      const before = displayValue.slice(0, cursor);
-      const cursorChar = cursor < displayValue.length ? displayValue[cursor] : " ";
-      const after = cursor < displayValue.length ? displayValue.slice(cursor + 1) : "";
+    if (displayValueMasked.length > 0) {
+      const before = displayValueMasked.slice(0, displayCursor);
+      const cursorChar = displayCursor < displayValueMasked.length ? displayValueMasked[displayCursor] : " ";
+      const after = displayCursor < displayValueMasked.length ? displayValueMasked.slice(displayCursor + 1) : "";
 
       renderedValue = (
         <>
@@ -146,23 +145,18 @@ export function TextInput({
     }
   }
 
+  // Render only the input line (displayValueMasked so we never show stale state) so the bordered box contains just this text.
+  // Parent renders directory + shortcuts below the box so terminal selection
+  // inside the box captures only the input text.
   return (
-    <Box flexDirection="column">
+    <Box>
       <Text>
-        {displayValue.length > 0
+        {displayValueMasked.length > 0
           ? renderedValue
           : placeholder
             ? renderedPlaceholder
             : renderedValue}
       </Text>
-      {focus && (
-        <Box marginTop={1} flexDirection="column">
-          {currentDirectory && (
-            <Text dimColor>Current directory: {currentDirectory}</Text>
-          )}
-          <Text dimColor>{SHORTCUTS_HINT}</Text>
-        </Box>
-      )}
     </Box>
   );
 }
