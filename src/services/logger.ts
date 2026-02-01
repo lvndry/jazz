@@ -4,7 +4,7 @@ import path from "node:path";
 import { Effect, Layer, Option, Ref } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { jsonBigIntReplacer } from "@/core/utils/logging-helpers";
-import { isInstalledGlobally } from "@/core/utils/runtime-detection";
+import { isRunningFromGlobalInstall } from "@/core/utils/runtime-detection";
 
 /**
  * Log Write Queue
@@ -285,7 +285,7 @@ function resolveLogsDirectory(): string {
   }
 
   // 2. Check if we're in a globally installed package
-  if (isInstalledGlobally()) {
+  if (isRunningFromGlobalInstall()) {
     // Global install: use ~/.jazz/logs
     const homeDir = os.homedir();
     if (homeDir && homeDir.trim().length > 0) {

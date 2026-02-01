@@ -1,8 +1,8 @@
 import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { TextInput } from "./components/Input/TextInput";
 import { IndicatorComponent, ItemComponent } from "./ItemComponents";
-import { LineInput } from "./LineInput";
 import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
 import type { PromptState } from "./types";
 
@@ -107,7 +107,7 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
               flexDirection="column"
             >
               <Box>
-                <LineInput
+                <TextInput
                   value={value}
                   onChange={handleChange}
                   onSubmit={handleSubmit}
@@ -137,7 +137,7 @@ function PromptComponent({ prompt }: { prompt: PromptState; }): React.ReactEleme
             >
               <Box>
                 <Text color="green">{">"} </Text>
-                <LineInput
+                <TextInput
                   value={value}
                   onChange={handleChange}
                   onSubmit={handleSubmit}

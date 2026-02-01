@@ -90,6 +90,7 @@ When building features for Jazz, think like a **product engineer** who understan
 **🚀 Break Things to Make Them Better:**
 
 - **Don't Fear Breaking Changes**: If a better solution requires breaking the API, do it. We prioritize excellence over backward compatibility
+- **NEVER Keep Deprecated Code**: When renaming or restructuring, update all usages immediately and remove old code. No `@deprecated` aliases, no backward compatibility shims. Clean breaks only.
 - **Think Multiple Solutions**: Always consider 3-5 different approaches before implementing. Choose the best one, even if it's more disruptive
 - **Question Assumptions**: Challenge existing patterns. Is Effect-TS the right choice? Could we use a different architecture? What if we redesigned from scratch?
 - **Go Beyond Current Design**: Use the current codebase as a reference, but don't be constrained by it. If you see a better way, implement it
@@ -100,7 +101,7 @@ When building features for Jazz, think like a **product engineer** who understan
 1. **Research First**: Understand the problem deeply, explore, study similar systems
 2. **Design Multiple Solutions**: Brainstorm 3-5 different approaches, each with trade-offs
 3. **Choose the Best**: Pick the solution that's best long-term, not the easiest short-term
-4. **Implement Boldly**: Don't hold back. If it requires breaking changes, document them clearly and move forward
+4. **Implement Boldly**: Don't hold back. If it requires breaking changes, make them immediately and update all affected code
 5. **Measure & Iterate**: Track metrics, gather feedback, refine continuously
 
 ## Behavior & Standards
@@ -217,4 +218,4 @@ When building features for Jazz, think like a **product engineer** who understan
 
 ---
 
-**Remember**: Jazz is 100% production-ready and open source. Don't compromise. Break things if needed to make them better. Research deeply. Think multiple solutions. Choose the best one. Document everything. Test thoroughly. Optimize continuously.
+**Remember**: Jazz is 100% production-ready and open source. Don't compromise. Break things if needed to make them better. Never keep deprecated code—clean breaks only. Research deeply. Think multiple solutions. Choose the best one. Document everything. Test thoroughly. Optimize continuously.

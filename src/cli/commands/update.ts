@@ -4,8 +4,8 @@ import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { UpdateCheckError, UpdateInstallError } from "@/core/types/errors";
 import {
-  detectInstalledPackageManager,
-  findJazzInstallationPath,
+  detectPackageManagerFromPath,
+  findExecutablePathViaShell,
 } from "@/core/utils/runtime-detection";
 import packageJson from "../../../package.json";
 
@@ -169,15 +169,12 @@ function getPackageManagerVersion(
  */
 function detectPackageManager(): Effect.Effect<PackageManagerInfo, UpdateInstallError> {
   return Effect.gen(function* () {
-    // First, try to find where Jazz is installed
-    const installPath = yield* findJazzInstallationPath();
+    const installPath = yield* findExecutablePathViaShell();
 
     if (installPath) {
-      // Try to detect which package manager was used based on installation path
-      const detectedPm = yield* detectInstalledPackageManager(installPath);
+      const detectedPm = yield* detectPackageManagerFromPath(installPath);
 
       if (detectedPm) {
-        // Found the package manager that was used to install Jazz
         const pmInfo = yield* getPackageManagerVersion(detectedPm);
         if (pmInfo) {
           return pmInfo;

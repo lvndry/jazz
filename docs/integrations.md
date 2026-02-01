@@ -15,6 +15,7 @@ Jazz supports various third-party integrations to enhance your agents' capabilit
 ## LLM Providers
 
 Jazz supports multiple LLM providers. You need at least one configured to create agents.
+You can set or update your API keys in config by running `jazz` -> `update configuration`
 
 ### OpenAI
 
