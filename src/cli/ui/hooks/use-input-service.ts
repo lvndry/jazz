@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { useContext, useEffect, useRef } from "react";
+import { computeTextInputRefSync } from "./text-input-ref-sync";
 import type { ParsedInput } from "../../input/escape-state-machine";
 import type {
   InputHandler,
@@ -197,12 +198,24 @@ interface UseTextInputOptions {
 }
 
 /**
+ * Return type for useTextInput: effective value/cursor for display so we never
+ * show stale state when re-renders (e.g. logs, stream) run before our setState commits.
+ */
+export interface UseTextInputResult {
+  /** Use for rendering; ref-backed so order is correct under fast typing and long conversations */
+  displayValue: string;
+  /** Use for cursor position in render */
+  displayCursor: number;
+}
+
+/**
  * Complete text input handling hook.
  *
  * Handles all text editing operations: character input, deletion,
  * cursor movement, and line editing commands.
+ * Returns displayValue/displayCursor so the component renders from refs and never shows stale state.
  */
-export function useTextInput(options: UseTextInputOptions): void {
+export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
   const {
     id,
     value,
@@ -217,8 +230,32 @@ export function useTextInput(options: UseTextInputOptions): void {
   // Store current values in refs for the handler
   const valueRef = useRef(value);
   const cursorRef = useRef(cursor);
-  valueRef.current = value;
-  cursorRef.current = cursor;
+  // Track the last value we sent via onChange so we don't overwrite refs with stale state.
+  // When the conversation is long, re-renders (logs, stream) often run before our setState
+  // commits; syncing refs from props then would revert our optimistic update and reorder text.
+  const lastSentValueRef = useRef<string | null>(null);
+  const lastSentCursorRef = useRef<number | null>(null);
+  const previousValueRef = useRef<string>(value);
+  const previousCursorRef = useRef<number>(cursor);
+
+  const syncResult = computeTextInputRefSync({
+    value,
+    cursor,
+    state: {
+      valueRef: valueRef.current,
+      cursorRef: cursorRef.current,
+      lastSentValue: lastSentValueRef.current,
+      lastSentCursor: lastSentCursorRef.current,
+      previousValue: previousValueRef.current,
+      previousCursor: previousCursorRef.current,
+    },
+  });
+  valueRef.current = syncResult.valueRef;
+  cursorRef.current = syncResult.cursorRef;
+  lastSentValueRef.current = syncResult.lastSentValue;
+  lastSentCursorRef.current = syncResult.lastSentCursor;
+  previousValueRef.current = syncResult.previousValue;
+  previousCursorRef.current = syncResult.previousCursor;
 
   const onChangeRef = useRef(onChange);
   const onSubmitRef = useRef(onSubmit);
@@ -323,12 +360,27 @@ export function useTextInput(options: UseTextInputOptions): void {
         // Clamp cursor
         nextCursor = Math.max(0, Math.min(nextCursor, nextValue.length));
         onChangeRef.current(nextValue, nextCursor);
+        // Update refs immediately so the next key in the same tick sees the new value.
+        // Without this, fast typing uses stale refs and characters appear out of order.
+        valueRef.current = nextValue;
+        cursorRef.current = nextCursor;
+        // Mark pending so we don't overwrite refs with stale state on the next render.
+        // Long conversations cause many re-renders (logs, stream) before setState commits.
+        previousValueRef.current = currentValue;
+        previousCursorRef.current = currentCursor;
+        lastSentValueRef.current = nextValue;
+        lastSentCursorRef.current = nextCursor;
       }
 
       return InputResults.consumed();
     },
     deps: [findPrevWordBoundary, findNextWordBoundary],
   });
+
+  return {
+    displayValue: valueRef.current,
+    displayCursor: cursorRef.current,
+  };
 }
 
 // ============================================================================

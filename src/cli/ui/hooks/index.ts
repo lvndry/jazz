@@ -26,6 +26,7 @@ export {
   useEscapeHandler,
   useTabHandler,
   useTextInput,
+  type UseTextInputResult,
   InputPriority,
   InputResults,
 } from "./use-input-service";

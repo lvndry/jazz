@@ -51,10 +51,10 @@ Execute these reflection questions explicitly:
 - New questions emerged: [list]
 
 ### Evidence Quality
-| Claim | Sources | Source Quality | Confidence |
-|-------|---------|----------------|------------|
-| Claim 1 | 3 | 2 High, 1 Med | High |
-| Claim 2 | 1 | 1 Low | Low - needs more |
+| Claim   | Sources | Source Quality | Confidence       |
+| ------- | ------- | -------------- | ---------------- |
+| Claim 1 | 3       | 2 High, 1 Med  | High             |
+| Claim 2 | 1       | 1 Low          | Low - needs more |
 
 ### Bias Check
 - Political lean of sources: [Left/Center/Right mix]
@@ -62,9 +62,9 @@ Execute these reflection questions explicitly:
 - Geographic diversity: [Single region or global?]
 
 ### Contradiction Log
-| Claim A | Source | Claim B | Source | Resolution |
-|---------|--------|---------|--------|------------|
-| X is true | [1] | X is false | [2] | Need more research |
+| Claim A   | Source | Claim B    | Source | Resolution         |
+| --------- | ------ | ---------- | ------ | ------------------ |
+| X is true | [1]    | X is false | [2]    | Need more research |
 
 ### Decision
 - [ ] Continue searching (gaps identified)
@@ -76,13 +76,13 @@ Execute these reflection questions explicitly:
 
 ### Credibility Scoring Matrix
 
-| Factor | High (3) | Medium (2) | Low (1) |
-|--------|----------|------------|---------|
-| **Authority** | Peer-reviewed, government, established org | Industry report, reputable news | Blog, social media, unknown |
-| **Recency** | Within 1 year | 1-3 years | 3+ years |
-| **Evidence** | Data-backed, citations | Some evidence | Opinion, anecdotal |
-| **Bias** | Neutral, disclosed conflicts | Some bias | Obvious agenda |
-| **Corroboration** | Multiple independent sources | Some corroboration | Single source |
+| Factor            | High (3)                                   | Medium (2)                      | Low (1)                     |
+| ----------------- | ------------------------------------------ | ------------------------------- | --------------------------- |
+| **Authority**     | Peer-reviewed, government, established org | Industry report, reputable news | Blog, social media, unknown |
+| **Recency**       | Within 1 year                              | 1-3 years                       | 3+ years                    |
+| **Evidence**      | Data-backed, citations                     | Some evidence                   | Opinion, anecdotal          |
+| **Bias**          | Neutral, disclosed conflicts               | Some bias                       | Obvious agenda              |
+| **Corroboration** | Multiple independent sources               | Some corroboration              | Single source               |
 
 **Score interpretation:**
 - 12-15: High credibility
@@ -216,13 +216,13 @@ Decision:
 
 ### Per-Claim Confidence
 
-| Level | Criteria | Action |
-|-------|----------|--------|
-| **Very High** | 3+ Tier 1 sources, no contradictions, recent | State as established fact |
-| **High** | 2+ reliable sources, minor contradictions resolved | State with confidence |
-| **Medium** | 1-2 sources, or unresolved minor contradictions | State with caveat |
-| **Low** | Single source, or major contradictions | Flag uncertainty |
-| **Very Low** | Weak source, or strong contradictions | Consider excluding |
+| Level         | Criteria                                           | Action                    |
+| ------------- | -------------------------------------------------- | ------------------------- |
+| **Very High** | 3+ Tier 1 sources, no contradictions, recent       | State as established fact |
+| **High**      | 2+ reliable sources, minor contradictions resolved | State with confidence     |
+| **Medium**    | 1-2 sources, or unresolved minor contradictions    | State with caveat         |
+| **Low**       | Single source, or major contradictions             | Flag uncertainty          |
+| **Very Low**  | Weak source, or strong contradictions              | Consider excluding        |
 
 ### Overall Research Confidence
 
@@ -247,30 +247,30 @@ Limiting factors:
 
 ### When to Search Again
 
-| Signal | Response |
-|--------|----------|
-| Sub-question unanswered | Reformulate query, try different angles |
-| Single source for key claim | Search for corroboration |
-| All sources same perspective | Search opposing viewpoint |
-| Claim contradicted | Search for resolution/context |
-| Source credibility low | Search for higher-tier sources |
-| Information outdated | Search with recency filters |
+| Signal                       | Response                                |
+| ---------------------------- | --------------------------------------- |
+| Sub-question unanswered      | Reformulate query, try different angles |
+| Single source for key claim  | Search for corroboration                |
+| All sources same perspective | Search opposing viewpoint               |
+| Claim contradicted           | Search for resolution/context           |
+| Source credibility low       | Search for higher-tier sources          |
+| Information outdated         | Search with recency filters             |
 
 ### When to Stop
 
-| Signal | Action |
-|--------|--------|
-| Confidence target met for all claims | Proceed to synthesis |
-| Search budget exhausted | Document limitations, proceed |
-| Diminishing returns (same results) | Accept current state |
-| Topic has limited available info | Note gap, proceed |
+| Signal                               | Action                        |
+| ------------------------------------ | ----------------------------- |
+| Confidence target met for all claims | Proceed to synthesis          |
+| Search budget exhausted              | Document limitations, proceed |
+| Diminishing returns (same results)   | Accept current state          |
+| Topic has limited available info     | Note gap, proceed             |
 
 ## Common Verification Mistakes
 
-| Mistake | Problem | Fix |
-|---------|---------|-----|
-| Confirmation bias | Only finding supporting evidence | Explicitly search for contradictions |
-| Authority fallacy | Trusting source without checking | Verify claims independently |
-| Recency bias | Preferring new over accurate | Balance recency with source quality |
-| False balance | Giving equal weight to unequal evidence | Weight by source credibility |
-| Citation laundering | Accepting circular citations | Trace to original source |
+| Mistake             | Problem                                 | Fix                                  |
+| ------------------- | --------------------------------------- | ------------------------------------ |
+| Confirmation bias   | Only finding supporting evidence        | Explicitly search for contradictions |
+| Authority fallacy   | Trusting source without checking        | Verify claims independently          |
+| Recency bias        | Preferring new over accurate            | Balance recency with source quality  |
+| False balance       | Giving equal weight to unequal evidence | Weight by source credibility         |
+| Citation laundering | Accepting circular citations            | Trace to original source             |

@@ -5,7 +5,7 @@ import {
   filterCommandsByPrefix,
   type ChatCommandInfo,
 } from "@/services/chat/commands";
-import { TextInput } from "./components/Input/TextInput";
+import { TextInput, SHORTCUTS_HINT } from "./components/Input/TextInput";
 import { useInputHandler, InputResults } from "./hooks/use-input-service";
 import { IndicatorComponent, ItemComponent } from "./ItemComponents";
 import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
@@ -207,7 +207,6 @@ function PromptComponent({
                   onSubmit={handleSubmit}
                   placeholder="Ask anything..."
                   showCursor
-                  currentDirectory={workingDirectory}
                 />
               </Box>
               {/* Command suggestions when typing / */}
@@ -223,6 +222,13 @@ function PromptComponent({
                   ))}
                 </Box>
               )}
+            </Box>
+            {/* Hints below box so terminal selection inside box captures only input text */}
+            <Box marginTop={1} flexDirection="column">
+              {workingDirectory && (
+                <Text dimColor>Current directory: {workingDirectory}</Text>
+              )}
+              <Text dimColor>{SHORTCUTS_HINT}</Text>
             </Box>
             {/* Validation error message */}
             {validationError && (
@@ -250,9 +256,15 @@ function PromptComponent({
                   onChange={handleChange}
                   onSubmit={handleSubmit}
                   mask="*"
-                  currentDirectory={workingDirectory}
                 />
               </Box>
+            </Box>
+            {/* Hints below box so terminal selection inside box captures only input text */}
+            <Box marginTop={1} flexDirection="column">
+              {workingDirectory && (
+                <Text dimColor>Current directory: {workingDirectory}</Text>
+              )}
+              <Text dimColor>{SHORTCUTS_HINT}</Text>
             </Box>
             {/* Validation error message */}
             {validationError && (
