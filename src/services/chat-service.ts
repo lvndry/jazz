@@ -88,6 +88,7 @@ export class ChatServiceImpl implements ChatService {
       let chatActive = true;
       let conversationHistory: ChatMessage[] = [];
       let loggedMessageCount = 0;
+      let sessionUsage = { promptTokens: 0, completionTokens: 0 };
 
       while (chatActive) {
         // Prompt for user input
@@ -150,10 +151,12 @@ export class ChatServiceImpl implements ChatService {
             conversationId,
             conversationHistory,
             sessionId,
+            sessionUsage,
           });
 
           if (commandResult.newConversationId !== undefined) {
             conversationId = commandResult.newConversationId;
+            sessionUsage = { promptTokens: 0, completionTokens: 0 };
             // Initialize the new conversation
             const fileSystemContext = yield* FileSystemContextServiceTag;
             yield* initializeSession(agent, conversationId).pipe(
@@ -251,6 +254,14 @@ export class ChatServiceImpl implements ChatService {
 
           // Store the conversation ID for continuity
           conversationId = response.conversationId;
+
+          // Accumulate token usage for /cost (only on full AgentResponse, not error fallback)
+          if ("usage" in response && response.usage) {
+            sessionUsage = {
+              promptTokens: sessionUsage.promptTokens + response.usage.promptTokens,
+              completionTokens: sessionUsage.completionTokens + response.usage.completionTokens,
+            };
+          }
 
           // Persist conversation history for next turn and log new messages
           if (response.messages) {

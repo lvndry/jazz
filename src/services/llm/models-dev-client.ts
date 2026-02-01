@@ -22,6 +22,10 @@ export interface ModelsDevMetadata {
   readonly contextWindow: number;
   readonly supportsTools: boolean;
   readonly isReasoningModel: boolean;
+  /** Input price in USD per 1M tokens (from models.dev cost.input). */
+  readonly inputPricePerMillion?: number;
+  /** Output price in USD per 1M tokens (from models.dev cost.output). */
+  readonly outputPricePerMillion?: number;
 }
 
 type ModelsDevProvider = {
@@ -31,6 +35,7 @@ type ModelsDevProvider = {
       limit?: { context?: number; output?: number };
       tool_call?: boolean;
       reasoning?: boolean;
+      cost?: { input?: number; output?: number };
     }
   >;
 };
@@ -56,14 +61,16 @@ function lookupKeys(modelId: string): string[] {
 
 /**
  * Build a flat map from all providers/models in the API.
- * Later providers overwrite earlier for duplicate model ids (arbitrary but deterministic).
+ * Keys: "modelId" (last provider wins) and "providerId:modelId" for provider-scoped lookup (e.g. cost).
  */
 function buildMap(api: ModelsDevApi): Map<string, ModelsDevMetadata> {
   const map = new Map<string, ModelsDevMetadata>();
 
-  for (const provider of Object.values(api)) {
+  for (const [providerId, provider] of Object.entries(api)) {
     const models = provider.models;
     if (!models || typeof models !== "object") continue;
+
+    const providerKey = providerId.toLowerCase().trim();
 
     for (const [id, spec] of Object.entries(models)) {
       if (!spec || typeof spec !== "object") continue;
@@ -72,11 +79,24 @@ function buildMap(api: ModelsDevApi): Map<string, ModelsDevMetadata> {
       const contextWindow =
         typeof context === "number" && context > 0 ? context : DEFAULT_CONTEXT_WINDOW;
 
-      map.set(id.toLowerCase().trim(), {
+      const inputPrice =
+        typeof spec.cost?.input === "number" && spec.cost.input >= 0 ? spec.cost.input : undefined;
+      const outputPrice =
+        typeof spec.cost?.output === "number" && spec.cost.output >= 0
+          ? spec.cost.output
+          : undefined;
+
+      const meta: ModelsDevMetadata = {
         contextWindow,
         supportsTools: Boolean(spec.tool_call),
         isReasoningModel: Boolean(spec.reasoning),
-      });
+        ...(inputPrice !== undefined && { inputPricePerMillion: inputPrice }),
+        ...(outputPrice !== undefined && { outputPricePerMillion: outputPrice }),
+      };
+
+      const modelKey = id.toLowerCase().trim();
+      map.set(modelKey, meta);
+      map.set(`${providerKey}:${modelKey}`, meta);
     }
   }
 
@@ -110,14 +130,23 @@ export async function getModelsDevMap(): Promise<Map<string, ModelsDevMetadata> 
 }
 
 /**
- * Look up metadata from an already-fetched map. Tries exact match then base name (without :tag).
+ * Look up metadata from an already-fetched map. Tries provider:model first if providerId given, then exact match then base name (without :tag).
  * Use this when you have the map from getModelsDevMap() to avoid async per-model lookups.
  */
 export function getMetadataFromMap(
   map: Map<string, ModelsDevMetadata> | null,
   modelId: string,
+  providerId?: string,
 ): ModelsDevMetadata | undefined {
   if (!map) return undefined;
+  const normalizedModel = modelId.toLowerCase().trim();
+  if (providerId) {
+    const providerKey = providerId.toLowerCase().trim();
+    for (const key of lookupKeys(normalizedModel)) {
+      const meta = map.get(`${providerKey}:${key}`);
+      if (meta) return meta;
+    }
+  }
   for (const key of lookupKeys(modelId)) {
     const meta = map.get(key);
     if (meta) return meta;
@@ -126,14 +155,15 @@ export function getMetadataFromMap(
 }
 
 /**
- * Look up metadata for a model by id. Tries exact match then base name (without :tag).
- * Returns undefined if not found or when models.dev is unavailable.
+ * Look up metadata for a model by id. Optionally scope by provider for correct pricing.
+ * Tries exact match then base name (without :tag). Returns undefined if not found or when models.dev is unavailable.
  */
 export async function getModelsDevMetadata(
   modelId: string,
+  providerId?: string,
 ): Promise<ModelsDevMetadata | undefined> {
   const map = await getModelsDevMap();
-  return getMetadataFromMap(map, modelId);
+  return getMetadataFromMap(map, modelId, providerId);
 }
 
 /**

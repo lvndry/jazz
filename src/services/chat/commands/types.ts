@@ -16,6 +16,7 @@ export type CommandType =
   | "copy"
   | "skills"
   | "context"
+  | "cost"
   | "unknown";
 
 /**
@@ -40,6 +41,12 @@ export interface CommandResult {
   newAgent?: Agent;
 }
 
+/** Token usage accumulated for the current conversation (for /cost). */
+export interface SessionUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
 /**
  * Context needed to execute a command
  */
@@ -48,4 +55,6 @@ export interface CommandContext {
   conversationId: string | undefined;
   conversationHistory: ChatMessage[];
   sessionId: string;
+  /** Accumulated input/output tokens for this session (reset on /new). */
+  sessionUsage: SessionUsage;
 }

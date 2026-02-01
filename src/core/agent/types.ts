@@ -128,6 +128,11 @@ export interface AgentResponse {
    * - Tool messages (tool execution results)
    */
   readonly messages?: ChatMessage[] | undefined;
+  /**
+   * Token usage for this turn (prompt + completion).
+   * Used by the chat session to accumulate session cost for /cost.
+   */
+  readonly usage?: { readonly promptTokens: number; readonly completionTokens: number };
 }
 
 /**

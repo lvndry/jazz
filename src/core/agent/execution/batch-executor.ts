@@ -333,7 +333,14 @@ export function executeWithoutStreaming(
         );
         yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
 
-        return { ...response, messages: currentMessages };
+        return {
+          ...response,
+          messages: currentMessages,
+          usage: {
+            promptTokens: runMetrics.totalPromptTokens,
+            completionTokens: runMetrics.totalCompletionTokens,
+          },
+        };
       }),
     ({ logger, mcpManager, finalizeFiberRef }) =>
       Effect.gen(function* () {
