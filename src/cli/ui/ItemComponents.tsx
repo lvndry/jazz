@@ -21,7 +21,7 @@ export function ItemComponent({
   label: string;
 }): React.ReactElement {
   return (
-    <Box>
+    <Box marginBottom={1}>
       <Text
         color={isSelected ? "cyan" : "white"}
         bold={isSelected}

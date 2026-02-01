@@ -151,18 +151,23 @@ export class InkTerminalService implements TerminalService {
       const promptState: {
         type: "text";
         message: string;
-        options?: { defaultValue?: string; validate?: (input: string) => boolean | string };
+        options?: {
+          defaultValue?: string;
+          validate?: (input: string) => boolean | string;
+          commandSuggestions?: boolean;
+        };
         resolve: (val: unknown) => void;
       } = {
         type: "text",
         message,
-        ...(options
+        ...(options || message === "You:"
           ? {
               options: {
-                ...(options.defaultValue !== undefined
+                ...(options?.defaultValue !== undefined
                   ? { defaultValue: options.defaultValue }
                   : {}),
                 ...(validateFn ? { validate: validateFn } : {}),
+                ...(message === "You:" ? { commandSuggestions: true } : {}),
               },
             }
           : {}),
