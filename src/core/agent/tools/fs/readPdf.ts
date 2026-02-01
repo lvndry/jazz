@@ -152,8 +152,9 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
               );
               tablesSection = built.section;
               extractedTables = built.tables;
-            } catch {
+            } catch (tableError) {
               // No tables or getTable failed; continue with text only
+              yield* Effect.logDebug(`PDF table extraction failed, continuing with text only. Error: ${tableError instanceof Error ? tableError.message : String(tableError)}`);
             }
 
             // Combine text and tables so reader sees one document with page-labeled tables
