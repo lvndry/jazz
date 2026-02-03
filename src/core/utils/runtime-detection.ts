@@ -140,6 +140,25 @@ export function getBuiltinSkillsDirectory(): string | null {
 }
 
 /**
+ * Get the directory containing global user skills.
+ *
+ * Global skills are user-created skills stored in `~/.jazz/skills/`.
+ * These skills are available across all projects and persist between sessions.
+ *
+ * @returns Global skills directory path
+ *
+ * @example
+ * ```typescript
+ * const skillsDir = getGlobalSkillsDirectory();
+ * // "/Users/alice/.jazz/skills"
+ * ```
+ */
+export function getGlobalSkillsDirectory(): string {
+  const homeDir = os.homedir();
+  return path.join(homeDir, ".jazz", "skills");
+}
+
+/**
  * Get the directory containing built-in workflows shipped with Jazz.
  *
  * Built-in workflows are located in the `workflows/` folder within the Jazz package.
@@ -166,6 +185,25 @@ export function getBuiltinWorkflowsDirectory(): string | null {
   }
 
   return null;
+}
+
+/**
+ * Get the directory containing global user workflows.
+ *
+ * Global workflows are user-created workflows stored in `~/.jazz/workflows/`.
+ * These workflows are available across all projects and persist between sessions.
+ *
+ * @returns Global workflows directory path
+ *
+ * @example
+ * ```typescript
+ * const workflowsDir = getGlobalWorkflowsDirectory();
+ * // "/Users/alice/.jazz/workflows"
+ * ```
+ */
+export function getGlobalWorkflowsDirectory(): string {
+  const homeDir = os.homedir();
+  return path.join(homeDir, ".jazz", "workflows");
 }
 
 // ============================================================================

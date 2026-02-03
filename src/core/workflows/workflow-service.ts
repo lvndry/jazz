@@ -2,10 +2,13 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Ref } from "effect";
-import glob from "fast-glob";
 import matter from "gray-matter";
 import type { AutoApprovePolicy } from "@/core/types/tools";
-import { getBuiltinWorkflowsDirectory } from "@/core/utils/runtime-detection";
+import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "@/core/utils/markdown-index";
+import {
+  getBuiltinWorkflowsDirectory,
+  getGlobalWorkflowsDirectory,
+} from "@/core/utils/runtime-detection";
 
 /**
  * Workflow metadata extracted from WORKFLOW.md frontmatter.
@@ -167,23 +170,13 @@ export class WorkflowsLive implements WorkflowService {
       const localWorkflows = yield* this.scanLocalWorkflows();
 
       // 4. Merge (Local > Global > Built-in by name)
-      const workflowMap = new Map<string, WorkflowMetadata>();
-
-      // Add in priority order (later additions override earlier ones)
-      for (const workflow of builtinWorkflows) {
-        workflowMap.set(workflow.name, workflow);
-      }
-      for (const workflow of globalWorkflows) {
-        workflowMap.set(workflow.name, workflow);
-      }
-      for (const workflow of localWorkflows) {
-        workflowMap.set(workflow.name, workflow);
-      }
+      const merged = mergeByName(builtinWorkflows, globalWorkflows, localWorkflows);
+      const workflowMap = new Map<string, WorkflowMetadata>(merged.map((w) => [w.name, w]));
 
       // Update cache
       yield* Ref.set(this.workflowCache, workflowMap);
 
-      return Array.from(workflowMap.values());
+      return merged;
     }.bind(this));
   }
 
@@ -242,37 +235,26 @@ export class WorkflowsLive implements WorkflowService {
   }
 
   private getGlobalWorkflows(): Effect.Effect<readonly WorkflowMetadata[], Error> {
-    const homeDir = os.homedir();
-    const jazzDir = path.join(homeDir, ".jazz");
-
-    return Effect.tryPromise(() => fs.readFile(this.globalCachePath, "utf-8")).pipe(
-      Effect.map((content) => JSON.parse(content) as WorkflowMetadata[]),
-      Effect.catchAll(() =>
-        Effect.gen(function* (this: WorkflowsLive) {
-          // Cache missing or invalid, rescan
-          const workflows = yield* this.scanDirectory(jazzDir, 3);
-
-          // Write cache (ignore errors)
-          yield* Effect.promise(() =>
-            fs.mkdir(path.dirname(this.globalCachePath), { recursive: true }),
-          ).pipe(
-            Effect.flatMap(() =>
-              Effect.promise(() =>
-                fs.writeFile(this.globalCachePath, JSON.stringify(workflows, null, 2)),
-              ),
-            ),
-            Effect.catchAll(() => Effect.void),
-          );
-
-          return workflows;
-        }.bind(this)),
-      ),
-    );
+    const globalWorkflowsDir = getGlobalWorkflowsDirectory();
+    return loadCachedIndex<WorkflowMetadata>({
+      cachePath: this.globalCachePath,
+      scan: scanMarkdownIndex({
+        dir: globalWorkflowsDir,
+        fileName: "WORKFLOW.md",
+        depth: 3,
+        parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
+      }),
+    });
   }
 
   private scanLocalWorkflows(): Effect.Effect<readonly WorkflowMetadata[], Error> {
     const cwd = process.cwd();
-    return this.scanDirectory(cwd, 4);
+    return scanMarkdownIndex({
+      dir: cwd,
+      fileName: "WORKFLOW.md",
+      depth: 4,
+      parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
+    });
   }
 
   private getBuiltinWorkflows(): Effect.Effect<readonly WorkflowMetadata[], Error> {
@@ -281,47 +263,12 @@ export class WorkflowsLive implements WorkflowService {
       if (!builtinDir) {
         return [];
       }
-      return yield* this.scanDirectory(builtinDir, 2);
+      return yield* scanMarkdownIndex({
+        dir: builtinDir,
+        fileName: "WORKFLOW.md",
+        depth: 2,
+        parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
+      });
     }.bind(this));
-  }
-
-  private scanDirectory(
-    dir: string,
-    depth: number,
-  ): Effect.Effect<readonly WorkflowMetadata[], Error> {
-    return Effect.gen(function* () {
-      const patterns = ["**/WORKFLOW.md"];
-      const ignore = ["**/node_modules/**", "**/.git/**"];
-
-      const matches = yield* Effect.tryPromise(() =>
-        glob(patterns, {
-          cwd: dir,
-          deep: depth,
-          ignore: ignore,
-          absolute: true,
-          caseSensitiveMatch: false,
-        }),
-      );
-
-      const workflows: WorkflowMetadata[] = [];
-      for (const match of matches) {
-        try {
-          const content = yield* Effect.tryPromise(() => fs.readFile(match, "utf-8"));
-          const { data } = matter(content);
-
-          const metadata = parseWorkflowFrontmatter(
-            data as Record<string, unknown>,
-            path.dirname(match),
-          );
-          if (metadata) {
-            workflows.push(metadata);
-          }
-        } catch {
-          // Ignore malformed workflows
-          continue;
-        }
-      }
-      return workflows;
-    });
   }
 }
