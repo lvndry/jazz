@@ -59,3 +59,16 @@ export {
   type StreamingState,
   type FormattedChunk,
 } from "./markdown-service";
+
+// Diff Expansion Service
+export {
+  DiffExpansionServiceTag,
+  DiffExpansionServiceLive,
+  registerTruncatedDiff,
+  getExpandableDiff,
+  clearExpandableDiff,
+  hasExpandableDiff,
+  type DiffExpansionService,
+  type DiffExpansionRequest,
+  type TruncatedDiffInfo,
+} from "./diff-expansion-service";

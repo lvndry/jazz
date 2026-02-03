@@ -44,6 +44,7 @@ export type ParsedInput =
   | { readonly type: "submit" }
   | { readonly type: "escape" }
   | { readonly type: "tab" }
+  | { readonly type: "expand-diff" }
   | { readonly type: "char"; readonly char: string }
   | { readonly type: "ignore" };
 
@@ -421,6 +422,11 @@ export function createEscapeStateMachine(
     // Ctrl+C - ignore (let it propagate for interrupt handling)
     if (input === "c" || input === "\x03") {
       return { type: "ignore" };
+    }
+
+    // Ctrl+O - expand diff output
+    if (input === "o" || input === "\x0f") {
+      return { type: "expand-diff" };
     }
 
     return null;

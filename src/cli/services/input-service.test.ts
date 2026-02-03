@@ -59,6 +59,32 @@ describe("InputService", () => {
     service = createInputService(createMockCapabilities());
   });
 
+  describe("text input state store", () => {
+    test("returns stable default state for new input IDs", () => {
+      const first = service.getTextInputState("chat");
+      const second = service.getTextInputState("chat");
+      expect(first).toBe(second);
+      expect(first.value).toBe("");
+      expect(first.cursor).toBe(0);
+    });
+
+    test("notifies subscribers on meaningful changes", () => {
+      let calls = 0;
+      const unsubscribe = service.subscribeTextInputState("chat", () => {
+        calls += 1;
+      });
+
+      try {
+        service.setTextInputState("chat", { value: "a", cursor: 1 });
+        service.setTextInputState("chat", { value: "a", cursor: 1 });
+        service.setTextInputState("chat", { value: "ab", cursor: 2 });
+        expect(calls).toBe(2);
+      } finally {
+        unsubscribe();
+      }
+    });
+  });
+
   describe("ordered char application (text input ordering)", () => {
     test("multiple char events applied in order produce correct accumulated value", () => {
       let value = "";

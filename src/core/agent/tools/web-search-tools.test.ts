@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { Effect, Layer } from "effect";
 import { createWebSearchTool } from "./web-search-tools";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
@@ -16,6 +16,10 @@ mock.module("exa-js", () => {
 });
 
 describe("WebSearchTool", () => {
+  afterAll(() => {
+    mock.restore();
+  });
+
   const mockAppConfig: AppConfig = {
     storage: { type: "file", path: "./.jazz" },
     logging: { level: "info", format: "pretty", output: "console" },
@@ -162,9 +166,9 @@ describe("WebSearchTool", () => {
       depth: "standard" as const,
     };
 
-    const result = await Effect.runPromise(
+    const result = (await Effect.runPromise(
       tool.execute(args, context).pipe(Effect.provide(mockLayer)),
-    );
+    )) as { success: boolean; result?: unknown };
 
     expect(result.success).toBe(true);
     expect(result.result).toBeDefined();
@@ -177,7 +181,7 @@ describe("WebSearchTool", () => {
     expect(searchResult.provider).toBe("exa");
     expect(searchResult.query).toBe("test search");
     expect(searchResult.results).toHaveLength(1);
-    expect(searchResult.results[0].title).toBe("Exa Result");
+    expect(searchResult.results[0]!.title).toBe("Exa Result");
   });
 
   it("should create correct summary", () => {

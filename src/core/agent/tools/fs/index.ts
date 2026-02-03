@@ -20,6 +20,7 @@ import { createGrepTool } from "./grep";
 import { createHeadTool } from "./head";
 import { createLsTool } from "./ls";
 import { createMkdirTools } from "./mkdir";
+import { createPdfPageCountTool } from "./pdfPageCount";
 import { createPwdTool } from "./pwd";
 import { createReadFileTool } from "./read";
 import { createReadPdfTool } from "./readPdf";
@@ -77,6 +78,9 @@ export const fs = {
   /** Read PDF file contents */
   readPdf: createReadPdfTool,
 
+  /** Get total pages in a PDF file */
+  pdfPageCount: createPdfPageCountTool,
+
   /** Read first N lines of a file */
   head: createHeadTool,
 
@@ -123,6 +127,7 @@ export {
   createPwdTool,
   createReadFileTool,
   createReadPdfTool,
+  createPdfPageCountTool,
   createRmTools,
   createStatTool,
   createTailTool,

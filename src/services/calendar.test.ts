@@ -3,7 +3,7 @@ import { auth, type calendar_v3 } from "@googleapis/calendar";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Either } from "effect";
 import { CalendarServiceResource } from "./calendar";
-import { CalendarService } from "../core/interfaces/calendar";
+import type { CalendarService } from "../core/interfaces/calendar";
 import type { TerminalService } from "../core/interfaces/terminal";
 import { CalendarAuthenticationError, CalendarOperationError } from "../core/types";
 

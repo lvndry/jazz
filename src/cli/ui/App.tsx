@@ -2,12 +2,15 @@ import { Box, Text, useInput } from "ink";
 import Spinner from "ink-spinner";
 import type { Dispatch, SetStateAction } from "react";
 import React, { createContext, useMemo, useRef, useState } from "react";
+import { clearLastExpandedDiff, getLastExpandedDiff } from "./diff-expansion-store";
 import ErrorBoundary from "./ErrorBoundary";
+import { useInputHandler } from "./hooks/use-input-service";
 import { Layout } from "./Layout";
 import { LiveResponse } from "./LiveResponse";
 import { LogEntryItem } from "./LogList";
 import { Prompt } from "./Prompt";
 import type { LiveStreamState, LogEntry, LogEntryInput, PromptState } from "./types";
+import { InputPriority, InputResults } from "../services/input-service";
 
 /**
  * Stable header content - memoized to prevent Layout re-renders.
@@ -118,6 +121,35 @@ export function App(): React.ReactElement {
          interruptHandlerRef.current();
       }
     }
+  });
+
+  useInputHandler({
+    id: "expand-diff-handler",
+    priority: InputPriority.GLOBAL_SHORTCUT,
+    onInput: (action) => {
+      if (action.type !== "expand-diff") {
+        return InputResults.ignored();
+      }
+
+      const payload = getLastExpandedDiff();
+      if (!payload) {
+        store.printOutput({
+          type: "warn",
+          message: "No truncated diff available to expand.",
+          timestamp: new Date(),
+        });
+        return InputResults.consumed();
+      }
+
+      store.printOutput({
+        type: "log",
+        message: payload.fullDiff,
+        timestamp: new Date(),
+      });
+      clearLastExpandedDiff();
+      return InputResults.consumed();
+    },
+    deps: [],
   });
 
   const initializedRef = useRef(false);

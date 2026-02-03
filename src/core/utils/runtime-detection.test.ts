@@ -36,7 +36,7 @@ describe("Runtime Detection", () => {
   afterEach(() => {
     // Restore original values
     if (originalArgv) {
-      process.argv[1] = originalArgv[0];
+      process.argv[1] = originalArgv[0]!;
     } else {
       delete process.argv[1];
     }

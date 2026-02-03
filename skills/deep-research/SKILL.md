@@ -322,6 +322,302 @@ Before delivering final report:
 - [ ] Recency appropriate for topic
 - [ ] **Sources used are shown**: a "Sources" or "References" section lists every source with title, publication, date, and URL
 
+## Memory & Persistence System
+
+Track research progress in a structured file to maintain context across sessions and enable deeper analysis.
+
+### Memory File Format
+
+```yaml
+# research-memory-[timestamp].yaml
+research:
+  id: "deep-research-2024-01-15-143022"
+  question: "How will AI impact healthcare costs in the next decade?"
+  started_at: "2024-01-15T14:30:22Z"
+  status: "in_progress"  # planning|researching|synthesizing|completed
+  user_constraints:
+    depth: "comprehensive"
+    time_frame: "next decade"
+    expected_output: "detailed report with sources"
+    special_requirements: ["PDF analysis", "academic papers"]
+
+  phases:
+    planning:
+      completed: true
+      timestamp: "2024-01-15T14:30:45Z"
+      user_responses:
+        research_approach: "multi-source with academic focus"
+        key_areas: ["cost savings", "adoption barriers", "expert predictions"]
+        depth_preference: "in-depth with primary sources"
+
+    decomposition:
+      completed: true
+      sub_questions:
+        - id: "current_ai_healthcare"
+          question: "What are current AI applications in healthcare?"
+          status: "completed"
+          priority: "high"
+        - id: "cost_savings_evidence"
+          question: "What cost savings have been documented?"
+          status: "in_progress"
+          priority: "high"
+
+    research:
+      current_batch: 2
+      batches:
+        batch_1:
+          status: "completed"
+          queries: ["AI healthcare applications 2024", "machine learning medical diagnosis"]
+          sources_found: 12
+        batch_2:
+          status: "in_progress"
+          queries: ["AI healthcare cost savings studies", "ROI AI medical tools"]
+          sources_found: 8
+
+  findings:
+    key_claims:
+      - id: "ai_diagnostic_accuracy"
+        claim: "AI improves diagnostic accuracy by 10-30%"
+        confidence: "high"
+        sources: ["source_1", "source_2", "source_3"]
+        verification_status: "triangulated"
+        last_updated: "2024-01-15T15:15:30Z"
+
+    contradictions:
+      - id: "cost_savings_timeline"
+        claim_a: "Immediate cost savings possible"
+        claim_b: "Cost savings take 2-3 years"
+        resolution_strategy: "investigate further"
+        sources: ["academic_paper_2023", "industry_report_2024"]
+
+    gaps:
+      - question: "Long-term cost implications beyond 5 years"
+        reason: "Limited longitudinal studies"
+        mitigation: "Search for expert predictions and models"
+
+  sources:
+    source_1:
+      title: "AI in Medical Imaging: A Systematic Review"
+      type: "academic"
+      url: "https://example.com/paper1.pdf"
+      date: "2024-01-10"
+      credibility_score: 14
+      key_claims: ["claim_1", "claim_2"]
+
+  checkpoints:
+    - id: "mid_research_review"
+      timestamp: "2024-01-15T15:45:00Z"
+      findings_so_far: "Found 15 sources, 3 major themes emerging"
+      user_feedback: "Direction looks good, focus more on economic analysis"
+      adjustments_made: ["Added economic queries", "Prioritized ROI studies"]
+
+  synthesis:
+    status: "pending"
+    outline:
+      executive_summary: "AI will reduce healthcare costs by 5-15% within 5 years"
+      key_findings:
+        - "Diagnostic improvements"
+        - "Administrative efficiency"
+      limitations:
+        - "Implementation challenges"
+        - "Regulatory hurdles"
+```
+
+### Memory Management Rules
+
+1. **Create memory file** at research start with timestamp
+2. **Update incrementally** after each major phase or finding
+3. **Persist across sessions** - allow resuming interrupted research
+4. **Track user interactions** - store feedback and corrections
+5. **Enable sharing** - memory files can be exported/shared for collaboration
+
+### Memory-Driven Research Flow
+
+```
+START: User Question
+       ↓
+┌─────────────────┐
+│   INITIALIZE    │ ← Create research memory file
+│    MEMORY       │
+└─────────────────┘
+       ↓
+┌─────────────────┐
+│   PLANNING      │ ← Ask user clarifying questions
+│  QUESTIONS      │   about depth, format, focus areas
+└─────────────────┘
+       ↓
+┌─────────────────┐
+│ DECOMPOSITION   │ ← Break question into sub-questions
+└─────────────────┘
+       ↓
+┌─────────────────┐     ┌─────────────────┐
+│   BATCHED       │ --> │   PDF/DOC       │
+│   SEARCH        │     │   ANALYSIS      │
+└─────────────────┘     └─────────────────┘
+       ↓                           ↓
+┌─────────────────┐     ┌─────────────────┐
+│  FINDINGS       │ <-- │   EXTRACTED     │
+│ EXTRACTION      │     │   CLAIMS &      │
+└─────────────────┘     │   INSIGHTS      │
+                        └─────────────────┘
+       ↓
+┌─────────────────┐
+│  CHECKPOINT     │ ← Pause for user feedback
+│  & FEEDBACK     │   "Is this going right direction?"
+└─────────────────┘
+       ↓
+       ├─ Continue ──→ [Adjust search strategy]
+       │
+       ├─ Pivot ─────→ [Add/remove focus areas]
+       │
+       └─ Deepen ────→ [More detailed analysis]
+
+┌─────────────────┐
+│ VERIFICATION    │ ← Cross-reference claims, check contradictions
+└─────────────────┘
+       ↓
+┌─────────────────┐
+│   SYNTHESIS     │ ← Build comprehensive report
+│   & REPORT      │
+└─────────────────┘
+       ↓
+┌─────────────────┐
+│   FINAL         │ ← Present to user
+│   DELIVERY      │
+└─────────────────┘
+       ↓
+┌─────────────────┐
+│  MEMORY         │ ← Archive for future reference
+│  ARCHIVAL       │
+└─────────────────┘
+```
+
+## Interactive Questioning Phase
+
+### Pre-Research Questions
+
+Before starting research, ask the user clarifying questions:
+
+```markdown
+## Research Planning Questions
+
+**1. Research Depth & Scope**
+What level of depth are you looking for?
+- [ ] Overview/summary (quick answers)
+- [ ] Detailed analysis (comprehensive coverage)
+- [ ] Expert-level (academic papers, technical details)
+
+**2. Expected Output Format**
+What format would be most useful?
+- [ ] Executive summary with key findings
+- [ ] Detailed report with evidence and citations
+- [ ] Comparative analysis
+- [ ] Prediction/forecast based on current trends
+
+**3. Key Focus Areas**
+Which aspects are most important to you? (Select all that apply)
+- [ ] Current state/trends
+- [ ] Future predictions
+- [ ] Specific technologies/regions
+- [ ] Cost/benefit analysis
+- [ ] Implementation challenges
+
+**4. Source Preferences**
+Any preferred source types?
+- [ ] Academic/research papers
+- [ ] Industry reports
+- [ ] News/media coverage
+- [ ] Government data
+- [ ] Expert opinions
+
+**5. Time Sensitivity**
+How important is recency?
+- [ ] Very important (focus on latest data)
+- [ ] Somewhat important (balance with quality)
+- [ ] Not important (prioritize comprehensive historical view)
+```
+
+### Mid-Research Checkpoints
+
+Stop research periodically to validate direction:
+
+```markdown
+## Research Checkpoint - Batch [N] Complete
+
+**Findings so far:**
+- [Key finding 1]
+- [Key finding 2]
+- [Emerging pattern/trend]
+
+**Direction Check:**
+Are we exploring the right areas? Should we:
+- [ ] Continue current direction
+- [ ] Pivot to different focus areas
+- [ ] Add specific topics to investigate
+- [ ] Reduce scope on certain areas
+
+**Depth Adjustment:**
+Current depth level seems [appropriate/too shallow/too deep]. Should we:
+- [ ] Maintain current depth
+- [ ] Go deeper on [specific topic]
+- [ ] Summarize [specific topic] more briefly
+
+**New Questions Emerged:**
+- [Question that arose during research]
+- [Additional clarification needed]
+```
+
+## Enhanced PDF & Document Analysis
+
+### PDF Processing Capabilities
+
+For comprehensive research, automatically download and analyze:
+
+1. **Academic Papers**: Full-text extraction, citation analysis, methodology review
+2. **Research Reports**: Executive summaries, data extraction, methodology assessment
+3. **Technical Documentation**: API docs, implementation guides, specifications
+4. **Government Reports**: Statistical data, policy analysis, regulatory frameworks
+
+### PDF Analysis Pipeline
+
+```
+PDF Source → Download → Text Extraction → Content Analysis → Key Insights → Memory Storage
+     ↓              ↓            ↓                ↓              ↓            ↓
+  URL/Title     Local File    Structured Text   Claims/Facts   Summaries    Research Memory
+```
+
+### Document Intelligence Features
+
+- **Citation Extraction**: Track references and build citation networks
+- **Figure/Table Analysis**: Extract data from visualizations
+- **Methodology Assessment**: Evaluate research rigor and validity
+- **Cross-Reference Verification**: Link claims across multiple documents
+- **Content Summarization**: Generate structured abstracts and key findings
+
+## Updated Pipeline Structure
+
+### Enhanced Research Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  1. QUESTION → 2. MEMORY INIT → 3. PLANNING QUESTIONS → 4. USER INPUT │
+│                                                                     │
+│  5. DECOMPOSITION → 6. MEMORY UPDATE → 7. BATCHED SEARCH → 8. PDF ANALYSIS │
+│                                                                     │
+│  9. VERIFICATION → 10. CHECKPOINT → 11. USER FEEDBACK → 12. ADJUSTMENTS │
+│                                                                     │
+│  13. ITERATION OR → 14. SYNTHESIS → 15. FINAL REPORT → 16. MEMORY ARCHIVE │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Enhancements
+
+1. **Memory Integration**: All phases update persistent memory
+2. **User Interaction**: Multiple checkpoints for feedback and course correction
+3. **Document Intelligence**: Advanced PDF and paper analysis capabilities
+4. **Iterative Refinement**: Research adapts based on findings and user input
+5. **Comprehensive Tracking**: Full audit trail of research process and decisions
+
 ## Additional Resources
 
 - For query decomposition strategies, see [references/query-decomposition.md](references/query-decomposition.md)

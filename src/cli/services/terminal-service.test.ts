@@ -6,6 +6,7 @@ import {
   getAllSequencesForAction,
   sequenceMatchesAction,
 } from "./terminal-service";
+import type { TerminalCapabilityService } from "./terminal-service";
 
 // ============================================================================
 // Tests
@@ -13,7 +14,7 @@ import {
 
 describe("TerminalService", () => {
   const runWithService = <A, E>(
-    program: Effect.Effect<A, E, { readonly capabilities: Effect.Effect<import("./terminal-service").TerminalCapabilities> }>,
+    program: Effect.Effect<A, E, TerminalCapabilityService>,
   ): Promise<A> => {
     return Effect.runPromise(Effect.provide(program, TerminalCapabilityServiceLive));
   };

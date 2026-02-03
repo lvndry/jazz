@@ -19,50 +19,7 @@ Generate minimal project scaffolds from short descriptions. Turn "CLI in Go with
 2. **Choose stack**: Specific tools (e.g. cobra for Go CLI, Vite+React for frontend)
 3. **Design layout**: Directories, main entry, config, README
 4. **Generate**: Minimal files to run (main, config, one example)
-5. **Verify**: Commands to install, run, test
-
-## Common Patterns
-
-### CLI
-
-| Request         | Stack              | Output                                      |
-| --------------- | ------------------ | ------------------------------------------- |
-| "CLI in Go"     | cobra or flag      | main.go, cmd/root.go, go.mod                |
-| "CLI in Node"   | commander or yargs | index.js, package.json, bin                 |
-| "CLI in Python" | argparse or click  | main.py, pyproject.toml or requirements.txt |
-| "CLI in Rust"   | clap               | main.rs, Cargo.toml                         |
-
-Minimal: one command, --help, one subcommand or flag. README with install and run.
-
-### Web App (frontend)
-
-| Request               | Stack                       | Output                                      |
-| --------------------- | --------------------------- | ------------------------------------------- |
-| "React app"           | Vite + React                | src/App.tsx, index.html, package.json       |
-| "React app with auth" | Vite + React + auth context | + auth context, login form, protected route |
-| "Next.js app"         | Next.js                     | app/page.tsx, layout.tsx, package.json      |
-| "Static site"         | HTML/CSS/JS or 11ty         | index.html, style.css, script.js            |
-
-Minimal: one page, run with one command. Auth = context + simple login UI + one protected route.
-
-### API / Backend
-
-| Request              | Stack              | Output                             |
-| -------------------- | ------------------ | ---------------------------------- |
-| "REST API in Node"   | Express or Fastify | server.js, routes, package.json    |
-| "REST API in Go"     | net/http or Gin    | main.go, handlers, go.mod          |
-| "REST API in Python" | FastAPI            | main.py, routers, requirements.txt |
-
-Minimal: one health route, one example resource route (GET/POST). README with run and curl example.
-
-### Full-stack
-
-| Request              | Stack                       | Output                               |
-| -------------------- | --------------------------- | ------------------------------------ |
-| "Full-stack with DB" | Next.js + Prisma or similar | app/, api/, schema, seed             |
-| "React + Node API"   | Vite + Express              | frontend/, backend/, README for both |
-
-Minimal: one flow (e.g. list + create) with real DB. README for setup and run.
+5. Ask for clarifications, personalisation if needed
 
 ## Scaffold Rules
 

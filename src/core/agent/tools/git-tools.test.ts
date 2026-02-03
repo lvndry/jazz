@@ -14,8 +14,10 @@ import {
   createGitPushTools,
   createGitStatusTool,
 } from "./git";
-import { createToolRegistryLayer, type Tool, type ToolExecutionResult } from "./tool-registry";
+import { createToolRegistryLayer } from "./tool-registry";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
+import type { Tool } from "../../interfaces/tool-registry";
+import type { ToolExecutionResult } from "../../types/tools";
 
 function getCurrentBranch(): Effect.Effect<string, Error> {
   return Effect.async((resume) => {

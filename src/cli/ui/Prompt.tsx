@@ -6,7 +6,7 @@ import {
   type ChatCommandInfo,
 } from "@/services/chat/commands";
 import { TextInput, SHORTCUTS_HINT } from "./components/Input/TextInput";
-import { useInputHandler, InputResults } from "./hooks/use-input-service";
+import { useInputHandler, InputResults, useTextInput } from "./hooks/use-input-service";
 import { IndicatorComponent, ItemComponent } from "./ItemComponents";
 import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
 import type { PromptState } from "./types";
@@ -45,87 +45,15 @@ function PromptComponent({
   prompt: PromptState;
   workingDirectory?: string | null;
 }): React.ReactElement {
-  const [value, setValue] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
 
   // Use refs to avoid recreating callbacks on every render
   const promptRef = useRef(prompt);
   const validationErrorRef = useRef(validationError);
+  const setValueRef = useRef<(value: string, cursor?: number) => void>(() => {});
   promptRef.current = prompt;
   validationErrorRef.current = validationError;
-
-  const commandSuggestionsEnabled =
-    prompt.type === "text" && Boolean(prompt.options?.commandSuggestions);
-  const suggestionPrefix = value.startsWith("/") ? value.slice(1) : "";
-  const filteredCommands = useMemo(
-    () =>
-      commandSuggestionsEnabled && value.startsWith("/")
-        ? filterCommandsByPrefix(suggestionPrefix)
-        : [],
-    [commandSuggestionsEnabled, suggestionPrefix, value],
-  );
-  const suggestionsVisible = filteredCommands.length > 0;
-
-  // Keep selected index in bounds when list changes
-  useEffect(() => {
-    if (filteredCommands.length > 0) {
-      setSelectedSuggestionIndex((i) =>
-        Math.min(i, filteredCommands.length - 1),
-      );
-    }
-  }, [filteredCommands.length]);
-
-  // Refs for command-suggestions handler so it sees latest state
-  const setValueRef = useRef(setValue);
-  const setSelectedSuggestionIndexRef = useRef(setSelectedSuggestionIndex);
-  const filteredCommandsRef = useRef(filteredCommands);
-  const selectedSuggestionIndexRef = useRef(selectedSuggestionIndex);
-  setValueRef.current = setValue;
-  setSelectedSuggestionIndexRef.current = setSelectedSuggestionIndex;
-  filteredCommandsRef.current = filteredCommands;
-  selectedSuggestionIndexRef.current = selectedSuggestionIndex;
-
-  useInputHandler({
-    id: "chat-command-suggestions",
-    priority: COMMAND_SUGGESTIONS_PRIORITY,
-    isActive: commandSuggestionsEnabled && suggestionsVisible,
-    onInput: (action) => {
-      const commands = filteredCommandsRef.current;
-      const idx = selectedSuggestionIndexRef.current;
-      if (action.type === "up") {
-        setSelectedSuggestionIndexRef.current(Math.max(0, idx - 1));
-        return InputResults.consumed();
-      }
-      if (action.type === "down") {
-        setSelectedSuggestionIndexRef.current(
-          Math.min(commands.length - 1, idx + 1),
-        );
-        return InputResults.consumed();
-      }
-      if (action.type === "submit" && commands[idx]) {
-        setValueRef.current("/" + commands[idx].name + " ");
-        setSelectedSuggestionIndexRef.current(0);
-        return InputResults.consumed();
-      }
-      return InputResults.ignored();
-    },
-    deps: [commandSuggestionsEnabled, suggestionsVisible],
-  });
-
-  useEffect(() => {
-    // React can batch `setPrompt(null)` + `setPrompt(nextPrompt)`, so this component
-    // may not unmount between prompts. Ensure the input is reset for each new prompt.
-    const rawDefaultValue = prompt.options?.["defaultValue"];
-    const defaultValue =
-      prompt.type === "text" && typeof rawDefaultValue === "string"
-        ? rawDefaultValue
-        : "";
-
-    setValue(defaultValue);
-    setValidationError(null);
-    setSelectedSuggestionIndex(0);
-  }, [prompt]);
 
   // Stable callback - doesn't change between renders
   const handleSubmit = useCallback((val: string): void => {
@@ -152,24 +80,102 @@ function PromptComponent({
     }
 
     // Validation passed or no validation function
-    setValue("");
+    setValueRef.current("", 0);
     setValidationError(null);
     currentPrompt.resolve(val);
   }, []);
 
-  // Stable callback - doesn't change between renders
-  const handleChange = useCallback((newValue: string): void => {
-    setValue(newValue);
-    // Clear validation error when user starts typing
-    if (validationErrorRef.current) {
-      setValidationError(null);
+  const textInputActive =
+    prompt.type === "text" || prompt.type === "password";
+  const { value, cursor, setValue } = useTextInput({
+    id: "text-input",
+    isActive: textInputActive,
+    onSubmit: handleSubmit,
+  });
+  setValueRef.current = setValue;
+
+  const commandSuggestionsEnabled =
+    prompt.type === "text" && Boolean(prompt.options?.commandSuggestions);
+  const suggestionPrefix = value.startsWith("/") ? value.slice(1) : "";
+  const filteredCommands = useMemo(
+    () =>
+      commandSuggestionsEnabled && value.startsWith("/")
+        ? filterCommandsByPrefix(suggestionPrefix)
+        : [],
+    [commandSuggestionsEnabled, suggestionPrefix, value],
+  );
+  const suggestionsVisible = filteredCommands.length > 0;
+
+  // Keep selected index in bounds when list changes
+  useEffect(() => {
+    if (filteredCommands.length > 0) {
+      setSelectedSuggestionIndex((i) =>
+        Math.min(i, filteredCommands.length - 1),
+      );
     }
-  }, []);
+  }, [filteredCommands.length]);
+
+  // Refs for command-suggestions handler so it sees latest state
+  const setSelectedSuggestionIndexRef = useRef(setSelectedSuggestionIndex);
+  const filteredCommandsRef = useRef(filteredCommands);
+  const selectedSuggestionIndexRef = useRef(selectedSuggestionIndex);
+  setSelectedSuggestionIndexRef.current = setSelectedSuggestionIndex;
+  filteredCommandsRef.current = filteredCommands;
+  selectedSuggestionIndexRef.current = selectedSuggestionIndex;
+
+  useInputHandler({
+    id: "chat-command-suggestions",
+    priority: COMMAND_SUGGESTIONS_PRIORITY,
+    isActive: commandSuggestionsEnabled && suggestionsVisible,
+    onInput: (action) => {
+      const commands = filteredCommandsRef.current;
+      const idx = selectedSuggestionIndexRef.current;
+      if (action.type === "up") {
+        setSelectedSuggestionIndexRef.current(Math.max(0, idx - 1));
+        return InputResults.consumed();
+      }
+      if (action.type === "down") {
+        setSelectedSuggestionIndexRef.current(
+          Math.min(commands.length - 1, idx + 1),
+        );
+        return InputResults.consumed();
+      }
+      if (action.type === "submit" && commands[idx]) {
+        const nextValue = "/" + commands[idx].name + " ";
+        setValueRef.current(nextValue, nextValue.length);
+        setSelectedSuggestionIndexRef.current(0);
+        return InputResults.consumed();
+      }
+      return InputResults.ignored();
+    },
+    deps: [commandSuggestionsEnabled, suggestionsVisible],
+  });
+
+  useEffect(() => {
+    // React can batch `setPrompt(null)` + `setPrompt(nextPrompt)`, so this component
+    // may not unmount between prompts. Ensure the input is reset for each new prompt.
+    const rawDefaultValue = prompt.options?.["defaultValue"];
+    const defaultValue =
+      prompt.type === "text" && typeof rawDefaultValue === "string"
+        ? rawDefaultValue
+        : "";
+
+    setValue(defaultValue, defaultValue.length);
+    setValidationError(null);
+    setSelectedSuggestionIndex(0);
+  }, [prompt, setValue]);
 
   // Stable callback - doesn't change between renders
   const handleSelect = useCallback((item: { value: unknown; }): void => {
     promptRef.current.resolve(item.value);
   }, []);
+
+  useEffect(() => {
+    // Clear validation error when user edits input
+    if (validationErrorRef.current) {
+      setValidationError(null);
+    }
+  }, [value]);
 
   // Handle Escape key for cancellation (only for select/confirm prompts)
   useInput((_input: string, key: { escape?: boolean }) => {
@@ -203,8 +209,7 @@ function PromptComponent({
               <Box>
                 <TextInput
                   value={value}
-                  onChange={handleChange}
-                  onSubmit={handleSubmit}
+                  cursor={cursor}
                   placeholder="Ask anything..."
                   showCursor
                 />
@@ -253,8 +258,7 @@ function PromptComponent({
                 <Text color="green">{">"} </Text>
                 <TextInput
                   value={value}
-                  onChange={handleChange}
-                  onSubmit={handleSubmit}
+                  cursor={cursor}
                   mask="*"
                 />
               </Box>

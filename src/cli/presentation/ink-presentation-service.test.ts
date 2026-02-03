@@ -69,7 +69,7 @@ describe("InkStreamingRenderer", () => {
         (s): s is LiveStreamState => s !== null && s.text.length > 0,
       );
       expect(withText.length).toBeGreaterThan(0);
-      expect(withText[withText.length - 1].text).toBe("Hello");
+      expect(withText[withText.length - 1]!.text).toBe("Hello");
     });
 
     test("never overwrites with older sequence when chunks arrive out of order", async () => {
@@ -112,7 +112,7 @@ describe("InkStreamingRenderer", () => {
         (s): s is LiveStreamState => s !== null && s.text.length > 0,
       );
       expect(withText.length).toBeGreaterThan(0);
-      expect(withText[withText.length - 1].text).toBe("Hel");
+      expect(withText[withText.length - 1]!.text).toBe("Hel");
     });
   });
 });

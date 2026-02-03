@@ -20,6 +20,7 @@ import { formatMarkdown } from "./markdown-formatter";
 import { applyTextChunkOrdered } from "./stream-text-order";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/App";
+import { setLastExpandedDiff } from "../ui/diff-expansion-store";
 
 function renderToolBadge(label: string): React.ReactElement {
   return React.createElement(
@@ -251,6 +252,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
           const namePrefix = toolName ? `${toolName} ` : "";
           const displayText = summary && summary.length > 0 ? summary : namePrefix + "done";
 
+          if (toolName && event.result) {
+            this.storeExpandableDiff(toolName, event.result);
+          }
+
           // Check if summary has multi-line content (e.g., diff output)
           const hasMultiLine = displayText.includes("\n");
 
@@ -386,6 +391,27 @@ export class InkStreamingRenderer implements StreamingRenderer {
     if (uniqueToolNames.length === 0) return "Working…";
     if (uniqueToolNames.length === 1) return `Running ${uniqueToolNames[0]}…`;
     return `Running ${uniqueToolNames.length} tools… (${uniqueToolNames.join(", ")})`;
+  }
+
+  private storeExpandableDiff(toolName: string, result: string): void {
+    if (toolName !== "execute_edit_file" && toolName !== "execute_write_file") {
+      return;
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(result);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return;
+      }
+      const obj = parsed as Record<string, unknown>;
+      const fullDiff = obj["fullDiff"];
+      const wasTruncated = obj["wasTruncated"];
+      if (typeof fullDiff === "string" && fullDiff.length > 0 && wasTruncated === true) {
+        setLastExpandedDiff(fullDiff);
+      }
+    } catch {
+      // Ignore parse errors
+    }
   }
 
   private updateLiveStream(includeReasoning: boolean = true, force: boolean = false): void {

@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
-import { generateDiff } from "@/core/utils/diff-utils";
+import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff-utils";
 import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 
@@ -104,7 +104,18 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           yield* fs.writeFileString(target, args.content);
 
           // Generate diff for terminal output
-          const diff = generateDiff(originalContent, args.content, target, { isNewFile });
+          const { diff, wasTruncated } = generateDiffWithMetadata(
+            originalContent,
+            args.content,
+            target,
+            { isNewFile },
+          );
+          const fullDiff = wasTruncated
+            ? generateDiff(originalContent, args.content, target, {
+                isNewFile,
+                maxLines: Number.POSITIVE_INFINITY,
+              })
+            : "";
 
           return {
             success: true,
@@ -113,6 +124,8 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
               message: isNewFile ? `File created: ${target}` : `File written: ${target}`,
               isNewFile,
               diff,
+              wasTruncated,
+              fullDiff,
             },
           };
         } catch (error) {

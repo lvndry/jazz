@@ -32,8 +32,8 @@ describe("AppStateService", () => {
       );
 
       expect(result).toHaveLength(1);
-      expect(result[0].message).toBe("Test message");
-      expect(result[0].type).toBe("log");
+      expect(result[0]!.message).toBe("Test message");
+      expect(result[0]!.type).toBe("log");
     });
 
     test("addLog appends to existing logs", async () => {
@@ -48,8 +48,8 @@ describe("AppStateService", () => {
       );
 
       expect(result).toHaveLength(2);
-      expect(result[0].message).toBe("First");
-      expect(result[1].message).toBe("Second");
+      expect(result[0]!.message).toBe("First");
+      expect(result[1]!.message).toBe("Second");
     });
 
     test("updateLog modifies existing log by id", async () => {
@@ -63,7 +63,8 @@ describe("AppStateService", () => {
         }),
       );
 
-      expect(result[0].message).toBe("Updated");
+      expect(result).toHaveLength(1);
+      expect(result[0]!.message).toBe("Updated");
     });
 
     test("clearLogs removes all logs", async () => {

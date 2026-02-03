@@ -3,7 +3,7 @@ import { auth, type gmail_v1 } from "@googleapis/gmail";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Either } from "effect";
 import { GmailServiceResource } from "./gmail";
-import { GmailService } from "../core/interfaces/gmail";
+import type { GmailService } from "../core/interfaces/gmail";
 import type { TerminalService } from "../core/interfaces/terminal";
 import { GmailAuthenticationError, GmailOperationError } from "../core/types";
 
@@ -361,7 +361,7 @@ describe("GmailService", () => {
       );
 
       expect(mockGmail.users.drafts.create).toHaveBeenCalled();
-      const callArgs = (mockGmail.users.drafts.create as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockGmail.users.drafts.create as ReturnType<typeof mock>).mock.calls[0]![0];
       expect(callArgs.requestBody?.message?.raw).toBeDefined();
     });
 
