@@ -34,8 +34,8 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       includeHidden: z.boolean().optional().describe("Include dotfiles and dot-directories"),
       smart: z
         .boolean()
-        .optional()
-        .describe("Use smart hierarchical search (cwd→parent→home). Default: true. Keep enabled unless you have a specific directory path."),
+        .default(true)
+        .describe("Use smart hierarchical search (cwd→parent→home). Keep enabled unless you have a specific directory path."),
     })
     .strict();
 

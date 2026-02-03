@@ -426,7 +426,6 @@ export function App(): React.ReactElement {
   return (
     <ErrorBoundary>
       <Box flexDirection="column">
-        {/* Lightweight header - rendered once and frozen */}
         <Static items={[1]}>
           {() => (
             <React.Fragment key="header">
