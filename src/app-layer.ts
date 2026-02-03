@@ -13,6 +13,9 @@ import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
+import { runWorkflowCatchUp } from "./core/workflows/catch-up";
+import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
+import { WorkflowsLive } from "./core/workflows/workflow-service";
 import { createAgentServiceLayer } from "./services/agent-service";
 import { createCalendarServiceLayer } from "./services/calendar";
 import { createChatServiceLayer } from "./services/chat-service";
@@ -154,6 +157,8 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     presentationLayer,
     NotificationServiceLayer,
     SkillsLive.layer,
+    WorkflowsLive.layer,
+    SchedulerServiceLayer,
   );
 }
 
@@ -177,6 +182,16 @@ export function runCliEffect<R, E extends JazzError | Error>(
   });
 
   const program = Effect.gen(function* () {
+    const argv = process.argv.slice(2);
+    const workflowIndex = argv.findIndex((arg) => arg === "workflow");
+    const isWorkflowRun = workflowIndex !== -1 && argv[workflowIndex + 1] === "run";
+
+    const shouldSkipCatchUp = process.env["JAZZ_DISABLE_CATCH_UP"] === "1" || isWorkflowRun;
+
+    if (!shouldSkipCatchUp) {
+      yield* Effect.fork(runWorkflowCatchUp());
+    }
+
     const fiber = yield* Effect.fork(autoCheckForUpdate().pipe(Effect.zipRight(effect)));
     let signalCount = 0;
     type SignalName = "SIGINT" | "SIGTERM";

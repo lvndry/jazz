@@ -139,6 +139,35 @@ export function getBuiltinSkillsDirectory(): string | null {
   return null;
 }
 
+/**
+ * Get the directory containing built-in workflows shipped with Jazz.
+ *
+ * Built-in workflows are located in the `workflows/` folder within the Jazz package.
+ * These are example workflows that demonstrate Jazz's automation capabilities.
+ *
+ * @returns Workflows directory path, or null if not found
+ *
+ * @example
+ * ```typescript
+ * const workflowsDir = getBuiltinWorkflowsDirectory();
+ * // "/usr/local/lib/node_modules/jazz-ai/workflows"
+ * // or "/Users/alice/projects/jazz/workflows"
+ * ```
+ */
+export function getBuiltinWorkflowsDirectory(): string | null {
+  const packageDir = getPackageRootDirectory();
+  if (!packageDir) {
+    return null;
+  }
+
+  const workflowsDir = path.join(packageDir, "workflows");
+  if (fs.existsSync(workflowsDir) && fs.statSync(workflowsDir).isDirectory()) {
+    return workflowsDir;
+  }
+
+  return null;
+}
+
 // ============================================================================
 // SECTION 2: ENVIRONMENT DETECTION
 // ============================================================================

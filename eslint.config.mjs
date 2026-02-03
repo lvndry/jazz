@@ -45,6 +45,7 @@ export default [
       "@typescript-eslint/explicit-function-return-type": "off",
       "n/no-missing-import": "off",
       "n/no-unsupported-features/es-syntax": "off",
+      "n/no-process-exit": "off",
     },
   },
   {

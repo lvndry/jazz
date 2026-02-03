@@ -212,6 +212,7 @@ function PromptComponent({
                   cursor={cursor}
                   placeholder="Ask anything..."
                   showCursor
+                  textColor="white"
                 />
               </Box>
               {/* Command suggestions when typing / */}
@@ -260,6 +261,7 @@ function PromptComponent({
                   value={value}
                   cursor={cursor}
                   mask="*"
+                  textColor="white"
                 />
               </Box>
             </Box>

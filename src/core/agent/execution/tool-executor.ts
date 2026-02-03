@@ -15,6 +15,7 @@ import { GenerationInterruptedError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import {
   isApprovalRequiredResult,
+  shouldAutoApprove,
   type ToolCall,
   type ToolExecutionContext,
   type ToolExecutionResult,
@@ -144,30 +145,56 @@ export class ToolExecutor {
         let finalToolName = name;
 
         // Check if this result requires approval (Cursor/Claude-style approval flow)
-        // If so, we intercept here, show approval UI, and auto-execute the follow-up tool
+        // If so, we intercept here, show approval UI (or auto-approve), and execute the follow-up tool
         if (isApprovalRequiredResult(result.result)) {
           const approvalResult = result.result;
+          const registry = yield* ToolRegistryTag;
 
-          yield* logger.debug("Tool requires approval, showing approval prompt", {
-            toolName: name,
-            executeToolName: approvalResult.executeToolName,
-          });
+          // Get the tool's risk level to check against auto-approve policy
+          const toolInfo = yield* registry.getTool(name).pipe(
+            Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })),
+          );
+          const riskLevel = toolInfo.riskLevel;
+          const autoApprovePolicy = context.autoApprovePolicy;
 
-          // Show approval prompt to user
-          const outcome = yield* presentationService.requestApproval({
-            toolName: name,
-            message: approvalResult.message,
-            executeToolName: approvalResult.executeToolName,
-            executeArgs: approvalResult.executeArgs,
-          });
+          // Check if auto-approve policy allows this tool
+          const isAutoApproved = shouldAutoApprove(riskLevel, autoApprovePolicy);
 
-          if (outcome.approved) {
-            yield* logger.info("User approved tool execution", {
+          if (isAutoApproved) {
+            yield* logger.info("Tool auto-approved by policy", {
               toolName: name,
               executeToolName: approvalResult.executeToolName,
+              riskLevel,
+              autoApprovePolicy,
             });
+          } else {
+            yield* logger.debug("Tool requires approval, showing approval prompt", {
+              toolName: name,
+              executeToolName: approvalResult.executeToolName,
+              riskLevel,
+              autoApprovePolicy,
+            });
+          }
 
-            // Auto-execute the execution tool
+          // Show approval prompt to user (unless auto-approved)
+          const outcome = isAutoApproved
+            ? { approved: true as const }
+            : yield* presentationService.requestApproval({
+                toolName: name,
+                message: approvalResult.message,
+                executeToolName: approvalResult.executeToolName,
+                executeArgs: approvalResult.executeArgs,
+              });
+
+          if (outcome.approved) {
+            if (!isAutoApproved) {
+              yield* logger.info("User approved tool execution", {
+                toolName: name,
+                executeToolName: approvalResult.executeToolName,
+              });
+            }
+
+            // Execute the execution tool
             const executeStartTime = Date.now();
 
             // Emit execution start for the follow-up tool
@@ -202,15 +229,16 @@ export class ToolExecutor {
               executeToolName: approvalResult.executeToolName,
               success: result.success,
               durationMs: toolDuration,
+              autoApproved: isAutoApproved,
             });
           } else {
             yield* logger.info("User rejected tool execution", {
               toolName: name,
-              userMessage: outcome.userMessage,
+              userMessage: (outcome as { approved: false; userMessage?: string }).userMessage,
             });
 
             const rejectionMessage =
-              outcome.userMessage?.trim() ||
+              (outcome as { approved: false; userMessage?: string }).userMessage?.trim() ||
               "User rejected the operation. Please acknowledge this and ask if they'd like to try something different.";
 
             result = {

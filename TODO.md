@@ -14,15 +14,15 @@
 
 ## Agent Runtime & Automation
 
-- [ ] Being able to always approve low stake tools - Give a risk level to tools, being able to say if we want to allays authorize a tool so that it don't ask for approval every time
-- [x] Summarize context near window limits — add automatic context compression that preserves action
-      history when tokens spike.
-- [ ] Explore sub-agent triggers — PoC orchestration primitives.
-- [ ] Trigger system (schedule, file, webhook, manual) — hooks/cronjobs. Might require being able to execute jazz tasks
-- [ ] Memory architecture — define long-term memory (storage, schema, retrieval) for
-      agent personalization.
+- [] Being able to always approve low stake tools during a session
+- [x] Summarize context near window limits — add automatic context compression that preserves action history when tokens spike.
+- [x] Trigger system (schedule, file, webhook, manual) — hooks/cronjobs with workflows and system schedulers (launchd/cron)
 - [x] Skills - Similar to Claude Skills, but for Jazz
 - [x] When editing a file, part of the output should be the diff of the file
+- [x] Workflow catch-up on startup — track last run time and optionally execute missed workflows when system starts (configurable per workflow with `catchUpOnStartup: true` and `maxCatchUpAge`)
+- [ ] Explore sub-agent triggers — PoC orchestration primitives.
+- [ ] Memory architecture — define long-term memory (storage, schema, retrieval) for
+      agent personalization.
 
 ## CLI Feature Depth & Docs
 
@@ -47,9 +47,7 @@
 
 ## Quality, Safety & Testing
 
-- [ ] Security tests — build suites covering command injection, privilege escalation, sandbox
-      escapes, and malicious tool payloads.
-- [ ] More unit tests
+- [ ] Security tests — build suites covering command injection, privilege escalation, sandbox escapes, and malicious tool payloads.
 
 ## Developer experience
 
@@ -59,15 +57,5 @@
 
 - [Explorations](./docs//exploration/)
 - Per-agent authentication domains to isolate credentials (support multiple Gmail accounts, etc.).
-- Rich workflow memory tuned to personal preferences (favorite folders, project contexts, historical
-  decisions).
-- Agent evaluations - When system prompt is evolving, users could create a bunch of tests to be run
-  in a sandbox and evaluate the output. Evals could be executed in a sandbox (docker container), we
-  could then evaluate the outcome and the tools/used and suggest improvements to the prompts for
-  better/faster task completion
-
-## Workflow Concepts To Validate
-
-- [x] Read repo diff, propose commit message, then commit & push automatically. ->
-- [x] Summarize emails labeled `newsletter` and bulk archive/delete on confirmation.
-- [x] Clone a repository from a URL, follow setup instructions, and report completion status.
+- Rich workflow memory tuned to personal preferences (favorite folders, project contexts, historical decisions).
+- Agent evaluations - When system prompt is evolving, users could create a bunch of tests to be run in a sandbox and evaluate the output. Evals could be executed in a sandbox (docker container), we could then evaluate the outcome and the tools/used and suggest improvements to the prompts for better/faster task completion

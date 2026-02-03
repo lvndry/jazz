@@ -1,5 +1,43 @@
 import type z from "zod";
 
+// Re-export ToolRiskLevel from tool-registry interface
+export type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
+
+/**
+ * Auto-approve policy for workflow execution.
+ *
+ * - `false` or undefined: No auto-approve, always prompt user
+ * - `true` or `"high-risk"`: Auto-approve all tools (including high-risk)
+ * - `"low-risk"`: Auto-approve read-only and low-risk tools, prompt for high-risk
+ * - `"read-only"`: Auto-approve only read-only tools, prompt for low-risk and high-risk
+ */
+export type AutoApprovePolicy = boolean | "read-only" | "low-risk" | "high-risk";
+
+/**
+ * Check if a tool's risk level should be auto-approved given a policy.
+ */
+export function shouldAutoApprove(
+  riskLevel: import("@/core/interfaces/tool-registry").ToolRiskLevel,
+  policy: AutoApprovePolicy | undefined,
+): boolean {
+  if (!policy) return false;
+
+  // true or "high-risk" means approve everything
+  if (policy === true || policy === "high-risk") return true;
+
+  // "low-risk" approves read-only and low-risk
+  if (policy === "low-risk") {
+    return riskLevel === "read-only" || riskLevel === "low-risk";
+  }
+
+  // "read-only" only approves read-only tools
+  if (policy === "read-only") {
+    return riskLevel === "read-only";
+  }
+
+  return false;
+}
+
 /**
  * Tool/Function calling types
  */
@@ -101,5 +139,10 @@ export interface ToolCategory {
 export interface ToolExecutionContext {
   readonly agentId: string;
   readonly conversationId?: string;
+  /**
+   * Auto-approve policy for this execution context.
+   * When set, tools matching the policy will be auto-approved without user interaction.
+   */
+  readonly autoApprovePolicy?: AutoApprovePolicy;
   readonly [key: string]: unknown;
 }
