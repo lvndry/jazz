@@ -2,6 +2,7 @@ import cronParser from "cron-parser";
 import { Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { DEFAULT_MAX_CATCH_UP_AGE_SECONDS } from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { addRunRecord, loadRunHistory, updateLatestRunRecord } from "@/core/workflows/run-history";
 import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
@@ -17,8 +18,6 @@ interface WorkflowRunSnapshot {
   readonly workflowName: string;
   readonly lastRunAt?: Date;
 }
-
-const DEFAULT_MAX_CATCH_UP_AGE_SECONDS = 60 * 60 * 24;
 
 function getLastRunSnapshot(history: readonly { workflowName: string; startedAt: string; completedAt?: string }[]): Map<string, WorkflowRunSnapshot> {
   const map = new Map<string, WorkflowRunSnapshot>();

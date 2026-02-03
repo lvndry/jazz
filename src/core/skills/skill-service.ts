@@ -138,9 +138,31 @@ export class SkillsLive implements SkillService {
     return Effect.gen(function* (this: SkillsLive) {
       const skill = yield* this.loadSkill(skillName);
 
-      // Security check: ensure sectionName doesn't escape directory
-      const safeSectionName = path.normalize(sectionName).replace(/^(\.\.(\/|\\|$))+/, '');
-      const sectionPath = path.join(skill.metadata.path, safeSectionName);
+      // Security check: ensure sectionName doesn't escape the skill directory
+      // 1. Normalize the path to resolve any . or .. segments
+      // 2. Resolve the full path
+      // 3. Verify the resolved path is within the skill directory
+      const normalizedSection = path.normalize(sectionName);
+      const sectionPath = path.resolve(skill.metadata.path, normalizedSection);
+      const skillDir = path.resolve(skill.metadata.path);
+
+      // Ensure the resolved path is within the skill directory (prevent path traversal)
+      if (!sectionPath.startsWith(skillDir + path.sep) && sectionPath !== skillDir) {
+        return yield* Effect.fail(
+          new Error(`Invalid section path: ${sectionName} - path traversal not allowed`),
+        );
+      }
+
+      // Only allow specific file extensions for safety
+      const allowedExtensions = [".md", ".txt", ".json", ".yaml", ".yml"];
+      const ext = path.extname(sectionPath).toLowerCase();
+      if (!allowedExtensions.includes(ext)) {
+        return yield* Effect.fail(
+          new Error(
+            `Invalid section file type: ${ext}. Allowed: ${allowedExtensions.join(", ")}`,
+          ),
+        );
+      }
 
       // Verify file exists
       const exists = yield* Effect.tryPromise(async () => {
@@ -153,7 +175,9 @@ export class SkillsLive implements SkillService {
       });
 
       if (!exists) {
-        return yield* Effect.fail(new Error(`Section not found: ${sectionName} in skill ${skillName}`));
+        return yield* Effect.fail(
+          new Error(`Section not found: ${sectionName} in skill ${skillName}`),
+        );
       }
 
       return yield* Effect.tryPromise(() => fs.readFile(sectionPath, "utf-8"));

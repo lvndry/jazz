@@ -2,6 +2,12 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Effect } from "effect";
+import {
+  FILE_LOCK_MAX_RETRIES,
+  FILE_LOCK_RETRY_DELAY_MS,
+  FILE_LOCK_TIMEOUT_MS,
+  MAX_RUN_HISTORY_RECORDS,
+} from "@/core/constants/agent";
 
 /**
  * Record of a single workflow run.
@@ -35,8 +41,8 @@ function getLockPath(): string {
  */
 function acquireLock(
   lockPath: string,
-  maxRetries = 10,
-  retryDelayMs = 100,
+  maxRetries = FILE_LOCK_MAX_RETRIES,
+  retryDelayMs = FILE_LOCK_RETRY_DELAY_MS,
 ): Effect.Effect<void, Error> {
   return Effect.gen(function* () {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -49,12 +55,12 @@ function acquireLock(
         return;
       }
 
-      // Check if lock is stale (older than 30 seconds)
+      // Check if lock is stale
       const stat = yield* Effect.tryPromise(() => fs.stat(lockPath)).pipe(
         Effect.catchAll(() => Effect.succeed(null)),
       );
 
-      if (stat && Date.now() - stat.mtimeMs > 30000) {
+      if (stat && Date.now() - stat.mtimeMs > FILE_LOCK_TIMEOUT_MS) {
         // Remove stale lock
         yield* Effect.tryPromise(() => fs.rmdir(lockPath)).pipe(
           Effect.catchAll(() => Effect.void),
@@ -125,7 +131,7 @@ function saveRunHistory(history: WorkflowRunRecord[]): Effect.Effect<void, Error
 
 /**
  * Add a new run record to the history.
- * Keeps only the last 100 records to prevent unbounded growth.
+ * Keeps only the last N records to prevent unbounded growth.
  * Uses file locking to prevent race conditions.
  */
 export function addRunRecord(record: WorkflowRunRecord): Effect.Effect<void, Error> {
@@ -136,8 +142,8 @@ export function addRunRecord(record: WorkflowRunRecord): Effect.Effect<void, Err
       // Add the new record
       history.push(record);
 
-      // Keep only the last 100 records
-      const trimmed = history.slice(-100);
+      // Keep only the most recent records
+      const trimmed = history.slice(-MAX_RUN_HISTORY_RECORDS);
 
       yield* saveRunHistory(trimmed);
     }),

@@ -8,6 +8,7 @@ import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
 import { AgentConfigServiceTag } from "./core/interfaces/agent-config";
 import { CLIOptionsTag } from "./core/interfaces/cli-options";
+import { MCPServerManagerTag } from "./core/interfaces/mcp-server";
 import { StorageServiceTag } from "./core/interfaces/storage";
 import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
@@ -219,6 +220,18 @@ export function runCliEffect<R, E extends JazzError | Error>(
           process.off("SIGINT", handler);
           process.off("SIGTERM", handler);
         }),
+    );
+
+    // Register cleanup for MCP server connections
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
+        if (Option.isSome(mcpManager)) {
+          yield* mcpManager.value.disconnectAllServers().pipe(
+            Effect.catchAll(() => Effect.void),
+          );
+        }
+      }),
     );
 
     const exit = yield* Fiber.await(fiber);

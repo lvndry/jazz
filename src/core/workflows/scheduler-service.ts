@@ -74,6 +74,15 @@ function getSchedulesDirectory(): string {
 }
 
 /**
+ * Escape a string for safe use in shell commands.
+ * Wraps in single quotes and escapes any embedded single quotes.
+ */
+function escapeShellArg(arg: string): string {
+  // Replace single quotes with '\'' (end quote, escaped quote, start quote)
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * Escape a string for safe inclusion in XML.
  */
 function escapeXml(str: string): string {
@@ -204,15 +213,23 @@ ${Object.entries(s)
 
 /**
  * Generate a crontab entry for a workflow.
+ * Uses shell escaping to prevent command injection.
  */
 function generateCrontabEntry(workflow: WorkflowMetadata, jazzPath: string, agentId: string): string {
   const logDir = path.join(os.homedir(), ".jazz", "logs");
-  const command = jazzPath.includes(" ")
-    ? `${jazzPath} workflow run ${workflow.name} --agent ${agentId} --auto-approve`
-    : `${jazzPath} workflow run ${workflow.name} --agent ${agentId} --auto-approve`;
 
-  return `# Jazz workflow: ${workflow.name}
-${workflow.schedule} ${command} >> ${logDir}/${workflow.name}.log 2>&1`;
+  // Escape all arguments to prevent shell injection
+  const escapedWorkflowName = escapeShellArg(workflow.name);
+  const escapedAgentId = escapeShellArg(agentId);
+  const escapedLogPath = escapeShellArg(`${logDir}/${workflow.name}.log`);
+
+  // Build the command with proper escaping
+  const command = jazzPath.includes(" ")
+    ? `${jazzPath} workflow run ${escapedWorkflowName} --agent ${escapedAgentId} --auto-approve`
+    : `${escapeShellArg(jazzPath)} workflow run ${escapedWorkflowName} --agent ${escapedAgentId} --auto-approve`;
+
+  return `# Jazz workflow: ${workflow.name.replace(/\n/g, " ")}
+${workflow.schedule} ${command} >> ${escapedLogPath} 2>&1`;
 }
 
 /**
