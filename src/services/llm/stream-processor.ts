@@ -304,6 +304,9 @@ export class StreamProcessor {
                   totalTokens: this.state.reasoningTokens,
                 }),
               });
+
+              this.state.reasoningSequence = 0;
+              this.state.reasoningStreamCompleted = false;
             }
             break;
           }
