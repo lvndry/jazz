@@ -1,7 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
-import { AgentRunner } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";

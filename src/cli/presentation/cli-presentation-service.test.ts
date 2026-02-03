@@ -1,9 +1,9 @@
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
-import { CLIPresentationService, CLIPresentationServiceLayer } from "./cli-presentation-service";
-import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
+import { CLIPresentationService } from "./cli-presentation-service";
+import { DEFAULT_DISPLAY_CONFIG } from "../../core/agent/types";
 import { PresentationServiceTag } from "../../core/interfaces/presentation";
-import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
+import { type TerminalService } from "../../core/interfaces/terminal";
 
 // Mock dependencies
 const mockTerminal = {
@@ -14,13 +14,9 @@ const mockTerminal = {
   ask: mock(() => Effect.succeed("")),
 } as unknown as TerminalService;
 
-const mockConfig = {
-  appConfig: Effect.succeed({}),
-} as unknown as AgentConfigService;
-
 describe("CLIPresentationService", () => {
   const mockPresentationService = new CLIPresentationService(
-    { showMetrics: false, theme: "dark" },
+    DEFAULT_DISPLAY_CONFIG,
     mockTerminal.confirm.bind(mockTerminal),
     mockTerminal.ask.bind(mockTerminal)
   );
