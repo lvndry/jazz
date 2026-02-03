@@ -1,92 +1,154 @@
-import { Box, Text, useInput } from "ink";
+import { Box, Static, Text, useInput } from "ink";
 import Spinner from "ink-spinner";
-import type { Dispatch, SetStateAction } from "react";
-import React, { createContext, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { clearLastExpandedDiff, getLastExpandedDiff } from "./diff-expansion-store";
 import ErrorBoundary from "./ErrorBoundary";
 import { useInputHandler } from "./hooks/use-input-service";
-import { Layout } from "./Layout";
 import { LiveResponse } from "./LiveResponse";
 import { LogEntryItem } from "./LogList";
 import { Prompt } from "./Prompt";
 import type { LiveStreamState, LogEntry, LogEntryInput, PromptState } from "./types";
 import { InputPriority, InputResults } from "../services/input-service";
 
-/**
- * Stable header content - memoized to prevent Layout re-renders.
- * This component renders inside Layout and should not change frequently.
- */
-const HeaderContent = React.memo(function HeaderContent({
-  agentName,
-}: {
-  agentName: string | null;
-}): React.ReactElement {
-  if (agentName) {
-    return (
-      <Box flexDirection="column">
-        <Text bold color="cyan">🤖 Active Session</Text>
-        <Text bold>{agentName}</Text>
-      </Box>
-    );
-  }
+// ============================================================================
+// Constants
+// ============================================================================
 
-  return (
-    <Box flexDirection="column">
-      <Text bold color="cyan">👋 Welcome</Text>
-      <Text>Ready to assist.</Text>
-    </Box>
-  );
-});
+const MAX_LOG_ENTRIES = 100;
+/** Number of recent logs to keep dynamic (not in Static) */
+const DYNAMIC_LOG_COUNT = 10;
 
-/**
- * Stable sidebar content - memoized to prevent Layout re-renders.
- */
-const SidebarContent = React.memo(function SidebarContent(): React.ReactElement {
-  return (
-    <Box flexDirection="column">
-      <Box marginBottom={1}>
-        <Text bold color="cyan">💡 Tip</Text>
-      </Box>
-      <Text dimColor>Type '/help' for commands</Text>
-    </Box>
-  );
-});
+// ============================================================================
+// Store - Global state setters (populated by islands)
+// ============================================================================
 
-export const AppContext = createContext<{
-  logs: LogEntry[];
-  prompt: PromptState | null;
-  status: string | null;
-  stream: LiveStreamState | null;
-  workingDirectory: string | null;
-  setLogs: Dispatch<SetStateAction<LogEntry[]>>;
-  setPrompt: Dispatch<SetStateAction<PromptState | null>>;
-  setStatus: Dispatch<SetStateAction<string | null>>;
-  setStream: Dispatch<SetStateAction<LiveStreamState | null>>;
-  setWorkingDirectory: Dispatch<SetStateAction<string | null>>;
-}>({
-  logs: [],
-  prompt: null,
-  status: null,
-  stream: null,
-  workingDirectory: null,
-  setLogs: () => { },
-  setPrompt: () => { },
-  setStatus: () => { },
-  setStream: () => { },
-  setWorkingDirectory: () => { },
-});
+type PrintOutputHandler = (entry: LogEntryInput) => string;
+type UpdateOutputHandler = (id: string, entry: Partial<LogEntryInput>) => void;
+
+let printOutputHandler: PrintOutputHandler | null = null;
+let updateOutputHandler: UpdateOutputHandler | null = null;
+let clearLogsHandler: (() => void) | null = null;
+const pendingLogQueue: LogEntryInput[] = [];
+const pendingUpdates: Array<{ id: string; updates: Partial<LogEntryInput> }> = [];
+let pendingClear = false;
+let pendingLogIdCounter = 0;
+
+let promptSnapshot: PromptState | null = null;
+let statusSnapshot: string | null = null;
+let streamSnapshot: LiveStreamState | null = null;
+let workingDirectorySnapshot: string | null = null;
+
+let promptSetter: ((prompt: PromptState | null) => void) | null = null;
+let statusSetter: ((status: string | null) => void) | null = null;
+let streamSetter: ((stream: LiveStreamState | null) => void) | null = null;
+let workingDirectorySetter: ((workingDirectory: string | null) => void) | null = null;
 
 export const store = {
-  printOutput: (_entry: LogEntryInput): string => "",
-  updateOutput: (_id: string, _entry: Partial<LogEntryInput>): void => { },
-  setPrompt: (_prompt: PromptState | null): void => { },
-  setStatus: (_status: string | null): void => { },
-  setStream: (_stream: LiveStreamState | null): void => { },
-  setWorkingDirectory: (_workingDirectory: string | null): void => { },
-  setCustomView: (_view: React.ReactNode | null): void => { },
-  setInterruptHandler: (_handler: (() => void) | null): void => { },
-  clearLogs: (): void => { },
+  printOutput: (entry: LogEntryInput): string => {
+    const id = entry.id ?? `queued-log-${++pendingLogIdCounter}`;
+    const entryWithId = entry.id ? entry : { ...entry, id };
+
+    if (!printOutputHandler) {
+      pendingLogQueue.push(entryWithId);
+      return id;
+    }
+    return printOutputHandler(entryWithId);
+  },
+  updateOutput: (id: string, entry: Partial<LogEntryInput>): void => {
+    if (!updateOutputHandler) {
+      pendingUpdates.push({ id, updates: entry });
+      return;
+    }
+    updateOutputHandler(id, entry);
+  },
+  setPrompt: (prompt: PromptState | null): void => {
+    promptSnapshot = prompt;
+    if (promptSetter) {
+      promptSetter(prompt);
+    }
+  },
+  setStatus: (status: string | null): void => {
+    statusSnapshot = status;
+    if (statusSetter) {
+      statusSetter(status);
+    }
+  },
+  setStream: (stream: LiveStreamState | null): void => {
+    streamSnapshot = stream;
+    if (streamSetter) {
+      streamSetter(stream);
+    }
+  },
+  setWorkingDirectory: (workingDirectory: string | null): void => {
+    workingDirectorySnapshot = workingDirectory;
+    if (workingDirectorySetter) {
+      workingDirectorySetter(workingDirectory);
+    }
+  },
+  setCustomView: (_view: React.ReactNode | null): void => {},
+  setInterruptHandler: (_handler: (() => void) | null): void => {},
+  clearLogs: (): void => {
+    if (!clearLogsHandler) {
+      pendingClear = true;
+      pendingLogQueue.length = 0;
+      pendingUpdates.length = 0;
+      return;
+    }
+    clearLogsHandler();
+  },
 };
+
+// ============================================================================
+// Lightweight Header - Always used (no expensive BigText/Gradient)
+// ============================================================================
+
+/**
+ * Minimal header - avoids expensive BigText/Gradient for better performance.
+ */
+const AppHeader = React.memo(function AppHeader(): React.ReactElement {
+  return (
+    <Box
+      paddingX={2}
+      paddingY={1}
+      borderStyle="round"
+      borderColor="cyan"
+    >
+      <Text bold color="cyan">🎷 Jazz</Text>
+      <Text dimColor> • Agentic CLI</Text>
+    </Box>
+  );
+}, () => true); // Never re-render - content is static
+
+// ============================================================================
+// Status Island - Isolated state for status bar
+// ============================================================================
+
+function StatusIsland(): React.ReactElement | null {
+  const [status, setStatus] = useState<string | null>(null);
+  const initializedRef = useRef(false);
+
+  // Register setter synchronously during render
+  if (!initializedRef.current) {
+    statusSetter = setStatus;
+    setStatus(statusSnapshot);
+    initializedRef.current = true;
+  }
+
+  if (!status) return null;
+
+  return (
+    <Box paddingX={2} marginTop={1}>
+      <Text color="yellow">
+        <Spinner type="dots" />
+      </Text>
+      <Text color="yellow"> {status}</Text>
+    </Box>
+  );
+}
+
+// ============================================================================
+// Stream Island - Isolated state for live streaming response
+// ============================================================================
 
 function isSameStream(
   previous: LiveStreamState | null,
@@ -101,28 +163,232 @@ function isSameStream(
   );
 }
 
-export function App(): React.ReactElement {
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [prompt, setPrompt] = useState<PromptState | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+function StreamIsland(): React.ReactElement | null {
   const [stream, setStream] = useState<LiveStreamState | null>(null);
-  const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
-  const [customView, setCustomView] = useState<React.ReactNode | null>(null);
-  // Store interrupt handler in a ref since it's imperative and invoked by input event
-  // We use a ref so useInput cleanup/setup doesn't re-run or rely on stale closures
-  const interruptHandlerRef = useRef<(() => void) | null>(null);
+  const initializedRef = useRef(false);
 
-  useInput((input, key) => {
-    // Check for Ctrl+I (which comes through as tab in terminals - ASCII 9)
-    // Also check for tab character directly in case key.tab isn't set
-    const isTabOrCtrlI = key.tab || input === "\t" || input.charCodeAt(0) === 9;
-    if (isTabOrCtrlI) {
-      if (interruptHandlerRef.current) {
-         interruptHandlerRef.current();
+  // Register setter synchronously during render
+  if (!initializedRef.current) {
+    streamSetter = (nextStream) => {
+      setStream((prev) => isSameStream(prev, nextStream) ? prev : nextStream);
+    };
+    setStream(streamSnapshot);
+    initializedRef.current = true;
+  }
+
+  if (!stream) return null;
+
+  return <LiveResponse stream={stream} />;
+}
+
+// ============================================================================
+// Prompt Island - Isolated state for user input prompt
+// ============================================================================
+
+function PromptIsland(): React.ReactElement | null {
+  const [prompt, setPrompt] = useState<PromptState | null>(null);
+  const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
+  const initializedRef = useRef(false);
+
+  // Register setters synchronously during render
+  if (!initializedRef.current) {
+    promptSetter = setPrompt;
+    workingDirectorySetter = setWorkingDirectory;
+    setPrompt(promptSnapshot);
+    setWorkingDirectory(workingDirectorySnapshot);
+    initializedRef.current = true;
+  }
+
+  if (!prompt) return null;
+
+  return <Prompt prompt={prompt} workingDirectory={workingDirectory} />;
+}
+
+// ============================================================================
+// Log Island - Isolated state for log entries
+// Uses Static for finalized logs (Ink won't re-render them)
+// ============================================================================
+
+interface LogIslandState {
+  logs: LogEntry[];
+  logIdCounter: number;
+}
+
+function LogIsland(): React.ReactElement {
+  const [state, setState] = useState<LogIslandState>({
+    logs: [],
+    logIdCounter: 0,
+  });
+  const initializedRef = useRef(false);
+
+  // Memoize log operations
+  const printOutput = useCallback((entry: LogEntryInput): string => {
+    let newId = "";
+    setState((prev) => {
+      const id = entry.id ?? `log-${prev.logIdCounter + 1}`;
+      newId = id;
+
+      // Check for update to existing log
+      if (entry.id && prev.logs.some((log) => log.id === entry.id)) {
+        return {
+          ...prev,
+          logs: prev.logs.map((log): LogEntry => {
+            if (log.id === entry.id) {
+              return { ...log, ...entry, id } as LogEntry;
+            }
+            return log;
+          }),
+        };
       }
+
+      // Add new log
+      const entryWithId: LogEntry = { ...entry, id } as LogEntry;
+      const newLogs =
+        prev.logs.length >= MAX_LOG_ENTRIES
+          ? [...prev.logs.slice(1), entryWithId]
+          : [...prev.logs, entryWithId];
+
+      return {
+        logs: newLogs,
+        logIdCounter: prev.logIdCounter + 1,
+      };
+    });
+    return newId;
+  }, []);
+
+  const updateOutput = useCallback((id: string, updates: Partial<LogEntryInput>): void => {
+    setState((prev) => ({
+      ...prev,
+      logs: prev.logs.map((log): LogEntry => {
+        if (log.id !== id) return log;
+
+        const next = { ...log, ...updates } as LogEntry;
+        const isSame =
+          log.type === next.type &&
+          log.message === next.message &&
+          log.timestamp === next.timestamp &&
+          log.meta === next.meta;
+
+        return isSame ? log : next;
+      }),
+    }));
+  }, []);
+
+  const clearLogs = useCallback((): void => {
+    setState({ logs: [], logIdCounter: 0 });
+  }, []);
+
+  // Register store methods synchronously during render
+  if (!initializedRef.current) {
+    printOutputHandler = printOutput;
+    updateOutputHandler = updateOutput;
+    clearLogsHandler = clearLogs;
+    if (pendingClear) {
+      clearLogs();
+      pendingClear = false;
+    }
+    if (pendingLogQueue.length > 0) {
+      const queued = pendingLogQueue.splice(0, pendingLogQueue.length);
+      for (const entry of queued) {
+        printOutput(entry);
+      }
+    }
+    if (pendingUpdates.length > 0) {
+      const queuedUpdates = pendingUpdates.splice(0, pendingUpdates.length);
+      for (const { id, updates } of queuedUpdates) {
+        updateOutput(id, updates);
+      }
+    }
+    initializedRef.current = true;
+  }
+
+  // Split logs into static (finalized) and dynamic (recent)
+  const { staticLogs, dynamicLogs } = useMemo(() => {
+    const totalLogs = state.logs.length;
+    if (totalLogs <= DYNAMIC_LOG_COUNT) {
+      return { staticLogs: [], dynamicLogs: state.logs };
+    }
+    return {
+      staticLogs: state.logs.slice(0, totalLogs - DYNAMIC_LOG_COUNT),
+      dynamicLogs: state.logs.slice(totalLogs - DYNAMIC_LOG_COUNT),
+    };
+  }, [state.logs]);
+
+  // Compute spacing for dynamic logs
+  const dynamicLogsWithSpacing = useMemo(() => {
+    const staticLength = staticLogs.length;
+    return dynamicLogs.map((log, index) => {
+      const globalIndex = staticLength + index;
+      const prevLog = globalIndex > 0 ? state.logs[globalIndex - 1] : null;
+      return {
+        log,
+        addSpacing:
+          log.type === "user" ||
+          (log.type === "info" && prevLog?.type === "user"),
+      };
+    });
+  }, [dynamicLogs, staticLogs.length, state.logs]);
+
+  return (
+    <>
+      {/* Static logs - Ink renders these once and never touches them again */}
+      {staticLogs.length > 0 && (
+        <Static items={staticLogs}>
+          {(log, index) => {
+            const prevLog = index > 0 ? staticLogs[index - 1] : null;
+            const addSpacing =
+              log.type === "user" ||
+              (log.type === "info" && prevLog?.type === "user");
+            return (
+              <LogEntryItem
+                key={log.id}
+                log={log}
+                addSpacing={addSpacing}
+              />
+            );
+          }}
+        </Static>
+      )}
+
+      {/* Dynamic logs - These can update */}
+      {dynamicLogsWithSpacing.map(({ log, addSpacing }) => (
+        <LogEntryItem
+          key={log.id}
+          log={log}
+          addSpacing={addSpacing}
+        />
+      ))}
+    </>
+  );
+}
+
+// ============================================================================
+// Main App Component
+// ============================================================================
+
+export function App(): React.ReactElement {
+  const [customView, setCustomView] = useState<React.ReactNode | null>(null);
+  const interruptHandlerRef = useRef<(() => void) | null>(null);
+  const initializedRef = useRef(false);
+
+  // Setup store methods synchronously during render
+  if (!initializedRef.current) {
+    store.setCustomView = setCustomView;
+    store.setInterruptHandler = (handler) => {
+      interruptHandlerRef.current = handler;
+    };
+    initializedRef.current = true;
+  }
+
+  // Handle interrupt (Ctrl+I / Tab)
+  useInput((input, key) => {
+    const isTabOrCtrlI = key.tab || input === "\t" || input.charCodeAt(0) === 9;
+    if (isTabOrCtrlI && interruptHandlerRef.current) {
+      interruptHandlerRef.current();
     }
   });
 
+  // Handle expand-diff shortcut
   useInputHandler({
     id: "expand-diff-handler",
     priority: InputPriority.GLOBAL_SHORTCUT,
@@ -152,145 +418,31 @@ export function App(): React.ReactElement {
     deps: [],
   });
 
-  const initializedRef = useRef(false);
-  const logIdCounterRef = useRef(0);
-  const MAX_LOG_ENTRIES = 100;
-
-  if (!initializedRef.current) {
-    store.printOutput = (entry: LogEntryInput): string => {
-      const id = entry.id ?? `log-${++logIdCounterRef.current}`;
-      setLogs((prev) => {
-        if (entry.id && prev.some((log) => log.id === entry.id)) {
-          return prev.map((log): LogEntry => {
-            if (log.id === entry.id) {
-              return { ...log, ...entry, id } as LogEntry;
-            }
-            return log;
-          });
-        }
-        const entryWithId: LogEntry = { ...entry, id } as LogEntry;
-        if (prev.length >= MAX_LOG_ENTRIES) {
-          const next = prev.slice(1);
-          next.push(entryWithId);
-          return next;
-        }
-        return [...prev, entryWithId];
-      });
-      return id;
-    };
-
-    store.updateOutput = (id: string, updates: Partial<LogEntryInput>): void => {
-      setLogs((prev) =>
-        prev.map((log): LogEntry => {
-          if (log.id !== id) {
-            return log;
-          }
-
-          const next = { ...log, ...updates } as LogEntry;
-          const isSame =
-            log.type === next.type &&
-            log.message === next.message &&
-            log.timestamp === next.timestamp &&
-            log.meta === next.meta;
-
-          return isSame ? log : next;
-        }),
-      );
-    };
-    store.setPrompt = (prompt) => setPrompt(prompt);
-    store.setStatus = (status) => setStatus(status);
-    store.setStream = (nextStream) =>
-      setStream((prev) => (isSameStream(prev, nextStream) ? prev : nextStream));
-    store.setWorkingDirectory = (workingDirectory) => setWorkingDirectory(workingDirectory);
-    store.setCustomView = (view) => setCustomView(view);
-    store.setInterruptHandler = (handler) => {
-      interruptHandlerRef.current = handler;
-    };
-    store.clearLogs = () => setLogs([]);
-
-    initializedRef.current = true;
+  if (customView) {
+    return <ErrorBoundary>{customView}</ErrorBoundary>;
   }
-
-  const logsWithSpacing = useMemo(
-    () =>
-      logs.map((log, index) => ({
-        log,
-        addSpacing:
-          log.type === "user" ||
-          (log.type === "info" && index > 0 && logs[index - 1]?.type === "user"),
-      })),
-    [logs],
-  );
-
-  const logItems = useMemo(
-    () =>
-      logsWithSpacing.map(({ log, addSpacing }) => (
-        <LogEntryItem
-          key={log.id}
-          log={log}
-          addSpacing={addSpacing}
-        />
-      )),
-    [logsWithSpacing],
-  );
-
-  const setters = useMemo(
-    () => ({
-      setLogs,
-      setPrompt,
-      setStatus,
-      setStream,
-      setWorkingDirectory,
-    }),
-    [],
-  );
-
-  const contextValue = useMemo(
-    () => ({
-      logs,
-      prompt,
-      status,
-      stream,
-      workingDirectory,
-      ...setters,
-    }),
-    [logs, prompt, status, stream, workingDirectory, setters],
-  );
 
   return (
     <ErrorBoundary>
-      <AppContext.Provider value={contextValue}>
-        {customView ? (
-          customView
-        ) : (
-          <Box flexDirection="column">
-            <Layout sidebar={<SidebarContent />}>
-               <HeaderContent agentName={stream?.agentName ?? null} />
-            </Layout>
+      <Box flexDirection="column">
+        {/* Lightweight header - always shown */}
+        <AppHeader />
 
-            {/* Status Bar - outside Layout to prevent re-renders of expensive BigText/Gradient */}
-            {status && (
-              <Box paddingX={2} marginTop={1}>
-                <Text color="yellow">
-                  <Spinner type="dots" />
-                </Text>
-                <Text color="yellow"> {status}</Text>
-              </Box>
-            )}
+        {/* Status Bar - Isolated state */}
+        <StatusIsland />
 
-            {/* Main Chat Area - Unboxed for easy text selection/copying */}
-            <Box
-              flexDirection="column"
-              paddingX={1}
-              marginTop={1}
-            >
-              {logItems}
-              {stream && <LiveResponse stream={stream} />}
-              {prompt && <Prompt prompt={prompt} workingDirectory={workingDirectory} />}
-            </Box>
-          </Box>
-        )}
-      </AppContext.Provider>
+        {/* Main Chat Area */}
+        <Box flexDirection="column" paddingX={1} marginTop={1}>
+          {/* Logs - Isolated state with Static optimization */}
+          <LogIsland />
+
+          {/* Live streaming response - Isolated state */}
+          <StreamIsland />
+
+          {/* User input prompt - Isolated state */}
+          <PromptIsland />
+        </Box>
+      </Box>
     </ErrorBoundary>
   );
 }

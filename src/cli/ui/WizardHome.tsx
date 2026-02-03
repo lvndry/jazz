@@ -109,7 +109,7 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
             <Gradient name="morning">
                 <BigText text="Jazz" font="tiny" />
             </Gradient>
-            <Text dimColor>v{packageJson.version} • Your AI Agent Framework</Text>
+            <Text dimColor>v{packageJson.version} • Agentic CLI</Text>
         </Box>
         <Box>
            <Text>🎷</Text>

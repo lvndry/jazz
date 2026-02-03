@@ -14,7 +14,6 @@
 
 ## Agent Runtime & Automation
 
-- [ ] Dynamic tool loading - dynamically load only relevant tools based on context/user query
 - [ ] Being able to always approve low stake tools - Give a risk level to tools, being able to say if we want to allays authorize a tool so that it don't ask for approval every time
 - [x] Summarize context near window limits — add automatic context compression that preserves action
       history when tokens spike.

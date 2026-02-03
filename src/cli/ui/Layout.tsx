@@ -39,7 +39,7 @@ export const Layout = React.memo(function Layout({ children, sidebar, title, foo
             <Gradient name="morning">
                 <BigText text="Jazz" font="tiny" />
             </Gradient>
-            <Text dimColor>v{packageJson.version} • {title || "Your AI Agent Framework"}</Text>
+            <Text dimColor>v{packageJson.version} • {title || "Agentic CLI"}</Text>
         </Box>
         <Box>
            <Text>🎷</Text>

@@ -46,7 +46,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
   /** Ignore out-of-order text_chunk events when streaming delivers them reordered. */
   private lastAppliedTextSequence: number = -1;
-  private static readonly UPDATE_THROTTLE_MS = 50;
+  private static readonly UPDATE_THROTTLE_MS = 30;
 
   private static readonly MAX_REASONING_LENGTH = 8000;
 
