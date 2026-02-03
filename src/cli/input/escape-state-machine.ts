@@ -44,6 +44,7 @@ export type ParsedInput =
   | { readonly type: "submit" }
   | { readonly type: "escape" }
   | { readonly type: "tab" }
+  | { readonly type: "expand-diff" }
   | { readonly type: "char"; readonly char: string }
   | { readonly type: "ignore" };
 

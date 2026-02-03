@@ -1,7 +1,5 @@
 import { Box, Text } from "ink";
-import React, { useCallback, useState } from "react";
-import { useTextInput } from "../../hooks/use-input-service";
-import { findNextWordBoundary, findPrevWordBoundary } from "../../text-utils";
+import React from "react";
 
 // ============================================================================
 // Types
@@ -10,10 +8,8 @@ import { findNextWordBoundary, findPrevWordBoundary } from "../../text-utils";
 interface TextInputProps {
   /** Current value */
   value: string;
-  /** Callback when value changes */
-  onChange: (value: string) => void;
-  /** Callback when Enter is pressed */
-  onSubmit: (value: string) => void;
+  /** Current cursor position */
+  cursor: number;
   /** Mask character for password input */
   mask?: string;
   /** Placeholder text */
@@ -37,77 +33,21 @@ export const SHORTCUTS_HINT =
 // ============================================================================
 
 /**
- * TextInput component using the new InputService architecture.
+ * TextInput component that renders the current input value.
  *
- * Key improvements over LineInput:
- * - No internal useInput - delegates to centralized InputService
- * - No escape buffer management - handled by EscapeStateMachine
- * - No race conditions - synchronous state machine
- * - Cursor state in React state - no refs during render
+ * Input handling and state live in the InputService; this component is
+ * purely presentational to avoid reordering under heavy render pressure.
  */
 export function TextInput({
   value,
-  onChange,
-  onSubmit,
+  cursor,
   mask,
   placeholder = "",
   showCursor = true,
   focus = true,
 }: TextInputProps): React.ReactElement {
-  const [cursor, setCursor] = useState(value.length);
-
-  // Handle value and cursor changes
-  const handleChange = useCallback(
-    (newValue: string, newCursor: number) => {
-      setCursor(newCursor);
-      if (newValue !== value) {
-        onChange(newValue);
-      }
-    },
-    [value, onChange],
-  );
-
-  // Handle submit
-  const handleSubmit = useCallback(
-    (currentValue: string) => {
-      onSubmit(currentValue);
-    },
-    [onSubmit],
-  );
-
-  // Track value we set via onChange to distinguish external updates (e.g. command suggestion selection)
-  const lastValueWeSetRef = React.useRef<string | null>(null);
-
-  // Register text input handler; use ref-backed display value/cursor so we never show stale state
-  // when re-renders (logs, stream) run before our setState commits (fixes ordering in long chats).
-  const { displayValue, displayCursor } = useTextInput({
-    id: "text-input",
-    value,
-    cursor,
-    isActive: focus,
-    onChange: (newValue, newCursor) => {
-      lastValueWeSetRef.current = newValue;
-      handleChange(newValue, newCursor);
-    },
-    onSubmit: handleSubmit,
-    findPrevWordBoundary,
-    findNextWordBoundary,
-  });
-
-  // Sync cursor when value changes externally (e.g., command suggestion selection, clear on submit)
-  React.useEffect(() => {
-    if (cursor > value.length) {
-      setCursor(value.length);
-    } else if (lastValueWeSetRef.current !== value) {
-      lastValueWeSetRef.current = value;
-      setCursor(value.length);
-    } else {
-      lastValueWeSetRef.current = null;
-    }
-  }, [value, cursor]);
-
-  // Render from displayValue/displayCursor (ref-backed) so we never flash stale state
-  const displayValueMasked = mask ? mask.repeat(displayValue.length) : displayValue;
+  const safeCursor = Math.max(0, Math.min(cursor, value.length));
+  const displayValueMasked = mask ? mask.repeat(value.length) : value;
 
   let renderedValue: React.ReactNode = displayValueMasked;
   let renderedPlaceholder: React.ReactNode = placeholder ? (
@@ -129,9 +69,9 @@ export function TextInput({
 
     // Value with cursor
     if (displayValueMasked.length > 0) {
-      const before = displayValueMasked.slice(0, displayCursor);
-      const cursorChar = displayCursor < displayValueMasked.length ? displayValueMasked[displayCursor] : " ";
-      const after = displayCursor < displayValueMasked.length ? displayValueMasked.slice(displayCursor + 1) : "";
+      const before = displayValueMasked.slice(0, safeCursor);
+      const cursorChar = safeCursor < displayValueMasked.length ? displayValueMasked[safeCursor] : " ";
+      const after = safeCursor < displayValueMasked.length ? displayValueMasked.slice(safeCursor + 1) : "";
 
       renderedValue = (
         <>
@@ -145,7 +85,7 @@ export function TextInput({
     }
   }
 
-  // Render only the input line (displayValueMasked so we never show stale state) so the bordered box contains just this text.
+  // Render only the input line so the bordered box contains just this text.
   // Parent renders directory + shortcuts below the box so terminal selection
   // inside the box captures only the input text.
   return (

@@ -28,6 +28,14 @@ export interface InputEvent {
 }
 
 /**
+ * Text input state for a given input ID.
+ */
+export interface TextInputState {
+  readonly value: string;
+  readonly cursor: number;
+}
+
+/**
  * Result of handling an input event.
  */
 export type InputResult =
@@ -91,6 +99,22 @@ export interface InputService {
    * Get all registered handler IDs (for debugging).
    */
   readonly getHandlerIds: Effect.Effect<readonly string[]>;
+
+  /**
+   * Get text input state for a given ID.
+   */
+  readonly getTextInputState: (id: string) => TextInputState;
+
+  /**
+   * Set text input state for a given ID.
+   */
+  readonly setTextInputState: (id: string, state: TextInputState) => void;
+
+  /**
+   * Subscribe to text input changes for a given ID.
+   * Returns an unsubscribe function.
+   */
+  readonly subscribeTextInputState: (id: string, listener: () => void) => () => void;
 }
 
 export const InputServiceTag = Context.GenericTag<InputService>("InputService");
@@ -137,6 +161,10 @@ export function createInputService(
   let sortedHandlers: InputHandler[] = [];
   let handlersDirty = true;
 
+  // Text input state store and subscribers
+  const textInputStates = new Map<string, TextInputState>();
+  const textInputSubscribers = new Map<string, Set<() => void>>();
+
   /**
    * Rebuild the sorted handlers list.
    */
@@ -155,6 +183,64 @@ export function createInputService(
       rebuildSortedHandlers();
     }
     return sortedHandlers;
+  }
+
+  function getTextInputState(id: string): TextInputState {
+    const existing = textInputStates.get(id);
+    if (existing) {
+      return existing;
+    }
+    const initial: TextInputState = { value: "", cursor: 0 };
+    textInputStates.set(id, initial);
+    return initial;
+  }
+
+  function notifyTextInputSubscribers(id: string): void {
+    const subscribers = textInputSubscribers.get(id);
+    if (!subscribers) return;
+    for (const subscriber of subscribers) {
+      try {
+        subscriber();
+      } catch {
+        // Ignore subscriber errors
+      }
+    }
+  }
+
+  function setTextInputState(id: string, next: TextInputState): void {
+    const current = getTextInputState(id);
+    const clampedCursor = Math.max(0, Math.min(next.cursor, next.value.length));
+    const normalized =
+      clampedCursor === next.cursor
+        ? next
+        : { value: next.value, cursor: clampedCursor };
+
+    if (
+      current.value === normalized.value &&
+      current.cursor === normalized.cursor
+    ) {
+      return;
+    }
+    textInputStates.set(id, normalized);
+    notifyTextInputSubscribers(id);
+  }
+
+  function subscribeTextInputState(id: string, listener: () => void): () => void {
+    let subscribers = textInputSubscribers.get(id);
+    if (!subscribers) {
+      subscribers = new Set();
+      textInputSubscribers.set(id, subscribers);
+    }
+    subscribers.add(listener);
+
+    return () => {
+      const current = textInputSubscribers.get(id);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0) {
+        textInputSubscribers.delete(id);
+      }
+    };
   }
 
   return {
@@ -229,6 +315,10 @@ export function createInputService(
     isBuffering: stateMachine.isBuffering,
 
     getHandlerIds: Effect.sync(() => Array.from(handlers.keys())),
+
+    getTextInputState,
+    setTextInputState,
+    subscribeTextInputState,
   };
 }
 

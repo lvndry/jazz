@@ -1,6 +1,5 @@
 import { Effect } from "effect";
-import { useContext, useEffect, useRef } from "react";
-import { computeTextInputRefSync } from "./text-input-ref-sync";
+import { useCallback, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 import type { ParsedInput } from "../../input/escape-state-machine";
 import type {
   InputHandler,
@@ -182,14 +181,8 @@ export function useTabHandler(options: Omit<UseActionHandlerOptions, "id"> & { i
 interface UseTextInputOptions {
   /** Unique identifier */
   id: string;
-  /** Current value */
-  value: string;
-  /** Cursor position */
-  cursor: number;
   /** Whether input is active/focused */
   isActive: boolean;
-  /** Callback when value changes */
-  onChange: (value: string, cursor: number) => void;
   /** Callback when submitted */
   onSubmit: (value: string) => void;
   /** Optional word boundary functions */
@@ -197,15 +190,13 @@ interface UseTextInputOptions {
   findNextWordBoundary?: (text: string, cursor: number) => number;
 }
 
-/**
- * Return type for useTextInput: effective value/cursor for display so we never
- * show stale state when re-renders (e.g. logs, stream) run before our setState commits.
- */
 export interface UseTextInputResult {
-  /** Use for rendering; ref-backed so order is correct under fast typing and long conversations */
-  displayValue: string;
-  /** Use for cursor position in render */
-  displayCursor: number;
+  /** Current value for rendering */
+  value: string;
+  /** Current cursor position for rendering */
+  cursor: number;
+  /** Imperative setter for external updates (e.g., defaults, command suggestions) */
+  setValue: (value: string, cursor?: number) => void;
 }
 
 /**
@@ -213,62 +204,49 @@ export interface UseTextInputResult {
  *
  * Handles all text editing operations: character input, deletion,
  * cursor movement, and line editing commands.
- * Returns displayValue/displayCursor so the component renders from refs and never shows stale state.
+ * Uses the InputService text input store as the single source of truth.
  */
 export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
   const {
     id,
-    value,
-    cursor,
     isActive,
-    onChange,
     onSubmit,
     findPrevWordBoundary = defaultFindPrevWordBoundary,
     findNextWordBoundary = defaultFindNextWordBoundary,
   } = options;
 
-  // Store current values in refs for the handler
-  const valueRef = useRef(value);
-  const cursorRef = useRef(cursor);
-  // Track the last value we sent via onChange so we don't overwrite refs with stale state.
-  // When the conversation is long, re-renders (logs, stream) often run before our setState
-  // commits; syncing refs from props then would revert our optimistic update and reorder text.
-  const lastSentValueRef = useRef<string | null>(null);
-  const lastSentCursorRef = useRef<number | null>(null);
-  const previousValueRef = useRef<string>(value);
-  const previousCursorRef = useRef<number>(cursor);
-
-  const syncResult = computeTextInputRefSync({
-    value,
-    cursor,
-    state: {
-      valueRef: valueRef.current,
-      cursorRef: cursorRef.current,
-      lastSentValue: lastSentValueRef.current,
-      lastSentCursor: lastSentCursorRef.current,
-      previousValue: previousValueRef.current,
-      previousCursor: previousCursorRef.current,
-    },
-  });
-  valueRef.current = syncResult.valueRef;
-  cursorRef.current = syncResult.cursorRef;
-  lastSentValueRef.current = syncResult.lastSentValue;
-  lastSentCursorRef.current = syncResult.lastSentCursor;
-  previousValueRef.current = syncResult.previousValue;
-  previousCursorRef.current = syncResult.previousCursor;
-
-  const onChangeRef = useRef(onChange);
   const onSubmitRef = useRef(onSubmit);
-  onChangeRef.current = onChange;
   onSubmitRef.current = onSubmit;
+
+  const service = useInputService();
+
+  const getSnapshot = useCallback(
+    () => service.getTextInputState(id),
+    [service, id],
+  );
+  const subscribe = useCallback(
+    (listener: () => void) => service.subscribeTextInputState(id, listener),
+    [service, id],
+  );
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+
+  const setValue = useCallback(
+    (nextValue: string, nextCursor?: number) => {
+      const cursor = typeof nextCursor === "number" ? nextCursor : nextValue.length;
+      const clampedCursor = Math.max(0, Math.min(cursor, nextValue.length));
+      service.setTextInputState(id, { value: nextValue, cursor: clampedCursor });
+    },
+    [service, id],
+  );
 
   useInputHandler({
     id,
     priority: InputPriority.TEXT_INPUT,
     isActive,
     onInput: (action) => {
-      const currentValue = valueRef.current;
-      const currentCursor = cursorRef.current;
+      const currentState = service.getTextInputState(id);
+      const currentValue = currentState.value;
+      const currentCursor = currentState.cursor;
 
       let nextValue = currentValue;
       let nextCursor = currentCursor;
@@ -359,17 +337,7 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
       if (nextValue !== currentValue || nextCursor !== currentCursor) {
         // Clamp cursor
         nextCursor = Math.max(0, Math.min(nextCursor, nextValue.length));
-        onChangeRef.current(nextValue, nextCursor);
-        // Update refs immediately so the next key in the same tick sees the new value.
-        // Without this, fast typing uses stale refs and characters appear out of order.
-        valueRef.current = nextValue;
-        cursorRef.current = nextCursor;
-        // Mark pending so we don't overwrite refs with stale state on the next render.
-        // Long conversations cause many re-renders (logs, stream) before setState commits.
-        previousValueRef.current = currentValue;
-        previousCursorRef.current = currentCursor;
-        lastSentValueRef.current = nextValue;
-        lastSentCursorRef.current = nextCursor;
+        service.setTextInputState(id, { value: nextValue, cursor: nextCursor });
       }
 
       return InputResults.consumed();
@@ -378,8 +346,9 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
   });
 
   return {
-    displayValue: valueRef.current,
-    displayCursor: cursorRef.current,
+    value: snapshot.value,
+    cursor: snapshot.cursor,
+    setValue,
   };
 }
 
