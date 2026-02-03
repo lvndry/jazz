@@ -114,7 +114,7 @@ const AppHeader = React.memo(function AppHeader(): React.ReactElement {
       borderColor="cyan"
     >
       <Text bold color="cyan">🎷 Jazz</Text>
-      <Text dimColor> • AI Agent Framework</Text>
+      <Text dimColor> • Agentic CLI</Text>
     </Box>
   );
 }, () => true); // Never re-render - content is static
