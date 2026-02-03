@@ -414,9 +414,13 @@ research:
   synthesis:
     status: "pending"
     outline:
-      - executive_summary: "AI will reduce healthcare costs by 5-15% within 5 years"
-      - key_findings: ["Diagnostic improvements", "Administrative efficiency"]
-      - limitations: ["Implementation challenges", "Regulatory hurdles"]
+      executive_summary: "AI will reduce healthcare costs by 5-15% within 5 years"
+      key_findings:
+        - "Diagnostic improvements"
+        - "Administrative efficiency"
+      limitations:
+        - "Implementation challenges"
+        - "Regulatory hurdles"
 ```
 
 ### Memory Management Rules

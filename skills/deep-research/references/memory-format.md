@@ -413,28 +413,45 @@ checkpoints:
     adjustments_made: ${adjustments_array}
 ```
 
-### Memory Queries
+### Memory Queries (Logic Examples)
+
+These examples illustrate the logic for querying the memory structure. In implementation, these would be performed by the agent after parsing the YAML.
 
 **Find Unanswered Questions:**
 ```yaml
-phases:
-  decomposition:
-    sub_questions:
-      ? status != "completed"
+# Logic: phases.decomposition.sub_questions where status != "completed"
+query:
+  path: "phases.decomposition.sub_questions"
+  filter:
+    field: "status"
+    operator: "not_equals"
+    value: "completed"
 ```
 
 **Find High-Confidence Claims:**
 ```yaml
-findings:
-  key_claims:
-    ? confidence in ["very_high", "high"]
+# Logic: findings.key_claims where confidence is "very_high" or "high"
+query:
+  path: "findings.key_claims"
+  filter:
+    field: "confidence"
+    operator: "in"
+    value: ["very_high", "high"]
 ```
 
 **Find Source Gaps:**
 ```yaml
-findings:
-  key_claims:
-    ? len(sources) < 2 and confidence == "low"
+# Logic: findings.key_claims where sources count < 2 and confidence is "low"
+query:
+  path: "findings.key_claims"
+  filter:
+    all_of:
+      - field: "sources"
+        operator: "length_less_than"
+        value: 2
+      - field: "confidence"
+        operator: "equals"
+        value: "low"
 ```
 
 ## Memory File Management
