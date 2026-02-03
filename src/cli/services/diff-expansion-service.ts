@@ -1,4 +1,4 @@
-import { Effect, Context } from "effect";
+import { Effect, Context, Layer } from "effect";
 
 // ============================================================================
 // Types
@@ -89,10 +89,20 @@ export const DiffExpansionServiceTag = Context.GenericTag<DiffExpansionService>(
 // Service Factory
 // ============================================================================
 
-export const makeDiffExpansionService: Effect.Effect<DiffExpansionService> = Effect.gen(
-  function* () {
-    return new DiffExpansionServiceImpl();
-  }
+export const makeDiffExpansionService: Effect.Effect<DiffExpansionService> =
+  Effect.sync(() => new DiffExpansionServiceImpl());
+
+// ============================================================================
+// Service Layer
+// ============================================================================
+
+/**
+ * Diff Expansion Service Layer.
+ * Provides the live implementation of DiffExpansionService.
+ */
+export const DiffExpansionServiceLive = Layer.effect(
+  DiffExpansionServiceTag,
+  makeDiffExpansionService
 );
 
 // ============================================================================
