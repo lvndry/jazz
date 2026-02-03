@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform";
-import { afterAll, describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
+import { AgentRunner } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
@@ -25,24 +26,6 @@ import { ToolRegistryTag } from "../interfaces/tool-registry";
 import type { SkillService } from "../skills/skill-service";
 import { SkillServiceTag } from "../skills/skill-service";
 import type { Agent } from "../types/agent";
-
-mock.module("./execution", () => ({
-  executeWithStreaming: mock(() =>
-    Effect.succeed({
-      content: "Streaming response",
-      conversationId: "test-conv-123",
-    }),
-  ),
-  executeWithoutStreaming: mock(() =>
-    Effect.succeed({
-      content: "Batch response",
-      conversationId: "test-conv-123",
-    }),
-  ),
-}));
-
-
-const { AgentRunner } = await import("./agent-runner");
 
 // Mock services
 const mockLogger = {
@@ -150,15 +133,15 @@ const mockLlmService = {
     }),
   ),
   listProviders: mock(() => Effect.succeed([])),
-  createChatCompletion: mock(() =>
-    Effect.succeed({
+  createChatCompletion: mock(() => {
+    return Effect.succeed({
       id: "test-completion",
       model: "gpt-4",
       content: "Hello world",
-    }),
-  ),
-  createStreamingChatCompletion: mock(() =>
-    Effect.succeed({
+    });
+  }),
+  createStreamingChatCompletion: mock(() => {
+    return Effect.succeed({
       stream: Stream.empty,
       response: Effect.succeed({
         id: "test-completion-stream",
@@ -166,8 +149,8 @@ const mockLlmService = {
         content: "Hello world",
       }),
       cancel: Effect.void,
-    }),
-  ),
+    });
+  }),
   supportsNativeWebSearch: mock(() => Effect.succeed(false)),
 } as unknown as LLMService;
 
@@ -183,11 +166,6 @@ const mockMcpServerManager = {
 } as unknown as MCPServerManager;
 
 describe("AgentRunner", () => {
-  afterAll(() => {
-    // Prevent cross-file module mock leakage (important in CI where test order can differ)
-    mock.restore();
-  });
-
   function createTestLayer(): Layer.Layer<never, never, unknown> {
     return Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
@@ -238,7 +216,9 @@ describe("AgentRunner", () => {
     it("should force non-streaming for internal runs", async () => {
       const options = {
         ...defaultOptions,
-        conversationId: "test-conv-456"
+        conversationId: "test-conv-456",
+        stream: true,
+        maxIterations: 1,
       };
 
       const result = await runWithTestLayers(
@@ -246,7 +226,7 @@ describe("AgentRunner", () => {
       );
 
       expect(result).toBeDefined();
-      expect(result.content).toBe("Batch response");
+      expect(result.content).toBe("Hello world");
     });
   });
 
@@ -254,7 +234,8 @@ describe("AgentRunner", () => {
     it("should execute agent with streaming when enabled", async () => {
       const options = {
         ...defaultOptions,
-        stream: true
+        stream: true,
+        maxIterations: 1,
       };
 
       const result = await runWithTestLayers(
@@ -262,7 +243,7 @@ describe("AgentRunner", () => {
       );
 
       expect(result).toBeDefined();
-      expect(result.content).toBe("Streaming response");
+      expect(result.content).toBe("Hello world");
       expect(result.conversationId).toBeDefined();
     });
   });

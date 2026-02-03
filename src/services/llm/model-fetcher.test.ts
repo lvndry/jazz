@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, beforeEach } from "bun:test";
+import { afterAll, describe, expect, it, mock, beforeEach } from "bun:test";
 import { Effect } from "effect";
 import { createModelFetcher } from "./model-fetcher";
 
@@ -10,6 +10,10 @@ mock.module("./models-dev-client", () => ({
 
 describe("ModelFetcher", () => {
   const fetcher = createModelFetcher();
+
+  afterAll(() => {
+    mock.restore();
+  });
 
   beforeEach(() => {
     // Reset global fetch mock if needed
