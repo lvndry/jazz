@@ -148,6 +148,9 @@ export function showWorkflowCommand(workflowName: string) {
   });
 }
 
+/** Default max iterations for workflows */
+const DEFAULT_MAX_ITERATIONS = 50;
+
 /**
  * Run a workflow once (manually).
  */
@@ -162,6 +165,8 @@ export function runWorkflowCommand(
     const terminal = yield* TerminalServiceTag;
     const workflowService = yield* WorkflowServiceTag;
     const logger = yield* LoggerServiceTag;
+
+    const isHeadless = options?.autoApprove === true;
 
     yield* terminal.heading(`🚀 Running workflow: ${workflowName}`);
     yield* terminal.log("");
@@ -190,6 +195,17 @@ export function runWorkflowCommand(
       agent = agentResult.right;
       yield* terminal.info(`Using agent: ${agent.name}`);
     } else {
+      // In headless mode (--auto-approve), fail immediately if agent not found
+      if (isHeadless) {
+        yield* terminal.error(`Agent '${agentIdentifier}' not found.`);
+        yield* terminal.info(
+          "Scheduled workflows require a valid agent. Update the workflow or create the agent.",
+        );
+        return yield* Effect.fail(
+          new Error(`Agent '${agentIdentifier}' not found for headless workflow execution`),
+        );
+      }
+
       // Agent not found - list available agents and let user choose
       const allAgents = yield* listAllAgents();
 
@@ -242,8 +258,11 @@ export function runWorkflowCommand(
       workflowName,
       startedAt,
       status: "running",
-      triggeredBy: "manual",
+      triggeredBy: isHeadless ? "scheduled" : "manual",
     }).pipe(Effect.catchAll(() => Effect.void)); // Don't fail if history tracking fails
+
+    // Use configurable max iterations from workflow metadata
+    const maxIterations = workflow.metadata.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
     // Run the agent with the workflow prompt
     yield* AgentRunner.run({
@@ -251,7 +270,7 @@ export function runWorkflowCommand(
       userInput: workflow.prompt,
       sessionId: `workflow-${workflowName}-${Date.now()}`,
       conversationId: `workflow-${workflowName}-${Date.now()}`,
-      maxIterations: 50, // Allow more iterations for workflows
+      maxIterations,
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
     }).pipe(
       Effect.tap(() =>

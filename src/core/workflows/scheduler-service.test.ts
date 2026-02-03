@@ -1,5 +1,25 @@
 import { describe, expect, it } from "bun:test";
+import cronParser from "cron-parser";
 import type { ScheduledWorkflow } from "./scheduler-service";
+
+/**
+ * Test helper: Validate a cron expression.
+ */
+function isValidCronExpression(cron: string): boolean {
+  try {
+    const parts = cron.trim().split(/\s+/);
+    if (parts.length === 5) {
+      cronParser.parse(`0 ${cron}`);
+    } else if (parts.length === 6) {
+      cronParser.parse(cron);
+    } else {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 describe("SchedulerService", () => {
   describe("ScheduledWorkflow metadata", () => {
@@ -40,19 +60,26 @@ describe("SchedulerService", () => {
         "*/15 * * * *", // Every 15 minutes
         "0 0 * * 0", // Weekly on Sunday
         "0 9 1 * *", // Monthly on the 1st at 9 AM
+        "30 4 1,15 * 5", // Complex: 4:30 on 1st and 15th and Fridays
+        "0 0 1-7 * 1", // First Monday of month
       ];
 
       for (const cron of validCrons) {
-        const scheduled: ScheduledWorkflow = {
-          workflowName: "test",
-          schedule: cron,
-          agent: "agent1",
-          enabled: true,
-        };
+        expect(isValidCronExpression(cron)).toBe(true);
+      }
+    });
 
-        expect(scheduled.schedule).toBe(cron);
-        // Verify it has 5 parts
-        expect(cron.split(/\s+/).length).toBe(5);
+    it("should reject invalid cron expressions", () => {
+      const invalidCrons = [
+        "invalid", // Not a cron
+        "* * *", // Only 3 fields
+        "60 * * * *", // Invalid minute (60)
+        "* 25 * * *", // Invalid hour (25)
+        "* * * * * * *", // Too many fields
+      ];
+
+      for (const cron of invalidCrons) {
+        expect(isValidCronExpression(cron)).toBe(false);
       }
     });
   });

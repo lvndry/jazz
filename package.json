@@ -19,6 +19,9 @@
     "type": "git",
     "url": "https://github.com/lvndry/jazz.git"
   },
+  "bugs": {
+    "url": "https://github.com/lvndry/jazz/issues"
+  },
   "keywords": [
     "cli",
     "agents",
@@ -41,9 +44,6 @@
     "mcp-server",
     "agent-skills"
   ],
-  "bugs": {
-    "url": "https://github.com/lvndry/jazz/issues"
-  },
   "scripts": {
     "build": "bun run scripts/build.ts",
     "typecheck": "bun run tsc --noEmit",

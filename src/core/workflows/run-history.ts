@@ -23,6 +23,73 @@ function getHistoryPath(): string {
 }
 
 /**
+ * Get the path to the lock file.
+ */
+function getLockPath(): string {
+  return path.join(os.homedir(), ".jazz", "run-history.lock");
+}
+
+/**
+ * Acquire a file lock with retry logic.
+ * Uses mkdir as an atomic lock primitive (fails if exists).
+ */
+function acquireLock(
+  lockPath: string,
+  maxRetries = 10,
+  retryDelayMs = 100,
+): Effect.Effect<void, Error> {
+  return Effect.gen(function* () {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const result = yield* Effect.tryPromise(() => fs.mkdir(lockPath, { recursive: false })).pipe(
+        Effect.map(() => true),
+        Effect.catchAll(() => Effect.succeed(false)),
+      );
+
+      if (result) {
+        return;
+      }
+
+      // Check if lock is stale (older than 30 seconds)
+      const stat = yield* Effect.tryPromise(() => fs.stat(lockPath)).pipe(
+        Effect.catchAll(() => Effect.succeed(null)),
+      );
+
+      if (stat && Date.now() - stat.mtimeMs > 30000) {
+        // Remove stale lock
+        yield* Effect.tryPromise(() => fs.rmdir(lockPath)).pipe(
+          Effect.catchAll(() => Effect.void),
+        );
+        continue;
+      }
+
+      // Wait before retry
+      yield* Effect.sleep(retryDelayMs);
+    }
+
+    return yield* Effect.fail(new Error("Failed to acquire run history lock after retries"));
+  });
+}
+
+/**
+ * Release the file lock.
+ */
+function releaseLock(lockPath: string): Effect.Effect<void, never> {
+  return Effect.tryPromise(() => fs.rmdir(lockPath)).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/**
+ * Execute an operation with file locking.
+ */
+function withLock<A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E | Error> {
+  const lockPath = getLockPath();
+  return Effect.acquireUseRelease(
+    acquireLock(lockPath),
+    () => operation,
+    () => releaseLock(lockPath),
+  );
+}
+
+/**
  * Load the run history from disk.
  */
 export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error> {
@@ -32,7 +99,7 @@ export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error> {
     try {
       const content = yield* Effect.tryPromise(() => fs.readFile(historyPath, "utf-8"));
       const history = JSON.parse(content) as WorkflowRunRecord[];
-      return history;
+      return Array.isArray(history) ? history : [];
     } catch {
       return [];
     }
@@ -40,56 +107,66 @@ export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error> {
 }
 
 /**
- * Save the run history to disk.
+ * Save the run history to disk using atomic write (temp file + rename).
  */
 function saveRunHistory(history: WorkflowRunRecord[]): Effect.Effect<void, Error> {
   return Effect.gen(function* () {
     const historyPath = getHistoryPath();
     const dir = path.dirname(historyPath);
+    const tempPath = path.join(dir, `.run-history-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`);
 
     yield* Effect.tryPromise(() => fs.mkdir(dir, { recursive: true }));
-    yield* Effect.tryPromise(() => fs.writeFile(historyPath, JSON.stringify(history, null, 2)));
+    yield* Effect.tryPromise(() => fs.writeFile(tempPath, JSON.stringify(history, null, 2)));
+    yield* Effect.tryPromise(() => fs.rename(tempPath, historyPath)).pipe(
+      Effect.tapError(() => Effect.tryPromise(() => fs.unlink(tempPath)).pipe(Effect.catchAll(() => Effect.void))),
+    );
   });
 }
 
 /**
  * Add a new run record to the history.
  * Keeps only the last 100 records to prevent unbounded growth.
+ * Uses file locking to prevent race conditions.
  */
 export function addRunRecord(record: WorkflowRunRecord): Effect.Effect<void, Error> {
-  return Effect.gen(function* () {
-    const history = yield* loadRunHistory();
+  return withLock(
+    Effect.gen(function* () {
+      const history = yield* loadRunHistory();
 
-    // Add the new record
-    history.push(record);
+      // Add the new record
+      history.push(record);
 
-    // Keep only the last 100 records
-    const trimmed = history.slice(-100);
+      // Keep only the last 100 records
+      const trimmed = history.slice(-100);
 
-    yield* saveRunHistory(trimmed);
-  });
+      yield* saveRunHistory(trimmed);
+    }),
+  );
 }
 
 /**
  * Update the most recent run record for a workflow.
+ * Uses file locking to prevent race conditions.
  */
 export function updateLatestRunRecord(
   workflowName: string,
   update: Partial<WorkflowRunRecord>,
 ): Effect.Effect<void, Error> {
-  return Effect.gen(function* () {
-    const history = yield* loadRunHistory();
+  return withLock(
+    Effect.gen(function* () {
+      const history = yield* loadRunHistory();
 
-    // Find the most recent record for this workflow that is still running
-    for (let i = history.length - 1; i >= 0; i--) {
-      const record = history[i];
-      if (record && record.workflowName === workflowName && record.status === "running") {
-        history[i] = { ...record, ...update };
-        yield* saveRunHistory(history);
-        return;
+      // Find the most recent record for this workflow that is still running
+      for (let i = history.length - 1; i >= 0; i--) {
+        const record = history[i];
+        if (record && record.workflowName === workflowName && record.status === "running") {
+          history[i] = { ...record, ...update };
+          yield* saveRunHistory(history);
+          return;
+        }
       }
-    }
-  });
+    }),
+  );
 }
 
 /**

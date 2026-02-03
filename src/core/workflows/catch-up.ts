@@ -166,13 +166,14 @@ export function runWorkflowCatchUp() {
 
       const autoApprovePolicy = workflow.autoApprove ?? true;
       const runId = formatAgentRunId(entry.workflowName, now);
+      const maxIterations = workflow.maxIterations ?? 50;
 
       yield* AgentRunner.run({
         agent: agentResult.right,
         userInput: workflowContent.prompt,
         sessionId: runId,
         conversationId: runId,
-        maxIterations: 50,
+        maxIterations,
         ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       }).pipe(
         Effect.tap(() =>

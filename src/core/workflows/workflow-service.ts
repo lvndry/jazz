@@ -32,6 +32,8 @@ export interface WorkflowMetadata {
   readonly catchUpOnStartup?: boolean;
   /** Max age (seconds) for catch-up runs */
   readonly maxCatchUpAge?: number;
+  /** Maximum agent iterations per run (defaults to 50) */
+  readonly maxIterations?: number;
 }
 
 /**
@@ -85,49 +87,42 @@ function parseWorkflowFrontmatter(
     return null;
   }
 
-  // Build the metadata object, only including optional fields if they have values
-  const metadata: WorkflowMetadata = {
+  // Parse autoApprove - can be boolean or string
+  const autoApprove = parseAutoApprove(data["autoApprove"]);
+
+  // Parse skills array
+  const skills = Array.isArray(data["skills"])
+    ? data["skills"].filter((s): s is string => typeof s === "string")
+    : undefined;
+
+  // Build the metadata object using conditional spreading
+  return {
     name,
     description,
     path: workflowPath,
+    ...(typeof data["agent"] === "string" && { agent: data["agent"] }),
+    ...(typeof data["schedule"] === "string" && { schedule: data["schedule"] }),
+    ...(autoApprove !== undefined && { autoApprove }),
+    ...(skills && skills.length > 0 && { skills }),
+    ...(typeof data["catchUpOnStartup"] === "boolean" && {
+      catchUpOnStartup: data["catchUpOnStartup"],
+    }),
+    ...(typeof data["maxCatchUpAge"] === "number" && { maxCatchUpAge: data["maxCatchUpAge"] }),
+    ...(typeof data["maxIterations"] === "number" && { maxIterations: data["maxIterations"] }),
   };
+}
 
-  if (typeof data["agent"] === "string") {
-    (metadata as { agent: string }).agent = data["agent"];
+/**
+ * Parse autoApprove value from frontmatter.
+ */
+function parseAutoApprove(value: unknown): AutoApprovePolicy | undefined {
+  if (typeof value === "boolean") {
+    return value;
   }
-
-  if (typeof data["schedule"] === "string") {
-    (metadata as { schedule: string }).schedule = data["schedule"];
+  if (value === "read-only" || value === "low-risk" || value === "high-risk") {
+    return value;
   }
-
-  // Parse autoApprove - can be boolean or string
-  if (typeof data["autoApprove"] === "boolean") {
-    (metadata as { autoApprove: AutoApprovePolicy }).autoApprove = data["autoApprove"];
-  } else if (
-    data["autoApprove"] === "read-only" ||
-    data["autoApprove"] === "low-risk" ||
-    data["autoApprove"] === "high-risk"
-  ) {
-    (metadata as { autoApprove: AutoApprovePolicy }).autoApprove = data["autoApprove"];
-  }
-
-  // Parse skills array
-  if (Array.isArray(data["skills"])) {
-    const skills = data["skills"].filter((s): s is string => typeof s === "string");
-    if (skills.length > 0) {
-      (metadata as { skills: readonly string[] }).skills = skills;
-    }
-  }
-
-  if (typeof data["catchUpOnStartup"] === "boolean") {
-    (metadata as { catchUpOnStartup: boolean }).catchUpOnStartup = data["catchUpOnStartup"];
-  }
-
-  if (typeof data["maxCatchUpAge"] === "number") {
-    (metadata as { maxCatchUpAge: number }).maxCatchUpAge = data["maxCatchUpAge"];
-  }
-
-  return metadata;
+  return undefined;
 }
 
 /**

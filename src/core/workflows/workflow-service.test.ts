@@ -17,6 +17,7 @@ describe("WorkflowService", () => {
         skills: ["skill1", "skill2"],
         catchUpOnStartup: true,
         maxCatchUpAge: 3600,
+        maxIterations: 100,
       };
 
       expect(testWorkflow.name).toBe("test-workflow");
@@ -27,6 +28,7 @@ describe("WorkflowService", () => {
       expect(testWorkflow.skills).toEqual(["skill1", "skill2"]);
       expect(testWorkflow.catchUpOnStartup).toBe(true);
       expect(testWorkflow.maxCatchUpAge).toBe(3600);
+      expect(testWorkflow.maxIterations).toBe(100);
     });
 
     it("should handle minimal workflow metadata", () => {

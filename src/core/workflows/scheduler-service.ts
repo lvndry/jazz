@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import cronParser from "cron-parser";
 import { Context, Effect, Layer } from "effect";
 import type { WorkflowMetadata } from "./workflow-service";
 
@@ -73,6 +74,40 @@ function getSchedulesDirectory(): string {
 }
 
 /**
+ * Escape a string for safe inclusion in XML.
+ */
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/**
+ * Validate a cron expression.
+ * Returns true if valid, false otherwise.
+ */
+function isValidCronExpression(cron: string): boolean {
+  try {
+    // cron-parser expects 6 fields (with seconds), so we need to handle 5-field cron
+    const parts = cron.trim().split(/\s+/);
+    if (parts.length === 5) {
+      // Add seconds field for validation
+      cronParser.parse(`0 ${cron}`);
+    } else if (parts.length === 6) {
+      cronParser.parse(cron);
+    } else {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Convert a cron expression to a launchd schedule dictionary.
  * Supports standard cron format: minute hour day-of-month month day-of-week
  */
@@ -120,14 +155,18 @@ function cronToLaunchdSchedule(
  * Generate a launchd plist file content.
  */
 function generateLaunchdPlist(workflow: WorkflowMetadata, jazzPath: string, agentId: string): string {
-  const label = `com.jazz.workflow.${workflow.name}`;
+  const label = escapeXml(`com.jazz.workflow.${workflow.name}`);
   const schedule = cronToLaunchdSchedule(workflow.schedule!);
   const logDir = path.join(os.homedir(), ".jazz", "logs");
 
-  // Build program arguments
+  // Build program arguments (escaped for XML)
   const programArgs = jazzPath.includes(" ")
     ? jazzPath.split(" ").concat(["workflow", "run", workflow.name, "--agent", agentId, "--auto-approve"])
     : [jazzPath, "workflow", "run", workflow.name, "--agent", agentId, "--auto-approve"];
+
+  const escapedArgs = programArgs.map((arg) => escapeXml(arg));
+  const escapedLogDir = escapeXml(logDir);
+  const escapedWorkflowName = escapeXml(workflow.name);
 
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -137,7 +176,7 @@ function generateLaunchdPlist(workflow: WorkflowMetadata, jazzPath: string, agen
     <string>${label}</string>
     <key>ProgramArguments</key>
     <array>
-${programArgs.map((arg) => `        <string>${arg}</string>`).join("\n")}
+${escapedArgs.map((arg) => `        <string>${arg}</string>`).join("\n")}
     </array>
     <key>StartCalendarInterval</key>
     <array>
@@ -152,9 +191,9 @@ ${Object.entries(s)
   .join("\n")}
     </array>
     <key>StandardOutPath</key>
-    <string>${logDir}/${workflow.name}.log</string>
+    <string>${escapedLogDir}/${escapedWorkflowName}.log</string>
     <key>StandardErrorPath</key>
-    <string>${logDir}/${workflow.name}.error.log</string>
+    <string>${escapedLogDir}/${escapedWorkflowName}.error.log</string>
     <key>RunAtLoad</key>
     <false/>
 </dict>
@@ -216,6 +255,78 @@ function execCommand(command: string, args: string[]): Effect.Effect<string, Err
 }
 
 /**
+ * Parse and validate a ScheduledWorkflow from JSON content.
+ * Returns null if the content is invalid or missing required fields.
+ */
+function parseScheduledWorkflow(content: string): ScheduledWorkflow | null {
+  try {
+    const parsed = JSON.parse(content) as Partial<ScheduledWorkflow>;
+
+    // Validate required fields
+    if (typeof parsed.workflowName !== "string" || typeof parsed.schedule !== "string") {
+      return null;
+    }
+
+    return {
+      workflowName: parsed.workflowName,
+      schedule: parsed.schedule,
+      agent: typeof parsed.agent === "string" ? parsed.agent : "default",
+      enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : true,
+      ...(typeof parsed.lastRun === "string" && { lastRun: parsed.lastRun }),
+      ...(typeof parsed.nextRun === "string" && { nextRun: parsed.nextRun }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * List all scheduled workflows from the schedules directory.
+ * Shared implementation for both LaunchdScheduler and CronScheduler.
+ */
+function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
+  return Effect.gen(function* () {
+    const schedulesDir = getSchedulesDirectory();
+
+    // Ensure directory exists
+    yield* Effect.tryPromise(() => fs.mkdir(schedulesDir, { recursive: true }));
+
+    // List metadata files
+    const files = yield* Effect.tryPromise(() => fs.readdir(schedulesDir));
+    const jsonFiles = files.filter((f) => f.endsWith(".json"));
+
+    const scheduled: ScheduledWorkflow[] = [];
+    for (const file of jsonFiles) {
+      const content = yield* Effect.tryPromise(() =>
+        fs.readFile(path.join(schedulesDir, file), "utf-8"),
+      ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+      if (content) {
+        const metadata = parseScheduledWorkflow(content);
+        if (metadata) {
+          scheduled.push(metadata);
+        }
+      }
+    }
+
+    return scheduled;
+  });
+}
+
+/**
+ * Check if a workflow is scheduled by checking metadata file existence.
+ */
+function isScheduledByMetadata(workflowName: string): Effect.Effect<boolean, Error> {
+  return Effect.gen(function* () {
+    const metadataPath = path.join(getSchedulesDirectory(), `${workflowName}.json`);
+    const stat = yield* Effect.tryPromise(() => fs.stat(metadataPath)).pipe(
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
+    return stat !== null;
+  });
+}
+
+/**
  * macOS launchd implementation of SchedulerService.
  */
 class LaunchdScheduler implements SchedulerService {
@@ -237,6 +348,12 @@ class LaunchdScheduler implements SchedulerService {
     return Effect.gen(function* (this: LaunchdScheduler) {
       if (!workflow.schedule) {
         return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
+      }
+
+      if (!isValidCronExpression(workflow.schedule)) {
+        return yield* Effect.fail(
+          new Error(`Workflow ${workflow.name} has invalid cron expression: ${workflow.schedule}`),
+        );
       }
 
       const jazzPath = getJazzExecutablePath();
@@ -292,53 +409,11 @@ class LaunchdScheduler implements SchedulerService {
   }
 
   listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
-    return Effect.gen(function* (this: LaunchdScheduler) {
-      const schedulesDir = getSchedulesDirectory();
-
-      // Ensure directory exists
-      yield* Effect.tryPromise(() => fs.mkdir(schedulesDir, { recursive: true }));
-
-      // List metadata files
-      const files = yield* Effect.tryPromise(() => fs.readdir(schedulesDir));
-      const jsonFiles = files.filter((f) => f.endsWith(".json"));
-
-      const scheduled: ScheduledWorkflow[] = [];
-      for (const file of jsonFiles) {
-        try {
-          const content = yield* Effect.tryPromise(() =>
-            fs.readFile(path.join(schedulesDir, file), "utf-8"),
-          );
-          const parsed = JSON.parse(content) as Partial<ScheduledWorkflow>;
-          // Handle old metadata files that might not have agent field
-          const metadata: ScheduledWorkflow = {
-            workflowName: parsed.workflowName!,
-            schedule: parsed.schedule!,
-            agent: parsed.agent || "default",
-            enabled: parsed.enabled ?? true,
-            ...(parsed.lastRun ? { lastRun: parsed.lastRun } : {}),
-            ...(parsed.nextRun ? { nextRun: parsed.nextRun } : {}),
-          };
-          scheduled.push(metadata);
-        } catch {
-          // Ignore malformed metadata files
-          continue;
-        }
-      }
-
-      return scheduled;
-    }.bind(this));
+    return listScheduledFromMetadataFiles();
   }
 
   isScheduled(workflowName: string): Effect.Effect<boolean, Error> {
-    return Effect.gen(function* (this: LaunchdScheduler) {
-      const metadataPath = this.getMetadataPath(workflowName);
-      try {
-        yield* Effect.tryPromise(() => fs.access(metadataPath));
-        return true;
-      } catch {
-        return false;
-      }
-    }.bind(this));
+    return isScheduledByMetadata(workflowName);
   }
 }
 
@@ -401,6 +476,12 @@ class CronScheduler implements SchedulerService {
     return Effect.gen(function* (this: CronScheduler) {
       if (!workflow.schedule) {
         return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
+      }
+
+      if (!isValidCronExpression(workflow.schedule)) {
+        return yield* Effect.fail(
+          new Error(`Workflow ${workflow.name} has invalid cron expression: ${workflow.schedule}`),
+        );
       }
 
       const jazzPath = getJazzExecutablePath();
@@ -483,53 +564,11 @@ class CronScheduler implements SchedulerService {
   }
 
   listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
-    return Effect.gen(function* (this: CronScheduler) {
-      const schedulesDir = getSchedulesDirectory();
-
-      // Ensure directory exists
-      yield* Effect.tryPromise(() => fs.mkdir(schedulesDir, { recursive: true }));
-
-      // List metadata files
-      const files = yield* Effect.tryPromise(() => fs.readdir(schedulesDir));
-      const jsonFiles = files.filter((f) => f.endsWith(".json"));
-
-      const scheduled: ScheduledWorkflow[] = [];
-      for (const file of jsonFiles) {
-        try {
-          const content = yield* Effect.tryPromise(() =>
-            fs.readFile(path.join(schedulesDir, file), "utf-8"),
-          );
-          const parsed = JSON.parse(content) as Partial<ScheduledWorkflow>;
-          // Handle old metadata files that might not have agent field
-          const metadata: ScheduledWorkflow = {
-            workflowName: parsed.workflowName!,
-            schedule: parsed.schedule!,
-            agent: parsed.agent || "default",
-            enabled: parsed.enabled ?? true,
-            ...(parsed.lastRun ? { lastRun: parsed.lastRun } : {}),
-            ...(parsed.nextRun ? { nextRun: parsed.nextRun } : {}),
-          };
-          scheduled.push(metadata);
-        } catch {
-          // Ignore malformed metadata files
-          continue;
-        }
-      }
-
-      return scheduled;
-    }.bind(this));
+    return listScheduledFromMetadataFiles();
   }
 
   isScheduled(workflowName: string): Effect.Effect<boolean, Error> {
-    return Effect.gen(function* (this: CronScheduler) {
-      const metadataPath = this.getMetadataPath(workflowName);
-      try {
-        yield* Effect.tryPromise(() => fs.access(metadataPath));
-        return true;
-      } catch {
-        return false;
-      }
-    }.bind(this));
+    return isScheduledByMetadata(workflowName);
   }
 }
 
