@@ -1,5 +1,5 @@
 import { FileSystem } from "@effect/platform";
-import { describe, expect, it, mock } from "bun:test";
+import { afterAll, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
@@ -183,6 +183,11 @@ const mockMcpServerManager = {
 } as unknown as MCPServerManager;
 
 describe("AgentRunner", () => {
+  afterAll(() => {
+    // Prevent cross-file module mock leakage (important in CI where test order can differ)
+    mock.restore();
+  });
+
   function createTestLayer(): Layer.Layer<never, never, unknown> {
     return Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
