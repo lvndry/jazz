@@ -90,9 +90,6 @@ export function listWorkflowsCommand() {
     }
 
     yield* terminal.info(`Total: ${workflows.length} workflow(s)`);
-
-    yield* Effect.sleep("100 millis");
-    yield* Effect.sync(() => process.exit(0));
   });
 }
 
@@ -148,9 +145,6 @@ export function showWorkflowCommand(workflowName: string) {
     yield* terminal.log("Prompt:");
     yield* terminal.log("─".repeat(60));
     yield* terminal.log(workflow.prompt);
-
-    yield* Effect.sleep("100 millis");
-    yield* Effect.sync(() => process.exit(0));
   });
 }
 
@@ -178,8 +172,6 @@ export function runWorkflowCommand(
         Effect.gen(function* () {
           yield* terminal.error(`Workflow not found: ${workflowName}`);
           yield* terminal.info("Run 'jazz workflow list' to see available workflows.");
-          yield* Effect.sleep("100 millis");
-          yield* Effect.sync(() => process.exit(1));
           return yield* Effect.fail(error);
         }),
       ),
@@ -204,10 +196,9 @@ export function runWorkflowCommand(
       if (allAgents.length === 0) {
         yield* terminal.error("No agents available.");
         yield* terminal.info("Create an agent first with: jazz agent create");
-        yield* Effect.sleep("100 millis");
-        yield* Effect.sync(() => process.exit(1));
-        // TypeScript needs this for control flow
-        return;
+        return yield* Effect.fail(
+          new Error("No agents available. Create an agent first with: jazz agent create"),
+        );
       }
 
       if (agentIdentifier !== "default") {
@@ -221,8 +212,6 @@ export function runWorkflowCommand(
       const selectedAgent = yield* selectAgentForWorkflow(allAgents, "Select an agent to run this workflow:");
       if (!selectedAgent) {
         yield* terminal.info("Workflow cancelled.");
-        yield* Effect.sleep("100 millis");
-        yield* Effect.sync(() => process.exit(0));
         return;
       }
 
@@ -282,9 +271,6 @@ export function runWorkflowCommand(
 
     yield* terminal.log("");
     yield* terminal.success(`Workflow completed: ${workflowName}`);
-
-    yield* Effect.sleep("100 millis");
-    yield* Effect.sync(() => process.exit(0));
   });
 }
 
@@ -353,9 +339,9 @@ export function scheduleWorkflowCommand(workflowName: string) {
       if (allAgents.length === 0) {
         yield* terminal.error("No agents available.");
         yield* terminal.info("Create an agent first with: jazz agent create");
-        yield* Effect.sleep("100 millis");
-        yield* Effect.sync(() => process.exit(1));
-        return;
+        return yield* Effect.fail(
+          new Error("No agents available. Create an agent first with: jazz agent create"),
+        );
       }
 
       if (workflowAgentId !== "default") {
@@ -372,8 +358,6 @@ export function scheduleWorkflowCommand(workflowName: string) {
       );
       if (!selectedAgent) {
         yield* terminal.info("Scheduling cancelled.");
-        yield* Effect.sleep("100 millis");
-        yield* Effect.sync(() => process.exit(0));
         return;
       }
 
@@ -405,9 +389,6 @@ export function scheduleWorkflowCommand(workflowName: string) {
     yield* terminal.log("");
     yield* terminal.info("Logs will be written to: ~/.jazz/logs/");
     yield* terminal.info(`To unschedule: jazz workflow unschedule ${workflowName}`);
-
-    yield* Effect.sleep("100 millis");
-    yield* Effect.sync(() => process.exit(0));
   });
 }
 
@@ -439,9 +420,6 @@ export function unscheduleWorkflowCommand(workflowName: string) {
     yield* scheduler.unschedule(workflowName);
 
     yield* terminal.success(`Workflow '${workflowName}' unscheduled successfully.`);
-
-    yield* Effect.sleep("100 millis");
-    yield* Effect.sync(() => process.exit(0));
   });
 }
 
@@ -482,9 +460,6 @@ export function listScheduledWorkflowsCommand() {
 
     yield* terminal.log("");
     yield* terminal.info(`Total: ${scheduled.length} scheduled workflow(s)`);
-
-    yield* Effect.sleep("100 millis");
-    yield* Effect.sync(() => process.exit(0));
   });
 }
 
@@ -535,9 +510,6 @@ export function workflowHistoryCommand(workflowName?: string) {
     }
 
     yield* terminal.info(`Showing ${filteredRuns.length} most recent run(s)`);
-
-    yield* Effect.sleep("100 millis");
-    yield* Effect.sync(() => process.exit(0));
   });
 }
 

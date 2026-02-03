@@ -7,7 +7,7 @@ description: Create time-based routines using the OS scheduler. On Linux use cro
 
 ## When to use this skill
 
-Use this skill when the user wants to create or manage time-based routines (scheduled tasks) from Jazz, and the behavior should adapt to the operating system:
+Use this skill when the user wants to create or manage time-based routines (scheduled tasks), and the behavior should adapt to the operating system:
 
 - **Linux** → use `cron` (`crontab -e`, system/user crontabs)
 - **macOS** → use `launchd` (LaunchAgents / LaunchDaemons with plist files)

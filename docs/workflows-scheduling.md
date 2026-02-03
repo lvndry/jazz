@@ -6,14 +6,12 @@ Jazz uses your operating system's built-in scheduler:
 - **macOS**: `launchd` (via `~/Library/LaunchAgents/`)
 - **Linux**: `cron` (via `crontab`)
 
-## ⚠️ Important: Missed Runs Are Skipped by Default
-
-### The Reality
+## ⚠️ Important: Computer Must Be Awake at Schedule Time
 
 If your computer is **closed, asleep, or powered off** when a workflow is scheduled to run:
-- ❌ The workflow will **NOT run at that time**
-- ✅ It **WILL run** at the next scheduled time (if your computer is awake)
-- ✅ You can enable catch-up on startup to run missed tasks later
+- ❌ The system scheduler will **not** run it at that time (the event is missed)
+- ✅ It **will** run at the next scheduled time if your computer is awake
+- ✅ With **catch-up on startup** (`catchUpOnStartup: true` in the workflow), Jazz can run missed workflows when you next start Jazz (within `maxCatchUpAge`)
 
 ### Example Scenarios
 

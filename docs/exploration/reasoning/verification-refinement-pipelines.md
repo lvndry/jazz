@@ -2,11 +2,7 @@
 
 ## Overview
 
-Inspired by recent breakthrough research on IMO 2025
-([Huang & Yang, 2025](https://arxiv.org/pdf/2507.15855)), where a verification-and-refinement
-pipeline achieved 85.7% accuracy on Olympiad-level mathematics (compared to 21-38% baseline), we
-explore how Jazz can incorporate advanced reasoning patterns to build more powerful, reliable
-agents.
+Inspired by recent breakthrough research on IMO 2025([Huang & Yang, 2025](https://arxiv.org/pdf/2507.15855)), where a verification-and-refinement pipeline achieved 85.7% accuracy on Olympiad-level mathematics (compared to 21-38% baseline), we explore how Jazz can incorporate advanced reasoning patterns to build more powerful, reliable agents.
 
 **Key Insight from Research**:
 

@@ -145,13 +145,13 @@ Reference for thinking like top founders when brainstorming and evaluating start
 
 ## Pattern Synthesis
 
-| Founder   | Best For            | Ideation Filter                          |
-|----------|---------------------|------------------------------------------|
-| Thiel    | Defensibility, moat | Contrarian truth, monopoly angle         |
-| Graham   | Validation, PMF     | Would 10 people pay? Talk to users       |
-| Andreessen | Timing, market    | Why now? 10x better?                     |
-| Bezos    | Customer, flywheel  | What won't change? Flywheel?             |
-| Musk     | Hard problems       | First principles, remove bottleneck      |
-| Hoffman  | Platforms, scale    | Network effects, blitzscaling potential  |
+| Founder    | Best For            | Ideation Filter                         |
+| ---------- | ------------------- | --------------------------------------- |
+| Thiel      | Defensibility, moat | Contrarian truth, monopoly angle        |
+| Graham     | Validation, PMF     | Would 10 people pay? Talk to users      |
+| Andreessen | Timing, market      | Why now? 10x better?                    |
+| Bezos      | Customer, flywheel  | What won't change? Flywheel?            |
+| Musk       | Hard problems       | First principles, remove bottleneck     |
+| Hoffman    | Platforms, scale    | Network effects, blitzscaling potential |
 
 Use multiple lenses when evaluating an idea. Strong ideas often pass several filters.
