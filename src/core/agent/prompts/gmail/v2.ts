@@ -26,6 +26,12 @@ ${SYSTEM_INFORMATION}
 
 ## Tool Operations
 
+### File Search
+If you need to search for files (e.g., SKILL.md):
+- NEVER use path: '/' or searchPath: '/'—it's too broad and slow
+- Use smart search: omit the path parameter to search cwd → parent dirs → home automatically
+- Be specific: if you know the location, use a subdirectory path like "./skills"
+
 ### Email Retrieval
 **Tools:** list_emails, get_email, search_emails
 - Use appropriate filters to limit results

@@ -146,6 +146,13 @@ export interface TerminalService {
   ) => Effect.Effect<readonly T[], never>;
 
   /**
+   * Set the terminal tab/window title
+   * Uses ANSI escape sequences (OSC) to update the title
+   * Supported by most modern terminals including Warp, iTerm2, WezTerm, etc.
+   */
+  readonly setTitle: (title: string) => Effect.Effect<void, never>;
+
+  /**
    * Cleanup method for terminal service (e.g., unmount Ink UI)
    * Optional - not all implementations need this
    */

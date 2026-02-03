@@ -16,7 +16,7 @@ import { normalizeFilterPattern } from "./utils";
 export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().optional().describe("Start directory (defaults to smart search)"),
+      path: z.string().optional().describe("Start directory (defaults to smart search from cwd→parent→home). NEVER use '/' as it's too broad and slow. Omit this parameter to use smart search."),
       name: z.string().optional().describe("Filter by name (substring or 're:<regex>')"),
       type: z.enum(["file", "dir", "all"]).optional().describe("Type filter"),
       maxDepth: z
@@ -35,7 +35,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       smart: z
         .boolean()
         .optional()
-        .describe("Use smart hierarchical search (HOME first, then expand)"),
+        .describe("Use smart hierarchical search (cwd→parent→home). Default: true. Keep enabled unless you have a specific directory path."),
     })
     .strict();
 
@@ -44,7 +44,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, FindArgs>({
     name: "find",
     description:
-      "Advanced file and directory search with smart hierarchical search strategy (searches cwd, home, and parent directories in order). Supports deep traversal (default 25 levels), regex patterns, type filters, and hidden files. Defaults to 200 results (hard cap 2000). Use for comprehensive searches when find_path doesn't locate what you need.",
+      "Advanced file and directory search with smart hierarchical search strategy. By default (when path is omitted), searches in this order: (1) current directory, (2) parent directories (up to 3 levels), (3) home directory. NEVER specify path: '/' as it's too broad and slow—always omit the path parameter to use smart search, or provide a specific directory. Supports deep traversal (default 25 levels), regex patterns, type filters, and hidden files. Defaults to 200 results (hard cap 2000). Use for comprehensive searches when find_path doesn't locate what you need.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {

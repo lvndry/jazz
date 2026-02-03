@@ -4,6 +4,7 @@ import { Box, Text } from "ink";
 import React from "react";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
+import { NotificationServiceTag, type NotificationService } from "@/core/interfaces/notification";
 import type {
   PresentationService,
   StreamingRenderer,
@@ -57,6 +58,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     private readonly agentName: string,
     private readonly showMetrics: boolean,
     private readonly displayConfig: DisplayConfig,
+    private readonly notificationService: NotificationService | null,
   ) {}
 
   reset(): Effect.Effect<void, never> {
@@ -319,6 +321,24 @@ export class InkStreamingRenderer implements StreamingRenderer {
         }
 
         case "complete": {
+          // Send system notification for completion
+          if (this.notificationService) {
+            Effect.runFork(
+              this.notificationService.notify(
+                `${this.agentName} has completed the task.`,
+                {
+                  title: "Jazz Task Complete",
+                  sound: true,
+                },
+              ).pipe(
+                Effect.catchAll((error) => {
+                  console.error("[Notification] Failed to send completion notification:", error);
+                  return Effect.void;
+                }),
+              ),
+            );
+          }
+
           // If streaming never started (fallback), we may still want to show the response.
           if (!this.lastAgentHeaderWritten) {
             store.printOutput({
@@ -524,7 +544,10 @@ class InkPresentationService implements PresentationService {
   private approvalQueue: QueuedApproval[] = [];
   private isProcessingApproval: boolean = false;
 
-  constructor(private readonly displayConfig: DisplayConfig) {}
+  constructor(
+    private readonly displayConfig: DisplayConfig,
+    private readonly notificationService: NotificationService | null,
+  ) {}
 
   private getRenderer(): CLIRenderer {
     if (!this.renderer) {
@@ -621,7 +644,12 @@ class InkPresentationService implements PresentationService {
     config: StreamingRendererConfig,
   ): Effect.Effect<StreamingRenderer, never> {
     return Effect.sync(() => {
-      return new InkStreamingRenderer(config.agentName, config.showMetrics, config.displayConfig);
+      return new InkStreamingRenderer(
+        config.agentName,
+        config.showMetrics,
+        config.displayConfig,
+        this.notificationService,
+      );
     });
   }
 
@@ -670,6 +698,24 @@ class InkPresentationService implements PresentationService {
 
     this.isProcessingApproval = true;
     const { request, resume } = this.approvalQueue.shift()!;
+
+    // Send system notification for approval request
+    if (this.notificationService) {
+      Effect.runFork(
+        this.notificationService.notify(
+          `Agent needs approval for ${request.toolName}`,
+          {
+            title: "Jazz Approval Required",
+            sound: true,
+          },
+        ).pipe(
+          Effect.catchAll((error) => {
+            console.error("[Notification] Failed to send approval notification:", error);
+            return Effect.void;
+          }),
+        ),
+      );
+    }
 
     // Format the approval message
     const toolLabel = chalk.cyan(request.toolName);
@@ -757,6 +803,13 @@ export const InkPresentationServiceLayer = Layer.effect(
     const displayConfig = Option.isSome(configServiceOption)
       ? resolveDisplayConfig(yield* configServiceOption.value.appConfig)
       : DEFAULT_DISPLAY_CONFIG;
-    return new InkPresentationService(displayConfig);
+
+    // Get notification service if available
+    const notificationServiceOption = yield* Effect.serviceOption(NotificationServiceTag);
+    const notificationService = Option.isSome(notificationServiceOption)
+      ? notificationServiceOption.value
+      : null;
+
+    return new InkPresentationService(displayConfig, notificationService);
   }),
 );

@@ -332,6 +332,16 @@ export class InkTerminalService implements TerminalService {
       });
     });
   }
+
+  setTitle(title: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      // Use OSC 0 sequence to set both icon name and window/tab title
+      // Format: ESC]0;title BEL
+      // \x1b is ESC, \x07 is BEL (bell)
+      // This is widely supported across modern terminals (Warp, iTerm2, WezTerm, Alacritty, etc.)
+      process.stdout.write(`\x1b]0;${title}\x07`);
+    });
+  }
 }
 
 /**

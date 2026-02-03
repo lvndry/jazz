@@ -22,6 +22,7 @@ import { createGmailServiceLayer } from "./services/gmail";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer } from "./services/logger";
 import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
+import { NotificationServiceLayer } from "./services/notification";
 import { FileStorageService } from "./services/storage/file";
 import { createTerminalServiceLayer } from "./services/terminal";
 
@@ -131,7 +132,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
   // In TTY mode, keep Ink UI intact by routing all presentation output into Ink.
   // The legacy CLI presentation writes directly to stdout, which clobbers Ink rendering.
   const presentationLayer = process.stdout.isTTY
-    ? InkPresentationServiceLayer
+    ? InkPresentationServiceLayer.pipe(Layer.provide(NotificationServiceLayer))
     : CLIPresentationServiceLayer;
 
   // Create a complete layer by providing all dependencies
@@ -151,6 +152,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     agentLayer,
     chatLayer,
     presentationLayer,
+    NotificationServiceLayer,
     SkillsLive.layer,
   );
 }

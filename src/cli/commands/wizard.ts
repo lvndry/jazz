@@ -34,6 +34,9 @@ export function wizardCommand() {
     const configService = yield* AgentConfigServiceTag;
     const terminal = yield* TerminalServiceTag;
 
+    // Set terminal tab title
+    yield* terminal.setTitle("🎷 Jazz");
+
     // Main wizard loop - keeps running until user exits
     let shouldExit = false;
 

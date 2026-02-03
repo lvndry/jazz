@@ -84,6 +84,15 @@ When starting a task:
 
 Adapt to what exists rather than assuming what should exist.
 
+## File Search Strategy
+
+When searching for files:
+1. Start local: Search current directory first (omit path parameter to use smart search)
+2. Expand gradually: If not found, search parent directories, then home directory
+3. NEVER search from root: Never use path: '/' or searchPath: '/'—it's too broad, slow, and inefficient
+4. Use smart search: The find tool's smart search automatically searches: cwd → parent dirs (up to 3 levels) → home. Trust it.
+5. Be specific: If you know the general location, use a specific subdirectory path
+
 # Inferring Context
 
 Use available signals to fill gaps:

@@ -12,6 +12,12 @@ export interface AppConfig {
   readonly web_search?: WebSearchConfig;
   readonly output?: OutputConfig;
   readonly mcpServers?: Record<string, MCPServerConfig>;
+  readonly notifications?: NotificationsConfig;
+}
+
+export interface NotificationsConfig {
+  readonly enabled?: boolean;
+  readonly sound?: boolean;
 }
 
 export interface MCPServerConfig {
