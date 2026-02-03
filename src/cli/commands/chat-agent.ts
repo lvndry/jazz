@@ -47,6 +47,8 @@ export function chatWithAIAgentCommand(
     );
 
     const terminal = yield* TerminalServiceTag;
+    // Set terminal tab title to show agent name
+    yield* terminal.setTitle(`🎷 Jazz - ${agent.name}`);
     yield* terminal.clear();
     yield* terminal.heading(`🤖 Starting chat with AI agent: ${agent.name} (reasoning: ${agent.config.reasoningEffort ?? "disabled" })`);
     if (agent.description) {

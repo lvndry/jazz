@@ -340,11 +340,12 @@ function LogIsland(): React.ReactElement {
               log.type === "user" ||
               (log.type === "info" && prevLog?.type === "user");
             return (
-              <LogEntryItem
-                key={log.id}
-                log={log}
-                addSpacing={addSpacing}
-              />
+              <React.Fragment key={log.id}>
+                <LogEntryItem
+                  log={log}
+                  addSpacing={addSpacing}
+                />
+              </React.Fragment>
             );
           }}
         </Static>
@@ -425,8 +426,13 @@ export function App(): React.ReactElement {
   return (
     <ErrorBoundary>
       <Box flexDirection="column">
-        {/* Lightweight header - always shown */}
-        <AppHeader />
+        <Static items={[1]}>
+          {() => (
+            <React.Fragment key="header">
+              <AppHeader />
+            </React.Fragment>
+          )}
+        </Static>
 
         {/* Status Bar - Isolated state */}
         <StatusIsland />

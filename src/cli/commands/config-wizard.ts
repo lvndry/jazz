@@ -16,6 +16,7 @@ type ConfigMenuAction =
   | "llm-providers"
   | "web-search"
   | "output-display"
+  | "notifications"
   | "back";
 
 /**
@@ -30,6 +31,7 @@ export function configWizardCommand() {
         { label: "LLM Providers (API Keys)", value: "llm-providers" },
         { label: "Web Search Providers", value: "web-search" },
         { label: "Output & Display", value: "output-display" },
+        { label: "Notifications", value: "notifications" },
         { label: "Back to Main Menu", value: "back" },
       ];
 
@@ -46,6 +48,10 @@ export function configWizardCommand() {
         }
         case "output-display": {
           yield* configureOutputDisplay();
+          break;
+        }
+        case "notifications": {
+          yield* configureNotifications();
           break;
         }
         case "back": {
@@ -267,6 +273,48 @@ function configureOutputDisplay() {
             configKey: "output.showMetrics",
             label: "Show metrics",
           });
+          break;
+        }
+      }
+
+      yield* terminal.log("");
+    }
+  });
+}
+
+function configureNotifications() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+
+    while (true) {
+      const appConfig = yield* configService.appConfig;
+      const enabled = appConfig.notifications?.enabled ?? true;
+      const sound = appConfig.notifications?.sound ?? true;
+
+      const selection = yield* terminal.select<string>("Notification settings:", {
+        choices: [
+          { name: `System notifications (${enabled ? "on" : "off"})`, value: "enabled" },
+          { name: `Notification sound (${sound ? "on" : "off"})`, value: "sound" },
+          { name: "Back", value: "back" },
+        ],
+      });
+
+      if (!selection || selection === "back") {
+        break;
+      }
+
+      switch (selection) {
+        case "enabled": {
+          const nextValue = yield* terminal.confirm("Enable system notifications?", enabled);
+          yield* configService.set("notifications.enabled", nextValue);
+          yield* terminal.success(`System notifications ${nextValue ? "enabled" : "disabled"}.`);
+          break;
+        }
+        case "sound": {
+          const nextValue = yield* terminal.confirm("Enable notification sound?", sound);
+          yield* configService.set("notifications.sound", nextValue);
+          yield* terminal.success(`Notification sound ${nextValue ? "enabled" : "disabled"}.`);
           break;
         }
       }

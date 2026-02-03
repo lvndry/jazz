@@ -34,6 +34,11 @@ export function wizardCommand() {
     const configService = yield* AgentConfigServiceTag;
     const terminal = yield* TerminalServiceTag;
 
+    // Set terminal tab title
+    yield* terminal.setTitle("🎷 Jazz");
+
+    yield* promptNotificationsOnFirstRun(configService, terminal);
+
     // Main wizard loop - keeps running until user exits
     let shouldExit = false;
 
@@ -312,5 +317,51 @@ function startChatWithAgent(
         })
       )
     );
+  });
+}
+
+/**
+ * Check if this is the first run and prompt for notification preferences
+ */
+function promptNotificationsOnFirstRun(
+  configService: AgentConfigService,
+  terminal: TerminalService
+) {
+  return Effect.gen(function* () {
+    // Check if notifications have ever been configured
+    const hasNotificationsConfigured = yield* configService.has("notifications.enabled");
+
+    if (hasNotificationsConfigured) {
+      return; // Already configured, skip prompt
+    }
+
+    // First run - ask user about notifications
+    yield* terminal.log("");
+    yield* terminal.heading("🎷 Welcome to Jazz!");
+    yield* terminal.log("");
+    yield* terminal.info("Jazz can send you desktop notifications when:");
+    yield* terminal.log("  • A task is completed");
+    yield* terminal.log("  • Approval is needed for an action");
+    yield* terminal.log("");
+
+    const enableNotifications = yield* terminal.confirm(
+      "Would you like to enable desktop notifications?",
+      true // Default to yes
+    );
+
+    yield* configService.set("notifications.enabled", enableNotifications);
+
+    if (enableNotifications) {
+      const enableSound = yield* terminal.confirm(
+        "Play a sound with notifications?",
+        true
+      );
+      yield* configService.set("notifications.sound", enableSound);
+      yield* terminal.success("Notifications enabled! You can change this anytime in Settings.");
+    } else {
+      yield* terminal.info("Notifications disabled. You can enable them anytime in Settings.");
+    }
+
+    yield* terminal.log("");
   });
 }

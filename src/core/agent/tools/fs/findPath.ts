@@ -67,7 +67,7 @@ export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemCon
       searchPath: z
         .string()
         .optional()
-        .describe("Directory to start search from (defaults to current directory)"),
+        .describe("Directory to start search from (defaults to current directory). NEVER use '/' as it's too broad and slow. Use current directory (omit this param) or a specific subdirectory."),
     })
     .strict()
     .refine((data) => data.name || data.pathPattern || data.regex, {
@@ -79,7 +79,7 @@ export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemCon
   return defineTool<FileSystem.FileSystem | FileSystemContextService, FindPathParams>({
     name: "find_path",
     description:
-      "Advanced file search using find command syntax. Supports glob patterns, path matching, exclusions, regex, size/time filters, and depth control. Use for complex file searches similar to Unix 'find' command.",
+      "Advanced file search using find command syntax. Searches from current directory by default (or specific directory via searchPath). NEVER use searchPath: '/' as it's too broad and slow—always search from current directory or a specific subdirectory. Supports glob patterns, path matching, exclusions, regex, size/time filters, and depth control (default maxDepth: 3). Use for complex file searches similar to Unix 'find' command.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {

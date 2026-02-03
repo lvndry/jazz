@@ -26,6 +26,9 @@ If no accounts → Guide through [Account Setup](#account-setup)
 
 ## Installation
 
+### pre-built binary
+curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh | PREFIX=~/.local sh
+
 ### macOS (Homebrew)
 ```bash
 brew install himalaya
@@ -68,12 +71,14 @@ The wizard will:
 
 ### Provider-Specific Notes
 
-| Provider | Special Requirements |
-|----------|---------------------|
-| **Gmail** | Requires App Password or OAuth 2.0 setup |
-| **Outlook** | Works with password or OAuth 2.0 |
-| **iCloud** | IMAP login is username only (not full email) |
-| **Proton Mail** | Requires Proton Bridge running locally |
+| Provider        | Special Requirements                         |
+| --------------- | -------------------------------------------- |
+| **Gmail**       | Requires App Password or OAuth 2.0 setup     |
+| **Outlook**     | Works with password or OAuth 2.0             |
+| **iCloud**      | IMAP login is username only (not full email) |
+| **Proton Mail** | Requires Proton Bridge running locally       |
+
+**💡 Tip**: Many providers use the same app-specific password for both email and calendar. Store credentials in `pass` with consistent naming (e.g., `google/app-password`, `icloud/app-password`) to reuse them across both email and calendar skills.
 
 For detailed provider configs, see [references/providers.md](references/providers.md)
 
@@ -245,23 +250,35 @@ himalaya --debug envelope list
 
 ### Common Errors
 
-| Error | Solution |
-|-------|----------|
-| "Account not found" | Run `himalaya account configure <name>` |
+| Error                   | Solution                                          |
+| ----------------------- | ------------------------------------------------- |
+| "Account not found"     | Run `himalaya account configure <name>`           |
 | "Authentication failed" | Check password/app password, regenerate if needed |
-| "Connection refused" | Check IMAP/SMTP host and port settings |
-| "Certificate error" | Check TLS settings in config |
+| "Connection refused"    | Check IMAP/SMTP host and port settings            |
+| "Certificate error"     | Check TLS settings in config                      |
 
 ### Reset Configuration
 
-Config file location: `~/.config/himalaya/config.toml`
+**Config file location:** `~/.config/himalaya/config.toml` (or `$XDG_CONFIG_HOME/himalaya/config.toml`)
 
 ```bash
 # View current config
 cat ~/.config/himalaya/config.toml
 
-# Reconfigure account
+# Edit config manually
+$EDITOR ~/.config/himalaya/config.toml
+
+# Reconfigure account interactively
 himalaya account configure <name>
+
+# Use alternative config file
+himalaya --config /path/to/custom/config.toml envelope list
+```
+
+**Environment variable override:**
+```bash
+export HIMALAYA_CONFIG=~/.config/himalaya/custom-config.toml
+himalaya envelope list
 ```
 
 ---
@@ -303,18 +320,17 @@ Here's the screenshot:
 
 ## Quick Reference
 
-| Task | Command |
-|------|---------|
-| Check inbox | `himalaya envelope list` |
-| Read email | `himalaya message read <id>` |
-| Compose new | `himalaya message write` |
-| Reply | `himalaya message reply <id>` |
-| Search | `himalaya envelope list --query "..."` |
-| Mark read | `himalaya flag add <id> seen` |
-| Delete | `himalaya message delete <id>` |
-| Move | `himalaya message move <id> --folder "..."` |
+| Task        | Command                                                |
+| ----------- | ------------------------------------------------------ |
+| Check inbox | `himalaya envelope list`                               |
+| Read email  | `himalaya message read <id>`                           |
+| Compose new | `himalaya message write`                               |
+| Reply       | `himalaya message reply <id>`                          |
+| Search      | `himalaya envelope list --query "..."`                 |
+| Mark read   | `himalaya flag add <id> seen`                          |
+| Delete      | `himalaya message delete <id>`                         |
+| Move        | `himalaya message move --folder SOURCE TARGET <id...>` |
 
-## Additional Resources
 
 - For provider-specific setup, see [references/providers.md](references/providers.md)
 - Official docs: https://github.com/pimalaya/himalaya

@@ -8,12 +8,13 @@ Config file location: `~/.config/himalaya/config.toml`
 
 ## Gmail
 
-### Option 1: App Password (Simpler)
+### Option 1: App Password with pass (Recommended)
 
 **Prerequisites:**
 1. Enable IMAP in Gmail settings
 2. Enable 2-Step Verification
 3. Create App Password: https://myaccount.google.com/apppasswords
+4. Store in pass: `pass insert google/app-password`
 
 ```toml
 [accounts.gmail]
@@ -29,13 +30,22 @@ backend.host = "imap.gmail.com"
 backend.port = 993
 backend.login = "yourname@gmail.com"
 backend.auth.type = "password"
-backend.auth.keyring = "gmail-password"  # Stored in system keyring
+backend.auth.cmd = "pass show google/app-password"
 
 message.send.backend.type = "smtp"
 message.send.backend.host = "smtp.gmail.com"
 message.send.backend.port = 465
 message.send.backend.login = "yourname@gmail.com"
 message.send.backend.auth.type = "password"
+message.send.backend.auth.cmd = "pass show google/app-password"
+```
+
+**Note**: This same app-specific password works for Google Calendar. Store once, use for both email and calendar skills.
+
+### Option 1b: App Password with keyring
+
+```toml
+backend.auth.keyring = "gmail-password"
 message.send.backend.auth.keyring = "gmail-password"
 ```
 
@@ -93,7 +103,9 @@ message.send.backend.auth.scope = "https://mail.google.com/"
 
 ## Outlook / Microsoft 365
 
-### Option 1: Password
+### Option 1: Password with pass
+
+Store in pass: `pass insert outlook/app-password`
 
 ```toml
 [accounts.outlook]
@@ -104,7 +116,7 @@ backend.host = "outlook.office365.com"
 backend.port = 993
 backend.login = "yourname@outlook.com"
 backend.auth.type = "password"
-backend.auth.keyring = "outlook-password"
+backend.auth.cmd = "pass show outlook/app-password"
 
 message.send.backend.type = "smtp"
 message.send.backend.host = "smtp-mail.outlook.com"
@@ -112,7 +124,7 @@ message.send.backend.port = 587
 message.send.backend.encryption.type = "start-tls"
 message.send.backend.login = "yourname@outlook.com"
 message.send.backend.auth.type = "password"
-message.send.backend.auth.keyring = "outlook-password"
+message.send.backend.auth.cmd = "pass show outlook/app-password"
 ```
 
 ### Option 2: OAuth 2.0
@@ -159,6 +171,7 @@ message.send.backend.auth.scopes = ["https://outlook.office.com/IMAP.AccessAsUse
 - IMAP login = username only (e.g., `johnappleseed`, NOT `johnappleseed@icloud.com`)
 - SMTP login = full email address
 - Requires App-Specific Password: https://appleid.apple.com/account/manage
+- Store in pass: `pass insert icloud/app-password`
 
 ```toml
 [accounts.icloud]
@@ -169,7 +182,7 @@ backend.host = "imap.mail.me.com"
 backend.port = 993
 backend.login = "yourname"  # Username only, no @icloud.com!
 backend.auth.type = "password"
-backend.auth.keyring = "icloud-password"
+backend.auth.cmd = "pass show icloud/app-password"
 
 message.send.backend.type = "smtp"
 message.send.backend.host = "smtp.mail.me.com"
@@ -177,8 +190,10 @@ message.send.backend.port = 587
 message.send.backend.encryption.type = "start-tls"
 message.send.backend.login = "yourname@icloud.com"  # Full email for SMTP
 message.send.backend.auth.type = "password"
-message.send.backend.auth.keyring = "icloud-password"
+message.send.backend.auth.cmd = "pass show icloud/app-password"
 ```
+
+**Note**: This same app-specific password works for iCloud Calendar. Store once, use for both email and calendar skills.
 
 ---
 
@@ -225,6 +240,10 @@ message.send.backend.encryption.cert = "/path/to/proton-bridge-cert.pem"
 
 ## Fastmail
 
+**Setup:**
+1. Generate App Password: Settings → Password & Security → App Passwords
+2. Store in pass: `pass insert fastmail/app-password`
+
 ```toml
 [accounts.fastmail]
 email = "yourname@fastmail.com"
@@ -234,15 +253,17 @@ backend.host = "imap.fastmail.com"
 backend.port = 993
 backend.login = "yourname@fastmail.com"
 backend.auth.type = "password"
-backend.auth.keyring = "fastmail-password"
+backend.auth.cmd = "pass show fastmail/app-password"
 
 message.send.backend.type = "smtp"
 message.send.backend.host = "smtp.fastmail.com"
 message.send.backend.port = 465
 message.send.backend.login = "yourname@fastmail.com"
 message.send.backend.auth.type = "password"
-message.send.backend.auth.keyring = "fastmail-password"
+message.send.backend.auth.cmd = "pass show fastmail/app-password"
 ```
+
+**Note**: Use "All" access when creating the app password to enable both email and calendar sync with the same credential.
 
 ---
 
@@ -299,7 +320,35 @@ message.send.backend.auth.keyring = "custom-password"
 
 ## Password Storage Options
 
-### Option 1: System Keyring (Recommended)
+### Option 1: Password Manager with pass (Recommended for Jazz)
+
+Use `pass` (Password Store) with consistent naming for reusability across email and calendar skills:
+
+```toml
+backend.auth.cmd = "pass show google/app-password"
+message.send.backend.auth.cmd = "pass show google/app-password"
+```
+
+**Consistent naming convention**:
+```bash
+# Initialize pass if not already done
+pass init your-gpg-key-id
+
+# Store passwords using provider/app-password format
+pass insert google/app-password      # Same for Gmail + Google Calendar
+pass insert icloud/app-password      # Same for iCloud Mail + iCloud Calendar
+pass insert fastmail/app-password    # Same for Fastmail Mail + Fastmail Calendar
+pass insert nextcloud/app-password   # Same for email + calendar
+pass insert work/app-password        # Work accounts
+```
+
+**Benefits**:
+- Same password works for both email (Himalaya) and calendar (khal/vdirsyncer)
+- Encrypted storage with GPG
+- Command-line access
+- Git-syncable for backup
+
+### Option 2: System Keyring
 
 ```toml
 backend.auth.keyring = "account-name"
@@ -307,13 +356,7 @@ backend.auth.keyring = "account-name"
 
 Run `himalaya account configure <name>` to store password securely.
 
-### Option 2: Password Manager Command
-
-```toml
-backend.auth.cmd = "pass show email/account-name"
-# or
-backend.auth.cmd = "op read 'op://Vault/Email/password'"
-```
+**Note**: Keyring storage is Himalaya-specific and won't be automatically shared with calendar tools.
 
 ### Option 3: Raw Password (NOT Recommended)
 
