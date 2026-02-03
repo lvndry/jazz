@@ -1,0 +1,562 @@
+bun test v1.3.5 (1e86cebd)
+
+src/services/fs.test.ts:
+(pass) FileSystemContextService > getCwd > should default to current working directory when no working directory is set [5.71ms]
+(pass) FileSystemContextService > getCwd > should return set working directory for specific agent [2.45ms]
+(pass) FileSystemContextService > resolvePath > should handle absolute paths correctly [0.84ms]
+(pass) FileSystemContextService > resolvePath > should resolve relative paths from working directory [0.61ms]
+(pass) FileSystemContextService > resolvePath > should expand ~ to home directory [0.73ms]
+(pass) FileSystemContextService > resolvePath > should expand ~/ to home directory [0.43ms]
+(pass) FileSystemContextService > path normalization > should handle backslash-escaped spaces [0.39ms]
+(pass) FileSystemContextService > path normalization > should handle double-quoted paths [0.46ms]
+(pass) FileSystemContextService > path normalization > should handle single-quoted paths [0.20ms]
+(pass) FileSystemContextService > path normalization > should handle mixed escaping [0.36ms]
+(pass) FileSystemContextService > path normalization > should handle paths with multiple spaces [0.99ms]
+(pass) FileSystemContextService > escapePath > should escape paths with spaces [0.34ms]
+(pass) FileSystemContextService > escapePath > should escape paths with special characters
+(pass) FileSystemContextService > escapePath > should not escape simple paths [0.25ms]
+(pass) FileSystemContextService > escapePath > should handle already quoted paths [0.14ms]
+(pass) FileSystemContextService > findDirectory > should find directories by name [6.45ms]
+(pass) FileSystemContextService > findDirectory > should return empty array when no directories found [4.11ms]
+(pass) FileSystemContextService > findDirectory > should find directories in current working directory [4.86ms]
+(pass) FileSystemContextService > findDirectory > should handle permission errors gracefully [4.17ms]
+(pass) FileSystemContextService > error handling > should provide helpful error messages for non-existent paths [0.90ms]
+
+src/services/calendar.test.ts:
+(pass) CalendarService > authenticate > should succeed when token already exists [0.40ms]
+(pass) CalendarService > listEvents > should return empty array when no events [0.43ms]
+(pass) CalendarService > listEvents > should return events with metadata [0.25ms]
+(pass) CalendarService > listEvents > should support query parameter [0.14ms]
+(pass) CalendarService > listEvents > should handle API errors [0.30ms]
+(pass) CalendarService > listEvents > should require credentials before authentication [0.11ms]
+(pass) CalendarService > getEvent > should return event with full details [0.14ms]
+(pass) CalendarService > getEvent > should handle missing event [0.10ms]
+(pass) CalendarService > createEvent > should create event [0.06ms]
+(pass) CalendarService > createEvent > should handle create errors [0.16ms]
+(pass) CalendarService > updateEvent > should update event [0.18ms]
+(pass) CalendarService > deleteEvent > should delete event [0.16ms]
+(pass) CalendarService > listCalendars > should return calendars [0.15ms]
+(pass) CalendarService > listCalendars > should handle empty calendars [0.14ms]
+(pass) CalendarService > getCalendar > should return calendar metadata [0.22ms]
+(pass) CalendarService > searchEvents > should delegate to listEvents with query [0.12ms]
+(pass) CalendarService > quickAddEvent > should create event from text [0.13ms]
+(pass) CalendarService > error handling > should handle errors with status code [0.11ms]
+(pass) CalendarService > error handling > should handle errors without status code
+
+src/services/gmail.test.ts:
+(pass) GmailService > authenticate > should succeed when token already exists [0.46ms]
+(pass) GmailService > listEmails > should return empty array when no messages
+(pass) GmailService > listEmails > should return emails with metadata [0.42ms]
+(pass) GmailService > listEmails > should support query parameter [0.20ms]
+(pass) GmailService > listEmails > should handle API errors [0.07ms]
+(pass) GmailService > listEmails > should require credentials before authentication [0.09ms]
+(pass) GmailService > getEmail > should return email with full body
+(pass) GmailService > getEmail > should handle missing email [0.28ms]
+(pass) GmailService > sendEmail > should create draft email [0.05ms]
+(pass) GmailService > sendEmail > should include CC and BCC [0.18ms]
+(pass) GmailService > sendEmail > should handle send errors
+(pass) GmailService > searchEmails > should delegate to listEmails with query [0.13ms]
+(pass) GmailService > listLabels > should return labels
+(pass) GmailService > listLabels > should handle empty labels
+(pass) GmailService > createLabel > should create label with all options [0.29ms]
+(pass) GmailService > createLabel > should create label with minimal options
+(pass) GmailService > updateLabel > should update label name [0.13ms]
+(pass) GmailService > updateLabel > should update label color [0.08ms]
+(pass) GmailService > deleteLabel > should delete label [0.06ms]
+(pass) GmailService > modifyEmail > should add labels to email [0.23ms]
+(pass) GmailService > modifyEmail > should remove labels from email [0.04ms]
+(pass) GmailService > batchModifyEmails > should batch modify multiple emails [0.20ms]
+(pass) GmailService > trashEmail > should trash email [0.09ms]
+(pass) GmailService > deleteEmail > should permanently delete email [0.07ms]
+(pass) GmailService > error handling > should handle GaxiosError with status code [0.09ms]
+(pass) GmailService > error handling > should handle errors without status code [0.10ms]
+(pass) GmailService > parseMessageToEmail > should parse email with CC and BCC [0.10ms]
+(pass) GmailService > parseMessageToEmail > should handle missing headers gracefully [0.06ms]
+(pass) GmailService > parseLabelToGmailLabel > should parse label with all fields [0.07ms]
+
+src/services/agent-service.test.ts:
+(pass) AgentService > createAgent > should create an agent with default config [0.93ms]
+(pass) AgentService > createAgent > should fail if agent name is invalid [0.23ms]
+(pass) AgentService > createAgent > should fail if agent name already exists [0.16ms]
+(pass) AgentService > updateAgent > should update an existing agent [0.21ms]
+(pass) AgentService > updateAgent > should fail if updating to an existing name [0.04ms]
+(pass) AgentService > deleteAgent > should delete an agent [0.06ms]
+
+src/services/config.test.ts:
+(pass) AgentConfigService > should get nested properties using dot notation
+(pass) AgentConfigService > should set properties and persist to file
+(pass) AgentConfigService > should return default value for missing keys with getOrElse
+
+src/core/utils/error-handler.test.ts:
+(pass) Error Handler > should format AgentNotFoundError with actionable suggestions
+(pass) Error Handler > should format AgentAlreadyExistsError with suggestions
+(pass) Error Handler > should format ValidationError with field-specific suggestions
+(pass) Error Handler > should format ConfigurationError with recovery steps
+(pass) Error Handler > should handle error display without crashing [0.63ms]
+(pass) Error Handler > should provide related commands for different error types
+
+src/core/utils/mcp-schema-converter.test.ts:
+(pass) MCP Schema Converter > Basic Types > should convert string type [0.70ms]
+(pass) MCP Schema Converter > Basic Types > should convert number type [0.12ms]
+(pass) MCP Schema Converter > Basic Types > should convert integer type to number [0.04ms]
+(pass) MCP Schema Converter > Basic Types > should convert boolean type [0.05ms]
+(pass) MCP Schema Converter > Basic Types > should convert null type [0.05ms]
+(pass) MCP Schema Converter > Basic Types > should default to empty object for unknown type [0.27ms]
+(pass) MCP Schema Converter > Object Types > should convert object schema with properties [0.43ms]
+(pass) MCP Schema Converter > Object Types > should handle object without properties [0.05ms]
+(pass) MCP Schema Converter > Object Types > should handle additionalProperties false (strict) [0.31ms]
+(pass) MCP Schema Converter > Array Types > should convert array schema with items [0.13ms]
+(pass) MCP Schema Converter > Array Types > should handle array without items
+(pass) MCP Schema Converter > Enum Types > should convert string enum [0.20ms]
+(pass) MCP Schema Converter > Enum Types > should convert mixed type enum [0.15ms]
+(pass) MCP Schema Converter > Union Types > should convert oneOf schema [0.13ms]
+(pass) MCP Schema Converter > Union Types > should convert anyOf schema
+(pass) MCP Schema Converter > Union Types > should handle allOf schema (intersection) [0.43ms]
+(pass) MCP Schema Converter > Const Values > should convert string const
+(pass) MCP Schema Converter > Const Values > should convert number const [0.15ms]
+(pass) MCP Schema Converter > Const Values > should convert boolean const
+(pass) MCP Schema Converter > Const Values > should convert null const
+(pass) MCP Schema Converter > Edge Cases > should handle null input
+(pass) MCP Schema Converter > Edge Cases > should handle empty object schema [0.10ms]
+(pass) MCP Schema Converter > Edge Cases > should handle type as array (pick first) [0.03ms]
+(pass) MCP Schema Converter > Edge Cases > should add description to schema [0.07ms]
+(pass) MCP Schema Converter > Edge Cases > should handle $ref with warning [0.04ms]
+(pass) MCP Schema Converter > Edge Cases > should unwrap MCP SDK's nested jsonSchema format [0.13ms]
+(pass) MCP Schema Converter > Edge Cases > should handle nested object schemas [0.19ms]
+
+src/core/utils/diff-utils.test.ts:
+(pass) diff-utils > generateDiff > returns creation message for new files [0.19ms]
+(pass) diff-utils > generateDiff > returns creation message when original is empty
+(pass) diff-utils > generateDiff > returns empty string when content is identical
+(pass) diff-utils > generateDiff > shows simple single-line change [0.06ms]
+(pass) diff-utils > generateDiff > shows additions at end of file
+(pass) diff-utils > generateDiff > shows deletions
+(pass) diff-utils > generateDiff > shows hunk headers [0.57ms]
+(pass) diff-utils > generateDiff > extracts basename from filepath [0.03ms]
+
+src/core/utils/runtime-detection.test.ts:
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return false when running from jazz project directory (development mode) [0.40ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return false when executable path is in jazz project directory (deep path) [0.99ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return true for bun global installation [0.34ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return true for npm global installation in /usr/local/bin [0.25ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return true for npm global installation in ~/.npm-global [0.30ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return true for pnpm global installation [0.31ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return true for yarn global installation [0.16ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return true for system-wide node_modules installation [0.43ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return true for node_modules outside jazz project [0.67ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return false for node_modules inside jazz project [0.57ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should return false when process.argv[1] is undefined [0.39ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should handle invalid paths gracefully [0.30ms]
+(pass) Runtime Detection > isRunningFromGlobalInstall > should handle Windows paths correctly [0.30ms]
+(pass) Runtime Detection > getUserDataDirectory > should return ~/.jazz when installed globally [0.36ms]
+(pass) Runtime Detection > getUserDataDirectory > should return {cwd}/.jazz when in development mode [0.35ms]
+(pass) Runtime Detection > getUserDataDirectory > should fallback to {cwd}/.jazz when home directory cannot be determined [0.29ms]
+(pass) Runtime Detection > isRunningInDevelopmentMode > should return true when not installed globally [0.35ms]
+(pass) Runtime Detection > isRunningInDevelopmentMode > should return false when installed globally [0.20ms]
+(pass) Runtime Detection > isRunningInDevelopmentMode > should be the inverse of isRunningFromGlobalInstall [0.58ms]
+(pass) Runtime Detection > Edge cases and robustness > should handle symlinks correctly [0.41ms]
+(pass) Runtime Detection > Edge cases and robustness > should handle deeply nested jazz project paths [0.85ms]
+(pass) Runtime Detection > Edge cases and robustness > should handle paths with special characters [0.59ms]
+(pass) Runtime Detection > Edge cases and robustness > should handle case-insensitive package.json name check [0.53ms]
+(pass) Runtime Detection > Edge cases and robustness > should handle missing package.json gracefully [0.47ms]
+(pass) Runtime Detection > Edge cases and robustness > should handle corrupted package.json gracefully [0.30ms]
+(pass) Runtime Detection > Integration scenarios > should correctly identify development mode when running 'bun run cli' [0.50ms]
+(pass) Runtime Detection > Integration scenarios > should correctly identify global install when running 'jazz' command [0.33ms]
+(pass) Runtime Detection > Integration scenarios > should handle npm global installation correctly [0.43ms]
+(pass) Runtime Detection > Integration scenarios > should handle pnpm global installation correctly [0.28ms]
+
+src/core/agent/agent-runner.test.ts:
+(pass) AgentRunner > runRecursive > should force non-streaming for internal runs [10.34ms]
+(pass) AgentRunner > run > should execute agent with streaming when enabled [1.36ms]
+
+src/core/agent/agent-service.test.ts:
+(pass) Agent Convenience Functions > createAgent > should call agentService.createAgent [0.80ms]
+(pass) Agent Convenience Functions > getAgentById > should call agentService.getAgent [0.47ms]
+(pass) Agent Convenience Functions > getAgentByIdentifier > should find by ID first [0.43ms]
+(pass) Agent Convenience Functions > getAgentByIdentifier > should fall back to name if ID not found [0.56ms]
+(pass) Agent Convenience Functions > getAgentByIdentifier > should fail if neither ID nor name matches [0.18ms]
+(pass) Agent Convenience Functions > listAllAgents > should call agentService.listAgents [0.15ms]
+
+src/cli/ui/text-utils.test.ts:
+(pass) text-utils > isWordChar > should return true for letters
+(pass) text-utils > isWordChar > should return true for digits
+(pass) text-utils > isWordChar > should return true for underscore
+(pass) text-utils > isWordChar > should return false for spaces
+(pass) text-utils > isWordChar > should return false for punctuation
+(pass) text-utils > findPrevWordBoundary > should return 0 when at start [0.21ms]
+(pass) text-utils > findPrevWordBoundary > should find start of current word when in middle
+(pass) text-utils > findPrevWordBoundary > should find start of previous word when at word boundary
+(pass) text-utils > findPrevWordBoundary > should skip spaces to previous word
+(pass) text-utils > findPrevWordBoundary > should handle multiple spaces
+(pass) text-utils > findPrevWordBoundary > should handle empty string
+(pass) text-utils > findPrevWordBoundary > should handle single word
+(pass) text-utils > findNextWordBoundary > should return length when at end
+(pass) text-utils > findNextWordBoundary > should find end of current word when in middle
+(pass) text-utils > findNextWordBoundary > should skip spaces to next word end
+(pass) text-utils > findNextWordBoundary > should find end of first word from start
+(pass) text-utils > findNextWordBoundary > should handle multiple spaces
+(pass) text-utils > findNextWordBoundary > should handle empty string
+(pass) text-utils > findNextWordBoundary > should handle single word
+(pass) text-utils > word boundary edge cases > should handle punctuation as non-word chars
+(pass) text-utils > word boundary edge cases > should handle paths
+(pass) text-utils > word boundary edge cases > should handle snake_case as single word [0.09ms]
+(pass) text-utils > word boundary edge cases > should handle camelCase as single word
+(pass) text-utils > word boundary edge cases > should handle numbers in words
+
+src/cli/input/escape-state-machine.test.ts:
+(pass) EscapeStateMachine > Basic Input > regular character input [0.49ms]
+(pass) EscapeStateMachine > Basic Input > multi-byte UTF-8 character
+(pass) EscapeStateMachine > Basic Input > emoji character
+(pass) EscapeStateMachine > Basic Input > space character [0.07ms]
+(pass) EscapeStateMachine > Special Keys via KeyInfo > Enter key (return) [0.01ms]
+(pass) EscapeStateMachine > Special Keys via KeyInfo > Tab key
+(pass) EscapeStateMachine > Special Keys via KeyInfo > Backspace key [0.03ms]
+(pass) EscapeStateMachine > Special Keys via KeyInfo > Delete key (from KeyInfo)
+(pass) EscapeStateMachine > Special Keys via KeyInfo > Left arrow
+(pass) EscapeStateMachine > Special Keys via KeyInfo > Right arrow
+(pass) EscapeStateMachine > Special Keys via KeyInfo > Up arrow [0.09ms]
+(pass) EscapeStateMachine > Special Keys via KeyInfo > Down arrow [0.05ms]
+(pass) EscapeStateMachine > Option/Alt + Arrow Keys > meta + leftArrow → word-left
+(pass) EscapeStateMachine > Option/Alt + Arrow Keys > meta + rightArrow → word-right
+(pass) EscapeStateMachine > Option/Alt + Arrow Keys > ESC b sequence → word-left [0.08ms]
+(pass) EscapeStateMachine > Option/Alt + Arrow Keys > ESC f sequence → word-right
+(pass) EscapeStateMachine > Option/Alt + Arrow Keys > CSI 1;3D sequence → word-left
+(pass) EscapeStateMachine > Option/Alt + Arrow Keys > CSI 1;3C sequence → word-right
+(pass) EscapeStateMachine > Ctrl Key Shortcuts > Ctrl+A → line-start [0.10ms]
+(pass) EscapeStateMachine > Ctrl Key Shortcuts > Ctrl+E → line-end
+(pass) EscapeStateMachine > Ctrl Key Shortcuts > Ctrl+U → kill-line-back
+(pass) EscapeStateMachine > Ctrl Key Shortcuts > Ctrl+K → kill-line-forward
+(pass) EscapeStateMachine > Ctrl Key Shortcuts > Ctrl+W → delete-word-back
+(pass) EscapeStateMachine > Ctrl Key Shortcuts > Ctrl+D → delete-char-forward [0.08ms]
+(pass) EscapeStateMachine > Ctrl Key Shortcuts > Ctrl+H → backspace [0.05ms]
+(pass) EscapeStateMachine > Delete Key Sequences > ESC [ 3 ~ → delete-char-forward
+(pass) EscapeStateMachine > Delete Key Sequences > ESC d → delete-word-forward
+(pass) EscapeStateMachine > Delete Key Sequences > meta + backspace → delete-word-back
+(pass) EscapeStateMachine > Delete Key Sequences > meta + delete → delete-word-back [0.06ms]
+(pass) EscapeStateMachine > Home/End Keys > ESC [ H → line-start [0.02ms]
+(pass) EscapeStateMachine > Home/End Keys > ESC O H → line-start
+(pass) EscapeStateMachine > Home/End Keys > ESC [ F → line-end [0.02ms]
+(pass) EscapeStateMachine > Home/End Keys > ESC O F → line-end [0.05ms]
+(pass) EscapeStateMachine > State Machine Behavior > reset clears state [0.19ms]
+(pass) EscapeStateMachine > State Machine Behavior > isBuffering returns true during escape sequence [0.02ms]
+(pass) EscapeStateMachine > State Machine Behavior > isBuffering returns false in idle state
+(pass) EscapeStateMachine > Character-by-Character Sequence Building > builds CSI sequence character by character
+(pass) EscapeStateMachine > Character-by-Character Sequence Building > plain arrow keys work via CSI
+(pass) EscapeStateMachine > Backspace Handling > DEL character (0x7f) → backspace [0.26ms]
+(pass) EscapeStateMachine > Backspace Handling > BS character (0x08) → backspace
+(pass) EscapeStateMachine > Backspace Handling > ESC + DEL → delete-word-back
+(pass) EscapeStateMachine > Warp Terminal Compatibility > Ctrl-based word navigation (CSI 1;5D)
+(pass) EscapeStateMachine > Warp Terminal Compatibility > Ctrl-based word navigation (CSI 1;5C)
+
+src/cli/utils/string-utils.test.ts:
+(pass) string-utils > stripAnsiCodes > should strip colors [0.15ms]
+(pass) string-utils > stripAnsiCodes > should strip background colors
+(pass) string-utils > getVisualWidth > should return length ignoring ansi codes [0.08ms]
+(pass) string-utils > padRight > should pad plain text
+(pass) string-utils > padRight > should pad ansi text correctly
+(pass) string-utils > truncateMiddle > should truncate long text
+(pass) string-utils > wrapCommaList > should wrap items
+(pass) string-utils > wrapCommaList > should handle single item exceeding width
+
+src/cli/commands/agent-management.test.ts:
+(pass) Agent Management Commands > should list agents and show info if empty [0.90ms]
+(pass) Agent Management Commands > should delete an agent by identifier [0.56ms]
+
+src/cli/presentation/markdown-formatter.test.ts:
+(pass) markdown-formatter > formatLinks > should format standard links correctly [0.08ms]
+(pass) markdown-formatter > formatLinks > should not consume ANSI escape sequences that look like links [0.03ms]
+(pass) markdown-formatter > formatLinks > should format links correctly even when preceded by ANSI codes
+(pass) markdown-formatter > formatMarkdown > should handle formatting around headers without corruption [0.32ms]
+
+src/cli/presentation/cli-renderer.test.ts:
+(pass) CLIRenderer > renderChunk > should render plain text correctly [0.85ms]
+(pass) CLIRenderer > renderChunk > should render bold text correctly [0.23ms]
+(pass) CLIRenderer > renderChunk > should render italic text correctly [0.02ms]
+(pass) CLIRenderer > renderChunk > should render inline code correctly
+(pass) CLIRenderer > renderChunk > should render headers correctly
+(pass) CLIRenderer > renderChunk > should render blockquotes correctly [0.12ms]
+(pass) CLIRenderer > renderChunk > should render unordered lists correctly [0.03ms]
+(pass) CLIRenderer > renderChunk > should render ordered lists correctly [0.01ms]
+(pass) CLIRenderer > renderChunk > should render horizontal rules correctly [0.03ms]
+(pass) CLIRenderer > renderChunk > should render code blocks statefully [0.06ms]
+(pass) CLIRenderer > renderChunk > should properly reset code block state after closing fence
+(pass) CLIRenderer > renderChunk > should handle multiple code blocks in sequence [0.07ms]
+(pass) CLIRenderer > renderChunk > should buffer partial headers
+(pass) CLIRenderer > renderChunk > should buffer partial headers with leading spaces
+(pass) CLIRenderer > renderChunk > should buffer partial bold markers
+(pass) CLIRenderer > renderChunk > should handle split headers across multiple chunks
+(pass) CLIRenderer > renderChunk > should handle multiple lines correctly
+(pass) CLIRenderer > renderChunk > should handle mixed content with split header [0.14ms]
+(pass) CLIRenderer > renderChunk > should render strikethrough text correctly
+(pass) CLIRenderer > renderChunk > should render task lists correctly
+(pass) CLIRenderer > renderChunk > should render nested unordered lists correctly
+(pass) CLIRenderer > renderChunk > should render nested ordered lists correctly
+(pass) CLIRenderer > renderChunk > should render mixed nested lists correctly
+(pass) CLIRenderer > Effect-based methods > should render markdown with Effect [1.67ms]
+(pass) CLIRenderer > Effect-based methods > should handle render errors gracefully
+(pass) CLIRenderer > Effect-based methods > should format agent response [0.33ms]
+(pass) CLIRenderer > Effect-based methods > should format thinking message
+(pass) CLIRenderer > Effect-based methods > should format completion message
+(pass) CLIRenderer > Effect-based methods > should format warning message
+(pass) CLIRenderer > flushBuffer > should flush remaining buffer
+(pass) CLIRenderer > flushBuffer > should flush partial header as styled header if stream ends
+(pass) CLIRenderer > Isolation tests > should maintain separate state across different renderer instances [0.08ms]
+
+src/cli/presentation/ink-presentation-service.test.ts:
+(pass) InkStreamingRenderer > out-of-order text_chunk events > ignores stale chunks and keeps text from highest sequence [61.53ms]
+(pass) InkStreamingRenderer > out-of-order text_chunk events > never overwrites with older sequence when chunks arrive out of order [61.98ms]
+
+src/cli/presentation/cli-presentation-service.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+1 | })
+2 | {
+    ^
+SyntaxError: Export named 'CLIPresentationService' not found in module '/Users/lvndry/github/jazz/src/cli/presentation/cli-presentation-service.ts'.
+      at loadAndEvaluateModule (2:1)
+-------------------------------
+
+
+src/cli/presentation/stream-text-order.test.ts:
+(pass) applyTextChunkOrdered > applies chunk when sequence is greater than lastApplied
+(pass) applyTextChunkOrdered > applies chunk when sequence is greater than current lastApplied [0.01ms]
+(pass) applyTextChunkOrdered > ignores stale chunk (sequence less than lastApplied)
+(pass) applyTextChunkOrdered > ignores chunk with same sequence (idempotent / no overwrite) [0.02ms]
+(pass) applyTextChunkOrdered > out-of-order delivery: newer then older does not overwrite with older
+(pass) applyTextChunkOrdered > in-order delivery produces correct final text
+
+src/cli/services/markdown-service.test.ts:
+(pass) MarkdownService > formatMarkdown (static) > formats headings [0.44ms]
+(pass) MarkdownService > formatMarkdown (static) > formats bold text
+(pass) MarkdownService > formatMarkdown (static) > formats italic text [0.05ms]
+(pass) MarkdownService > formatMarkdown (static) > formats inline code [0.09ms]
+(pass) MarkdownService > formatMarkdown (static) > formats code blocks [0.03ms]
+(pass) MarkdownService > formatMarkdown (static) > formats bullet lists [0.10ms]
+(pass) MarkdownService > formatMarkdown (static) > formats numbered lists
+(pass) MarkdownService > formatMarkdown (static) > formats blockquotes
+(pass) MarkdownService > formatMarkdown (static) > formats horizontal rules [0.06ms]
+(pass) MarkdownService > formatMarkdown (static) > formats links [0.05ms]
+(pass) MarkdownService > formatMarkdown (static) > formats strikethrough [0.13ms]
+(pass) MarkdownService > stripAnsiCodes > removes ANSI escape sequences [0.09ms]
+(pass) MarkdownService > stripAnsiCodes > handles text without ANSI codes
+(pass) MarkdownService > stripAnsiCodes > removes multiple ANSI codes
+(pass) MarkdownService > normalizeBlankLines > reduces multiple blank lines to two
+(pass) MarkdownService > normalizeBlankLines > preserves single blank lines
+(pass) MarkdownService > normalizeBlankLines > preserves text without multiple blanks [0.05ms]
+(pass) MarkdownService > Streaming Formatter > initial state is correct
+(pass) MarkdownService > Streaming Formatter > streaming formatter via service handles plain text [1.61ms]
+(pass) MarkdownService > Streaming Formatter > streaming formatter tracks code block state [0.14ms]
+(pass) MarkdownService > Streaming Formatter > streaming formatter accumulates content [0.24ms]
+(pass) MarkdownService > MarkdownService Layer > service provides format method [0.28ms]
+(pass) MarkdownService > MarkdownService Layer > service provides createStreamingFormatter [0.08ms]
+(pass) MarkdownService > MarkdownService Layer > streaming formatter processes multiple chunks [0.12ms]
+(pass) MarkdownService > MarkdownService Layer > streaming formatter can be reset [0.13ms]
+(pass) MarkdownService > Edge Cases > handles empty string
+(pass) MarkdownService > Edge Cases > handles text with only whitespace
+(pass) MarkdownService > Edge Cases > handles nested formatting
+(pass) MarkdownService > Edge Cases > handles incomplete code blocks gracefully
+(pass) MarkdownService > Edge Cases > handles special characters
+
+src/cli/services/input-service.test.ts:
+(pass) InputService > text input state store > returns stable default state for new input IDs [0.22ms]
+(pass) InputService > text input state store > notifies subscribers on meaningful changes [0.21ms]
+(pass) InputService > ordered char application (text input ordering) > multiple char events applied in order produce correct accumulated value [0.56ms]
+(pass) InputService > ordered char application (text input ordering) > rapid sequential chars preserve order (simulates fast typing) [0.23ms]
+
+src/cli/services/app-state-service.test.ts:
+(pass) AppStateService > Log Management > addLog adds a log entry [0.80ms]
+(pass) AppStateService > Log Management > addLog appends to existing logs [0.44ms]
+(pass) AppStateService > Log Management > updateLog modifies existing log by id [0.31ms]
+(pass) AppStateService > Log Management > clearLogs removes all logs [0.18ms]
+(pass) AppStateService > Prompt Management > setPrompt updates the prompt [0.55ms]
+(pass) AppStateService > Prompt Management > setPrompt can clear the prompt [0.23ms]
+(pass) AppStateService > Status Management > setStatus updates the status [0.66ms]
+(pass) AppStateService > Status Management > status can be set to different values [0.23ms]
+(pass) AppStateService > Stream Management > setStream updates the stream state [0.69ms]
+(pass) AppStateService > Stream Management > setStream can clear the stream [0.49ms]
+(pass) AppStateService > Working Directory > setWorkingDirectory updates the directory [0.94ms]
+(pass) AppStateService > Custom View > setCustomView updates the custom view [0.60ms]
+(pass) AppStateService > Custom View > setCustomView can clear the view [0.40ms]
+(pass) AppStateService > Interrupt Handler > setInterruptHandler stores the handler [0.28ms]
+(pass) AppStateService > Interrupt Handler > triggerInterrupt calls the handler [0.82ms]
+(pass) AppStateService > Interrupt Handler > triggerInterrupt does nothing without handler [0.20ms]
+(pass) AppStateService > createLogEntry Helper > creates log entry with defaults [0.06ms]
+(pass) AppStateService > createLogEntry Helper > creates different types of log entries [0.02ms]
+
+src/cli/services/terminal-service.test.ts:
+(pass) TerminalService > Terminal Detection > service provides capabilities [0.68ms]
+(pass) TerminalService > Terminal Detection > service provides escape sequences [0.30ms]
+(pass) TerminalService > getAllSequencesForAction > returns sequences for optionLeft [0.13ms]
+(pass) TerminalService > getAllSequencesForAction > returns empty array for unknown action
+(pass) TerminalService > sequenceMatchesAction > matches ESC b to optionLeft [0.37ms]
+(pass) TerminalService > sequenceMatchesAction > matches CSI 1;3D to optionLeft [0.32ms]
+(pass) TerminalService > sequenceMatchesAction > does not match wrong sequence to optionLeft [0.31ms]
+(pass) TerminalService > sequenceMatchesAction > matches delete key sequence [0.28ms]
+(pass) TerminalService > Quirks Configuration > quirks are provided
+(pass) TerminalService > Dimension Queries > getColumns returns terminal width [0.33ms]
+(pass) TerminalService > Dimension Queries > getRows returns terminal height [0.30ms]
+(pass) TerminalService > Service Methods > matchesSequence works via service [0.55ms]
+
+src/cli/services/diff-expansion-service.test.ts:
+(pass) DiffExpansionService > registerTruncatedDiff stores diff info [0.36ms]
+(pass) DiffExpansionService > hasExpandableDiff returns false when no diff is registered [0.14ms]
+(pass) DiffExpansionService > hasExpandableDiff returns true when diff is registered [0.52ms]
+(pass) DiffExpansionService > clearExpandableDiff removes the stored diff [0.21ms]
+(pass) DiffExpansionService > registerTruncatedDiff overwrites previous diff [0.14ms]
+
+src/services/llm/stream-processor.test.ts:
+(pass) StreamProcessor > should process text deltas and emit events [1.08ms]
+(pass) StreamProcessor > should handle reasoning deltas when enabled [0.18ms]
+
+src/services/llm/ai-sdk-service.test.ts:
+(pass) AI SDK Service - Unit Tests > Provider Configuration > should list all providers with correct configured status [5.98ms]
+(pass) AI SDK Service - Unit Tests > Provider Configuration > should mark Ollama as configured even without API key [1.08ms]
+(pass) AI SDK Service - Unit Tests > Provider Configuration > should handle empty LLM config [0.45ms]
+(pass) AI SDK Service - Unit Tests > Provider Configuration > should have a check for every provider in LLMConfig [0.39ms]
+(pass) AI SDK Service - Unit Tests > Provider Retrieval > should get provider with static models [3.96ms]
+(pass) AI SDK Service - Unit Tests > Provider Retrieval > should handle dynamic provider model fetching [2.58ms]
+(pass) AI SDK Service - Unit Tests > Provider Authentication > should authenticate provider with API key [2.15ms]
+(pass) AI SDK Service - Unit Tests > Provider Authentication > should fail authentication when API key is missing [1.05ms]
+(skip) AI SDK Service - Unit Tests > Provider Authentication > should allow Ollama without API key
+(pass) AI SDK Service - Unit Tests > Environment Variable Export > should export OpenAI API key to environment [0.52ms]
+(pass) AI SDK Service - Unit Tests > Environment Variable Export > should export OpenRouter API key to environment
+(pass) AI SDK Service - Unit Tests > Environment Variable Export > should export Google API key with special env variable name [1.07ms]
+(pass) AI SDK Service - Unit Tests > Environment Variable Export > should export multiple provider API keys [0.62ms]
+(pass) AI SDK Service - Unit Tests > Model Registry > should return static models for OpenAI provider [3.40ms]
+(pass) AI SDK Service - Unit Tests > Model Registry > should have correct model structure [1.13ms]
+(pass) AI SDK Service - Unit Tests > Model Registry > should set default model to first in list [1.31ms]
+(pass) AI SDK Service - Unit Tests > Error Handling > should handle APICallError with 401 status as authentication error [0.26ms]
+(pass) AI SDK Service - Unit Tests > Error Handling > should handle APICallError with 429 status as rate limit error [0.03ms]
+(pass) AI SDK Service - Unit Tests > Error Handling > should handle APICallError with 500 status as request error [0.01ms]
+(pass) AI SDK Service - Unit Tests > Service Initialization > should create service layer successfully [0.61ms]
+(pass) AI SDK Service - Unit Tests > Service Initialization > should fail service creation when no providers configured [0.35ms]
+(pass) AI SDK Service - Unit Tests > Provider Models Configuration > should recognize all providers in PROVIDER_MODELS [0.54ms]
+(pass) AI SDK Service - Unit Tests > Provider Models Configuration > should handle provider name case insensitivity [0.55ms]
+
+src/services/llm/model-fetcher.test.ts:
+(pass) ModelFetcher > should fetch models from OpenRouter [0.30ms]
+(pass) ModelFetcher > should handle Ollama with special transformation [0.20ms]
+(pass) ModelFetcher > should fail gracefully on 404 [0.35ms]
+
+src/services/storage/file.test.ts:
+(pass) FileStorageService > should save an agent to a JSON file [0.33ms]
+(pass) FileStorageService > should list agents from directory [0.40ms]
+(pass) FileStorageService > should handle missing file as StorageNotFoundError [0.23ms]
+
+src/core/agent/tools/shell-tools.test.ts:
+(pass) Shell Tools > should create execute_command tool with proper structure
+(pass) Shell Tools > should create execute_execute_command tool with proper structure
+(pass) Shell Tools > should require approval for command execution [2.78ms]
+(pass) Shell Tools > should validate command arguments [1.67ms]
+(pass) Shell Tools > should block dangerous commands [4.31ms]
+🔒 SECURITY LOG: Command executed by agent test-agent:
+{
+  command: "echo 'test output'",
+  workingDirectory: "/Users/lvndry/github/jazz",
+  exitCode: 0,
+  timestamp: "2026-02-03T13:49:05.424Z",
+}
+(pass) Shell Tools > should execute safe commands successfully [8.12ms]
+🔒 SECURITY LOG: Command executed by agent test-agent:
+{
+  command: "nonexistentcommand12345",
+  workingDirectory: "/Users/lvndry/github/jazz",
+  exitCode: 127,
+  timestamp: "2026-02-03T13:49:05.431Z",
+}
+(pass) Shell Tools > should handle invalid commands gracefully [5.97ms]
+
+src/core/agent/tools/git-tools.test.ts:
+(pass) Git Tools > should create git_status tool with proper structure [0.22ms]
+(pass) Git Tools > should create git_log tool with proper structure [0.30ms]
+(pass) Git Tools > should create git_add tool with approval requirement [0.06ms]
+(pass) Git Tools > should create git_commit tool with approval requirement [0.06ms]
+(pass) Git Tools > should create git_diff tool with proper structure [0.15ms]
+(pass) Git Tools > should create git_push tool with approval requirement [0.04ms]
+(pass) Git Tools > should create git_pull tool with approval requirement [0.03ms]
+(pass) Git Tools > should create git_branch tool with proper structure [0.26ms]
+(pass) Git Tools > should create git_checkout tool with approval requirement [0.05ms]
+(pass) Git Tools > should require approval for destructive git operations [4.48ms]
+(pass) Git Tools > should execute git_status tool [15.88ms]
+(pass) Git Tools > should execute git_log tool [10.53ms]
+(pass) Git Tools > should execute git_diff tool [24.49ms]
+(pass) Git Tools > should execute git_branch tool [13.51ms]
+
+src/core/agent/tools/web-search-tools.test.ts:
+(pass) WebSearchTool > should create a web search tool with correct structure [0.47ms]
+(pass) WebSearchTool > should have correct parameter schema [0.15ms]
+(pass) WebSearchTool > should validate arguments correctly [8.54ms]
+(pass) WebSearchTool > should fallback to Exa when Parallel is unavailable [1.02ms]
+(pass) WebSearchTool > should create correct summary [0.14ms]
+(pass) WebSearchTool > should handle web search fallback summary [0.09ms]
+
+src/core/agent/tools/tool-registry.test.ts:
+(pass) ToolRegistry > should register and retrieve a tool [2.25ms]
+(pass) ToolRegistry > should fail to get a non-existent tool [0.24ms]
+(pass) ToolRegistry > should list tools and filter hidden ones [0.47ms]
+(pass) ToolRegistry > should manage tool categories [0.48ms]
+
+src/core/agent/context/summarizer.test.ts:
+(pass) Summarizer > summarizeHistory > should return empty message for empty history [0.24ms]
+(pass) Summarizer > summarizeHistory > should call recursive runner with history text [0.15ms]
+(pass) Summarizer > summarizeHistory > should include tool calls in history text [0.06ms]
+(pass) Summarizer > summarizeHistory > should create summarizer agent with correct config [0.17ms]
+(pass) Summarizer > summarizeHistory > should use max iterations of 1 for summarizer [0.08ms]
+(pass) Summarizer > summarizeHistory > should format messages with separators [0.11ms]
+(pass) Summarizer > compactIfNeeded > should return original messages when under threshold [0.39ms]
+
+src/core/agent/execution/streaming-executor.test.ts:
+(pass) executeWithStreaming > should execute a simple run with mocked services [11.56ms]
+(pass) executeWithStreaming > should execute with tool calls [3.86ms]
+
+src/services/chat/commands/parser.test.ts:
+(pass) parseSpecialCommand > recognized commands > should parse /new command [2.38ms]
+(pass) parseSpecialCommand > recognized commands > should parse /help command [0.05ms]
+(pass) parseSpecialCommand > recognized commands > should parse /status command [0.04ms]
+(pass) parseSpecialCommand > recognized commands > should parse /clear command
+(pass) parseSpecialCommand > recognized commands > should parse /tools command
+(pass) parseSpecialCommand > recognized commands > should parse /agents command [0.03ms]
+(pass) parseSpecialCommand > recognized commands > should parse /compact command
+(pass) parseSpecialCommand > recognized commands > should parse /copy command
+(pass) parseSpecialCommand > recognized commands > should parse /context command
+(pass) parseSpecialCommand > commands with arguments > should parse /switch with single argument [0.03ms]
+(pass) parseSpecialCommand > commands with arguments > should parse /switch with multiple word agent name
+(pass) parseSpecialCommand > commands with arguments > should handle extra whitespace in arguments
+(pass) parseSpecialCommand > case insensitivity > should handle uppercase commands [0.01ms]
+(pass) parseSpecialCommand > case insensitivity > should handle mixed case commands
+(pass) parseSpecialCommand > unknown commands > should return unknown for unrecognized commands [0.01ms]
+(pass) parseSpecialCommand > unknown commands > should return unknown for /exit (handled separately) [0.02ms]
+(pass) parseSpecialCommand > unknown commands > should return unknown for made-up commands [0.01ms]
+(pass) parseSpecialCommand > non-command input > should return unknown for text without slash
+(pass) parseSpecialCommand > non-command input > should return unknown for empty input
+(pass) parseSpecialCommand > non-command input > should return unknown for whitespace only
+(pass) parseSpecialCommand > non-command input > should handle slash in middle of text
+(pass) parseSpecialCommand > edge cases > should handle just a slash [0.03ms]
+(pass) parseSpecialCommand > edge cases > should handle leading/trailing whitespace
+
+src/services/chat/session/manager.test.ts:
+(pass) Session Manager > generateSessionId > should include agent name as prefix [0.07ms]
+(pass) Session Manager > generateSessionId > should follow format: agentName-YYYYMMDD-HHmmss [0.07ms]
+(pass) Session Manager > generateSessionId > should handle agent names with special characters [0.06ms]
+(pass) Session Manager > generateSessionId > should handle empty agent name [0.03ms]
+(pass) Session Manager > generateSessionId > should generate different session IDs for different agents [0.02ms]
+(pass) Session Manager > generateSessionId > should generate consistent date format [0.05ms]
+(pass) Session Manager > generateConversationId > should generate unique IDs [0.19ms]
+(pass) Session Manager > generateConversationId > should generate many unique IDs [1.28ms]
+(pass) Session Manager > generateConversationId > should return a string [0.01ms]
+(pass) Session Manager > generateConversationId > should have reasonable length for short-uuid [0.03ms]
+(pass) Session Manager > generateConversationId > should only contain URL-safe characters [0.01ms]
+
+1 tests skipped:
+(skip) AI SDK Service - Unit Tests > Provider Authentication > should allow Ollama without API key
+
+
+1 tests failed:
+
+ 449 pass
+ 1 skip
+ 1 fail
+ 1 error
+ 1039 expect() calls
+Ran 451 tests across 37 files. [834.00ms]

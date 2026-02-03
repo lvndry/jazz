@@ -424,6 +424,11 @@ export function createEscapeStateMachine(
       return { type: "ignore" };
     }
 
+    // Ctrl+O - expand diff output
+    if (input === "o" || input === "\x0f") {
+      return { type: "expand-diff" };
+    }
+
     return null;
   }
 

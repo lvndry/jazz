@@ -5,8 +5,10 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { APICallError } from "ai";
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { AVAILABLE_PROVIDERS, ProviderName } from "../../core/constants/models";
-import { AgentConfigService, AgentConfigServiceTag } from "../../core/interfaces/agent-config";
+import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
+import type { ProviderName } from "../../core/constants/models";
+import type { AgentConfigService } from "../../core/interfaces/agent-config";
+import { AgentConfigServiceTag } from "../../core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
 import { LLMAuthenticationError, LLMConfigurationError } from "../../core/types/errors";
 import type { AppConfig, LLMConfig } from "../../core/types/index";
@@ -437,8 +439,12 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const result = await runWithTestLayers(testEffect, configLayer);
 
-      expect(result.defaultModel).toBe(result.firstModel);
-      expect(result.defaultModel.length).toBeGreaterThan(0);
+      expect(result.defaultModel).toBeDefined();
+      expect(result.firstModel).toBeDefined();
+      const defaultModel = result.defaultModel!;
+      const firstModel = result.firstModel!;
+      expect(defaultModel).toBe(firstModel);
+      expect(defaultModel.length).toBeGreaterThan(0);
     });
   });
 

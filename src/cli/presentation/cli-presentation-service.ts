@@ -19,7 +19,7 @@ import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
  * CLI implementation of PresentationService
  * Provides terminal-based presentation for agent output by delegating to CLIRenderer
  */
-class CLIPresentationService implements PresentationService {
+export class CLIPresentationService implements PresentationService {
   private renderer: CLIRenderer | null = null;
 
   constructor(

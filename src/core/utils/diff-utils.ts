@@ -28,19 +28,31 @@ export function generateDiff(
   originalContent: string,
   newContent: string,
   filepath: string,
-  options: DiffOptions = {}
+  options: DiffOptions = {},
 ): string {
+  return generateDiffWithMetadata(originalContent, newContent, filepath, options).diff;
+}
+
+export function generateDiffWithMetadata(
+  originalContent: string,
+  newContent: string,
+  filepath: string,
+  options: DiffOptions = {},
+): { diff: string; wasTruncated: boolean } {
   const { maxLines = 20, isNewFile = false, contextLines = 3 } = options;
 
   // For new files, just show a creation summary - not the full content
   if (isNewFile || originalContent === "") {
     const lineCount = newContent.split("\n").length;
-    return chalk.green(`+ Created file: ${filepath} (${lineCount} lines)`);
+    return {
+      diff: chalk.green(`+ Created file: ${filepath} (${lineCount} lines)`),
+      wasTruncated: false,
+    };
   }
 
   // If content is identical, no diff needed
   if (originalContent === newContent) {
-    return "";
+    return { diff: "", wasTruncated: false };
   }
 
   // Generate unified diff using the diff library
@@ -54,6 +66,7 @@ export function generateDiff(
   const output: string[] = [];
   let changedLinesCount = 0;
   let headersDone = false;
+  let wasTruncated = false;
 
   for (const line of lines) {
     // Handle file headers (first few lines of patch)
@@ -76,14 +89,24 @@ export function generateDiff(
     if (line.startsWith("+") && !line.startsWith("+++")) {
       changedLinesCount++;
       if (changedLinesCount > maxLines) {
-        output.push(chalk.dim(`... output truncated (showing first ${maxLines} changes)`));
+        wasTruncated = true;
+        output.push(
+          chalk.dim(
+            `... output truncated (showing first ${maxLines} changes, press Ctrl+O to expand)`,
+          ),
+        );
         break;
       }
       output.push(chalk.green(line));
     } else if (line.startsWith("-") && !line.startsWith("---")) {
       changedLinesCount++;
       if (changedLinesCount > maxLines) {
-        output.push(chalk.dim(`... output truncated (showing first ${maxLines} changes)`));
+        wasTruncated = true;
+        output.push(
+          chalk.dim(
+            `... output truncated (showing first ${maxLines} changes, press Ctrl+O to expand)`,
+          ),
+        );
         break;
       }
       output.push(chalk.red(line));
@@ -97,7 +120,7 @@ export function generateDiff(
     }
   }
 
-  return output.join("\n");
+  return { diff: output.join("\n"), wasTruncated };
 }
 
 /**

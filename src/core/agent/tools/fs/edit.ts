@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
-import { generateDiff } from "@/core/utils/diff-utils";
+import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff-utils";
 import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { normalizeFilterPattern } from "./utils";
@@ -312,7 +312,12 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           const newContent = currentLines.join("\n");
           yield* fs.writeFileString(target, newContent);
 
-          const diff = generateDiff(fileContent, newContent, target);
+          const { diff, wasTruncated } = generateDiffWithMetadata(fileContent, newContent, target);
+          const fullDiff = wasTruncated
+            ? generateDiff(fileContent, newContent, target, {
+                maxLines: Number.POSITIVE_INFINITY,
+              })
+            : "";
 
           return {
             success: true,
@@ -323,6 +328,8 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
               originalLines: lines.length,
               newLines: currentLines.length,
               diff,
+              wasTruncated,
+              fullDiff,
             },
           };
         } catch (error) {

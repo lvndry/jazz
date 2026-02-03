@@ -177,7 +177,7 @@ describe("WebSearchTool", () => {
     expect(searchResult.provider).toBe("exa");
     expect(searchResult.query).toBe("test search");
     expect(searchResult.results).toHaveLength(1);
-    expect(searchResult.results[0].title).toBe("Exa Result");
+    expect(searchResult.results[0]!.title).toBe("Exa Result");
   });
 
   it("should create correct summary", () => {
