@@ -10,6 +10,7 @@ import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-regi
 import type { ConversationMessages } from "@/core/types";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
+import { formatToolResultForContext } from "@/core/utils/tool-result-summarizer";
 import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "../context/context-window-manager";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
@@ -245,16 +246,20 @@ export function executeWithoutStreaming(
                     currentMessages.push({
                       role: "tool",
                       name: toolCall.function.name,
-                      content: JSON.stringify({
-                        error: "Tool execution result was undefined",
-                      }),
+                      content: formatToolResultForContext(
+                        toolCall.function.name,
+                        { error: "Tool execution result was undefined" },
+                      ),
                       tool_call_id: toolCall.id,
                     });
                   } else {
                     currentMessages.push({
                       role: "tool",
                       name: toolCall.function.name,
-                      content: JSON.stringify(result),
+                      content: formatToolResultForContext(
+                        toolCall.function.name,
+                        result,
+                      ),
                       tool_call_id: toolCall.id,
                     });
                   }
