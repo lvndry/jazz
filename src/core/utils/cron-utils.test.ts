@@ -87,30 +87,35 @@ describe("cron-utils", () => {
     });
 
     it("should describe daily at specific time", () => {
-      expect(describeCronSchedule("0 8 * * *")).toBe("Daily at 8 AM");
-      expect(describeCronSchedule("30 8 * * *")).toBe("Daily at 8:30 AM");
-      expect(describeCronSchedule("0 0 * * *")).toBe("Daily at midnight");
-      expect(describeCronSchedule("0 12 * * *")).toBe("Daily at 12:00 PM");
+      expect(describeCronSchedule("0 8 * * *")).toBe("At 08:00 AM");
+      expect(describeCronSchedule("30 8 * * *")).toBe("At 08:30 AM");
+      expect(describeCronSchedule("0 0 * * *")).toBe("At 12:00 AM");
+      expect(describeCronSchedule("0 12 * * *")).toBe("At 12:00 PM");
     });
 
     it("should describe weekdays", () => {
-      expect(describeCronSchedule("0 9 * * 1-5")).toBe("Weekdays at 9 AM");
+      expect(describeCronSchedule("0 9 * * 1-5")).toBe("At 09:00 AM, Monday through Friday");
     });
 
     it("should describe specific weekday", () => {
-      expect(describeCronSchedule("0 9 * * 1")).toBe("Mondays at 9 AM");
-      expect(describeCronSchedule("0 17 * * 5")).toBe("Fridays at 5 PM");
+      expect(describeCronSchedule("0 9 * * 1")).toBe("At 09:00 AM, only on Monday");
+      expect(describeCronSchedule("0 17 * * 5")).toBe("At 05:00 PM, only on Friday");
     });
 
     it("should describe monthly", () => {
-      expect(describeCronSchedule("0 0 1 * *")).toBe("Monthly on the 1st at midnight");
-      expect(describeCronSchedule("0 9 15 * *")).toBe("Monthly on the 15th at 9 AM");
+      expect(describeCronSchedule("0 0 1 * *")).toBe("At 12:00 AM, on day 1 of the month");
+      expect(describeCronSchedule("0 9 15 * *")).toBe("At 09:00 AM, on day 15 of the month");
     });
 
-    it("should return null for invalid or non-5-field expressions", () => {
+    it("should return null for invalid expressions", () => {
       expect(describeCronSchedule("")).toBe(null);
       expect(describeCronSchedule("0 8 * *")).toBe(null);
-      expect(describeCronSchedule("* * * * * *")).toBe(null);
+    });
+
+    it("should handle 6-field (with seconds) expressions", () => {
+      expect(describeCronSchedule("* * * * * *")).toBe("Every second");
+      expect(describeCronSchedule("30 * * * * *")).toBe("At 30 seconds past the minute");
+      expect(describeCronSchedule("0 0 8 * * *")).toBe("At 08:00 AM");
     });
 
     it("should describe every N minutes (any N)", () => {
@@ -120,20 +125,30 @@ describe("cron-utils", () => {
     });
 
     it("should describe every N minutes on specific day(s)", () => {
-      expect(describeCronSchedule("*/15 * * * 5")).toBe("Every 15 minutes on Fridays");
-      expect(describeCronSchedule("*/30 * * * 1-5")).toBe("Every 30 minutes on weekdays");
-      expect(describeCronSchedule("0/15 * * * 5")).toBe("Every 15 minutes on Fridays");
+      expect(describeCronSchedule("*/15 * * * 5")).toBe("Every 15 minutes, only on Friday");
+      expect(describeCronSchedule("*/30 * * * 1-5")).toBe("Every 30 minutes, Monday through Friday");
+      expect(describeCronSchedule("0/15 * * * 5")).toBe("Every 15 minutes, only on Friday");
     });
 
     it("should describe day-of-week list", () => {
-      expect(describeCronSchedule("0 9 * * 1,3,5")).toBe("Mon, Wed, Fri at 9 AM");
-      expect(describeCronSchedule("30 14 * * 0,6")).toBe("Sun, Sat at 2:30 PM");
+      expect(describeCronSchedule("0 9 * * 1,3,5")).toBe("At 09:00 AM, only on Monday, Wednesday, and Friday");
+      expect(describeCronSchedule("30 14 * * 0,6")).toBe("At 02:30 PM, only on Sunday and Saturday");
     });
 
     it("should describe every N hours", () => {
-      expect(describeCronSchedule("0 */2 * * *")).toBe("Every 2 hours");
+      expect(describeCronSchedule("0 */2 * * *")).toBe("On the hour, every 2 hours");
       expect(describeCronSchedule("0 */1 * * *")).toBe("Every hour");
-      expect(describeCronSchedule("0 */6 * * *")).toBe("Every 6 hours");
+      expect(describeCronSchedule("0 */6 * * *")).toBe("On the hour, every 6 hours");
+    });
+
+    it("should describe complex patterns (ranges, specific months)", () => {
+      expect(describeCronSchedule("0 8-10 * * *")).toBe("Every hour, between 08:00 AM and 10:00 AM");
+      expect(describeCronSchedule("0 0 1 1 *")).toBe("At 12:00 AM, on day 1 of the month, only in January");
+      expect(describeCronSchedule("5/15 * * * *")).toBe("Every 15 minutes, starting at 5 minutes past the hour");
+    });
+
+    it("should handle special characters like L", () => {
+      expect(describeCronSchedule("0 0 L * *")).toBe("At 12:00 AM, on the last day of the month");
     });
   });
 });
