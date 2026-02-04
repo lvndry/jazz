@@ -198,6 +198,10 @@ export class CLIPresentationService implements PresentationService {
         : ({ approved: false } as const);
     });
   }
+
+  signalToolExecutionStarted(): Effect.Effect<void, never> {
+    return Effect.void;
+  }
 }
 
 /**

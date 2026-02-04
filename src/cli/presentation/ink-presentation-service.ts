@@ -544,6 +544,9 @@ class InkPresentationService implements PresentationService {
   private approvalQueue: QueuedApproval[] = [];
   private isProcessingApproval: boolean = false;
 
+  // Signal for tool execution start synchronization
+  private pendingExecutionSignal: (() => void) | null = null;
+
   constructor(
     private readonly displayConfig: DisplayConfig,
     private readonly notificationService: NotificationService | null,
@@ -674,16 +677,29 @@ class InkPresentationService implements PresentationService {
   }
 
   /**
-   * Resumes the approval effect with the given outcome and runs cleanup:
-   * clears processing flag and processes the next queued approval.
+   * Resumes the approval effect with the given outcome.
+   * Waits for tool execution to start before processing the next approval.
    */
   private completeApproval(
     resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
     outcome: ApprovalOutcome,
   ): void {
     resume(Effect.succeed(outcome));
-    this.isProcessingApproval = false;
-    this.processNextApproval();
+
+    // If approved, wait for the tool execution to start before processing next approval
+    // If rejected, we can proceed immediately since no tool will execute
+    if (outcome.approved) {
+      // Set up a signal that will be triggered by signalToolExecutionStarted
+      this.pendingExecutionSignal = () => {
+        this.pendingExecutionSignal = null;
+        this.isProcessingApproval = false;
+        this.processNextApproval();
+      };
+    } else {
+      // No tool execution for rejected approvals, proceed immediately
+      this.isProcessingApproval = false;
+      this.processNextApproval();
+    }
   }
 
   /**
@@ -792,6 +808,15 @@ class InkPresentationService implements PresentationService {
           },
         });
       },
+    });
+  }
+
+  signalToolExecutionStarted(): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      // If there's a pending signal callback, invoke it to allow next approval
+      if (this.pendingExecutionSignal) {
+        this.pendingExecutionSignal();
+      }
     });
   }
 }

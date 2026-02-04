@@ -213,6 +213,9 @@ export class ToolExecutor {
               }
             }
 
+            // Signal that tool execution has started (allows next approval to proceed)
+            yield* presentationService.signalToolExecutionStarted();
+
             // Execute the actual tool
             result = yield* ToolExecutor.executeTool(
               approvalResult.executeToolName,

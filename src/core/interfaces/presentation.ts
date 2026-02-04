@@ -117,6 +117,15 @@ export interface PresentationService {
    * @returns ApprovalOutcome: { approved: true } or { approved: false, userMessage?: string }
    */
   readonly requestApproval: (request: ApprovalRequest) => Effect.Effect<ApprovalOutcome, never>;
+
+  /**
+   * Signal that tool execution has started after approval.
+   *
+   * This should be called by the tool executor after emitting `tool_execution_start`
+   * to synchronize the approval queue. The next approval prompt will not be shown
+   * until this signal is received, preventing log interleaving.
+   */
+  readonly signalToolExecutionStarted: () => Effect.Effect<void, never>;
 }
 
 /**
