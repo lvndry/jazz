@@ -25,6 +25,7 @@ import {
   WorkflowServiceTag,
   type WorkflowMetadata,
 } from "@/core/workflows/workflow-service";
+import { groupWorkflows, formatWorkflow } from "@/core/workflows/workflow-utils";
 
 /**
  * CLI commands for managing and running workflows.
@@ -63,23 +64,7 @@ export function listWorkflowsCommand() {
       Effect.catchAll(() => Effect.succeed(new Set<string>())),
     );
 
-    // Group workflows by location
-    const local: WorkflowMetadata[] = [];
-    const global: WorkflowMetadata[] = [];
-    const builtin: WorkflowMetadata[] = [];
-
-    const cwd = process.cwd();
-    const homeDir = process.env["HOME"] || "";
-
-    for (const workflow of workflows) {
-      if (workflow.path.startsWith(cwd)) {
-        local.push(workflow);
-      } else if (workflow.path.includes(".jazz/workflows") && workflow.path.startsWith(homeDir)) {
-        global.push(workflow);
-      } else {
-        builtin.push(workflow);
-      }
-    }
+    const { local, global, builtin } = groupWorkflows(workflows);
 
     function statusBadge(w: WorkflowMetadata): string {
       if (runningNames.has(w.name)) return " ● running";
@@ -88,22 +73,10 @@ export function listWorkflowsCommand() {
       return "";
     }
 
-    function formatWorkflow(w: WorkflowMetadata): string {
-      const scheduleDesc = w.schedule ? describeCronSchedule(w.schedule) : null;
-      const scheduleStr = w.schedule
-        ? scheduleDesc
-          ? ` (${scheduleDesc})`
-          : ` [${w.schedule}]`
-        : "";
-      const agent = w.agent ? ` (agent: ${w.agent})` : "";
-      const status = statusBadge(w);
-      return `  ${w.name}${scheduleStr}${agent}${status}\n    ${w.description}`;
-    }
-
     if (local.length > 0) {
       yield* terminal.log("Local workflows:");
       for (const w of local) {
-        yield* terminal.log(formatWorkflow(w));
+        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
       }
       yield* terminal.log("");
     }
@@ -111,7 +84,7 @@ export function listWorkflowsCommand() {
     if (global.length > 0) {
       yield* terminal.log("Global workflows (~/.jazz/workflows):");
       for (const w of global) {
-        yield* terminal.log(formatWorkflow(w));
+        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
       }
       yield* terminal.log("");
     }
@@ -119,7 +92,7 @@ export function listWorkflowsCommand() {
     if (builtin.length > 0) {
       yield* terminal.log("Built-in workflows:");
       for (const w of builtin) {
-        yield* terminal.log(formatWorkflow(w));
+        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
       }
       yield* terminal.log("");
     }

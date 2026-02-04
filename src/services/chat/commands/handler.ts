@@ -25,13 +25,12 @@ import {
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
-import { describeCronSchedule } from "@/core/utils/cron-utils";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import {
   WorkflowServiceTag,
-  type WorkflowMetadata,
   type WorkflowService,
 } from "@/core/workflows/workflow-service";
+import { groupWorkflows, formatWorkflow } from "@/core/workflows/workflow-utils";
 import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
@@ -602,35 +601,7 @@ function handleWorkflowsCommand(
       return { shouldContinue: true };
     }
 
-    const cwd = process.cwd();
-    const homeDir = process.env["HOME"] || "";
-    const local: WorkflowMetadata[] = [];
-    const global: WorkflowMetadata[] = [];
-    const builtin: WorkflowMetadata[] = [];
-
-    for (const workflow of workflows) {
-      if (workflow.path.startsWith(cwd)) {
-        local.push(workflow);
-      } else if (
-        workflow.path.includes(".jazz/workflows") &&
-        workflow.path.startsWith(homeDir)
-      ) {
-        global.push(workflow);
-      } else {
-        builtin.push(workflow);
-      }
-    }
-
-    function formatWorkflow(w: WorkflowMetadata): string {
-      const scheduleDesc = w.schedule ? describeCronSchedule(w.schedule) : null;
-      const scheduleStr = w.schedule
-        ? scheduleDesc
-          ? ` (${scheduleDesc})`
-          : ` [${w.schedule}]`
-        : "";
-      const agent = w.agent ? ` (agent: ${w.agent})` : "";
-      return `  ${w.name}${scheduleStr}${agent}\n    ${w.description}`;
-    }
+    const { local, global, builtin } = groupWorkflows(workflows);
 
     if (local.length > 0) {
       yield* terminal.log("Local workflows:");

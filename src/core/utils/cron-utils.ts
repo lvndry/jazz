@@ -79,12 +79,12 @@ export function describeCronSchedule(cron: string): string | null {
   const dom = toNum(domStr);
 
   // Minute step: */15 or 0/15 → every 15 minutes
-  const minuteStepRaw =
-    minStr.startsWith("*/") && minStr.length > 2
-      ? minStr.slice(2)
-      : minStr.startsWith("0/") && minStr.length > 2
-        ? minStr.slice(2)
-        : null;
+  let minuteStepRaw: string | null = null;
+  if (minStr.startsWith("*/") && minStr.length > 2) {
+    minuteStepRaw = minStr.slice(2);
+  } else if (minStr.startsWith("0/") && minStr.length > 2) {
+    minuteStepRaw = minStr.slice(2);
+  }
   const minuteStep =
     minuteStepRaw !== null ? parseInt(minuteStepRaw, 10) : null;
   const minuteStepValid =
@@ -139,14 +139,16 @@ export function describeCronSchedule(cron: string): string | null {
     domStr === "*" &&
     monthStr === "*"
   ) {
-    const onDay =
-      dowLabel === "weekdays"
-        ? " on weekdays"
-        : dowLabel === "every day"
-          ? ""
-          : dowIsList
-            ? ` on ${dowLabel}`
-            : ` on ${dowLabel}s`;
+    let onDay: string;
+    if (dowLabel === "weekdays") {
+      onDay = " on weekdays";
+    } else if (dowLabel === "every day") {
+      onDay = "";
+    } else if (dowIsList) {
+      onDay = ` on ${dowLabel}`;
+    } else {
+      onDay = ` on ${dowLabel}s`;
+    }
     return minuteStep === 1
       ? `Every minute${onDay}`
       : `Every ${minuteStep} minutes${onDay}`;
