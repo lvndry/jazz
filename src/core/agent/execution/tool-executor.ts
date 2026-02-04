@@ -1,4 +1,5 @@
 import { Effect, Either, Fiber } from "effect";
+import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import {
@@ -15,6 +16,7 @@ import { GenerationInterruptedError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import {
   isApprovalRequiredResult,
+  shouldAutoApprove,
   type ToolCall,
   type ToolExecutionContext,
   type ToolExecutionResult,
@@ -31,13 +33,8 @@ import {
  */
 export class ToolExecutor {
   /**
-   * Timeout for tool execution in milliseconds (3 minutes)
-   */
-  private static readonly TOOL_TIMEOUT_MS = 3 * 60 * 1000;
-
-  /**
    * Execute a tool by name with the provided arguments
-   * Applies a 3-minute timeout to prevent indefinite hanging
+   * Applies a timeout to prevent indefinite hanging
    */
   static executeTool(
     name: string,
@@ -52,12 +49,13 @@ export class ToolExecutor {
       const registry = yield* ToolRegistryTag;
       const logger = yield* LoggerServiceTag;
 
+      const timeoutMinutes = Math.round(TOOL_TIMEOUT_MS / 60000);
       const result = yield* registry.executeTool(name, args, context).pipe(
         Effect.timeoutFail({
-          duration: ToolExecutor.TOOL_TIMEOUT_MS,
+          duration: TOOL_TIMEOUT_MS,
           onTimeout: () =>
             new Error(
-              `Tool '${name}' timed out after 3 minutes. The operation took too long to complete.`,
+              `Tool '${name}' timed out after ${timeoutMinutes} minutes. The operation took too long to complete.`,
             ),
         }),
         Effect.catchAll((error) => {
@@ -144,30 +142,56 @@ export class ToolExecutor {
         let finalToolName = name;
 
         // Check if this result requires approval (Cursor/Claude-style approval flow)
-        // If so, we intercept here, show approval UI, and auto-execute the follow-up tool
+        // If so, we intercept here, show approval UI (or auto-approve), and execute the follow-up tool
         if (isApprovalRequiredResult(result.result)) {
           const approvalResult = result.result;
+          const registry = yield* ToolRegistryTag;
 
-          yield* logger.debug("Tool requires approval, showing approval prompt", {
-            toolName: name,
-            executeToolName: approvalResult.executeToolName,
-          });
+          // Get the tool's risk level to check against auto-approve policy
+          const toolInfo = yield* registry.getTool(name).pipe(
+            Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })),
+          );
+          const riskLevel = toolInfo.riskLevel;
+          const autoApprovePolicy = context.autoApprovePolicy;
 
-          // Show approval prompt to user
-          const outcome = yield* presentationService.requestApproval({
-            toolName: name,
-            message: approvalResult.message,
-            executeToolName: approvalResult.executeToolName,
-            executeArgs: approvalResult.executeArgs,
-          });
+          // Check if auto-approve policy allows this tool
+          const isAutoApproved = shouldAutoApprove(riskLevel, autoApprovePolicy);
 
-          if (outcome.approved) {
-            yield* logger.info("User approved tool execution", {
+          if (isAutoApproved) {
+            yield* logger.info("Tool auto-approved by policy", {
               toolName: name,
               executeToolName: approvalResult.executeToolName,
+              riskLevel,
+              autoApprovePolicy,
             });
+          } else {
+            yield* logger.debug("Tool requires approval, showing approval prompt", {
+              toolName: name,
+              executeToolName: approvalResult.executeToolName,
+              riskLevel,
+              autoApprovePolicy,
+            });
+          }
 
-            // Auto-execute the execution tool
+          // Show approval prompt to user (unless auto-approved)
+          const outcome = isAutoApproved
+            ? { approved: true as const }
+            : yield* presentationService.requestApproval({
+                toolName: name,
+                message: approvalResult.message,
+                executeToolName: approvalResult.executeToolName,
+                executeArgs: approvalResult.executeArgs,
+              });
+
+          if (outcome.approved) {
+            if (!isAutoApproved) {
+              yield* logger.info("User approved tool execution", {
+                toolName: name,
+                executeToolName: approvalResult.executeToolName,
+              });
+            }
+
+            // Execute the execution tool
             const executeStartTime = Date.now();
 
             // Emit execution start for the follow-up tool
@@ -202,15 +226,16 @@ export class ToolExecutor {
               executeToolName: approvalResult.executeToolName,
               success: result.success,
               durationMs: toolDuration,
+              autoApproved: isAutoApproved,
             });
           } else {
             yield* logger.info("User rejected tool execution", {
               toolName: name,
-              userMessage: outcome.userMessage,
+              userMessage: (outcome as { approved: false; userMessage?: string }).userMessage,
             });
 
             const rejectionMessage =
-              outcome.userMessage?.trim() ||
+              (outcome as { approved: false; userMessage?: string }).userMessage?.trim() ||
               "User rejected the operation. Please acknowledge this and ask if they'd like to try something different.";
 
             result = {
@@ -385,6 +410,7 @@ export class ToolExecutor {
       yield* logger.info(`${agentName} is using tools: ${toolsList}`);
 
       const approvalSet = new Set(toolsRequiringApproval);
+      // Limit concurrency to prevent resource exhaustion when many tools are requested
       const toolFibers = yield* Effect.all(
         toolCalls.map((toolCall) =>
           Effect.fork(
@@ -400,7 +426,7 @@ export class ToolExecutor {
             ),
           ),
         ),
-        { concurrency: "unbounded" },
+        { concurrency: MAX_CONCURRENT_TOOLS },
       );
 
       const awaitResults = Effect.all(

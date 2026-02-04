@@ -53,6 +53,24 @@ Git, Gmail, filesystem, shell, web search, HTTP, PDF, and more. Just create an a
 - **Local & Global**: Skills can be stored globally in `~/.jazz` or locally in your project.
 - **Interactive Inspection**: Use the `/skills` command during chat to browse and read available skills yourself.
 
+### ⏰ Workflows, Automated & Scheduled
+
+**Jazz workflows let you automate recurring tasks and schedule them to run automatically.**
+
+Create `WORKFLOW.md` files that describe what the agent should do, then schedule them to run hourly, daily, or on any cron schedule:
+
+- **Scheduled Execution**: Run workflows on a cron schedule using your system scheduler (launchd on macOS, cron on Linux)
+- **Auto-Approve Policies**: Set risk-based auto-approval (`read-only`, `low-risk`, `high-risk`) for unattended execution
+- **Agent Selection**: Choose which agent runs each workflow
+- **Run History**: Track execution history, logs, and errors
+- **Catch-Up on Startup**: Optionally run missed workflows when Jazz starts
+- **Built-in Examples**: Email cleanup, weather briefings, tech digests, market analysis, and more
+
+Example: Schedule a daily market analysis at 6 AM:
+```bash
+jazz workflow schedule market-analysis
+```
+
 ### 🧠 Multi LLM, Model Agnostic
 
 Switch between OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama, Openrouter and more, even mid-conversation. Your agents aren't locked to one provider.
@@ -108,15 +126,19 @@ jazz update
 
 ## 📚 Usage Highlights
 
-| Command                  | Description                       |
-| ------------------------ | --------------------------------- |
-| `jazz agent create`      | Create a new agent                |
-| `jazz agent chat <name>` | Start chatting with an agent      |
-| `jazz agent list`        | List all your agents              |
-| `jazz agent edit <id>`   | Edit an existing agent            |
-| `jazz config show`       | View your configuration           |
-| `jazz auth gmail login`  | Authenticate with Google (Gmail)  |
-| `jazz update`            | Update Jazz to the latest version |
+| Command                         | Description                              |
+| ------------------------------- | ---------------------------------------- |
+| `jazz agent create`             | Create a new agent                       |
+| `jazz agent chat <name>`        | Start chatting with an agent             |
+| `jazz agent list`               | List all your agents                     |
+| `jazz agent edit <id>`          | Edit an existing agent                   |
+| `jazz workflow list`            | List all available workflows             |
+| `jazz workflow run <name>`      | Run a workflow manually                  |
+| `jazz workflow schedule <name>` | Schedule a workflow to run automatically |
+| `jazz workflow scheduled`       | Show scheduled workflows                 |
+| `jazz config show`              | View your configuration                  |
+| `jazz auth gmail login`         | Authenticate with Google (Gmail)         |
+| `jazz update`                   | Update Jazz to the latest version        |
 
 ---
 

@@ -17,6 +17,16 @@ import type { MCPServerManager } from "./mcp-server";
 import type { TerminalService } from "./terminal";
 
 /**
+ * Risk level for tool execution.
+ * Used to determine auto-approval behavior in workflows.
+ *
+ * - `read-only`: Tools that only read data (web search, list emails, read files)
+ * - `low-risk`: Tools that make minor changes (archive email, create calendar event)
+ * - `high-risk`: Tools that make significant changes (delete files, send email, execute commands)
+ */
+export type ToolRiskLevel = "read-only" | "low-risk" | "high-risk";
+
+/**
  * Union type representing all possible tool requirements.
  * This allows the registry to store tools with different requirement types
  *
@@ -41,6 +51,13 @@ export interface Tool<R = never> {
   readonly parameters: z.ZodTypeAny;
   /** If true, this tool is hidden from UI listings (but still usable programmatically). */
   readonly hidden: boolean;
+  /**
+   * Risk level for auto-approval in workflows.
+   * - `read-only`: Always auto-approved (default for non-approval tools)
+   * - `low-risk`: Auto-approved when workflow allows low-risk operations
+   * - `high-risk`: Only auto-approved when explicitly allowed (default for approval tools)
+   */
+  readonly riskLevel: ToolRiskLevel;
   /**
    * Optional helper for approval-based tools pointing to the follow-up tool name
    * that should be made available once user confirmation is granted.

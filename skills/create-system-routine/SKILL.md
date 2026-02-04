@@ -1,13 +1,13 @@
 ---
-name: create-routines
-description: Create time-based routines using the OS scheduler. On Linux use cron, on macOS use launchd. Do not create routines on Windows.
+name: create-system-routine
+description: Create time-based system routines (cron/launchd) for scripts or commands. Use this for OS-level scheduling, NOT for Jazz Workflows.
 ---
 
-# Create Routines
+# Create System Routine
 
 ## When to use this skill
 
-Use this skill when the user wants to create or manage time-based routines (scheduled tasks) from Jazz, and the behavior should adapt to the operating system:
+Use this skill when the user wants to create or manage time-based routines (scheduled tasks) at the **OS level** (e.g., running a shell script, a binary, or a specific command).
 
 - **Linux** → use `cron` (`crontab -e`, system/user crontabs)
 - **macOS** → use `launchd` (LaunchAgents / LaunchDaemons with plist files)

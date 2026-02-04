@@ -18,6 +18,16 @@ import { createAgentCommand } from "./commands/create-agent";
 import { editAgentCommand } from "./commands/edit-agent";
 import { updateCommand } from "./commands/update";
 import { wizardCommand } from "./commands/wizard";
+import {
+  listWorkflowsCommand,
+  showWorkflowCommand,
+  runWorkflowCommand,
+  scheduleWorkflowCommand,
+  unscheduleWorkflowCommand,
+  listScheduledWorkflowsCommand,
+  catchupWorkflowCommand,
+  workflowHistoryCommand,
+} from "./commands/workflow";
 
 /**
  * CLI Application setup and command registration
@@ -242,6 +252,120 @@ function registerUpdateCommand(program: Command): void {
 }
 
 /**
+ * Register workflow-related commands
+ */
+function registerWorkflowCommands(program: Command): void {
+  const workflowCommand = program.command("workflow").description("Manage and run workflows");
+
+  workflowCommand
+    .command("list")
+    .alias("ls")
+    .description("List all available workflows")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(listWorkflowsCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  workflowCommand
+    .command("show <name>")
+    .description("Show details of a workflow")
+    .action((name: string) => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(showWorkflowCommand(name), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  workflowCommand
+    .command("run <name>")
+    .description("Run a workflow once")
+    .option("--auto-approve", "Auto-approve tool executions based on workflow policy")
+    .option("--agent <agentId>", "Agent ID or name to use for this workflow run")
+    .action((name: string, options: { autoApprove?: boolean; agent?: string }, command: Command) => {
+      const opts = program.opts<CliOptions>();
+      const isWorkflowRunCommand = command.name() === "run" && command.parent?.name() === "workflow";
+      runCliEffect(
+        runWorkflowCommand(name, {
+          ...(options.autoApprove === true ? { autoApprove: true } : {}),
+          ...(options.agent ? { agent: options.agent } : {}),
+        }),
+        {
+          verbose: opts.verbose,
+          debug: opts.debug,
+          configPath: opts.config,
+        },
+        { skipCatchUp: isWorkflowRunCommand },
+      );
+    });
+
+  workflowCommand
+    .command("schedule <name>")
+    .description("Enable scheduled execution for a workflow")
+    .action((name: string) => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(scheduleWorkflowCommand(name), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  workflowCommand
+    .command("unschedule <name>")
+    .description("Disable scheduled execution for a workflow")
+    .action((name: string) => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(unscheduleWorkflowCommand(name), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  workflowCommand
+    .command("scheduled")
+    .description("List all scheduled workflows")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(listScheduledWorkflowsCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  workflowCommand
+    .command("catchup")
+    .description("List workflows that missed a scheduled run, select which to run, then run them")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(catchupWorkflowCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  workflowCommand
+    .command("history [name]")
+    .description("Show workflow run history")
+    .action((name?: string) => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(workflowHistoryCommand(name), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+}
+
+/**
  * Create and configure the CLI application
  *
  * Sets up the Commander.js program with all available commands including:
@@ -275,6 +399,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     registerConfigCommands(program);
     registerAuthCommands(program);
     registerUpdateCommand(program);
+    registerWorkflowCommands(program);
 
 
     if (process.argv.length <= 2) {

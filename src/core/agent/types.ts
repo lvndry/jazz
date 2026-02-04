@@ -1,7 +1,7 @@
 import type { ProviderName } from "@/core/constants/models";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
-import type { ToolCall, ToolDefinition, ToolExecutionContext } from "@/core/types/tools";
+import type { AutoApprovePolicy, ToolCall, ToolDefinition, ToolExecutionContext } from "@/core/types/tools";
 import type { Agent } from "../types";
 import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 
@@ -58,6 +58,15 @@ export interface AgentRunnerOptions {
    * - `undefined`: Use auto-detection based on environment and configuration (default)
    */
   readonly stream?: boolean;
+  /**
+   * Auto-approve policy for tool execution in workflows.
+   * When set, tools matching the policy will be auto-approved without user interaction.
+   * - `true` or `"high-risk"`: Auto-approve all tools
+   * - `"low-risk"`: Auto-approve read-only and low-risk tools
+   * - `"read-only"`: Auto-approve only read-only tools
+   * - `undefined`: Always prompt for approval (default)
+   */
+  readonly autoApprovePolicy?: AutoApprovePolicy;
 }
 
 /**

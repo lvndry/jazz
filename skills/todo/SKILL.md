@@ -77,11 +77,11 @@ Each todo should be:
 - **Verifiable**: Know when it's complete
 - **Independent**: Can be checked off alone (when possible)
 
-| ❌ Vague | ✅ Actionable |
-|----------|---------------|
+| ❌ Vague         | ✅ Actionable                             |
+| --------------- | ---------------------------------------- |
 | "Handle errors" | "Add try-catch to API calls in `api.ts`" |
-| "Test it" | "Run `npm test` and verify 0 failures" |
-| "Update config" | "Add `DEBUG=true` to `.env.local`" |
+| "Test it"       | "Run `npm test` and verify 0 failures"   |
+| "Update config" | "Add `DEBUG=true` to `.env.local`"       |
 
 ### 3. Order by Dependencies
 

@@ -3,9 +3,12 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Ref } from "effect";
-import glob from "fast-glob";
 import matter from "gray-matter";
-import { getBuiltinSkillsDirectory } from "../utils/runtime-detection.js";
+import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "../utils/markdown-index.js";
+import {
+  getBuiltinSkillsDirectory,
+  getGlobalSkillsDirectory,
+} from "../utils/runtime-detection.js";
 
 export interface SkillMetadata {
   readonly name: string;
@@ -44,6 +47,21 @@ export interface SkillService {
 
 export const SkillServiceTag = Context.GenericTag<SkillService>("SkillService");
 
+function parseSkillFrontmatter(data: Record<string, unknown>, skillPath: string): SkillMetadata | null {
+  const name = data["name"];
+  const description = data["description"];
+
+  if (typeof name !== "string" || typeof description !== "string") {
+    return null;
+  }
+
+  return {
+    name,
+    description,
+    path: skillPath,
+  };
+}
+
 /**
  * Implementation of SkillService
  */
@@ -76,20 +94,7 @@ export class SkillsLive implements SkillService {
       const localSkills = yield* this.scanLocalSkills();
 
       // 4. Merge (Local > Global > Built-in by name)
-      const skillMap = new Map<string, SkillMetadata>();
-
-      // Add in priority order (later additions override earlier ones)
-      for (const skill of builtinSkills) {
-        skillMap.set(skill.name, skill);
-      }
-      for (const skill of globalSkills) {
-        skillMap.set(skill.name, skill);
-      }
-      for (const skill of localSkills) {
-        skillMap.set(skill.name, skill);
-      }
-
-      return Array.from(skillMap.values());
+      return mergeByName(builtinSkills, globalSkills, localSkills);
     }.bind(this));
   }
 
@@ -133,9 +138,31 @@ export class SkillsLive implements SkillService {
     return Effect.gen(function* (this: SkillsLive) {
       const skill = yield* this.loadSkill(skillName);
 
-      // Security check: ensure sectionName doesn't escape directory
-      const safeSectionName = path.normalize(sectionName).replace(/^(\.\.(\/|\\|$))+/, '');
-      const sectionPath = path.join(skill.metadata.path, safeSectionName);
+      // Security check: ensure sectionName doesn't escape the skill directory
+      // 1. Normalize the path to resolve any . or .. segments
+      // 2. Resolve the full path
+      // 3. Verify the resolved path is within the skill directory
+      const normalizedSection = path.normalize(sectionName);
+      const sectionPath = path.resolve(skill.metadata.path, normalizedSection);
+      const skillDir = path.resolve(skill.metadata.path);
+
+      // Ensure the resolved path is within the skill directory (prevent path traversal)
+      if (!sectionPath.startsWith(skillDir + path.sep) && sectionPath !== skillDir) {
+        return yield* Effect.fail(
+          new Error(`Invalid section path: ${sectionName} - path traversal not allowed`),
+        );
+      }
+
+      // Only allow specific file extensions for safety
+      const allowedExtensions = [".md", ".txt", ".json", ".yaml", ".yml"];
+      const ext = path.extname(sectionPath).toLowerCase();
+      if (!allowedExtensions.includes(ext)) {
+        return yield* Effect.fail(
+          new Error(
+            `Invalid section file type: ${ext}. Allowed: ${allowedExtensions.join(", ")}`,
+          ),
+        );
+      }
 
       // Verify file exists
       const exists = yield* Effect.tryPromise(async () => {
@@ -148,7 +175,9 @@ export class SkillsLive implements SkillService {
       });
 
       if (!exists) {
-        return yield* Effect.fail(new Error(`Section not found: ${sectionName} in skill ${skillName}`));
+        return yield* Effect.fail(
+          new Error(`Section not found: ${sectionName} in skill ${skillName}`),
+        );
       }
 
       return yield* Effect.tryPromise(() => fs.readFile(sectionPath, "utf-8"));
@@ -156,39 +185,26 @@ export class SkillsLive implements SkillService {
   }
 
   private getGlobalSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
-    const homeDir = os.homedir();
-    const jazzDir = path.join(homeDir, ".jazz");
-
-    return Effect.tryPromise(() =>
-      fs.readFile(this.globalCachePath, "utf-8")
-    ).pipe(
-      Effect.map((content) => JSON.parse(content) as SkillMetadata[]),
-      Effect.catchAll(() =>
-        Effect.gen(function* (this: SkillsLive) {
-          // Cache missing or invalid, rescan
-          const skills = yield* this.scanDirectory(jazzDir, 3);
-
-          // Write cache (ignore errors)
-          yield* Effect.promise(() =>
-            fs.mkdir(path.dirname(this.globalCachePath), { recursive: true })
-          ).pipe(
-            Effect.flatMap(() =>
-              Effect.promise(() =>
-                fs.writeFile(this.globalCachePath, JSON.stringify(skills, null, 2))
-              )
-            ),
-            Effect.catchAll(() => Effect.void)
-          );
-
-          return skills;
-        }.bind(this))
-      )
-    );
+    const globalSkillsDir = getGlobalSkillsDirectory();
+    return loadCachedIndex<SkillMetadata>({
+      cachePath: this.globalCachePath,
+      scan: scanMarkdownIndex({
+        dir: globalSkillsDir,
+        fileName: "SKILL.md",
+        depth: 3,
+        parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir),
+      }),
+    });
   }
 
   private scanLocalSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
     const cwd = process.cwd();
-    return this.scanDirectory(cwd, 4);
+    return scanMarkdownIndex({
+      dir: cwd,
+      fileName: "SKILL.md",
+      depth: 4,
+      parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir),
+    });
   }
 
   private getBuiltinSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
@@ -200,44 +216,12 @@ export class SkillsLive implements SkillService {
       }
 
       // Scan built-in skills directory (depth 2 is enough for skills/skill-name/SKILL.md)
-      return yield* this.scanDirectory(builtinDir, 2);
+      return yield* scanMarkdownIndex({
+        dir: builtinDir,
+        fileName: "SKILL.md",
+        depth: 2,
+        parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir),
+      });
     }.bind(this));
-  }
-
-  private scanDirectory(dir: string, depth: number): Effect.Effect<readonly SkillMetadata[], Error> {
-    return Effect.gen(function* () {
-      const patterns = ["**/SKILL.md"];
-      const ignore = ["**/node_modules/**", "**/.git/**"];
-
-      const matches = yield* Effect.tryPromise(() =>
-        glob(patterns, {
-          cwd: dir,
-          deep: depth,
-          ignore: ignore,
-          absolute: true,
-          caseSensitiveMatch: false // "SKILL.md" or "skill.md" usually, but spec says SKILL.md
-        })
-      );
-
-      const skills: SkillMetadata[] = [];
-      for (const match of matches) {
-        try {
-          const content = yield* Effect.tryPromise(() => fs.readFile(match, 'utf-8'));
-          const { data } = matter(content);
-
-          if (data["name"] && data["description"]) {
-            skills.push({
-              name: String(data["name"]),
-              description: String(data["description"]),
-              path: path.dirname(match)
-            });
-          }
-        } catch {
-          // Ignore malformed skills
-          continue;
-        }
-      }
-      return skills;
-    });
   }
 }

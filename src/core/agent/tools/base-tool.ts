@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import type { Tool } from "@/core/interfaces/tool-registry";
+import type { Tool, ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 
 /**
@@ -38,6 +38,11 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
   /** If true, hide this tool from UI listings while keeping it callable. */
   readonly hidden?: boolean;
   /**
+   * Risk level for auto-approval in workflows.
+   * Defaults to "read-only" for regular tools, "high-risk" for approval tools.
+   */
+  readonly riskLevel?: ToolRiskLevel;
+  /**
    * Optional function to validate the tool arguments before execution.
    */
   readonly validate?: ToolValidator<Args>;
@@ -68,12 +73,16 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
 export function defineTool<R, Args extends Record<string, unknown>>(
   config: BaseToolConfig<R, Args>,
 ): Tool<R> {
+  // Default risk level: "read-only" for regular tools, "high-risk" if it has approval
+  const defaultRiskLevel: ToolRiskLevel = config.approvalExecuteToolName ? "high-risk" : "read-only";
+
   return {
     name: config.name,
     description: config.description,
     tags: config.tags ?? [],
     parameters: config.parameters,
     hidden: config.hidden === true,
+    riskLevel: config.riskLevel ?? defaultRiskLevel,
     ...(config.approvalExecuteToolName ? { approvalExecuteToolName: config.approvalExecuteToolName } : {}),
     createSummary: config.createSummary,
     execute(
@@ -142,6 +151,11 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
   readonly tags?: readonly string[];
   /** Zod schema for parameters */
   readonly parameters: z.ZodTypeAny;
+  /**
+   * Risk level for auto-approval in workflows.
+   * Defaults to "high-risk" for approval tools.
+   */
+  readonly riskLevel?: ToolRiskLevel;
   /** Optional custom validator */
   readonly validate?: ToolValidator<Args>;
   /** Generate the approval message shown to the user */
@@ -200,6 +214,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
   config: ApprovalToolConfig<R, Args>,
 ): ApprovalToolPair<R> {
   const executeToolName = `execute_${config.name}`;
+  const riskLevel = config.riskLevel ?? "high-risk";
 
   const validator: ToolValidator<Args> = config.validate ?? ((args) => {
     const result = config.parameters.safeParse(args);
@@ -216,6 +231,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     description: formatApprovalRequiredDescription(config.description),
     ...(config.tags ? { tags: config.tags } : {}),
     parameters: config.parameters,
+    riskLevel,
     validate: validator,
     approvalExecuteToolName: executeToolName,
     handler: (args: Args, context: ToolExecutionContext) =>
@@ -241,6 +257,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
       `Performs the actual ${config.name} operation after user approval. This tool should only be called by the system after approval.`,
     ),
     hidden: true,
+    riskLevel,
     parameters: config.parameters,
     validate: validator,
     handler: config.handler,

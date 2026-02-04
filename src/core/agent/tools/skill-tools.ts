@@ -14,6 +14,7 @@ export const skillTools: Tool<SkillService>[] = [
             skill_name: z.string().describe("The name of the skill to load (e.g. 'release-notes')")
         }),
         hidden: false,
+        riskLevel: "read-only",
         createSummary: undefined,
         execute: (args: Record<string, unknown>) => Effect.gen(function* () {
             const skillName = String(args["skill_name"]);
@@ -42,6 +43,7 @@ export const skillTools: Tool<SkillService>[] = [
             section_name: z.string().describe("The name/path of the section to load (as referenced in SKILL.md)")
         }),
         hidden: false,
+        riskLevel: "read-only",
         createSummary: undefined,
         execute: (args: Record<string, unknown>) => Effect.gen(function* () {
             const skillName = String(args["skill_name"]);

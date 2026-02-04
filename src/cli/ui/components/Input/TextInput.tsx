@@ -18,6 +18,8 @@ interface TextInputProps {
   showCursor?: boolean;
   /** Whether input is focused/active */
   focus?: boolean;
+  /** Text color */
+  textColor?: string;
 }
 
 // ============================================================================
@@ -45,26 +47,29 @@ export function TextInput({
   placeholder = "",
   showCursor = true,
   focus = true,
+  textColor,
 }: TextInputProps): React.ReactElement {
   const safeCursor = Math.max(0, Math.min(cursor, value.length));
   const displayValueMasked = mask ? mask.repeat(value.length) : value;
 
+  const textProps = textColor ? { color: textColor as "white" } : {};
+
   let renderedValue: React.ReactNode = displayValueMasked;
   let renderedPlaceholder: React.ReactNode = placeholder ? (
-    <Text dimColor>{placeholder}</Text>
+    <Text {...textProps} dimColor={!textColor}>{placeholder}</Text>
   ) : null;
 
   if (showCursor && focus) {
     // Placeholder with cursor
     if (placeholder.length > 0 && displayValueMasked.length === 0) {
       renderedPlaceholder = (
-        <Text>
+        <Text {...textProps}>
           <Text inverse>{placeholder[0]}</Text>
-          <Text dimColor>{placeholder.slice(1)}</Text>
+          <Text {...textProps} dimColor={!textColor}>{placeholder.slice(1)}</Text>
         </Text>
       );
     } else if (displayValueMasked.length === 0) {
-      renderedPlaceholder = <Text inverse> </Text>;
+      renderedPlaceholder = <Text {...textProps} inverse> </Text>;
     }
 
     // Value with cursor
@@ -74,14 +79,14 @@ export function TextInput({
       const after = safeCursor < displayValueMasked.length ? displayValueMasked.slice(safeCursor + 1) : "";
 
       renderedValue = (
-        <>
+        <Text {...textProps}>
           {before}
           <Text inverse>{cursorChar}</Text>
           {after}
-        </>
+        </Text>
       );
     } else {
-      renderedValue = <Text inverse> </Text>;
+      renderedValue = <Text {...textProps} inverse> </Text>;
     }
   }
 
@@ -90,7 +95,7 @@ export function TextInput({
   // inside the box captures only the input text.
   return (
     <Box>
-      <Text>
+      <Text {...textProps}>
         {displayValueMasked.length > 0
           ? renderedValue
           : placeholder

@@ -192,6 +192,10 @@ function detectPackageManager(): Effect.Effect<PackageManagerInfo, UpdateInstall
     const pnpmInfo = yield* getPackageManagerVersion("pnpm");
     if (pnpmInfo) return pnpmInfo;
 
+    // Check yarn
+    const yarnInfo = yield* getPackageManagerVersion("yarn");
+    if (yarnInfo) return yarnInfo;
+
     // Check npm
     const npmInfo = yield* getPackageManagerVersion("npm");
     if (npmInfo) return npmInfo;
@@ -200,10 +204,11 @@ function detectPackageManager(): Effect.Effect<PackageManagerInfo, UpdateInstall
     return yield* Effect.fail(
       new UpdateInstallError({
         message:
-          "No package manager found. Please install one of: bun, pnpm, or npm\n" +
+          "No package manager found. Please install one of: bun, pnpm, yarn, or npm\n" +
           "npm usually comes with Node.js: https://nodejs.org/\n" +
           "bun: https://bun.sh/\n" +
-          "pnpm: https://pnpm.io/",
+          "pnpm: https://pnpm.io/\n" +
+          "yarn: https://yarnpkg.com/",
       }),
     );
   });
@@ -224,12 +229,31 @@ function installUpdate(
 
     yield* terminal.log(`\n📦 Installing update using ${pmInfo.name} (${pmInfo.version})...`);
 
+    if (pmInfo.name === "yarn") {
+      const majorString = pmInfo.version.split(".")[0] ?? "";
+      const major = Number.parseInt(majorString, 10);
+      if (Number.isFinite(major) && major >= 2) {
+        return yield* Effect.fail(
+          new UpdateInstallError({
+            message:
+              "Yarn 2+ (Berry) does not support global installs in the same way as Yarn classic.\n" +
+              "Please update Jazz using one of:\n" +
+              "- npm: npm install -g jazz-ai@latest\n" +
+              "- pnpm: pnpm add -g jazz-ai@latest\n" +
+              "- bun: bun add -g jazz-ai@latest",
+          }),
+        );
+      }
+    }
+
     const installArgs =
       pmInfo.name === "bun"
         ? ["add", "-g", `${packageName}@latest`]
         : pmInfo.name === "pnpm"
           ? ["add", "-g", `${packageName}@latest`]
-          : ["install", "-g", `${packageName}@latest`];
+          : pmInfo.name === "yarn"
+            ? ["global", "add", `${packageName}@latest`]
+            : ["install", "-g", `${packageName}@latest`];
 
     yield* Effect.async<void, UpdateInstallError>((resume) => {
       const child = spawn(pmInfo.name, installArgs, {

@@ -13,9 +13,7 @@ Complete documentation for Jazz - Your AI agent that actually does things.
 
 ## 📚 Documentation Overview
 
-### For New Users
 
-**Start here:**
 
 1. **[Getting Started](getting-started.md)** - Install Jazz, create your first agent, and start chatting
    - Installation instructions
@@ -32,45 +30,24 @@ Complete documentation for Jazz - Your AI agent that actually does things.
    - Security audits
    - Advanced workflows
 
-### Core Documentation
-
-**Essential guides:**
-
-3. **[Tools Reference](tools-reference.md)** - Complete guide to all 44 tools across 6 categories
-   - Gmail tools (16 tools)
-   - Git tools (9 tools)
-   - File management tools (15 tools)
-   - Shell tools (2 tools)
-   - Web search tools (1 tool)
-   - HTTP tools (1 tool)
-   - Examples and best practices
-
-4. **[CLI Reference](cli-reference.md)** - Command-line interface documentation
-   - All commands and options
-   - Usage examples
-   - Troubleshooting
-   - Quick reference
-
-5. **[Integrations](integrations.md)** - Set up external services
+3. **[Integrations](integrations.md)** - Set up external services
    - LLM providers (OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama)
    - Gmail integration (OAuth setup)
    - Web search
    - Configuration examples
 
-6. **[Security](security.md)** - Security model and best practices
+4. **[Security](security.md)** - Security model and best practices
    - Understanding risks
    - Security features
    - Approval system
    - Best practices
    - Incident response
 
-7. **[FAQ](FAQ.md)** - Frequently asked questions for developers
-   - Architecture and design decisions
-   - Service implementation patterns
-   - Effect-TS usage and patterns
-   - Development workflow
-   - Testing strategies
-   - Common pitfalls and solutions
+5. **[Skills](skills.md)** - Skills: full feature capabilities
+   - What skills are and why they matter
+   - How discovery and progressive loading work
+   - Built-in skills and creating your own
+   - Where skills live (built-in, global, local)
 
 ## 🗺️ Navigation Guide
 
@@ -80,13 +57,11 @@ Complete documentation for Jazz - Your AI agent that actually does things.
 
 - **Get started quickly** → [Getting Started](getting-started.md)
 - **See what's possible** → [Examples & Use Cases](examples.md)
-- **Understand what tools are available** → [Tools Reference](tools-reference.md)
 - **Set up Gmail** → [Integrations > Gmail](integrations.md#gmail-integration)
 - **Set up web search** → [Integrations > Linkup](integrations.md#linkup-web-search)
 - **Configure LLM providers** → [Integrations > LLM Providers](integrations.md#llm-providers)
-- **Learn CLI commands** → [CLI Reference](cli-reference.md)
 - **Understand security** → [Security Guide](security.md)
-- **Troubleshoot issues** → [CLI Reference > Troubleshooting](cli-reference.md#troubleshooting)
+- **Learn what skills can do** → [Skills](skills.md)
 
 ### By Role
 
@@ -95,6 +70,7 @@ Complete documentation for Jazz - Your AI agent that actually does things.
 - [Getting Started](getting-started.md) - How to use Jazz
 - [Examples & Use Cases](examples.md) - Real-world workflows
 - [Tools Reference](tools-reference.md) - What your agents can do
+- [Skills](skills.md) - Skills and workflows
 - [Security](security.md) - Stay safe
 
 **For Developers:**
@@ -114,10 +90,8 @@ Complete documentation for Jazz - Your AI agent that actually does things.
 1. Start with [Getting Started](getting-started.md)
 2. Explore [Examples & Use Cases](examples.md) for complex workflows
 3. [Architecture](ARCHITECTURE.md) for code organization
-4. [CLI Reference](cli-reference.md) for command details
-5. [Tools Reference](tools-reference.md) for deep tool knowledge
-6. [Integrations](integrations.md) for multi-provider setup
-7. [Security](security.md) for advanced security practices
+4. [Integrations](integrations.md) for multi-provider setup
+5. [Security](security.md) for advanced security practices
 
 ### Common Commands
 

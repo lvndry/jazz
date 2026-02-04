@@ -1020,6 +1020,10 @@ class AISDKService implements LLMService {
             void emit(Effect.fail(Option.some(llmError)));
 
             responseDeferred.reject(llmError);
+          } finally {
+            if (processorRef && !abortController.signal.aborted) {
+              processorRef.cancel();
+            }
           }
         })();
       },

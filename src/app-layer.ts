@@ -8,11 +8,15 @@ import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
 import { AgentConfigServiceTag } from "./core/interfaces/agent-config";
 import { CLIOptionsTag } from "./core/interfaces/cli-options";
+import { MCPServerManagerTag } from "./core/interfaces/mcp-server";
 import { StorageServiceTag } from "./core/interfaces/storage";
 import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
+import { promptInteractiveCatchUp } from "./core/workflows/catch-up";
+import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
+import { WorkflowsLive } from "./core/workflows/workflow-service";
 import { createAgentServiceLayer } from "./services/agent-service";
 import { createCalendarServiceLayer } from "./services/calendar";
 import { createChatServiceLayer } from "./services/chat-service";
@@ -154,6 +158,8 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     presentationLayer,
     NotificationServiceLayer,
     SkillsLive.layer,
+    WorkflowsLive.layer,
+    SchedulerServiceLayer,
   );
 }
 
@@ -169,6 +175,15 @@ export function createAppLayer(config: AppLayerConfig = {}) {
 export function runCliEffect<R, E extends JazzError | Error>(
   effect: Effect.Effect<void, E, R>,
   config: AppLayerConfig = {},
+  options: {
+    /**
+     * Skip scheduled workflow catch-up on startup.
+     *
+     * This is intended for `jazz workflow run`, so that manually running a workflow
+     * doesn't also trigger catch-up execution for scheduled workflows.
+     */
+    readonly skipCatchUp?: boolean | undefined;
+  } = {},
 ): void {
   const cliOptionsLayer = Layer.succeed(CLIOptionsTag, {
     verbose: config.verbose,
@@ -177,6 +192,15 @@ export function runCliEffect<R, E extends JazzError | Error>(
   });
 
   const program = Effect.gen(function* () {
+    const shouldSkipCatchUp =
+      process.env["JAZZ_DISABLE_CATCH_UP"] === "1" || options.skipCatchUp === true;
+
+    if (!shouldSkipCatchUp) {
+      // Interactive prompt for catch-up - asks user if they want to run missed workflows
+      // Runs selected workflows in background, then continues with the original command
+      yield* promptInteractiveCatchUp();
+    }
+
     const fiber = yield* Effect.fork(autoCheckForUpdate().pipe(Effect.zipRight(effect)));
     let signalCount = 0;
     type SignalName = "SIGINT" | "SIGTERM";
@@ -204,6 +228,18 @@ export function runCliEffect<R, E extends JazzError | Error>(
           process.off("SIGINT", handler);
           process.off("SIGTERM", handler);
         }),
+    );
+
+    // Register cleanup for MCP server connections
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
+        if (Option.isSome(mcpManager)) {
+          yield* mcpManager.value.disconnectAllServers().pipe(
+            Effect.catchAll(() => Effect.void),
+          );
+        }
+      }),
     );
 
     const exit = yield* Fiber.await(fiber);

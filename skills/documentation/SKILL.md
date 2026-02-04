@@ -24,13 +24,13 @@ Generate and update documentation from code, OpenAPI/schemas, and project contex
 
 ## Documentation Types
 
-| Type | When | Output |
-|------|------|--------|
-| **README** | Project or package overview | README.md with install, usage, API summary |
-| **API reference** | Functions, endpoints, types | JSDoc, or docs/api.md, or OpenAPI-derived |
-| **User guide** | How to use a feature or product | Step-by-step, examples, troubleshooting |
-| **Inline docs** | Functions, classes, exports | JSDoc/TSDoc, docstrings |
-| **Changelog** | Release history | CHANGELOG.md format |
+| Type              | When                            | Output                                     |
+| ----------------- | ------------------------------- | ------------------------------------------ |
+| **README**        | Project or package overview     | README.md with install, usage, API summary |
+| **API reference** | Functions, endpoints, types     | JSDoc, or docs/api.md, or OpenAPI-derived  |
+| **User guide**    | How to use a feature or product | Step-by-step, examples, troubleshooting    |
+| **Inline docs**   | Functions, classes, exports     | JSDoc/TSDoc, docstrings                    |
+| **Changelog**     | Release history                 | CHANGELOG.md format                        |
 
 ## README Structure
 

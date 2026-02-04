@@ -28,7 +28,7 @@ import { Effect } from "effect";
  *
  * ## Executable Discovery (rarely needed)
  *   - `findExecutablePathViaShell()` - Find jazz binary via which/where
- *   - `detectPackageManagerFromPath()` - Detect npm/bun/pnpm from path
+ *   - `detectPackageManagerFromPath()` - Detect npm/bun/pnpm/yarn from path
  *
  * ============================================================================
  */
@@ -139,6 +139,62 @@ export function getBuiltinSkillsDirectory(): string | null {
   return null;
 }
 
+/**
+ * Get the directory containing global user skills.
+ *
+ * Global skills are user-created skills stored in `~/.jazz/skills/`.
+ * These skills are available across all projects and persist between sessions.
+ *
+ * @returns Global skills directory path
+ *
+ * @example
+ * ```typescript
+ * const skillsDir = getGlobalSkillsDirectory();
+ * // "/Users/alice/.jazz/skills"
+ * ```
+ */
+export function getGlobalSkillsDirectory(): string {
+  const homeDir = os.homedir();
+  return path.join(homeDir, ".jazz", "skills");
+}
+
+/**
+ * Get the directory containing built-in workflows shipped with Jazz.
+ *
+ * Built-in workflows are located in the `workflows/` folder within the Jazz package.
+ * These are example workflows that demonstrate Jazz's automation capabilities.
+ *
+ * @returns Workflows directory path, or null if not found
+ *
+ */
+export function getBuiltinWorkflowsDirectory(): string | null {
+  const packageDir = getPackageRootDirectory();
+  if (!packageDir) {
+    return null;
+  }
+
+  const workflowsDir = path.join(packageDir, "workflows");
+  if (fs.existsSync(workflowsDir) && fs.statSync(workflowsDir).isDirectory()) {
+    return workflowsDir;
+  }
+
+  return null;
+}
+
+/**
+ * Get the directory containing global user workflows.
+ *
+ * Global workflows are user-created workflows stored in `~/.jazz/workflows/`.
+ * These workflows are available across all projects and persist between sessions.
+ *
+ * @returns Global workflows directory path``
+ *
+ */
+export function getGlobalWorkflowsDirectory(): string {
+  const homeDir = os.homedir();
+  return path.join(homeDir, ".jazz", "workflows");
+}
+
 // ============================================================================
 // SECTION 2: ENVIRONMENT DETECTION
 // ============================================================================
@@ -160,14 +216,6 @@ export function getBuiltinSkillsDirectory(): string | null {
  * 4. If path contains node_modules (but not jazz source) → true
  * 5. Default → false (development, safe default)
  *
- * @example
- * ```typescript
- * if (isRunningFromGlobalInstall()) {
- *   console.log("Running from: npm i -g jazz-ai");
- * } else {
- *   console.log("Running from source code");
- * }
- * ```
  */
 export function isRunningFromGlobalInstall(): boolean {
   const pathsToCheck = [
@@ -210,12 +258,6 @@ export function isRunningFromGlobalInstall(): boolean {
  *
  * This is the inverse of `isRunningFromGlobalInstall()`.
  *
- * @example
- * ```typescript
- * if (isRunningInDevelopmentMode()) {
- *   console.log("Development mode - using local .jazz directory");
- * }
- * ```
  */
 export function isRunningInDevelopmentMode(): boolean {
   return !isRunningFromGlobalInstall();
@@ -240,11 +282,6 @@ export function isRunningInDevelopmentMode(): boolean {
  *
  * @returns Effect resolving to executable path or null if not found
  *
- * @example
- * ```typescript
- * const execPath = yield* findExecutablePathViaShell();
- * // "/Users/alice/.bun/bin/jazz" or null
- * ```
  */
 export function findExecutablePathViaShell(): Effect.Effect<string | null, never> {
   return Effect.gen(function* () {
@@ -287,25 +324,17 @@ export function findExecutablePathViaShell(): Effect.Effect<string | null, never
  * Detect which package manager installed Jazz based on a file path.
  *
  * Analyzes the path structure to determine if it matches known patterns
- * for bun, pnpm, or npm global installations.
+ * for bun, pnpm, yarn, or npm global installations.
  *
  * Note: This is an Effect-based async function (resolves symlinks).
  *
  * @param filePath - Path to analyze (typically from findExecutablePathViaShell)
- * @returns Effect resolving to "bun" | "pnpm" | "npm" | null
+ * @returns Effect resolving to "bun" | "pnpm" | "yarn" | "npm" | null
  *
- * @example
- * ```typescript
- * const execPath = yield* findExecutablePathViaShell();
- * if (execPath) {
- *   const pm = yield* detectPackageManagerFromPath(execPath);
- *   console.log(`Installed via: ${pm}`); // "bun", "pnpm", "npm", or null
- * }
- * ```
  */
 export function detectPackageManagerFromPath(
   filePath: string,
-): Effect.Effect<"bun" | "pnpm" | "npm" | null, never> {
+): Effect.Effect<"bun" | "pnpm" | "npm" | "yarn" | null, never> {
   return Effect.gen(function* () {
     const fsModule = yield* Effect.promise(() => import("fs"));
 
@@ -329,6 +358,56 @@ export function detectPackageManagerFromPath(
 
     const normalized = resolvedPath.toLowerCase().replace(/\\/g, "/");
     return inferPackageManagerFromNormalizedPath(normalized);
+  });
+}
+
+/**
+ * Get a robust Jazz invocation for system schedulers (launchd/cron).
+ *
+ * This prefers returning an absolute path to the `jazz` executable (so it does not
+ * depend on PATH at runtime). If we can't resolve a path, we fall back to a
+ * package-manager runner (bunx/pnpm dlx/yarn dlx/npx).
+ *
+ * @returns Effect resolving to argv-style invocation, e.g. `["/usr/local/bin/jazz"]`
+ *          or `["npx", "--yes", "jazz-ai"]`
+ */
+export function getJazzSchedulerInvocation(): Effect.Effect<readonly string[], never> {
+  return Effect.gen(function* () {
+    const fromShell = yield* findExecutablePathViaShell();
+    if (fromShell) {
+      return [fromShell];
+    }
+
+    const fromEnv = resolveJazzExecutablePathFromEnv();
+    if (fromEnv) {
+      return [fromEnv];
+    }
+
+    const fromCommon = resolveJazzExecutablePathFromCommonLocations();
+    if (fromCommon) {
+      return [fromCommon];
+    }
+
+    // Fall back to a runner. Preference is based on availability.
+    const hasBunx = yield* commandExistsViaShell("bunx");
+    if (hasBunx) {
+      return ["bunx", "jazz-ai"];
+    }
+
+    const hasPnpm = yield* commandExistsViaShell("pnpm");
+    if (hasPnpm) {
+      return ["pnpm", "dlx", "jazz-ai"];
+    }
+
+    const hasYarn = yield* commandExistsViaShell("yarn");
+    if (hasYarn) {
+      // Yarn classic (v1) doesn't support dlx, but if yarn is installed and jazz
+      // wasn't found, this is still the best non-interactive attempt.
+      return ["yarn", "dlx", "jazz-ai"];
+    }
+
+    // Default: npm-based runner (works when Node is installed)
+    return ["npx", "--yes", "jazz-ai"];
   });
 }
 
@@ -428,10 +507,22 @@ function isInSystemGlobalDirectory(filePath: string): boolean {
  */
 function inferPackageManagerFromNormalizedPath(
   normalizedPath: string
-): "bun" | "pnpm" | "npm" | null {
+): "bun" | "pnpm" | "npm" | "yarn" | null {
   // Bun: ~/.bun/bin/jazz
   if (normalizedPath.includes("/.bun/") || normalizedPath.includes("\\bun\\")) {
     return "bun";
+  }
+
+  // Yarn: ~/.yarn/bin/jazz, ~/.config/yarn/global/...
+  if (
+    normalizedPath.includes("/.yarn/") ||
+    normalizedPath.includes("\\.yarn\\") ||
+    normalizedPath.includes("/.config/yarn/") ||
+    normalizedPath.includes("\\.config\\yarn\\") ||
+    normalizedPath.includes("/yarn/") ||
+    normalizedPath.includes("\\yarn\\")
+  ) {
+    return "yarn";
   }
 
   // pnpm: ~/.local/share/pnpm/..., ~/.pnpm-global/...
@@ -471,4 +562,75 @@ function inferPackageManagerFromNormalizedPath(
   }
 
   return null;
+}
+
+function resolveJazzExecutablePathFromEnv(): string | null {
+  const bunInstall = process.env["BUN_INSTALL"];
+  if (bunInstall && bunInstall.trim().length > 0) {
+    return path.join(bunInstall, "bin", "jazz");
+  }
+
+  const pnpmHome = process.env["PNPM_HOME"];
+  if (pnpmHome && pnpmHome.trim().length > 0) {
+    return path.join(pnpmHome, "jazz");
+  }
+
+  // npm/yarn frequently rely on a prefix that contains bin/
+  const npmPrefix = process.env["npm_config_prefix"];
+  if (npmPrefix && npmPrefix.trim().length > 0) {
+    return path.join(npmPrefix, "bin", "jazz");
+  }
+
+  return null;
+}
+
+function resolveJazzExecutablePathFromCommonLocations(): string | null {
+  const homeDir = os.homedir();
+  const candidates = [
+    path.join(homeDir, ".bun", "bin", "jazz"),
+    path.join(homeDir, ".local", "share", "pnpm", "jazz"),
+    path.join(homeDir, ".pnpm-global", "bin", "jazz"),
+    path.join(homeDir, ".npm-global", "bin", "jazz"),
+    path.join(homeDir, ".npm-packages", "bin", "jazz"),
+    path.join(homeDir, ".yarn", "bin", "jazz"),
+    path.join(homeDir, ".config", "yarn", "global", "node_modules", ".bin", "jazz"),
+    "/usr/local/bin/jazz",
+    "/usr/bin/jazz",
+    "/bin/jazz",
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+        return candidate;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
+function commandExistsViaShell(command: string): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const { spawn } = yield* Effect.promise(() => import("child_process"));
+    const isWindows = process.platform === "win32";
+    const whichCommand = isWindows ? "where" : "which";
+
+    return yield* Effect.async<boolean, never>((resume) => {
+      const child = spawn(whichCommand, [command], {
+        stdio: ["ignore", "ignore", "ignore"],
+        shell: true,
+      });
+
+      child.on("close", (code) => {
+        resume(Effect.succeed(code === 0));
+      });
+
+      child.on("error", () => {
+        resume(Effect.succeed(false));
+      });
+    });
+  });
 }

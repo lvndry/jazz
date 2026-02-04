@@ -142,6 +142,9 @@ function initializeAgentRun(
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
       conversationId: actualConversationId,
+      ...(options.autoApprovePolicy !== undefined
+        ? { autoApprovePolicy: options.autoApprovePolicy }
+        : {}),
     };
 
     return {
