@@ -11,7 +11,7 @@ Jazz uses your operating system's built-in scheduler:
 If your computer is **closed, asleep, or powered off** when a workflow is scheduled to run:
 - ❌ The system scheduler will **not** run it at that time (the event is missed)
 - ✅ It **will** run at the next scheduled time if your computer is awake
-- ✅ With **catch-up on startup** (`catchUpOnStartup: true` in the workflow), Jazz can run missed workflows when you next start Jazz (within `maxCatchUpAge`)
+- ✅ With **catch-up on startup** (`catchUpOnStartup: true` in the workflow), Jazz will prompt you to run missed workflows when you next run any Jazz command (within `maxCatchUpAge`)
 
 ### Example Scenarios
 
@@ -20,7 +20,7 @@ If your computer is **closed, asleep, or powered off** when a workflow is schedu
 Schedule: 0 6 * * *
 
 Monday 6 AM: Computer closed → ❌ Job skipped
-Monday 8 AM: You open laptop → Nothing happens (unless catch-up is enabled)
+Monday 8 AM: You open laptop, run `jazz chat` → Jazz asks if you want to catch up
 Tuesday 6 AM: Computer awake → ✅ Job runs
 ```
 
@@ -31,7 +31,7 @@ Schedule: 0 * * * *
 2:00 PM: Computer awake → ✅ Job runs
 3:00 PM: You close laptop → ❌ Job skipped
 4:00 PM: Still closed → ❌ Job skipped
-5:00 PM: You open laptop → Nothing happens (unless catch-up is enabled)
+5:00 PM: You open laptop, run `jazz` → Jazz asks if you want to catch up
 6:00 PM: Computer awake → ✅ Job runs
 ```
 
@@ -40,7 +40,7 @@ Schedule: 0 * * * *
 ### macOS launchd
 - Uses `StartCalendarInterval` which only fires at exact calendar times
 - If the system is asleep, the event is simply missed
-- Catch-up can be enabled in Jazz per workflow (`catchUpOnStartup`)
+- Catch-up can be enabled per workflow (`catchUpOnStartup`) - Jazz will prompt you when you run any command
 
 ### Linux cron
 - Cron only runs when the system is on
@@ -120,16 +120,35 @@ jazz workflow run market-analysis --auto-approve
 What it does:
 - Tracks last successful run time
 - On startup, checks if scheduled runs were missed (when Jazz starts)
-- Executes missed runs if they're within the allowed window
+- Notifies you and asks if you'd like to catch up missed workflows
+- Lets you select which workflows to run (multi-select)
+- Runs selected workflows in the background so you can continue with your original command
 
 Example config:
 ```yaml
 ---
 name: market-analysis
 schedule: "0 6 * * *"
-catchUpOnStartup: true  # Run if missed
+catchUpOnStartup: true  # Prompt if missed
 maxCatchUpAge: 86400    # Only catch up if < 24h old
 ---
+```
+
+Example interaction:
+```
+$ jazz chat
+⚠️  2 workflows need to catch up:
+   • market-analysis (missed 6:00 AM today)
+   • tech-digest (missed 8:00 AM today)
+
+Would you like to catch them up? (y/n): y
+
+Select workflows to catch up:
+  [x] market-analysis
+  [x] tech-digest
+
+Running selected workflows in background...
+Starting chat session...
 ```
 
 ## Best Practices by Workflow Type
@@ -198,7 +217,7 @@ We chose `StartCalendarInterval` for:
 - ✅ Exact calendar timing (6 AM every day)
 - ✅ Standard cron syntax
 - ✅ Predictable schedule
-- ⚠️ Catch-up requires Jazz to be configured (`catchUpOnStartup`)
+- ⚠️ Catch-up is configured per-workflow via `catchUpOnStartup` (prompts user on next Jazz command)
 
 ### Why Not Use anacron?
 
@@ -211,10 +230,10 @@ Linux has `anacron` which handles missed jobs, but:
 ## Frequently Asked Questions
 
 ### Q: Will my workflow run if I wake my laptop 10 minutes after scheduled time?
-**A**: By default, no. The schedule event was missed. If you enable `catchUpOnStartup`, it will run the next time Jazz starts (when you run any `jazz` command).
+**A**: By default, no. The schedule event was missed. If you enable `catchUpOnStartup`, Jazz will notify you the next time you run any command and ask if you'd like to catch up the missed workflow.
 
-### Q: Can I make workflows catch up automatically?
-**A**: Yes. Enable `catchUpOnStartup: true` in the workflow frontmatter and set `maxCatchUpAge` (seconds) to control how old a missed run can be.
+### Q: Can I make workflows catch up?
+**A**: Yes. Enable `catchUpOnStartup: true` in the workflow frontmatter and set `maxCatchUpAge` (seconds) to control how old a missed run can be. When you next run any Jazz command, you'll be prompted to select which missed workflows to run, and they'll execute in the background.
 
 ```yaml
 catchUpOnStartup: true

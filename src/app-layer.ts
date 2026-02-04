@@ -14,7 +14,7 @@ import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
-import { runWorkflowCatchUp } from "./core/workflows/catch-up";
+import { promptInteractiveCatchUp } from "./core/workflows/catch-up";
 import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
 import { WorkflowsLive } from "./core/workflows/workflow-service";
 import { createAgentServiceLayer } from "./services/agent-service";
@@ -196,7 +196,9 @@ export function runCliEffect<R, E extends JazzError | Error>(
       process.env["JAZZ_DISABLE_CATCH_UP"] === "1" || options.skipCatchUp === true;
 
     if (!shouldSkipCatchUp) {
-      yield* Effect.fork(runWorkflowCatchUp());
+      // Interactive prompt for catch-up - asks user if they want to run missed workflows
+      // Runs selected workflows in background, then continues with the original command
+      yield* promptInteractiveCatchUp();
     }
 
     const fiber = yield* Effect.fork(autoCheckForUpdate().pipe(Effect.zipRight(effect)));

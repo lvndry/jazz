@@ -145,21 +145,43 @@ jazz workflow unschedule email-cleanup
 
 ### When do scheduled runs happen?
 
-Scheduled workflows use the **system scheduler** (launchd on macOS, cron on Linux). Jobs run **only when the machine is awake**. If your Mac is asleep or shut down at the scheduled time, that run is skipped—there is no “queue” that runs everything when you wake the machine.
+Scheduled workflows use the **system scheduler** (launchd on macOS, cron on Linux). The OS only runs jobs when the machine is awake, if the computer is asleep or off at the scheduled time, that run is skipped. The system does not queue or replay missed runs when you wake the machine.
 
-To handle missed runs:
+**Jazz's catch-up feature** addresses this: you can run missed workflows when you're back at your computer.
 
-- **Automatic catch-up**: If a workflow has `catchUpOnStartup: true`, the next time you run any `jazz` command (e.g. `jazz chat` or `jazz workflow list`), Jazz will run that workflow once in the background if it missed its last scheduled time (within `maxCatchUpAge`).
+- **Interactive catch-up**: If any workflow has `catchUpOnStartup: true` and missed its scheduled time (within `maxCatchUpAge`), the next time you run any `jazz` command (e.g. `jazz chat` or `jazz workflow list`), Jazz will notify you and ask if you'd like to catch them up. If you say yes, you can select which workflows to run (multi-select), and they'll run in the background while you continue with your original command.
 - **Manual catch-up**: Run `jazz workflow catchup` to see all workflows that need catch-up, choose which to run, and run them.
 
+For more detail (including why this happens and other options), see [Workflow scheduling: behavior & limitations](workflows-scheduling.md).
+
 ### Catch-up missed runs
+
+When you start Jazz with pending catch-up workflows:
+
+```
+$ jazz chat
+⚠️  2 workflows need to catch up:
+   • market-analysis (missed 6:00 AM today)
+   • tech-digest (missed 8:00 AM today)
+
+Would you like to catch them up? (y/n): y
+
+Select workflows to catch up:
+  [x] market-analysis
+  [x] tech-digest
+
+Running selected workflows in background...
+Starting chat session...
+```
+
+You can also run catch-up manually anytime:
 
 ```bash
 # List workflows that missed a run, select which to run, then run them
 jazz workflow catchup
 ```
 
-Shows workflows that are scheduled, have `catchUpOnStartup: true`, and missed their last run within the max catch-up window. You can select which ones to run (multi-select with Space, confirm with Enter). Useful when you’ve been away and want to run missed workflows on demand instead of waiting for the next `jazz` command.
+Shows workflows that are scheduled, have `catchUpOnStartup: true`, and missed their last run within the max catch-up window. You can select which ones to run (multi-select with Space, confirm with Enter).
 
 ### View History
 
@@ -290,9 +312,9 @@ If your computer is closed, asleep, or off when a workflow is scheduled:
 3. **Schedule workflows** when you know your computer will be on
 4. **Run manually** when needed: `jazz workflow run <name>`
 
-### ✅ Catch-Up on Startup (New)
+### ✅ Catch-Up on Startup
 
-Enable catch-up to run missed workflows when Jazz starts:
+Enable catch-up to prompt for missed workflows when Jazz starts:
 
 ```yaml
 ---
@@ -301,7 +323,7 @@ maxCatchUpAge: 43200  # seconds (12 hours)
 ---
 ```
 
-If a scheduled run was missed and is within `maxCatchUpAge`, Jazz will execute it once when you start Jazz (any `jazz` command).
+If a scheduled run was missed and is within `maxCatchUpAge`, Jazz will notify you when you run any command and ask if you'd like to catch up. You can select which workflows to run, and they'll execute in the background while you continue with your original command.
 
 See [Workflow Scheduling Behavior](./workflows-scheduling.md) for detailed information and workarounds.
 
