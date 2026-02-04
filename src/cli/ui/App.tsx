@@ -434,13 +434,13 @@ export function App(): React.ReactElement {
           )}
         </Static>
 
-        {/* Status Bar - Isolated state */}
-        <StatusIsland />
-
         {/* Main Chat Area */}
         <Box flexDirection="column" paddingX={1} marginTop={1}>
           {/* Logs - Isolated state with Static optimization */}
           <LogIsland />
+
+          {/* Status Bar - below last message, above live stream */}
+          <StatusIsland />
 
           {/* Live streaming response - Isolated state */}
           <StreamIsland />

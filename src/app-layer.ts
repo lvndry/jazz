@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect";
+import { Cause, Duration, Effect, Exit, Fiber, Layer, Option } from "effect";
 import { autoCheckForUpdate } from "./cli/auto-update";
 import { CLIPresentationServiceLayer } from "./cli/presentation/cli-presentation-service";
 import { InkPresentationServiceLayer } from "./cli/presentation/ink-presentation-service";
@@ -10,6 +10,7 @@ import { AgentConfigServiceTag } from "./core/interfaces/agent-config";
 import { CLIOptionsTag } from "./core/interfaces/cli-options";
 import { MCPServerManagerTag } from "./core/interfaces/mcp-server";
 import { StorageServiceTag } from "./core/interfaces/storage";
+import { TerminalServiceTag } from "./core/interfaces/terminal";
 import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
 import { handleError } from "./core/utils/error-handler";
@@ -131,6 +132,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(agentLayer),
     Layer.provide(mcpServerManagerLayer),
     Layer.provide(SkillsLive.layer),
+    Layer.provide(WorkflowsLive.layer),
   );
 
   // In TTY mode, keep Ink UI intact by routing all presentation output into Ink.
@@ -237,6 +239,20 @@ export function runCliEffect<R, E extends JazzError | Error>(
         if (Option.isSome(mcpManager)) {
           yield* mcpManager.value.disconnectAllServers().pipe(
             Effect.catchAll(() => Effect.void),
+          );
+        }
+      }),
+    );
+
+    // Unmount Ink so the process can exit (Ink keeps stdin open otherwise).
+    // Delay briefly so Ink can flush the last frame to stdout before we unmount.
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        const terminal = yield* Effect.serviceOption(TerminalServiceTag);
+        if (Option.isSome(terminal) && terminal.value.cleanup) {
+          yield* Effect.delay(
+            Effect.sync(() => terminal.value.cleanup!()),
+            Duration.millis(100),
           );
         }
       }),

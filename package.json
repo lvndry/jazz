@@ -85,6 +85,7 @@
     "chalk": "^4.1.2",
     "commander": "^14.0.2",
     "cron-parser": "^5.5.0",
+    "cronstrue": "^3.11.0",
     "diff": "^8.0.3",
     "effect": "^3.19.15",
     "exa-js": "^2.2.0",
@@ -139,6 +140,7 @@
   "files": [
     "dist/",
     "skills/",
+    "workflows/",
     "README.md",
     "LICENSE"
   ]

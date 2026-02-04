@@ -1,4 +1,5 @@
 import cronParser from "cron-parser";
+import cronstrue from "cronstrue";
 
 /**
  * Normalize a cron expression to 6-field format (with seconds).
@@ -17,7 +18,6 @@ export function normalizeCronExpression(schedule: string): string {
 /**
  * Validate a cron expression.
  * Returns true if valid, false otherwise.
- * Supports both 5-field (standard cron) and 6-field (with seconds) formats.
  */
 export function isValidCronExpression(cron: string): boolean {
   try {
@@ -31,5 +31,24 @@ export function isValidCronExpression(cron: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Return a human-readable description of a cron schedule, or null if not describable.
+ */
+export function describeCronSchedule(cron: string): string | null {
+  try {
+    const parts = cron.trim().split(/\s+/);
+    if (parts.length !== 5 && parts.length !== 6) return null;
+
+    const description = cronstrue.toString(cron.trim(), {
+      verbose: false,
+      use24HourTimeFormat: false,
+    });
+
+    return description;
+  } catch {
+    return null;
   }
 }

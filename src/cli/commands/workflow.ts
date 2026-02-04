@@ -8,17 +8,24 @@ import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service"
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/agent";
+import { describeCronSchedule } from "@/core/utils/cron-utils";
 import {
   type CatchUpCandidate,
   getCatchUpCandidates,
   runCatchUpForWorkflows,
 } from "@/core/workflows/catch-up";
-import { addRunRecord, updateLatestRunRecord, getRecentRuns } from "@/core/workflows/run-history";
+import {
+  addRunRecord,
+  loadRunHistory,
+  updateLatestRunRecord,
+  getRecentRuns,
+} from "@/core/workflows/run-history";
 import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
 import {
   WorkflowServiceTag,
   type WorkflowMetadata,
 } from "@/core/workflows/workflow-service";
+import { groupWorkflows, formatWorkflow } from "@/core/workflows/workflow-utils";
 
 /**
  * CLI commands for managing and running workflows.
@@ -31,6 +38,7 @@ export function listWorkflowsCommand() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const workflowService = yield* WorkflowServiceTag;
+    const scheduler = yield* SchedulerServiceTag;
 
     yield* terminal.heading("📋 Available Workflows");
     yield* terminal.log("");
@@ -46,34 +54,29 @@ export function listWorkflowsCommand() {
       return;
     }
 
-    // Group workflows by location
-    const local: WorkflowMetadata[] = [];
-    const global: WorkflowMetadata[] = [];
-    const builtin: WorkflowMetadata[] = [];
+    // Resolve scheduled and running status (best-effort; ignore scheduler errors on unsupported platforms)
+    const scheduledNames = yield* scheduler.listScheduled().pipe(
+      Effect.map((list) => new Set(list.map((s) => s.workflowName))),
+      Effect.catchAll(() => Effect.succeed(new Set<string>())),
+    );
+    const runningNames = yield* loadRunHistory().pipe(
+      Effect.map((history) => new Set(history.filter((r) => r.status === "running").map((r) => r.workflowName))),
+      Effect.catchAll(() => Effect.succeed(new Set<string>())),
+    );
 
-    const cwd = process.cwd();
-    const homeDir = process.env["HOME"] || "";
+    const { local, global, builtin } = groupWorkflows(workflows);
 
-    for (const workflow of workflows) {
-      if (workflow.path.startsWith(cwd)) {
-        local.push(workflow);
-      } else if (workflow.path.includes(".jazz/workflows") && workflow.path.startsWith(homeDir)) {
-        global.push(workflow);
-      } else {
-        builtin.push(workflow);
-      }
-    }
-
-    function formatWorkflow(w: WorkflowMetadata): string {
-      const schedule = w.schedule ? ` [${w.schedule}]` : "";
-      const agent = w.agent ? ` (agent: ${w.agent})` : "";
-      return `  ${w.name}${schedule}${agent}\n    ${w.description}`;
+    function statusBadge(w: WorkflowMetadata): string {
+      if (runningNames.has(w.name)) return " ● running";
+      if (scheduledNames.has(w.name)) return " ○ scheduled";
+      if (w.schedule) return " — not scheduled";
+      return "";
     }
 
     if (local.length > 0) {
       yield* terminal.log("Local workflows:");
       for (const w of local) {
-        yield* terminal.log(formatWorkflow(w));
+        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
       }
       yield* terminal.log("");
     }
@@ -81,7 +84,7 @@ export function listWorkflowsCommand() {
     if (global.length > 0) {
       yield* terminal.log("Global workflows (~/.jazz/workflows):");
       for (const w of global) {
-        yield* terminal.log(formatWorkflow(w));
+        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
       }
       yield* terminal.log("");
     }
@@ -89,7 +92,7 @@ export function listWorkflowsCommand() {
     if (builtin.length > 0) {
       yield* terminal.log("Built-in workflows:");
       for (const w of builtin) {
-        yield* terminal.log(formatWorkflow(w));
+        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
       }
       yield* terminal.log("");
     }
@@ -126,7 +129,11 @@ export function showWorkflowCommand(workflowName: string) {
     }
 
     if (workflow.metadata.schedule) {
-      yield* terminal.log(`Schedule: ${workflow.metadata.schedule}`);
+      const desc = describeCronSchedule(workflow.metadata.schedule);
+      const scheduleDisplay = desc
+        ? `${desc} (${workflow.metadata.schedule})`
+        : workflow.metadata.schedule;
+      yield* terminal.log(`Schedule: ${scheduleDisplay}`);
     }
 
     if (workflow.metadata.autoApprove !== undefined) {
@@ -348,6 +355,7 @@ export function scheduleWorkflowCommand(workflowName: string) {
 
     // Determine which agent to use for scheduled runs
     let agentId: string;
+    let agentName: string;
     const workflowAgentId = workflow.metadata.agent || "default";
 
     // Try to verify the agent exists
@@ -355,7 +363,8 @@ export function scheduleWorkflowCommand(workflowName: string) {
 
     if (agentResult._tag === "Right") {
       agentId = workflowAgentId;
-      yield* terminal.info(`Using agent: ${agentResult.right.name}`);
+      agentName = agentResult.right.name;
+      yield* terminal.info(`Using agent: ${agentName}`);
     } else {
       // Agent not found or not specified - prompt user to select one
       const allAgents = yield* listAllAgents();
@@ -386,7 +395,8 @@ export function scheduleWorkflowCommand(workflowName: string) {
       }
 
       agentId = selectedAgent.id;
-      yield* terminal.info(`Using agent: ${selectedAgent.name}`);
+      agentName = selectedAgent.name;
+      yield* terminal.info(`Using agent: ${agentName}`);
     }
 
     yield* terminal.log("");
@@ -397,7 +407,7 @@ export function scheduleWorkflowCommand(workflowName: string) {
     yield* terminal.success(`Workflow '${workflowName}' scheduled successfully!`);
     yield* terminal.log("");
     yield* terminal.log(`  Schedule: ${workflow.metadata.schedule}`);
-    yield* terminal.log(`  Agent: ${agentId}`);
+    yield* terminal.log(`  Agent: ${agentName}`);
     yield* terminal.log(`  Scheduler: ${schedulerType}`);
     yield* terminal.log("");
 
@@ -479,8 +489,9 @@ export function catchupWorkflowCommand() {
 
     for (const c of candidates) {
       const scheduledStr = c.decision.scheduledAt?.toISOString() ?? "—";
+      const scheduleLabel = describeCronSchedule(c.entry.schedule) ?? c.entry.schedule;
       yield* terminal.log(
-        `  • ${c.entry.workflowName} [${c.entry.schedule}] — missed at ${scheduledStr}`,
+        `  • ${c.entry.workflowName} (${scheduleLabel}) — missed at ${scheduledStr}`,
       );
     }
 
@@ -548,7 +559,8 @@ export function listScheduledWorkflowsCommand() {
 
     for (const s of scheduled) {
       const status = s.enabled ? "✓ enabled" : "✗ disabled";
-      yield* terminal.log(`  ${s.workflowName} [${s.schedule}] agent: ${s.agent} ${status}`);
+      const scheduleLabel = describeCronSchedule(s.schedule) ?? s.schedule;
+      yield* terminal.log(`  ${s.workflowName} (${scheduleLabel}) agent: ${s.agent} ${status}`);
     }
 
     yield* terminal.log("");

@@ -16,15 +16,36 @@ Generate workflow automation files that schedule jazz agents to run recurring ta
 
 **Note:** If the user wants to schedule a simple shell script or system command *without* using a Jazz Agent, use the `create-system-routine` skill instead.
 
+## Gathering Information (Questionnaire)
+
+**Do not create the workflow file until you have enough information.** If the user's prompt is vague (e.g. "create a workflow", "I want to automate emails") or missing any of the items below, guide them through a short questionnaire instead of guessing.
+
+**You have enough info when you know:**
+
+1. **Task**: What should the agent do? (Concrete, not vague.)
+2. **Schedule**: When should it run? (So you can convert to cron.)
+3. **Catch-up**: Should missed runs execute on startup? (If not specified, ask or choose a sensible default.)
+4. **Auto-approve**: What risk level? (read-only / low-risk / high-risk / false—default to conservative.)
+5. **Skills**: Which skills does the agent need? (e.g. email, calendar, deep-research.)
+6. **Instructions**: Clear, safety-first prompt with explicit criteria and "when in doubt" rules.
+7. **Location**: Where to save? (Local `./workflows/<name>/` or global `~/.jazz/workflows/<name>/`.)
+
+**How to run the questionnaire:**
+
+- Ask **one or a few questions at a time**; don't dump a long list.
+- Use the user's words to refine (e.g. "You said 'clean my inbox'—should that be archive only, or also delete? How old is 'old'?").
+- After each answer, confirm what you have and ask only what's still missing.
+- Once you have all seven items above, proceed to create the WORKFLOW.md.
+
 ## Workflow
 
-1. **Understand the task**: What should the agent do? When should it run?
-2. **Determine schedule**: Convert user intent to cron format
-3. **Decide catch-up behavior**: Should missed runs execute on startup?
-4. **Choose auto-approve policy**: Based on risk level of operations
+1. **Understand the task**: What should the agent do? When should it run? If unclear, ask.
+2. **Determine schedule**: Convert user intent to cron format; if not stated, ask when they want it to run.
+3. **Decide catch-up behavior**: Should missed runs execute on startup? Ask if not specified.
+4. **Choose auto-approve policy**: Based on risk level of operations; default to conservative.
 5. **Identify required skills**: What skills will the agent need?
-6. **Write clear instructions**: Safety-first prompt with explicit guidelines
-7. **Create WORKFLOW.md**: Place in appropriate directory
+6. **Write clear instructions**: Safety-first prompt with explicit guidelines.
+7. **Create WORKFLOW.md**: Place in appropriate directory only after you have enough info from above.
 
 ## Workflow File Structure
 
