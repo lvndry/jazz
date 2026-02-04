@@ -61,7 +61,7 @@ describe("Workflow Utilities", () => {
       };
       const result = formatWorkflow(wf);
       expect(result).toContain("scheduled-wf");
-      expect(result).toContain("Daily at 9 AM");
+      expect(result).toContain("At 09:00 AM");
       expect(result).toContain("agent: test-agent");
     });
   });
