@@ -1,17 +1,15 @@
 import { Box, Text } from "ink";
 import React from "react";
 
-
 export function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): React.ReactElement {
   return (
     <Box marginRight={1}>
-      <Text color="cyan">
-        {isSelected ? "●" : " "}
+      <Text color="green">
+        {isSelected ? ">" : " "}
       </Text>
     </Box>
   );
 }
-
 
 export function ItemComponent({
   isSelected = false,
@@ -23,7 +21,7 @@ export function ItemComponent({
   return (
     <Box marginBottom={1}>
       <Text
-        color={isSelected ? "cyan" : "white"}
+        color={isSelected ? "green" : "white"}
         bold={isSelected}
       >
         {label}

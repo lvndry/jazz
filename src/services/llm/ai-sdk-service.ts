@@ -208,6 +208,12 @@ type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerO
 type AISDKToolChoice = Parameters<typeof generateText>[0]["toolChoice"];
 
 /**
+ * OpenRouter gateway models that are meta-models routing to various underlying models.
+ * These should always assume tool support since the underlying models may support them.
+ */
+const OPENROUTER_GATEWAY_MODELS = new Set(["openrouter/free", "openrouter/auto"]);
+
+/**
  * Check if any external web search API keys are configured
  * Returns true if at least one external provider (exa, parallel, tavily) has an API key
  */
@@ -731,7 +737,10 @@ class AISDKService implements LLMService {
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
         // STEP 6: Tools selection
         // Check if the selected model supports tools
-        const supportsTools: boolean = modelInfo?.supportsTools ?? false;
+        // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
+        // underlying models, so we assume tool support and pass tools through.
+        const isGatewayModel = OPENROUTER_GATEWAY_MODELS.has(options.model);
+        const supportsTools: boolean = isGatewayModel || (modelInfo?.supportsTools ?? false);
         const {
           tools: requestedTools,
           toolChoice: requestedToolChoice,
@@ -917,12 +926,16 @@ class AISDKService implements LLMService {
             );
 
             const modelInfo = await this.resolveModelInfo(providerName, options.model);
+            // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
+            // underlying models, so we assume tool support and pass tools through.
+            const isGatewayModel = OPENROUTER_GATEWAY_MODELS.has(options.model);
+            const supportsTools = isGatewayModel || (modelInfo?.supportsTools ?? false);
             const {
               tools: requestedTools,
               toolChoice: requestedToolChoice,
               toolsDisabled,
             } = buildToolConfig(
-              modelInfo?.supportsTools ?? false,
+              supportsTools,
               options.tools,
               options.toolChoice,
             );
