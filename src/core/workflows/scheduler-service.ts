@@ -72,8 +72,72 @@ function escapeShellArg(arg: string): string {
 }
 
 /**
+ * Parse a single cron field, validating it is either "*" or a simple integer.
+ * Throws an error for unsupported cron features like steps, ranges, or lists.
+ *
+ * @param value - The cron field value to parse
+ * @param fieldName - Human-readable name of the field for error messages
+ * @returns The parsed integer value, or undefined if the field is "*"
+ */
+function parseCronField(value: string, fieldName: string): number | undefined {
+  // Wildcard is always valid
+  if (value === "*") {
+    return undefined;
+  }
+
+  // Check for unsupported step syntax (e.g., */15, 0/5)
+  if (value.includes("/")) {
+    throw new Error(
+      `Unsupported cron step expression "${value}" in ${fieldName} field. ` +
+        `launchd does not support step values. Use a simple integer or "*" instead.`,
+    );
+  }
+
+  // Check for unsupported range syntax (e.g., 1-5, 9-17)
+  if (value.includes("-")) {
+    throw new Error(
+      `Unsupported cron range expression "${value}" in ${fieldName} field. ` +
+        `launchd does not support range values. Use a simple integer or "*" instead.`,
+    );
+  }
+
+  // Check for unsupported list syntax (e.g., 1,2,3)
+  if (value.includes(",")) {
+    throw new Error(
+      `Unsupported cron list expression "${value}" in ${fieldName} field. ` +
+        `launchd does not support list values. Use a simple integer or "*" instead.`,
+    );
+  }
+
+  // Validate it's a valid integer (only digits, optionally with leading sign)
+  if (!/^-?\d+$/.test(value)) {
+    throw new Error(
+      `Invalid cron value "${value}" in ${fieldName} field. ` +
+        `Expected a simple integer or "*".`,
+    );
+  }
+
+  const parsed = parseInt(value, 10);
+
+  // parseInt should not return NaN at this point given our regex check,
+  // but we validate anyway for safety
+  if (Number.isNaN(parsed)) {
+    throw new Error(
+      `Invalid cron value "${value}" in ${fieldName} field. ` +
+        `Expected a simple integer or "*".`,
+    );
+  }
+
+  return parsed;
+}
+
+/**
  * Convert a cron expression to a launchd schedule dictionary.
  * Supports standard cron format: minute hour day-of-month month day-of-week
+ *
+ * NOTE: launchd only supports simple integer values or wildcards for schedule fields.
+ * Complex cron features like steps, ranges, and lists are NOT supported
+ * and will throw an error.
  */
 function cronToLaunchdSchedule(
   cron: string,
@@ -95,21 +159,30 @@ function cronToLaunchdSchedule(
     Weekday?: number;
   } = {};
 
-  if (minute !== "*") {
-    schedule.Minute = parseInt(minute!, 10);
+  const parsedMinute = parseCronField(minute!, "minute");
+  if (parsedMinute !== undefined) {
+    schedule.Minute = parsedMinute;
   }
-  if (hour !== "*") {
-    schedule.Hour = parseInt(hour!, 10);
+
+  const parsedHour = parseCronField(hour!, "hour");
+  if (parsedHour !== undefined) {
+    schedule.Hour = parsedHour;
   }
-  if (dayOfMonth !== "*") {
-    schedule.Day = parseInt(dayOfMonth!, 10);
+
+  const parsedDay = parseCronField(dayOfMonth!, "day-of-month");
+  if (parsedDay !== undefined) {
+    schedule.Day = parsedDay;
   }
-  if (month !== "*") {
-    schedule.Month = parseInt(month!, 10);
+
+  const parsedMonth = parseCronField(month!, "month");
+  if (parsedMonth !== undefined) {
+    schedule.Month = parsedMonth;
   }
-  if (dayOfWeek !== "*") {
+
+  const parsedWeekday = parseCronField(dayOfWeek!, "day-of-week");
+  if (parsedWeekday !== undefined) {
     // Cron: 0=Sunday, launchd: 0=Sunday (same)
-    schedule.Weekday = parseInt(dayOfWeek!, 10);
+    schedule.Weekday = parsedWeekday;
   }
 
   return [schedule];
