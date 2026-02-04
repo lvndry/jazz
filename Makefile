@@ -36,6 +36,22 @@ clean: ## Clean build artifacts
 	@echo "Cleaning build artifacts..."
 	bun run clean
 
+# Compilation & Signing
+compile: clean ## Compile to standalone binary
+	@echo "Compiling to standalone binary..."
+	bun run scripts/compile.ts
+
+sign: ## Sign the compiled binary (Usage: make sign IDENTITY="Developer ID Application: Name (ID)")
+	@if [ -z "$(IDENTITY)" ]; then \
+		echo "Error: IDENTITY argument is required. Usage: make sign IDENTITY=\"Developer ID Application: Name (ID)\""; \
+		exit 1; \
+	fi
+	@echo "Signing binary with identity: $(IDENTITY)"
+	codesign --force --options runtime --sign "$(IDENTITY)" dist/jazz
+	@echo "Verifying signature..."
+	codesign --verify --verbose dist/jazz
+
+
 # Testing
 test: ## Run tests
 	@echo "Running tests..."

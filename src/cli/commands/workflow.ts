@@ -14,7 +14,12 @@ import {
   getCatchUpCandidates,
   runCatchUpForWorkflows,
 } from "@/core/workflows/catch-up";
-import { addRunRecord, updateLatestRunRecord, getRecentRuns } from "@/core/workflows/run-history";
+import {
+  addRunRecord,
+  loadRunHistory,
+  updateLatestRunRecord,
+  getRecentRuns,
+} from "@/core/workflows/run-history";
 import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
 import {
   WorkflowServiceTag,
@@ -32,6 +37,7 @@ export function listWorkflowsCommand() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const workflowService = yield* WorkflowServiceTag;
+    const scheduler = yield* SchedulerServiceTag;
 
     yield* terminal.heading("📋 Available Workflows");
     yield* terminal.log("");
@@ -46,6 +52,16 @@ export function listWorkflowsCommand() {
       yield* terminal.log("  • ~/.jazz/workflows/<name>/WORKFLOW.md (global)");
       return;
     }
+
+    // Resolve scheduled and running status (best-effort; ignore scheduler errors on unsupported platforms)
+    const scheduledNames = yield* scheduler.listScheduled().pipe(
+      Effect.map((list) => new Set(list.map((s) => s.workflowName))),
+      Effect.catchAll(() => Effect.succeed(new Set<string>())),
+    );
+    const runningNames = yield* loadRunHistory().pipe(
+      Effect.map((history) => new Set(history.filter((r) => r.status === "running").map((r) => r.workflowName))),
+      Effect.catchAll(() => Effect.succeed(new Set<string>())),
+    );
 
     // Group workflows by location
     const local: WorkflowMetadata[] = [];
@@ -65,6 +81,13 @@ export function listWorkflowsCommand() {
       }
     }
 
+    function statusBadge(w: WorkflowMetadata): string {
+      if (runningNames.has(w.name)) return " ● running";
+      if (scheduledNames.has(w.name)) return " ○ scheduled";
+      if (w.schedule) return " — not scheduled";
+      return "";
+    }
+
     function formatWorkflow(w: WorkflowMetadata): string {
       const scheduleDesc = w.schedule ? describeCronSchedule(w.schedule) : null;
       const scheduleStr = w.schedule
@@ -73,7 +96,8 @@ export function listWorkflowsCommand() {
           : ` [${w.schedule}]`
         : "";
       const agent = w.agent ? ` (agent: ${w.agent})` : "";
-      return `  ${w.name}${scheduleStr}${agent}\n    ${w.description}`;
+      const status = statusBadge(w);
+      return `  ${w.name}${scheduleStr}${agent}${status}\n    ${w.description}`;
     }
 
     if (local.length > 0) {
@@ -358,6 +382,7 @@ export function scheduleWorkflowCommand(workflowName: string) {
 
     // Determine which agent to use for scheduled runs
     let agentId: string;
+    let agentName: string;
     const workflowAgentId = workflow.metadata.agent || "default";
 
     // Try to verify the agent exists
@@ -365,7 +390,8 @@ export function scheduleWorkflowCommand(workflowName: string) {
 
     if (agentResult._tag === "Right") {
       agentId = workflowAgentId;
-      yield* terminal.info(`Using agent: ${agentResult.right.name}`);
+      agentName = agentResult.right.name;
+      yield* terminal.info(`Using agent: ${agentName}`);
     } else {
       // Agent not found or not specified - prompt user to select one
       const allAgents = yield* listAllAgents();
@@ -396,7 +422,8 @@ export function scheduleWorkflowCommand(workflowName: string) {
       }
 
       agentId = selectedAgent.id;
-      yield* terminal.info(`Using agent: ${selectedAgent.name}`);
+      agentName = selectedAgent.name;
+      yield* terminal.info(`Using agent: ${agentName}`);
     }
 
     yield* terminal.log("");
@@ -407,7 +434,7 @@ export function scheduleWorkflowCommand(workflowName: string) {
     yield* terminal.success(`Workflow '${workflowName}' scheduled successfully!`);
     yield* terminal.log("");
     yield* terminal.log(`  Schedule: ${workflow.metadata.schedule}`);
-    yield* terminal.log(`  Agent: ${agentId}`);
+    yield* terminal.log(`  Agent: ${agentName}`);
     yield* terminal.log(`  Scheduler: ${schedulerType}`);
     yield* terminal.log("");
 
