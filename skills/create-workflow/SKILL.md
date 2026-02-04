@@ -1,6 +1,6 @@
 ---
 name: create-workflow
-description: Create workflow automation files. Use when user wants to automate recurring tasks, schedule agent execution, or create WORKFLOW.md files.
+description: Create Jazz workflow automation files (WORKFLOW.md). Use this for scheduling Jazz agents to run recurring tasks. For OS-level scripts/commands, use create-system-routine.
 ---
 
 # Create Workflow
@@ -9,10 +9,12 @@ Generate workflow automation files that schedule jazz agents to run recurring ta
 
 ## When to Use
 
-- User wants to automate a recurring task
+- User wants to automate a recurring task using a Jazz Agent
 - User asks to "create a workflow" or "schedule an agent"
 - User says "I want to check X every Y" (e.g., "check emails every hour")
 - User wants unattended agent execution
+
+**Note:** If the user wants to schedule a simple shell script or system command *without* using a Jazz Agent, use the `create-system-routine` skill instead.
 
 ## Workflow
 
