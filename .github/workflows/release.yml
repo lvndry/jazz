@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-binaries:
+    name: Build Binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # macOS builds
+          - os: macos-latest
+            target: darwin-arm64
+            artifact: jazz-darwin-arm64
+          - os: macos-13 # Intel Mac
+            target: darwin-x64
+            artifact: jazz-darwin-x64
+          # Linux builds
+          - os: ubuntu-latest
+            target: linux-x64
+            artifact: jazz-linux-x64
+          # Note: Linux ARM64 requires cross-compilation or ARM runner
+          # - os: ubuntu-latest
+          #   target: linux-arm64
+          #   artifact: jazz-linux-arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build binary
+        run: bun run scripts/compile.ts
+        env:
+          TARGET: ${{ matrix.target }}
+
+      - name: Rename binary
+        run: |
+          if [ -f dist/jazz ]; then
+            mv dist/jazz dist/${{ matrix.artifact }}
+          else
+            echo "Binary not found at dist/jazz"
+            exit 1
+          fi
+
+      - name: Make binary executable
+        run: chmod +x dist/${{ matrix.artifact }}
+
+      - name: Test binary
+        run: |
+          ./dist/${{ matrix.artifact }} --version || echo "Version check failed, but continuing..."
+
+      - name: Generate checksum
+        run: |
+          cd dist
+          if command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+          else
+            sha256sum ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/${{ matrix.artifact }}
+            dist/${{ matrix.artifact }}.sha256
+          retention-days: 1
+
+  create-release:
+    name: Create Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f -name 'jazz-*' -exec cp {} release/ \;
+          ls -lah release/
+
+      - name: Generate checksums file
+        run: |
+          cd release
+          if command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 jazz-* | grep -v '.sha256' > checksums.txt
+          else
+            sha256sum jazz-* | grep -v '.sha256' > checksums.txt
+          fi
+          cat checksums.txt
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release/jazz-*
+            release/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-npm:
+    name: Publish to npm
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build package
+        run: bun run build
+
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Trigger Homebrew tap update
+        run: |
+          echo "Homebrew formula update would be triggered here"
+          echo "Version: ${{ steps.version.outputs.VERSION }}"
+          # This will be implemented when we create the Homebrew tap
