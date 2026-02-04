@@ -139,6 +139,7 @@
   "files": [
     "dist/",
     "skills/",
+    "workflows/",
     "README.md",
     "LICENSE"
   ]

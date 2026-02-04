@@ -23,6 +23,7 @@ import {
 } from "@/core/types/errors";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
+import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
 import {
   generateConversationId,
@@ -57,6 +58,7 @@ export class ChatServiceImpl implements ChatService {
     | MCPServerManager
     | ToolRequirements
     | SkillService
+    | WorkflowService
   > {
     return Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;
@@ -144,51 +146,66 @@ export class ChatServiceImpl implements ChatService {
           continue;
         }
 
+        let messageForAgent = userMessage;
+
         if (trimmedMessage.startsWith("/")) {
           const specialCommand = parseSpecialCommand(userMessage);
-          const commandResult = yield* handleSpecialCommand(specialCommand, {
-            agent,
-            conversationId,
-            conversationHistory,
-            sessionId,
-            sessionUsage,
-          });
 
-          if (commandResult.newConversationId !== undefined) {
-            conversationId = commandResult.newConversationId;
-            sessionUsage = { promptTokens: 0, completionTokens: 0 };
-            // Initialize the new conversation
-            const fileSystemContext = yield* FileSystemContextServiceTag;
-            yield* initializeSession(agent, conversationId).pipe(
-              Effect.catchAll(() =>
-                Effect.gen(function* () {
-                  yield* logger.error("Session initialization error");
-                }),
-              ),
-            );
-            // Update working directory in store after conversation change
-            updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
-          }
-          if (commandResult.newAgent !== undefined) {
-            agent = commandResult.newAgent;
-            // Update working directory in store after agent switch
-            const fileSystemContext = yield* FileSystemContextServiceTag;
-            updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
-          }
-          if (commandResult.newHistory !== undefined) {
-            conversationHistory = commandResult.newHistory;
-            // Reset logged message count when history is cleared (e.g., /new command)
-            loggedMessageCount = 0;
-          }
+          // Commands that support pass-through: trailing text is sent as a message to the agent
+          const passThroughMessage =
+            specialCommand.type === "workflows" && specialCommand.args.length > 0
+              ? specialCommand.args.join(" ").trim()
+              : null;
 
-          continue;
+          if (passThroughMessage !== null) {
+            // Send the trailing text (e.g. "create") as the user message so the agent can guide
+            messageForAgent = passThroughMessage;
+            // Fall through to agent run below (do not continue)
+          } else {
+            const commandResult = yield* handleSpecialCommand(specialCommand, {
+              agent,
+              conversationId,
+              conversationHistory,
+              sessionId,
+              sessionUsage,
+            });
+
+            if (commandResult.newConversationId !== undefined) {
+              conversationId = commandResult.newConversationId;
+              sessionUsage = { promptTokens: 0, completionTokens: 0 };
+              // Initialize the new conversation
+              const fileSystemContext = yield* FileSystemContextServiceTag;
+              yield* initializeSession(agent, conversationId).pipe(
+                Effect.catchAll(() =>
+                  Effect.gen(function* () {
+                    yield* logger.error("Session initialization error");
+                  }),
+                ),
+              );
+              // Update working directory in store after conversation change
+              updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
+            }
+            if (commandResult.newAgent !== undefined) {
+              agent = commandResult.newAgent;
+              // Update working directory in store after agent switch
+              const fileSystemContext = yield* FileSystemContextServiceTag;
+              updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
+            }
+            if (commandResult.newHistory !== undefined) {
+              conversationHistory = commandResult.newHistory;
+              // Reset logged message count when history is cleared (e.g., /new command)
+              loggedMessageCount = 0;
+            }
+
+            continue;
+          }
         }
 
         yield* Effect.gen(function* () {
           // Create runner options
           const runnerOptions: AgentRunnerOptions = {
             agent,
-            userInput: userMessage,
+            userInput: messageForAgent,
             conversationId,
             sessionId, // Pass the sessionId for logging
             conversationHistory,

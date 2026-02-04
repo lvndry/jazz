@@ -131,6 +131,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(agentLayer),
     Layer.provide(mcpServerManagerLayer),
     Layer.provide(SkillsLive.layer),
+    Layer.provide(WorkflowsLive.layer),
   );
 
   // In TTY mode, keep Ink UI intact by routing all presentation output into Ink.

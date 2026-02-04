@@ -33,17 +33,23 @@ Use this skill when the user wants to create or manage time-based routines (sche
    - If `os=macos` → follow the **macOS / launchd** workflow.
    - If `os=windows` or `os=unknown` → explain that this skill does not create routines on this OS and suggest Windows Task Scheduler or another platform-specific mechanism.
 
-2. **Gather routine parameters from the user**
+2. **Gather routine parameters from the user (questionnaire if needed)**
 
-   Ask (or infer from the request):
+   **Do not create the cron entry or plist until you have enough information.** If the user's request is vague (e.g. "schedule something", "run a script daily") or missing any of the items below, guide them through a short questionnaire instead of guessing.
 
-   - **Command or script** to run (absolute path preferred)
-   - **Schedule**:
+   **You have enough info when you know:**
+
+   - **Command or script** to run (absolute path preferred). If they only have a relative path or "a script", ask for the full path or help them resolve it.
+   - **Schedule**: When should it run?
      - For Linux: cron expression (e.g. `0 8 * * *`)
      - For macOS: time components for `StartCalendarInterval` (e.g. Hour=8, Minute=0)
-   - **Behavior if the machine is off/asleep at the scheduled time**:
-     - Explain that neither cron nor launchd will run while the machine is off.
-     - Offer a pattern where the routine runs at the scheduled time *and* on boot/login with internal "run once per day" logic, if needed.
+   - **Behavior if the machine is off/asleep at the scheduled time**: Explain that neither cron nor launchd will run while the machine is off; offer "run at scheduled time and on boot/login" if they want catch-up.
+
+   **How to run the questionnaire:**
+
+   - Ask **one or a few questions at a time**; don't dump a long list.
+   - If they said "daily" or "every hour", convert to cron/launchd and confirm.
+   - Once you have command/script and schedule (and optionally catch-up behavior), proceed to create the routine.
 
 3. **Linux / cron workflow** (`os=linux`)
 

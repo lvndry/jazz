@@ -8,6 +8,7 @@ import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service"
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/agent";
+import { describeCronSchedule } from "@/core/utils/cron-utils";
 import {
   type CatchUpCandidate,
   getCatchUpCandidates,
@@ -65,9 +66,14 @@ export function listWorkflowsCommand() {
     }
 
     function formatWorkflow(w: WorkflowMetadata): string {
-      const schedule = w.schedule ? ` [${w.schedule}]` : "";
+      const scheduleDesc = w.schedule ? describeCronSchedule(w.schedule) : null;
+      const scheduleStr = w.schedule
+        ? scheduleDesc
+          ? ` (${scheduleDesc})`
+          : ` [${w.schedule}]`
+        : "";
       const agent = w.agent ? ` (agent: ${w.agent})` : "";
-      return `  ${w.name}${schedule}${agent}\n    ${w.description}`;
+      return `  ${w.name}${scheduleStr}${agent}\n    ${w.description}`;
     }
 
     if (local.length > 0) {
@@ -126,7 +132,11 @@ export function showWorkflowCommand(workflowName: string) {
     }
 
     if (workflow.metadata.schedule) {
-      yield* terminal.log(`Schedule: ${workflow.metadata.schedule}`);
+      const desc = describeCronSchedule(workflow.metadata.schedule);
+      const scheduleDisplay = desc
+        ? `${desc} (${workflow.metadata.schedule})`
+        : workflow.metadata.schedule;
+      yield* terminal.log(`Schedule: ${scheduleDisplay}`);
     }
 
     if (workflow.metadata.autoApprove !== undefined) {
@@ -479,8 +489,9 @@ export function catchupWorkflowCommand() {
 
     for (const c of candidates) {
       const scheduledStr = c.decision.scheduledAt?.toISOString() ?? "—";
+      const scheduleLabel = describeCronSchedule(c.entry.schedule) ?? c.entry.schedule;
       yield* terminal.log(
-        `  • ${c.entry.workflowName} [${c.entry.schedule}] — missed at ${scheduledStr}`,
+        `  • ${c.entry.workflowName} (${scheduleLabel}) — missed at ${scheduledStr}`,
       );
     }
 
@@ -548,7 +559,8 @@ export function listScheduledWorkflowsCommand() {
 
     for (const s of scheduled) {
       const status = s.enabled ? "✓ enabled" : "✗ disabled";
-      yield* terminal.log(`  ${s.workflowName} [${s.schedule}] agent: ${s.agent} ${status}`);
+      const scheduleLabel = describeCronSchedule(s.schedule) ?? s.schedule;
+      yield* terminal.log(`  ${s.workflowName} (${scheduleLabel}) agent: ${s.agent} ${status}`);
     }
 
     yield* terminal.log("");

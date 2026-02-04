@@ -17,6 +17,7 @@ export type CommandType =
   | "skills"
   | "context"
   | "cost"
+  | "workflows"
   | "unknown";
 
 /**

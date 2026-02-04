@@ -7,17 +7,24 @@ description: Create new Jazz skills for automating workflows. Use when the user 
 
 Create effective Jazz skills for automating workflows and specialized tasks.
 
-## Before Creating a Skill
+## Gathering Information (Questionnaire)
 
-Gather from the user:
+**Do not create the skill until you have enough information.** If the user's request is vague (e.g. "create a skill", "I want a skill for X") or missing any of the items below, guide them through a short questionnaire instead of guessing.
+
+**You have enough info when you know:**
 
 1. **Purpose**: What specific task or workflow should this skill automate?
 2. **Location**: Global (`~/.jazz/skills/`) or project-specific (`./skills/`)?
-3. **Triggers**: When should Jazz automatically apply this skill?
+3. **Triggers**: When should Jazz automatically apply this skill? (Trigger phrases or scenarios.)
 4. **Domain knowledge**: What specialized information is needed?
 5. **Output format**: Are there specific templates or formats required?
 
-If context is available from conversation, infer the skill requirements.
+**How to run the questionnaire:**
+
+- Ask **one or a few questions at a time**; don't dump a long list.
+- If the user gave partial context, infer what you can and ask only for what's missing.
+- After each answer, confirm what you have and ask only what's still missing.
+- Once you have all five items above, proceed to create the skill (directory + SKILL.md and any supporting files).
 
 ## Skill Structure
 
@@ -182,8 +189,8 @@ Run: `python scripts/analyze.py input.json`
 
 ## Creation Workflow
 
-### Phase 1: Discovery
-Gather purpose, location, triggers, requirements, examples.
+### Phase 1: Discovery (questionnaire if needed)
+Gather purpose, location, triggers, requirements, examples. If the user hasn't provided all of these, guide them through questions until you have enough info—then proceed to Phase 2.
 
 ### Phase 2: Design
 1. Draft skill name (lowercase, hyphens, max 64 chars)

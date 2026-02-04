@@ -56,6 +56,12 @@ describe("parseSpecialCommand", () => {
       expect(result.type).toBe("context");
       expect(result.args).toEqual([]);
     });
+
+    it("should parse /workflows command with no args", () => {
+      const result = parseSpecialCommand("/workflows");
+      expect(result.type).toBe("workflows");
+      expect(result.args).toEqual([]);
+    });
   });
 
   describe("commands with arguments", () => {
@@ -75,6 +81,18 @@ describe("parseSpecialCommand", () => {
       const result = parseSpecialCommand("/switch   my-agent   ");
       expect(result.type).toBe("switch");
       expect(result.args).toEqual(["my-agent"]);
+    });
+
+    it("should parse /workflows create (pass-through to agent)", () => {
+      const result = parseSpecialCommand("/workflows create");
+      expect(result.type).toBe("workflows");
+      expect(result.args).toEqual(["create"]);
+    });
+
+    it("should parse /workflows create my-newsletter", () => {
+      const result = parseSpecialCommand("/workflows create my-newsletter");
+      expect(result.type).toBe("workflows");
+      expect(result.args).toEqual(["create", "my-newsletter"]);
     });
   });
 

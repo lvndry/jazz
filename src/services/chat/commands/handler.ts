@@ -25,7 +25,13 @@ import {
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
+import { describeCronSchedule } from "@/core/utils/cron-utils";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
+import {
+  WorkflowServiceTag,
+  type WorkflowMetadata,
+  type WorkflowService,
+} from "@/core/workflows/workflow-service";
 import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
@@ -51,6 +57,7 @@ export function handleSpecialCommand(
   | PresentationService
   | ToolRequirements
   | SkillService
+  | WorkflowService
 > {
   const { agent, conversationId, conversationHistory, sessionId } = context;
 
@@ -96,6 +103,9 @@ export function handleSpecialCommand(
 
       case "cost":
         return yield* handleCostCommand(terminal, agent, context.sessionUsage);
+
+      case "workflows":
+        return yield* handleWorkflowsCommand(terminal);
 
       case "clear":
         return yield* handleClearCommand(terminal, agent);
@@ -150,6 +160,9 @@ function handleHelpCommand(
     yield* terminal.log("   /cost            - Show conversation token usage and estimated cost");
     yield* terminal.log("   /copy            - Copy the last agent response to clipboard");
     yield* terminal.log("   /skills          - List and view available skills");
+    yield* terminal.log(
+      "   /workflows [action] - List workflows, or send action (e.g. create) to the agent",
+    );
     yield* terminal.log("   /help            - Show this help message");
     yield* terminal.log("   /exit            - Exit the chat");
     yield* terminal.log("");
@@ -559,6 +572,92 @@ function handleClearCommand(
     yield* terminal.info(`Chat with ${agent.name} - Screen cleared`);
     yield* terminal.info("Type '/exit' to end the conversation.");
     yield* terminal.info("Type '/help' to see available commands.");
+    yield* terminal.log("");
+    return { shouldContinue: true };
+  });
+}
+
+/**
+ * Handle /workflows command - List available workflows
+ */
+function handleWorkflowsCommand(
+  terminal: TerminalService,
+): Effect.Effect<CommandResult, Error, WorkflowService> {
+  return Effect.gen(function* () {
+    const workflowService = yield* WorkflowServiceTag;
+
+    yield* terminal.heading("📋 Available Workflows");
+    yield* terminal.log("");
+
+    const workflows = yield* workflowService.listWorkflows();
+
+    if (workflows.length === 0) {
+      yield* terminal.info("No workflows found.");
+      yield* terminal.log("");
+      yield* terminal.info("Create a workflow by adding a WORKFLOW.md file to:");
+      yield* terminal.log("  • ./workflows/<name>/WORKFLOW.md (local)");
+      yield* terminal.log("  • ~/.jazz/workflows/<name>/WORKFLOW.md (global)");
+      yield* terminal.info("Or type /workflows create and the agent will guide you.");
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    const cwd = process.cwd();
+    const homeDir = process.env["HOME"] || "";
+    const local: WorkflowMetadata[] = [];
+    const global: WorkflowMetadata[] = [];
+    const builtin: WorkflowMetadata[] = [];
+
+    for (const workflow of workflows) {
+      if (workflow.path.startsWith(cwd)) {
+        local.push(workflow);
+      } else if (
+        workflow.path.includes(".jazz/workflows") &&
+        workflow.path.startsWith(homeDir)
+      ) {
+        global.push(workflow);
+      } else {
+        builtin.push(workflow);
+      }
+    }
+
+    function formatWorkflow(w: WorkflowMetadata): string {
+      const scheduleDesc = w.schedule ? describeCronSchedule(w.schedule) : null;
+      const scheduleStr = w.schedule
+        ? scheduleDesc
+          ? ` (${scheduleDesc})`
+          : ` [${w.schedule}]`
+        : "";
+      const agent = w.agent ? ` (agent: ${w.agent})` : "";
+      return `  ${w.name}${scheduleStr}${agent}\n    ${w.description}`;
+    }
+
+    if (local.length > 0) {
+      yield* terminal.log("Local workflows:");
+      for (const w of local) {
+        yield* terminal.log(formatWorkflow(w));
+      }
+      yield* terminal.log("");
+    }
+
+    if (global.length > 0) {
+      yield* terminal.log("Global workflows (~/.jazz/workflows):");
+      for (const w of global) {
+        yield* terminal.log(formatWorkflow(w));
+      }
+      yield* terminal.log("");
+    }
+
+    if (builtin.length > 0) {
+      yield* terminal.log("Built-in workflows:");
+      for (const w of builtin) {
+        yield* terminal.log(formatWorkflow(w));
+      }
+      yield* terminal.log("");
+    }
+
+    yield* terminal.info(`Total: ${workflows.length} workflow(s)`);
+    yield* terminal.log("   Tip: /workflows create — send 'create' to the agent to guide you.");
     yield* terminal.log("");
     return { shouldContinue: true };
   });
