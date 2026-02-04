@@ -175,6 +175,15 @@ export function createAppLayer(config: AppLayerConfig = {}) {
 export function runCliEffect<R, E extends JazzError | Error>(
   effect: Effect.Effect<void, E, R>,
   config: AppLayerConfig = {},
+  options: {
+    /**
+     * Skip scheduled workflow catch-up on startup.
+     *
+     * This is intended for `jazz workflow run`, so that manually running a workflow
+     * doesn't also trigger catch-up execution for scheduled workflows.
+     */
+    readonly skipCatchUp?: boolean | undefined;
+  } = {},
 ): void {
   const cliOptionsLayer = Layer.succeed(CLIOptionsTag, {
     verbose: config.verbose,
@@ -183,11 +192,8 @@ export function runCliEffect<R, E extends JazzError | Error>(
   });
 
   const program = Effect.gen(function* () {
-    const argv = process.argv.slice(2);
-    const workflowIndex = argv.findIndex((arg) => arg === "workflow");
-    const isWorkflowRun = workflowIndex !== -1 && argv[workflowIndex + 1] === "run";
-
-    const shouldSkipCatchUp = process.env["JAZZ_DISABLE_CATCH_UP"] === "1" || isWorkflowRun;
+    const shouldSkipCatchUp =
+      process.env["JAZZ_DISABLE_CATCH_UP"] === "1" || options.skipCatchUp === true;
 
     if (!shouldSkipCatchUp) {
       yield* Effect.fork(runWorkflowCatchUp());

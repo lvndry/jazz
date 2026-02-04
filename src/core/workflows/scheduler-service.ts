@@ -1,10 +1,12 @@
-import { spawn } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import cronParser from "cron-parser";
 import { Context, Effect, Layer } from "effect";
+import plist from "plist";
 import type { WorkflowMetadata } from "./workflow-service";
+import { isValidCronExpression } from "../utils/cron-utils";
+import { getJazzSchedulerInvocation, getUserDataDirectory } from "../utils/runtime-detection";
+import { execCommand, execCommandWithStdin } from "../utils/shell-utils";
 
 /**
  * Information about a scheduled workflow.
@@ -53,24 +55,11 @@ export interface SchedulerService {
 export const SchedulerServiceTag = Context.GenericTag<SchedulerService>("SchedulerService");
 
 /**
- * Get the Jazz executable path for scheduled jobs.
- */
-function getJazzExecutablePath(): string {
-  // First, try to find the jazz binary in PATH
-  const bunPath = process.env["BUN_INSTALL"];
-  if (bunPath) {
-    return path.join(bunPath, "bin", "jazz");
-  }
-
-  // Fall back to npx jazz (works for npm installations)
-  return "npx jazz";
-}
-
-/**
  * Get the directory for storing schedule metadata.
+ * Uses getUserDataDirectory() to respect development/production separation.
  */
 function getSchedulesDirectory(): string {
-  return path.join(os.homedir(), ".jazz", "schedules");
+  return path.join(getUserDataDirectory(), "schedules");
 }
 
 /**
@@ -80,40 +69,6 @@ function getSchedulesDirectory(): string {
 function escapeShellArg(arg: string): string {
   // Replace single quotes with '\'' (end quote, escaped quote, start quote)
   return `'${arg.replace(/'/g, "'\\''")}'`;
-}
-
-/**
- * Escape a string for safe inclusion in XML.
- */
-function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-/**
- * Validate a cron expression.
- * Returns true if valid, false otherwise.
- */
-function isValidCronExpression(cron: string): boolean {
-  try {
-    // cron-parser expects 6 fields (with seconds), so we need to handle 5-field cron
-    const parts = cron.trim().split(/\s+/);
-    if (parts.length === 5) {
-      // Add seconds field for validation
-      cronParser.parse(`0 ${cron}`);
-    } else if (parts.length === 6) {
-      cronParser.parse(cron);
-    } else {
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -163,112 +118,55 @@ function cronToLaunchdSchedule(
 /**
  * Generate a launchd plist file content.
  */
-function generateLaunchdPlist(workflow: WorkflowMetadata, jazzPath: string, agentId: string): string {
-  const label = escapeXml(`com.jazz.workflow.${workflow.name}`);
+function generateLaunchdPlist(
+  workflow: WorkflowMetadata,
+  jazzInvocation: readonly string[],
+  agentId: string,
+): string {
   const schedule = cronToLaunchdSchedule(workflow.schedule!);
-  const logDir = path.join(os.homedir(), ".jazz", "logs");
+  const logDir = path.join(getUserDataDirectory(), "logs");
 
-  // Build program arguments (escaped for XML)
-  const programArgs = jazzPath.includes(" ")
-    ? jazzPath.split(" ").concat(["workflow", "run", workflow.name, "--agent", agentId, "--auto-approve"])
-    : [jazzPath, "workflow", "run", workflow.name, "--agent", agentId, "--auto-approve"];
+  const programArgs = [...jazzInvocation, "workflow", "run", workflow.name, "--agent", agentId, "--auto-approve"];
 
-  const escapedArgs = programArgs.map((arg) => escapeXml(arg));
-  const escapedLogDir = escapeXml(logDir);
-  const escapedWorkflowName = escapeXml(workflow.name);
+  const plistObject = {
+    Label: `com.jazz.workflow.${workflow.name}`,
+    ProgramArguments: programArgs,
+    StartCalendarInterval: schedule,
+    StandardOutPath: `${logDir}/${workflow.name}.log`,
+    StandardErrorPath: `${logDir}/${workflow.name}.error.log`,
+    RunAtLoad: false,
+  };
 
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>${label}</string>
-    <key>ProgramArguments</key>
-    <array>
-${escapedArgs.map((arg) => `        <string>${arg}</string>`).join("\n")}
-    </array>
-    <key>StartCalendarInterval</key>
-    <array>
-${schedule
-  .map(
-    (s) => `        <dict>
-${Object.entries(s)
-  .map(([key, value]) => `            <key>${key}</key>\n            <integer>${value}</integer>`)
-  .join("\n")}
-        </dict>`,
-  )
-  .join("\n")}
-    </array>
-    <key>StandardOutPath</key>
-    <string>${escapedLogDir}/${escapedWorkflowName}.log</string>
-    <key>StandardErrorPath</key>
-    <string>${escapedLogDir}/${escapedWorkflowName}.error.log</string>
-    <key>RunAtLoad</key>
-    <false/>
-</dict>
-</plist>`;
-
-  return plist;
+  return plist.build(plistObject);
 }
 
 /**
  * Generate a crontab entry for a workflow.
  * Uses shell escaping to prevent command injection.
  */
-function generateCrontabEntry(workflow: WorkflowMetadata, jazzPath: string, agentId: string): string {
-  const logDir = path.join(os.homedir(), ".jazz", "logs");
+function generateCrontabEntry(
+  workflow: WorkflowMetadata,
+  jazzInvocation: readonly string[],
+  agentId: string,
+): string {
+  const logDir = path.join(getUserDataDirectory(), "logs");
 
-  // Escape all arguments to prevent shell injection
-  const escapedWorkflowName = escapeShellArg(workflow.name);
-  const escapedAgentId = escapeShellArg(agentId);
   const escapedLogPath = escapeShellArg(`${logDir}/${workflow.name}.log`);
 
+  const commandTokens = jazzInvocation.concat([
+    "workflow",
+    "run",
+    workflow.name,
+    "--agent",
+    agentId,
+    "--auto-approve",
+  ]);
+
   // Build the command with proper escaping
-  const command = jazzPath.includes(" ")
-    ? `${jazzPath} workflow run ${escapedWorkflowName} --agent ${escapedAgentId} --auto-approve`
-    : `${escapeShellArg(jazzPath)} workflow run ${escapedWorkflowName} --agent ${escapedAgentId} --auto-approve`;
+  const command = commandTokens.map((token) => escapeShellArg(token)).join(" ");
 
   return `# Jazz workflow: ${workflow.name.replace(/\n/g, " ")}
 ${workflow.schedule} ${command} >> ${escapedLogPath} 2>&1`;
-}
-
-/**
- * Execute a shell command and return the result.
- */
-function execCommand(command: string, args: string[]): Effect.Effect<string, Error> {
-  return Effect.async<string, Error>((resume) => {
-    const child = spawn(command, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: false,
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    if (child.stdout) {
-      child.stdout.on("data", (data: Buffer) => {
-        stdout += data.toString();
-      });
-    }
-
-    if (child.stderr) {
-      child.stderr.on("data", (data: Buffer) => {
-        stderr += data.toString();
-      });
-    }
-
-    child.on("close", (code) => {
-      if (code === 0) {
-        resume(Effect.succeed(stdout));
-      } else {
-        resume(Effect.fail(new Error(`Command failed (exit ${code}): ${stderr || stdout}`)));
-      }
-    });
-
-    child.on("error", (err) => {
-      resume(Effect.fail(err));
-    });
-  });
 }
 
 /**
@@ -373,8 +271,8 @@ class LaunchdScheduler implements SchedulerService {
         );
       }
 
-      const jazzPath = getJazzExecutablePath();
-      const plistContent = generateLaunchdPlist(workflow, jazzPath, agentId);
+      const jazzInvocation = yield* getJazzSchedulerInvocation();
+      const plistContent = generateLaunchdPlist(workflow, jazzInvocation, agentId);
       const plistPath = this.getPlistPath(workflow.name);
       const metadataPath = this.getMetadataPath(workflow.name);
 
@@ -382,7 +280,7 @@ class LaunchdScheduler implements SchedulerService {
       yield* Effect.tryPromise(() => fs.mkdir(this.launchAgentsDir, { recursive: true }));
       yield* Effect.tryPromise(() => fs.mkdir(getSchedulesDirectory(), { recursive: true }));
       yield* Effect.tryPromise(() =>
-        fs.mkdir(path.join(os.homedir(), ".jazz", "logs"), { recursive: true }),
+        fs.mkdir(path.join(getUserDataDirectory(), "logs"), { recursive: true }),
       );
 
       // Unload existing job if present (ignore errors)
@@ -455,38 +353,7 @@ class CronScheduler implements SchedulerService {
   }
 
   private setCrontab(content: string): Effect.Effect<void, Error> {
-    return Effect.async<void, Error>((resume) => {
-      const child = spawn("crontab", ["-"], {
-        stdio: ["pipe", "pipe", "pipe"],
-        shell: false,
-      });
-
-      let stderr = "";
-
-      if (child.stderr) {
-        child.stderr.on("data", (data: Buffer) => {
-          stderr += data.toString();
-        });
-      }
-
-      child.on("close", (code) => {
-        if (code === 0) {
-          resume(Effect.succeed(undefined));
-        } else {
-          resume(Effect.fail(new Error(`Failed to set crontab: ${stderr}`)));
-        }
-      });
-
-      child.on("error", (err) => {
-        resume(Effect.fail(err));
-      });
-
-      // Write content to stdin
-      if (child.stdin) {
-        child.stdin.write(content);
-        child.stdin.end();
-      }
-    });
+    return execCommandWithStdin("crontab", ["-"], content);
   }
 
   schedule(workflow: WorkflowMetadata, agentId: string): Effect.Effect<void, Error> {
@@ -501,14 +368,14 @@ class CronScheduler implements SchedulerService {
         );
       }
 
-      const jazzPath = getJazzExecutablePath();
-      const entry = generateCrontabEntry(workflow, jazzPath, agentId);
+      const jazzInvocation = yield* getJazzSchedulerInvocation();
+      const entry = generateCrontabEntry(workflow, jazzInvocation, agentId);
       const metadataPath = this.getMetadataPath(workflow.name);
 
       // Ensure directories exist
       yield* Effect.tryPromise(() => fs.mkdir(getSchedulesDirectory(), { recursive: true }));
       yield* Effect.tryPromise(() =>
-        fs.mkdir(path.join(os.homedir(), ".jazz", "logs"), { recursive: true }),
+        fs.mkdir(path.join(getUserDataDirectory(), "logs"), { recursive: true }),
       );
 
       // Get current crontab

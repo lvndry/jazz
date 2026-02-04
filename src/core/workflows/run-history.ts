@@ -1,5 +1,4 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { Effect } from "effect";
 import {
@@ -8,6 +7,7 @@ import {
   FILE_LOCK_TIMEOUT_MS,
   MAX_RUN_HISTORY_RECORDS,
 } from "@/core/constants/agent";
+import { getUserDataDirectory } from "@/core/utils/runtime-detection";
 
 /**
  * Record of a single workflow run.
@@ -25,14 +25,14 @@ export interface WorkflowRunRecord {
  * Get the path to the run history file.
  */
 function getHistoryPath(): string {
-  return path.join(os.homedir(), ".jazz", "run-history.json");
+  return path.join(getUserDataDirectory(), "run-history.json");
 }
 
 /**
  * Get the path to the lock file.
  */
 function getLockPath(): string {
-  return path.join(os.homedir(), ".jazz", "run-history.lock");
+  return path.join(getUserDataDirectory(), "run-history.lock");
 }
 
 /**

@@ -36,4 +36,11 @@ export {
 } from "./run-history";
 
 // Catch-up
-export { runWorkflowCatchUp, decideCatchUp, type CatchUpDecision } from "./catch-up";
+export {
+  runWorkflowCatchUp,
+  runCatchUpForWorkflows,
+  getCatchUpCandidates,
+  decideCatchUp,
+  type CatchUpDecision,
+  type CatchUpCandidate,
+} from "./catch-up";

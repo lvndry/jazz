@@ -143,6 +143,24 @@ jazz workflow scheduled
 jazz workflow unschedule email-cleanup
 ```
 
+### When do scheduled runs happen?
+
+Scheduled workflows use the **system scheduler** (launchd on macOS, cron on Linux). Jobs run **only when the machine is awake**. If your Mac is asleep or shut down at the scheduled time, that run is skipped—there is no “queue” that runs everything when you wake the machine.
+
+To handle missed runs:
+
+- **Automatic catch-up**: If a workflow has `catchUpOnStartup: true`, the next time you run any `jazz` command (e.g. `jazz chat` or `jazz workflow list`), Jazz will run that workflow once in the background if it missed its last scheduled time (within `maxCatchUpAge`).
+- **Manual catch-up**: Run `jazz workflow catchup` to see all workflows that need catch-up, choose which to run, and run them.
+
+### Catch-up missed runs
+
+```bash
+# List workflows that missed a run, select which to run, then run them
+jazz workflow catchup
+```
+
+Shows workflows that are scheduled, have `catchUpOnStartup: true`, and missed their last run within the max catch-up window. You can select which ones to run (multi-select with Space, confirm with Enter). Useful when you’ve been away and want to run missed workflows on demand instead of waiting for the next `jazz` command.
+
 ### View History
 
 ```bash

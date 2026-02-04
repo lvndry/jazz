@@ -10,6 +10,8 @@ import {
   getGlobalWorkflowsDirectory,
 } from "@/core/utils/runtime-detection";
 
+const WORKFLOW_DEFINITION_FILENAME = "WORKFLOW.md" as const;
+
 /**
  * Workflow metadata extracted from WORKFLOW.md frontmatter.
  */
@@ -189,7 +191,7 @@ export class WorkflowsLive implements WorkflowService {
         return yield* Effect.fail(new Error(`Workflow not found: ${workflowName}`));
       }
 
-      const workflowMdPath = path.join(metadata.path, "WORKFLOW.md");
+      const workflowMdPath = path.join(metadata.path, WORKFLOW_DEFINITION_FILENAME);
 
       // Parse WORKFLOW.md
       const content = yield* Effect.tryPromise(() => fs.readFile(workflowMdPath, "utf-8"));
@@ -235,7 +237,7 @@ export class WorkflowsLive implements WorkflowService {
       cachePath: this.globalCachePath,
       scan: scanMarkdownIndex({
         dir: globalWorkflowsDir,
-        fileName: "WORKFLOW.md",
+        fileName: WORKFLOW_DEFINITION_FILENAME,
         depth: 3,
         parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
       }),
@@ -246,7 +248,7 @@ export class WorkflowsLive implements WorkflowService {
     const cwd = process.cwd();
     return scanMarkdownIndex({
       dir: cwd,
-      fileName: "WORKFLOW.md",
+      fileName: WORKFLOW_DEFINITION_FILENAME,
       depth: 4,
       parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
     });
@@ -260,7 +262,7 @@ export class WorkflowsLive implements WorkflowService {
       }
       return yield* scanMarkdownIndex({
         dir: builtinDir,
-        fileName: "WORKFLOW.md",
+        fileName: WORKFLOW_DEFINITION_FILENAME,
         depth: 2,
         parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
       });

@@ -5,7 +5,7 @@ description: Create workflow automation files. Use when user wants to automate r
 
 # Create Workflow
 
-Generate workflow automation files that schedule agents to run recurring tasks like email cleanup, research digests, calendar management, and more.
+Generate workflow automation files that schedule jazz agents to run recurring tasks.
 
 ## When to Use
 

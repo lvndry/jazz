@@ -25,6 +25,7 @@ import {
   scheduleWorkflowCommand,
   unscheduleWorkflowCommand,
   listScheduledWorkflowsCommand,
+  catchupWorkflowCommand,
   workflowHistoryCommand,
 } from "./commands/workflow";
 
@@ -286,8 +287,9 @@ function registerWorkflowCommands(program: Command): void {
     .description("Run a workflow once")
     .option("--auto-approve", "Auto-approve tool executions based on workflow policy")
     .option("--agent <agentId>", "Agent ID or name to use for this workflow run")
-    .action((name: string, options: { autoApprove?: boolean; agent?: string }) => {
+    .action((name: string, options: { autoApprove?: boolean; agent?: string }, command: Command) => {
       const opts = program.opts<CliOptions>();
+      const isWorkflowRunCommand = command.name() === "run" && command.parent?.name() === "workflow";
       runCliEffect(
         runWorkflowCommand(name, {
           ...(options.autoApprove === true ? { autoApprove: true } : {}),
@@ -298,6 +300,7 @@ function registerWorkflowCommands(program: Command): void {
           debug: opts.debug,
           configPath: opts.config,
         },
+        { skipCatchUp: isWorkflowRunCommand },
       );
     });
 
@@ -331,6 +334,18 @@ function registerWorkflowCommands(program: Command): void {
     .action(() => {
       const opts = program.opts<CliOptions>();
       runCliEffect(listScheduledWorkflowsCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  workflowCommand
+    .command("catchup")
+    .description("List workflows that missed a scheduled run, select which to run, then run them")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(catchupWorkflowCommand(), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,

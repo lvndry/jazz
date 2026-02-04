@@ -1,25 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import cronParser from "cron-parser";
 import type { ScheduledWorkflow } from "./scheduler-service";
-
-/**
- * Test helper: Validate a cron expression.
- */
-function isValidCronExpression(cron: string): boolean {
-  try {
-    const parts = cron.trim().split(/\s+/);
-    if (parts.length === 5) {
-      cronParser.parse(`0 ${cron}`);
-    } else if (parts.length === 6) {
-      cronParser.parse(cron);
-    } else {
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { isValidCronExpression } from "../utils/cron-utils";
 
 describe("SchedulerService", () => {
   describe("ScheduledWorkflow metadata", () => {

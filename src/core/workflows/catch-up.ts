@@ -4,14 +4,27 @@ import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { DEFAULT_MAX_CATCH_UP_AGE_SECONDS } from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
+import { normalizeCronExpression } from "@/core/utils/cron-utils";
 import { addRunRecord, loadRunHistory, updateLatestRunRecord } from "@/core/workflows/run-history";
-import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
+import {
+  SchedulerServiceTag,
+  type ScheduledWorkflow,
+} from "@/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
 
 export interface CatchUpDecision {
   readonly shouldRun: boolean;
   readonly reason: string;
   readonly scheduledAt?: Date;
+}
+
+/**
+ * A scheduled workflow that needs catch-up (decision.shouldRun is true).
+ */
+export interface CatchUpCandidate {
+  readonly entry: ScheduledWorkflow;
+  readonly workflow: WorkflowMetadata;
+  readonly decision: CatchUpDecision;
 }
 
 interface WorkflowRunSnapshot {
@@ -37,14 +50,6 @@ function getLastRunSnapshot(history: readonly { workflowName: string; startedAt:
   }
 
   return map;
-}
-
-function normalizeCronExpression(schedule: string): string {
-  const parts = schedule.trim().split(/\s+/);
-  if (parts.length === 5) {
-    return `0 ${schedule}`;
-  }
-  return schedule;
 }
 
 function getMostRecentScheduledTime(schedule: string, now: Date): Date | undefined {
@@ -96,22 +101,61 @@ function formatAgentRunId(workflowName: string, now: Date): string {
   return `workflow-${workflowName}-catchup-${now.getTime()}`;
 }
 
-export function runWorkflowCatchUp() {
+/**
+ * Returns scheduled workflows that need catch-up (missed run, within max age, catch-up enabled).
+ * Does not verify agent or workflow content availability.
+ */
+export function getCatchUpCandidates() {
   return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
     const scheduler = yield* SchedulerServiceTag;
     const workflowService = yield* WorkflowServiceTag;
 
     const scheduled = yield* scheduler.listScheduled().pipe(Effect.catchAll(() => Effect.succeed([])));
     if (scheduled.length === 0) {
-      return;
+      return [];
     }
 
     const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
     const lastRunMap = getLastRunSnapshot(history);
     const now = new Date();
+    const candidates: CatchUpCandidate[] = [];
 
     for (const entry of scheduled) {
+      const workflow = yield* workflowService.getWorkflow(entry.workflowName).pipe(
+        Effect.catchAll(() => Effect.succeed(undefined)),
+      );
+
+      if (!workflow) continue;
+
+      const lastRunAt = lastRunMap.get(entry.workflowName)?.lastRunAt;
+      const decision = decideCatchUp(workflow, lastRunAt, now);
+
+      if (decision.shouldRun) {
+        candidates.push({ entry, workflow, decision });
+      }
+    }
+
+    return candidates;
+  });
+}
+
+/**
+ * Run catch-up for the given scheduled workflow entries only.
+ * Skips entries where agent or workflow content is unavailable (logs a warning).
+ */
+export function runCatchUpForWorkflows(entries: readonly ScheduledWorkflow[]) {
+  if (entries.length === 0) {
+    return Effect.void;
+  }
+
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+    const workflowService = yield* WorkflowServiceTag;
+    const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
+    const lastRunMap = getLastRunSnapshot(history);
+    const now = new Date();
+
+    for (const entry of entries) {
       const workflow = yield* workflowService.getWorkflow(entry.workflowName).pipe(
         Effect.catchAll(() => Effect.succeed(undefined)),
       );
@@ -127,6 +171,10 @@ export function runWorkflowCatchUp() {
       const decision = decideCatchUp(workflow, lastRunAt, now);
 
       if (!decision.shouldRun) {
+        yield* logger.debug("Catch-up skipped: no longer needed", {
+          workflow: entry.workflowName,
+          reason: decision.reason,
+        });
         continue;
       }
 
@@ -196,5 +244,13 @@ export function runWorkflowCatchUp() {
         ),
       );
     }
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+export function runWorkflowCatchUp() {
+  return Effect.gen(function* () {
+    const scheduler = yield* SchedulerServiceTag;
+    const scheduled = yield* scheduler.listScheduled().pipe(Effect.catchAll(() => Effect.succeed([])));
+    yield* runCatchUpForWorkflows(scheduled);
   }).pipe(Effect.catchAll(() => Effect.void));
 }

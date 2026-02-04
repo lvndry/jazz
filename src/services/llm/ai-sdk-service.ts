@@ -1021,7 +1021,6 @@ class AISDKService implements LLMService {
 
             responseDeferred.reject(llmError);
           } finally {
-            // Ensure cleanup happens even on error
             if (processorRef && !abortController.signal.aborted) {
               processorRef.cancel();
             }

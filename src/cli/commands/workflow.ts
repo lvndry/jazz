@@ -8,6 +8,11 @@ import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service"
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/agent";
+import {
+  type CatchUpCandidate,
+  getCatchUpCandidates,
+  runCatchUpForWorkflows,
+} from "@/core/workflows/catch-up";
 import { addRunRecord, updateLatestRunRecord, getRecentRuns } from "@/core/workflows/run-history";
 import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
 import {
@@ -439,6 +444,75 @@ export function unscheduleWorkflowCommand(workflowName: string) {
     yield* scheduler.unschedule(workflowName);
 
     yield* terminal.success(`Workflow '${workflowName}' unscheduled successfully.`);
+  });
+}
+
+/**
+ * List workflows that need catch-up, let user select which to run, then run them.
+ */
+export function catchupWorkflowCommand() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+
+    yield* terminal.heading("🔄 Workflow catch-up");
+    yield* terminal.log("");
+    yield* terminal.info(
+      "Scheduled runs only fire when the machine is awake. If your Mac was asleep or off at the scheduled time, those runs were missed. Here you can run them now.",
+    );
+    yield* terminal.log("");
+
+    const candidates = yield* getCatchUpCandidates().pipe(
+      Effect.catchAll(() => Effect.succeed([] as readonly CatchUpCandidate[])),
+    );
+
+    if (candidates.length === 0) {
+      yield* terminal.info("No workflows need catch-up right now.");
+      yield* terminal.log("");
+      yield* terminal.info(
+        "Workflows must be scheduled, have catchUpOnStartup: true, and have missed their last run within the max catch-up window.",
+      );
+      return;
+    }
+
+    yield* terminal.log("Workflows that missed a scheduled run:");
+    yield* terminal.log("");
+
+    for (const c of candidates) {
+      const scheduledStr = c.decision.scheduledAt?.toISOString() ?? "—";
+      yield* terminal.log(
+        `  • ${c.entry.workflowName} [${c.entry.schedule}] — missed at ${scheduledStr}`,
+      );
+    }
+
+    yield* terminal.log("");
+
+    const choices = candidates.map((c) => ({
+      name: `${c.entry.workflowName} (${c.decision.scheduledAt?.toISOString() ?? "—"})`,
+      value: c.entry.workflowName,
+    }));
+
+    const selected = yield* terminal.checkbox<string>(
+      "Select workflows to run now (Space to toggle, Enter to confirm):",
+      { choices, default: [] },
+    );
+
+    if (selected.length === 0) {
+      yield* terminal.info("No workflows selected. Exiting.");
+      return;
+    }
+
+    const entriesToRun = candidates
+      .filter((c) => selected.includes(c.entry.workflowName))
+      .map((c) => c.entry);
+
+    yield* terminal.log("");
+    yield* terminal.info(`Running catch-up for ${entriesToRun.length} workflow(s)...`);
+    yield* terminal.log("");
+
+    yield* runCatchUpForWorkflows(entriesToRun);
+
+    yield* terminal.log("");
+    yield* terminal.success("Catch-up finished.");
   });
 }
 
