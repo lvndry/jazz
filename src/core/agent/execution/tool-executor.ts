@@ -291,7 +291,10 @@ export class ToolExecutor {
           }
         }
 
-        return { toolCallId: toolCall.id, result: result.result, success: result.success, name: finalToolName };
+        const finalResult = result.success
+          ? result.result
+          : { error: result.error ?? "Tool execution failed", result: result.result };
+        return { toolCallId: toolCall.id, result: finalResult, success: result.success, name: finalToolName };
       } catch (error) {
         const toolDuration = Date.now() - toolStartTime;
         const errorMessage = error instanceof Error ? error.message : String(error);

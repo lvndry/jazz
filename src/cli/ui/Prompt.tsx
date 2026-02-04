@@ -1,5 +1,4 @@
 import { Box, Text, useInput } from "ink";
-import SelectInput from "ink-select-input";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   filterCommandsByPrefix,
@@ -7,8 +6,9 @@ import {
 } from "@/services/chat/commands";
 import { TextInput, SHORTCUTS_HINT } from "./components/Input/TextInput";
 import { useInputHandler, InputResults, useTextInput } from "./hooks/use-input-service";
-import { IndicatorComponent, ItemComponent } from "./ItemComponents";
 import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
+import { ScrollableSelect } from "./ScrollableSelect";
+import { SearchSelect } from "./SearchSelect";
 import type { PromptState } from "./types";
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
@@ -24,8 +24,8 @@ function CommandSuggestionItem({
 }: CommandSuggestionItemProps): React.ReactElement {
   return (
     <Box marginLeft={1}>
-      <Text color={isSelected ? "cyan" : "white"} bold={isSelected}>
-        {isSelected ? "▸ " : "  "}
+      <Text color={isSelected ? "green" : "white"} bold={isSelected}>
+        {isSelected ? "> " : "  "}
         /{command.name}
       </Text>
       <Text dimColor> – {command.description}</Text>
@@ -37,7 +37,6 @@ function CommandSuggestionItem({
  * Prompt displays user input prompts with a minimal header design.
  * Uses spacing and color instead of box borders for copy-friendly terminal output.
  */
-
 function PromptComponent({
   prompt,
   workingDirectory = null,
@@ -165,11 +164,6 @@ function PromptComponent({
     setSelectedSuggestionIndex(0);
   }, [prompt, setValue]);
 
-  // Stable callback - doesn't change between renders
-  const handleSelect = useCallback((item: { value: unknown; }): void => {
-    promptRef.current.resolve(item.value);
-  }, []);
-
   useEffect(() => {
     // Clear validation error when user edits input
     if (validationErrorRef.current) {
@@ -281,11 +275,11 @@ function PromptComponent({
           </>
         )}
         {prompt.type === "select" && (
-          <SelectInput
-            items={prompt.options?.choices || []}
-            onSelect={handleSelect}
-            indicatorComponent={IndicatorComponent}
-            itemComponent={ItemComponent}
+          <ScrollableSelect
+            options={prompt.options?.choices ?? []}
+            pageSize={10}
+            onSelect={(value) => prompt.resolve(value)}
+            onCancel={() => prompt.reject?.()}
           />
         )}
         {prompt.type === "checkbox" && (
@@ -296,16 +290,24 @@ function PromptComponent({
             onSubmit={(selectedValues) => prompt.resolve(selectedValues)}
           />
         )}
+        {prompt.type === "search" && (
+          <SearchSelect
+            options={prompt.options?.choices ?? []}
+            pageSize={10}
+            onSelect={(value) => prompt.resolve(value)}
+            onCancel={() => prompt.reject?.()}
+          />
+        )}
 
         {prompt.type === "confirm" && (
-          <SelectInput
-            items={[
+          <ScrollableSelect
+            options={[
               { label: "Yes", value: true },
               { label: "No", value: false },
             ]}
-            onSelect={handleSelect}
-            indicatorComponent={IndicatorComponent}
-            itemComponent={ItemComponent}
+            pageSize={10}
+            onSelect={(value) => prompt.resolve(value)}
+            onCancel={() => prompt.reject?.()}
           />
         )}
       </Box>
@@ -313,5 +315,4 @@ function PromptComponent({
   );
 }
 
-// Export memoized version to prevent unnecessary re-renders
 export const Prompt = React.memo(PromptComponent);

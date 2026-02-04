@@ -155,7 +155,7 @@ export function ScrollableMultiSelect<T = unknown>({
             key={absoluteIndex}
             {...(isActive ? { color: "green" as const, bold: true as const } : {})}
           >
-            {isActive ? "›" : " "} [{isSelected ? "x" : " "}] {choice.label}
+            {isActive ? ">" : " "} [{isSelected ? "x" : " "}] {choice.label}
           </Text>
         );
       })}
@@ -166,4 +166,3 @@ export function ScrollableMultiSelect<T = unknown>({
     </Box>
   );
 }
-

@@ -163,8 +163,8 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
 function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): React.ReactElement {
   return (
     <Box marginRight={1}>
-      <Text color="cyan">
-        {isSelected ? "●" : " "}
+      <Text color="green">
+        {isSelected ? ">" : " "}
       </Text>
     </Box>
   );
@@ -180,7 +180,7 @@ function ItemComponent({
   return (
     <Box>
       <Text
-        color={isSelected ? "cyan" : "white"}
+        color={isSelected ? "green" : "white"}
         bold={isSelected}
       >
         {label}

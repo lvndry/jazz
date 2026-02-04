@@ -23,7 +23,7 @@ export interface LiveStreamState {
   reasoning?: string;
 }
 
-export type PromptType = "text" | "select" | "confirm" | "password" | "checkbox";
+export type PromptType = "text" | "select" | "confirm" | "password" | "checkbox" | "search";
 
 export interface Choice<T = unknown> {
   label: string;

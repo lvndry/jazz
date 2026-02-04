@@ -288,8 +288,41 @@ export class InkTerminalService implements TerminalService {
       choices: readonly (string | { name: string; value: T; description?: string })[];
     },
   ): Effect.Effect<T | undefined, never> {
-    // Basic search implementation mapping to Select for now
-    return this.select(message, options);
+    return Effect.async<T, Error>((resume) => {
+      // Normalize choices for SearchSelect
+      const choices = options.choices.map((c) => {
+        if (typeof c === "string") return { label: c, value: c as unknown as T };
+        return { label: c.name, value: c.value };
+      });
+
+      store.setPrompt({
+        type: "search",
+        message,
+        options: { choices },
+        resolve: (val: unknown) => {
+          store.setPrompt(null);
+          // Find label for log
+          const choice = choices.find((c) => c.value === val);
+          store.printOutput({
+            type: "log",
+            message: `${message} ${chalk.green(choice?.label ?? "")}`,
+            timestamp: new Date(),
+          });
+          resume(Effect.succeed(val as T));
+        },
+        reject: () => {
+          store.setPrompt(null);
+          store.printOutput({
+            type: "log",
+            message: `${message} ${chalk.dim('(cancelled)')}`,
+            timestamp: new Date(),
+          });
+          resume(Effect.fail(new Error("PromptCancelled")));
+        },
+      });
+    }).pipe(
+      Effect.catchAll(() => Effect.succeed(undefined))
+    );
   }
 
   checkbox<T = string>(
