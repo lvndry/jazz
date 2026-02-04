@@ -200,6 +200,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     ...(override.mcpServers && {
       mcpServers: { ...(base.mcpServers ?? {}), ...override.mcpServers },
     }),
+    ...(override.notifications && {
+      notifications: { ...(base.notifications ?? {}), ...override.notifications },
+    }),
   };
 }
 
