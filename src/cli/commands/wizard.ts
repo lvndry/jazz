@@ -222,8 +222,6 @@ export function wizardCommand() {
     }
 
     yield* terminal.log("");
-    // Explicitly exit so the process terminates (avoids hanging on open handles e.g. stdin/Ink)
-    // eslint-disable-next-line n/no-process-exit
     yield* Effect.sync(() => process.exit(0));
   }).pipe(
     Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e))))
