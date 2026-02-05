@@ -16,9 +16,10 @@ import {
 } from "@/core/workflows/catch-up";
 import {
   addRunRecord,
+  getRecentRuns,
+  getRunHistoryFilePath,
   loadRunHistory,
   updateLatestRunRecord,
-  getRecentRuns,
 } from "@/core/workflows/run-history";
 import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
 import {
@@ -591,6 +592,7 @@ export function workflowHistoryCommand(workflowName?: string) {
 
     if (filteredRuns.length === 0) {
       yield* terminal.info("No run history found.");
+      yield* terminal.log(`   History file: ${getRunHistoryFilePath()}`);
       return;
     }
 

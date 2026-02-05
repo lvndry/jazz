@@ -754,7 +754,7 @@ class InkPresentationService implements PresentationService {
     });
     store.printOutput({
       type: "log",
-      message: `${request.message}\n`,
+      message: `${chalk.bold(request.message)}\n`,
       timestamp: new Date(),
     });
     store.printOutput({

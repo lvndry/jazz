@@ -443,10 +443,19 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
     }
 
     default: {
+      // Surface actual error type and message for unhandled tagged errors (e.g. new error types)
+      const tag = error._tag;
+      const message =
+        "message" in error && typeof (error as { message?: unknown }).message === "string"
+          ? (error as { message: string }).message
+          : "reason" in error && typeof (error as { reason?: unknown }).reason === "string"
+            ? (error as { reason: string }).reason
+            : "An unexpected error occurred";
       return {
-        title: "Unknown Error",
-        message: "An unexpected error occurred",
-        suggestion: "Please report this error to the development team",
+        title: tag ?? "Unknown Error",
+        message: message,
+        suggestion:
+          "Please report this error to the development team (include the error type and message above).",
         recovery: ["Check application logs", "Restart the application", "Report the issue"],
         relatedCommands: ["jazz logs", "jazz --help"],
       };
@@ -536,6 +545,25 @@ export function handleError(error: JazzError | Error): Effect.Effect<void, never
       (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
     ) {
       yield* terminal.log("\n👋 Goodbye!");
+      return;
+    }
+
+    // Effect.tryPromise / Effect.try failures: surface the underlying cause (Effect's UnknownException)
+    const unknownException =
+      typeof error === "object" &&
+      error !== null &&
+      "_tag" in error &&
+      (error as { _tag: string })._tag === "UnknownException" &&
+      "error" in error
+        ? (error as { error: unknown })
+        : null;
+    if (unknownException) {
+      const cause = unknownException.error;
+      const message =
+        cause instanceof Error ? cause.message : typeof cause === "string" ? cause : String(cause);
+      yield* terminal.log(
+        `❌ Error\n   ${message}\n\n💡 Suggestion: Check the error details and try again.\n\n📚 Related Commands:\n   • jazz logs\n   • jazz --help`,
+      );
       return;
     }
 

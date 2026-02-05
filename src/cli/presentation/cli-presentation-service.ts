@@ -177,7 +177,7 @@ export class CLIPresentationService implements PresentationService {
       // Write the approval details
       yield* this.writeOutput(`\n${separator}\n`);
       yield* this.writeOutput(`${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n\n`);
-      yield* this.writeOutput(`${request.message}\n\n`);
+      yield* this.writeOutput(`${chalk.bold(request.message)}\n\n`);
       yield* this.writeOutput(`${separator}\n`);
 
       // Prompt for confirmation (default to Yes for faster workflow)
