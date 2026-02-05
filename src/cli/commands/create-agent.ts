@@ -111,7 +111,7 @@ export function createAgentCommand(): Effect.Effect<
     const configService = yield* AgentConfigServiceTag;
     const toolRegistry = yield* ToolRegistryTag;
 
-    const agentTypes = yield* agentPromptBuilder.listTemplates();
+    const agentTypes = yield* agentPromptBuilder.listPersonas();
     let toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
     const mcpServerData = yield* getMCPServerCategories();
@@ -350,8 +350,8 @@ async function promptForAgentInfo(
     terminal.info("💡 Tip: Press ESC at any step to go back to the previous choice."),
   );
 
-  // Step navigation helper
-  const hint = " (ESC to go back)";
+
+  const hint = "(ESC to go back)";
 
   while (state.step !== "done") {
     switch (state.step) {
@@ -429,7 +429,7 @@ async function promptForAgentInfo(
       // ═══════════════════════════════════════════════════════════════════════
       case "model": {
         const result = await Effect.runPromise(
-          terminal.search<string>(`Which model would you like to use?${hint}`, {
+          terminal.search<string>(`Which model would you like to use? ${hint}`, {
             choices: state.providerInfo!.supportedModels.map((model) => ({
               name: model.displayName || model.id,
               description: model.displayName || model.id,
@@ -460,7 +460,7 @@ async function promptForAgentInfo(
       case "reasoning": {
         const result = await Effect.runPromise(
           terminal.select<"disable" | "low" | "medium" | "high">(
-            `What reasoning effort level would you like?${hint}`,
+            `What reasoning effort level would you like? ${hint}`,
             {
               choices: [
                 { name: "Low - Faster responses, basic reasoning", value: "low" },
@@ -488,7 +488,7 @@ async function promptForAgentInfo(
       // ═══════════════════════════════════════════════════════════════════════
       case "agentType": {
         const result = await Effect.runPromise(
-          terminal.select<string>(`What type of agent would you like to create?${hint}`, {
+          terminal.select<string>(`What persona should the agent have? ${hint}`, {
             choices: agentTypes,
             default: state.agentType ?? "default",
           }),
@@ -534,7 +534,7 @@ async function promptForAgentInfo(
         }
 
         const result = await Effect.runPromise(
-          terminal.ask(`Name of your new agent${hint}:`, askOptions),
+          terminal.ask(`Name of your new agent ${hint}:`, askOptions),
         );
 
         // ESC pressed - go back
@@ -575,7 +575,7 @@ async function promptForAgentInfo(
         }
 
         const result = await Effect.runPromise(
-          terminal.ask(`Describe what this agent will do${hint}:`, descOptions),
+          terminal.ask(`Describe what this agent will do ${hint}:`, descOptions),
         );
 
         // ESC pressed - go back
@@ -657,7 +657,7 @@ async function promptForAgentInfo(
         let shouldGoBack = false;
         while (true) {
           selectedTools = await Effect.runPromise(
-            terminal.checkbox<string>(`Which tools should this agent have access to?${hint}`, {
+            terminal.checkbox<string>(`Which tools should this agent have access to? ${hint}`, {
               choices: Object.entries(toolsByCategory)
                 .filter(
                   ([category]) =>

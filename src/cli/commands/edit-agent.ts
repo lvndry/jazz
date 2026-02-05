@@ -91,7 +91,7 @@ export function editAgentCommand(
     const providers = yield* llmService.listProviders();
 
     // Get available agent types
-    const agentTypes = yield* agentPromptBuilder.listTemplates();
+    const agentTypes = yield* agentPromptBuilder.listPersonas();
 
     // Get available tools by category
     const toolRegistry = yield* ToolRegistryTag;
@@ -501,7 +501,7 @@ async function promptForAgentUpdates(
   // Update agent type
   if (fieldToUpdate === "agentType") {
     const agentType = await Effect.runPromise(
-      terminal.select<string>("Select agent type:", {
+      terminal.select<string>("Select agent persona:", {
         choices: agentTypes.map((type) => ({ name: type, value: type })),
         ...(currentAgent.config.agentType || agentTypes[0]
           ? { default: currentAgent.config.agentType || agentTypes[0] }
