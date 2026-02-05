@@ -16,34 +16,33 @@ export function createContextInfoTool(): Tool<never> {
     riskLevel: "read-only",
     hidden: false,
     createSummary: undefined,
-    execute: (_args, context) =>
-      Effect.gen(function* () {
-        // Token stats are passed via context from the executor
-        const currentTokens = context.tokenStats?.currentTokens ?? 0;
-        const maxTokens = context.tokenStats?.maxTokens ?? 150_000;
-        const percentUsed = Math.round((currentTokens / maxTokens) * 100);
-        const remainingTokens = maxTokens - currentTokens;
+    execute: (_args, context) => {
+      // Token stats are passed via context from the executor
+      const currentTokens = context.tokenStats?.currentTokens ?? 0;
+      const maxTokens = context.tokenStats?.maxTokens ?? 150_000;
+      const percentUsed = Math.round((currentTokens / maxTokens) * 100);
+      const remainingTokens = maxTokens - currentTokens;
 
-        let recommendation: string;
-        if (percentUsed < 50) {
-          recommendation = "Context budget is healthy. Proceed normally.";
-        } else if (percentUsed < 80) {
-          recommendation = "Context is moderately used. Consider being concise.";
-        } else {
-          recommendation =
-            "Context is limited. Complete current task or consider summarizing earlier context.";
-        }
+      let recommendation: string;
+      if (percentUsed < 50) {
+        recommendation = "Context budget is healthy. Proceed normally.";
+      } else if (percentUsed < 80) {
+        recommendation = "Context is moderately used. Consider being concise.";
+      } else {
+        recommendation =
+          "Context is limited. Complete current task or consider summarizing earlier context.";
+      }
 
-        return {
-          success: true,
-          result: {
-            estimatedTokensUsed: currentTokens,
-            maxTokens,
-            remainingTokens,
-            percentUsed,
-            recommendation,
-          },
-        } satisfies ToolExecutionResult;
-      }),
+      return Effect.succeed({
+        success: true,
+        result: {
+          estimatedTokensUsed: currentTokens,
+          maxTokens,
+          remainingTokens,
+          percentUsed,
+          recommendation,
+        },
+      } satisfies ToolExecutionResult);
+    },
   };
 }
