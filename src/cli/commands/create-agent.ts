@@ -10,9 +10,8 @@ import {
   GMAIL_CATEGORY,
   HTTP_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
-  SKILLS_CATEGORY,
-  USER_INTERACTION_CATEGORY,
   WEB_SEARCH_CATEGORY,
+  BUILTIN_TOOL_CATEGORIES,
 } from "@/core/agent/tools/register-tools";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -665,8 +664,7 @@ async function promptForAgentInfo(
               choices: Object.entries(toolsByCategory)
                 .filter(
                   ([category]) =>
-                    category !== SKILLS_CATEGORY.displayName &&
-                    category !== USER_INTERACTION_CATEGORY.displayName,
+                    !BUILTIN_TOOL_CATEGORIES.some((c) => c.displayName === category),
                 )
                 .map(([category, toolsInCategory]) => ({
                   name:

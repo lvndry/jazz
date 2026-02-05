@@ -508,6 +508,15 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
 ] as const;
 
 /**
+ * Builtin tool categories that are managed internally and hidden from manual selection
+ */
+export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
+  SKILLS_CATEGORY,
+  USER_INTERACTION_CATEGORY,
+  CONTEXT_CATEGORY,
+] as const;
+
+/**
  * Create mappings between category display names and IDs
  */
 export function createCategoryMappings(): {
