@@ -7,7 +7,6 @@ import {
   FILE_MANAGEMENT_CATEGORY,
   getMCPServerCategories,
   GIT_CATEGORY,
-  GMAIL_CATEGORY,
   HTTP_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
@@ -68,16 +67,14 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
       WEB_SEARCH_CATEGORY.id,
     ],
   },
-  gmail: {
-    id: "gmail",
-    displayName: "Gmail",
-    emoji: "📧",
+  researcher: {
+    id: "researcher",
+    displayName: "Researcher",
+    emoji: "🔬",
     toolCategoryIds: [
-      GMAIL_CATEGORY.id,
-      HTTP_CATEGORY.id,
       WEB_SEARCH_CATEGORY.id,
+      HTTP_CATEGORY.id,
       FILE_MANAGEMENT_CATEGORY.id,
-      SHELL_COMMANDS_CATEGORY.id,
     ],
   },
 } as const;

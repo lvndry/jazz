@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import * as os from "os";
 import { Effect } from "effect";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
-import { CODER_PROMPT_V1 } from "./prompts/coder/v1";
-import { DEFAULT_PROMPT_V2 } from "./prompts/default/v2";
-import { GMAIL_PROMPT_V2 } from "./prompts/gmail/v2";
+import { CODER_PROMPT } from "./prompts/coder/system";
+import { DEFAULT_PROMPT } from "./prompts/default/system";
+import { RESEARCHER_PROMPT } from "./prompts/researcher/system";
 import { SKILLS_INSTRUCTIONS } from "./prompts/shared";
-import { SUMMARIZER_PROMPT_V1 } from "./prompts/summarizer/v1";
+import { SUMMARIZER_PROMPT } from "./prompts/summarizer/system";
 
 export interface AgentPromptTemplate {
   readonly name: string;
@@ -34,27 +34,28 @@ export class AgentPromptBuilder {
       default: {
         name: "Default Agent",
         description: "A general-purpose agent that can assist with various tasks.",
-        systemPrompt: DEFAULT_PROMPT_V2,
-        userPromptTemplate: "{userInput}",
-      },
-      gmail: {
-        name: "Gmail Agent",
-        description: "An agent specialized in handling email-related tasks.",
-        systemPrompt: GMAIL_PROMPT_V2,
+        systemPrompt: DEFAULT_PROMPT,
         userPromptTemplate: "{userInput}",
       },
       coder: {
         name: "Coder Agent",
         description:
           "An expert software engineer and architect specialized in code analysis, debugging, and implementation with deep context awareness.",
-        systemPrompt: CODER_PROMPT_V1,
+        systemPrompt: CODER_PROMPT,
+        userPromptTemplate: "{userInput}",
+      },
+      researcher: {
+        name: "Researcher Agent",
+        description:
+          "A meticulous researcher and scientist specialized in deep exploration, source synthesis, and evidence-backed conclusions.",
+        systemPrompt: RESEARCHER_PROMPT,
         userPromptTemplate: "{userInput}",
       },
       summarizer: {
         name: "Summarizer Agent",
         description:
           "An agent specialized in compressing conversation history while maintaining semantic fidelity.",
-        systemPrompt: SUMMARIZER_PROMPT_V1,
+        systemPrompt: SUMMARIZER_PROMPT,
         userPromptTemplate: "{userInput}",
       },
     };
