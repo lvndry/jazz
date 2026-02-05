@@ -4,6 +4,18 @@ import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import type { DisplayConfig } from "../types";
 
 /**
+ * A suggested response with optional label and description.
+ */
+export interface Suggestion {
+  /** The value to return when this suggestion is picked */
+  readonly value: string;
+  /** Optional label to display instead of the value */
+  readonly label?: string | undefined;
+  /** Optional detailed description to display below the suggestion */
+  readonly description?: string | undefined;
+}
+
+/**
  * Request for user input with optional suggested responses.
  * Used by the ask_user tool to gather clarifications.
  */
@@ -11,7 +23,7 @@ export interface UserInputRequest {
   /** The question to display to the user */
   readonly question: string;
   /** Optional suggested responses the user can pick from */
-  readonly suggestions: readonly string[];
+  readonly suggestions: readonly Suggestion[];
   /** Whether to allow custom text input in addition to suggestions */
   readonly allowCustom: boolean;
 }

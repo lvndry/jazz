@@ -7,7 +7,13 @@ import { defineTool, makeZodValidator } from "./base-tool";
 const askUserSchema = z.object({
   question: z.string().describe("A single, clear question to ask the user"),
   suggested_responses: z
-    .array(z.string())
+    .array(
+      z.object({
+        value: z.string(),
+        label: z.string().optional(),
+        description: z.string().optional(),
+      }),
+    )
     .min(2)
     .describe(
       "At least 2 suggested responses the user can pick from. Keep suggestions concise and actionable.",

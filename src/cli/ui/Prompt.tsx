@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Suggestion } from "@/core/interfaces/presentation";
 import {
   filterCommandsByPrefix,
   type ChatCommandInfo,
@@ -314,7 +315,7 @@ function PromptComponent({
         )}
         {prompt.type === "questionnaire" && (
           <Questionnaire
-            suggestions={(prompt.options?.["suggestions"] as readonly string[]) ?? []}
+            suggestions={(prompt.options?.["suggestions"] as readonly Suggestion[]) ?? []}
             allowCustom={(prompt.options?.["allowCustom"] as boolean) !== false}
             onSubmit={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}

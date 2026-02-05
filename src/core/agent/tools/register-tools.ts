@@ -444,7 +444,7 @@ export const SHELL_COMMANDS_CATEGORY: ToolCategory = {
   displayName: "Shell Commands",
 };
 export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
-export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Search" };
+export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Web Search" };
 export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
 export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Context" };
 export const USER_INTERACTION_CATEGORY: ToolCategory = { id: "user_interaction", displayName: "User Interaction" };

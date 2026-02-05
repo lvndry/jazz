@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { Effect, Layer } from "effect";
-import { createWebSearchTool } from "./web-search-tools";
+import { createWebSearchTool, DEFAULT_MAX_RESULTS, type WebSearchArgs } from "./web-search-tools";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import type { AppConfig } from "../../types";
@@ -32,187 +32,189 @@ describe("WebSearchTool", () => {
     vi.clearAllMocks();
   });
 
+  const createMockServices = (config: AppConfig, apiKeys: Record<string, string> = {}) => {
+    const mockConfigService = {
+      get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
+      getOrElse: vi.fn().mockImplementation((key: string) => {
+        const provider = key.split(".")[1];
+        if (apiKeys[provider]) return Effect.succeed(apiKeys[provider]);
+        return Effect.succeed("");
+      }),
+      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),
+      has: vi.fn().mockReturnValue(Effect.succeed(false)),
+      set: vi.fn().mockReturnValue(Effect.succeed(undefined)),
+      appConfig: Effect.succeed(config),
+    };
+
+    const mockLoggerService = {
+      debug: vi.fn().mockReturnValue(Effect.void),
+      info: vi.fn().mockReturnValue(Effect.void),
+      warn: vi.fn().mockReturnValue(Effect.void),
+      error: vi.fn().mockReturnValue(Effect.void),
+      writeToFile: vi.fn().mockReturnValue(Effect.void),
+      logToolCall: vi.fn().mockReturnValue(Effect.void),
+      setSessionId: vi.fn().mockReturnValue(Effect.void),
+      clearSessionId: vi.fn().mockReturnValue(Effect.void),
+    };
+
+    return Layer.merge(
+      Layer.succeed(AgentConfigServiceTag, mockConfigService as any),
+      Layer.succeed(LoggerServiceTag, mockLoggerService as any),
+    );
+  };
+
   it("should create a web search tool with correct structure", () => {
     const tool = createWebSearchTool();
 
     expect(tool.name).toBe("web_search");
     expect(tool.description).toBeTruthy();
-    expect(tool.description.length).toBeGreaterThan(20); // Ensure description is meaningful
+    expect(tool.description.length).toBeGreaterThan(20);
     expect(tool.hidden).toBe(false);
     expect(tool.execute).toBeDefined();
-    expect(typeof tool.execute).toBe("function");
     expect(tool.createSummary).toBeDefined();
-    expect(typeof tool.createSummary).toBe("function");
   });
 
   it("should have correct parameter schema", () => {
     const tool = createWebSearchTool();
-
-    // Check if parameters is a Zod schema (it should be)
     expect(tool.parameters).toBeDefined();
-    expect(typeof tool.parameters).toBe("object");
-
-    // For Zod schemas, we check for _def property instead of type/properties
     expect(tool.parameters).toHaveProperty("_def");
 
-    // Check that the schema has the expected shape properties
     const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
     expect(schema._def.shape).toHaveProperty("query");
     expect(schema._def.shape).toHaveProperty("depth");
     expect(schema._def.shape).toHaveProperty("fromDate");
     expect(schema._def.shape).toHaveProperty("toDate");
+    expect(schema._def.shape).toHaveProperty("maxResults");
   });
 
-  it("should validate arguments correctly", async () => {
-    const tool = createWebSearchTool();
+  describe("Provider Execution", () => {
+    const originalFetch = global.fetch;
 
-    // Mock config service
-    const mockConfigService = {
-      get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
-      getOrElse: vi.fn().mockImplementation((key) => {
-        if (key === "web_search.exa.api_key") return Effect.succeed("");
-        if (key === "web_search.parallel.api_key") return Effect.succeed("");
-        return Effect.succeed("default");
-      }),
-      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),
-      has: vi.fn().mockReturnValue(Effect.succeed(false)),
-      set: vi.fn().mockReturnValue(Effect.succeed(undefined)),
-      appConfig: Effect.succeed(mockAppConfig),
-    };
-
-    const mockLoggerService = {
-      debug: vi.fn().mockReturnValue(Effect.void),
-      info: vi.fn().mockReturnValue(Effect.void),
-      warn: vi.fn().mockReturnValue(Effect.void),
-      error: vi.fn().mockReturnValue(Effect.void),
-      writeToFile: vi.fn().mockReturnValue(Effect.void),
-      logToolCall: vi.fn().mockReturnValue(Effect.void),
-      setSessionId: vi.fn().mockReturnValue(Effect.void),
-      clearSessionId: vi.fn().mockReturnValue(Effect.void),
-    };
-
-    const mockLayer = Layer.merge(
-      Layer.succeed(AgentConfigServiceTag, mockConfigService),
-      Layer.succeed(LoggerServiceTag, mockLoggerService),
-    );
-
-    const validArgs = {
-      query: "test search",
-      depth: "standard" as const,
-    };
-    const validationResult = await Effect.runPromise(
-      Effect.provide(tool.execute(validArgs, { agentId: "test" }), mockLayer),
-    );
-    expect(validationResult).toBeDefined();
-
-    const invalidArgs = { query: 123 }; // Invalid type
-    const invalidResult = await Effect.runPromise(
-      Effect.provide(tool.execute(invalidArgs, { agentId: "test" }), mockLayer),
-    );
-    expect(invalidResult).toBeDefined();
-  });
-
-  it("should use the configured provider (Exa)", async () => {
-    const tool = createWebSearchTool();
-
-    // Mock config service: Exa is configured and selected
-    const mockConfigService = {
-      get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
-      getOrElse: vi.fn().mockImplementation((key) => {
-        if (key === "web_search.exa.api_key") return Effect.succeed("exa-key");
-        if (key === "web_search.parallel.api_key") return Effect.succeed("");
-        return Effect.succeed("default");
-      }),
-      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),
-      has: vi.fn().mockReturnValue(Effect.succeed(false)),
-      set: vi.fn().mockReturnValue(Effect.succeed(undefined)),
-      appConfig: Effect.succeed(mockAppConfig),
-    };
-
-    const mockLoggerService = {
-      debug: vi.fn().mockReturnValue(Effect.void),
-      info: vi.fn().mockReturnValue(Effect.void),
-      warn: vi.fn().mockReturnValue(Effect.void),
-      error: vi.fn().mockReturnValue(Effect.void),
-      writeToFile: vi.fn().mockReturnValue(Effect.void),
-      logToolCall: vi.fn().mockReturnValue(Effect.void),
-      setSessionId: vi.fn().mockReturnValue(Effect.void),
-      clearSessionId: vi.fn().mockReturnValue(Effect.void),
-    };
-
-    const mockLayer = Layer.merge(
-      Layer.succeed(AgentConfigServiceTag, mockConfigService),
-      Layer.succeed(LoggerServiceTag, mockLoggerService),
-    );
-
-    // Mock Exa response
-    mockExaSearch.mockResolvedValue({
-      results: [
-        {
-          title: "Exa Result",
-          url: "https://exa.ai",
-          text: "This is a result from Exa",
-        },
-      ],
+    beforeEach(() => {
+      global.fetch = vi.fn() as any;
     });
 
-    const context = {
-      agentId: "test-agent",
-      conversationId: "test-conversation",
-    };
+    afterAll(() => {
+      global.fetch = originalFetch;
+    });
 
-    const args = {
-      query: "test search",
-      depth: "standard" as const,
-    };
+    const providers = [
+      {
+        name: "exa",
+        apiKey: "exa-key",
+        setupMock: () => {
+          mockExaSearch.mockResolvedValue({
+            results: [{ title: "Exa Result", url: "https://exa.ai", text: "Exa snippet" }],
+          });
+        },
+        verifyMock: (args: WebSearchArgs) => {
+          expect(mockExaSearch).toHaveBeenCalledWith(
+            args.query,
+            expect.objectContaining({ numResults: args.maxResults ?? DEFAULT_MAX_RESULTS })
+          );
+        }
+      },
+      {
+        name: "brave",
+        apiKey: "brave-key",
+        setupMock: () => {
+          (global.fetch as any).mockResolvedValue({
+            ok: true,
+            json: async () => ({
+              web: { results: [{ title: "Brave Result", url: "https://brave.com", description: "Brave snippet" }] },
+            }),
+          });
+        },
+        verifyMock: (args: WebSearchArgs) => {
+          const lastCall = (global.fetch as any).mock.calls[0][0];
+          const url = new URL(lastCall);
+          expect(url.searchParams.get("count")).toBe((args.maxResults ?? DEFAULT_MAX_RESULTS).toString());
+        }
+      },
+      {
+        name: "perplexity",
+        apiKey: "pplx-key",
+        setupMock: () => {
+          (global.fetch as any).mockResolvedValue({
+            ok: true,
+            json: async () => ({
+              results: [{ title: "Perplexity Result", url: "https://perplexity.ai", snippet: "Pplx snippet" }],
+            }),
+          });
+        },
+        verifyMock: (args: WebSearchArgs) => {
+          const lastCallBody = JSON.parse((global.fetch as any).mock.calls[0][1].body);
+          expect(lastCallBody.max_results).toBe(args.maxResults ?? DEFAULT_MAX_RESULTS);
+        }
+      }
+    ];
 
-    const result = (await Effect.runPromise(
-      tool.execute(args, context).pipe(Effect.provide(mockLayer)),
-    )) as { success: boolean; result?: unknown };
+    describe.each(providers)("Provider: $name", (provider) => {
+      it(`should use the configured provider (${provider.name})`, async () => {
+        const tool = createWebSearchTool();
+        const config = { ...mockAppConfig, web_search: { provider: provider.name as any } };
+        const layer = createMockServices(config, { [provider.name]: provider.apiKey });
 
-    expect(result.success).toBe(true);
-    expect(result.result).toBeDefined();
+        provider.setupMock();
 
-    const searchResult = result.result as {
-      provider: string;
-      query: string;
-      results: Array<{ title: string }>;
-    };
-    expect(searchResult.provider).toBe("exa");
-    expect(searchResult.query).toBe("test search");
-    expect(searchResult.results).toHaveLength(1);
-    expect(searchResult.results[0]!.title).toBe("Exa Result");
+        const result = await Effect.runPromise(
+          tool.execute({ query: "test" }, { agentId: "test" }).pipe(Effect.provide(layer))
+        );
+
+        expect((result as any).success).toBe(true);
+        expect((result as any).result.provider).toBe(provider.name);
+        expect((result as any).result.results[0].title).toContain(provider.name.charAt(0).toUpperCase() + provider.name.slice(1));
+      });
+
+      it(`should pass maxResults to ${provider.name}`, async () => {
+        const tool = createWebSearchTool();
+        const config = { ...mockAppConfig, web_search: { provider: provider.name as any } };
+        const layer = createMockServices(config, { [provider.name]: provider.apiKey });
+
+        provider.setupMock();
+
+        const args = { query: "test", maxResults: 10 };
+        await Effect.runPromise(
+          tool.execute(args, { agentId: "test" }).pipe(Effect.provide(layer))
+        );
+
+        provider.verifyMock(args);
+      });
+
+      it(`should use default maxResults if not provided to ${provider.name}`, async () => {
+        const tool = createWebSearchTool();
+        const config = { ...mockAppConfig, web_search: { provider: provider.name as any } };
+        const layer = createMockServices(config, { [provider.name]: provider.apiKey });
+
+        provider.setupMock();
+
+        const args = { query: "test" };
+        await Effect.runPromise(
+          tool.execute(args, { agentId: "test" }).pipe(Effect.provide(layer))
+        );
+
+        provider.verifyMock(args);
+      });
+    });
   });
 
-  it("should create correct summary", () => {
-    const tool = createWebSearchTool();
+  describe("Summaries", () => {
+    it("should create correct summary", () => {
+      const tool = createWebSearchTool();
+      const mockResult = {
+        success: true,
+        result: { totalResults: 5, query: "test search", provider: "exa" },
+      };
+      expect(tool.createSummary?.(mockResult)).toBe('Found 5 results for "test search" using exa');
+    });
 
-    const mockResult = {
-      success: true,
-      result: {
-        totalResults: 5,
-        query: "test search",
-        provider: "exa",
-      },
-    };
-
-    const summary = tool.createSummary?.(mockResult);
-    expect(summary).toBe('Found 5 results for "test search" using exa');
-  });
-
-  it("should handle web search fallback summary", () => {
-    const tool = createWebSearchTool();
-
-    const mockResult = {
-      success: true,
-      result: {
-        totalResults: 1,
-        query: "fallback test",
-        provider: "web_search",
-      },
-    };
-
-    const summary = tool.createSummary?.(mockResult);
-    expect(summary).toBe('Found 1 results for "fallback test" using web_search');
+    it("should handle web search fallback summary", () => {
+      const tool = createWebSearchTool();
+      const mockResult = {
+        success: true,
+        result: { totalResults: 1, query: "fallback test", provider: "web_search" },
+      };
+      expect(tool.createSummary?.(mockResult)).toBe('Found 1 results for "fallback test" using web_search');
+    });
   });
 });

@@ -77,5 +77,7 @@ export interface WebSearchConfig {
   readonly exa?: WebSearchProviderConfig;
   readonly parallel?: WebSearchProviderConfig;
   readonly tavily?: WebSearchProviderConfig;
-  readonly provider?: "exa" | "parallel" | "tavily";
+  readonly brave?: WebSearchProviderConfig;
+  readonly perplexity?: WebSearchProviderConfig;
+  readonly provider?: "exa" | "parallel" | "tavily" | "brave" | "perplexity";
 }
