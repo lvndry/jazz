@@ -119,21 +119,19 @@ export function createWebSearchTool(): ReturnType<
         // Get web search config
         const appConfig = yield* config.appConfig;
         const webSearchConfig: WebSearchConfig | undefined = appConfig.web_search;
-        const priorityOrder: readonly string[] = webSearchConfig?.priority_order ?? [
-          "parallel",
-          "exa",
-          "tavily",
-        ];
+        const selectedProvider = webSearchConfig?.provider;
 
-        // Build provider registry with API keys
-        const providers: Array<{
-          name: string;
-          apiKey: string;
-          execute: (
-            args: WebSearchArgs,
-            apiKey: string,
-          ) => Effect.Effect<WebSearchResult, Error, LoggerService>;
-        }> = [];
+        // If no external provider is configured, the AI SDK service will handle
+        // using the provider-native web search (if available). This tool handler
+        // should only execute when an external provider (Parallel, Exa, Tavily) is selected.
+        if (!selectedProvider) {
+          return {
+            success: false,
+            result: null,
+            error:
+              "No external web search provider configured. If your LLM provider supports built-in web search, it will be used automatically. Otherwise, please configure an external provider (Parallel, Exa, or Tavily) in settings.",
+          };
+        }
 
         const getApiKey = (
           providerName: string,
@@ -142,79 +140,53 @@ export function createWebSearchTool(): ReturnType<
             return yield* config.getOrElse(`web_search.${providerName}.api_key`, "");
           });
 
-        // Register available providers
-        const exaKey = yield* getApiKey("exa");
-        if (exaKey) {
-          providers.push({
-            name: "exa",
-            apiKey: exaKey,
-            execute: executeExaSearch,
-          });
-        }
+        // Get API key for the selected provider
+        const apiKey = yield* getApiKey(selectedProvider);
 
-        const parallelKey = yield* getApiKey("parallel");
-        if (parallelKey) {
-          providers.push({
-            name: "parallel",
-            apiKey: parallelKey,
-            execute: executeParallelSearch,
-          });
-        }
-
-        const tavilyKey = yield* getApiKey("tavily");
-        if (tavilyKey) {
-          providers.push({
-            name: "tavily",
-            apiKey: tavilyKey,
-            execute: executeTavilySearch,
-          });
-        }
-
-        if (providers.length === 0) {
+        if (!apiKey) {
           return {
             success: false,
             result: null,
-            error:
-              "No search provider API keys found. Please configure 'web_search.<provider>.api_key' (e.g., 'web_search.parallel.api_key').",
+            error: `No API key configured for ${selectedProvider}. Please configure 'web_search.${selectedProvider}.api_key' in settings.`,
           };
         }
 
-        // Sort providers by priority order
-        const sortedProviders = providers.sort((a, b) => {
-          const aIndex = priorityOrder.indexOf(a.name);
-          const bIndex = priorityOrder.indexOf(b.name);
-          // If not in priority order, put at end
-          if (aIndex === -1 && bIndex === -1) return 0;
-          if (aIndex === -1) return 1;
-          if (bIndex === -1) return -1;
-          return aIndex - bIndex;
-        });
+        // Map provider name to execution function
+        const executorMap: Record<
+          "exa" | "parallel" | "tavily",
+          (args: WebSearchArgs, apiKey: string) => Effect.Effect<WebSearchResult, Error, LoggerService>
+        > = {
+          exa: executeExaSearch,
+          parallel: executeParallelSearch,
+          tavily: executeTavilySearch,
+        };
 
-        // Try providers in priority order
-        for (const provider of sortedProviders) {
-          yield* logger.info(`Attempting search with ${provider.name} provider...`);
-          const result = yield* provider.execute(args, provider.apiKey).pipe(
-            Effect.catchAll((error) => {
-              return logger
-                .warn(
-                  `${provider.name} search failed: ${error instanceof Error ? error.message : String(error)}`,
-                )
-                .pipe(Effect.map(() => null as WebSearchResult | null));
-            }),
-          );
+        const executor = executorMap[selectedProvider];
 
-          if (result) {
-            return {
-              success: true,
-              result,
-            };
-          }
+        yield* logger.info(`Executing search with ${selectedProvider} provider...`);
+
+        const result = yield* executor(args, apiKey).pipe(
+          Effect.catchAll((error) => {
+            return Effect.gen(function* () {
+              yield* logger.error(
+                `${selectedProvider} search failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
+              return null as WebSearchResult | null;
+            });
+          }),
+        );
+
+        if (result) {
+          return {
+            success: true,
+            result,
+          };
         }
 
         return {
           success: false,
           result: null,
-          error: "All search providers failed.",
+          error: `Search with ${selectedProvider} provider failed. Please check your configuration or try a different provider.`,
         };
       });
     },

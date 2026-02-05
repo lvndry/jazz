@@ -22,9 +22,9 @@ describe("WebSearchTool", () => {
 
   const mockAppConfig: AppConfig = {
     storage: { type: "file", path: "./.jazz" },
-    logging: { level: "info", format: "pretty", output: "console" },
+    logging: { level: "info", format: "plain" },
     web_search: {
-      priority_order: ["parallel", "exa"],
+      provider: "exa",
     },
   };
 
@@ -112,10 +112,10 @@ describe("WebSearchTool", () => {
     expect(invalidResult).toBeDefined();
   });
 
-  it("should fallback to Exa when Parallel is unavailable", async () => {
+  it("should use the configured provider (Exa)", async () => {
     const tool = createWebSearchTool();
 
-    // Mock config service: Parallel missing, Exa present
+    // Mock config service: Exa is configured and selected
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
       getOrElse: vi.fn().mockImplementation((key) => {
@@ -123,7 +123,7 @@ describe("WebSearchTool", () => {
         if (key === "web_search.parallel.api_key") return Effect.succeed("");
         return Effect.succeed("default");
       }),
-      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("Parallel API key not found"))),
+      getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),
       has: vi.fn().mockReturnValue(Effect.succeed(false)),
       set: vi.fn().mockReturnValue(Effect.succeed(undefined)),
       appConfig: Effect.succeed(mockAppConfig),

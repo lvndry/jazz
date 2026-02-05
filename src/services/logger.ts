@@ -1,10 +1,32 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { encode as encodeToon } from "@toon-format/toon";
 import { Effect, Layer, Option, Ref } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { jsonBigIntReplacer } from "@/core/utils/logging-helpers";
 import { isRunningFromGlobalInstall } from "@/core/utils/runtime-detection";
+
+let globalLogFormat: "json" | "plain" | "toon" = "plain";
+let globalLogLevel: "debug" | "info" | "warn" | "error" = "info";
+
+/**
+ * Log level priority for filtering
+ * Higher number = higher priority
+ */
+const LOG_LEVEL_PRIORITY: Record<"debug" | "info" | "warn" | "error", number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+
+/**
+ * Check if a log at the given level should be written based on the configured level
+ */
+function shouldLog(level: "debug" | "info" | "warn" | "error"): boolean {
+  return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[globalLogLevel];
+}
 
 /**
  * Log Write Queue
@@ -53,7 +75,7 @@ class LogWriteQueue {
 const logQueue = new LogWriteQueue();
 
 /**
- * Provides a custom logger implementation that maintains pretty formatting
+ * Provides a custom logger implementation that maintains plain formatting
  */
 
 export class LoggerServiceImpl implements LoggerService {
@@ -97,6 +119,7 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
+    if (!shouldLog("debug")) return Effect.void;
     const sessionIdRef = this.sessionIdRef;
     return Effect.gen(function* () {
       const sessionId = yield* Ref.get(sessionIdRef);
@@ -111,6 +134,7 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
+    if (!shouldLog("info")) return Effect.void;
     const sessionIdRef = this.sessionIdRef;
     return Effect.gen(function* () {
       const sessionId = yield* Ref.get(sessionIdRef);
@@ -125,6 +149,7 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
+    if (!shouldLog("warn")) return Effect.void;
     const sessionIdRef = this.sessionIdRef;
     return Effect.gen(function* () {
       const sessionId = yield* Ref.get(sessionIdRef);
@@ -139,6 +164,7 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   error(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
+    if (!shouldLog("error")) return Effect.void;
     const sessionIdRef = this.sessionIdRef;
     return Effect.gen(function* () {
       const sessionId = yield* Ref.get(sessionIdRef);
@@ -205,11 +231,114 @@ function formatLogLineForFile(
   level: "debug" | "info" | "warn" | "error",
   message: string,
   meta?: Record<string, unknown>,
+  sessionId?: string,
+): string {
+  if (globalLogFormat === "json") {
+    return formatLogLineAsJson(level, message, meta, sessionId);
+  }
+  if (globalLogFormat === "toon") {
+    return formatLogLineAsToon(level, message, meta, sessionId);
+  }
+  return formatLogLineAsPlain(level, message, meta);
+}
+
+/**
+ * Format log line as JSON (NDJSON - one JSON object per line)
+ * Compatible with jq and log processors like Datadog, Splunk
+ */
+export function formatLogLineAsJson(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  meta?: Record<string, unknown>,
+  sessionId?: string,
+): string {
+  const logEntry: Record<string, unknown> = {
+    timestamp: new Date().toISOString(),
+    level: level.toUpperCase(),
+    message,
+  };
+
+  if (sessionId) {
+    logEntry["sessionId"] = sessionId;
+  }
+
+  if (meta && Object.keys(meta).length > 0) {
+    // Spread meta fields at top level for easier querying
+    Object.assign(logEntry, meta);
+  }
+
+  return JSON.stringify(logEntry, jsonBigIntReplacer) + "\n";
+}
+
+/**
+ * Format log line as human-readable plain format
+ */
+export function formatLogLineAsPlain(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  meta?: Record<string, unknown>,
 ): string {
   const now = new Date();
   const metaText =
     meta && Object.keys(meta).length > 0 ? " " + JSON.stringify(meta, jsonBigIntReplacer) : "";
   return `${now.toLocaleDateString()} ${now.toLocaleTimeString()} [${level.toUpperCase()}] ${message}${metaText}\n`;
+}
+
+/**
+ * Format log line as TOON (Token-Oriented Object Notation)
+ * Optimized for LLM consumption with minimal token usage
+ */
+export function formatLogLineAsToon(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  meta?: Record<string, unknown>,
+  sessionId?: string,
+): string {
+  const logEntry: Record<string, unknown> = {
+    timestamp: new Date().toISOString(),
+    level: level.toUpperCase(),
+    message,
+  };
+
+  if (sessionId) {
+    logEntry["sessionId"] = sessionId;
+  }
+
+  if (meta && Object.keys(meta).length > 0) {
+    logEntry["meta"] = meta;
+  }
+
+  return encodeToon(logEntry) + "\n";
+}
+
+/**
+ * Set the global log format
+ * Call this during app initialization based on config
+ */
+export function setLogFormat(format: "json" | "plain" | "toon"): void {
+  globalLogFormat = format;
+}
+
+/**
+ * Get the current log format
+ */
+export function getLogFormat(): "json" | "plain" | "toon" {
+  return globalLogFormat;
+}
+
+/**
+ * Set the global log level
+ * Call this during app initialization based on config
+ */
+export function setLogLevel(level: "debug" | "info" | "warn" | "error"): void {
+  globalLogLevel = level;
+}
+
+/**
+ * Get the current log level
+ */
+export function getLogLevel(): "debug" | "info" | "warn" | "error" {
+  return globalLogLevel;
 }
 
 /**
@@ -243,7 +372,7 @@ function writeFormattedLogToSessionFile(
   // Sanitize sessionId for use in filename (remove invalid characters)
   const sanitizedId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
   const logFilePath = path.join(logsDir, `${sanitizedId}.log`);
-  const line = formatLogLineForFile(level, message, meta);
+  const line = formatLogLineForFile(level, message, meta, sessionId);
   logQueue.enqueue(logFilePath, line);
 }
 
@@ -261,6 +390,13 @@ function writeToolCallToSessionFile(
   // Sanitize sessionId for use in filename (remove invalid characters)
   const sanitizedId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
   const logFilePath = path.join(logsDir, `${sanitizedId}.log`);
+
+  if (getLogFormat() === "json") {
+    const line = formatLogLineAsJson("info", `Tool Call: ${toolName}`, args, sessionId);
+    logQueue.enqueue(logFilePath, line);
+    return;
+  }
+
   const timestamp = new Date().toISOString();
 
   // Format arguments as JSON
