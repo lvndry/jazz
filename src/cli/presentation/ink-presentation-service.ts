@@ -408,30 +408,33 @@ export class InkStreamingRenderer implements StreamingRenderer {
               const completionTokens = usage.completionTokens;
 
               // Fire-and-forget: fetch pricing and display cost
-              void getModelsDevMetadata(model, provider).then((meta) => {
-                if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
-                  const inputPrice = meta.inputPricePerMillion ?? 0;
-                  const outputPrice = meta.outputPricePerMillion ?? 0;
-                  const inputCost = (promptTokens / 1_000_000) * inputPrice;
-                  const outputCost = (completionTokens / 1_000_000) * outputPrice;
-                  const totalCost = inputCost + outputCost;
+              void getModelsDevMetadata(model, provider)
+                .then((meta) => {
+                  if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
+                    const inputPrice = meta.inputPricePerMillion ?? 0;
+                    const outputPrice = meta.outputPricePerMillion ?? 0;
+                    const inputCost = (promptTokens / 1_000_000) * inputPrice;
+                    const outputCost = (completionTokens / 1_000_000) * outputPrice;
+                    const totalCost = inputCost + outputCost;
 
-                  // Format cost display
-                  const formatCost = (cost: number): string => {
-                    if (cost === 0) return "$0.00";
-                    if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-                    if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-                    return `$${cost.toExponential(2)}`;
-                  };
+                    // Format cost display
+                    const formatCost = (cost: number): string => {
+                      if (cost === 0) return "$0.00";
+                      if (cost >= 0.01) return `$${cost.toFixed(2)}`;
+                      if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
+                      return `$${cost.toExponential(2)}`;
+                    };
 
-                  store.printOutput({
-                    type: "debug",
-                    message: `[Cost: ${formatCost(inputCost)} input + ${formatCost(outputCost)} output = ${formatCost(totalCost)} total]`,
-                    timestamp: new Date(),
-                  });
-                  store.printOutput({ type: "log", message: "", timestamp: new Date() });
-                }
-              });
+                    store.printOutput({
+                      type: "debug",
+                      message: `[Cost: ${formatCost(inputCost)} input + ${formatCost(outputCost)} output = ${formatCost(totalCost)} total]`,
+                      timestamp: new Date(),
+                    });
+                    store.printOutput({ type: "log", message: "", timestamp: new Date() });
+                  }
+                })
+                .catch(() => {
+                });
             } else {
               store.printOutput({ type: "log", message: "", timestamp: new Date() });
             }
