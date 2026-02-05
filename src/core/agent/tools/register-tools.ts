@@ -15,6 +15,7 @@ import type { ToolCategory } from "@/core/types";
 import type { MCPTool } from "@/core/types/mcp";
 import { toPascalCase } from "@/core/utils/string";
 import { calendar } from "./calendar";
+import { createContextInfoTool } from "./context-tools";
 import { fs } from "./fs";
 import { git } from "./git";
 import { gmail } from "./gmail";
@@ -57,6 +58,7 @@ export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDe
     yield* registerSearchTools();
     yield* registerHttpTools();
     yield* registerSkillSystemTools();
+    yield* registerContextTools();
     // MCP tools registered without connecting - they connect lazily on first use
     yield* registerMCPToolsLazy();
   });
@@ -443,6 +445,7 @@ export const SHELL_COMMANDS_CATEGORY: ToolCategory = {
 export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
 export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Search" };
 export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
+export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Context" };
 
 /**
  * Get MCP server names as tool categories without connecting to servers
@@ -498,6 +501,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   GMAIL_CATEGORY,
   CALENDAR_CATEGORY,
   SKILLS_CATEGORY,
+  CONTEXT_CATEGORY,
 ] as const;
 
 /**
@@ -723,6 +727,16 @@ export function registerSkillSystemTools(): Effect.Effect<void, Error, ToolRegis
     for (const tool of skillTools) {
       yield* registerTool(tool);
     }
+  });
+}
+
+// Register context awareness tools
+export function registerContextTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(CONTEXT_CATEGORY);
+
+    yield* registerTool(createContextInfoTool());
   });
 }
 

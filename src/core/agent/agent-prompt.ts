@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as os from "os";
 import { Effect } from "effect";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
@@ -26,6 +27,7 @@ export interface AgentPromptOptions {
 
 export class AgentPromptBuilder {
   private templates: Record<string, AgentPromptTemplate>;
+  private systemPromptCache = new Map<string, string>();
 
   constructor() {
     this.templates = {
@@ -95,6 +97,23 @@ export class AgentPromptBuilder {
   }
 
   /**
+   * Compute a cache key for system prompt based on inputs that affect the output.
+   * Includes date string to invalidate daily (since prompts include current date).
+   */
+  private computeSystemPromptCacheKey(templateName: string, options: AgentPromptOptions): string {
+    const hash = createHash("md5");
+    hash.update(templateName);
+    hash.update(options.agentName);
+    hash.update(options.agentDescription);
+    if (options.knownSkills && options.knownSkills.length > 0) {
+      hash.update(JSON.stringify(options.knownSkills.map(s => s.name).sort()));
+    }
+    // Invalidate daily since prompts include current date
+    hash.update(new Date().toDateString());
+    return hash.digest("hex");
+  }
+
+  /**
    * Get a prompt template by name
    */
   getTemplate(name: string): Effect.Effect<AgentPromptTemplate, Error> {
@@ -126,11 +145,16 @@ export class AgentPromptBuilder {
   ): Effect.Effect<string, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
+        // Check cache first
+        const cacheKey = this.computeSystemPromptCacheKey(templateName, options);
+        const cached = this.systemPromptCache.get(cacheKey);
+        if (cached) return cached;
+
         const template = yield* this.getTemplate(templateName);
         const { currentDate, osInfo, shell, hostname, username } = yield* this.getSystemInfo();
 
         // Replace placeholders in system prompt
-        const systemPrompt = template.systemPrompt
+        let systemPrompt = template.systemPrompt
           .replace("{agentName}", options.agentName)
           .replace("{agentDescription}", options.agentDescription)
           .replace("{currentDate}", currentDate)
@@ -159,9 +183,11 @@ ${SKILLS_INSTRUCTIONS}
 ${skillsXml}
 </available_skills>
 `;
-          return systemPrompt + skillsSection;
+          systemPrompt = systemPrompt + skillsSection;
         }
 
+        // Cache the result
+        this.systemPromptCache.set(cacheKey, systemPrompt);
         return systemPrompt;
       }.bind(this),
     );

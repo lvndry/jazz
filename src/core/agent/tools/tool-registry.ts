@@ -28,6 +28,7 @@ class DefaultToolRegistry implements ToolRegistry {
   private tools: Map<string, Tool<ToolRequirements>>;
   private toolCategories: Map<string, string>; // tool name -> category id
   private categories: Map<string, ToolCategory>; // category id -> ToolCategory object
+  private cachedDefinitions: readonly ToolDefinition[] | null = null;
 
   constructor() {
     this.tools = new Map<string, Tool<ToolRequirements>>();
@@ -38,6 +39,7 @@ class DefaultToolRegistry implements ToolRegistry {
   registerTool(tool: Tool<ToolRequirements>, category?: ToolCategory): Effect.Effect<void, never> {
     return Effect.sync(() => {
       this.tools.set(tool.name, tool);
+      this.cachedDefinitions = null; // Invalidate cache on registration
       if (category) {
         this.toolCategories.set(tool.name, category.id);
 
@@ -79,6 +81,10 @@ class DefaultToolRegistry implements ToolRegistry {
 
   getToolDefinitions(): Effect.Effect<readonly ToolDefinition[], never> {
     return Effect.sync(() => {
+      if (this.cachedDefinitions !== null) {
+        return this.cachedDefinitions;
+      }
+
       const definitions: ToolDefinition[] = [];
 
       this.tools.forEach((tool) => {
@@ -92,6 +98,7 @@ class DefaultToolRegistry implements ToolRegistry {
         });
       });
 
+      this.cachedDefinitions = definitions;
       return definitions;
     });
   }

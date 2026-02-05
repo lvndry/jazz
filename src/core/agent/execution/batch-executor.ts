@@ -194,9 +194,17 @@ export function executeWithoutStreaming(
                 reasoning: completion.content,
               });
 
+              // Inject current token stats into context for tools like context_info
+              const contextWithTokenStats = {
+                ...context,
+                tokenStats: {
+                  currentTokens: DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages),
+                  maxTokens: DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens ?? 150_000,
+                },
+              };
               const toolResults = yield* ToolExecutor.executeToolCalls(
                 completion.toolCalls,
-                context,
+                contextWithTokenStats,
                 displayConfig,
                 null, // No renderer for non-streaming
                 runMetrics,

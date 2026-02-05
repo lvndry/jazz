@@ -68,7 +68,8 @@ function parseSkillFrontmatter(data: Record<string, unknown>, skillPath: string)
 export class SkillsLive implements SkillService {
   private constructor(
     private readonly globalCachePath: string,
-    private readonly loadedSkills: Ref.Ref<Map<string, SkillContent>>
+    private readonly loadedSkills: Ref.Ref<Map<string, SkillContent>>,
+    private readonly skillsListCache: Ref.Ref<readonly SkillMetadata[] | null>
   ) { }
 
   public static readonly layer = Layer.effect(
@@ -77,13 +78,20 @@ export class SkillsLive implements SkillService {
       const homeDir = os.homedir();
       const globalCachePath = path.join(homeDir, ".jazz", "global-skills-index.json");
       const loadedSkills = yield* Ref.make(new Map<string, SkillContent>());
+      const skillsListCache = yield* Ref.make<readonly SkillMetadata[] | null>(null);
 
-      return new SkillsLive(globalCachePath, loadedSkills);
+      return new SkillsLive(globalCachePath, loadedSkills, skillsListCache);
     })
   );
 
   listSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
     return Effect.gen(function* (this: SkillsLive) {
+      // Check cache first - skills are cached for the session since they don't change mid-conversation
+      const cached = yield* Ref.get(this.skillsListCache);
+      if (cached !== null) {
+        return cached;
+      }
+
       // 1. Get Built-in Skills (shipped with Jazz)
       const builtinSkills = yield* this.getBuiltinSkills();
 
@@ -94,7 +102,12 @@ export class SkillsLive implements SkillService {
       const localSkills = yield* this.scanLocalSkills();
 
       // 4. Merge (Local > Global > Built-in by name)
-      return mergeByName(builtinSkills, globalSkills, localSkills);
+      const merged = mergeByName(builtinSkills, globalSkills, localSkills);
+
+      // Cache for the session
+      yield* Ref.set(this.skillsListCache, merged);
+
+      return merged;
     }.bind(this));
   }
 
