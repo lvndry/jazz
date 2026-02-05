@@ -85,4 +85,3 @@ export const LogEntryItem = React.memo(function LogEntryItem({
     </Box>
   );
 });
-

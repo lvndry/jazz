@@ -25,7 +25,7 @@ export class CLIPresentationService implements PresentationService {
   constructor(
     private readonly displayConfig: DisplayConfig,
     private readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>,
-    private readonly ask: (message: string, options?: { defaultValue?: string }) => Effect.Effect<string, never>,
+    private readonly ask: (message: string, options?: { defaultValue?: string }) => Effect.Effect<string | undefined, never>,
   ) {}
 
   /**
@@ -188,10 +188,10 @@ export class CLIPresentationService implements PresentationService {
       }
 
       // Rejected: prompt for optional message to guide the agent
-      const userMessage = (yield* this.ask(
+      const userMessage = ((yield* this.ask(
         "What should the agent do instead? (optional — press Enter to skip)",
         {},
-      )).trim();
+      )) ?? "").trim();
 
       return userMessage
         ? ({ approved: false, userMessage } as const)

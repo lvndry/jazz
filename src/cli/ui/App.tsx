@@ -98,26 +98,6 @@ export const store = {
   },
 };
 
-// ============================================================================
-// Lightweight Header - Always used (no expensive BigText/Gradient)
-// ============================================================================
-
-/**
- * Minimal header - avoids expensive BigText/Gradient for better performance.
- */
-const AppHeader = React.memo(function AppHeader(): React.ReactElement {
-  return (
-    <Box
-      paddingX={2}
-      paddingY={1}
-      borderStyle="round"
-      borderColor="cyan"
-    >
-      <Text bold color="cyan">🎷 Jazz</Text>
-      <Text dimColor> • Agentic CLI</Text>
-    </Box>
-  );
-}, () => true); // Never re-render - content is static
 
 // ============================================================================
 // Status Island - Isolated state for status bar
@@ -426,14 +406,6 @@ export function App(): React.ReactElement {
   return (
     <ErrorBoundary>
       <Box flexDirection="column">
-        <Static items={[1]}>
-          {() => (
-            <React.Fragment key="header">
-              <AppHeader />
-            </React.Fragment>
-          )}
-        </Static>
-
         {/* Main Chat Area */}
         <Box flexDirection="column" paddingX={1} marginTop={1}>
           {/* Logs - Isolated state with Static optimization */}
