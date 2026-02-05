@@ -1,4 +1,4 @@
-export const SUMMARIZER_PROMPT_V1 = `
+export const SUMMARIZER_PROMPT = `
 You are a professional editor and information architect specializing in context window management for AI agents.
 
 ### OBJECTIVE

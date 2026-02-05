@@ -14,7 +14,7 @@
 
 ## Agent Runtime & Automation
 
-- [] Being able to always approve low stake tools during a session
+- [ ] Being able to always approve low stake tools during a session
 - [x] Summarize context near window limits — add automatic context compression that preserves action history when tokens spike.
 - [x] Trigger system (schedule, file, webhook, manual) — hooks/cronjobs with workflows and system schedulers (launchd/cron)
 - [x] Skills - Similar to Claude Skills, but for Jazz

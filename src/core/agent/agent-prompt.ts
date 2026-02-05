@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 import * as os from "os";
 import { Effect } from "effect";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
-import { CODER_PROMPT_V1 } from "./prompts/coder/v1";
-import { DEFAULT_PROMPT_V2 } from "./prompts/default/v2";
-import { GMAIL_PROMPT_V2 } from "./prompts/gmail/v2";
+import { CODER_PROMPT } from "./prompts/coder/system";
+import { DEFAULT_PROMPT } from "./prompts/default/system";
+import { RESEARCHER_PROMPT } from "./prompts/researcher/system";
 import { SKILLS_INSTRUCTIONS } from "./prompts/shared";
-import { SUMMARIZER_PROMPT_V1 } from "./prompts/summarizer/v1";
+import { SUMMARIZER_PROMPT } from "./prompts/summarizer/system";
 
-export interface AgentPromptTemplate {
+export interface AgentPersona {
   readonly name: string;
   readonly description: string;
   readonly systemPrompt: string;
@@ -26,35 +26,36 @@ export interface AgentPromptOptions {
 }
 
 export class AgentPromptBuilder {
-  private templates: Record<string, AgentPromptTemplate>;
+  private personas: Record<string, AgentPersona>;
   private systemPromptCache = new Map<string, string>();
 
   constructor() {
-    this.templates = {
+    this.personas = {
       default: {
         name: "Default Agent",
         description: "A general-purpose agent that can assist with various tasks.",
-        systemPrompt: DEFAULT_PROMPT_V2,
-        userPromptTemplate: "{userInput}",
-      },
-      gmail: {
-        name: "Gmail Agent",
-        description: "An agent specialized in handling email-related tasks.",
-        systemPrompt: GMAIL_PROMPT_V2,
+        systemPrompt: DEFAULT_PROMPT,
         userPromptTemplate: "{userInput}",
       },
       coder: {
         name: "Coder Agent",
         description:
           "An expert software engineer and architect specialized in code analysis, debugging, and implementation with deep context awareness.",
-        systemPrompt: CODER_PROMPT_V1,
+        systemPrompt: CODER_PROMPT,
+        userPromptTemplate: "{userInput}",
+      },
+      researcher: {
+        name: "Researcher Agent",
+        description:
+          "A meticulous researcher and scientist specialized in deep exploration, source synthesis, and evidence-backed conclusions.",
+        systemPrompt: RESEARCHER_PROMPT,
         userPromptTemplate: "{userInput}",
       },
       summarizer: {
         name: "Summarizer Agent",
         description:
           "An agent specialized in compressing conversation history while maintaining semantic fidelity.",
-        systemPrompt: SUMMARIZER_PROMPT_V1,
+        systemPrompt: SUMMARIZER_PROMPT,
         userPromptTemplate: "{userInput}",
       },
     };
@@ -100,9 +101,9 @@ export class AgentPromptBuilder {
    * Compute a cache key for system prompt based on inputs that affect the output.
    * Includes date string to invalidate daily (since prompts include current date).
    */
-  private computeSystemPromptCacheKey(templateName: string, options: AgentPromptOptions): string {
+  private computeSystemPromptCacheKey(personaName: string, options: AgentPromptOptions): string {
     const hash = createHash("md5");
-    hash.update(templateName);
+    hash.update(personaName);
     hash.update(options.agentName);
     hash.update(options.agentDescription);
     if (options.knownSkills && options.knownSkills.length > 0) {
@@ -114,47 +115,47 @@ export class AgentPromptBuilder {
   }
 
   /**
-   * Get a prompt template by name
+   * Get a persona by name
    */
-  getTemplate(name: string): Effect.Effect<AgentPromptTemplate, Error> {
+  getPersona(name: string): Effect.Effect<AgentPersona, Error> {
     return Effect.try({
       try: () => {
-        const template = this.templates[name];
-        if (!template) {
-          throw new Error(`Prompt template not found: ${name}`);
+        const persona = this.personas[name];
+        if (!persona) {
+          throw new Error(`Persona not found: ${name}`);
         }
-        return template;
+        return persona;
       },
       catch: (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
     });
   }
 
   /**
-   * List available prompt templates
+   * List available personas
    */
-  listTemplates(): Effect.Effect<readonly string[], never> {
-    return Effect.succeed(Object.keys(this.templates));
+  listPersonas(): Effect.Effect<readonly string[], never> {
+    return Effect.succeed(Object.keys(this.personas));
   }
 
   /**
-   * Build a system prompt from a template and options
+   * Build a system prompt from a persona and options
    */
   buildSystemPrompt(
-    templateName: string,
+    personaName: string,
     options: AgentPromptOptions,
   ): Effect.Effect<string, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
         // Check cache first
-        const cacheKey = this.computeSystemPromptCacheKey(templateName, options);
+        const cacheKey = this.computeSystemPromptCacheKey(personaName, options);
         const cached = this.systemPromptCache.get(cacheKey);
         if (cached) return cached;
 
-        const template = yield* this.getTemplate(templateName);
+        const persona = yield* this.getPersona(personaName);
         const { currentDate, osInfo, shell, hostname, username } = yield* this.getSystemInfo();
 
         // Replace placeholders in system prompt
-        let systemPrompt = template.systemPrompt
+        let systemPrompt = persona.systemPrompt
           .replace("{agentName}", options.agentName)
           .replace("{agentDescription}", options.agentDescription)
           .replace("{currentDate}", currentDate)
@@ -194,14 +195,14 @@ ${skillsXml}
   }
 
   /**
-   * Build a user prompt from a template and options
+   * Build a user prompt from a persona and options
    */
-  buildUserPrompt(templateName: string, options: AgentPromptOptions): Effect.Effect<string, Error> {
+  buildUserPrompt(personaName: string, options: AgentPromptOptions): Effect.Effect<string, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
-        const template = yield* this.getTemplate(templateName);
+        const persona = yield* this.getPersona(personaName);
 
-        return template.userPromptTemplate.replace("{userInput}", options.userInput);
+        return persona.userPromptTemplate.replace("{userInput}", options.userInput);
       }.bind(this),
     );
   }
@@ -210,13 +211,13 @@ ${skillsXml}
    * Build complete messages for an agent, including system prompt and conversation history
    */
   buildAgentMessages(
-    templateName: string,
+    personaName: string,
     options: AgentPromptOptions,
   ): Effect.Effect<ConversationMessages, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
-        const systemPrompt = yield* this.buildSystemPrompt(templateName, options);
-        const userPrompt = yield* this.buildUserPrompt(templateName, options);
+        const systemPrompt = yield* this.buildSystemPrompt(personaName, options);
+        const userPrompt = yield* this.buildUserPrompt(personaName, options);
 
         const messages: ConversationMessages = [{ role: "system", content: systemPrompt }];
 
