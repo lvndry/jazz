@@ -406,9 +406,17 @@ export function executeWithStreaming(
               });
 
               // Execute tools - use completion.toolCalls as the source of truth
+              // Inject current token stats into context for tools like context_info
+              const contextWithTokenStats = {
+                ...context,
+                tokenStats: {
+                  currentTokens: DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages),
+                  maxTokens: DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens ?? 150_000,
+                },
+              };
               const toolResults = yield* ToolExecutor.executeToolCalls(
                 completion.toolCalls,
-                context,
+                contextWithTokenStats,
                 displayConfig,
                 renderer,
                 runMetrics,

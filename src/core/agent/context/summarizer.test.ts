@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { Summarizer, type RecursiveRunner } from "./summarizer";
+import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
+import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
-import type { Agent, AgentConfig } from "../../types";
+import type { Agent, AgentConfig, AppConfig } from "../../types";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
 import type { AgentResponse } from "../types";
 
@@ -38,9 +40,46 @@ const mockLogger: LoggerService = {
   clearSessionId: () => Effect.void,
 };
 
+// Mock AppConfig
+const mockAppConfig: AppConfig = {
+  storage: { type: "file", path: "/tmp/test" },
+  logging: { level: "info", format: "plain" },
+};
+
+// Mock AgentConfigService
+const mockAgentConfigService: AgentConfigService = {
+  appConfig: Effect.succeed(mockAppConfig),
+  getAgentConfig: () => Effect.succeed(createMockAgent().config),
+  saveAgentConfig: () => Effect.void,
+};
+
+// Mock LLMService (minimal implementation for model selection)
+const mockLLMService: LLMService = {
+  getProvider: () =>
+    Effect.succeed({
+      name: "openai" as const,
+      supportedModels: [
+        { id: "gpt-4", supportsTools: true },
+        { id: "gpt-4o-mini", supportsTools: true },
+      ],
+      defaultModel: "gpt-4",
+      authenticate: () => Effect.void,
+    }),
+  listProviders: () => Effect.succeed([]),
+  createChatCompletion: () =>
+    Effect.succeed({ content: "", toolCalls: undefined, usage: undefined }),
+  createStreamingChatCompletion: () =>
+    Effect.fail(new Error("Not implemented in mock")),
+  supportsNativeWebSearch: () => Effect.succeed(false),
+};
+
 // Create a mock layer for testing
 function createTestLayer() {
-  return Layer.succeed(LoggerServiceTag, mockLogger);
+  return Layer.mergeAll(
+    Layer.succeed(LoggerServiceTag, mockLogger),
+    Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+    Layer.succeed(LLMServiceTag, mockLLMService),
+  );
 }
 
 // Mock recursive runner that returns a summary
