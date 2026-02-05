@@ -86,10 +86,10 @@ export function wizardCommand() {
 
       if (agents.length > 0) {
         menuOptions.push(
-          { label: "Edit agent", value: "edit-agent" },
           { label: "List agents", value: "list-agents" },
-          { label: "Update configuration", value: "config" },
+          { label: "Edit agent", value: "edit-agent" },
           { label: "Delete agent", value: "delete-agent" },
+          { label: "Update configuration", value: "config" },
         );
       } else {
         // Even if no agents, allow configuration
@@ -121,6 +121,9 @@ export function wizardCommand() {
         }
 
         case "create-agent": {
+          // Track agent count before creation to detect if agent was actually created
+          const agentCountBefore = agents.length;
+
           // Run create agent flow and start chat with newly created agent
           const creationResult = yield* createAgentCommand().pipe(Effect.either);
 
@@ -141,7 +144,8 @@ export function wizardCommand() {
             ),
           );
 
-          if (agentsAfterCreate.length === 0) {
+          // Only start chat if a new agent was actually created
+          if (agentsAfterCreate.length === 0 || agentsAfterCreate.length <= agentCountBefore) {
             yield* terminal.clear();
             break;
           }
@@ -188,7 +192,7 @@ export function wizardCommand() {
             )
           );
           // Pause to let user see the list
-          yield* terminal.ask("Press Enter to continue...");
+          yield* terminal.ask("Press Enter to continue...", { hidden: true });
           yield* terminal.clear();
           break;
         }

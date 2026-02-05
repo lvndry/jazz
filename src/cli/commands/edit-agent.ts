@@ -32,6 +32,7 @@ import {
 import type { MCPTool } from "@/core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp-utils";
 import { toPascalCase } from "@/core/utils/string";
+import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
 
 /**
  * CLI commands for editing existing agents
@@ -114,11 +115,12 @@ export function editAgentCommand(
       .pipe(Effect.catchAll(() => Effect.succeed(null as LLMProvider | null)));
 
     // Check if current model is reasoning model (needed for field choices)
-    const currentModelInfo = currentProviderInfo?.supportedModels.find(
-      (model) => model.id === agent.config.llmModel,
+    // Use models.dev metadata directly for more accuracy (especially for newer models)
+    const currentModelMeta = yield* Effect.promise(() =>
+      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
     );
-    const currentModelIsReasoning = currentModelInfo?.isReasoningModel ?? false;
-    const supportsTools = currentModelInfo?.supportsTools ?? false;
+    const currentModelIsReasoning = currentModelMeta?.isReasoningModel ?? false;
+    const supportsTools = currentModelMeta?.supportsTools ?? true; // Default to true if unknown to avoid blocking tools
 
     // Auto-cleanup: if model doesn't support tools but agent has them, clear them
     if (!supportsTools && agent.config.tools && agent.config.tools.length > 0) {
@@ -141,10 +143,17 @@ export function editAgentCommand(
         { name: "LLM Provider", value: "llmProvider" },
         { name: "LLM Model", value: "llmModel" },
         {
-          name: supportsTools ? "Tools" : "Tools (Not supported by current model) 🚫",
-          value: "tools",
+          name: currentModelIsReasoning
+            ? "Reasoning Effort"
+            : "Reasoning Effort (Not supported by current model)",
+          value: "reasoningEffort",
+          disabled: !currentModelIsReasoning,
         },
-        ...(currentModelIsReasoning ? [{ name: "Reasoning Effort", value: "reasoningEffort" }] : []),
+        {
+          name: supportsTools ? "Tools" : "Tools (Not supported by current model)",
+          value: "tools",
+          disabled: !supportsTools,
+        },
       ],
     });
 
@@ -460,6 +469,9 @@ async function promptForAgentUpdates(
         },
       }),
     );
+    if (name === undefined) {
+      throw new Error("Edit cancelled");
+    }
     answers.name = name;
   }
 
@@ -479,6 +491,9 @@ async function promptForAgentUpdates(
         },
       }),
     );
+    if (description === undefined) {
+      throw new Error("Edit cancelled");
+    }
     answers.description = description;
   }
 

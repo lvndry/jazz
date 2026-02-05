@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, useInput } from "ink";
 import BigText from "ink-big-text";
 import Gradient from "ink-gradient";
 import SelectInput from "ink-select-input";
@@ -70,7 +70,6 @@ const TIPS = [
  * WizardHome - The main interactive home screen for Jazz CLI
  */
 export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps): React.ReactElement {
-  const { exit } = useApp();
   const [tipIndex, setTipIndex] = useState(0);
 
   // Rotate tips occasionally or just on mount
@@ -81,11 +80,9 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
   useInput((input, key) => {
     if (key.escape) {
       onExit();
-      exit();
     }
     if (input === "q") {
       onExit();
-      exit();
     }
   });
 

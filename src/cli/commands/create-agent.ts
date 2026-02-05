@@ -28,7 +28,8 @@ import {
   StorageError,
   ValidationError,
 } from "@/core/types/errors";
-import type { AgentConfig, LLMProviderListItem } from "@/core/types/index";
+import type { AgentConfig } from "@/core/types/index";
+import type { LLMProvider, LLMProviderListItem } from "@/core/types/llm";
 import type { MCPTool } from "@/core/types/mcp";
 import { isAuthenticationRequired } from "@/core/utils/mcp-utils";
 import { toPascalCase } from "@/core/utils/string";
@@ -140,6 +141,11 @@ export function createAgentCommand(): Effect.Effect<
         terminal,
       ),
     );
+
+    // User cancelled agent creation (ESC on first step)
+    if (agentAnswers === null) {
+      return;
+    }
 
     // Validate the chosen model against the chosen provider
     const chosenProvider = yield* llmService.getProvider(agentAnswers.llmProvider);
@@ -292,15 +298,43 @@ export function createAgentCommand(): Effect.Effect<
 }
 
 /**
- * Prompt for basic agent information with new flow:
- * 1. Provider selection
- * 2. API key check/input if needed
- * 3. Agent type
- * 4. Name
- * 5. Description (if default)
- * 6. Model selection
- * 7. Reasoning effort (if applicable)
- * 8. Tools (if not predefined)
+ * Wizard step identifiers for agent creation flow
+ */
+type WizardStep =
+  | "provider"
+  | "model"
+  | "reasoning"
+  | "agentType"
+  | "name"
+  | "description"
+  | "tools"
+  | "done";
+
+/**
+ * State machine for agent creation wizard
+ */
+interface WizardState {
+  step: WizardStep;
+  // Collected answers (preserved when going back)
+  llmProvider?: ProviderName;
+  llmModel?: string;
+  reasoningEffort?: "disable" | "low" | "medium" | "high";
+  agentType?: string;
+  name?: string;
+  description?: string;
+  tools?: string[];
+  // Cached data
+  allProviders?: readonly LLMProviderListItem[];
+  providerInfo?: LLMProvider;
+  isReasoningModel?: boolean;
+  supportsTools?: boolean;
+}
+
+/**
+ * Prompt for basic agent information with ESC-based back navigation.
+ *
+ * Each step allows pressing ESC to go back to the previous step.
+ * State is preserved when navigating backward.
  */
 async function promptForAgentInfo(
   agentTypes: readonly string[],
@@ -309,270 +343,392 @@ async function promptForAgentInfo(
   configService: AgentConfigService,
   categoryIdToDisplayName: Map<string, string>,
   terminal: TerminalService,
-): Promise<AIAgentCreationAnswers> {
-  const allProviders: readonly LLMProviderListItem[] = await Effect.runPromise(llmService.listProviders());
+): Promise<AIAgentCreationAnswers | null> {
+  // Initialize state machine
+  const state: WizardState = { step: "provider" };
+  state.allProviders = await Effect.runPromise(llmService.listProviders());
 
-  const llmProvider = await Effect.runPromise(
-    terminal.search<ProviderName>("Which LLM provider would you like to use?", {
-      choices: allProviders.map((provider) => ({
-        name: provider.displayName ?? provider.name,
-        value: provider.name,
-      })),
-    }),
+  // Show navigation hint
+  await Effect.runPromise(
+    terminal.info("💡 Tip: Press ESC at any step to go back to the previous choice."),
   );
 
-  if (!llmProvider) {
-    throw new Error("Agent creation cancelled");
-  }
+  // Step navigation helper
+  const hint = " (ESC to go back)";
 
-  // STEP 2.A: Check if API key exists for the selected provider
-  const providerName = llmProvider;
-  const providerDisplayName =
-    allProviders.find((provider) => provider.name === providerName)?.displayName ?? providerName;
-  const apiKeyPath = `llm.${providerName}.api_key`;
-  const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
-
-  if (!hasApiKey) {
-    // Show message and prompt for API key
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        yield* terminal.log("");
-        yield* terminal.warn(`API key not set in config file for ${providerDisplayName}.`);
-        yield* terminal.log("Please paste your API key below:");
-      }),
-    );
-
-    const isOptional = providerName === "ollama";
-
-    const apiKey = await Effect.runPromise(
-      terminal.ask(`${providerDisplayName} API Key${isOptional ? " (optional)" : ""} :`, {
-        validate: (inputValue: string): boolean | string => {
-          if (isOptional) {
-            return true;
-          }
-
-          if (!inputValue || inputValue.trim().length === 0) {
-            return "API key cannot be empty";
-          }
-
-          return true;
-        },
-      }),
-    );
-
-    // Update config with the new API key
-    await Effect.runPromise(configService.set(apiKeyPath, apiKey));
-
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        yield* terminal.success("API key saved to config file.");
-        yield* terminal.log("");
-      }),
-    );
-  }
-
-  // STEP 2.B: Select Model
-  const chosenProviderInfo = await Effect.runPromise(llmService.getProvider(llmProvider)).catch(
-    (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to get provider info: ${message}`);
-    },
-  );
-
-  const llmModel = await Effect.runPromise(
-    terminal.search<string>("Which model would you like to use?", {
-      choices: chosenProviderInfo.supportedModels.map((model) => ({
-        name: model.displayName || model.id,
-        description: model.displayName || model.id,
-        value: model.id,
-      })),
-    }),
-  );
-
-  if (!llmModel) {
-    throw new Error("Agent creation cancelled");
-  }
-
-  // Check if it's a reasoning model and ask for effort if needed
-  const selectedModel = chosenProviderInfo.supportedModels.find((m) => m.id === llmModel);
-  let reasoningEffort: "disable" | "low" | "medium" | "high" | undefined;
-  if (selectedModel?.isReasoningModel) {
-    const selectedEffort = await Effect.runPromise(
-      terminal.select<"disable" | "low" | "medium" | "high">(
-        "What reasoning effort level would you like?",
-        {
-          choices: [
-            { name: "Low - Faster responses, basic reasoning", value: "low" },
-            {
-              name: "Medium - Balanced speed and reasoning depth (recommended)",
-              value: "medium",
-            },
-            { name: "High - Deep reasoning, slower responses", value: "high" },
-            { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-          ],
-          default: "medium",
-        },
-      ),
-    );
-    if (!selectedEffort) {
-      throw new Error("Agent creation cancelled");
-    }
-    reasoningEffort = selectedEffort;
-  }
-
-  // STEP 3: Ask for agent type
-  const agentType = await Effect.runPromise(
-    terminal.select<string>("What type of agent would you like to create?", {
-      choices: agentTypes,
-      default: "default",
-    }),
-  );
-
-  if (!agentType) {
-    throw new Error("Agent creation cancelled");
-  }
-
-  // STEP 4: Ask for name
-  const name = await Effect.runPromise(
-    terminal.ask("Name of your new agent:", {
-      validate: (inputValue: string): boolean | string => {
-        if (!inputValue || inputValue.trim().length === 0) {
-          return "Agent name cannot be empty";
-        }
-        if (inputValue.length > 100) {
-          return "Agent name cannot exceed 100 characters";
-        }
-        if (!/^[a-zA-Z0-9_-]+$/.test(inputValue)) {
-          return "Agent name can only contain letters, numbers, underscores, and hyphens";
-        }
-        return true;
-      },
-    }),
-  );
-
-  // STEP 5: Ask for description only if agent type is "default"
-  let description: string | undefined;
-  if (agentType === "default") {
-    description = await Effect.runPromise(
-      terminal.ask("Describe what this agent will do:", {
-        validate: (inputValue: string): boolean | string => {
-          if (!inputValue || inputValue.trim().length === 0) {
-            return "Agent description cannot be empty";
-          }
-          if (inputValue.length > 500) {
-            return "Agent description cannot exceed 500 characters";
-          }
-          return true;
-        },
-      }),
-    );
-  }
-
-  // STEP 6: Tools selection
-  // Check if the selected model supports tools
-  const selectedModelInfo = chosenProviderInfo.supportedModels.find((m) => m.id === llmModel);
-  const supportsTools = selectedModelInfo?.supportsTools ?? false;
-
-  let tools: string[] = [];
-  const currentPredefinedAgent = PREDEFINED_AGENTS[agentType];
-
-  if (!supportsTools) {
-    if (currentPredefinedAgent && currentPredefinedAgent.toolCategoryIds.length > 0) {
-      await Effect.runPromise(
-        terminal.warn(
-          `\n⚠️  The selected model (${llmModel}) does not support tools. The "${currentPredefinedAgent.displayName}" agent's preconfigured tools will be ignored.`,
-        ),
-      );
-    } else {
-      await Effect.runPromise(
-        terminal.info(
-          `\nℹ️  Skipping tool selection as the selected model (${llmModel}) does not support tools.`,
-        ),
-      );
-    }
-  } else if (currentPredefinedAgent) {
-    // Filter to only categories that exist in toolsByCategory (by checking if display name exists)
-    const availableCategoryIds = currentPredefinedAgent.toolCategoryIds.filter((categoryId) => {
-      const displayName = categoryIdToDisplayName.get(categoryId);
-      return displayName && displayName in toolsByCategory;
-    });
-
-    const displayNames = availableCategoryIds
-      .map((id) => categoryIdToDisplayName.get(id))
-      .filter((name): name is string => name !== undefined);
-
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        yield* terminal.log("");
-        yield* terminal.log(
-          `${currentPredefinedAgent.emoji} ${currentPredefinedAgent.displayName} agent will automatically include: ${displayNames.join(", ")}`,
-        );
-        yield* terminal.log("");
-      }),
-    );
-  }
-
-  if (!currentPredefinedAgent) {
-    const defaultToolCategories = [
-      FILE_MANAGEMENT_CATEGORY.displayName,
-      HTTP_CATEGORY.displayName,
-      GIT_CATEGORY.displayName,
-      WEB_SEARCH_CATEGORY.displayName,
-      SHELL_COMMANDS_CATEGORY.displayName,
-    ];
-    let selectedTools: readonly string[] = defaultToolCategories.filter(
-      (name) => name in toolsByCategory,
-    );
-
-    // Loop for tool selection to allow "Go Back" from web search config
-    while (true) {
-      selectedTools = await Effect.runPromise(
-        terminal.checkbox<string>("Which tools should this agent have access to?", {
-          choices: Object.entries(toolsByCategory)
-            .filter(([category]) => category !== SKILLS_CATEGORY.displayName)
-            .map(([category, toolsInCategory]) => ({
-              name:
-                toolsInCategory.length > 0
-                  ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
-                  : category,
-              value: category,
+  while (state.step !== "done") {
+    switch (state.step) {
+      // ═══════════════════════════════════════════════════════════════════════
+      // STEP 1: Provider Selection
+      // ═══════════════════════════════════════════════════════════════════════
+      case "provider": {
+        const result = await Effect.runPromise(
+          terminal.search<ProviderName>("Which LLM provider would you like to use?", {
+            choices: state.allProviders.map((provider) => ({
+              name: provider.displayName ?? provider.name,
+              value: provider.name,
             })),
-          default: [...selectedTools],
-        }),
-      );
-
-      if (selectedTools.includes(WEB_SEARCH_CATEGORY.displayName)) {
-        const configured = await Effect.runPromise(
-          handleWebSearchConfiguration(terminal, configService, llmService, llmProvider),
+          }),
         );
 
-        if (!configured) {
-          selectedTools = selectedTools.filter((t) => t !== WEB_SEARCH_CATEGORY.displayName);
-          await Effect.runPromise(terminal.log(""));
-          continue;
+        if (result === undefined) {
+          // ESC pressed on first step - return null to indicate cancellation
+          return null;
         }
+
+        state.llmProvider = result;
+
+        // Check/prompt for API key
+        const providerDisplayName =
+          state.allProviders.find((p) => p.name === result)?.displayName ?? result;
+        const apiKeyPath = `llm.${result}.api_key`;
+        const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
+
+        if (!hasApiKey) {
+          await Effect.runPromise(
+            Effect.gen(function* () {
+              yield* terminal.log("");
+              yield* terminal.warn(`API key not set in config file for ${providerDisplayName}.`);
+              yield* terminal.log("Please paste your API key below:");
+            }),
+          );
+
+          const isOptional = result === "ollama";
+          const apiKey = await Effect.runPromise(
+            terminal.ask(`${providerDisplayName} API Key${isOptional ? " (optional)" : ""}:`, {
+              validate: (inputValue: string): boolean | string => {
+                if (isOptional) return true;
+                if (!inputValue || inputValue.trim().length === 0) {
+                  return "API key cannot be empty";
+                }
+                return true;
+              },
+            }),
+          );
+
+          await Effect.runPromise(configService.set(apiKeyPath, apiKey));
+          await Effect.runPromise(
+            Effect.gen(function* () {
+              yield* terminal.success("API key saved to config file.");
+              yield* terminal.log("");
+            }),
+          );
+        }
+
+        // Cache provider info for next step
+        state.providerInfo = await Effect.runPromise(llmService.getProvider(result)).catch(
+          (error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to get provider info: ${message}`);
+          },
+        );
+
+        state.step = "model";
+        break;
       }
 
-      tools = [...selectedTools];
-      break;
+      // ═══════════════════════════════════════════════════════════════════════
+      // STEP 2: Model Selection
+      // ═══════════════════════════════════════════════════════════════════════
+      case "model": {
+        const result = await Effect.runPromise(
+          terminal.search<string>(`Which model would you like to use?${hint}`, {
+            choices: state.providerInfo!.supportedModels.map((model) => ({
+              name: model.displayName || model.id,
+              description: model.displayName || model.id,
+              value: model.id,
+            })),
+          }),
+        );
+
+        if (result === undefined) {
+          state.step = "provider";
+          break;
+        }
+
+        state.llmModel = result;
+
+        // Check if reasoning model
+        const selectedModel = state.providerInfo!.supportedModels.find((m) => m.id === result);
+        state.isReasoningModel = selectedModel?.isReasoningModel ?? false;
+        state.supportsTools = selectedModel?.supportsTools ?? false;
+
+        state.step = state.isReasoningModel ? "reasoning" : "agentType";
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // STEP 3: Reasoning Effort (optional, only for reasoning models)
+      // ═══════════════════════════════════════════════════════════════════════
+      case "reasoning": {
+        const result = await Effect.runPromise(
+          terminal.select<"disable" | "low" | "medium" | "high">(
+            `What reasoning effort level would you like?${hint}`,
+            {
+              choices: [
+                { name: "Low - Faster responses, basic reasoning", value: "low" },
+                { name: "Medium - Balanced speed and reasoning depth (recommended)", value: "medium" },
+                { name: "High - Deep reasoning, slower responses", value: "high" },
+                { name: "Disable - No reasoning effort (fastest)", value: "disable" },
+              ],
+              default: state.reasoningEffort ?? "medium",
+            },
+          ),
+        );
+
+        if (result === undefined) {
+          state.step = "model";
+          break;
+        }
+
+        state.reasoningEffort = result;
+        state.step = "agentType";
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // STEP 4: Agent Type
+      // ═══════════════════════════════════════════════════════════════════════
+      case "agentType": {
+        const result = await Effect.runPromise(
+          terminal.select<string>(`What type of agent would you like to create?${hint}`, {
+            choices: agentTypes,
+            default: state.agentType ?? "default",
+          }),
+        );
+
+        if (result === undefined) {
+          state.step = state.isReasoningModel ? "reasoning" : "model";
+          break;
+        }
+
+        state.agentType = result;
+        state.step = "name";
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // STEP 5: Agent Name
+      // ═══════════════════════════════════════════════════════════════════════
+      case "name": {
+        const askOptions: {
+          defaultValue?: string;
+          validate: (inputValue: string) => boolean | string;
+          cancellable: boolean;
+          simple: boolean;
+        } = {
+          validate: (inputValue: string): boolean | string => {
+            if (!inputValue || inputValue.trim().length === 0) {
+              return "Agent name cannot be empty";
+            }
+            if (inputValue.length > 100) {
+              return "Agent name cannot exceed 100 characters";
+            }
+            if (!/^[a-zA-Z0-9_-]+$/.test(inputValue)) {
+              return "Agent name can only contain letters, numbers, underscores, and hyphens";
+            }
+            return true;
+          },
+          cancellable: true,
+          simple: true,
+        };
+        if (state.name) {
+          askOptions.defaultValue = state.name;
+        }
+
+        const result = await Effect.runPromise(
+          terminal.ask(`Name of your new agent${hint}:`, askOptions),
+        );
+
+        // ESC pressed - go back
+        if (result === undefined) {
+          state.step = "agentType";
+          break;
+        }
+
+        state.name = result;
+        state.step = state.agentType === "default" ? "description" : "tools";
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // STEP 6: Description (only for default agent type)
+      // ═══════════════════════════════════════════════════════════════════════
+      case "description": {
+        const descOptions: {
+          defaultValue?: string;
+          validate: (inputValue: string) => boolean | string;
+          cancellable: boolean;
+          simple: boolean;
+        } = {
+          validate: (inputValue: string): boolean | string => {
+            if (!inputValue || inputValue.trim().length === 0) {
+              return "Agent description cannot be empty";
+            }
+            if (inputValue.length > 500) {
+              return "Agent description cannot exceed 500 characters";
+            }
+            return true;
+          },
+          cancellable: true,
+          simple: true,
+        };
+        if (state.description) {
+          descOptions.defaultValue = state.description;
+        }
+
+        const result = await Effect.runPromise(
+          terminal.ask(`Describe what this agent will do${hint}:`, descOptions),
+        );
+
+        // ESC pressed - go back
+        if (result === undefined) {
+          state.step = "name";
+          break;
+        }
+
+        state.description = result;
+        state.step = "tools";
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // STEP 7: Tool Selection
+      // ═══════════════════════════════════════════════════════════════════════
+      case "tools": {
+        const currentPredefinedAgent = PREDEFINED_AGENTS[state.agentType!];
+
+        if (!state.supportsTools) {
+          // Model doesn't support tools - show warning and proceed
+          if (currentPredefinedAgent && currentPredefinedAgent.toolCategoryIds.length > 0) {
+            await Effect.runPromise(
+              terminal.warn(
+                `\n⚠️  The selected model (${state.llmModel}) does not support tools. The "${currentPredefinedAgent.displayName}" agent's preconfigured tools will be ignored.`,
+              ),
+            );
+          } else {
+            await Effect.runPromise(
+              terminal.info(
+                `\nℹ️  Skipping tool selection as the selected model (${state.llmModel}) does not support tools.`,
+              ),
+            );
+          }
+          state.tools = [];
+          state.step = "done";
+          break;
+        }
+
+        if (currentPredefinedAgent) {
+          // Predefined agent - show what tools will be included
+          const availableCategoryIds = currentPredefinedAgent.toolCategoryIds.filter((categoryId) => {
+            const displayName = categoryIdToDisplayName.get(categoryId);
+            return displayName && displayName in toolsByCategory;
+          });
+
+          const displayNames = availableCategoryIds
+            .map((id) => categoryIdToDisplayName.get(id))
+            .filter((name): name is string => name !== undefined);
+
+          await Effect.runPromise(
+            Effect.gen(function* () {
+              yield* terminal.log("");
+              yield* terminal.log(
+                `${currentPredefinedAgent.emoji} ${currentPredefinedAgent.displayName} agent will automatically include: ${displayNames.join(", ")}`,
+              );
+              yield* terminal.log("");
+            }),
+          );
+
+          state.tools = displayNames;
+          state.step = "done";
+          break;
+        }
+
+        // Custom agent - let user select tools
+        const defaultToolCategories = [
+          FILE_MANAGEMENT_CATEGORY.displayName,
+          HTTP_CATEGORY.displayName,
+          GIT_CATEGORY.displayName,
+          WEB_SEARCH_CATEGORY.displayName,
+          SHELL_COMMANDS_CATEGORY.displayName,
+        ];
+        let selectedTools: readonly string[] = state.tools?.length
+          ? state.tools
+          : defaultToolCategories.filter((name) => name in toolsByCategory);
+
+        // Loop for tool selection to allow "Go Back" from web search config
+        let shouldGoBack = false;
+        while (true) {
+          selectedTools = await Effect.runPromise(
+            terminal.checkbox<string>(`Which tools should this agent have access to?${hint}`, {
+              choices: Object.entries(toolsByCategory)
+                .filter(([category]) => category !== SKILLS_CATEGORY.displayName)
+                .map(([category, toolsInCategory]) => ({
+                  name:
+                    toolsInCategory.length > 0
+                      ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
+                      : category,
+                  value: category,
+                })),
+              default: [...selectedTools],
+            }),
+          );
+
+          // Handle empty selection as potential back navigation
+          if (selectedTools.length === 0) {
+            // Ask if they want to go back or proceed with no tools
+            const confirm = await Effect.runPromise(
+              terminal.confirm("No tools selected. Go back to previous step?", true),
+            );
+            if (confirm) {
+              shouldGoBack = true;
+              break;
+            }
+          }
+
+          if (selectedTools.includes(WEB_SEARCH_CATEGORY.displayName)) {
+            const configured = await Effect.runPromise(
+              handleWebSearchConfiguration(terminal, configService, llmService, state.llmProvider!),
+            );
+
+            if (!configured) {
+              await Effect.runPromise(terminal.log(""));
+              continue;
+            }
+          }
+
+          state.tools = [...selectedTools];
+          break;
+        }
+
+        if (shouldGoBack) {
+          state.step = state.agentType === "default" ? "description" : "name";
+          break;
+        }
+
+        state.step = "done";
+        break;
+      }
     }
   }
 
-  const finalTools = supportsTools
+  // Build final answer object
+  const currentPredefinedAgent = PREDEFINED_AGENTS[state.agentType!];
+  const finalTools = state.supportsTools
     ? currentPredefinedAgent
       ? currentPredefinedAgent.toolCategoryIds
           .map((id) => categoryIdToDisplayName.get(id))
           .filter((name): name is string => name !== undefined && name in toolsByCategory)
-      : tools
+      : (state.tools ?? [])
     : [];
 
   return {
-    llmProvider,
-    llmModel,
-    ...(reasoningEffort && { reasoningEffort }),
-    agentType,
-    name,
-    ...(description && { description }),
+    llmProvider: state.llmProvider!,
+    llmModel: state.llmModel!,
+    ...(state.reasoningEffort && { reasoningEffort: state.reasoningEffort }),
+    agentType: state.agentType!,
+    name: state.name!,
+    ...(state.description && { description: state.description }),
     tools: finalTools,
   };
 }
