@@ -1,11 +1,11 @@
 import { Effect } from "effect";
+import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LLMServiceTag } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
-import type { ProviderName } from "@/core/constants/models";
 import type { Agent } from "@/core/types";
 import type { LLMConfig } from "@/core/types/config";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
@@ -17,12 +17,11 @@ import type { AgentResponse } from "../types";
  * Fallback cheap models for each static provider if models.dev lookup fails.
  */
 const FALLBACK_CHEAP_MODELS: Partial<Record<ProviderName, string>> = {
-  openai: "gpt-4o-mini",
+  openai: "gpt-5-mini",
   anthropic: "claude-3-5-haiku-latest",
-  google: "gemini-2.0-flash-lite",
-  mistral: "ministral-3b-latest",
-  xai: "grok-2-mini",
-  deepseek: "deepseek-chat",
+  google: "gemini-3-lite-preview",
+  mistral: "mistral-small-latest",
+  xai: "grok-4.1-fast",
 };
 
 /**
@@ -34,7 +33,6 @@ const STATIC_PROVIDERS = new Set<ProviderName>([
   "google",
   "mistral",
   "xai",
-  "deepseek",
 ]);
 
 interface SummarizerModelConfig {
