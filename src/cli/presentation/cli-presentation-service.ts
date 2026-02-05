@@ -6,6 +6,7 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
@@ -203,7 +204,7 @@ export class CLIPresentationService implements PresentationService {
     return Effect.void;
   }
 
-  requestUserInput(request: { question: string; suggestions?: readonly string[]; allowCustom?: boolean }): Effect.Effect<string, never> {
+  requestUserInput(request: UserInputRequest): Effect.Effect<string, never> {
     return Effect.gen(this, function* () {
       const separator = chalk.dim("─".repeat(50));
 
@@ -215,7 +216,13 @@ export class CLIPresentationService implements PresentationService {
       if (request.suggestions && request.suggestions.length > 0) {
         yield* this.writeOutput(`\n${chalk.dim("Suggestions:")}\n`);
         for (let i = 0; i < request.suggestions.length; i++) {
-          yield* this.writeOutput(`  ${chalk.cyan(`${i + 1}.`)} ${request.suggestions[i]}\n`);
+          const suggestion = request.suggestions[i];
+          if (!suggestion) continue;
+          const label = suggestion.label ?? suggestion.value;
+          const description = suggestion.description ? ` - ${suggestion.description}` : "";
+          yield* this.writeOutput(
+            `  ${chalk.cyan(`${i + 1}.`)} ${chalk.bold(label)}${chalk.dim(description)}\n`,
+          );
         }
         yield* this.writeOutput(`\n`);
       }
