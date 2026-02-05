@@ -202,6 +202,31 @@ export class CLIPresentationService implements PresentationService {
   signalToolExecutionStarted(): Effect.Effect<void, never> {
     return Effect.void;
   }
+
+  requestUserInput(request: { question: string; suggestions?: readonly string[]; allowCustom?: boolean }): Effect.Effect<string, never> {
+    return Effect.gen(this, function* () {
+      const separator = chalk.dim("─".repeat(50));
+
+      // Display the question
+      yield* this.writeOutput(`\n${separator}\n`);
+      yield* this.writeOutput(`${chalk.cyan("❓")} ${chalk.bold(request.question)}\n`);
+
+      // Display suggestions if any
+      if (request.suggestions && request.suggestions.length > 0) {
+        yield* this.writeOutput(`\n${chalk.dim("Suggestions:")}\n`);
+        for (let i = 0; i < request.suggestions.length; i++) {
+          yield* this.writeOutput(`  ${chalk.cyan(`${i + 1}.`)} ${request.suggestions[i]}\n`);
+        }
+        yield* this.writeOutput(`\n`);
+      }
+
+      yield* this.writeOutput(`${separator}\n`);
+
+      // Use the existing ask method
+      const response = yield* this.ask("Your response:", {});
+      return response ?? "";
+    });
+  }
 }
 
 /**

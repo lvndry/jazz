@@ -14,6 +14,7 @@ describe("ToolRegistry", () => {
       description: "A test tool",
       parameters: z.object({}),
       hidden: false,
+      riskLevel: "read-only",
       execute: mock(() => Effect.succeed({ success: true, result: "ok" })),
       createSummary: undefined,
     };
@@ -45,6 +46,7 @@ describe("ToolRegistry", () => {
       description: "desc",
       parameters: z.object({}),
       hidden: false,
+      riskLevel: "read-only",
       execute: () => Effect.succeed({ success: true, result: "" }),
       createSummary: undefined,
     };
@@ -53,6 +55,7 @@ describe("ToolRegistry", () => {
       description: "desc",
       parameters: z.object({}),
       hidden: true,
+      riskLevel: "read-only",
       execute: () => Effect.succeed({ success: true, result: "" }),
       createSummary: undefined,
     };
@@ -76,6 +79,7 @@ describe("ToolRegistry", () => {
       description: "desc",
       parameters: z.object({}),
       hidden: false,
+      riskLevel: "read-only",
       execute: () => Effect.succeed({ success: true, result: "" }),
       createSummary: undefined,
     };

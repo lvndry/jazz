@@ -79,6 +79,16 @@ class DefaultToolRegistry implements ToolRegistry {
     });
   }
 
+  /**
+   * List all registered tool names, including hidden tools.
+   * Used for validation to ensure hidden builtin tools can be referenced.
+   */
+  listAllTools(): Effect.Effect<readonly string[], never> {
+    return Effect.sync(() => {
+      return Array.from(this.tools.keys());
+    });
+  }
+
   getToolDefinitions(): Effect.Effect<readonly ToolDefinition[], never> {
     return Effect.sync(() => {
       if (this.cachedDefinitions !== null) {

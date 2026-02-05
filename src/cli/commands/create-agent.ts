@@ -10,8 +10,8 @@ import {
   GMAIL_CATEGORY,
   HTTP_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
-  SKILLS_CATEGORY,
   WEB_SEARCH_CATEGORY,
+  BUILTIN_TOOL_CATEGORIES,
 } from "@/core/agent/tools/register-tools";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -662,7 +662,10 @@ async function promptForAgentInfo(
           selectedTools = await Effect.runPromise(
             terminal.checkbox<string>(`Which tools should this agent have access to?${hint}`, {
               choices: Object.entries(toolsByCategory)
-                .filter(([category]) => category !== SKILLS_CATEGORY.displayName)
+                .filter(
+                  ([category]) =>
+                    !BUILTIN_TOOL_CATEGORIES.some((c) => c.displayName === category),
+                )
                 .map(([category, toolsInCategory]) => ({
                   name:
                     toolsInCategory.length > 0

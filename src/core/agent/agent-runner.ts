@@ -92,19 +92,28 @@ function initializeAgentRun(
       ),
     );
 
-    // Always include skill tools so agents can use skills
-    const SKILL_TOOLS = ["load_skill", "load_skill_section"];
+    // Always include skill tools and user interaction tools so agents can use them by default
+    const BUILT_IN_TOOLS = ["load_skill", "load_skill_section", "ask_user_question"];
 
     // Combine agent tools with skill tools (skill tools always available)
-    const combinedToolNames = [...new Set([...agentToolNames, ...SKILL_TOOLS])];
+    const combinedToolNames = [...new Set([...agentToolNames, ...BUILT_IN_TOOLS])];
 
     // Get and validate tools (after MCP tools are registered)
-    const allToolNames = yield* toolRegistry.listTools();
+    // Use listAllTools to include hidden builtin tools like ask_user
+    const allToolNames = yield* toolRegistry.listAllTools();
     const invalidTools = combinedToolNames.filter((toolName) => !allToolNames.includes(toolName));
     if (invalidTools.length > 0) {
-      return yield* Effect.fail(
-        new Error(`Agent ${agent.id} references non-existent tools: ${invalidTools.join(", ")}`),
-      );
+      const toolList = invalidTools.join(", ");
+      const errorMessage = [
+        `Agent "${agent.name}" (${agent.id}) references non-existent tools: ${toolList}`,
+        ``,
+        `Possible reasons:`,
+        `  • The app needs to be restarted after adding new tools`,
+        `  • Tool names are misspelled in the agent configuration`,
+        `  • Required MCP servers are not configured or failed to connect`,
+      ].join("\n");
+
+      return yield* Effect.fail(new Error(errorMessage));
     }
 
     // Expand tool names to include approval execute tools

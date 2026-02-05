@@ -4,6 +4,19 @@ import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import type { DisplayConfig } from "../types";
 
 /**
+ * Request for user input with optional suggested responses.
+ * Used by the ask_user tool to gather clarifications.
+ */
+export interface UserInputRequest {
+  /** The question to display to the user */
+  readonly question: string;
+  /** Optional suggested responses the user can pick from */
+  readonly suggestions: readonly string[];
+  /** Whether to allow custom text input in addition to suggestions */
+  readonly allowCustom: boolean;
+}
+
+/**
  * Presentation service interface for rendering agent output
  *
  * This interface abstracts presentation concerns from core business logic,
@@ -126,6 +139,18 @@ export interface PresentationService {
    * until this signal is received, preventing log interleaving.
    */
   readonly signalToolExecutionStarted: () => Effect.Effect<void, never>;
+
+  /**
+   * Request input from the user with optional suggested responses.
+   *
+   * Displays a question to the user with optional suggested responses they can select from.
+   * The user can either pick a suggestion or type a custom response (if allowCustom is true).
+   * Used by the ask_user tool to gather clarifications before proceeding.
+   *
+   * @param request - The user input request with question and optional suggestions
+   * @returns The user's response (either selected suggestion or custom text)
+   */
+  readonly requestUserInput: (request: UserInputRequest) => Effect.Effect<string, never>;
 }
 
 /**
