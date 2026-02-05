@@ -143,14 +143,21 @@ export class InkTerminalService implements TerminalService {
       defaultValue?: string;
       validate?: (input: string) => boolean | string;
       commandSuggestions?: boolean;
+      cancellable?: boolean;
+      simple?: boolean;
+      hidden?: boolean;
     },
-  ): Effect.Effect<string, never> {
-    return Effect.async((resume) => {
-      // Store the validate function to ensure it's properly passed to the prompt
+  ): Effect.Effect<string | undefined, never> {
+    return Effect.async<string, Error>((resume) => {
       const validateFn = options?.validate;
+      const isCancellable = options?.cancellable === true;
+      const isSimple = options?.simple === true;
+      const isHidden = options?.hidden === true;
+
+      const promptType = isHidden ? "hidden" : isSimple ? "text" : "chat";
 
       const promptState: {
-        type: "text";
+        type: "text" | "chat" | "hidden";
         message: string;
         options?: {
           defaultValue?: string;
@@ -158,8 +165,9 @@ export class InkTerminalService implements TerminalService {
           commandSuggestions?: boolean;
         };
         resolve: (val: unknown) => void;
+        reject?: () => void;
       } = {
-        type: "text",
+        type: promptType,
         message,
         ...(options
           ? {
@@ -187,8 +195,23 @@ export class InkTerminalService implements TerminalService {
         },
       };
 
+      // Add reject handler if cancellable
+      if (isCancellable) {
+        promptState.reject = () => {
+          store.setPrompt(null);
+          store.printOutput({
+            type: "log",
+            message: `${message} ${chalk.dim("(cancelled)")}`,
+            timestamp: new Date(),
+          });
+          resume(Effect.fail(new Error("PromptCancelled")));
+        };
+      }
+
       store.setPrompt(promptState);
-    });
+    }).pipe(
+      Effect.catchAll(() => Effect.succeed(undefined))
+    );
   }
 
   password(
@@ -221,15 +244,15 @@ export class InkTerminalService implements TerminalService {
   select<T = string>(
     message: string,
     options: {
-      choices: readonly (string | { name: string; value: T; description?: string })[];
+      choices: readonly (string | { name: string; value: T; description?: string; disabled?: boolean })[];
       default?: T;
     },
   ): Effect.Effect<T | undefined, never> {
     return Effect.async<T, Error>((resume) => {
       // Normalize choices for Ink SelectInput
-      const choices = options.choices.map((c) => {
-        if (typeof c === "string") return { label: c, value: c as unknown as T };
-        return { label: c.name, value: c.value };
+      const choices = options.choices.map((choice) => {
+        if (typeof choice === "string") return { label: choice, value: choice as unknown as T, disabled: false };
+        return { label: choice.name, value: choice.value, disabled: choice.disabled ?? false };
       });
 
       store.setPrompt({

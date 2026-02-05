@@ -17,7 +17,7 @@ import {
 } from "./markdown-formatter";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
-import { JSONWriter, TerminalWriter } from "./output-writer";
+import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
 
 
@@ -76,12 +76,12 @@ export class CLIRenderer {
 
   constructor(private config: CLIRendererConfig) {
     // Determine output mode
-    this.mode = config.displayConfig.mode ?? "raw";
+    this.mode = config.displayConfig.mode ?? "hybrid";
 
-    const isMarkdownMode = this.mode === "markdown";
+    const isStyledMode = this.mode === "rendered" || this.mode === "hybrid";
 
     // Determine color profile
-    const colorProfile: ColorProfile = isMarkdownMode
+    const colorProfile: ColorProfile = isStyledMode
       ? config.displayConfig.colorProfile || detectColorProfile()
       : "none";
 
@@ -94,8 +94,8 @@ export class CLIRenderer {
     // Create thinking renderer
     this.thinkingRenderer = new ThinkingRenderer(this.theme);
 
-    // Initialize markdown if in markdown mode
-    if (isMarkdownMode) {
+    // Initialize markdown if in styled mode
+    if (isStyledMode) {
       Effect.runSync(this.initializeMarkdown());
     }
   }
@@ -105,10 +105,9 @@ export class CLIRenderer {
    */
   private createWriter(mode: OutputMode): OutputWriter {
     switch (mode) {
-      case "json":
-        return new JSONWriter();
-      case "markdown":
+      case "rendered":
       case "raw":
+      case "hybrid":
       default:
         return new TerminalWriter();
     }
@@ -231,7 +230,7 @@ export class CLIRenderer {
   }
 
   private renderTextChunk(delta: string): string {
-    if (this.mode === "markdown") {
+    if (this.mode === "rendered") {
       const bufferMs =
         this.config.streamingConfig.textBufferMs ?? DEFAULT_STREAMING_CONFIG.textBufferMs;
       try {
@@ -363,7 +362,7 @@ export class CLIRenderer {
     };
   }): string {
     // Flush any remaining buffered markdown content
-    if (this.mode === "markdown") {
+    if (this.mode === "rendered") {
       try {
         const remaining: string = this.flushBuffer();
         if (remaining.length > 0) {
@@ -485,7 +484,7 @@ export class CLIRenderer {
    * (or pass through raw markdown when markdown mode is disabled)
    */
   renderMarkdown(markdown: string): Effect.Effect<string, never> {
-    if (this.mode !== "markdown") {
+    if (this.mode !== "rendered") {
       return Effect.succeed(markdown);
     }
 

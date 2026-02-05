@@ -33,7 +33,6 @@ export function AgentsList(props: {
 
   React.useEffect(() => {
     function handleResize(): void {
-      // Debounce resize events to avoid excessive re-renders
       if (resizeTimeoutRef.current) {
         clearTimeout(resizeTimeoutRef.current);
       }
@@ -42,7 +41,6 @@ export function AgentsList(props: {
       }, 100);
     }
 
-    // Initial sync + subscribe
     setColumns(stdout.columns ?? 80);
     stdout.on("resize", handleResize);
     return () => {
@@ -53,99 +51,100 @@ export function AgentsList(props: {
     };
   }, [stdout]);
 
-  const width = Math.max(60, Math.min(columns, 120));
+  const width = Math.max(60, Math.min(columns, 140));
+  const inner = Math.max(40, width - 4);
 
-  const inner = Math.max(40, width - 2);
-
-  const idxW = 3;
-  const nameW = Math.max(16, Math.min(28, Math.floor(inner * 0.28)));
-  const modelW = Math.max(18, Math.min(30, Math.floor(inner * 0.25)));
-  const typeW = Math.max(10, Math.min(14, Math.floor(inner * 0.12)));
-  const updatedW = 16;
+  // Column settings
+  const idxW = 4;
+  const nameW = Math.max(16, Math.min(24, Math.floor(inner * 0.2)));
+  const modelW = Math.max(18, Math.min(28, Math.floor(inner * 0.22)));
+  const typeW = Math.max(10, Math.min(12, Math.floor(inner * 0.1)));
+  const reasoningW = 12;
   const gap = 2;
-  const fixed = idxW + gap + nameW + gap + modelW + gap + typeW + gap + updatedW + gap;
-  const descW = Math.max(10, inner - fixed);
+  const fixed = idxW + gap + nameW + gap + modelW + gap + typeW + gap + reasoningW + gap;
+  const descW = Math.max(15, inner - fixed);
+
+  const sp = " ".repeat(gap);
 
   return (
-    <Box flexDirection="column" paddingX={1} width={width}>
-      {/* Header */}
-      <Box justifyContent="space-between">
-        <Text bold color="cyan">
-          Agents ({props.agents.length})
+    <Box flexDirection="column" paddingX={2} width={width}>
+      {/* Header Section */}
+      <Box justifyContent="space-between" marginBottom={1}>
+        <Text>
+          <Text bold color="cyan">AGENTS</Text>
+          <Text dimColor> ({props.agents.length})</Text>
         </Text>
-        <Text dimColor>jazz agent get &lt;id|name&gt; · jazz agent chat &lt;id|name&gt;</Text>
+        <Text dimColor>jazz chat &lt;id|name&gt; · jazz edit &lt;id|name&gt;</Text>
       </Box>
 
-      {/* Header separator */}
-      <Box>
-        <Text dimColor>{"─".repeat(Math.min(60, width - 2))}</Text>
-      </Box>
-
-      {/* Column headers */}
-      <Box marginTop={1} flexDirection="row" paddingLeft={1}>
-        <Text dimColor>
+      {/* Table Header */}
+      <Box borderStyle="single" borderBottom borderColor="gray" borderTop={false} borderLeft={false} borderRight={false} paddingBottom={0}>
+        <Text color="whiteBright" bold>
           {padRight("#", idxW)}
-          {" ".repeat(gap)}
-          {padRight("Name", nameW)}
-          {" ".repeat(gap)}
-          {padRight("Model", modelW)}
-          {" ".repeat(gap)}
-          {padRight("Type", typeW)}
-          {" ".repeat(gap)}
-          {padRight("Updated", updatedW)}
-          {" ".repeat(gap)}
-          {padRight("Description", descW)}
+          {sp}
+          {padRight("NAME", nameW)}
+          {sp}
+          {padRight("MODEL", modelW)}
+          {sp}
+          {padRight("TYPE", typeW)}
+          {sp}
+          {padRight("REASONING", reasoningW)}
+          {sp}
+          {padRight("DESCRIPTION", descW)}
         </Text>
       </Box>
 
-      {/* Agent rows */}
-      <Box marginTop={1} flexDirection="column" paddingLeft={1}>
+      {/* Table Body */}
+      <Box flexDirection="column" marginTop={1}>
         {props.agents.map((agent, i) => {
           const model = `${formatProviderDisplayName(agent.config.llmProvider)}/${agent.config.llmModel}`;
           const type = agent.config.agentType ?? "default";
-          const updated = formatIsoShort(agent.updatedAt);
+          const reasoning = agent.config.reasoningEffort ?? "—";
           const desc = agent.description ?? "";
 
           return (
-            <Box key={agent.id} flexDirection="column" marginBottom={i === props.agents.length - 1 ? 0 : 1}>
+            <Box key={agent.id} flexDirection="column" marginBottom={1}>
               <Text>
-                {padRight(String(i + 1), idxW)}
-                {" ".repeat(gap)}
-                {padRight(truncateMiddle(agent.name, nameW), nameW)}
-                {" ".repeat(gap)}
-                {padRight(truncateMiddle(model, modelW), modelW)}
-                {" ".repeat(gap)}
-                {padRight(truncateMiddle(type, typeW), typeW)}
-                {" ".repeat(gap)}
-                {padRight(truncateMiddle(updated, updatedW), updatedW)}
-                {" ".repeat(gap)}
-                {padRight(truncateMiddle(desc, descW), descW)}
+                <Text color="cyan">{padRight(String(i + 1), idxW)}</Text>
+                {sp}
+                <Text bold color="white">{padRight(truncateMiddle(agent.name, nameW), nameW)}</Text>
+                {sp}
+                <Text color="blue">{padRight(truncateMiddle(model, modelW), modelW)}</Text>
+                {sp}
+                <Text color="yellow">{padRight(truncateMiddle(type, typeW), typeW)}</Text>
+                {sp}
+                <Text color={reasoning === "—" ? "gray" : "magenta"}>{padRight(truncateMiddle(reasoning, reasoningW), reasoningW)}</Text>
+                {sp}
+                <Text dimColor>{truncateMiddle(desc, descW)}</Text>
               </Text>
 
-              <Text dimColor>
-                id {truncateMiddle(agent.id, 28)}
-                {"  ·  "}
-                created {formatIsoShort(agent.createdAt)}
-                {agent.config.reasoningEffort ? (
-                  <>
-                    {"  ·  "}
-                    reasoning {String(agent.config.reasoningEffort)}
-                  </>
-                ) : null}
-              </Text>
-
-              {props.verbose ? (
-                <Text dimColor>
-                  {formatToolsLine(agent.config.tools, inner)}
+              {/* Meta info below each row */}
+              <Box paddingLeft={idxW + gap}>
+                <Text dimColor italic>
+                  {padRight(`ID: ${truncateMiddle(agent.id, 12)}`, 20)}
+                  {" · "}
+                  Created: {formatIsoShort(agent.createdAt)}
                 </Text>
-              ) : null}
+              </Box>
+
+              {props.verbose && (
+                <Box paddingLeft={idxW + gap}>
+                  <Text dimColor>
+                    {formatToolsLine(agent.config.tools, inner - (idxW + gap))}
+                  </Text>
+                </Box>
+              )}
             </Box>
           );
         })}
       </Box>
 
-      {/* Bottom spacing */}
-      <Box marginTop={1} />
+      {/* Bottom Footer */}
+      <Box marginTop={1} borderStyle="single" borderTop borderColor="gray" borderBottom={false} borderLeft={false} borderRight={false} paddingTop={0}>
+        <Text dimColor>
+          Total active agents: {props.agents.length}
+        </Text>
+      </Box>
     </Box>
   );
 }

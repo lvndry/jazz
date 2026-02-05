@@ -29,7 +29,7 @@ describe("InkStreamingRenderer", () => {
         {
           showThinking: true,
           showToolExecution: true,
-          mode: "markdown",
+          mode: "rendered",
           colorProfile: "full",
         },
       );
@@ -79,7 +79,7 @@ describe("InkStreamingRenderer", () => {
         {
           showThinking: true,
           showToolExecution: true,
-          mode: "markdown",
+          mode: "rendered",
           colorProfile: "full",
         },
       );

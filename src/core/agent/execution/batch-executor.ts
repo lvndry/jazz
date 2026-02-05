@@ -179,7 +179,7 @@ export function executeWithoutStreaming(
 
             // Format content only when markdown mode is enabled
             let formattedContent = completion.content;
-            if (formattedContent && displayConfig.mode === "markdown") {
+            if (formattedContent && displayConfig.mode === "rendered") {
               formattedContent = yield* presentationService.renderMarkdown(formattedContent);
             }
 

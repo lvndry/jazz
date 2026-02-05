@@ -147,8 +147,7 @@ function defaultConfig(): AppConfig {
   const storage: StorageConfig = { type: "file", path: getUserDataDirectory() };
   const logging: LoggingConfig = {
     level: "info",
-    format: "pretty",
-    output: "console",
+    format: "plain",
   };
 
   const google: GoogleConfig = {
@@ -157,9 +156,7 @@ function defaultConfig(): AppConfig {
   };
 
   const llm: LLMConfig = {};
-  const web_search: WebSearchConfig = {
-    priority_order: ["parallel", "exa", "tavily"],
-  };
+  const web_search: WebSearchConfig = {};
 
   return { storage, logging, google, llm, web_search };
 }

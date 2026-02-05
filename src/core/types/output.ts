@@ -7,7 +7,7 @@ import type { StreamingConfig } from "./streaming";
 /**
  * Output mode controls what content is displayed and how it is formatted
  */
-export type OutputMode = "markdown" | "json" | "raw";
+export type OutputMode = "rendered" | "hybrid" | "raw";
 
 /**
  * Color profile for terminal output
@@ -63,10 +63,10 @@ export interface OutputConfig {
 
   /**
    * Output mode
-   * - "markdown": Rich, styled markdown output with colors
-   * - "json": Structured JSON for programmatic consumption
+   * - "rendered": Styled output with colors (strips markdown syntax)
+   * - "hybrid": Styled output that preserves raw markdown syntax for copy-paste
    * - "raw": Plain text stream that keeps markdown as-is
-   * Default: "raw"
+   * Default: "hybrid"
    */
   readonly mode?: OutputMode;
 

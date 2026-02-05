@@ -116,16 +116,16 @@ export async function getModelsDevMap(): Promise<Map<string, ModelsDevMetadata> 
     const response = await fetch(MODELS_DEV_API_URL, {
       headers: { Accept: "application/json" },
     });
-    if (!response.ok) return null;
+    if (!response.ok) return cachedMap;
 
     const api = (await response.json()) as ModelsDevApi;
-    if (!api || typeof api !== "object") return null;
+    if (!api || typeof api !== "object") return cachedMap;
 
     cachedMap = buildMap(api);
     cacheExpiry = now + CACHE_TTL_MS;
     return cachedMap;
   } catch {
-    return null;
+    return cachedMap;
   }
 }
 

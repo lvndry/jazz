@@ -16,6 +16,7 @@ type ConfigMenuAction =
   | "llm-providers"
   | "web-search"
   | "output-display"
+  | "logging"
   | "notifications"
   | "back";
 
@@ -31,6 +32,7 @@ export function configWizardCommand() {
         { label: "LLM Providers (API Keys)", value: "llm-providers" },
         { label: "Web Search Providers", value: "web-search" },
         { label: "Output & Display", value: "output-display" },
+        { label: "Logging", value: "logging" },
         { label: "Notifications", value: "notifications" },
         { label: "Back to Main Menu", value: "back" },
       ];
@@ -48,6 +50,10 @@ export function configWizardCommand() {
         }
         case "output-display": {
           yield* configureOutputDisplay();
+          break;
+        }
+        case "logging": {
+          yield* configureLogging();
           break;
         }
         case "notifications": {
@@ -107,7 +113,7 @@ function configureLLMProviders() {
         choices
       });
 
-      if (providerChoice === "back") {
+      if (!providerChoice || providerChoice === "back") {
         break;
       }
 
@@ -135,35 +141,61 @@ function configureWebSearchProviders() {
 
     while (true) {
       const config = yield* configService.appConfig;
+      const currentProvider = config.web_search?.provider;
+      const providerDisplay = currentProvider ?? "Built-in (if available)";
 
-      const choices = WEB_SEARCH_PROVIDERS.map(p => {
-        const hasKey = !!config.web_search?.[p.value]?.api_key;
-        return {
-          name: `${p.name} ${hasKey ? "(configured)" : ""}`,
-          value: p.value as string
-        };
-      });
+      const choices = [
+        { name: `Select external provider (current: ${providerDisplay})`, value: "select-provider" },
+        ...WEB_SEARCH_PROVIDERS.map(p => {
+          const hasKey = !!config.web_search?.[p.value]?.api_key;
+          return {
+            name: `${p.name} API Key ${hasKey ? "(configured)" : ""}`,
+            value: p.value as string
+          };
+        }),
+        { name: "Back", value: "back" }
+      ];
 
-      choices.push({ name: "Back", value: "back" });
-
-      const providerChoice = yield* terminal.select<string>("Select provider to configure:", {
+      const selection = yield* terminal.select<string>("Web Search Configuration:", {
         choices
       });
 
-      if (providerChoice === "back") {
+      if (!selection || selection === "back") {
         break;
       }
 
-      const provider = providerChoice as WebSearchProviderName;
+      if (selection === "select-provider") {
+        const providerChoices: Array<{ name: string; value: WebSearchProviderName | "none" }> = [
+          { name: "None (use built-in if available)", value: "none" },
+          ...WEB_SEARCH_PROVIDERS.map(p => ({
+            name: p.name,
+            value: p.value
+          }))
+        ];
 
-      yield* terminal.info(`Configuring ${provider}...`);
-      const apiKey = yield* terminal.password(`Enter API Key for ${provider} (leave empty to keep current):`);
+        const choice = yield* terminal.select<WebSearchProviderName | "none">("Select provider:", {
+          choices: providerChoices
+        });
 
-      if (apiKey.trim()) {
-        yield* configService.set(`web_search.${provider}.api_key`, apiKey);
-        yield* terminal.success(`Configuration for ${provider} updated.`);
+        if (choice === "none") {
+          yield* configService.set("web_search.provider", undefined);
+          yield* terminal.success("External provider disabled. Built-in provider web search will be used if available.");
+        } else if (choice) {
+          yield* configService.set("web_search.provider", choice);
+          yield* terminal.success(`External provider set to ${choice}.`);
+        }
       } else {
-        yield* terminal.info("No changes made.");
+        const provider = selection as WebSearchProviderName;
+
+        yield* terminal.info(`Configuring ${provider}...`);
+        const apiKey = yield* terminal.password(`Enter API Key for ${provider} (leave empty to keep current):`);
+
+        if (apiKey.trim()) {
+          yield* configService.set(`web_search.${provider}.api_key`, apiKey);
+          yield* terminal.success(`Configuration for ${provider} updated.`);
+        } else {
+          yield* terminal.info("No changes made.");
+        }
       }
 
       yield* terminal.log(""); // Spacing
@@ -214,9 +246,9 @@ function configureOutputDisplay() {
         case "mode": {
           const mode = yield* terminal.select<OutputMode>("Select output mode:", {
             choices: [
-              { name: "Raw (copy/paste markdown)", value: "raw" },
-              { name: "Markdown (styled)", value: "markdown" },
-              { name: "JSON (structured)", value: "json" },
+              { name: "Hybrid (styled, copy-paste friendly)", value: "hybrid" },
+              { name: "Raw (plain text)", value: "raw" },
+              { name: "Rendered (styled)", value: "rendered" },
             ],
           });
           if (mode) {
@@ -316,6 +348,46 @@ function configureNotifications() {
           yield* configService.set("notifications.sound", nextValue);
           yield* terminal.success(`Notification sound ${nextValue ? "enabled" : "disabled"}.`);
           break;
+        }
+      }
+
+      yield* terminal.log("");
+    }
+  });
+}
+
+function configureLogging() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+
+    while (true) {
+      const appConfig = yield* configService.appConfig;
+      const currentFormat = appConfig.logging?.format ?? "plain";
+
+      const selection = yield* terminal.select<string>("Logging settings:", {
+        choices: [
+          { name: `Log format (${currentFormat})`, value: "format" },
+          { name: "Back", value: "back" },
+        ],
+      });
+
+      if (!selection || selection === "back") {
+        break;
+      }
+
+      if (selection === "format") {
+        const nextFormat = yield* terminal.select<"json" | "plain" | "toon">("Select log format:", {
+          choices: [
+            { name: "Plain (human readable)", value: "plain" },
+            { name: "JSON (structured for log processors)", value: "json" },
+            { name: "TOON (token-efficient for LLM analysis)", value: "toon" },
+          ],
+        });
+
+        if (nextFormat) {
+          yield* configService.set("logging.format", nextFormat);
+          yield* terminal.success(`Log format set to ${nextFormat}.`);
         }
       }
 

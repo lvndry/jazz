@@ -26,7 +26,7 @@ describe("AI SDK Service - Unit Tests", () => {
   ): Layer.Layer<AgentConfigService, never, FileSystem.FileSystem> {
     const appConfig: AppConfig = {
       storage: { type: "file", path: "/tmp/test" },
-      logging: { level: "info", format: "pretty", output: "console" },
+      logging: { level: "info", format: "plain" },
       llm: llmConfig,
     };
 
