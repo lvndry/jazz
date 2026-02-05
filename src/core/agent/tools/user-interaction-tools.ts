@@ -8,18 +8,15 @@ const askUserSchema = z.object({
   question: z.string().describe("A single, clear question to ask the user"),
   suggested_responses: z
     .array(
-      z.union([
-        z.string(),
-        z.object({
-          value: z.string(),
-          label: z.string().optional(),
-          description: z.string().optional(),
-        }),
-      ]),
+      z.object({
+        value: z.string(),
+        label: z.string().optional(),
+        description: z.string().optional(),
+      }),
     )
     .min(2)
     .describe(
-      "At least 2 suggested responses the user can pick from. Keep suggestions concise and actionable. Can be strings or objects with 'value', 'label', and 'description'.",
+      "At least 2 suggested responses the user can pick from. Keep suggestions concise and actionable.",
     ),
   allow_custom: z
     .boolean()

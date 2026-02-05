@@ -23,7 +23,7 @@ export interface UserInputRequest {
   /** The question to display to the user */
   readonly question: string;
   /** Optional suggested responses the user can pick from */
-  readonly suggestions: readonly (string | Suggestion)[];
+  readonly suggestions: readonly Suggestion[];
   /** Whether to allow custom text input in addition to suggestions */
   readonly allowCustom: boolean;
 }

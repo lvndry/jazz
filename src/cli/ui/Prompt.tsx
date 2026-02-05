@@ -315,7 +315,7 @@ function PromptComponent({
         )}
         {prompt.type === "questionnaire" && (
           <Questionnaire
-            suggestions={(prompt.options?.["suggestions"] as readonly (string | Suggestion)[]) ?? []}
+            suggestions={(prompt.options?.["suggestions"] as readonly Suggestion[]) ?? []}
             allowCustom={(prompt.options?.["allowCustom"] as boolean) !== false}
             onSubmit={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}

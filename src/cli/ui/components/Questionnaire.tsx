@@ -6,7 +6,7 @@ import { useInputHandler, InputPriority, InputResults } from "../hooks/use-input
 
 
 interface QuestionnaireProps {
-  suggestions: readonly (string | Suggestion)[];
+  suggestions: readonly Suggestion[];
   allowCustom: boolean;
   onSubmit: (response: string) => void;
   onCancel?: () => void;
@@ -44,8 +44,7 @@ export function Questionnaire({
         if (selectedIndex < suggestions.length) {
           const suggestion = suggestions[selectedIndex];
           if (suggestion) {
-            const value = typeof suggestion === "string" ? suggestion : suggestion.value;
-            onSubmit(value);
+            onSubmit(suggestion.value);
             return InputResults.consumed();
           }
         }
@@ -66,8 +65,7 @@ export function Questionnaire({
           if (index < suggestions.length) {
             const suggestion = suggestions[index];
             if (suggestion) {
-              const value = typeof suggestion === "string" ? suggestion : suggestion.value;
-              onSubmit(value);
+              onSubmit(suggestion.value);
               return InputResults.consumed();
             }
           }
@@ -82,9 +80,8 @@ export function Questionnaire({
     <Box flexDirection="column">
       {/* Suggested responses */}
       {suggestions.map((suggestion, i) => {
-        const isString = typeof suggestion === "string";
-        const label = isString ? suggestion : (suggestion.label ?? suggestion.value);
-        const description = isString ? undefined : suggestion.description;
+        const label = suggestion.label ?? suggestion.value;
+        const description = suggestion.description;
 
         return (
           <Box key={i} flexDirection="column">
