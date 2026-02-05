@@ -105,6 +105,11 @@ class HeadlessPresentationService implements PresentationService {
   signalToolExecutionStarted(): Effect.Effect<void, never> {
     return Effect.void;
   }
+
+  // Headless mode cannot ask user - return empty string
+  requestUserInput(): Effect.Effect<string, never> {
+    return Effect.succeed("");
+  }
 }
 
 /**

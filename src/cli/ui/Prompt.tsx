@@ -5,6 +5,7 @@ import {
   type ChatCommandInfo,
 } from "@/services/chat/commands";
 import { ChatInput, SHORTCUTS_HINT } from "./components/ChatInput";
+import { Questionnaire } from "./components/Questionnaire";
 import { ScrollableMultiSelect } from "./components/ScrollableMultiSelect";
 import { ScrollableSelect } from "./components/ScrollableSelect";
 import { SearchSelect } from "./components/SearchSelect";
@@ -310,6 +311,14 @@ function PromptComponent({
         })()}
         {prompt.type === "hidden" && (
           <HiddenInput onSubmit={() => prompt.resolve("")} />
+        )}
+        {prompt.type === "questionnaire" && (
+          <Questionnaire
+            suggestions={(prompt.options?.["suggestions"] as readonly string[]) ?? []}
+            allowCustom={(prompt.options?.["allowCustom"] as boolean) !== false}
+            onSubmit={(value) => prompt.resolve(value)}
+            onCancel={() => prompt.reject?.()}
+          />
         )}
       </Box>
     </Box>

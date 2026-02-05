@@ -9,6 +9,7 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { ink } from "@/core/interfaces/terminal";
@@ -585,6 +586,14 @@ interface QueuedApproval {
 }
 
 /**
+ * Queued user input request with its resolve callback.
+ */
+interface QueuedUserInput {
+  request: UserInputRequest;
+  resume: (effect: Effect.Effect<string, never>) => void;
+}
+
+/**
  * Ink implementation of PresentationService.
  *
  * Critical: does NOT write to stdout directly (which would clobber Ink rendering).
@@ -596,6 +605,10 @@ class InkPresentationService implements PresentationService {
   // Approval queue to handle parallel tool calls
   private approvalQueue: QueuedApproval[] = [];
   private isProcessingApproval: boolean = false;
+
+  // User input queue to handle parallel requestUserInput calls
+  private userInputQueue: QueuedUserInput[] = [];
+  private isProcessingUserInput: boolean = false;
 
   // Signal for tool execution start synchronization
   private pendingExecutionSignal: (() => void) | null = null;
@@ -869,6 +882,73 @@ class InkPresentationService implements PresentationService {
       if (this.pendingExecutionSignal) {
         this.pendingExecutionSignal();
       }
+    });
+  }
+
+  requestUserInput(request: UserInputRequest): Effect.Effect<string, never> {
+    return Effect.async((resume) => {
+      // Add to queue and process
+      this.userInputQueue.push({ request, resume });
+      this.processNextUserInput();
+    });
+  }
+
+  /**
+   * Process the next user input request in the queue.
+   */
+  private processNextUserInput(): void {
+    // If already processing or queue is empty, do nothing
+    if (this.isProcessingUserInput || this.userInputQueue.length === 0) {
+      return;
+    }
+
+    this.isProcessingUserInput = true;
+    const { request, resume } = this.userInputQueue.shift()!;
+
+    // Show the question with formatted suggestions
+    const separator = chalk.dim("─".repeat(50));
+    store.printOutput({
+      type: "log",
+      message: `\n${separator}`,
+      timestamp: new Date(),
+    });
+    store.printOutput({
+      type: "log",
+      message: `${chalk.cyan("❓")} ${chalk.bold(request.question)}`,
+      timestamp: new Date(),
+    });
+    store.printOutput({
+      type: "log",
+      message: separator,
+      timestamp: new Date(),
+    });
+
+    // Set up questionnaire prompt
+    store.setPrompt({
+      type: "questionnaire",
+      message: request.question,
+      options: {
+        suggestions: request.suggestions,
+        allowCustom: request.allowCustom,
+      },
+      resolve: (value: unknown) => {
+        const response = String(value);
+        store.printOutput({
+          type: "log",
+          message: `${chalk.dim("Your response:")} ${chalk.green(response)}`,
+          timestamp: new Date(),
+        });
+        store.setPrompt(null);
+        this.isProcessingUserInput = false;
+        resume(Effect.succeed(response));
+        this.processNextUserInput();
+      },
+      reject: () => {
+        store.setPrompt(null);
+        this.isProcessingUserInput = false;
+        resume(Effect.succeed("")); // Return empty on cancel
+        this.processNextUserInput();
+      },
     });
   }
 }

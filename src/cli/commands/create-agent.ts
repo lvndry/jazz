@@ -11,6 +11,7 @@ import {
   HTTP_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   SKILLS_CATEGORY,
+  USER_INTERACTION_CATEGORY,
   WEB_SEARCH_CATEGORY,
 } from "@/core/agent/tools/register-tools";
 import type { ProviderName } from "@/core/constants/models";
@@ -662,7 +663,11 @@ async function promptForAgentInfo(
           selectedTools = await Effect.runPromise(
             terminal.checkbox<string>(`Which tools should this agent have access to?${hint}`, {
               choices: Object.entries(toolsByCategory)
-                .filter(([category]) => category !== SKILLS_CATEGORY.displayName)
+                .filter(
+                  ([category]) =>
+                    category !== SKILLS_CATEGORY.displayName &&
+                    category !== USER_INTERACTION_CATEGORY.displayName,
+                )
                 .map(([category, toolsInCategory]) => ({
                   name:
                     toolsInCategory.length > 0
