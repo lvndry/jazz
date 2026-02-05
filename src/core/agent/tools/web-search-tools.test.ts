@@ -72,6 +72,8 @@ describe("WebSearchTool", () => {
       getOrElse: vi.fn().mockImplementation((key) => {
         if (key === "web_search.exa.api_key") return Effect.succeed("");
         if (key === "web_search.parallel.api_key") return Effect.succeed("");
+        if (key === "web_search.brave.api_key") return Effect.succeed("");
+        if (key === "web_search.perplexity.api_key") return Effect.succeed("");
         return Effect.succeed("default");
       }),
       getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),
@@ -182,6 +184,124 @@ describe("WebSearchTool", () => {
     expect(searchResult.query).toBe("test search");
     expect(searchResult.results).toHaveLength(1);
     expect(searchResult.results[0]!.title).toBe("Exa Result");
+  });
+
+  it("should use the configured provider (Brave)", async () => {
+    const tool = createWebSearchTool();
+
+    const mockBraveConfig = {
+      ...mockAppConfig,
+      web_search: { provider: "brave" as const },
+    };
+
+    const mockConfigService = {
+      get: vi.fn(),
+      getOrElse: vi.fn().mockImplementation((key) => {
+        if (key === "web_search.brave.api_key") return Effect.succeed("brave-key");
+        return Effect.succeed("");
+      }),
+      getOrFail: vi.fn(),
+      has: vi.fn(),
+      set: vi.fn(),
+      appConfig: Effect.succeed(mockBraveConfig),
+    };
+
+    const mockLoggerService = {
+      debug: vi.fn().mockReturnValue(Effect.void),
+      info: vi.fn().mockReturnValue(Effect.void),
+      warn: vi.fn().mockReturnValue(Effect.void),
+      error: vi.fn().mockReturnValue(Effect.void),
+      writeToFile: vi.fn().mockReturnValue(Effect.void),
+      logToolCall: vi.fn().mockReturnValue(Effect.void),
+      setSessionId: vi.fn().mockReturnValue(Effect.void),
+      clearSessionId: vi.fn().mockReturnValue(Effect.void),
+    };
+
+    const mockLayer = Layer.merge(
+      Layer.succeed(AgentConfigServiceTag, mockConfigService),
+      Layer.succeed(LoggerServiceTag, mockLoggerService),
+    );
+
+    // Mock fetch
+    const originalFetch = global.fetch;
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        web: {
+          results: [{ title: "Brave Result", url: "https://brave.com", description: "Brave snippet" }],
+        },
+      }),
+    });
+    global.fetch = mockFetch as unknown as typeof fetch;
+
+    const result = (await Effect.runPromise(
+      tool.execute({ query: "test" }, { agentId: "test" }).pipe(Effect.provide(mockLayer)),
+    )) as { success: boolean; result: { provider: string; results: { title: string }[] } };
+
+    expect(result.success).toBe(true);
+    expect(result.result.provider).toBe("brave");
+    expect(result.result.results[0].title).toBe("Brave Result");
+
+    global.fetch = originalFetch;
+  });
+
+  it("should use the configured provider (Perplexity)", async () => {
+    const tool = createWebSearchTool();
+
+    const mockPerplexityConfig = {
+      ...mockAppConfig,
+      web_search: { provider: "perplexity" as const },
+    };
+
+    const mockConfigService = {
+      get: vi.fn(),
+      getOrElse: vi.fn().mockImplementation((key) => {
+        if (key === "web_search.perplexity.api_key") return Effect.succeed("pplx-key");
+        return Effect.succeed("");
+      }),
+      getOrFail: vi.fn(),
+      has: vi.fn(),
+      set: vi.fn(),
+      appConfig: Effect.succeed(mockPerplexityConfig),
+    };
+
+    const mockLoggerService = {
+      debug: vi.fn().mockReturnValue(Effect.void),
+      info: vi.fn().mockReturnValue(Effect.void),
+      warn: vi.fn().mockReturnValue(Effect.void),
+      error: vi.fn().mockReturnValue(Effect.void),
+      writeToFile: vi.fn().mockReturnValue(Effect.void),
+      logToolCall: vi.fn().mockReturnValue(Effect.void),
+      setSessionId: vi.fn().mockReturnValue(Effect.void),
+      clearSessionId: vi.fn().mockReturnValue(Effect.void),
+    };
+
+    const mockLayer = Layer.merge(
+      Layer.succeed(AgentConfigServiceTag, mockConfigService),
+      Layer.succeed(LoggerServiceTag, mockLoggerService),
+    );
+
+    // Mock fetch
+    const originalFetch = global.fetch;
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        results: [
+          { title: "Perplexity Result", url: "https://perplexity.ai", snippet: "Pplx snippet" },
+        ],
+      }),
+    });
+    global.fetch = mockFetch as unknown as typeof fetch;
+
+    const result = (await Effect.runPromise(
+      tool.execute({ query: "test" }, { agentId: "test" }).pipe(Effect.provide(mockLayer)),
+    )) as { success: boolean; result: { provider: string; results: { title: string }[] } };
+
+    expect(result.success).toBe(true);
+    expect(result.result.provider).toBe("perplexity");
+    expect(result.result.results[0].title).toBe("Perplexity Result");
+
+    global.fetch = originalFetch;
   });
 
   it("should create correct summary", () => {

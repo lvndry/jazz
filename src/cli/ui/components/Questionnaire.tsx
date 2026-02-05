@@ -1,10 +1,12 @@
 import { Box, Text } from "ink";
 import React, { useState } from "react";
+import type { Suggestion } from "@/core/interfaces/presentation";
 import { TextInput } from "./TextInput";
 import { useInputHandler, InputPriority, InputResults } from "../hooks/use-input-service";
 
+
 interface QuestionnaireProps {
-  suggestions: readonly string[];
+  suggestions: readonly (string | Suggestion)[];
   allowCustom: boolean;
   onSubmit: (response: string) => void;
   onCancel?: () => void;
@@ -42,7 +44,8 @@ export function Questionnaire({
         if (selectedIndex < suggestions.length) {
           const suggestion = suggestions[selectedIndex];
           if (suggestion) {
-            onSubmit(suggestion);
+            const value = typeof suggestion === "string" ? suggestion : suggestion.value;
+            onSubmit(value);
             return InputResults.consumed();
           }
         }
@@ -63,7 +66,8 @@ export function Questionnaire({
           if (index < suggestions.length) {
             const suggestion = suggestions[index];
             if (suggestion) {
-              onSubmit(suggestion);
+              const value = typeof suggestion === "string" ? suggestion : suggestion.value;
+              onSubmit(value);
               return InputResults.consumed();
             }
           }
@@ -77,14 +81,27 @@ export function Questionnaire({
   return (
     <Box flexDirection="column">
       {/* Suggested responses */}
-      {suggestions.map((suggestion, i) => (
-        <Box key={i}>
-          <Text color={i === selectedIndex ? "green" : "white"} bold={i === selectedIndex}>
-            {i === selectedIndex ? "› " : "  "}
-            <Text color={i === selectedIndex ? "green" : "cyan"}>{i + 1}.</Text> {suggestion}
-          </Text>
-        </Box>
-      ))}
+      {suggestions.map((suggestion, i) => {
+        const isString = typeof suggestion === "string";
+        const label = isString ? suggestion : (suggestion.label ?? suggestion.value);
+        const description = isString ? undefined : suggestion.description;
+
+        return (
+          <Box key={i} flexDirection="column">
+            <Box>
+              <Text color={i === selectedIndex ? "green" : "white"} bold={i === selectedIndex}>
+                {i === selectedIndex ? "› " : "  "}
+                <Text color={i === selectedIndex ? "green" : "cyan"}>{i + 1}.</Text> {label}
+              </Text>
+            </Box>
+            {description && (
+              <Box paddingLeft={5}>
+                <Text dimColor>{description}</Text>
+              </Box>
+            )}
+          </Box>
+        );
+      })}
 
       {/* Inline Custom input */}
       {allowCustom && (
