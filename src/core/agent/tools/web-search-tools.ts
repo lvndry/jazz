@@ -87,6 +87,13 @@ export function createWebSearchTool(): ReturnType<
           .describe(
             "The date until which the search results should be considered, in ISO 8601 format (YYYY-MM-DD)",
           ),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe(`Maximum number of results to return (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
       })
       .strict(),
     validate: (args) => {
@@ -103,6 +110,7 @@ export function createWebSearchTool(): ReturnType<
               .string()
               .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
               .optional(),
+            maxResults: z.number().int().min(1).max(100).optional(),
           })
           .strict() as z.ZodType<WebSearchArgs>
       ).safeParse(args);
@@ -233,7 +241,7 @@ function executeExaSearch(
         const searchOptions: Parameters<typeof exa.search>[1] = {
           type: "auto",
           useAutoprompt: true,
-          numResults: DEFAULT_MAX_RESULTS,
+          numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
         };
 
         if (args.fromDate) {
@@ -294,7 +302,7 @@ function executeParallelSearch(
         return await parallel.beta.search({
           objective: args.query,
           mode: "agentic",
-          max_results: DEFAULT_MAX_RESULTS,
+          max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
         });
       },
       catch: (error) =>
@@ -347,7 +355,7 @@ function executeTavilySearch(
       try: async () => {
         const searchOptions = {
           searchDepth: args.depth === "deep" ? ("advanced" as const) : ("basic" as const),
-          maxResults: DEFAULT_MAX_RESULTS,
+          maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
           ...(args.fromDate && { startDate: args.fromDate }),
           ...(args.toDate && { endDate: args.toDate }),
         };
@@ -399,7 +407,7 @@ function executeBraveSearch(
       try: async () => {
         const url = new URL("https://api.search.brave.com/res/v1/web/search");
         url.searchParams.append("q", args.query);
-        url.searchParams.append("count", DEFAULT_MAX_RESULTS.toString());
+        url.searchParams.append("count", (args.maxResults ?? DEFAULT_MAX_RESULTS).toString());
 
         const res = await fetch(url.toString(), {
           headers: {
@@ -469,7 +477,7 @@ function executePerplexitySearch(
           },
           body: JSON.stringify({
             query: args.query,
-            max_results: args.maxResults,
+            max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
           }),
         });
 
