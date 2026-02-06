@@ -178,13 +178,17 @@ export function fetchReleaseNotesSince(
         break;
       }
 
-      // Extract first non-empty line of body as summary
-      const body = release.body || release.name || "";
-      const firstLine = body.split("\n").find((line) => line.trim().length > 0) || "No release notes";
+      // Get the release body, cleaned up
+      const body = (release.body || release.name || "No release notes")
+        .trim()
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .join("\n");
 
       notes.push({
         version,
-        summary: firstLine.slice(0, 80) + (firstLine.length > 80 ? "..." : ""),
+        summary: body,
       });
     }
 
@@ -314,7 +318,7 @@ function installUpdate(
     // Detect which package manager to use
     const pmInfo = yield* detectPackageManager();
 
-    yield* terminal.log(`\n📦 Installing update using ${pmInfo.name} (${pmInfo.version})...`);
+    yield* terminal.log(`\n📦 Installing update using ${pmInfo.name} ${pmInfo.version}...`);
 
     if (pmInfo.name === "yarn") {
       const majorString = pmInfo.version.split(".")[0] ?? "";
@@ -386,7 +390,6 @@ export function updateCommand(options?: {
     const logger = yield* LoggerServiceTag;
     const terminal = yield* TerminalServiceTag;
 
-    yield* logger.info("Checking for updates...");
     yield* terminal.info("Checking for updates...");
     yield* terminal.log("");
 
@@ -423,12 +426,32 @@ export function updateCommand(options?: {
 
     yield* terminal.success("A new version is available!");
 
+    // Fetch and display release notes since current version
+    const releaseNotes = yield* fetchReleaseNotesSince(versionInfo.currentVersion).pipe(
+      Effect.timeout(5000), // 5 seconds timeout for release notes
+      Effect.catchAll(() => Effect.succeed([] as ReleaseNote[])),
+    );
+
+    if (releaseNotes.length > 0) {
+      yield* terminal.log("");
+      yield* terminal.log("📋 What's new:");
+      for (const release of releaseNotes) {
+        yield* terminal.log("");
+        yield* terminal.log(`   v${release.version}:`);
+        // Indent each line of the release notes
+        for (const line of release.summary.split("\n")) {
+          yield* terminal.log(`      ${line}`);
+        }
+      }
+    }
+
     // If --check flag is used, just show the info and exit
     if (options?.check) {
       yield* terminal.log("\n💡 Run 'jazz update' to install the latest version");
       return;
     }
 
+    yield* terminal.log("");
     yield* terminal.log("⚡ Starting update process...");
     yield* terminal.log("");
 

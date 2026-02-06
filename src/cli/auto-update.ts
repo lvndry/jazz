@@ -91,7 +91,12 @@ export function autoCheckForUpdate(): Effect.Effect<
         yield* terminal.log("");
         yield* terminal.log("📋 What's new:");
         for (const release of releaseNotes) {
-          yield* terminal.log(`   ${release.version}: ${release.summary}`);
+          yield* terminal.log("");
+          yield* terminal.log(`   v${release.version}:`);
+          // Indent each line of the release notes
+          for (const line of release.summary.split("\n")) {
+            yield* terminal.log(`      ${line}`);
+          }
         }
       }
 
