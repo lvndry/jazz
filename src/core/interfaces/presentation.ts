@@ -26,6 +26,23 @@ export interface UserInputRequest {
   readonly suggestions: readonly Suggestion[];
   /** Whether to allow custom text input in addition to suggestions */
   readonly allowCustom: boolean;
+  /** Whether to allow selecting multiple suggestions (default: false, single selection) */
+  readonly allowMultiple?: boolean;
+}
+
+/**
+ * Request for file picker input.
+ * Used by the ask_file_picker tool to let users select files interactively.
+ */
+export interface FilePickerRequest {
+  /** The prompt message to display */
+  readonly message: string;
+  /** Starting directory for file search (defaults to cwd) */
+  readonly basePath?: string | undefined;
+  /** Filter by file extensions (without leading dot, e.g. ["ts", "tsx"]) */
+  readonly extensions?: readonly string[] | undefined;
+  /** Whether to include directories in results (default: false) */
+  readonly includeDirectories?: boolean | undefined;
 }
 
 /**
@@ -163,6 +180,17 @@ export interface PresentationService {
    * @returns The user's response (either selected suggestion or custom text)
    */
   readonly requestUserInput: (request: UserInputRequest) => Effect.Effect<string, never>;
+
+  /**
+   * Request file selection from the user with fuzzy path filtering.
+   *
+   * Displays a file picker interface where the user can type to filter files
+   * and navigate through matching results. Used by the ask_file_picker tool.
+   *
+   * @param request - The file picker request with message and optional filters
+   * @returns The selected file path (absolute)
+   */
+  readonly requestFilePicker: (request: FilePickerRequest) => Effect.Effect<string, never>;
 }
 
 /**

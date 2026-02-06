@@ -1,11 +1,11 @@
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
-import { Box, Text } from "ink";
 import React from "react";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { NotificationServiceTag, type NotificationService } from "@/core/interfaces/notification";
 import type {
+  FilePickerRequest,
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
@@ -18,74 +18,47 @@ import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
+import { createAccumulator, reduceEvent } from "./activity-reducer";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
-import { applyTextChunkOrdered } from "./stream-text-order";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/App";
 import { setLastExpandedDiff } from "../ui/diff-expansion-store";
 
-function renderToolBadge(label: string): React.ReactElement {
-  return React.createElement(
-    Box,
-    { borderStyle: "round", borderColor: "cyan", paddingX: 1 },
-    React.createElement(Text, { color: "cyan" }, label),
-  );
-}
-
 export class InkStreamingRenderer implements StreamingRenderer {
-  private readonly activeTools = new Map<string, string>();
-  private liveText: string = "";
-  private reasoningBuffer: string = "";
-  private completedReasoning: string = "";
-  private lastAgentHeaderWritten: boolean = false;
-  private lastRawText: string = "";
-  private lastRawReasoning: string = "";
-  private lastFormattedText: string = "";
-  private lastFormattedReasoning: string = "";
-
+  private readonly acc;
   private lastUpdateTime: number = 0;
-  private pendingUpdate: boolean = false;
+  private pendingActivity: import("../ui/activity-state").ActivityState | null = null;
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  /** Ignore out-of-order text_chunk events when streaming delivers them reordered. */
-  private lastAppliedTextSequence: number = -1;
   private static readonly UPDATE_THROTTLE_MS = 30;
-
-  private static readonly MAX_REASONING_LENGTH = 8000;
 
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000; // 30 seconds
-
-  // Store provider/model for cost calculation
-  private currentProvider: string | null = null;
-  private currentModel: string | null = null;
 
   constructor(
     private readonly agentName: string,
     private readonly showMetrics: boolean,
     private readonly displayConfig: DisplayConfig,
-  ) {}
+  ) {
+    this.acc = createAccumulator(agentName);
+  }
 
   reset(): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      this.activeTools.clear();
-      this.liveText = "";
-      this.reasoningBuffer = "";
-      this.completedReasoning = "";
-      this.lastAgentHeaderWritten = false;
-      this.lastRawText = "";
-      this.lastRawReasoning = "";
-      this.lastFormattedText = "";
-      this.lastFormattedReasoning = "";
-      this.lastAppliedTextSequence = -1;
+      this.acc.activeTools.clear();
+      this.acc.liveText = "";
+      this.acc.reasoningBuffer = "";
+      this.acc.completedReasoning = "";
+      this.acc.isThinking = false;
+      this.acc.lastAgentHeaderWritten = false;
+      this.acc.lastAppliedTextSequence = -1;
       this.lastUpdateTime = 0;
-      this.pendingUpdate = false;
+      this.pendingActivity = null;
       if (this.updateTimeoutId) {
         clearTimeout(this.updateTimeoutId);
         this.updateTimeoutId = null;
       }
-      store.setStatus(null);
-      store.setStream(null);
+      store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
     });
   }
@@ -97,13 +70,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
         clearTimeout(this.updateTimeoutId);
         this.updateTimeoutId = null;
       }
-      this.pendingUpdate = false;
+      this.pendingActivity = null;
 
-      if (this.liveText.trim().length > 0) {
-        store.printOutput({ type: "log", message: this.liveText, timestamp: new Date() });
+      if (this.acc.liveText.trim().length > 0) {
+        store.printOutput({ type: "log", message: this.acc.liveText, timestamp: new Date() });
       }
-      this.liveText = "";
-      store.setStream(null);
+      this.acc.liveText = "";
+      store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
     });
   }
@@ -116,359 +89,194 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   handleEvent(event: StreamEvent): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      switch (event.type) {
-        case "stream_start": {
-          this.lastAgentHeaderWritten = true;
-          // Store provider/model for cost calculation
-          this.currentProvider = event.provider;
-          this.currentModel = event.model;
-          // Reset reasoning state for new stream
-          this.reasoningBuffer = "";
-          this.completedReasoning = "";
-          this.lastRawReasoning = "";
-          this.lastFormattedReasoning = "";
-          store.printOutput({
-            type: "info",
-            message: `${this.agentName} (${event.provider}/${event.model})`,
-            timestamp: new Date(),
-          });
-          store.printOutput({
-            type: "log",
-            message: chalk.dim("(Tip: Press Ctrl+I to stop generation)"),
-            timestamp: new Date(),
-          });
-          return;
-        }
+      // Handle "complete" specially — it has async cost-calculation + response card rendering
+      if (event.type === "complete") {
+        this.handleComplete(event);
+        return;
+      }
 
-        case "thinking_start": {
-          this.reasoningBuffer = "";
-          // Don't clear completedReasoning here - accumulate reasoning sessions
-          // Only clear on stream_start to handle multiple reasoning sessions
-          this.updateLiveStream(false);
-          store.setStatus(`${this.agentName} is thinking…`);
-          return;
-        }
+      // Handle tool_execution_start/complete — need timeout management
+      if (event.type === "tool_execution_start") {
+        this.setupToolTimeout(event.toolCallId, event.toolName);
+      }
+      if (event.type === "tool_execution_complete") {
+        this.clearToolTimeout(event.toolCallId);
+        this.storeExpandableDiff(
+          this.acc.activeTools.get(event.toolCallId),
+          event.result,
+        );
+      }
 
-        case "thinking_chunk": {
-          this.reasoningBuffer += event.content;
-          this.updateLiveStream();
-          return;
-        }
+      // Run the pure reducer
+      const result = reduceEvent(
+        this.acc,
+        event,
+        (text) => this.formatMarkdown(text),
+        ink,
+      );
 
-        case "thinking_complete": {
-          // Keep status if tools are running; otherwise clear.
-          if (this.activeTools.size === 0) {
-            store.setStatus(null);
-          }
-          this.logReasoning();
+      // Flush log side-effects immediately
+      for (const log of result.logs) {
+        store.printOutput(log);
+      }
 
-          const newReasoning = this.reasoningBuffer.trim();
-          if (newReasoning.length > 0) {
-            if (this.completedReasoning.trim().length > 0) {
-              this.completedReasoning += "\n\n---\n\n" + newReasoning;
-            } else {
-              this.completedReasoning = newReasoning;
-            }
-            // Cap reasoning to prevent unbounded growth and slow formatting
-            if (this.completedReasoning.length > InkStreamingRenderer.MAX_REASONING_LENGTH) {
-              // Keep the most recent reasoning, truncate older content
-              const truncatePoint = this.completedReasoning.length - InkStreamingRenderer.MAX_REASONING_LENGTH;
-              const nextSeparator = this.completedReasoning.indexOf("---", truncatePoint);
-              if (nextSeparator > 0) {
-                this.completedReasoning = "...(earlier reasoning truncated)...\n\n" +
-                  this.completedReasoning.substring(nextSeparator);
-              } else {
-                this.completedReasoning = this.completedReasoning.substring(truncatePoint);
-              }
-            }
-          }
-          this.reasoningBuffer = "";
-          // Update stream to include all accumulated reasoning
-          this.updateLiveStream(true);
-          return;
-        }
-
-        case "tools_detected": {
-          const approvalSet = new Set(event.toolsRequiringApproval);
-          const formattedTools = event.toolNames
-            .map((name) => {
-              if (approvalSet.has(name)) {
-                return `${name} (requires approval)`;
-              }
-              return name;
-            })
-            .join(", ");
-          store.printOutput({
-            type: "info",
-            message: ink(renderToolBadge(`Tools: ${formattedTools}`)),
-            timestamp: new Date(),
-          });
-          return;
-        }
-
-        case "tool_call": {
-          store.printOutput({
-            type: "debug",
-            message: `Tool call detected: ${event.toolCall.function.name}`,
-            timestamp: new Date(),
-          });
-          return;
-        }
-
-        case "tool_execution_start": {
-          this.activeTools.set(event.toolCallId, event.toolName);
-          store.setStatus(this.formatToolStatus());
-          const argsStr = CLIRenderer.formatToolArguments(event.toolName, event.arguments);
-
-          // Add provider info for web_search
-          let providerSuffix = "";
-          if (event.toolName === "web_search") {
-            const provider = event.metadata?.["provider"];
-            if (typeof provider === "string") {
-              providerSuffix = chalk.dim(` [${provider}]`);
-            }
-          }
-
-          const message = argsStr
-            ? `⚙️  Executing tool: ${event.toolName}${providerSuffix}${argsStr}`
-            : `⚙️  Executing tool: ${event.toolName}${providerSuffix}`;
-          store.printOutput({
-
-            type: "log",
-            message,
-            timestamp: new Date(),
-          });
-
-          // Set timeout warning for long-running tools
-          const timeoutId = setTimeout(() => {
-            if (this.activeTools.has(event.toolCallId)) {
-              store.printOutput({
-                type: "warn",
-                message: `⏱️ Tool ${event.toolName} is taking longer than expected...`,
-                timestamp: new Date(),
-              });
-            }
-          }, InkStreamingRenderer.TOOL_WARNING_MS);
-          this.toolTimeouts.set(event.toolCallId, timeoutId);
-          return;
-        }
-
-        case "tool_execution_complete": {
-          // Clear timeout warning
-          const timeoutId = this.toolTimeouts.get(event.toolCallId);
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-            this.toolTimeouts.delete(event.toolCallId);
-          }
-
-          const toolName = this.activeTools.get(event.toolCallId);
-          this.activeTools.delete(event.toolCallId);
-
-          // Get summary from event or generate from result (for diff display)
-          let summary = event.summary?.trim();
-          if (!summary && toolName && event.result) {
-            summary = CLIRenderer.formatToolResult(toolName, event.result);
-          }
-
-          const namePrefix = toolName ? `${toolName} ` : "";
-          const displayText = summary && summary.length > 0 ? summary : namePrefix + "done";
-
-          if (toolName && event.result) {
-            this.storeExpandableDiff(toolName, event.result);
-          }
-
-          // Check if summary has multi-line content (e.g., diff output)
-          const hasMultiLine = displayText.includes("\n");
-
-          if (hasMultiLine) {
-            // Print the completion first, then the diff on separate lines
-            store.printOutput({
-              type: "success",
-              message: `${namePrefix}done (${event.durationMs}ms)`,
-              timestamp: new Date(),
-            });
-            store.printOutput({
-              type: "log",
-              message: displayText,
-              timestamp: new Date(),
-            });
-          } else {
-            store.printOutput({
-              type: "success",
-              message: `${displayText} (${event.durationMs}ms)`,
-              timestamp: new Date(),
-            });
-          }
-
-          store.setStatus(this.activeTools.size > 0 ? this.formatToolStatus() : null);
-          return;
-        }
-
-        case "text_start": {
-          this.liveText = "";
-          this.lastAppliedTextSequence = -1;
-          // Include reasoning when text starts - reasoning should persist during text streaming
-          this.updateLiveStream(true);
-          return;
-        }
-
-        case "text_chunk": {
-          const next = applyTextChunkOrdered(
-            { liveText: this.liveText, lastAppliedSequence: this.lastAppliedTextSequence },
-            { sequence: event.sequence, accumulated: event.accumulated },
-          );
-          this.liveText = next.liveText;
-          this.lastAppliedTextSequence = next.lastAppliedSequence;
-          this.updateLiveStream();
-          return;
-        }
-
-        case "usage_update": {
-          return;
-        }
-
-        case "error": {
-          store.printOutput({
-            type: "error",
-            message: `Error: ${event.error.message}`,
-            timestamp: new Date(),
-          });
-          store.setStatus(null);
-          store.setStream(null);
-          store.setInterruptHandler(null);
-          return;
-        }
-
-        case "complete": {
-          // Note: Task completion notifications are sent by streaming-executor.ts
-          // when the full agent run completes, not here (which fires for each LLM stream)
-
-          // If streaming never started (fallback), we may still want to show the response.
-          if (!this.lastAgentHeaderWritten) {
-            store.printOutput({
-              type: "info",
-              message: this.agentName,
-              timestamp: new Date(),
-            });
-          }
-
-          const finalText =
-            this.liveText.trim().length > 0
-              ? this.liveText
-              : event.response.content.trim().length > 0
-                ? event.response.content
-                : "";
-          const formattedFinalText = this.formatMarkdown(finalText);
-
-          if (formattedFinalText.length > 0) {
-            store.printOutput({
-              type: "log",
-              message: ink(
-                React.createElement(AgentResponseCard, {
-                  agentName: this.agentName,
-                  content: formattedFinalText,
-                }),
-              ),
-              timestamp: new Date(),
-            });
-          }
-
-          if (this.showMetrics && event.metrics) {
-            const parts: string[] = [];
-            if (event.metrics.firstTokenLatencyMs) {
-              parts.push(`First token: ${event.metrics.firstTokenLatencyMs}ms`);
-            }
-            if (event.metrics.tokensPerSecond) {
-              parts.push(`Speed: ${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
-            }
-            // Show detailed token breakdown
-            const usage = event.response.usage;
-            if (usage) {
-              parts.push(`Input: ${usage.promptTokens}`);
-              parts.push(`Output: ${usage.completionTokens}`);
-              if (usage.reasoningTokens !== undefined && usage.reasoningTokens > 0) {
-                parts.push(`Reasoning: ${usage.reasoningTokens}`);
-              }
-              parts.push(`Total: ${usage.totalTokens} tokens`);
-            } else if (event.metrics.totalTokens) {
-              parts.push(`Total: ${event.metrics.totalTokens} tokens`);
-            }
-            if (parts.length > 0) {
-              store.printOutput({
-                type: "debug",
-                message: `[${parts.join(" | ")}]`,
-                timestamp: new Date(),
-              });
-            }
-
-            // Calculate and display cost asynchronously
-            if (usage && this.currentProvider && this.currentModel) {
-              const provider = this.currentProvider;
-              const model = this.currentModel;
-              const promptTokens = usage.promptTokens;
-              const completionTokens = usage.completionTokens;
-
-              // Fire-and-forget: fetch pricing and display cost
-              void getModelsDevMetadata(model, provider)
-                .then((meta) => {
-                  if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
-                    const inputPrice = meta.inputPricePerMillion ?? 0;
-                    const outputPrice = meta.outputPricePerMillion ?? 0;
-                    const inputCost = (promptTokens / 1_000_000) * inputPrice;
-                    const outputCost = (completionTokens / 1_000_000) * outputPrice;
-                    const totalCost = inputCost + outputCost;
-
-                    // Format cost display
-                    const formatCost = (cost: number): string => {
-                      if (cost === 0) return "$0.00";
-                      if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-                      if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-                      return `$${cost.toExponential(2)}`;
-                    };
-
-                    store.printOutput({
-                      type: "debug",
-                      message: `[Cost: ${formatCost(inputCost)} input + ${formatCost(outputCost)} output = ${formatCost(totalCost)} total]`,
-                      timestamp: new Date(),
-                    });
-                    store.printOutput({ type: "log", message: "", timestamp: new Date() });
-                  }
-                })
-                .catch(() => {
-                });
-            } else {
-              store.printOutput({ type: "log", message: "", timestamp: new Date() });
-            }
-          }
-
-          store.setStatus(null);
-          store.setStream(null);
-          store.setInterruptHandler(null);
-          this.liveText = "";
-          this.reasoningBuffer = "";
-          this.completedReasoning = "";
-          this.lastRawText = "";
-          this.lastRawReasoning = "";
-          this.lastFormattedText = "";
-          this.lastFormattedReasoning = "";
-          return;
-        }
+      // Throttle activity state updates
+      if (result.activity) {
+        this.throttledSetActivity(result.activity);
       }
     }).pipe(Effect.catchAll(() => Effect.void));
   }
 
-  private formatToolStatus(): string {
-    const uniqueToolNames = Array.from(new Set(this.activeTools.values()));
-    if (uniqueToolNames.length === 0) return "Working…";
-    if (uniqueToolNames.length === 1) return `Running ${uniqueToolNames[0]}…`;
-    return `Running ${uniqueToolNames.length} tools… (${uniqueToolNames.join(", ")})`;
+  private handleComplete(
+    event: Extract<StreamEvent, { type: "complete" }>,
+  ): void {
+    // Cancel any pending throttled activity update so it doesn't fire after we clear
+    if (this.updateTimeoutId) {
+      clearTimeout(this.updateTimeoutId);
+      this.updateTimeoutId = null;
+      this.pendingActivity = null;
+    }
+
+    const wasStreaming = this.acc.lastAgentHeaderWritten;
+
+    // Clear the live area FIRST to avoid the visual jump where content appears
+    // in both the live area and Static simultaneously
+    store.setActivity({ phase: "idle" });
+    store.setInterruptHandler(null);
+
+    const finalText =
+      this.acc.liveText.trim().length > 0
+        ? this.acc.liveText
+        : event.response.content.trim().length > 0
+          ? event.response.content
+          : "";
+    const formattedFinalText = this.formatMarkdown(finalText);
+
+    if (formattedFinalText.length > 0) {
+      if (wasStreaming) {
+        // When we were streaming, the user already saw the agent header and reasoning
+        // in the live area. Just flush the response text to Static as-is — no card
+        // wrapper — so the content height stays consistent and avoids a visual jump.
+        store.printOutput({
+          type: "log",
+          message: formattedFinalText,
+          timestamp: new Date(),
+        });
+      } else {
+        // Non-streaming fallback: show the full response card since nothing was
+        // displayed in the live area.
+        store.printOutput({
+          type: "info",
+          message: this.agentName,
+          timestamp: new Date(),
+        });
+        store.printOutput({
+          type: "log",
+          message: ink(
+            React.createElement(AgentResponseCard, {
+              agentName: this.agentName,
+              content: formattedFinalText,
+            }),
+          ),
+          timestamp: new Date(),
+        });
+      }
+    }
+
+    if (this.showMetrics && event.metrics) {
+      const parts: string[] = [];
+      if (event.metrics.firstTokenLatencyMs) {
+        parts.push(`First token: ${event.metrics.firstTokenLatencyMs}ms`);
+      }
+      if (event.metrics.tokensPerSecond) {
+        parts.push(`Speed: ${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
+      }
+      const usage = event.response.usage;
+      if (usage) {
+        parts.push(`Input: ${usage.promptTokens}`);
+        parts.push(`Output: ${usage.completionTokens}`);
+        if (usage.reasoningTokens !== undefined && usage.reasoningTokens > 0) {
+          parts.push(`Reasoning: ${usage.reasoningTokens}`);
+        }
+        parts.push(`Total: ${usage.totalTokens} tokens`);
+      } else if (event.metrics.totalTokens) {
+        parts.push(`Total: ${event.metrics.totalTokens} tokens`);
+      }
+      if (parts.length > 0) {
+        store.printOutput({
+          type: "debug",
+          message: `[${parts.join(" | ")}]`,
+          timestamp: new Date(),
+        });
+      }
+
+      // Calculate and display cost asynchronously
+      if (usage && this.acc.currentProvider && this.acc.currentModel) {
+        const provider = this.acc.currentProvider;
+        const model = this.acc.currentModel;
+        const promptTokens = usage.promptTokens;
+        const completionTokens = usage.completionTokens;
+
+        void getModelsDevMetadata(model, provider)
+          .then((meta) => {
+            if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
+              const inputPrice = meta.inputPricePerMillion ?? 0;
+              const outputPrice = meta.outputPricePerMillion ?? 0;
+              const inputCost = (promptTokens / 1_000_000) * inputPrice;
+              const outputCost = (completionTokens / 1_000_000) * outputPrice;
+              const totalCost = inputCost + outputCost;
+
+              const formatCost = (cost: number): string => {
+                if (cost === 0) return "$0.00";
+                if (cost >= 0.01) return `$${cost.toFixed(2)}`;
+                if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
+                return `$${cost.toExponential(2)}`;
+              };
+
+              store.printOutput({
+                type: "debug",
+                message: `[Cost: ${formatCost(inputCost)} input + ${formatCost(outputCost)} output = ${formatCost(totalCost)} total]`,
+                timestamp: new Date(),
+              });
+              store.printOutput({ type: "log", message: "", timestamp: new Date() });
+            }
+          })
+          .catch(() => {});
+      } else {
+        store.printOutput({ type: "log", message: "", timestamp: new Date() });
+      }
+    }
+
+    this.acc.liveText = "";
+    this.acc.reasoningBuffer = "";
+    this.acc.completedReasoning = "";
   }
 
-  private storeExpandableDiff(toolName: string, result: string): void {
+  private setupToolTimeout(toolCallId: string, toolName: string): void {
+    const timeoutId = setTimeout(() => {
+      if (this.acc.activeTools.has(toolCallId)) {
+        store.printOutput({
+          type: "warn",
+          message: `⏱️ Tool ${toolName} is taking longer than expected...`,
+          timestamp: new Date(),
+        });
+      }
+    }, InkStreamingRenderer.TOOL_WARNING_MS);
+    this.toolTimeouts.set(toolCallId, timeoutId);
+  }
+
+  private clearToolTimeout(toolCallId: string): void {
+    const timeoutId = this.toolTimeouts.get(toolCallId);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      this.toolTimeouts.delete(toolCallId);
+    }
+  }
+
+  private storeExpandableDiff(toolName: string | undefined, result: string): void {
     if (toolName !== "execute_edit_file" && toolName !== "execute_write_file") {
       return;
     }
-
     try {
       const parsed: unknown = JSON.parse(result);
       if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -485,85 +293,36 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
   }
 
-  private updateLiveStream(includeReasoning: boolean = true, force: boolean = false): void {
+  /**
+   * Throttled activity state update. Limits React re-renders to once per
+   * UPDATE_THROTTLE_MS while always flushing the latest pending state.
+   */
+  private throttledSetActivity(
+    activity: import("../ui/activity-state").ActivityState,
+  ): void {
     const now = Date.now();
     const timeSinceLastUpdate = now - this.lastUpdateTime;
 
-    // Throttle updates to reduce React re-renders
-    // If we updated recently, schedule a pending update instead
-    if (!force && timeSinceLastUpdate < InkStreamingRenderer.UPDATE_THROTTLE_MS) {
-      if (!this.pendingUpdate) {
-        this.pendingUpdate = true;
+    if (timeSinceLastUpdate < InkStreamingRenderer.UPDATE_THROTTLE_MS) {
+      // Always store the latest activity so the timer flushes the newest state
+      this.pendingActivity = activity;
+      if (!this.updateTimeoutId) {
         const delay = InkStreamingRenderer.UPDATE_THROTTLE_MS - timeSinceLastUpdate;
         this.updateTimeoutId = setTimeout(() => {
-          this.pendingUpdate = false;
           this.updateTimeoutId = null;
-          this.updateLiveStream(includeReasoning, true);
+          this.lastUpdateTime = Date.now();
+          if (this.pendingActivity) {
+            store.setActivity(this.pendingActivity);
+            this.pendingActivity = null;
+          }
         }, delay);
       }
       return;
     }
 
     this.lastUpdateTime = now;
-    this.pendingUpdate = false;
-
-    // Determine raw content to show
-    const rawText = this.liveText;
-    const reasoningToShow = this.reasoningBuffer.trim().length > 0
-      ? this.reasoningBuffer
-      : this.completedReasoning.trim().length > 0
-        ? this.completedReasoning
-        : "";
-    const shouldShowReasoning = includeReasoning && reasoningToShow.length > 0;
-    const rawReasoning = shouldShowReasoning ? reasoningToShow : "";
-
-    // Compare raw content first before expensive formatting
-    // This avoids running multiple regex passes when content hasn't changed
-    const textChanged = rawText !== this.lastRawText;
-    const reasoningChanged = rawReasoning !== this.lastRawReasoning;
-
-    if (!textChanged && !reasoningChanged) {
-      // No change in raw content, skip formatting entirely
-      return;
-    }
-
-    // Only format what actually changed
-    let formattedText = this.lastFormattedText;
-    let formattedReasoning = this.lastFormattedReasoning;
-
-    if (textChanged) {
-      formattedText = this.formatMarkdown(rawText);
-      this.lastRawText = rawText;
-      this.lastFormattedText = formattedText;
-    }
-
-    if (reasoningChanged) {
-      formattedReasoning = rawReasoning.length > 0 ? this.formatMarkdown(rawReasoning) : "";
-      this.lastRawReasoning = rawReasoning;
-      this.lastFormattedReasoning = formattedReasoning;
-    }
-
-    // Update the stream with the formatted content
-    store.setStream({
-      agentName: this.agentName,
-      text: formattedText,
-      reasoning: formattedReasoning,
-    });
-  }
-
-  private logReasoning(): void {
-    const reasoning = this.reasoningBuffer.trim();
-    if (reasoning.length === 0) {
-      return;
-    }
-    const formattedReasoning = this.formatMarkdown(reasoning);
-
-    const displayReasoning = chalk.gray(formattedReasoning);
-    store.printOutput({
-      type: "log",
-      message: chalk.gray(`🧠 Reasoning:\n${displayReasoning}`),
-      timestamp: new Date(),
-    });
+    this.pendingActivity = null;
+    store.setActivity(activity);
   }
 
   private formatMarkdown(text: string): string {
@@ -631,13 +390,13 @@ class InkPresentationService implements PresentationService {
     return this.renderer;
   }
 
-  presentThinking(agentName: string, isFirstIteration: boolean): Effect.Effect<void, never> {
+  presentThinking(agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      // For Ink UI, we use the status bar for thinking indicator instead of logging
-      // The streaming renderer handles this via thinking_start event, but for non-streaming
-      // cases we set status here. This avoids duplicate "thinking" messages.
-      const message = isFirstIteration ? "thinking…" : "processing results…";
-      store.setStatus(`${agentName} is ${message}`);
+      store.setActivity({
+        phase: "thinking",
+        agentName,
+        reasoning: "",
+      });
     });
   }
 
@@ -659,7 +418,7 @@ class InkPresentationService implements PresentationService {
     return Effect.gen(this, function* () {
       const formatted = yield* this.getRenderer().formatAgentResponse(agentName, content);
       store.printOutput({
-        type: "log", // 'log' type uses default coloring (white/reset) which allows ANSI codes to shine
+        type: "log",
         message: formatted,
         timestamp: new Date(),
       });
@@ -935,6 +694,7 @@ class InkPresentationService implements PresentationService {
       options: {
         suggestions: request.suggestions,
         allowCustom: request.allowCustom,
+        allowMultiple: request.allowMultiple,
       },
       resolve: (value: unknown) => {
         const response = String(value);
@@ -954,6 +714,53 @@ class InkPresentationService implements PresentationService {
         resume(Effect.succeed("")); // Return empty on cancel
         this.processNextUserInput();
       },
+    });
+  }
+
+  requestFilePicker(request: FilePickerRequest): Effect.Effect<string, never> {
+    return Effect.async((resume) => {
+      // Show the file picker prompt
+      const separator = chalk.dim("─".repeat(50));
+      store.printOutput({
+        type: "log",
+        message: `\n${separator}`,
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "log",
+        message: `${chalk.cyan("📁")} ${chalk.bold(request.message)}`,
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "log",
+        message: separator,
+        timestamp: new Date(),
+      });
+
+      // Set up file picker prompt
+      store.setPrompt({
+        type: "filepicker",
+        message: request.message,
+        options: {
+          basePath: request.basePath ?? process.cwd(),
+          extensions: request.extensions,
+          includeDirectories: request.includeDirectories,
+        },
+        resolve: (value: unknown) => {
+          const selectedPath = String(value);
+          store.printOutput({
+            type: "log",
+            message: `${chalk.dim("Selected:")} ${chalk.green(selectedPath)}`,
+            timestamp: new Date(),
+          });
+          store.setPrompt(null);
+          resume(Effect.succeed(selectedPath));
+        },
+        reject: () => {
+          store.setPrompt(null);
+          resume(Effect.succeed("")); // Return empty on cancel
+        },
+      });
     });
   }
 }

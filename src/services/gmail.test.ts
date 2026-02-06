@@ -83,7 +83,6 @@ describe("GmailService", () => {
       heading: mock(() => Effect.void),
       list: mock(() => Effect.void),
       clear: mock(() => Effect.void),
-      updateLog: mock(() => Effect.void),
       ask: mock(() => Effect.succeed("")),
       password: mock(() => Effect.succeed("")),
       select: mock(() => Effect.succeed("")),

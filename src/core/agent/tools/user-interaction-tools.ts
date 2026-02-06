@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import { PresentationServiceTag, type UserInputRequest } from "@/core/interfaces/presentation";
+import { PresentationServiceTag, type UserInputRequest, type FilePickerRequest } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -23,9 +23,33 @@ const askUserSchema = z.object({
     .optional()
     .default(true)
     .describe("Whether to allow custom text input in addition to suggestions (default: true)"),
+  allow_multiple: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("Whether the user can select multiple suggestions (default: false, single selection)"),
 });
 
 type AskUserArgs = z.infer<typeof askUserSchema>;
+
+const filePickerSchema = z.object({
+  message: z.string().describe("Prompt message explaining what file the user should select"),
+  base_path: z
+    .string()
+    .optional()
+    .describe("Starting directory for file search (defaults to current working directory)"),
+  extensions: z
+    .array(z.string())
+    .optional()
+    .describe("Filter by file extensions without leading dot (e.g. ['ts', 'tsx', 'js'])"),
+  include_directories: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("Whether to include directories in results (default: false)"),
+});
+
+type FilePickerArgs = z.infer<typeof filePickerSchema>;
 
 /**
  * Tools for user interaction during agent execution.
@@ -48,6 +72,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
           question: args.question,
           suggestions: args.suggested_responses,
           allowCustom: args.allow_custom !== false,
+          allowMultiple: args.allow_multiple === true,
         };
 
         const response = yield* presentation.requestUserInput(request);
@@ -55,6 +80,33 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
         return {
           success: true,
           result: `User responded: ${response}`,
+        };
+      }),
+  }),
+  defineTool({
+    name: "ask_file_picker",
+    description:
+      "Let the user interactively select a file from the filesystem. Shows a fuzzy file picker where the user can type to filter files and navigate through results. Use when you need the user to choose a specific file.",
+    parameters: filePickerSchema,
+    hidden: false,
+    riskLevel: "read-only",
+    validate: makeZodValidator(filePickerSchema),
+    handler: (args: FilePickerArgs) =>
+      Effect.gen(function* () {
+        const presentation = yield* PresentationServiceTag;
+
+        const request: FilePickerRequest = {
+          message: args.message,
+          basePath: args.base_path,
+          extensions: args.extensions,
+          includeDirectories: args.include_directories === true,
+        };
+
+        const selectedPath = yield* presentation.requestFilePicker(request);
+
+        return {
+          success: true,
+          result: selectedPath ? `User selected: ${selectedPath}` : "User cancelled file selection",
         };
       }),
   }),

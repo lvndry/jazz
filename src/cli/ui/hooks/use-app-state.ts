@@ -190,11 +190,6 @@ export function useLogActions() {
         Effect.runSync(service.addLog(entry)),
       [service],
     ),
-    updateLog: useCallback(
-      (id: string, updates: Parameters<AppStateService["updateLog"]>[1]) =>
-        Effect.runSync(service.updateLog(id, updates)),
-      [service],
-    ),
     clearLogs: useCallback(
       () => Effect.runSync(service.clearLogs),
       [service],
@@ -260,11 +255,6 @@ export function useAppStateActions() {
     addLog: useCallback(
       (entry: Parameters<AppStateService["addLog"]>[0]) =>
         Effect.runSync(service.addLog(entry)),
-      [service],
-    ),
-    updateLog: useCallback(
-      (id: string, updates: Parameters<AppStateService["updateLog"]>[1]) =>
-        Effect.runSync(service.updateLog(id, updates)),
       [service],
     ),
     clearLogs: useCallback(

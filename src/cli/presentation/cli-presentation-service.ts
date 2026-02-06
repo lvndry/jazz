@@ -3,6 +3,7 @@ import { Effect, Layer, Option } from "effect";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import type {
+  FilePickerRequest,
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
@@ -231,6 +232,24 @@ export class CLIPresentationService implements PresentationService {
 
       // Use the existing ask method
       const response = yield* this.ask("Your response:", {});
+      return response ?? "";
+    });
+  }
+
+  requestFilePicker(request: FilePickerRequest): Effect.Effect<string, never> {
+    return Effect.gen(this, function* () {
+      const separator = chalk.dim("─".repeat(50));
+
+      // Display the prompt
+      yield* this.writeOutput(`\n${separator}\n`);
+      yield* this.writeOutput(`${chalk.cyan("📁")} ${chalk.bold(request.message)}\n`);
+      if (request.basePath) {
+        yield* this.writeOutput(`${chalk.dim(`Base path: ${request.basePath}`)}\n`);
+      }
+      yield* this.writeOutput(`${separator}\n`);
+
+      // CLI fallback: just ask for a path
+      const response = yield* this.ask("Enter file path:", {});
       return response ?? "";
     });
   }

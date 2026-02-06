@@ -239,17 +239,21 @@ function showWizardMenu(
   options: WizardMenuOption[]
 ): Effect.Effect<MenuAction, never, never> {
   return Effect.async<MenuAction>((resume) => {
+    // Guard against double-resume (e.g., if both escape key and menu selection fire)
+    let resumed = false;
+
+    const safeResume = (action: MenuAction) => {
+      if (resumed) return;
+      resumed = true;
+      store.setCustomView(null);
+      resume(Effect.succeed(action));
+    };
+
     store.setCustomView(
       React.createElement(WizardHome, {
         options,
-        onSelect: (value: string) => {
-          store.setCustomView(null);
-          resume(Effect.succeed(value as MenuAction));
-        },
-        onExit: () => {
-          store.setCustomView(null);
-          resume(Effect.succeed("exit" as MenuAction));
-        },
+        onSelect: (value: string) => safeResume(value as MenuAction),
+        onExit: () => safeResume("exit" as MenuAction),
       })
     );
   });

@@ -93,7 +93,6 @@ describe("Error Handler", () => {
       confirm: vi.fn().mockReturnValue(Effect.succeed(true)),
       search: vi.fn().mockReturnValue(Effect.succeed("")),
       checkbox: vi.fn().mockReturnValue(Effect.succeed([])),
-      updateLog: vi.fn().mockReturnValue(Effect.void),
       clear: vi.fn().mockReturnValue(Effect.void),
     };
 
