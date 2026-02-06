@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useState } from "react";
-import type { Choice } from "./types";
+import type { Choice } from "../types";
 
 interface ScrollableSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];
@@ -56,15 +56,33 @@ export function ScrollableSelect<T = unknown>({
     }
   }
 
+  function findNextEnabledIndex(from: number, direction: 1 | -1): number {
+    let index = from;
+    const maxIterations = options.length;
+    let iterations = 0;
+    while (iterations < maxIterations) {
+      index = clampCursor(index + direction);
+      const item = options[index];
+      if (!item?.disabled) return index;
+      // If we've wrapped or hit boundary without finding enabled, stop
+      if (index === 0 && direction === -1) break;
+      if (index === options.length - 1 && direction === 1) break;
+      iterations++;
+    }
+    // Fallback: stay at current position if all disabled
+    return from;
+  }
+
   function moveCursor(delta: number): void {
-    const nextCursor = clampCursor(cursorIndex + delta);
+    const direction = delta > 0 ? 1 : -1;
+    const nextCursor = findNextEnabledIndex(cursorIndex, direction);
     setCursorIndex(nextCursor);
     ensureCursorVisible(nextCursor);
   }
 
   function submit(): void {
     const selected = options[cursorIndex];
-    if (selected) {
+    if (selected && !selected.disabled) {
       onSelect(selected.value);
     }
   }
@@ -119,6 +137,16 @@ export function ScrollableSelect<T = unknown>({
       {options.slice(windowStart, windowEndExclusive).map((choice, localIndex) => {
         const absoluteIndex = windowStart + localIndex;
         const isActive = absoluteIndex === cursorIndex;
+        const isDisabled = choice.disabled ?? false;
+
+        // Disabled items: dimmed, cannot be selected
+        if (isDisabled) {
+          return (
+            <Text key={absoluteIndex} dimColor>
+              {"  "}{choice.label}
+            </Text>
+          );
+        }
 
         return (
           <Text

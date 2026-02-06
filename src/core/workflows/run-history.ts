@@ -29,6 +29,13 @@ function getHistoryPath(): string {
 }
 
 /**
+ * Return the run history file path (for diagnostics when history is empty).
+ */
+export function getRunHistoryFilePath(): string {
+  return getHistoryPath();
+}
+
+/**
  * Get the path to the lock file.
  */
 function getLockPath(): string {
@@ -97,13 +104,30 @@ function withLock<A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E | Er
 
 /**
  * Load the run history from disk.
+ * Returns empty array if the file does not exist (e.g. no workflows run yet) or is invalid.
  */
 export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error> {
   return Effect.gen(function* () {
     const historyPath = getHistoryPath();
 
+    const content = yield* Effect.tryPromise(() => fs.readFile(historyPath, "utf-8")).pipe(
+      Effect.catchAll((unknownErr) => {
+        const e =
+          unknownErr &&
+          typeof unknownErr === "object" &&
+          "error" in unknownErr &&
+          (unknownErr as { error: unknown }).error;
+        const code = e instanceof Error && "code" in e ? (e as NodeJS.ErrnoException).code : "";
+        if (code === "ENOENT") return Effect.succeed("");
+        return Effect.fail(
+          unknownErr instanceof Error ? unknownErr : new Error(String(unknownErr)),
+        );
+      }),
+    );
+
+    if (content === "") return [];
+
     try {
-      const content = yield* Effect.tryPromise(() => fs.readFile(historyPath, "utf-8"));
       const history = JSON.parse(content) as WorkflowRunRecord[];
       return Array.isArray(history) ? history : [];
     } catch {

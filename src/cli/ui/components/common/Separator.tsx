@@ -1,7 +1,7 @@
 import { Text } from "ink";
 import React from "react";
 
-interface SeparatorProps {
+export interface SeparatorProps {
   /** Width of the separator (defaults to 40) */
   width?: number;
   /** Character to use for the separator */
@@ -21,5 +21,3 @@ export const Separator = React.memo(function Separator({
   return <Text dimColor={dimColor}>{char.repeat(width)}</Text>;
 });
 
-export default Separator;
-export type { SeparatorProps };

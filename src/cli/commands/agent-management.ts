@@ -54,11 +54,11 @@ function formatAgentsListBlock(
   const nameW = Math.max(16, Math.min(28, Math.floor(innerWidth * 0.28)));
   const modelW = Math.max(18, Math.min(30, Math.floor(innerWidth * 0.25)));
   const typeW = Math.max(10, Math.min(14, Math.floor(innerWidth * 0.12)));
-  const updatedW = 16; // "YYYY-MM-DD HH:mm"
+  const reasoningW = 12; // "high/low"
   const gap = 2;
 
   const fixed =
-    idxW + gap + nameW + gap + modelW + gap + typeW + gap + updatedW + gap; // last gap for padding
+    idxW + gap + nameW + gap + modelW + gap + typeW + gap + reasoningW + gap; // last gap for padding
   const descW = Math.max(10, innerWidth - fixed);
 
   const colHeader =
@@ -70,7 +70,7 @@ function formatAgentsListBlock(
     " ".repeat(gap) +
     padRight("Type", typeW) +
     " ".repeat(gap) +
-    padRight("Updated", updatedW) +
+    padRight("Reasoning", reasoningW) +
     " ".repeat(gap) +
     padRight("Description", descW);
   lines.push(chalk.dim("│") + " " + chalk.dim(truncateMiddle(colHeader, innerWidth - 1)) + chalk.dim("│"));
@@ -80,7 +80,7 @@ function formatAgentsListBlock(
     const idx = String(index + 1);
     const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
     const agentType = agent.config.agentType ?? "default";
-    const updated = formatIsoShort(agent.updatedAt);
+    const reasoning = agent.config.reasoningEffort ?? "—";
 
     const row =
       padRight(idx, idxW) +
@@ -91,7 +91,7 @@ function formatAgentsListBlock(
       " ".repeat(gap) +
       padRight(truncateMiddle(agentType, typeW), typeW) +
       " ".repeat(gap) +
-      padRight(truncateMiddle(updated, updatedW), updatedW) +
+      padRight(truncateMiddle(reasoning, reasoningW), reasoningW) +
       " ".repeat(gap) +
       padRight(truncateMiddle(agent.description ?? "", descW), descW);
 
@@ -99,10 +99,8 @@ function formatAgentsListBlock(
 
     const metaParts: string[] = [];
     metaParts.push(`${chalk.dim("id")} ${chalk.dim(truncateMiddle(agent.id, 28))}`);
-    if (agent.config.reasoningEffort) {
-      metaParts.push(`${chalk.dim("reasoning")} ${chalk.dim(String(agent.config.reasoningEffort))}`);
-    }
     metaParts.push(`${chalk.dim("created")} ${chalk.dim(formatIsoShort(agent.createdAt))}`);
+    metaParts.push(`${chalk.dim("updated")} ${chalk.dim(formatIsoShort(agent.updatedAt))}`);
 
     const meta = metaParts.join(chalk.dim("  ·  "));
     lines.push(chalk.dim("│") + " " + padRight(meta, innerWidth - 1) + chalk.dim("│"));

@@ -9,6 +9,7 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { ink } from "@/core/interfaces/terminal";
@@ -16,8 +17,9 @@ import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
+import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
-import { formatMarkdown } from "./markdown-formatter";
+import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { applyTextChunkOrdered } from "./stream-text-order";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/App";
@@ -54,11 +56,14 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000; // 30 seconds
 
+  // Store provider/model for cost calculation
+  private currentProvider: string | null = null;
+  private currentModel: string | null = null;
+
   constructor(
     private readonly agentName: string,
     private readonly showMetrics: boolean,
     private readonly displayConfig: DisplayConfig,
-    private readonly notificationService: NotificationService | null,
   ) {}
 
   reset(): Effect.Effect<void, never> {
@@ -114,6 +119,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
       switch (event.type) {
         case "stream_start": {
           this.lastAgentHeaderWritten = true;
+          // Store provider/model for cost calculation
+          this.currentProvider = event.provider;
+          this.currentModel = event.model;
           // Reset reasoning state for new stream
           this.reasoningBuffer = "";
           this.completedReasoning = "";
@@ -211,10 +219,21 @@ export class InkStreamingRenderer implements StreamingRenderer {
           this.activeTools.set(event.toolCallId, event.toolName);
           store.setStatus(this.formatToolStatus());
           const argsStr = CLIRenderer.formatToolArguments(event.toolName, event.arguments);
+
+          // Add provider info for web_search
+          let providerSuffix = "";
+          if (event.toolName === "web_search") {
+            const provider = event.metadata?.["provider"];
+            if (typeof provider === "string") {
+              providerSuffix = chalk.dim(` [${provider}]`);
+            }
+          }
+
           const message = argsStr
-            ? `⚙️  Executing tool: ${event.toolName}${argsStr}`
-            : `⚙️  Executing tool: ${event.toolName}`;
+            ? `⚙️  Executing tool: ${event.toolName}${providerSuffix}${argsStr}`
+            : `⚙️  Executing tool: ${event.toolName}${providerSuffix}`;
           store.printOutput({
+
             type: "log",
             message,
             timestamp: new Date(),
@@ -321,23 +340,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
         }
 
         case "complete": {
-          // Send system notification for completion
-          if (this.notificationService) {
-            Effect.runFork(
-              this.notificationService.notify(
-                `${this.agentName} has completed the task.`,
-                {
-                  title: "Jazz Task Complete",
-                  sound: true,
-                },
-              ).pipe(
-                Effect.catchAll((error) => {
-                  console.error("[Notification] Failed to send completion notification:", error);
-                  return Effect.void;
-                }),
-              ),
-            );
-          }
+          // Note: Task completion notifications are sent by streaming-executor.ts
+          // when the full agent run completes, not here (which fires for each LLM stream)
 
           // If streaming never started (fallback), we may still want to show the response.
           if (!this.lastAgentHeaderWritten) {
@@ -377,7 +381,16 @@ export class InkStreamingRenderer implements StreamingRenderer {
             if (event.metrics.tokensPerSecond) {
               parts.push(`Speed: ${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
             }
-            if (event.metrics.totalTokens) {
+            // Show detailed token breakdown
+            const usage = event.response.usage;
+            if (usage) {
+              parts.push(`Input: ${usage.promptTokens}`);
+              parts.push(`Output: ${usage.completionTokens}`);
+              if (usage.reasoningTokens !== undefined && usage.reasoningTokens > 0) {
+                parts.push(`Reasoning: ${usage.reasoningTokens}`);
+              }
+              parts.push(`Total: ${usage.totalTokens} tokens`);
+            } else if (event.metrics.totalTokens) {
               parts.push(`Total: ${event.metrics.totalTokens} tokens`);
             }
             if (parts.length > 0) {
@@ -387,7 +400,45 @@ export class InkStreamingRenderer implements StreamingRenderer {
                 timestamp: new Date(),
               });
             }
-            store.printOutput({ type: "log", message: "", timestamp: new Date() });
+
+            // Calculate and display cost asynchronously
+            if (usage && this.currentProvider && this.currentModel) {
+              const provider = this.currentProvider;
+              const model = this.currentModel;
+              const promptTokens = usage.promptTokens;
+              const completionTokens = usage.completionTokens;
+
+              // Fire-and-forget: fetch pricing and display cost
+              void getModelsDevMetadata(model, provider)
+                .then((meta) => {
+                  if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
+                    const inputPrice = meta.inputPricePerMillion ?? 0;
+                    const outputPrice = meta.outputPricePerMillion ?? 0;
+                    const inputCost = (promptTokens / 1_000_000) * inputPrice;
+                    const outputCost = (completionTokens / 1_000_000) * outputPrice;
+                    const totalCost = inputCost + outputCost;
+
+                    // Format cost display
+                    const formatCost = (cost: number): string => {
+                      if (cost === 0) return "$0.00";
+                      if (cost >= 0.01) return `$${cost.toFixed(2)}`;
+                      if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
+                      return `$${cost.toExponential(2)}`;
+                    };
+
+                    store.printOutput({
+                      type: "debug",
+                      message: `[Cost: ${formatCost(inputCost)} input + ${formatCost(outputCost)} output = ${formatCost(totalCost)} total]`,
+                      timestamp: new Date(),
+                    });
+                    store.printOutput({ type: "log", message: "", timestamp: new Date() });
+                  }
+                })
+                .catch(() => {
+                });
+            } else {
+              store.printOutput({ type: "log", message: "", timestamp: new Date() });
+            }
           }
 
           store.setStatus(null);
@@ -506,18 +557,21 @@ export class InkStreamingRenderer implements StreamingRenderer {
       return;
     }
     const formattedReasoning = this.formatMarkdown(reasoning);
-    const displayReasoning =
-      this.displayConfig.mode === "markdown" ? chalk.gray(formattedReasoning) : formattedReasoning;
+
+    const displayReasoning = chalk.gray(formattedReasoning);
     store.printOutput({
       type: "log",
-      message: `🧠 Reasoning:\n${displayReasoning}`,
+      message: chalk.gray(`🧠 Reasoning:\n${displayReasoning}`),
       timestamp: new Date(),
     });
   }
 
   private formatMarkdown(text: string): string {
-    if (this.displayConfig.mode === "markdown") {
+    if (this.displayConfig.mode === "rendered") {
       return formatMarkdown(text);
+    }
+    if (this.displayConfig.mode === "hybrid") {
+      return formatMarkdownHybrid(text);
     }
     return text;
   }
@@ -532,6 +586,14 @@ interface QueuedApproval {
 }
 
 /**
+ * Queued user input request with its resolve callback.
+ */
+interface QueuedUserInput {
+  request: UserInputRequest;
+  resume: (effect: Effect.Effect<string, never>) => void;
+}
+
+/**
  * Ink implementation of PresentationService.
  *
  * Critical: does NOT write to stdout directly (which would clobber Ink rendering).
@@ -543,6 +605,13 @@ class InkPresentationService implements PresentationService {
   // Approval queue to handle parallel tool calls
   private approvalQueue: QueuedApproval[] = [];
   private isProcessingApproval: boolean = false;
+
+  // User input queue to handle parallel requestUserInput calls
+  private userInputQueue: QueuedUserInput[] = [];
+  private isProcessingUserInput: boolean = false;
+
+  // Signal for tool execution start synchronization
+  private pendingExecutionSignal: (() => void) | null = null;
 
   constructor(
     private readonly displayConfig: DisplayConfig,
@@ -648,7 +717,6 @@ class InkPresentationService implements PresentationService {
         config.agentName,
         config.showMetrics,
         config.displayConfig,
-        this.notificationService,
       );
     });
   }
@@ -674,16 +742,29 @@ class InkPresentationService implements PresentationService {
   }
 
   /**
-   * Resumes the approval effect with the given outcome and runs cleanup:
-   * clears processing flag and processes the next queued approval.
+   * Resumes the approval effect with the given outcome.
+   * Waits for tool execution to start before processing the next approval.
    */
   private completeApproval(
     resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
     outcome: ApprovalOutcome,
   ): void {
     resume(Effect.succeed(outcome));
-    this.isProcessingApproval = false;
-    this.processNextApproval();
+
+    // If approved, wait for the tool execution to start before processing next approval
+    // If rejected, we can proceed immediately since no tool will execute
+    if (outcome.approved) {
+      // Set up a signal that will be triggered by signalToolExecutionStarted
+      this.pendingExecutionSignal = () => {
+        this.pendingExecutionSignal = null;
+        this.isProcessingApproval = false;
+        this.processNextApproval();
+      };
+    } else {
+      // No tool execution for rejected approvals, proceed immediately
+      this.isProcessingApproval = false;
+      this.processNextApproval();
+    }
   }
 
   /**
@@ -738,7 +819,7 @@ class InkPresentationService implements PresentationService {
     });
     store.printOutput({
       type: "log",
-      message: `${request.message}\n`,
+      message: `${chalk.bold(request.message)}\n`,
       timestamp: new Date(),
     });
     store.printOutput({
@@ -791,6 +872,82 @@ class InkPresentationService implements PresentationService {
             );
           },
         });
+      },
+    });
+  }
+
+  signalToolExecutionStarted(): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      // If there's a pending signal callback, invoke it to allow next approval
+      if (this.pendingExecutionSignal) {
+        this.pendingExecutionSignal();
+      }
+    });
+  }
+
+  requestUserInput(request: UserInputRequest): Effect.Effect<string, never> {
+    return Effect.async((resume) => {
+      // Add to queue and process
+      this.userInputQueue.push({ request, resume });
+      this.processNextUserInput();
+    });
+  }
+
+  /**
+   * Process the next user input request in the queue.
+   */
+  private processNextUserInput(): void {
+    // If already processing or queue is empty, do nothing
+    if (this.isProcessingUserInput || this.userInputQueue.length === 0) {
+      return;
+    }
+
+    this.isProcessingUserInput = true;
+    const { request, resume } = this.userInputQueue.shift()!;
+
+    // Show the question with formatted suggestions
+    const separator = chalk.dim("─".repeat(50));
+    store.printOutput({
+      type: "log",
+      message: `\n${separator}`,
+      timestamp: new Date(),
+    });
+    store.printOutput({
+      type: "log",
+      message: `${chalk.cyan("❓")} ${chalk.bold(request.question)}`,
+      timestamp: new Date(),
+    });
+    store.printOutput({
+      type: "log",
+      message: separator,
+      timestamp: new Date(),
+    });
+
+    // Set up questionnaire prompt
+    store.setPrompt({
+      type: "questionnaire",
+      message: request.question,
+      options: {
+        suggestions: request.suggestions,
+        allowCustom: request.allowCustom,
+      },
+      resolve: (value: unknown) => {
+        const response = String(value);
+        store.printOutput({
+          type: "log",
+          message: `${chalk.dim("Your response:")} ${chalk.green(response)}`,
+          timestamp: new Date(),
+        });
+        store.setPrompt(null);
+        this.isProcessingUserInput = false;
+        resume(Effect.succeed(response));
+        this.processNextUserInput();
+      },
+      reject: () => {
+        store.setPrompt(null);
+        this.isProcessingUserInput = false;
+        resume(Effect.succeed("")); // Return empty on cancel
+        this.processNextUserInput();
       },
     });
   }

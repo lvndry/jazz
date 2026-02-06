@@ -1,14 +1,17 @@
 import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Suggestion } from "@/core/interfaces/presentation";
 import {
   filterCommandsByPrefix,
   type ChatCommandInfo,
 } from "@/services/chat/commands";
-import { TextInput, SHORTCUTS_HINT } from "./components/Input/TextInput";
+import { ChatInput, SHORTCUTS_HINT } from "./components/ChatInput";
+import { Questionnaire } from "./components/Questionnaire";
+import { ScrollableMultiSelect } from "./components/ScrollableMultiSelect";
+import { ScrollableSelect } from "./components/ScrollableSelect";
+import { SearchSelect } from "./components/SearchSelect";
+import { TextInput } from "./components/TextInput";
 import { useInputHandler, InputResults, useTextInput } from "./hooks/use-input-service";
-import { ScrollableMultiSelect } from "./ScrollableMultiSelect";
-import { ScrollableSelect } from "./ScrollableSelect";
-import { SearchSelect } from "./SearchSelect";
 import type { PromptState } from "./types";
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
@@ -31,6 +34,19 @@ function CommandSuggestionItem({
       <Text dimColor> – {command.description}</Text>
     </Box>
   );
+}
+
+/**
+ * Hidden input that waits for Enter key without showing any visible UI.
+ * Used for "Press Enter to continue" scenarios.
+ */
+function HiddenInput({ onSubmit }: { onSubmit: () => void }): React.ReactElement {
+  useInput((_input: string, key: { return?: boolean }) => {
+    if (key.return) {
+      onSubmit();
+    }
+  });
+  return <></>;
 }
 
 /**
@@ -85,7 +101,7 @@ function PromptComponent({
   }, []);
 
   const textInputActive =
-    prompt.type === "text" || prompt.type === "password";
+    prompt.type === "chat" || prompt.type === "password";
   const { value, cursor, setValue } = useTextInput({
     id: "text-input",
     isActive: textInputActive,
@@ -94,7 +110,7 @@ function PromptComponent({
   setValueRef.current = setValue;
 
   const commandSuggestionsEnabled =
-    prompt.type === "text" && Boolean(prompt.options?.commandSuggestions);
+    prompt.type === "chat" && Boolean(prompt.options?.commandSuggestions);
   const suggestionPrefix = value.startsWith("/") ? value.slice(1) : "";
   const filteredCommands = useMemo(
     () =>
@@ -155,7 +171,7 @@ function PromptComponent({
     // may not unmount between prompts. Ensure the input is reset for each new prompt.
     const rawDefaultValue = prompt.options?.["defaultValue"];
     const defaultValue =
-      prompt.type === "text" && typeof rawDefaultValue === "string"
+      prompt.type === "chat" && typeof rawDefaultValue === "string"
         ? rawDefaultValue
         : "";
 
@@ -189,7 +205,7 @@ function PromptComponent({
 
       {/* Input area */}
       <Box marginTop={1} paddingLeft={1} flexDirection="column">
-        {prompt.type === "text" && (
+        {prompt.type === "chat" && (
           <>
             <Box
               borderStyle="round"
@@ -201,7 +217,7 @@ function PromptComponent({
               flexDirection="column"
             >
               <Box>
-                <TextInput
+                <ChatInput
                   value={value}
                   cursor={cursor}
                   placeholder="Ask anything..."
@@ -239,40 +255,12 @@ function PromptComponent({
           </>
         )}
         {prompt.type === "password" && (
-          <>
-            <Box
-              borderStyle="round"
-              borderColor="gray"
-              borderDimColor
-              backgroundColor="black"
-              paddingX={2}
-              paddingY={1}
-              flexDirection="column"
-            >
-              <Box>
-                <Text color="green">{">"} </Text>
-                <TextInput
-                  value={value}
-                  cursor={cursor}
-                  mask="*"
-                  textColor="white"
-                />
-              </Box>
-            </Box>
-            {/* Hints below box so terminal selection inside box captures only input text */}
-            <Box marginTop={1} flexDirection="column">
-              {workingDirectory && (
-                <Text dimColor>Current directory: {workingDirectory}</Text>
-              )}
-              <Text dimColor>{SHORTCUTS_HINT}</Text>
-            </Box>
-            {/* Validation error message */}
-            {validationError && (
-              <Box marginTop={1} paddingLeft={1} paddingRight={1} borderStyle="round" borderColor="red">
-                <Text color="red" bold>✗ {validationError}</Text>
-              </Box>
-            )}
-          </>
+          <TextInput
+            inputId={`password-${prompt.message}`}
+            mask="*"
+            onSubmit={(value: string) => prompt.resolve(value)}
+            onCancel={() => prompt.reject?.()}
+          />
         )}
         {prompt.type === "select" && (
           <ScrollableSelect
@@ -307,6 +295,29 @@ function PromptComponent({
             ]}
             pageSize={10}
             onSelect={(value) => prompt.resolve(value)}
+            onCancel={() => prompt.reject?.()}
+          />
+        )}
+        {prompt.type === "text" && (() => {
+          const validate = prompt.options?.["validate"] as ((input: string) => boolean | string) | undefined;
+          return (
+            <TextInput
+              inputId={prompt.message}
+              defaultValue={(prompt.options?.["defaultValue"] as string) ?? ""}
+              {...(validate ? { validate } : {})}
+              onSubmit={(value: string) => prompt.resolve(value)}
+              onCancel={() => prompt.reject?.()}
+            />
+          );
+        })()}
+        {prompt.type === "hidden" && (
+          <HiddenInput onSubmit={() => prompt.resolve("")} />
+        )}
+        {prompt.type === "questionnaire" && (
+          <Questionnaire
+            suggestions={(prompt.options?.["suggestions"] as readonly Suggestion[]) ?? []}
+            allowCustom={(prompt.options?.["allowCustom"] as boolean) !== false}
+            onSubmit={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
           />
         )}

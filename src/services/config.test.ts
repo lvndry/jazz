@@ -40,10 +40,10 @@ const mockFS = {
 describe("AgentConfigService", () => {
   const initialConfig: AppConfig = {
     storage: { type: "file", path: "/tmp" },
-    logging: { level: "info", format: "pretty", output: "console" },
+    logging: { level: "info", format: "plain" },
     google: { clientId: "", clientSecret: "" },
     llm: {},
-    web_search: { priority_order: [] },
+    web_search: { provider: "parallel" },
   };
 
   it("should get nested properties using dot notation", async () => {

@@ -696,7 +696,7 @@ function handleSkillsCommand(
     }
     yield* terminal.log("");
     const formattedSkill =
-      displayConfig.mode === "markdown"
+      displayConfig.mode === "rendered"
         ? formatMarkdown(skillContent.core)
         : skillContent.core;
     yield* terminal.log(formattedSkill);

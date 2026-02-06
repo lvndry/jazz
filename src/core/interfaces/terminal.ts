@@ -84,7 +84,8 @@ export interface TerminalService {
   readonly clear: () => Effect.Effect<void, never>;
 
   /**
-   * Prompt the user for text input
+   * Prompt the user for text input.
+   * Returns undefined if cancelled (e.g., Escape key) when cancellable is true.
    */
   readonly ask: (
     message: string,
@@ -93,8 +94,14 @@ export interface TerminalService {
       validate?: (input: string) => boolean | string;
       /** When true, show command suggestions when input starts with "/" (e.g. chat prompt) */
       commandSuggestions?: boolean;
+      /** When true, allow ESC to cancel and return undefined. Default: false for backwards compatibility. */
+      cancellable?: boolean;
+      /** When true, use a minimal inline input instead of the full chat-style box. */
+      simple?: boolean;
+      /** When true, hide the prompt UI but still wait for Enter key. Useful for "Press Enter to continue" scenarios. */
+      hidden?: boolean;
     },
-  ) => Effect.Effect<string, never>;
+  ) => Effect.Effect<string | undefined, never>;
 
   /**
    * Prompt the user for password input (hidden)
@@ -113,7 +120,7 @@ export interface TerminalService {
   readonly select: <T = string>(
     message: string,
     options: {
-      choices: readonly (string | { name: string; value: T; description?: string })[];
+      choices: readonly (string | { name: string; value: T; description?: string; disabled?: boolean })[];
       default?: T;
     },
   ) => Effect.Effect<T | undefined, never>;

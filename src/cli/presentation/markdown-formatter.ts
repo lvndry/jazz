@@ -383,3 +383,176 @@ export function formatMarkdown(text: string): string {
 
   return formatted;
 }
+
+// ============================================================================
+// Hybrid Mode Formatting - Preserves markdown syntax while adding styling
+// ============================================================================
+
+// Hybrid regex for safe underscore handling - only match standalone underscores
+// This prevents matching underscores in identifiers like hello_world
+const HYBRID_ITALIC_UNDERSCORE_REGEX = /(?<=^|[\s[(])_([^_\n]+?)_(?=[\s\],.!?)]|$)/g;
+
+/**
+ * Format bold text in hybrid mode - keeps ** markers visible
+ */
+export function formatBoldHybrid(text: string): string {
+  return text.replace(BOLD_REGEX, (_match: string, delimiter: string, content: string) =>
+    `${delimiter}${chalk.bold(content)}${delimiter}`,
+  );
+}
+
+/**
+ * Format italic text in hybrid mode - keeps * markers visible
+ * Only uses asterisks for safety (underscores in identifiers are common)
+ */
+export function formatItalicHybrid(text: string): string {
+  let formatted = text;
+
+  // Asterisk italics - safe to use
+  formatted = formatted.replace(
+    ITALIC_ASTERISK_REGEX,
+    (_match: string, content: string) => `*${chalk.italic(content)}*`,
+  );
+
+  // Underscore italics - only match if surrounded by whitespace/punctuation
+  formatted = formatted.replace(
+    HYBRID_ITALIC_UNDERSCORE_REGEX,
+    (_match: string, content: string) => `_${chalk.italic(content)}_`,
+  );
+
+  return formatted;
+}
+
+/**
+ * Format inline code in hybrid mode - keeps backticks visible
+ */
+export function formatInlineCodeHybrid(text: string): string {
+  return text.replace(INLINE_CODE_REGEX, (_match, code) => `\`${chalk.cyan(code)}\``);
+}
+
+/**
+ * Format headings in hybrid mode - keeps # markers visible
+ */
+export function formatHeadingsHybrid(text: string): string {
+  let formatted = text;
+
+  // H4 (####)
+  formatted = formatted.replace(H4_REGEX, (_match, header) => `#### ${chalk.bold(header)}`);
+
+  // H3 (###)
+  formatted = formatted.replace(H3_REGEX, (_match, header) => `### ${chalk.bold.blue(header)}`);
+
+  // H2 (##)
+  formatted = formatted.replace(H2_REGEX, (_match, header) =>
+    `## ${chalk.bold.blue.underline(header)}`,
+  );
+
+  // H1 (#)
+  formatted = formatted.replace(H1_REGEX, (_match, header) =>
+    `# ${chalk.bold.blue.underline(header)}`,
+  );
+
+  return formatted;
+}
+
+/**
+ * Format blockquotes in hybrid mode - keeps > marker visible
+ */
+export function formatBlockquotesHybrid(text: string): string {
+  return text.replace(BLOCKQUOTE_REGEX, (_match: string, content: string) =>
+    `> ${chalk.gray(content)}`,
+  );
+}
+
+/**
+ * Format strikethrough in hybrid mode - keeps ~~ markers visible
+ */
+export function formatStrikethroughHybrid(text: string): string {
+  return text.replace(STRIKETHROUGH_REGEX, (_match: string, content: string) =>
+    `~~${chalk.strikethrough(content)}~~`,
+  );
+}
+
+/**
+ * Format links in hybrid mode - keeps [text](url) visible
+ */
+export function formatLinksHybrid(text: string): string {
+  return text.replace(LINK_REGEX, (_match: string, linkText: string, url: string) =>
+    `[${chalk.blue.underline(linkText)}](${chalk.dim(url)})`,
+  );
+}
+
+/**
+ * Format code block content in hybrid mode - keeps ``` markers visible
+ */
+export function formatCodeBlockContentHybrid(codeBlock: string): string {
+  const lines = codeBlock.split("\n");
+  const processedLines: string[] = [];
+
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
+      const content = line.trimStart();
+      processedLines.push(leadingWhitespace + chalk.yellow(content));
+    } else {
+      processedLines.push(chalk.cyan(line));
+    }
+  }
+
+  return processedLines.join("\n");
+}
+
+/**
+ * Format complete markdown text in hybrid mode (preserves syntax, adds styling)
+ */
+export function formatMarkdownHybrid(text: string): string {
+  if (!text || text.length === 0) {
+    return text;
+  }
+
+  let formatted = text;
+  formatted = stripAnsiCodes(formatted);
+  formatted = normalizeBlankLines(formatted);
+
+  // Extract code blocks and inline code to protect them
+  const codeBlocks: string[] = [];
+  const inlineCodes: string[] = [];
+
+  formatted = formatted.replace(CODE_BLOCK_EXTRACT_REGEX, (match) => {
+    const index = codeBlocks.length;
+    codeBlocks.push(match);
+    return `${CODE_BLOCK_PLACEHOLDER_START}${index}${CODE_BLOCK_PLACEHOLDER_END}`;
+  });
+
+  formatted = formatted.replace(INLINE_CODE_EXTRACT_REGEX, (_match, code: string) => {
+    const index = inlineCodes.length;
+    inlineCodes.push(code);
+    return `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
+  });
+
+  // Apply hybrid formatting (preserves syntax markers)
+  formatted = formatHeadingsHybrid(formatted);
+  formatted = formatBlockquotesHybrid(formatted);
+  formatted = formatTaskLists(formatted); // Task lists can use standard formatting
+  formatted = formatLists(formatted); // Lists can use standard formatting
+  formatted = formatHorizontalRules(formatted);
+  formatted = formatStrikethroughHybrid(formatted);
+  formatted = formatBoldHybrid(formatted);
+  formatted = formatItalicHybrid(formatted);
+  formatted = formatLinksHybrid(formatted);
+
+  // Restore inline code with hybrid formatting (keeps backticks)
+  for (let index = 0; index < inlineCodes.length; index++) {
+    const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
+    formatted = formatted.replace(placeholder, `\`${chalk.cyan(inlineCodes[index]!)}\``);
+  }
+
+  // Restore code blocks with hybrid formatting (keeps ``` markers)
+  for (let index = 0; index < codeBlocks.length; index++) {
+    const placeholder = `${CODE_BLOCK_PLACEHOLDER_START}${index}${CODE_BLOCK_PLACEHOLDER_END}`;
+    const formattedBlock = formatCodeBlockContentHybrid(codeBlocks[index]!);
+    formatted = formatted.replace(placeholder, formattedBlock);
+  }
+
+  return formatted;
+}

@@ -40,9 +40,7 @@ export type StorageConfig =
 
 export interface LoggingConfig {
   readonly level: "debug" | "info" | "warn" | "error";
-  readonly format: "json" | "pretty";
-  readonly output: "console" | "file" | "both";
-  readonly filePath?: string;
+  readonly format: "json" | "plain" | "toon";
 }
 
 export interface GoogleConfig {
@@ -79,5 +77,7 @@ export interface WebSearchConfig {
   readonly exa?: WebSearchProviderConfig;
   readonly parallel?: WebSearchProviderConfig;
   readonly tavily?: WebSearchProviderConfig;
-  readonly priority_order?: readonly string[];
+  readonly brave?: WebSearchProviderConfig;
+  readonly perplexity?: WebSearchProviderConfig;
+  readonly provider?: "exa" | "parallel" | "tavily" | "brave" | "perplexity";
 }

@@ -2,7 +2,7 @@ import { Text } from "ink";
 import InkSpinner from "ink-spinner";
 import React from "react";
 
-interface SpinnerProps {
+export interface SpinnerProps {
   /** Spinner type */
   type?: "dots" | "line" | "pipe" | "simpleDots" | "simpleDotsScrolling";
   /** Optional label text */
@@ -28,6 +28,3 @@ export const Spinner = React.memo(function Spinner({
     </>
   );
 });
-
-export default Spinner;
-export type { SpinnerProps };

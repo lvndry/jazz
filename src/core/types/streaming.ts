@@ -14,6 +14,7 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  reasoningTokens?: number;
 }
 
 /**
@@ -67,6 +68,7 @@ export type StreamEvent =
       toolName: string;
       toolCallId: string;
       arguments?: Record<string, unknown>;
+      metadata?: Record<string, unknown>;
     }
   | {
       type: "tool_execution_complete";

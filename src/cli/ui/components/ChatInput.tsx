@@ -1,11 +1,7 @@
 import { Box, Text } from "ink";
 import React from "react";
 
-// ============================================================================
-// Types
-// ============================================================================
-
-interface TextInputProps {
+export interface ChatInputProps {
   /** Current value */
   value: string;
   /** Current cursor position */
@@ -22,17 +18,11 @@ interface TextInputProps {
   textColor?: string;
 }
 
-// ============================================================================
-// Constants
-// ============================================================================
 
 /** Exported so parents can render hints below the input box (keeps selection inside box to input text only). */
 export const SHORTCUTS_HINT =
   "Ctrl+A/E: start/end · Ctrl+U/K: clear · Opt+←/→: word nav · Opt+Del: delete word";
 
-// ============================================================================
-// Component
-// ============================================================================
 
 /**
  * TextInput component that renders the current input value.
@@ -40,7 +30,7 @@ export const SHORTCUTS_HINT =
  * Input handling and state live in the InputService; this component is
  * purely presentational to avoid reordering under heavy render pressure.
  */
-export function TextInput({
+export function ChatInput({
   value,
   cursor,
   mask,
@@ -48,7 +38,7 @@ export function TextInput({
   showCursor = true,
   focus = true,
   textColor,
-}: TextInputProps): React.ReactElement {
+}: ChatInputProps): React.ReactElement {
   const safeCursor = Math.max(0, Math.min(cursor, value.length));
   const displayValueMasked = mask ? mask.repeat(value.length) : value;
 
@@ -105,10 +95,3 @@ export function TextInput({
     </Box>
   );
 }
-
-// ============================================================================
-// Exports
-// ============================================================================
-
-export default TextInput;
-export type { TextInputProps };

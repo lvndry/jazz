@@ -4,6 +4,31 @@ import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import type { DisplayConfig } from "../types";
 
 /**
+ * A suggested response with optional label and description.
+ */
+export interface Suggestion {
+  /** The value to return when this suggestion is picked */
+  readonly value: string;
+  /** Optional label to display instead of the value */
+  readonly label?: string | undefined;
+  /** Optional detailed description to display below the suggestion */
+  readonly description?: string | undefined;
+}
+
+/**
+ * Request for user input with optional suggested responses.
+ * Used by the ask_user tool to gather clarifications.
+ */
+export interface UserInputRequest {
+  /** The question to display to the user */
+  readonly question: string;
+  /** Optional suggested responses the user can pick from */
+  readonly suggestions: readonly Suggestion[];
+  /** Whether to allow custom text input in addition to suggestions */
+  readonly allowCustom: boolean;
+}
+
+/**
  * Presentation service interface for rendering agent output
  *
  * This interface abstracts presentation concerns from core business logic,
@@ -117,6 +142,27 @@ export interface PresentationService {
    * @returns ApprovalOutcome: { approved: true } or { approved: false, userMessage?: string }
    */
   readonly requestApproval: (request: ApprovalRequest) => Effect.Effect<ApprovalOutcome, never>;
+
+  /**
+   * Signal that tool execution has started after approval.
+   *
+   * This should be called by the tool executor after emitting `tool_execution_start`
+   * to synchronize the approval queue. The next approval prompt will not be shown
+   * until this signal is received, preventing log interleaving.
+   */
+  readonly signalToolExecutionStarted: () => Effect.Effect<void, never>;
+
+  /**
+   * Request input from the user with optional suggested responses.
+   *
+   * Displays a question to the user with optional suggested responses they can select from.
+   * The user can either pick a suggestion or type a custom response (if allowCustom is true).
+   * Used by the ask_user tool to gather clarifications before proceeding.
+   *
+   * @param request - The user input request with question and optional suggestions
+   * @returns The user's response (either selected suggestion or custom text)
+   */
+  readonly requestUserInput: (request: UserInputRequest) => Effect.Effect<string, never>;
 }
 
 /**

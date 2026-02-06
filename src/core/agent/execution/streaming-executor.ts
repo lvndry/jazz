@@ -4,6 +4,7 @@ import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
+import { NotificationServiceTag } from "@/core/interfaces/notification";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
@@ -66,6 +67,7 @@ export function executeWithStreaming(
         const { agent, maxIterations = MAX_AGENT_STEPS } = options;
         const llmService = yield* LLMServiceTag;
         const presentationService = yield* PresentationServiceTag;
+        const notificationServiceOption = yield* Effect.serviceOption(NotificationServiceTag);
         const { actualConversationId, context, tools, messages, runMetrics, provider, model } =
           runContext;
 
@@ -404,9 +406,17 @@ export function executeWithStreaming(
               });
 
               // Execute tools - use completion.toolCalls as the source of truth
+              // Inject current token stats into context for tools like context_info
+              const contextWithTokenStats = {
+                ...context,
+                tokenStats: {
+                  currentTokens: DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages),
+                  maxTokens: DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens ?? 150_000,
+                },
+              };
               const toolResults = yield* ToolExecutor.executeToolCalls(
                 completion.toolCalls,
-                context,
+                contextWithTokenStats,
                 displayConfig,
                 renderer,
                 runMetrics,
@@ -496,6 +506,19 @@ export function executeWithStreaming(
 
             response = { ...response, content: completion.content };
             yield* presentationService.presentCompletion(agent.name);
+
+            // Send task completion notification
+            if (Option.isSome(notificationServiceOption)) {
+              yield* notificationServiceOption.value.notify(
+                `${agent.name} has completed the task.`,
+                {
+                  title: "Jazz Task Complete",
+                  sound: true,
+                },
+              ).pipe(
+                Effect.catchAll(() => Effect.void),
+              );
+            }
 
             iterationsUsed = i + 1;
             finished = true;

@@ -10,6 +10,7 @@ export interface ChatCompletionResponse {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+    reasoningTokens?: number;
   };
   toolsDisabled?: boolean;
 }

@@ -6,6 +6,7 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
@@ -25,7 +26,7 @@ export class CLIPresentationService implements PresentationService {
   constructor(
     private readonly displayConfig: DisplayConfig,
     private readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>,
-    private readonly ask: (message: string, options?: { defaultValue?: string }) => Effect.Effect<string, never>,
+    private readonly ask: (message: string, options?: { defaultValue?: string }) => Effect.Effect<string | undefined, never>,
   ) {}
 
   /**
@@ -177,7 +178,7 @@ export class CLIPresentationService implements PresentationService {
       // Write the approval details
       yield* this.writeOutput(`\n${separator}\n`);
       yield* this.writeOutput(`${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n\n`);
-      yield* this.writeOutput(`${request.message}\n\n`);
+      yield* this.writeOutput(`${chalk.bold(request.message)}\n\n`);
       yield* this.writeOutput(`${separator}\n`);
 
       // Prompt for confirmation (default to Yes for faster workflow)
@@ -188,14 +189,49 @@ export class CLIPresentationService implements PresentationService {
       }
 
       // Rejected: prompt for optional message to guide the agent
-      const userMessage = (yield* this.ask(
+      const userMessage = ((yield* this.ask(
         "What should the agent do instead? (optional — press Enter to skip)",
         {},
-      )).trim();
+      )) ?? "").trim();
 
       return userMessage
         ? ({ approved: false, userMessage } as const)
         : ({ approved: false } as const);
+    });
+  }
+
+  signalToolExecutionStarted(): Effect.Effect<void, never> {
+    return Effect.void;
+  }
+
+  requestUserInput(request: UserInputRequest): Effect.Effect<string, never> {
+    return Effect.gen(this, function* () {
+      const separator = chalk.dim("─".repeat(50));
+
+      // Display the question
+      yield* this.writeOutput(`\n${separator}\n`);
+      yield* this.writeOutput(`${chalk.cyan("❓")} ${chalk.bold(request.question)}\n`);
+
+      // Display suggestions if any
+      if (request.suggestions && request.suggestions.length > 0) {
+        yield* this.writeOutput(`\n${chalk.dim("Suggestions:")}\n`);
+        for (let i = 0; i < request.suggestions.length; i++) {
+          const suggestion = request.suggestions[i];
+          if (!suggestion) continue;
+          const label = suggestion.label ?? suggestion.value;
+          const description = suggestion.description ? ` - ${suggestion.description}` : "";
+          yield* this.writeOutput(
+            `  ${chalk.cyan(`${i + 1}.`)} ${chalk.bold(label)}${chalk.dim(description)}\n`,
+          );
+        }
+        yield* this.writeOutput(`\n`);
+      }
+
+      yield* this.writeOutput(`${separator}\n`);
+
+      // Use the existing ask method
+      const response = yield* this.ask("Your response:", {});
+      return response ?? "";
     });
   }
 }

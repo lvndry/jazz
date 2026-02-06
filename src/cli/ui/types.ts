@@ -23,12 +23,13 @@ export interface LiveStreamState {
   reasoning?: string;
 }
 
-export type PromptType = "text" | "select" | "confirm" | "password" | "checkbox" | "search";
+export type PromptType = "text" | "chat" | "select" | "confirm" | "password" | "checkbox" | "search" | "hidden" | "questionnaire";
 
 export interface Choice<T = unknown> {
   label: string;
   value: T;
   description?: string;
+  disabled?: boolean;
 }
 
 export interface PromptOptions<T = unknown> {

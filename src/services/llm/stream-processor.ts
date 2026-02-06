@@ -410,6 +410,9 @@ export class StreamProcessor {
           promptTokens: usageResult.inputTokens ?? 0,
           completionTokens: usageResult.outputTokens ?? 0,
           totalTokens: usageResult.totalTokens ?? 0,
+          ...(this.state.reasoningTokens !== undefined && {
+            reasoningTokens: this.state.reasoningTokens,
+          }),
         };
 
         // Emit usage update

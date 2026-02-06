@@ -392,6 +392,10 @@ class MCPServerManagerImpl implements MCPServerManager {
               },
             );
 
+            if (value === undefined) {
+              return yield* Effect.fail(new Error(`Input cancelled for ${varName}`));
+            }
+
             // Store in config
             yield* configService.set(configKey, value);
             resolvedArg = resolvedArg.replace(match[0], value);

@@ -8,6 +8,7 @@ import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
 import { AgentConfigServiceTag } from "./core/interfaces/agent-config";
 import { CLIOptionsTag } from "./core/interfaces/cli-options";
+import { LoggerServiceTag } from "./core/interfaces/logger";
 import { MCPServerManagerTag } from "./core/interfaces/mcp-server";
 import { StorageServiceTag } from "./core/interfaces/storage";
 import { TerminalServiceTag } from "./core/interfaces/terminal";
@@ -25,7 +26,7 @@ import { createConfigLayer } from "./services/config";
 import { createFileSystemContextServiceLayer } from "./services/fs";
 import { createGmailServiceLayer } from "./services/gmail";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
-import { createLoggerLayer } from "./services/logger";
+import { createLoggerLayer, setLogFormat, setLogLevel } from "./services/logger";
 import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
 import { NotificationServiceLayer } from "./services/notification";
 import { FileStorageService } from "./services/storage/file";
@@ -73,6 +74,18 @@ export function createAppLayer(config: AppLayerConfig = {}) {
   const fileSystemLayer = NodeFileSystem.layer;
   const configLayer = createConfigLayer(debug, configPath).pipe(Layer.provide(fileSystemLayer));
   const loggerLayer = createLoggerLayer();
+
+  const logFormatLayer = Layer.effectDiscard(
+    Effect.gen(function* () {
+      const config = yield* AgentConfigServiceTag;
+      const appConfig = yield* config.appConfig;
+      const format = appConfig.logging?.format ?? "plain";
+      const level = appConfig.logging?.level ?? "info";
+      setLogFormat(format);
+      setLogLevel(level);
+    }),
+  ).pipe(Layer.provide(configLayer));
+
   const terminalLayer = createTerminalServiceLayer();
 
   const storageLayer = Layer.effect(
@@ -146,6 +159,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     fileSystemLayer,
     configLayer,
     loggerLayer,
+    logFormatLayer,
     terminalLayer,
     storageLayer,
     gmailLayer,
@@ -235,6 +249,12 @@ export function runCliEffect<R, E extends JazzError | Error>(
     // Register cleanup for MCP server connections
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* () {
+        // Clear session id so shutdown logs go to the default log, not a workflow/catch-up session log
+        const logger = yield* Effect.serviceOption(LoggerServiceTag);
+        if (Option.isSome(logger)) {
+          yield* logger.value.clearSessionId();
+        }
+
         const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
         if (Option.isSome(mcpManager)) {
           yield* mcpManager.value.disconnectAllServers().pipe(

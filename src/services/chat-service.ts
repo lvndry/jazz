@@ -112,7 +112,7 @@ export class ChatServiceImpl implements ChatService {
           }),
         );
 
-        const trimmedMessage = userMessage.trim();
+        const trimmedMessage = (userMessage ?? "").trim();
         const lowerMessage = trimmedMessage.toLowerCase();
         if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
           yield* terminal.info("👋 Goodbye!");

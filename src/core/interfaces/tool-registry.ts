@@ -14,6 +14,7 @@ import type { FileSystemContextService } from "./fs";
 import type { GmailService } from "./gmail";
 import type { LoggerService } from "./logger";
 import type { MCPServerManager } from "./mcp-server";
+import type { PresentationService } from "./presentation";
 import type { TerminalService } from "./terminal";
 
 /**
@@ -42,7 +43,8 @@ export type ToolRequirements =
   | LoggerService
   | MCPServerManager
   | TerminalService
-  | SkillService;
+  | SkillService
+  | PresentationService;
 
 export interface Tool<R = never> {
   readonly name: string;
@@ -152,6 +154,15 @@ export interface ToolRegistry {
    * @returns An Effect that resolves to an array of tool names.
    */
   readonly listTools: () => Effect.Effect<readonly string[], never>;
+  /**
+   * Lists all registered tool names, including hidden tools.
+   *
+   * Used for validation to ensure hidden builtin tools (like ask_user)
+   * can be referenced in agent configurations.
+   *
+   * @returns An Effect that resolves to an array of all tool names.
+   */
+  readonly listAllTools: () => Effect.Effect<readonly string[], never>;
   /**
    * Gets tool definitions in the format expected by LLM function calling APIs.
    *

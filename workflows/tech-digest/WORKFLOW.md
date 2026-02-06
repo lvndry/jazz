@@ -3,6 +3,7 @@ name: tech-digest
 description: Daily comprehensive AI & tech trends digest with deep research
 schedule: "0 8 * * *"
 autoApprove: true
+catchUpOnStartup: true
 skills:
   - deep-research
 ---

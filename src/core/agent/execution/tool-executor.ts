@@ -1,6 +1,6 @@
 import { Effect, Either, Fiber } from "effect";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
-import { type AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import {
   PresentationServiceTag,
@@ -122,12 +122,21 @@ export class ToolExecutor {
         // immediately; the real "Executing tool" is emitted after user approval)
         const isApprovalTool = toolsRequiringApproval.has(name);
         if (displayConfig.showToolExecution && !isApprovalTool) {
+          // Build metadata for specific tools (e.g., web_search provider)
+          let metadata: Record<string, unknown> | undefined;
+          if (name === "web_search") {
+            const configService = yield* AgentConfigServiceTag;
+            const appConfig = yield* configService.appConfig;
+            const provider = appConfig.web_search?.provider;
+            metadata = { provider: provider ?? "builtin" };
+          }
           if (renderer) {
             yield* renderer.handleEvent({
               type: "tool_execution_start",
               toolName: name,
               toolCallId: toolCall.id,
               arguments: args,
+              ...(metadata ? { metadata } : {}),
             });
           } else {
             const message = yield* presentationService.formatToolExecutionStart(name, args);
@@ -212,6 +221,9 @@ export class ToolExecutor {
                 yield* presentationService.writeOutput(message);
               }
             }
+
+            // Signal that tool execution has started (allows next approval to proceed)
+            yield* presentationService.signalToolExecutionStarted();
 
             // Execute the actual tool
             result = yield* ToolExecutor.executeTool(

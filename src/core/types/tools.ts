@@ -144,5 +144,13 @@ export interface ToolExecutionContext {
    * When set, tools matching the policy will be auto-approved without user interaction.
    */
   readonly autoApprovePolicy?: AutoApprovePolicy;
+  /**
+   * Token usage statistics for context budget awareness.
+   * Allows tools like context_info to report on current context usage.
+   */
+  readonly tokenStats?: {
+    readonly currentTokens: number;
+    readonly maxTokens: number;
+  };
   readonly [key: string]: unknown;
 }

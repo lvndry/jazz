@@ -39,6 +39,8 @@ export interface TrimResult {
  * while preserving message integrity (tool calls, system prompts, etc.)
  */
 export class ContextWindowManager {
+  private tokenCache = new WeakMap<ChatMessage, number>();
+
   constructor(private readonly config: ContextWindowConfig) {}
 
   /**
@@ -64,10 +66,23 @@ export class ContextWindowManager {
   }
 
   /**
+   * Get cached token count for a message, computing if not cached.
+   * Uses WeakMap so messages removed during trimming are automatically cleaned up.
+   */
+  private estimateTokensCached(message: ChatMessage): number {
+    const cached = this.tokenCache.get(message);
+    if (cached !== undefined) return cached;
+
+    const tokens = this.estimateTokens(message);
+    this.tokenCache.set(message, tokens);
+    return tokens;
+  }
+
+  /**
    * Calculate total estimated tokens for a list of messages
    */
   calculateTotalTokens(messages: ChatMessage[]): number {
-    return messages.reduce((acc, msg) => acc + this.estimateTokens(msg), 0);
+    return messages.reduce((acc, msg) => acc + this.estimateTokensCached(msg), 0);
   }
 
   /**
@@ -118,12 +133,12 @@ export class ContextWindowManager {
     }
 
     // Step 3: Calculate tokens for system message and protected zone
-    const systemTokens = this.estimateTokens(messages[0]);
+    const systemTokens = this.estimateTokensCached(messages[0]);
     let protectedTokens = 0;
     for (const idx of protectedIndices) {
       const msg = messages[idx];
       if (msg) {
-        protectedTokens += this.estimateTokens(msg);
+        protectedTokens += this.estimateTokensCached(msg);
       }
     }
 
@@ -136,7 +151,7 @@ export class ContextWindowManager {
       const msg = messages[i];
       if (!msg) continue;
 
-      const tokens = this.estimateTokens(msg);
+      const tokens = this.estimateTokensCached(msg);
 
       // Check limits
       const willExceedMessages = accumulatedMessages + 1 > this.config.maxMessages;

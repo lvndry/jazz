@@ -12,6 +12,7 @@ import { defineTool } from "./base-tool";
 export interface WebSearchArgs extends Record<string, unknown> {
   readonly query: string;
   readonly depth?: "standard" | "deep";
+  readonly maxResults?: number;
   readonly fromDate?: string;
   readonly toDate?: string;
 }
@@ -30,7 +31,7 @@ export interface WebSearchResult {
   readonly totalResults: number;
   readonly query: string;
   readonly timestamp: string;
-  readonly provider: "exa" | "parallel" | "tavily";
+  readonly provider: "exa" | "parallel" | "tavily" | "brave" | "perplexity";
 }
 
 /**
@@ -41,6 +42,8 @@ export const WEB_SEARCH_PROVIDERS = [
   { name: "Parallel", value: "parallel" },
   { name: "Exa", value: "exa" },
   { name: "Tavily", value: "tavily" },
+  { name: "Brave", value: "brave" },
+  { name: "Perplexity", value: "perplexity" },
 ] as const;
 
 export const DEFAULT_MAX_RESULTS = 50;
@@ -53,7 +56,7 @@ export function createWebSearchTool(): ReturnType<
   return defineTool<AgentConfigService | LoggerService, WebSearchArgs>({
     name: "web_search",
     description:
-      "Search the web for current, real-time information using Parallel, Exa, or Tavily search engine. Returns high-quality search results with snippets and sources that you can use to synthesize answers. Supports different search depths (standard/deep). Use to find current events, recent information, or facts that may have changed since training data.",
+      "Search the web for current, real-time information using Parallel, Exa, Tavily, Brave, or Perplexity search engine. Returns high-quality search results with snippets and sources that you can use to synthesize answers. Supports different search depths (standard/deep). Use to find current events, recent information, or facts that may have changed since training data.",
     tags: ["web", "search"],
     parameters: z
       .object({
@@ -84,6 +87,13 @@ export function createWebSearchTool(): ReturnType<
           .describe(
             "The date until which the search results should be considered, in ISO 8601 format (YYYY-MM-DD)",
           ),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe(`Maximum number of results to return (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
       })
       .strict(),
     validate: (args) => {
@@ -100,6 +110,7 @@ export function createWebSearchTool(): ReturnType<
               .string()
               .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
               .optional(),
+            maxResults: z.number().int().min(1).max(100).optional(),
           })
           .strict() as z.ZodType<WebSearchArgs>
       ).safeParse(args);
@@ -119,21 +130,19 @@ export function createWebSearchTool(): ReturnType<
         // Get web search config
         const appConfig = yield* config.appConfig;
         const webSearchConfig: WebSearchConfig | undefined = appConfig.web_search;
-        const priorityOrder: readonly string[] = webSearchConfig?.priority_order ?? [
-          "parallel",
-          "exa",
-          "tavily",
-        ];
+        const selectedProvider = webSearchConfig?.provider;
 
-        // Build provider registry with API keys
-        const providers: Array<{
-          name: string;
-          apiKey: string;
-          execute: (
-            args: WebSearchArgs,
-            apiKey: string,
-          ) => Effect.Effect<WebSearchResult, Error, LoggerService>;
-        }> = [];
+        // If no external provider is configured, the AI SDK service will handle
+        // using the provider-native web search (if available). This tool handler
+        // should only execute when an external provider (Parallel, Exa, Tavily) is selected.
+        if (!selectedProvider) {
+          return {
+            success: false,
+            result: null,
+            error:
+              "No external web search provider configured. If your LLM provider supports built-in web search, it will be used automatically. Otherwise, please configure an external provider (Parallel, Exa, Tavily, Brave, or Perplexity) in settings.",
+          };
+        }
 
         const getApiKey = (
           providerName: string,
@@ -142,79 +151,55 @@ export function createWebSearchTool(): ReturnType<
             return yield* config.getOrElse(`web_search.${providerName}.api_key`, "");
           });
 
-        // Register available providers
-        const exaKey = yield* getApiKey("exa");
-        if (exaKey) {
-          providers.push({
-            name: "exa",
-            apiKey: exaKey,
-            execute: executeExaSearch,
-          });
-        }
+        // Get API key for the selected provider
+        const apiKey = yield* getApiKey(selectedProvider);
 
-        const parallelKey = yield* getApiKey("parallel");
-        if (parallelKey) {
-          providers.push({
-            name: "parallel",
-            apiKey: parallelKey,
-            execute: executeParallelSearch,
-          });
-        }
-
-        const tavilyKey = yield* getApiKey("tavily");
-        if (tavilyKey) {
-          providers.push({
-            name: "tavily",
-            apiKey: tavilyKey,
-            execute: executeTavilySearch,
-          });
-        }
-
-        if (providers.length === 0) {
+        if (!apiKey) {
           return {
             success: false,
             result: null,
-            error:
-              "No search provider API keys found. Please configure 'web_search.<provider>.api_key' (e.g., 'web_search.parallel.api_key').",
+            error: `No API key configured for ${selectedProvider}. Please configure 'web_search.${selectedProvider}.api_key' in settings.`,
           };
         }
 
-        // Sort providers by priority order
-        const sortedProviders = providers.sort((a, b) => {
-          const aIndex = priorityOrder.indexOf(a.name);
-          const bIndex = priorityOrder.indexOf(b.name);
-          // If not in priority order, put at end
-          if (aIndex === -1 && bIndex === -1) return 0;
-          if (aIndex === -1) return 1;
-          if (bIndex === -1) return -1;
-          return aIndex - bIndex;
-        });
+        // Map provider name to execution function
+        const executorMap: Record<
+          "exa" | "parallel" | "tavily" | "brave" | "perplexity",
+          (args: WebSearchArgs, apiKey: string) => Effect.Effect<WebSearchResult, Error, LoggerService>
+        > = {
+          exa: executeExaSearch,
+          parallel: executeParallelSearch,
+          tavily: executeTavilySearch,
+          brave: executeBraveSearch,
+          perplexity: executePerplexitySearch,
+        };
 
-        // Try providers in priority order
-        for (const provider of sortedProviders) {
-          yield* logger.info(`Attempting search with ${provider.name} provider...`);
-          const result = yield* provider.execute(args, provider.apiKey).pipe(
-            Effect.catchAll((error) => {
-              return logger
-                .warn(
-                  `${provider.name} search failed: ${error instanceof Error ? error.message : String(error)}`,
-                )
-                .pipe(Effect.map(() => null as WebSearchResult | null));
-            }),
-          );
+        const executor = executorMap[selectedProvider];
 
-          if (result) {
-            return {
-              success: true,
-              result,
-            };
-          }
+        yield* logger.info(`Executing search with ${selectedProvider} provider...`);
+
+        const result = yield* executor(args, apiKey).pipe(
+          Effect.catchAll((error) => {
+            return Effect.gen(function* () {
+              yield* logger.error(
+                `${selectedProvider} search failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
+              return null as WebSearchResult | null;
+            });
+          }),
+        );
+
+        if (result) {
+          return {
+            success: true,
+            result,
+          };
         }
 
         return {
           success: false,
           result: null,
-          error: "All search providers failed.",
+          error: `Search with ${selectedProvider} provider failed. Please check your configuration or try a different provider.`,
         };
       });
     },
@@ -256,7 +241,7 @@ function executeExaSearch(
         const searchOptions: Parameters<typeof exa.search>[1] = {
           type: "auto",
           useAutoprompt: true,
-          numResults: DEFAULT_MAX_RESULTS,
+          numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
         };
 
         if (args.fromDate) {
@@ -317,7 +302,7 @@ function executeParallelSearch(
         return await parallel.beta.search({
           objective: args.query,
           mode: "agentic",
-          max_results: DEFAULT_MAX_RESULTS,
+          max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
         });
       },
       catch: (error) =>
@@ -370,7 +355,7 @@ function executeTavilySearch(
       try: async () => {
         const searchOptions = {
           searchDepth: args.depth === "deep" ? ("advanced" as const) : ("basic" as const),
-          maxResults: DEFAULT_MAX_RESULTS,
+          maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
           ...(args.fromDate && { startDate: args.fromDate }),
           ...(args.toDate && { endDate: args.toDate }),
         };
@@ -400,6 +385,135 @@ function executeTavilySearch(
       query: args.query,
       timestamp: new Date().toISOString(),
       provider: "tavily" as const,
+    };
+  });
+}
+
+/**
+ * Execute a Brave search
+ */
+function executeBraveSearch(
+  args: WebSearchArgs,
+  apiKey: string,
+): Effect.Effect<WebSearchResult, Error, LoggerService> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+
+    yield* logger.info(
+      `Executing Brave search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
+    );
+
+    const response = yield* Effect.tryPromise({
+      try: async () => {
+        const url = new URL("https://api.search.brave.com/res/v1/web/search");
+        url.searchParams.append("q", args.query);
+        url.searchParams.append("count", (args.maxResults ?? DEFAULT_MAX_RESULTS).toString());
+
+        const res = await fetch(url.toString(), {
+          headers: {
+            Accept: "application/json",
+            "X-Subscription-Token": apiKey,
+          },
+        });
+
+        if (!res.ok) {
+          throw new Error(`Brave search failed: ${res.statusText}`);
+        }
+
+        return (await res.json()) as {
+          web?: {
+            results?: Array<{
+              title: string;
+              url: string;
+              description: string;
+            }>;
+          };
+        };
+      },
+      catch: (error) =>
+        new Error(`Brave search failed: ${error instanceof Error ? error.message : String(error)}`),
+    });
+
+    const results: WebSearchItem[] = (response.web?.results || []).map((result) => ({
+      title: result.title || "",
+      url: result.url || "",
+      snippet: result.description || "",
+      source: "brave",
+    }));
+
+    yield* logger.info(`Brave search found ${results.length} results`);
+
+    return {
+      results,
+      totalResults: results.length,
+      query: args.query,
+      timestamp: new Date().toISOString(),
+      provider: "brave" as const,
+    };
+  });
+}
+
+/**
+ * Execute a Perplexity search
+ */
+function executePerplexitySearch(
+  args: WebSearchArgs,
+  apiKey: string,
+): Effect.Effect<WebSearchResult, Error, LoggerService> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+
+    yield* logger.info(
+      `Executing Perplexity search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
+    );
+
+    const response = yield* Effect.tryPromise({
+      try: async () => {
+        const res = await fetch("https://api.perplexity.ai/search", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            query: args.query,
+            max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Perplexity search failed: ${res.statusText}`);
+        }
+
+        return (await res.json()) as {
+          results?: Array<{
+            title: string;
+            url: string;
+            snippet: string;
+          }>;
+        };
+      },
+      catch: (error) =>
+        new Error(
+          `Perplexity search failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    });
+
+    const results: WebSearchItem[] = (response.results || []).map((result) => ({
+      title: result.title || "",
+      url: result.url || "",
+      snippet: result.snippet || "",
+      source: "perplexity",
+    }));
+
+    yield* logger.info(`Perplexity search found ${results.length} results`);
+
+    return {
+      results,
+      totalResults: results.length,
+      query: args.query,
+      timestamp: new Date().toISOString(),
+      provider: "perplexity" as const,
     };
   });
 }

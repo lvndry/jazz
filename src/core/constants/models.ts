@@ -38,11 +38,9 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "gpt-5-mini", displayName: "GPT-5 Mini" },
     { id: "gpt-5-nano", displayName: "GPT-5 Nano" },
     { id: "gpt-5-codex", displayName: "GPT-5 Codex" },
-    // GPT-4.1 series
     { id: "gpt-4.1", displayName: "GPT-4.1" },
     { id: "gpt-4.1-mini", displayName: "GPT-4.1 Mini" },
     { id: "gpt-4.1-nano", displayName: "GPT-4.1 Nano" },
-    // GPT-4o series
     { id: "gpt-4o", displayName: "GPT-4o" },
     { id: "gpt-4o-mini", displayName: "GPT-4o Mini" },
   ],
@@ -58,7 +56,6 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
     { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
     { id: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite" },
-    { id: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash" },
   ],
   mistral: [
     { id: "mistral-large-latest", displayName: "Mistral Large" },
@@ -71,11 +68,12 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "magistral-small-latest", displayName: "Magistral Small" },
   ],
   xai: [
-    { id: "grok-4-fast-non-reasoning", displayName: "Grok 4 Fast (Non-Reasoning)" },
+    { id: "grok-4-1-fast-reasoning", displayName: "Grok 4.1 Fast (Reasoning)" },
+    { id: "grok-4-1-fast-non-reasoning", displayName: "Grok 4.1 Fast (Non-Reasoning)" },
     { id: "grok-4-fast-reasoning", displayName: "Grok 4 Fast (Reasoning)" },
-    { id: "grok-4", displayName: "Grok 4" },
-    { id: "grok-code-fast-1", displayName: "Grok 4 (0709)" },
-    { id: "grok-3", displayName: "Grok 3" },
+    { id: "grok-4-fast-non-reasoning", displayName: "Grok 4 Fast (Non-Reasoning)" },
+    { id: "grok-code-fast-1", displayName: "Grok Code Fast" },
+    { id: "grok-4-0709", displayName: "Grok 4 (0709)" },
     { id: "grok-3-mini", displayName: "Grok 3 Mini" },
   ],
   deepseek: [

@@ -150,7 +150,7 @@ export interface AgentResponse {
 export const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
   showThinking: true,
   showToolExecution: true,
-  mode: "raw",
+  mode: "hybrid",
 };
 
 /**

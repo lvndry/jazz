@@ -15,6 +15,7 @@ import type { ToolCategory } from "@/core/types";
 import type { MCPTool } from "@/core/types/mcp";
 import { toPascalCase } from "@/core/utils/string";
 import { calendar } from "./calendar";
+import { createContextInfoTool } from "./context-tools";
 import { fs } from "./fs";
 import { git } from "./git";
 import { gmail } from "./gmail";
@@ -22,6 +23,7 @@ import { createHttpRequestTool } from "./http-tools";
 import { registerMCPServerTools } from "./mcp-tools";
 import { createShellCommandTools } from "./shell-tools";
 import { skillTools } from "./skill-tools";
+import { userInteractionTools } from "./user-interaction-tools";
 import { createWebSearchTool } from "./web-search-tools";
 
 /**
@@ -57,7 +59,8 @@ export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDe
     yield* registerSearchTools();
     yield* registerHttpTools();
     yield* registerSkillSystemTools();
-    // MCP tools registered without connecting - they connect lazily on first use
+    yield* registerContextTools();
+    yield* registerUserInteractionTools();
     yield* registerMCPToolsLazy();
   });
 }
@@ -441,8 +444,10 @@ export const SHELL_COMMANDS_CATEGORY: ToolCategory = {
   displayName: "Shell Commands",
 };
 export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
-export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Search" };
+export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Web Search" };
 export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
+export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Context" };
+export const USER_INTERACTION_CATEGORY: ToolCategory = { id: "user_interaction", displayName: "User Interaction" };
 
 /**
  * Get MCP server names as tool categories without connecting to servers
@@ -498,6 +503,17 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   GMAIL_CATEGORY,
   CALENDAR_CATEGORY,
   SKILLS_CATEGORY,
+  CONTEXT_CATEGORY,
+  USER_INTERACTION_CATEGORY,
+] as const;
+
+/**
+ * Builtin tool categories that are managed internally and hidden from manual selection
+ */
+export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
+  SKILLS_CATEGORY,
+  USER_INTERACTION_CATEGORY,
+  CONTEXT_CATEGORY,
 ] as const;
 
 /**
@@ -721,6 +737,28 @@ export function registerSkillSystemTools(): Effect.Effect<void, Error, ToolRegis
     const registerTool = registry.registerForCategory(SKILLS_CATEGORY);
 
     for (const tool of skillTools) {
+      yield* registerTool(tool);
+    }
+  });
+}
+
+// Register context awareness tools
+export function registerContextTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(CONTEXT_CATEGORY);
+
+    yield* registerTool(createContextInfoTool());
+  });
+}
+
+// Register user interaction tools (ask_user)
+export function registerUserInteractionTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(USER_INTERACTION_CATEGORY);
+
+    for (const tool of userInteractionTools) {
       yield* registerTool(tool);
     }
   });
