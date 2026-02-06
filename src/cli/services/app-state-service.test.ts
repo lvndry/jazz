@@ -52,21 +52,6 @@ describe("AppStateService", () => {
       expect(result[1]!.message).toBe("Second");
     });
 
-    test("updateLog modifies existing log by id", async () => {
-      const result = await runWithService(
-        Effect.gen(function* () {
-          const service = yield* AppStateServiceTag;
-          const id = yield* service.addLog(createLogEntry("log", "Original"));
-          yield* service.updateLog(id, { message: "Updated" });
-          const logs = yield* service.getLogs;
-          return logs;
-        }),
-      );
-
-      expect(result).toHaveLength(1);
-      expect(result[0]!.message).toBe("Updated");
-    });
-
     test("clearLogs removes all logs", async () => {
       const result = await runWithService(
         Effect.gen(function* () {

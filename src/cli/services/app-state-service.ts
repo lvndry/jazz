@@ -59,9 +59,6 @@ export interface AppStateService {
   /** Add a new log entry, returns the assigned ID */
   readonly addLog: (entry: LogEntryInput) => Effect.Effect<string>;
 
-  /** Update an existing log entry by ID */
-  readonly updateLog: (id: string, updates: Partial<LogEntryInput>) => Effect.Effect<void>;
-
   /** Clear all logs */
   readonly clearLogs: Effect.Effect<void>;
 
@@ -302,39 +299,6 @@ export function createAppStateService(): Effect.Effect<AppStateService, never, n
           notifyLogsSubscribers(state.logs);
 
           return id;
-        }),
-
-      updateLog: (id: string, updates: Partial<LogEntryInput>) =>
-        Effect.gen(function* () {
-          let changed = false;
-
-          yield* Ref.update(stateRef, (state) => {
-            const newLogs = state.logs.map((log) => {
-              if (log.id !== id) return log;
-
-              const updated = { ...log, ...updates };
-              // Check if actually changed
-              if (
-                log.type === updated.type &&
-                log.message === updated.message &&
-                log.timestamp === updated.timestamp &&
-                log.meta === updated.meta
-              ) {
-                return log;
-              }
-
-              changed = true;
-              return updated;
-            });
-
-            if (!changed) return state;
-            return { ...state, logs: newLogs };
-          });
-
-          if (changed) {
-            const state = yield* Ref.get(stateRef);
-            notifyLogsSubscribers(state.logs);
-          }
         }),
 
       clearLogs: Effect.gen(function* () {

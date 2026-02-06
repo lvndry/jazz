@@ -54,7 +54,6 @@ function scanDirectory(
       const relativePath = path.relative(basePath, fullPath);
 
       if (entry.isDirectory()) {
-        // Include directory in results if requested and matches query
         // Include directory in results if requested and matches query (full or relative)
         if (includeDirectories && (
           relativePath.toLowerCase().includes(normalizedQuery) ||
@@ -75,7 +74,6 @@ function scanDirectory(
           if (!extensions.includes(ext)) continue;
         }
 
-        // Check if matches query
         // Check if matches query (full or relative)
         if (
           relativePath.toLowerCase().includes(normalizedQuery) ||
@@ -120,8 +118,12 @@ export function FilePicker({
       const queryBase = path.basename(query);
 
       // If the directory exists, scan from there
-      if (fs.existsSync(queryDir) && fs.statSync(queryDir).isDirectory()) {
-        return scanDirectory(queryDir, queryBase, extensions, includeDirectories);
+      try {
+        if (fs.statSync(queryDir).isDirectory()) {
+          return scanDirectory(queryDir, queryBase, extensions, includeDirectories);
+        }
+      } catch {
+        // Directory doesn't exist, fall through
       }
       // If it's just "/" or the dir doesn't exist, scan from root
       if (query === "/") {
@@ -170,7 +172,11 @@ export function FilePicker({
     ensureCursorVisible(nextCursor);
   }
 
+  const [submitError, setSubmitError] = useState("");
+
   function submit(): void {
+    setSubmitError("");
+
     // First, try to select from the filtered results list (user selected with arrow keys)
     const selected = files[cursorIndex];
     if (selected) {
@@ -191,7 +197,11 @@ export function FilePicker({
         onSelect(resolvedPath);
         return;
       }
+      setSubmitError(`No file found: ${query}`);
+      return;
     }
+
+    setSubmitError("No file selected");
   }
 
   useInput((input, key) => {
@@ -280,7 +290,7 @@ export function FilePicker({
 
           return (
             <Text
-              key={absoluteIndex}
+              key={file.path}
               {...(isActive ? { color: "green" as const, bold: true as const } : {})}
             >
               {isActive ? "> " : "  "}{icon}{relativePath}
@@ -291,6 +301,13 @@ export function FilePicker({
 
       {/* Scroll indicator - bottom */}
       {hasMoreBelow && <Text dimColor>↓ more</Text>}
+
+      {/* Error message */}
+      {submitError && (
+        <Box>
+          <Text color="red">{submitError}</Text>
+        </Box>
+      )}
 
       {/* Help text */}
       <Box marginTop={1}>

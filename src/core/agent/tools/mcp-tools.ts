@@ -106,9 +106,6 @@ function executeMCPToolWithLazyConnection(
     // Check if server is connected, if not, reconnect (lazy connection)
     const isConnected = yield* mcpManager.isConnected(serverName);
     if (!isConnected) {
-      // Generate a unique ID for this connection log entry
-      const logId = `mcp-connecting-${serverName}-${Date.now()}`;
-
       // Show connecting message with spinner
       yield* terminal.log(
         ink(
@@ -121,7 +118,6 @@ function executeMCPToolWithLazyConnection(
             React.createElement(Text, {}, ` Connecting to ${toPascalCase(serverName)} MCP server...`),
           ),
         ),
-        logId,
       );
 
       yield* logger.debug(`MCP server ${serverName} not connected, establishing lazy connection...`);
@@ -133,11 +129,10 @@ function executeMCPToolWithLazyConnection(
         Effect.provideService(TerminalServiceTag, terminal),
       );
 
-      // Update the log entry to show success (replaces spinner)
-      yield* terminal.updateLog(
-        logId,
+      // Show success
+      yield* terminal.log(
         ink(
-          React.createElement(Text, { color: "green" }, `✓ Successfully connected to ${toPascalCase(serverName)} MCP server`),
+          React.createElement(Text, { color: "green" }, `✓ Connected to ${toPascalCase(serverName)} MCP server`),
         ),
       );
       yield* logger.info(`Lazy connection established to MCP server: ${serverName}`);

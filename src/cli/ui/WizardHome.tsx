@@ -36,7 +36,7 @@ const TIPS = [
   "The 'fs' tools allow agents to read and write files in your project",
   "Enable Web Search to give your agent up-to-date knowledge",
   "Agents can use 'grep' to search your codebase instantly",
-  "use /tools to know tools are available",
+  "Use /tools to see which tools are available",
 
   // Advanced Features
   "Jazz supports MCP! Connect to Notion, GitHub, and 100+ other services",

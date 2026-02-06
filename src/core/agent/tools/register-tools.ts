@@ -174,12 +174,11 @@ export function registerMCPToolsForAgent(
         // Check if server is already connected to avoid showing duplicate connection messages
         const isAlreadyConnected = yield* mcpManager.isConnected(serverName);
 
-        let logId: string | undefined;
+        let showedConnectionUI = false;
         if (!isAlreadyConnected) {
-          // Generate a unique ID for this connection log entry
-          logId = `mcp-connecting-${serverName}-${Date.now()}`;
+          showedConnectionUI = true;
 
-          // Show connecting message with spinner only if not already connected
+          // Show connecting message only if not already connected
           yield* terminal.log(
             ink(
               React.createElement(
@@ -191,7 +190,6 @@ export function registerMCPToolsForAgent(
                 React.createElement(Text, {}, ` Connecting to ${toPascalCase(serverName)} MCP server...`),
               ),
             ),
-            logId,
           );
 
           yield* logger.debug(`Connecting to MCP server ${serverName}...`);
@@ -217,28 +215,22 @@ export function registerMCPToolsForAgent(
             errorMessage.toLowerCase().includes("401") ||
             errorMessage.toLowerCase().includes("403");
 
-          // Update log to show error with helpful context (only if we showed connection UI)
-          if (logId !== undefined) {
+          // Show error with helpful context (only if we showed connection UI)
+          if (showedConnectionUI) {
             const errorPrefix = isAuthError
               ? `✗ ${toPascalCase(serverName)} MCP unavailable (invalid credentials)`
               : `✗ Failed to connect to ${toPascalCase(serverName)} MCP server`;
 
-            yield* terminal.updateLog(
-              logId,
+            yield* terminal.log(
               ink(
                 React.createElement(Text, { color: "yellow" }, errorPrefix),
               ),
             );
 
             if (isAuthError) {
-              yield* terminal.updateLog(
-                logId,
+              yield* terminal.log(
                 ink(
-                  React.createElement(
-                    Box,
-                    { marginTop: 1 },
-                    React.createElement(Text, { color: "gray" }, `   The agent will continue without ${toPascalCase(serverName)} tools.`),
-                  ),
+                  React.createElement(Text, { color: "gray" }, `  The agent will continue without ${toPascalCase(serverName)} tools.`),
                 ),
               );
             }
@@ -264,21 +256,15 @@ export function registerMCPToolsForAgent(
         } else {
           const error = mcpToolsResult.left;
           const errorMessage = String(error);
-          if (logId !== undefined) {
-            yield* terminal.updateLog(
-              logId,
+          if (showedConnectionUI) {
+            yield* terminal.log(
               ink(
                 React.createElement(Text, { color: "yellow" }, `✗ Failed to discover tools from ${toPascalCase(serverName)} MCP server`),
               ),
             );
-            yield* terminal.updateLog(
-              logId,
+            yield* terminal.log(
               ink(
-                React.createElement(
-                  Box,
-                  { marginTop: 1 },
-                  React.createElement(Text, { color: "gray" }, `   The agent will continue without ${toPascalCase(serverName)} tools.`),
-                ),
+                React.createElement(Text, { color: "gray" }, `  The agent will continue without ${toPascalCase(serverName)} tools.`),
               ),
             );
           }
@@ -289,12 +275,11 @@ export function registerMCPToolsForAgent(
 
         yield* logger.debug(`Discovered ${mcpTools.length} tool(s) from MCP server ${serverName}`);
 
-        // Update the log entry to show success (replaces spinner) - only if we showed connection UI
-        if (logId !== undefined && !isAlreadyConnected) {
-          yield* terminal.updateLog(
-            logId,
+        // Show success - only if we showed connection UI
+        if (showedConnectionUI) {
+          yield* terminal.log(
             ink(
-              React.createElement(Text, { color: "green" }, `✓ Successfully connected to ${toPascalCase(serverName)} MCP server`),
+              React.createElement(Text, { color: "green" }, `✓ Connected to ${toPascalCase(serverName)} MCP server`),
             ),
           );
         }

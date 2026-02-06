@@ -82,22 +82,15 @@ export class InkTerminalService implements TerminalService {
     });
   }
 
-  log(message: TerminalOutput, id?: string): Effect.Effect<string | undefined, never> {
+  log(message: TerminalOutput): Effect.Effect<string | undefined, never> {
     return Effect.sync(() => {
       const entry: LogEntryInput = {
         type: "log",
         message,
         timestamp: new Date(),
-        ...(id ? { id } : {}),
       };
       const logId = store.printOutput(entry);
       return logId;
-    });
-  }
-
-  updateLog(id: string, message: TerminalOutput): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      store.updateOutput(id, { message, timestamp: new Date() });
     });
   }
 

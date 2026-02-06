@@ -75,7 +75,6 @@ describe("CalendarService", () => {
       debug: mock(() => Effect.void),
       heading: mock(() => Effect.void),
       list: mock(() => Effect.void),
-      updateLog: mock(() => Effect.void),
       ask: mock(() => Effect.succeed("")),
       password: mock(() => Effect.succeed("")),
       select: mock(() => Effect.succeed("")),

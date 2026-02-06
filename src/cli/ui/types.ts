@@ -21,6 +21,8 @@ export interface LiveStreamState {
   agentName: string;
   text: string;
   reasoning?: string;
+  /** When true, the agent is actively thinking (show thinking indicator in reasoning area) */
+  isThinking?: boolean;
 }
 
 export type PromptType = "text" | "chat" | "select" | "confirm" | "password" | "checkbox" | "search" | "hidden" | "questionnaire" | "filepicker";

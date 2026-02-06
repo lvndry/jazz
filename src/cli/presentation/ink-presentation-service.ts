@@ -39,6 +39,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private liveText: string = "";
   private reasoningBuffer: string = "";
   private completedReasoning: string = "";
+  private isThinking: boolean = false;
   private lastAgentHeaderWritten: boolean = false;
   private lastRawText: string = "";
   private lastRawReasoning: string = "";
@@ -73,6 +74,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.liveText = "";
       this.reasoningBuffer = "";
       this.completedReasoning = "";
+      this.isThinking = false;
       this.lastAgentHeaderWritten = false;
       this.lastRawText = "";
       this.lastRawReasoning = "";
@@ -143,10 +145,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
         case "thinking_start": {
           this.reasoningBuffer = "";
+          this.isThinking = true;
           // Don't clear completedReasoning here - accumulate reasoning sessions
           // Only clear on stream_start to handle multiple reasoning sessions
-          this.updateLiveStream(false);
-          store.setStatus(`${this.agentName} is thinking…`);
+          this.updateLiveStream(false, true);
           return;
         }
 
@@ -157,10 +159,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         }
 
         case "thinking_complete": {
-          // Keep status if tools are running; otherwise clear.
-          if (this.activeTools.size === 0) {
-            store.setStatus(null);
-          }
+          this.isThinking = false;
           this.logReasoning();
 
           const newReasoning = this.reasoningBuffer.trim();
@@ -523,8 +522,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const textChanged = rawText !== this.lastRawText;
     const reasoningChanged = rawReasoning !== this.lastRawReasoning;
 
-    if (!textChanged && !reasoningChanged) {
-      // No change in raw content, skip formatting entirely
+    if (!textChanged && !reasoningChanged && !force) {
+      // No change in raw content, skip update entirely
       return;
     }
 
@@ -549,6 +548,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       agentName: this.agentName,
       text: formattedText,
       reasoning: formattedReasoning,
+      isThinking: this.isThinking,
     });
   }
 

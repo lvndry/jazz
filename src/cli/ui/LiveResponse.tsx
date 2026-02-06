@@ -12,6 +12,8 @@ export const LiveResponse = React.memo(function LiveResponse({
 }: {
   stream: LiveStreamState;
 }): React.ReactElement {
+  const hasReasoning = stream.reasoning || stream.isThinking;
+
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>
       <Box>
@@ -22,25 +24,32 @@ export const LiveResponse = React.memo(function LiveResponse({
         <Text bold color="magenta">
           {stream.agentName}
         </Text>
-        <Text dimColor> is responding…</Text>
+        <Text dimColor>
+          {stream.isThinking && !stream.text ? " is thinking…" : " is responding…"}
+        </Text>
       </Box>
 
       <Box marginTop={0}>
         <Text dimColor>{"─".repeat(40)}</Text>
       </Box>
 
-      {stream.reasoning && (
+      {hasReasoning && (
         <Box marginTop={1} paddingLeft={1} flexDirection="column">
-          <Text dimColor italic>
-            🧠 Reasoning
-          </Text>
-          <Text dimColor>{stream.reasoning}</Text>
+          <Box>
+            <Text dimColor italic>🧠 Reasoning</Text>
+            {stream.isThinking && (
+              <Text dimColor> <Spinner type="dots" /></Text>
+            )}
+          </Box>
+          {stream.reasoning && <Text dimColor>{stream.reasoning}</Text>}
         </Box>
       )}
 
-      <Box marginTop={1} paddingLeft={1}>
-        <Text>{stream.text}</Text>
-      </Box>
+      {stream.text && (
+        <Box marginTop={1} paddingLeft={1}>
+          <Text>{stream.text}</Text>
+        </Box>
+      )}
     </Box>
   );
 });

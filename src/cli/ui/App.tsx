@@ -14,20 +14,17 @@ import { InputPriority, InputResults } from "../services/input-service";
 // Constants
 // ============================================================================
 
-const MAX_LOG_ENTRIES = 10_000;
+const MAX_LOG_ENTRIES = 5000;
 
 // ============================================================================
 // Store - Global state setters (populated by islands)
 // ============================================================================
 
 type PrintOutputHandler = (entry: LogEntryInput) => string;
-type UpdateOutputHandler = (id: string, entry: Partial<LogEntryInput>) => void;
 
 let printOutputHandler: PrintOutputHandler | null = null;
-let updateOutputHandler: UpdateOutputHandler | null = null;
 let clearLogsHandler: (() => void) | null = null;
 const pendingLogQueue: LogEntryInput[] = [];
-const pendingUpdates: Array<{ id: string; updates: Partial<LogEntryInput> }> = [];
 let pendingClear = false;
 let pendingLogIdCounter = 0;
 
@@ -51,13 +48,6 @@ export const store = {
       return id;
     }
     return printOutputHandler(entryWithId);
-  },
-  updateOutput: (id: string, entry: Partial<LogEntryInput>): void => {
-    if (!updateOutputHandler) {
-      pendingUpdates.push({ id, updates: entry });
-      return;
-    }
-    updateOutputHandler(id, entry);
   },
   setPrompt: (prompt: PromptState | null): void => {
     promptSnapshot = prompt;
@@ -89,7 +79,6 @@ export const store = {
     if (!clearLogsHandler) {
       pendingClear = true;
       pendingLogQueue.length = 0;
-      pendingUpdates.length = 0;
       return;
     }
     clearLogsHandler();
@@ -137,7 +126,8 @@ function isSameStream(
   return (
     previous.agentName === next.agentName &&
     previous.text === next.text &&
-    previous.reasoning === next.reasoning
+    previous.reasoning === next.reasoning &&
+    previous.isThinking === next.isThinking
   );
 }
 
@@ -199,27 +189,12 @@ function LogIsland(): React.ReactElement {
   });
   const initializedRef = useRef(false);
 
-  // Memoize log operations
   const printOutput = useCallback((entry: LogEntryInput): string => {
     let newId = "";
     setState((prev) => {
       const id = entry.id ?? `log-${prev.logIdCounter + 1}`;
       newId = id;
 
-      // Check for update to existing log
-      if (entry.id && prev.logs.some((log) => log.id === entry.id)) {
-        return {
-          ...prev,
-          logs: prev.logs.map((log): LogEntry => {
-            if (log.id === entry.id) {
-              return { ...log, ...entry, id } as LogEntry;
-            }
-            return log;
-          }),
-        };
-      }
-
-      // Add new log
       const entryWithId: LogEntry = { ...entry, id } as LogEntry;
       const newLogs =
         prev.logs.length >= MAX_LOG_ENTRIES
@@ -234,24 +209,6 @@ function LogIsland(): React.ReactElement {
     return newId;
   }, []);
 
-  const updateOutput = useCallback((id: string, updates: Partial<LogEntryInput>): void => {
-    setState((prev) => ({
-      ...prev,
-      logs: prev.logs.map((log): LogEntry => {
-        if (log.id !== id) return log;
-
-        const next = { ...log, ...updates } as LogEntry;
-        const isSame =
-          log.type === next.type &&
-          log.message === next.message &&
-          log.timestamp === next.timestamp &&
-          log.meta === next.meta;
-
-        return isSame ? log : next;
-      }),
-    }));
-  }, []);
-
   const clearLogs = useCallback((): void => {
     setState({ logs: [], logIdCounter: 0 });
   }, []);
@@ -259,7 +216,6 @@ function LogIsland(): React.ReactElement {
   // Register store methods synchronously during render
   if (!initializedRef.current) {
     printOutputHandler = printOutput;
-    updateOutputHandler = updateOutput;
     clearLogsHandler = clearLogs;
     if (pendingClear) {
       clearLogs();
@@ -271,19 +227,12 @@ function LogIsland(): React.ReactElement {
         printOutput(entry);
       }
     }
-    if (pendingUpdates.length > 0) {
-      const queuedUpdates = pendingUpdates.splice(0, pendingUpdates.length);
-      for (const { id, updates } of queuedUpdates) {
-        updateOutput(id, updates);
-      }
-    }
     initializedRef.current = true;
   }
 
   return (
     <>
-      {/* All logs go to Static - Ink renders these once and never re-renders them */}
-      {/* Live/updating UI (spinners, streaming, prompts) are handled by separate islands */}
+      {/* All logs rendered via Static — Ink paints each once and never re-renders them */}
       {state.logs.length > 0 && (
         <Static items={state.logs}>
           {(log, index) => {
