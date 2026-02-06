@@ -1,7 +1,7 @@
-import * as fs from "node:fs";
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Box, Text, useInput } from "ink";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 interface FilePickerProps {
   readonly basePath: string;
@@ -20,24 +20,25 @@ interface FileEntry {
 /**
  * Recursively scan directory for files matching the query and extensions.
  * Limits depth and results to keep UI responsive.
+ * Uses async fs APIs to avoid blocking the main thread.
  */
-function scanDirectory(
+async function scanDirectory(
   basePath: string,
   query: string,
   extensions: readonly string[] | undefined,
   includeDirectories: boolean,
   maxResults: number = 100,
   maxDepth: number = 5,
-): FileEntry[] {
+): Promise<FileEntry[]> {
   const results: FileEntry[] = [];
   const normalizedQuery = query.toLowerCase();
 
-  function scan(dir: string, depth: number): void {
+  async function scan(dir: string, depth: number): Promise<void> {
     if (depth > maxDepth || results.length >= maxResults) return;
 
-    let entries: fs.Dirent[];
+    let entries: import("node:fs").Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
       return; // Skip directories we can't read
     }
@@ -66,7 +67,7 @@ function scanDirectory(
           });
         }
         // Recurse into subdirectory
-        scan(fullPath, depth + 1);
+        await scan(fullPath, depth + 1);
       } else {
         // Check extension filter
         if (extensions && extensions.length > 0) {
@@ -89,7 +90,7 @@ function scanDirectory(
     }
   }
 
-  scan(basePath, 0);
+  await scan(basePath, 0);
   return results;
 }
 
@@ -107,30 +108,48 @@ export function FilePicker({
   const [query, setQuery] = useState("");
   const [cursorIndex, setCursorIndex] = useState(0);
   const [windowStart, setWindowStart] = useState(0);
+  const [files, setFiles] = useState<FileEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const pageSize = 10;
 
-  // Scan for files matching the query
-  const files = useMemo(() => {
-    // If query is an absolute path, scan from the parent directory of the path
-    if (query.startsWith("/")) {
-      // Get the directory part of the absolute path
-      const queryDir = path.dirname(query);
-      const queryBase = path.basename(query);
+  // Scan for files matching the query asynchronously
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
 
-      // If the directory exists, scan from there
-      try {
-        if (fs.statSync(queryDir).isDirectory()) {
-          return scanDirectory(queryDir, queryBase, extensions, includeDirectories);
+    async function doScan() {
+      let result: FileEntry[];
+
+      if (query.startsWith("/")) {
+        const queryDir = path.dirname(query);
+        const queryBase = path.basename(query);
+
+        let isDir = false;
+        try {
+          isDir = (await fs.stat(queryDir)).isDirectory();
+        } catch {
+          // Directory doesn't exist
         }
-      } catch {
-        // Directory doesn't exist, fall through
+
+        if (isDir) {
+          result = await scanDirectory(queryDir, queryBase, extensions, includeDirectories);
+        } else if (query === "/") {
+          result = await scanDirectory("/", "", extensions, includeDirectories);
+        } else {
+          result = [];
+        }
+      } else {
+        result = await scanDirectory(basePath, query, extensions, includeDirectories);
       }
-      // If it's just "/" or the dir doesn't exist, scan from root
-      if (query === "/") {
-        return scanDirectory("/", "", extensions, includeDirectories);
+
+      if (!cancelled) {
+        setFiles(result);
+        setIsLoading(false);
       }
     }
-    return scanDirectory(basePath, query, extensions, includeDirectories);
+
+    void doScan();
+    return () => { cancelled = true; };
   }, [basePath, query, extensions, includeDirectories]);
 
   const effectivePageSize = Math.max(1, Math.min(pageSize, files.length || 1));
@@ -174,7 +193,7 @@ export function FilePicker({
 
   const [submitError, setSubmitError] = useState("");
 
-  function submit(): void {
+  async function submit(): Promise<void> {
     setSubmitError("");
 
     // First, try to select from the filtered results list (user selected with arrow keys)
@@ -187,15 +206,23 @@ export function FilePicker({
     // If no files in list, check if the query itself is a valid path (direct entry)
     if (query) {
       // Try as absolute path
-      if (path.isAbsolute(query) && fs.existsSync(query)) {
-        onSelect(query);
-        return;
+      if (path.isAbsolute(query)) {
+        try {
+          await fs.access(query);
+          onSelect(query);
+          return;
+        } catch {
+          // Path doesn't exist, fall through
+        }
       }
       // Try as relative to basePath
       const resolvedPath = path.resolve(basePath, query);
-      if (fs.existsSync(resolvedPath)) {
+      try {
+        await fs.access(resolvedPath);
         onSelect(resolvedPath);
         return;
+      } catch {
+        // Path doesn't exist
       }
       setSubmitError(`No file found: ${query}`);
       return;
@@ -224,7 +251,7 @@ export function FilePicker({
 
     // Selection
     if (key.return) {
-      submit();
+      void submit();
       return;
     }
 
@@ -270,7 +297,7 @@ export function FilePicker({
       {/* Results count */}
       <Box>
         <Text dimColor>
-          {files.length} files found
+          {isLoading ? "Scanning..." : `${files.length} files found`}
           {hasMoreAbove || hasMoreBelow ? " (↑/↓ to scroll)" : ""}
         </Text>
       </Box>
@@ -280,7 +307,7 @@ export function FilePicker({
 
       {/* Files list */}
       {files.length === 0 ? (
-        <Text dimColor>(No matching files)</Text>
+        <Text dimColor>{isLoading ? "Loading..." : "(No matching files)"}</Text>
       ) : (
         files.slice(windowStart, windowEndExclusive).map((file, localIndex) => {
           const absoluteIndex = windowStart + localIndex;
