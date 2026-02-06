@@ -138,13 +138,15 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           return `WARNING: File does not exist: ${target}\n\nCannot edit a file that doesn't exist.`;
         }
 
-        let totalLines = 0;
+        let fileContent: string;
         try {
-          const fileContent = yield* fs.readFileString(target);
-          totalLines = fileContent.split("\n").length;
+          fileContent = yield* fs.readFileString(target);
         } catch {
           return `WARNING: File exists but cannot be read: ${target}`;
         }
+
+        const lines = fileContent.split("\n");
+        const totalLines = lines.length;
 
         const editDescriptions = args.edits.map((edit, idx) => {
           switch (edit.type) {
@@ -159,7 +161,122 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           }
         });
 
-        return `About to edit file: ${target} (${totalLines} lines total)\n\nEdits to perform:\n${editDescriptions.join("\n")}`;
+        // Simulate edits to generate preview diff
+        let currentLines = [...lines];
+        let simulationError: string | null = null;
+
+        for (const edit of args.edits) {
+          try {
+            switch (edit.type) {
+              case "replace_lines": {
+                const startIdx = edit.startLine - 1;
+                const endIdx = edit.endLine - 1;
+                if (startIdx < 0 || endIdx >= currentLines.length) {
+                  simulationError = `Line range ${edit.startLine}-${edit.endLine} is out of bounds`;
+                  break;
+                }
+                const newContentLines = edit.content.split("\n");
+                currentLines = [
+                  ...currentLines.slice(0, startIdx),
+                  ...newContentLines,
+                  ...currentLines.slice(endIdx + 1),
+                ];
+                break;
+              }
+              case "replace_pattern": {
+                const patternInfo = normalizeFilterPattern(edit.pattern);
+                let content = currentLines.join("\n");
+                let replacementCount = 0;
+                const maxReplacements = edit.count === -1 ? Infinity : (edit.count ?? 1);
+
+                if (patternInfo.type === "regex" && patternInfo.regex) {
+                  const regex = patternInfo.regex;
+                  let match;
+                  const matches: Array<{ index: number; length: number }> = [];
+                  while (
+                    (match = regex.exec(content)) !== null &&
+                    replacementCount < maxReplacements
+                  ) {
+                    matches.push({ index: match.index, length: match[0].length });
+                    replacementCount++;
+                    if (match.index === regex.lastIndex) {
+                      regex.lastIndex++;
+                    }
+                  }
+                  for (let i = matches.length - 1; i >= 0; i--) {
+                    const m = matches[i];
+                    if (m) {
+                      content =
+                        content.slice(0, m.index) +
+                        edit.replacement +
+                        content.slice(m.index + m.length);
+                    }
+                  }
+                } else {
+                  const searchStr = patternInfo.value || edit.pattern;
+                  let searchIndex = 0;
+                  while (
+                    replacementCount < maxReplacements &&
+                    (searchIndex = content.indexOf(searchStr, searchIndex)) !== -1
+                  ) {
+                    content =
+                      content.slice(0, searchIndex) +
+                      edit.replacement +
+                      content.slice(searchIndex + searchStr.length);
+                    replacementCount++;
+                    searchIndex += edit.replacement.length;
+                  }
+                }
+                currentLines = content.split("\n");
+                break;
+              }
+              case "insert": {
+                const insertIdx = edit.line;
+                const newContentLines = edit.content.split("\n");
+                if (insertIdx < 0 || insertIdx > currentLines.length) {
+                  simulationError = `Insert position ${edit.line} is out of bounds`;
+                  break;
+                }
+                currentLines = [
+                  ...currentLines.slice(0, insertIdx),
+                  ...newContentLines,
+                  ...currentLines.slice(insertIdx),
+                ];
+                break;
+              }
+              case "delete_lines": {
+                const startIdx = edit.startLine - 1;
+                const endIdx = edit.endLine - 1;
+                if (startIdx < 0 || endIdx >= currentLines.length) {
+                  simulationError = `Line range ${edit.startLine}-${edit.endLine} is out of bounds`;
+                  break;
+                }
+                currentLines = [
+                  ...currentLines.slice(0, startIdx),
+                  ...currentLines.slice(endIdx + 1),
+                ];
+                break;
+              }
+            }
+          } catch {
+            simulationError = "Error simulating edit";
+            break;
+          }
+          if (simulationError) break;
+        }
+
+        const message = `About to edit file: ${target} (${totalLines} lines total)\n\nEdits to perform:\n${editDescriptions.join("\n")}\n\n${simulationError ? `⚠️ ${simulationError}` : "Press Ctrl+O to preview changes"}`;
+
+        // Generate full diff for Ctrl+O expansion
+        if (!simulationError) {
+          const newContent = currentLines.join("\n");
+          const { diff: previewDiff } = generateDiffWithMetadata(fileContent, newContent, target, {
+            maxLines: Number.POSITIVE_INFINITY,
+          });
+          return { message, previewDiff };
+        }
+
+        return message;
       }),
 
     handler: (args: EditFileArgs, context: ToolExecutionContext) =>

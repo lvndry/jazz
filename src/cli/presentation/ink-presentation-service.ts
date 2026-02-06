@@ -828,6 +828,11 @@ class InkPresentationService implements PresentationService {
       timestamp: new Date(),
     });
 
+    // Store preview diff for Ctrl+O expansion
+    if (request.previewDiff) {
+      setLastExpandedDiff(request.previewDiff);
+    }
+
     // Use confirm prompt (default to Yes for faster workflow)
     store.setPrompt({
       type: "confirm",
