@@ -3,10 +3,10 @@ import { Effect } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { getUserDataDirectory } from "@/core/utils/runtime-detection";
-import { checkForUpdate } from "./commands/update";
+import { checkForUpdate, fetchReleaseNotesSince } from "./commands/update";
 
-const UPDATE_CHECK_INTERVAL_DAYS = 10;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_HOURS = 72;
+const MS_PER_HOUR = 60 * 60 * 1000;
 const UPDATE_CHECK_FILE = "update_check";
 
 /**
@@ -38,7 +38,7 @@ export function autoCheckForUpdate(): Effect.Effect<
     const now = Date.now();
 
     // Check if enough time has passed since the last check
-    if (now - lastCheck < UPDATE_CHECK_INTERVAL_DAYS * MS_PER_DAY) {
+    if (now - lastCheck < UPDATE_CHECK_INTERVAL_HOURS * MS_PER_HOUR) {
       return;
     }
 
@@ -80,6 +80,21 @@ export function autoCheckForUpdate(): Effect.Effect<
       yield* terminal.log(`│   Run \`jazz update\` to upgrade to the latest version.           │`);
       yield* terminal.log(`│                                                                 │`);
       yield* terminal.log(`╰─────────────────────────────────────────────────────────────────╯`);
+
+      // Fetch and display release notes since current version
+      const releaseNotes = yield* fetchReleaseNotesSince(result.currentVersion).pipe(
+        Effect.timeout(3000), // 3 seconds timeout for release notes
+        Effect.catchAll(() => Effect.succeed(null)),
+      );
+
+      if (releaseNotes && releaseNotes.length > 0) {
+        yield* terminal.log("");
+        yield* terminal.log("📋 What's new:");
+        for (const release of releaseNotes) {
+          yield* terminal.log(`   ${release.version}: ${release.summary}`);
+        }
+      }
+
       yield* terminal.log("");
     }
   });

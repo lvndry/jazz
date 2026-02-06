@@ -106,6 +106,93 @@ export function checkForUpdate(): Effect.Effect<
 }
 
 /**
+ * Release note summary
+ */
+export interface ReleaseNote {
+  version: string;
+  summary: string;
+}
+
+/**
+ * GitHub release response structure
+ */
+interface GitHubRelease {
+  tag_name: string;
+  name: string;
+  body: string;
+}
+
+/**
+ * Fetch release notes for all versions since the specified version
+ * Uses GitHub releases API to get version information
+ */
+export function fetchReleaseNotesSince(
+  sinceVersion: string,
+): Effect.Effect<ReleaseNote[], UpdateCheckError> {
+  return Effect.gen(function* () {
+    // Extract owner/repo from package.json repository URL
+    const repoUrl = packageJson.repository?.url || "";
+    const match = repoUrl.match(/github\.com\/([^/]+\/[^/.]+)/);
+    if (!match) {
+      return [];
+    }
+
+    const repo = match[1];
+
+    // Fetch releases from GitHub API
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(`https://api.github.com/repos/${repo}/releases`, {
+          headers: {
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": packageJson.name,
+          },
+        }),
+      catch: (unknownError: unknown) =>
+        new UpdateCheckError({
+          message: "Failed to fetch releases from GitHub",
+          cause: unknownError,
+        }),
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const releases = (yield* Effect.tryPromise({
+      try: () => response.json(),
+      catch: (unknownError: unknown) =>
+        new UpdateCheckError({
+          message: "Failed to parse GitHub releases response",
+          cause: unknownError,
+        }),
+    })) as GitHubRelease[];
+
+    // Filter releases newer than sinceVersion and extract summaries
+    const notes: ReleaseNote[] = [];
+    for (const release of releases) {
+      const version = release.tag_name.replace(/^v/, "");
+
+      // Stop when we reach the current version or older
+      if (compareVersions(version, sinceVersion) <= 0) {
+        break;
+      }
+
+      // Extract first non-empty line of body as summary
+      const body = release.body || release.name || "";
+      const firstLine = body.split("\n").find((line) => line.trim().length > 0) || "No release notes";
+
+      notes.push({
+        version,
+        summary: firstLine.slice(0, 80) + (firstLine.length > 80 ? "..." : ""),
+      });
+    }
+
+    return notes;
+  });
+}
+
+/**
  * Package manager information
  */
 interface PackageManagerInfo {
