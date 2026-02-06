@@ -45,6 +45,7 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "gpt-4o-mini", displayName: "GPT-4o Mini" },
   ],
   anthropic: [
+    { id: "claude-opus-4-6", displayName: "Claude Opus 4.6" },
     { id: "claude-opus-4-5", displayName: "Claude Opus 4.5" },
     { id: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5" },
     { id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5" },
