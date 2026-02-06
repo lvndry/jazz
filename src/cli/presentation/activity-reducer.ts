@@ -12,10 +12,10 @@ import { Box, Text } from "ink";
 import React from "react";
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
-import type { ActiveTool, ActivityState } from "../ui/activity-state";
-import type { LogEntryInput } from "../ui/types";
 import { CLIRenderer } from "./cli-renderer";
 import { applyTextChunkOrdered } from "./stream-text-order";
+import type { ActiveTool, ActivityState } from "../ui/activity-state";
+import type { LogEntryInput } from "../ui/types";
 
 function renderToolBadge(label: string): React.ReactElement {
   return React.createElement(
