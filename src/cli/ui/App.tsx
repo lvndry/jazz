@@ -1,13 +1,13 @@
-import { Box, Static, Text, useInput } from "ink";
-import Spinner from "ink-spinner";
+import { Box, Static, useInput } from "ink";
 import React, { useCallback, useRef, useState } from "react";
+import { isActivityEqual, type ActivityState } from "./activity-state";
+import { ActivityView } from "./ActivityView";
 import { clearLastExpandedDiff, getLastExpandedDiff } from "./diff-expansion-store";
 import ErrorBoundary from "./ErrorBoundary";
 import { useInputHandler } from "./hooks/use-input-service";
-import { LiveResponse } from "./LiveResponse";
 import { LogEntryItem } from "./LogList";
 import { Prompt } from "./Prompt";
-import type { LiveStreamState, LogEntry, LogEntryInput, PromptState } from "./types";
+import type { LogEntry, LogEntryInput, PromptState } from "./types";
 import { InputPriority, InputResults } from "../services/input-service";
 
 // ============================================================================
@@ -29,13 +29,11 @@ let pendingClear = false;
 let pendingLogIdCounter = 0;
 
 let promptSnapshot: PromptState | null = null;
-let statusSnapshot: string | null = null;
-let streamSnapshot: LiveStreamState | null = null;
+let activitySnapshot: ActivityState = { phase: "idle" };
 let workingDirectorySnapshot: string | null = null;
 
 let promptSetter: ((prompt: PromptState | null) => void) | null = null;
-let statusSetter: ((status: string | null) => void) | null = null;
-let streamSetter: ((stream: LiveStreamState | null) => void) | null = null;
+let activitySetter: ((activity: ActivityState) => void) | null = null;
 let workingDirectorySetter: ((workingDirectory: string | null) => void) | null = null;
 
 export const store = {
@@ -55,16 +53,10 @@ export const store = {
       promptSetter(prompt);
     }
   },
-  setStatus: (status: string | null): void => {
-    statusSnapshot = status;
-    if (statusSetter) {
-      statusSetter(status);
-    }
-  },
-  setStream: (stream: LiveStreamState | null): void => {
-    streamSnapshot = stream;
-    if (streamSetter) {
-      streamSetter(stream);
+  setActivity: (activity: ActivityState): void => {
+    activitySnapshot = activity;
+    if (activitySetter) {
+      activitySetter(activity);
     }
   },
   setWorkingDirectory: (workingDirectory: string | null): void => {
@@ -87,66 +79,25 @@ export const store = {
 
 
 // ============================================================================
-// Status Island - Isolated state for status bar
+// Activity Island - Unified state for status + streaming response
 // ============================================================================
 
-function StatusIsland(): React.ReactElement | null {
-  const [status, setStatus] = useState<string | null>(null);
+function ActivityIsland(): React.ReactElement | null {
+  const [activity, setActivity] = useState<ActivityState>({ phase: "idle" });
   const initializedRef = useRef(false);
 
   // Register setter synchronously during render
   if (!initializedRef.current) {
-    statusSetter = setStatus;
-    setStatus(statusSnapshot);
-    initializedRef.current = true;
-  }
-
-  if (!status) return null;
-
-  return (
-    <Box paddingX={2} marginTop={1}>
-      <Text color="yellow">
-        <Spinner type="dots" />
-      </Text>
-      <Text color="yellow"> {status}</Text>
-    </Box>
-  );
-}
-
-// ============================================================================
-// Stream Island - Isolated state for live streaming response
-// ============================================================================
-
-function isSameStream(
-  previous: LiveStreamState | null,
-  next: LiveStreamState | null,
-): boolean {
-  if (previous === next) return true;
-  if (!previous || !next) return false;
-  return (
-    previous.agentName === next.agentName &&
-    previous.text === next.text &&
-    previous.reasoning === next.reasoning &&
-    previous.isThinking === next.isThinking
-  );
-}
-
-function StreamIsland(): React.ReactElement | null {
-  const [stream, setStream] = useState<LiveStreamState | null>(null);
-  const initializedRef = useRef(false);
-
-  // Register setter synchronously during render
-  if (!initializedRef.current) {
-    streamSetter = (nextStream) => {
-      setStream((prev) => isSameStream(prev, nextStream) ? prev : nextStream);
+    activitySetter = (next) => {
+      setActivity((prev) => (isActivityEqual(prev, next) ? prev : next));
     };
-    setStream(streamSnapshot);
+    setActivity(activitySnapshot);
     initializedRef.current = true;
   }
 
-  if (!stream) return null;
+  if (activity.phase === "idle" || activity.phase === "complete") return null;
 
-  return <LiveResponse stream={stream} />;
+  return <ActivityView activity={activity} />;
 }
 
 // ============================================================================
@@ -323,11 +274,8 @@ export function App(): React.ReactElement {
           {/* Logs - Isolated state with Static optimization */}
           <LogIsland />
 
-          {/* Status Bar - below last message, above live stream */}
-          <StatusIsland />
-
-          {/* Live streaming response - Isolated state */}
-          <StreamIsland />
+          {/* Activity - Unified status + streaming response */}
+          <ActivityIsland />
 
           {/* User input prompt - Isolated state */}
           <PromptIsland />

@@ -438,29 +438,27 @@ function handleCompactCommand(
     const messageCount = conversationHistory.length - 1; // Exclude system message
 
     // Stage 1: Reading
-    store.setStatus(`📖 Reading ${messageCount} messages from conversation history...`);
+    store.printOutput({ type: "info", message: `📖 Reading ${messageCount} messages from conversation history...`, timestamp: new Date() });
     yield* Effect.sleep("1 seconds");
 
     try {
       // Keep system message [0], summarize everything else [1...N]
       const messagesToSummarize = conversationHistory.slice(1);
 
-      // Clear loading and show success for Stage 1
-      store.setStatus(null);
+      // Show success for Stage 1
       yield* terminal.success(`📖 Read ${messageCount} messages from conversation history`);
       yield* terminal.log("");
 
       // Stage 2: Analyzing
-      store.setStatus("🧠 Analyzing content and extracting key information...");
+      store.printOutput({ type: "info", message: "🧠 Analyzing content and extracting key information...", timestamp: new Date() });
       yield* Effect.sleep("2.5 seconds");
 
-      // Clear loading and show success for Stage 2
-      store.setStatus(null);
+      // Show success for Stage 2
       yield* terminal.success("🧠 Analyzed content and extracted key information");
       yield* terminal.log("");
 
       // Stage 3: Summarizing
-      store.setStatus("✨ Generating high-density summary...");
+      store.printOutput({ type: "info", message: "✨ Generating high-density summary...", timestamp: new Date() });
 
       const summaryMessage = yield* AgentRunner.summarizeHistory(
         messagesToSummarize,
@@ -469,8 +467,7 @@ function handleCompactCommand(
         conversationId || "manual-compact",
       );
 
-      // Clear loading and show success for Stage 3
-      store.setStatus(null);
+      // Show success for Stage 3
       yield* terminal.success("✨ Generated high-density summary");
       yield* terminal.log("");
 
@@ -488,8 +485,6 @@ function handleCompactCommand(
 
       return { shouldContinue: true, newHistory };
     } catch (error) {
-      // Clear loading status on error
-      store.setStatus(null);
       yield* terminal.error(
         `Failed to compact history: ${error instanceof Error ? error.message : String(error)}`,
       );

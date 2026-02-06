@@ -2,23 +2,23 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { InkStreamingRenderer } from "./ink-presentation-service";
 import { store } from "../ui/App";
-import type { LiveStreamState } from "../ui/types";
+import type { ActivityState } from "../ui/activity-state";
 
 describe("InkStreamingRenderer", () => {
-  const setStreamCalls: (LiveStreamState | null)[] = [];
-  let originalSetStream: (typeof store)["setStream"];
+  const setActivityCalls: ActivityState[] = [];
+  let originalSetActivity: (typeof store)["setActivity"];
 
   beforeEach(() => {
-    setStreamCalls.length = 0;
-    originalSetStream = store.setStream;
-    store.setStream = (next: LiveStreamState | null) => {
-      setStreamCalls.push(next);
-      originalSetStream(next);
+    setActivityCalls.length = 0;
+    originalSetActivity = store.setActivity;
+    store.setActivity = (next: ActivityState) => {
+      setActivityCalls.push(next);
+      originalSetActivity(next);
     };
   });
 
   afterEach(() => {
-    store.setStream = originalSetStream;
+    store.setActivity = originalSetActivity;
   });
 
   describe("out-of-order text_chunk events", () => {
@@ -62,11 +62,12 @@ describe("InkStreamingRenderer", () => {
         sequence: 3,
       }));
 
-      // Throttle is 50ms; wait for pending update to flush
+      // Throttle is 30ms; wait for pending update to flush
       await new Promise((r) => setTimeout(r, 60));
 
-      const withText = setStreamCalls.filter(
-        (s): s is LiveStreamState => s !== null && s.text.length > 0,
+      const withText = setActivityCalls.filter(
+        (s): s is Extract<ActivityState, { phase: "streaming" }> =>
+          s.phase === "streaming" && s.text.length > 0,
       );
       expect(withText.length).toBeGreaterThan(0);
       expect(withText[withText.length - 1]!.text).toBe("Hello");
@@ -108,8 +109,9 @@ describe("InkStreamingRenderer", () => {
 
       await new Promise((r) => setTimeout(r, 60));
 
-      const withText = setStreamCalls.filter(
-        (s): s is LiveStreamState => s !== null && s.text.length > 0,
+      const withText = setActivityCalls.filter(
+        (s): s is Extract<ActivityState, { phase: "streaming" }> =>
+          s.phase === "streaming" && s.text.length > 0,
       );
       expect(withText.length).toBeGreaterThan(0);
       expect(withText[withText.length - 1]!.text).toBe("Hel");
