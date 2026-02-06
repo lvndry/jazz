@@ -25,10 +25,9 @@ class Jazz < Formula
   end
 
   def install
-    bin.install "jazz-darwin-arm64" => "jazz" if Hardware::CPU.arm? && OS.mac?
-    bin.install "jazz-darwin-x64" => "jazz" if Hardware::CPU.intel? && OS.mac?
-    bin.install "jazz-linux-arm64" => "jazz" if Hardware::CPU.arm? && OS.linux?
-    bin.install "jazz-linux-x64" => "jazz" if Hardware::CPU.intel? && OS.linux?
+    os = OS.mac? ? "darwin" : "linux"
+    arch = Hardware::CPU.arm? ? "arm64" : "x64"
+    bin.install "jazz-#{os}-#{arch}" => "jazz"
   end
 
   test do
