@@ -132,7 +132,7 @@ export function fetchReleaseNotesSince(
   return Effect.gen(function* () {
     // Extract owner/repo from package.json repository URL
     const repoUrl = packageJson.repository?.url || "";
-    const match = repoUrl.match(/github\.com\/([^/]+\/[^/.]+)/);
+    const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(\.git)?$/);
     if (!match) {
       return [];
     }
