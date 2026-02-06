@@ -5,8 +5,8 @@ import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/term
 import { getUserDataDirectory } from "@/core/utils/runtime-detection";
 import { checkForUpdate, fetchReleaseNotesSince } from "./commands/update";
 
-const UPDATE_CHECK_INTERVAL_HOURS = 72;
-const MS_PER_HOUR = 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_DAYS = 3;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const UPDATE_CHECK_FILE = "update_check";
 
 /**
@@ -38,7 +38,7 @@ export function autoCheckForUpdate(): Effect.Effect<
     const now = Date.now();
 
     // Check if enough time has passed since the last check
-    if (now - lastCheck < UPDATE_CHECK_INTERVAL_HOURS * MS_PER_HOUR) {
+    if (now - lastCheck < UPDATE_CHECK_INTERVAL_DAYS * MS_PER_DAY) {
       return;
     }
 
