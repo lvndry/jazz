@@ -14,7 +14,7 @@
 
 ---
 
-**Why developers love Jazz:**
+**Why people love Jazz:**
 
 - ✅ **60+ builtin tools** — Git, Gmail, filesystem, shell, HTTP, PDF, and more
 - ✅ **MCP support** — Connect to Notion, Slack, MongoDB, GitHub, PostgreSQL, and hundreds more
