@@ -24,4 +24,3 @@
 ## Ideas & Research
 
 - [Explorations](./docs//exploration/)
-- [ ] Agent evaluats
