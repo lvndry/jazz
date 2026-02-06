@@ -39,11 +39,11 @@ export interface WebSearchResult {
  * Used by CLI and other parts of the system to list available providers
  */
 export const WEB_SEARCH_PROVIDERS = [
+  { name: "Brave", value: "brave" },
+  { name: "Perplexity", value: "perplexity" },
   { name: "Parallel", value: "parallel" },
   { name: "Exa", value: "exa" },
   { name: "Tavily", value: "tavily" },
-  { name: "Brave", value: "brave" },
-  { name: "Perplexity", value: "perplexity" },
 ] as const;
 
 export const DEFAULT_MAX_RESULTS = 50;

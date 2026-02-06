@@ -727,7 +727,6 @@ export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> 
     const webSearchTool = createWebSearchTool();
 
     yield* registerTool(webSearchTool);
-    yield* registerTool(webSearchTool);
   });
 }
 

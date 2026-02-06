@@ -6,7 +6,22 @@
 
 ### Your AI agent that actually does things.
 
+<!-- TODO: Add a GIF or screenshot showing Jazz in action -->
+
+<!-- ![Jazz Demo](https://via.placeholder.com/800x400?text=Jazz+Demo+GIF+Coming+Soon) -->
+
 </div>
+
+---
+
+**Why developers love Jazz:**
+
+- ✅ **60+ builtin tools** — Git, Gmail, filesystem, shell, HTTP, PDF, and more
+- ✅ **MCP support** — Connect to Notion, Slack, MongoDB, GitHub, PostgreSQL, and hundreds more
+- ✅ **Scheduled workflows** — Automate recurring tasks with cron-based scheduling
+- ✅ **Agent Skills** — Teach agents complex, multi-step procedures
+- ✅ **Any LLM provider** — OpenAI, Anthropic, Google, Mistral, Ollama, OpenRouter, and more
+- ✅ **Safety first** — Every high-risk action requires your explicit approval
 
 ---
 
@@ -36,7 +51,7 @@ This isn't a chatbot, it's an autonomous agent that executes multi-step workflow
 
 Jazz is designed from the ground up for autonomous agents that handle multi-step, real-world tasks with contextual awareness.
 
-### 🛠️ 44+ Tools, Ready to Use
+### 🛠️ 60+ Tools, Ready to Use
 
 Git, Gmail, filesystem, shell, web search, HTTP, PDF, and more. Just create an agent and start automating. See [`docs/integrations.md`](docs/integrations.md) for setup instructions.
 
@@ -67,6 +82,7 @@ Create `WORKFLOW.md` files that describe what the agent should do, then schedule
 - **Built-in Examples**: Email cleanup, weather briefings, tech digests, market analysis, and more
 
 Example: Schedule a daily market analysis at 6 AM:
+
 ```bash
 jazz workflow schedule market-analysis
 ```
@@ -113,6 +129,9 @@ Simply run `jazz` to start a chat with your agent:
 ```bash
 jazz
 ```
+
+> [!TIP]
+> **Get started for free!** You can use Jazz for free by selecting **OpenRouter** as your provider and choosing [`Free Models Router`](https://openrouter.ai/openrouter/free).
 
 ### 3. Update Jazz
 
