@@ -106,6 +106,97 @@ export function checkForUpdate(): Effect.Effect<
 }
 
 /**
+ * Release note summary
+ */
+export interface ReleaseNote {
+  version: string;
+  summary: string;
+}
+
+/**
+ * GitHub release response structure
+ */
+interface GitHubRelease {
+  tag_name: string;
+  name: string;
+  body: string;
+}
+
+/**
+ * Fetch release notes for all versions since the specified version
+ * Uses GitHub releases API to get version information
+ */
+export function fetchReleaseNotesSince(
+  sinceVersion: string,
+): Effect.Effect<ReleaseNote[], UpdateCheckError> {
+  return Effect.gen(function* () {
+    // Extract owner/repo from package.json repository URL
+    const repoUrl = packageJson.repository?.url || "";
+    const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(\.git)?$/);
+    if (!match) {
+      return [];
+    }
+
+    const repo = match[1];
+
+    // Fetch releases from GitHub API
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(`https://api.github.com/repos/${repo}/releases`, {
+          headers: {
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": packageJson.name,
+          },
+        }),
+      catch: (unknownError: unknown) =>
+        new UpdateCheckError({
+          message: "Failed to fetch releases from GitHub",
+          cause: unknownError,
+        }),
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const releases = (yield* Effect.tryPromise({
+      try: () => response.json(),
+      catch: (unknownError: unknown) =>
+        new UpdateCheckError({
+          message: "Failed to parse GitHub releases response",
+          cause: unknownError,
+        }),
+    })) as GitHubRelease[];
+
+    // Filter releases newer than sinceVersion and extract summaries
+    const notes: ReleaseNote[] = [];
+    for (const release of releases) {
+      const version = release.tag_name.replace(/^v/, "");
+
+      // Stop when we reach the current version or older
+      if (compareVersions(version, sinceVersion) <= 0) {
+        break;
+      }
+
+      // Get the release body, cleaned up
+      const body = (release.body || release.name || "No release notes")
+        .trim()
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .join("\n");
+
+      notes.push({
+        version,
+        summary: body,
+      });
+    }
+
+    return notes;
+  });
+}
+
+/**
  * Package manager information
  */
 interface PackageManagerInfo {
@@ -227,7 +318,7 @@ function installUpdate(
     // Detect which package manager to use
     const pmInfo = yield* detectPackageManager();
 
-    yield* terminal.log(`\n📦 Installing update using ${pmInfo.name} (${pmInfo.version})...`);
+    yield* terminal.log(`\n📦 Installing update using ${pmInfo.name} ${pmInfo.version}...`);
 
     if (pmInfo.name === "yarn") {
       const majorString = pmInfo.version.split(".")[0] ?? "";
@@ -299,7 +390,6 @@ export function updateCommand(options?: {
     const logger = yield* LoggerServiceTag;
     const terminal = yield* TerminalServiceTag;
 
-    yield* logger.info("Checking for updates...");
     yield* terminal.info("Checking for updates...");
     yield* terminal.log("");
 
@@ -336,12 +426,32 @@ export function updateCommand(options?: {
 
     yield* terminal.success("A new version is available!");
 
+    // Fetch and display release notes since current version
+    const releaseNotes = yield* fetchReleaseNotesSince(versionInfo.currentVersion).pipe(
+      Effect.timeout(5000), // 5 seconds timeout for release notes
+      Effect.catchAll(() => Effect.succeed([] as ReleaseNote[])),
+    );
+
+    if (releaseNotes.length > 0) {
+      yield* terminal.log("");
+      yield* terminal.log("📋 What's new:");
+      for (const release of releaseNotes) {
+        yield* terminal.log("");
+        yield* terminal.log(`   v${release.version}:`);
+        // Indent each line of the release notes
+        for (const line of release.summary.split("\n")) {
+          yield* terminal.log(`      ${line}`);
+        }
+      }
+    }
+
     // If --check flag is used, just show the info and exit
     if (options?.check) {
       yield* terminal.log("\n💡 Run 'jazz update' to install the latest version");
       return;
     }
 
+    yield* terminal.log("");
     yield* terminal.log("⚡ Starting update process...");
     yield* terminal.log("");
 
