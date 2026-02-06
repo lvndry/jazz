@@ -2,48 +2,16 @@
 
 ## CLI & User Experience
 
-- [x] Make reasoning tokens visible.
-- [x] Stream content in terminal — swap to `streamText` to present incremental LLM output and reduce
-      perceived latency.
-- [x] Update system prompt to discorourage usage of tables. They don't render well in terminal
-- [x] Better colors and theme.
-- [x] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
-- [x] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
-      more capable or less costly model while keeping the same context
-- [x] Easy update - `jazz update`
+- [ ] Improve performance during streaming of long conversations
 
 ## Agent Runtime & Automation
 
-- [ ] Being able to always approve low stake tools during a session
-- [x] Summarize context near window limits — add automatic context compression that preserves action history when tokens spike.
-- [x] Trigger system (schedule, file, webhook, manual) — hooks/cronjobs with workflows and system schedulers (launchd/cron)
-- [x] Skills - Similar to Claude Skills, but for Jazz
-- [x] When editing a file, part of the output should be the diff of the file
-- [x] Workflow catch-up on startup — track last run time and optionally execute missed workflows when system starts (configurable per workflow with `catchUpOnStartup: true` and `maxCatchUpAge`)
 - [ ] Explore sub-agent triggers — PoC orchestration primitives.
-- [ ] Memory architecture — define long-term memory (storage, schema, retrieval) for
-      agent personalization.
-
-## CLI Feature Depth & Docs
-
-- [x] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox
-      triage, reporting)
+- [ ] Memory architecture — define long-term memory (storage, schema, retrieval) for agent personalization.
 
 ## Integrations
 
-- [x] Google Calendar tools
-  - [x] Events for the day
-  - [x] Create/Delete event
-  - [x] Edit event
-- [ ] Gmail enhancements
-  - [ ] Attachment support — wire interface implementation for upload/download streams.
-  - [ ] `createReplyToEmailTool` — reply within thread while preserving references and history.
-  - [ ] `createForwardEmailTool` — forward with original metadata and optional redaction.
-  - [ ] Advanced search with date ranges — accept structured filters and map to Gmail query
-        language.
-- [x] Ollama - Being able to pass custom baseURL in config
-- [x] Ollama - Fetch available models from baseURL instead of keeping a list of static model
-- [x] Notion tools (Available via MCP)
+- [ ]
 
 ## Quality, Safety & Testing
 
@@ -56,6 +24,3 @@
 ## Ideas & Research
 
 - [Explorations](./docs//exploration/)
-- Per-agent authentication domains to isolate credentials (support multiple Gmail accounts, etc.).
-- Rich workflow memory tuned to personal preferences (favorite folders, project contexts, historical decisions).
-- Agent evaluations - When system prompt is evolving, users could create a bunch of tests to be run in a sandbox and evaluate the output. Evals could be executed in a sandbox (docker container), we could then evaluate the outcome and the tools/used and suggest improvements to the prompts for better/faster task completion

@@ -19,6 +19,8 @@ function run(command: string[], opts?: { cwd?: string }) {
 }
 
 function main() {
+  // Get target platform from environment variable or detect current platform
+  const target = process.env.TARGET || detectPlatform();
   const outfile = "dist/jazz";
 
   // Ensure dist directory exists
@@ -26,11 +28,9 @@ function main() {
     fs.mkdirSync("dist");
   }
 
-  console.log("Compiling Jazz CLI...");
+  console.log(`Compiling Jazz CLI for ${target}...`);
 
   // Compile to standalone binary
-  // We explicitly target bun-darwin-arm64 for standard Apple Silicon macs by default
-  // Ideally this should be configurable or auto-detected based on the host if building locally
   const buildArgs = [
     "bun",
     "build",
@@ -47,9 +47,46 @@ function main() {
     "--external", "pdf-parse",
   ];
 
+  // Add target flag if specified
+  if (target) {
+    buildArgs.push("--target", `bun-${target}`);
+  }
+
   run(buildArgs);
 
   console.log(`Successfully compiled to ${outfile}`);
+}
+
+function detectPlatform(): string {
+  const platform = process.platform;
+  const arch = process.arch;
+
+  let platformName: string;
+  let archName: string;
+
+  switch (platform) {
+    case "darwin":
+      platformName = "darwin";
+      break;
+    case "linux":
+      platformName = "linux";
+      break;
+    default:
+      throw new Error(`Unsupported platform: ${platform}`);
+  }
+
+  switch (arch) {
+    case "x64":
+      archName = "x64";
+      break;
+    case "arm64":
+      archName = "arm64";
+      break;
+    default:
+      throw new Error(`Unsupported architecture: ${arch}`);
+  }
+
+  return `${platformName}-${archName}`;
 }
 
 main();

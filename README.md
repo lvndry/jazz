@@ -67,6 +67,7 @@ Create `WORKFLOW.md` files that describe what the agent should do, then schedule
 - **Built-in Examples**: Email cleanup, weather briefings, tech digests, market analysis, and more
 
 Example: Schedule a daily market analysis at 6 AM:
+
 ```bash
 jazz workflow schedule market-analysis
 ```
@@ -90,7 +91,7 @@ You stay in control. Jazz won't delete files, push code, or send emails without 
 
 ## 🚀 Quick Start
 
-### 1. Install the CLI
+### Install Jazz
 
 ```bash
 # npm
@@ -106,17 +107,17 @@ pnpm add -g jazz-ai
 yarn global add jazz-ai
 ```
 
-### 2. Chat With Your Agent
+### Start Using Jazz
 
-Simply run `jazz` to start a chat with your agent:
+Simply run `jazz` to start chatting with your agent:
 
 ```bash
 jazz
 ```
 
-### 3. Update Jazz
+### Update Jazz
 
-Keep Jazz up to date with the latest features and improvements:
+Keep Jazz up to date with the latest features:
 
 ```bash
 jazz update
