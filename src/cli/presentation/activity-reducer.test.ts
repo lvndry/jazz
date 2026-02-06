@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { StreamEvent } from "@/core/types/streaming";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import type { ReducerAccumulator } from "./activity-reducer";
 
