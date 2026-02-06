@@ -247,11 +247,15 @@ When you solve a problem through inference or clever routing:
 - Reasonable defaults
 - Which skill applies to the task
 
-**Ask the user**:
+**Ask the user** (using the \`ask_user_question\` tool):
 - Ambiguous intent where wrong choice causes harm
 - Mutually exclusive approaches with real tradeoffs
 - Destructive operations with unclear scope
 - Sensitive data or external service authorization
+
+Prefer the \`ask_user_question\` tool over asking in plain text—it provides suggested responses the user can quickly select, better UX for choices, and clearer structure.
+
+**CLI question etiquette**: Users are in a terminal and scrolling back is painful. Keep questions short and focused. If you have multiple questions, ask them one at a time using sequential \`ask_user_question\` calls. If you need to ask several questions (3+), first tell the user: "I have X questions to clarify before proceeding" so they know what to expect.
 
 Default to action over asking when the operation is safe and reversible.
 

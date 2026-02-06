@@ -30,13 +30,11 @@ export function formatToolArguments(
   const usePlain = style === "plain";
 
   // Helper to format key-value pairs
-  function formatKeyValue(key: string, value: string, truncate?: number): string {
-    const truncated =
-      truncate && value.length > truncate ? value.substring(0, truncate) + "..." : value;
+  function formatKeyValue(key: string, value: string): string {
     if (usePlain) {
-      return `${key}: ${truncated}`;
+      return `${key}: ${value}`;
     }
-    return ` ${chalk.dim(`${key}:`)} ${chalk.cyan(truncated)}`;
+    return ` ${chalk.dim(`${key}:`)} ${chalk.cyan(value)}`;
   }
 
   // Helper to format parts list
@@ -204,10 +202,9 @@ export function formatToolArguments(
     case "git_commit": {
       const message = safeString(args["message"]);
       if (!message) return "";
-      const truncated = message.length > 50 ? message.substring(0, 50) + "..." : message;
       return usePlain
-        ? `{ message: "${truncated}" }`
-        : ` ${chalk.dim("message:")} ${chalk.cyan(truncated)}`;
+        ? `{ message: "${message}" }`
+        : ` ${chalk.dim("message:")} ${chalk.cyan(message)}`;
     }
     case "git_push": {
       const branch = safeString(args["branch"]);
@@ -225,10 +222,9 @@ export function formatToolArguments(
     case "execute_execute_command": {
       const command = safeString(args["command"]);
       if (!command) return "";
-      const truncated = command.length > 60 ? command.substring(0, 60) + "..." : command;
       return usePlain
-        ? `{ command: "${truncated}" }`
-        : ` ${chalk.dim("command:")} ${chalk.cyan(truncated)}${command.length > 60 ? "..." : ""}`;
+        ? `{ command: "${command}" }`
+        : ` ${chalk.dim("command:")} ${chalk.cyan(command)}`;
     }
     case "http_request": {
       const parts: string[] = [];
@@ -240,11 +236,10 @@ export function formatToolArguments(
       }
       const url = safeString(args["url"]);
       if (url) {
-        const truncated = url.length > 50 ? url.substring(0, 50) + "..." : url;
         if (usePlain) {
-          parts.push(`url: ${truncated}`);
+          parts.push(`url: ${url}`);
         } else {
-          parts.push(` ${chalk.cyan(truncated)}`);
+          parts.push(` ${chalk.cyan(url)}`);
         }
       }
       return formatParts(parts);
@@ -252,8 +247,7 @@ export function formatToolArguments(
     case "web_search": {
       const query = safeString(args["query"]);
       if (!query) return "";
-      const truncated = query.length > 50 ? query.substring(0, 50) + "..." : query;
-      return usePlain ? `{ query: "${truncated}" }` : formatKeyValue("query", truncated);
+      return usePlain ? `{ query: "${query}" }` : formatKeyValue("query", query);
     }
     case "mkdir": {
       const dirPath = safeString(args["path"]);
@@ -266,12 +260,10 @@ export function formatToolArguments(
       if (keys.length === 0) return "";
       const parts = keys.map((key) => {
         const valueStr = safeString(args[key]);
-        const truncated =
-          valueStr.length > (usePlain ? 30 : 30) ? valueStr.substring(0, 30) + "..." : valueStr;
         if (usePlain) {
-          return `${key}: ${truncated}`;
+          return `${key}: ${valueStr}`;
         }
-        return `${chalk.dim(`${key}:`)} ${chalk.cyan(truncated)}`;
+        return `${chalk.dim(`${key}:`)} ${chalk.cyan(valueStr)}`;
       });
       return usePlain ? `{ ${parts.join(", ")} }` : ` ${parts.join(", ")}`;
     }
@@ -340,8 +332,7 @@ export function formatToolResult(toolName: string, result: string): string {
           }
         }
         if (output && typeof output === "string") {
-          const truncated = output.substring(0, 50);
-          return ` ${chalk.dim(`(${truncated}${output.length >= 50 ? "..." : ""})`)}`;
+          return ` ${chalk.dim(`(${output})`)}`;
         }
         return "";
       }

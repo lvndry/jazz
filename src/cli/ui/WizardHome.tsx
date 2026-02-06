@@ -23,22 +23,20 @@ interface WizardHomeProps {
 const TIPS = [
   // CLI Shortcuts
   "Type '/help' in chat to see special commands like /clear and /debug",
-  "Use 'Arrow Up' in chat to recall your previous messages",
+  // "Use 'Arrow Up' in chat to recall your previous messages",
   "Run 'jazz agent list' to see all your active agents",
-  "You can pipe input to jazz: 'cat file.txt | jazz agent chat coder'",
 
   // Agent Management
-  "Give your agents distinct personalities in their system prompt",
   "Agents work best with specific, focused descriptions",
-  "Use 'jazz agent edit' to tweak an agent's instructions on the fly",
   "Delete unused agents to keep your workspace clean",
 
   // Integrations & Tools
   "Connect Gmail to let agents draft and prioritize your emails",
   "Agents can manage your schedule if you enable the Calendar tool",
-  "The 'fs' tool allows agents to read and write files in your project",
+  "The 'fs' tools allow agents to read and write files in your project",
   "Enable Web Search to give your agent up-to-date knowledge",
   "Agents can use 'grep' to search your codebase instantly",
+  "use /tools to know tools are available",
 
   // Advanced Features
   "Jazz supports MCP! Connect to Notion, GitHub, and 100+ other services",
@@ -48,14 +46,14 @@ const TIPS = [
 
   // Workflow Tips
   "Ask agents to 'plan first' for complex coding tasks",
-  "You can paste images into the terminal for multimodal analysis",
+  // "You can paste images into the terminal for multimodal analysis",
   "Agents can read PDFs! Just give them the file path",
   "Ask an agent to 'summarize this conversation' to catch up",
   "Chain commands: 'Find TODOs then create a summary file'",
 
   // Troubleshooting
-  "If an agent gets stuck, try typing '/reset' to clear context",
-  "Use 'jazz config show' to debug your configuration",
+  "Use '/new' to clear the context and start a new conversation",
+  "Use 'jazz config show' to see your configuration",
   "Check 'jazz update' regularly for new features",
 
   // Fun/Power User

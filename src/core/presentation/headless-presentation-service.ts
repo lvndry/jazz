@@ -110,6 +110,11 @@ class HeadlessPresentationService implements PresentationService {
   requestUserInput(): Effect.Effect<string, never> {
     return Effect.succeed("");
   }
+
+  // Headless mode cannot show file picker - return empty string
+  requestFilePicker(): Effect.Effect<string, never> {
+    return Effect.succeed("");
+  }
 }
 
 /**

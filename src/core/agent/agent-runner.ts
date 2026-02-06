@@ -93,7 +93,7 @@ function initializeAgentRun(
     );
 
     // Always include skill tools and user interaction tools so agents can use them by default
-    const BUILT_IN_TOOLS = ["load_skill", "load_skill_section", "ask_user_question"];
+    const BUILT_IN_TOOLS = ["load_skill", "load_skill_section", "ask_user_question", "ask_file_picker"];
 
     // Combine agent tools with skill tools (skill tools always available)
     const combinedToolNames = [...new Set([...agentToolNames, ...BUILT_IN_TOOLS])];

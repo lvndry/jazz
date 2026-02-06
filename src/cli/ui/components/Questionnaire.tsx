@@ -8,21 +8,25 @@ import { useInputHandler, InputPriority, InputResults } from "../hooks/use-input
 interface QuestionnaireProps {
   suggestions: readonly Suggestion[];
   allowCustom: boolean;
+  allowMultiple?: boolean;
   onSubmit: (response: string) => void;
   onCancel?: () => void;
 }
 
 /**
  * Questionnaire component that displays suggested responses and an inline custom input.
+ * Supports both single-select (radio) and multi-select (checkbox) modes.
  * The custom input is the last option and can be typed into directly when selected.
  */
 export function Questionnaire({
   suggestions,
   allowCustom,
+  allowMultiple = false,
   onSubmit,
   onCancel,
 }: QuestionnaireProps): React.ReactElement {
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [customValue] = useState("");
 
   const totalItems = allowCustom ? suggestions.length + 1 : suggestions.length;
@@ -41,11 +45,32 @@ export function Questionnaire({
         return InputResults.consumed();
       }
       if (action.type === "submit") {
-        if (selectedIndex < suggestions.length) {
-          const suggestion = suggestions[selectedIndex];
-          if (suggestion) {
-            onSubmit(suggestion.value);
+        if (allowMultiple) {
+          // In multiselect mode, Enter submits all selected items
+          if (selectedIndices.size > 0) {
+            const selectedValues = Array.from(selectedIndices)
+              .sort((a, b) => a - b)
+              .map((i) => suggestions[i]?.value)
+              .filter(Boolean) as string[];
+            onSubmit(selectedValues.join(", "));
             return InputResults.consumed();
+          }
+          // If nothing selected, select the current item and submit
+          if (selectedIndex < suggestions.length) {
+            const suggestion = suggestions[selectedIndex];
+            if (suggestion) {
+              onSubmit(suggestion.value);
+              return InputResults.consumed();
+            }
+          }
+        } else {
+          // Single-select mode: submit the current selection
+          if (selectedIndex < suggestions.length) {
+            const suggestion = suggestions[selectedIndex];
+            if (suggestion) {
+              onSubmit(suggestion.value);
+              return InputResults.consumed();
+            }
           }
         }
         // If on custom input, TextInput component handles the submit
@@ -58,6 +83,20 @@ export function Questionnaire({
         }
       }
       if (action.type === "char") {
+        // Space toggles selection in multiselect mode
+        if (allowMultiple && action.char === " " && selectedIndex < suggestions.length) {
+          setSelectedIndices((prev) => {
+            const next = new Set(prev);
+            if (next.has(selectedIndex)) {
+              next.delete(selectedIndex);
+            } else {
+              next.add(selectedIndex);
+            }
+            return next;
+          });
+          return InputResults.consumed();
+        }
+
         // Quick select by number key (only if not currently typing in the input field)
         const isTyping = selectedIndex === customOptionIndex && allowCustom;
         if (!isTyping && action.char >= "1" && action.char <= "9") {
@@ -65,7 +104,21 @@ export function Questionnaire({
           if (index < suggestions.length) {
             const suggestion = suggestions[index];
             if (suggestion) {
-              onSubmit(suggestion.value);
+              if (allowMultiple) {
+                // Toggle selection in multiselect mode
+                setSelectedIndices((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(index)) {
+                    next.delete(index);
+                  } else {
+                    next.add(index);
+                  }
+                  return next;
+                });
+                setSelectedIndex(index);
+              } else {
+                onSubmit(suggestion.value);
+              }
               return InputResults.consumed();
             }
           }
@@ -73,8 +126,26 @@ export function Questionnaire({
       }
       return InputResults.ignored();
     },
-    deps: [selectedIndex, suggestions, allowCustom, onSubmit, onCancel],
+    deps: [selectedIndex, selectedIndices, suggestions, allowCustom, allowMultiple, onSubmit, onCancel],
   });
+
+  const renderIndicator = (index: number) => {
+    if (allowMultiple) {
+      const isSelected = selectedIndices.has(index);
+      const isFocused = index === selectedIndex;
+      return (
+        <Text color={isFocused ? "green" : "white"}>
+          {isFocused ? "› " : "  "}
+          <Text color={isSelected ? "green" : "gray"}>{isSelected ? "[✓]" : "[ ]"}</Text>
+        </Text>
+      );
+    }
+    return (
+      <Text color={index === selectedIndex ? "green" : "white"} bold={index === selectedIndex}>
+        {index === selectedIndex ? "› " : "  "}
+      </Text>
+    );
+  };
 
   return (
     <Box flexDirection="column">
@@ -82,14 +153,14 @@ export function Questionnaire({
       {suggestions.map((suggestion, i) => {
         const label = suggestion.label ?? suggestion.value;
         const description = suggestion.description;
+        const isFocused = i === selectedIndex;
 
         return (
           <Box key={i} flexDirection="column">
             <Box>
-              <Text color={i === selectedIndex ? "green" : "white"} bold={i === selectedIndex}>
-                {i === selectedIndex ? "› " : "  "}
-                <Text color={i === selectedIndex ? "green" : "cyan"}>{i + 1}.</Text> {label}
-              </Text>
+              {renderIndicator(i)}
+              <Text color={isFocused ? "green" : "cyan"}> {i + 1}.</Text>
+              <Text color={isFocused ? "green" : "white"} bold={isFocused}> {label}</Text>
             </Box>
             {description && (
               <Box paddingLeft={5}>
@@ -126,7 +197,11 @@ export function Questionnaire({
 
       {/* Keyboard hints */}
       <Box marginTop={1}>
-        <Text dimColor>↑/↓ navigate • Enter select • 1-9 quick pick</Text>
+        <Text dimColor>
+          {allowMultiple
+            ? "↑/↓ navigate • Space toggle • Enter submit • 1-9 toggle"
+            : "↑/↓ navigate • Enter select • 1-9 quick pick"}
+        </Text>
       </Box>
     </Box>
   );

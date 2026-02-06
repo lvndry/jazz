@@ -6,6 +6,7 @@ import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { NotificationServiceTag, type NotificationService } from "@/core/interfaces/notification";
 import type {
+  FilePickerRequest,
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
@@ -935,6 +936,7 @@ class InkPresentationService implements PresentationService {
       options: {
         suggestions: request.suggestions,
         allowCustom: request.allowCustom,
+        allowMultiple: request.allowMultiple,
       },
       resolve: (value: unknown) => {
         const response = String(value);
@@ -954,6 +956,53 @@ class InkPresentationService implements PresentationService {
         resume(Effect.succeed("")); // Return empty on cancel
         this.processNextUserInput();
       },
+    });
+  }
+
+  requestFilePicker(request: FilePickerRequest): Effect.Effect<string, never> {
+    return Effect.async((resume) => {
+      // Show the file picker prompt
+      const separator = chalk.dim("─".repeat(50));
+      store.printOutput({
+        type: "log",
+        message: `\n${separator}`,
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "log",
+        message: `${chalk.cyan("📁")} ${chalk.bold(request.message)}`,
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "log",
+        message: separator,
+        timestamp: new Date(),
+      });
+
+      // Set up file picker prompt
+      store.setPrompt({
+        type: "filepicker",
+        message: request.message,
+        options: {
+          basePath: request.basePath ?? process.cwd(),
+          extensions: request.extensions,
+          includeDirectories: request.includeDirectories,
+        },
+        resolve: (value: unknown) => {
+          const selectedPath = String(value);
+          store.printOutput({
+            type: "log",
+            message: `${chalk.dim("Selected:")} ${chalk.green(selectedPath)}`,
+            timestamp: new Date(),
+          });
+          store.setPrompt(null);
+          resume(Effect.succeed(selectedPath));
+        },
+        reject: () => {
+          store.setPrompt(null);
+          resume(Effect.succeed("")); // Return empty on cancel
+        },
+      });
     });
   }
 }

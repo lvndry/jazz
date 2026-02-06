@@ -1,6 +1,6 @@
 import { Box, Static, Text, useInput } from "ink";
 import Spinner from "ink-spinner";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { clearLastExpandedDiff, getLastExpandedDiff } from "./diff-expansion-store";
 import ErrorBoundary from "./ErrorBoundary";
 import { useInputHandler } from "./hooks/use-input-service";
@@ -14,9 +14,7 @@ import { InputPriority, InputResults } from "../services/input-service";
 // Constants
 // ============================================================================
 
-const MAX_LOG_ENTRIES = 100;
-/** Number of recent logs to keep dynamic (not in Static) */
-const DYNAMIC_LOG_COUNT = 10;
+const MAX_LOG_ENTRIES = 10_000;
 
 // ============================================================================
 // Store - Global state setters (populated by islands)
@@ -282,40 +280,14 @@ function LogIsland(): React.ReactElement {
     initializedRef.current = true;
   }
 
-  // Split logs into static (finalized) and dynamic (recent)
-  const { staticLogs, dynamicLogs } = useMemo(() => {
-    const totalLogs = state.logs.length;
-    if (totalLogs <= DYNAMIC_LOG_COUNT) {
-      return { staticLogs: [], dynamicLogs: state.logs };
-    }
-    return {
-      staticLogs: state.logs.slice(0, totalLogs - DYNAMIC_LOG_COUNT),
-      dynamicLogs: state.logs.slice(totalLogs - DYNAMIC_LOG_COUNT),
-    };
-  }, [state.logs]);
-
-  // Compute spacing for dynamic logs
-  const dynamicLogsWithSpacing = useMemo(() => {
-    const staticLength = staticLogs.length;
-    return dynamicLogs.map((log, index) => {
-      const globalIndex = staticLength + index;
-      const prevLog = globalIndex > 0 ? state.logs[globalIndex - 1] : null;
-      return {
-        log,
-        addSpacing:
-          log.type === "user" ||
-          (log.type === "info" && prevLog?.type === "user"),
-      };
-    });
-  }, [dynamicLogs, staticLogs.length, state.logs]);
-
   return (
     <>
-      {/* Static logs - Ink renders these once and never touches them again */}
-      {staticLogs.length > 0 && (
-        <Static items={staticLogs}>
+      {/* All logs go to Static - Ink renders these once and never re-renders them */}
+      {/* Live/updating UI (spinners, streaming, prompts) are handled by separate islands */}
+      {state.logs.length > 0 && (
+        <Static items={state.logs}>
           {(log, index) => {
-            const prevLog = index > 0 ? staticLogs[index - 1] : null;
+            const prevLog = index > 0 ? state.logs[index - 1] : null;
             const addSpacing =
               log.type === "user" ||
               (log.type === "info" && prevLog?.type === "user");
@@ -330,15 +302,6 @@ function LogIsland(): React.ReactElement {
           }}
         </Static>
       )}
-
-      {/* Dynamic logs - These can update */}
-      {dynamicLogsWithSpacing.map(({ log, addSpacing }) => (
-        <LogEntryItem
-          key={log.id}
-          log={log}
-          addSpacing={addSpacing}
-        />
-      ))}
     </>
   );
 }

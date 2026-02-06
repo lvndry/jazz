@@ -6,6 +6,7 @@ import {
   type ChatCommandInfo,
 } from "@/services/chat/commands";
 import { ChatInput, SHORTCUTS_HINT } from "./components/ChatInput";
+import { FilePicker } from "./components/FilePicker";
 import { Questionnaire } from "./components/Questionnaire";
 import { ScrollableMultiSelect } from "./components/ScrollableMultiSelect";
 import { ScrollableSelect } from "./components/ScrollableSelect";
@@ -317,7 +318,17 @@ function PromptComponent({
           <Questionnaire
             suggestions={(prompt.options?.["suggestions"] as readonly Suggestion[]) ?? []}
             allowCustom={(prompt.options?.["allowCustom"] as boolean) !== false}
+            allowMultiple={(prompt.options?.["allowMultiple"] as boolean) === true}
             onSubmit={(value) => prompt.resolve(value)}
+            onCancel={() => prompt.reject?.()}
+          />
+        )}
+        {prompt.type === "filepicker" && (
+          <FilePicker
+            basePath={(prompt.options?.["basePath"] as string) ?? process.cwd()}
+            extensions={prompt.options?.["extensions"] as readonly string[] | undefined}
+            includeDirectories={(prompt.options?.["includeDirectories"] as boolean) ?? false}
+            onSelect={(path) => prompt.resolve(path)}
             onCancel={() => prompt.reject?.()}
           />
         )}
