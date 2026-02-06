@@ -158,11 +158,11 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
   readonly riskLevel?: ToolRiskLevel;
   /** Optional custom validator */
   readonly validate?: ToolValidator<Args>;
-  /** Generate the approval message shown to the user */
+  /** Generate the approval message shown to the user. Can return a string or structured result with previewDiff. */
   readonly approvalMessage: (
     args: Args,
     context: ToolExecutionContext,
-  ) => Effect.Effect<string, Error, R>;
+  ) => Effect.Effect<string | { message: string; previewDiff?: string }, Error, R>;
   /** Custom error message when approval is required */
   readonly approvalErrorMessage?: string;
   /** The actual execution handler (runs after approval) */
@@ -236,12 +236,16 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     approvalExecuteToolName: executeToolName,
     handler: (args: Args, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const approvalMessage = yield* config.approvalMessage(args, context);
+        const approvalResult = yield* config.approvalMessage(args, context);
+        // Support both string and structured { message, previewDiff } return types
+        const message = typeof approvalResult === "string" ? approvalResult : approvalResult.message;
+        const previewDiff = typeof approvalResult === "string" ? undefined : approvalResult.previewDiff;
         return {
           success: false,
           result: {
             approvalRequired: true,
-            message: approvalMessage,
+            message,
+            previewDiff,
             executeToolName: executeToolName,
             executeArgs: args as Record<string, unknown>,
           },

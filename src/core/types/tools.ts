@@ -90,6 +90,8 @@ export interface ApprovalRequiredResult {
   readonly executeToolName: string;
   /** The arguments to pass to the execution tool */
   readonly executeArgs: Record<string, unknown>;
+  /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
+  readonly previewDiff?: string;
 }
 
 /**
@@ -104,6 +106,8 @@ export interface ApprovalRequest {
   readonly executeToolName: string;
   /** Arguments that will be passed to the execution tool */
   readonly executeArgs: Record<string, unknown>;
+  /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
+  readonly previewDiff?: string;
 }
 
 /**

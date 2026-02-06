@@ -55,12 +55,48 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
 
     approvalMessage: (args: WriteFileArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
         const options = args.createDirs ? " (will create parent directories)" : "";
-        return `About to write ${args.content.length} characters to file: ${target}${options}`;
+
+        // Check if file exists and read original content for preview diff
+        const fileExists = yield* fs
+          .exists(target)
+          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+        let originalContent = "";
+        const isNewFile = !fileExists;
+
+        if (fileExists) {
+          try {
+            originalContent = yield* fs.readFileString(target);
+          } catch {
+            // If we can't read, treat as new file
+          }
+        }
+
+        // Build message with overwrite warning if applicable
+        let message = `About to write ${args.content.length} characters to file: ${target}${options}`;
+
+        if (!isNewFile && originalContent.length > 0) {
+          message += `\n\n⚠️  WARNING: This will overwrite the existing file (${originalContent.split("\n").length} lines).`;
+          message += `\n   Consider using edit_file instead if you only need to modify part of the file.`;
+        }
+
+        message += `\n\nPress Ctrl+O to preview changes`;
+
+        // Generate full diff for Ctrl+O expansion
+        const { diff: previewDiff } = generateDiffWithMetadata(
+          originalContent,
+          args.content,
+          target,
+          { isNewFile, maxLines: Number.POSITIVE_INFINITY },
+        );
+
+        return { message, previewDiff };
       }),
 
     handler: (args: WriteFileArgs, context: ToolExecutionContext) =>

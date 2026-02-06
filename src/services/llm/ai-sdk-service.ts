@@ -18,6 +18,7 @@ import type { WebSearchConfig } from "@/core/types/config";
 import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
 import type { ToolCall } from "@/core/types/tools";
 import { safeParseJson } from "@/core/utils/json";
+import { sanitize } from "@/core/utils/string";
 import {
   convertToLLMError,
   extractCleanErrorMessage,
@@ -61,6 +62,7 @@ interface AISDKConfig {
   llmConfig?: LLMConfig;
   webSearchConfig?: WebSearchConfig;
 }
+
 
 function parseToolArguments(input: string): Record<string, unknown> {
   const parsed = safeParseJson<Record<string, unknown>>(input);
@@ -122,18 +124,19 @@ function toCoreMessages(
 ): ModelMessage[] {
   return messages.map((m) => {
     const role = m.role;
+    const content = sanitize(m.content);
 
     if (role === "system") {
       return {
         role: "system",
-        content: m.content,
+        content,
       } as SystemModelMessage;
     }
 
     if (role === "user") {
       return {
         role: "user",
-        content: m.content,
+        content,
       } as UserModelMessage;
     }
 
@@ -149,12 +152,13 @@ function toCoreMessages(
           }
       > = [];
 
-      if (m.content && m.content.length > 0) {
-        contentParts.push({ type: "text", text: m.content });
+      if (content && content.length > 0) {
+        contentParts.push({ type: "text", text: content });
       }
 
       if (m.tool_calls && m.tool_calls.length > 0) {
         for (const tc of m.tool_calls) {
+          const toolArgs = sanitize(tc.function.arguments);
           const toolCallPart: {
             type: "tool-call";
             toolCallId: string;
@@ -165,7 +169,7 @@ function toCoreMessages(
             type: "tool-call",
             toolCallId: tc.id,
             toolName: tc.function.name,
-            input: parseToolArguments(tc.function.arguments),
+            input: parseToolArguments(toolArgs),
           };
 
           // Preserve thought_signature for Google/Gemini models
@@ -192,7 +196,7 @@ function toCoreMessages(
         type: "tool-result",
         toolCallId: m.tool_call_id ?? "",
         toolName: m.name ?? "tool",
-        output: { type: "text", value: m.content },
+        output: { type: "text", value: content },
       });
 
       return { role: "tool", content: contentParts } as ToolModelMessage;

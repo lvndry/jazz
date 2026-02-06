@@ -190,6 +190,7 @@ export class ToolExecutor {
                 message: approvalResult.message,
                 executeToolName: approvalResult.executeToolName,
                 executeArgs: approvalResult.executeArgs,
+                ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
               });
 
           if (outcome.approved) {
