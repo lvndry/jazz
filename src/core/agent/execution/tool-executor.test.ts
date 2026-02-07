@@ -1,19 +1,38 @@
 import { FileSystem } from "@effect/platform";
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { ToolExecutor } from "./tool-executor";
-import { SkillServiceTag } from "../../../core/skills/skill-service";
+import { type SkillService, SkillServiceTag } from "../../../core/skills/skill-service";
+import type { AgentConfigService } from "../../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
+import type { CalendarService } from "../../interfaces/calendar";
 import { CalendarServiceTag } from "../../interfaces/calendar";
+import type { FileSystemContextService } from "../../interfaces/fs";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import type { GmailService } from "../../interfaces/gmail";
 import { GmailServiceTag } from "../../interfaces/gmail";
+import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
+import type { LoggerService } from "../../interfaces/logger";
 import { LoggerServiceTag } from "../../interfaces/logger";
+import type { MCPServerManager } from "../../interfaces/mcp-server";
 import { MCPServerManagerTag } from "../../interfaces/mcp-server";
+import type { PresentationService } from "../../interfaces/presentation";
 import { PresentationServiceTag } from "../../interfaces/presentation";
+import type { TerminalService } from "../../interfaces/terminal";
 import { TerminalServiceTag } from "../../interfaces/terminal";
+import type { ToolRegistry } from "../../interfaces/tool-registry";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
+import type { ToolCall, ToolExecutionResult } from "../../types/tools";
 import type { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+
+/** Result shape of executeToolCall / executeToolCalls items */
+type ToolCallExecutionResult = {
+  toolCallId: string;
+  result: unknown;
+  success: boolean;
+  name: string;
+};
 
 const mockLogger = {
   debug: () => Effect.void,
@@ -24,7 +43,7 @@ const mockLogger = {
   clearSessionId: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
-} as any;
+} as LoggerService;
 
 const mockPresentationService = {
   formatToolsDetected: () => Effect.succeed("Tools detected"),
@@ -36,17 +55,26 @@ const mockPresentationService = {
   formatToolExecutionError: () => Effect.succeed("Tool failed"),
   signalToolExecutionStarted: () => Effect.void,
   requestApproval: () => Effect.succeed({ approved: true }),
-} as any;
+} as unknown as PresentationService;
 
 const mockAgentConfigService = {
   appConfig: Effect.succeed({}),
-} as any;
+} as AgentConfigService;
 
 const mockSkillService = {
   listSkills: () => Effect.succeed([]),
   loadSkill: () => Effect.fail(new Error("not implemented")),
   loadSkillSection: () => Effect.fail(new Error("not implemented")),
-} as any;
+} as SkillService;
+
+// Minimal stubs for services not exercised in these tests
+const emptyFs = {} as unknown as FileSystem.FileSystem;
+const emptyTerminal = {} as unknown as TerminalService;
+const emptyGmail = {} as unknown as GmailService;
+const emptyCalendar = {} as unknown as CalendarService;
+const emptyFsContext = {} as unknown as FileSystemContextService;
+const emptyLlm = {} as unknown as LLMService;
+const emptyMcp = {} as unknown as MCPServerManager;
 
 function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
   return {
@@ -85,21 +113,21 @@ describe("ToolExecutor.executeTool", () => {
           approvalExecuteToolName: undefined,
         }),
       executeTool: () => Effect.succeed({ success: true, result: { data: "ok" } }),
-    } as any;
+    } as unknown as ToolRegistry;
 
     const testLayer = Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
       Layer.succeed(PresentationServiceTag, mockPresentationService),
       Layer.succeed(ToolRegistryTag, mockToolRegistry),
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, {} as any),
-      Layer.succeed(TerminalServiceTag, {} as any),
-      Layer.succeed(GmailServiceTag, {} as any),
-      Layer.succeed(CalendarServiceTag, {} as any),
-      Layer.succeed(FileSystemContextServiceTag, {} as any),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(GmailServiceTag, emptyGmail),
+      Layer.succeed(CalendarServiceTag, emptyCalendar),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, {} as any),
-      Layer.succeed(MCPServerManagerTag, {} as any),
+      Layer.succeed(LLMServiceTag, emptyLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
     );
 
     const result = await Effect.runPromise(
@@ -107,7 +135,9 @@ describe("ToolExecutor.executeTool", () => {
         agentId: "agent-1",
         conversationId: "conv-123",
         sessionId: "sess-1",
-      }).pipe(Effect.provide(testLayer)),
+      }).pipe(
+        Effect.provide(testLayer),
+      ) as Effect.Effect<ToolExecutionResult, unknown, never>,
     );
 
     expect(result.success).toBe(true);
@@ -118,21 +148,21 @@ describe("ToolExecutor.executeTool", () => {
     const mockToolRegistry = {
       getTool: () => Effect.fail(new Error("Tool not found")),
       executeTool: () => Effect.succeed({ success: true, result: "ok" }),
-    } as any;
+    } as unknown as ToolRegistry;
 
     const testLayer = Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
       Layer.succeed(PresentationServiceTag, mockPresentationService),
       Layer.succeed(ToolRegistryTag, mockToolRegistry),
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, {} as any),
-      Layer.succeed(TerminalServiceTag, {} as any),
-      Layer.succeed(GmailServiceTag, {} as any),
-      Layer.succeed(CalendarServiceTag, {} as any),
-      Layer.succeed(FileSystemContextServiceTag, {} as any),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(GmailServiceTag, emptyGmail),
+      Layer.succeed(CalendarServiceTag, emptyCalendar),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, {} as any),
-      Layer.succeed(MCPServerManagerTag, {} as any),
+      Layer.succeed(LLMServiceTag, emptyLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
     );
 
     // executeTool still works even if getTool fails for timeout lookup
@@ -141,7 +171,9 @@ describe("ToolExecutor.executeTool", () => {
         agentId: "agent-1",
         conversationId: "conv-123",
         sessionId: "sess-1",
-      }).pipe(Effect.provide(testLayer)),
+      }).pipe(
+        Effect.provide(testLayer),
+      ) as Effect.Effect<ToolExecutionResult, unknown, never>,
     );
 
     expect(result.success).toBe(true);
@@ -159,26 +191,26 @@ describe("ToolExecutor.executeToolCall", () => {
           approvalExecuteToolName: undefined,
         }),
       executeTool: () => Effect.succeed({ success: true, result: "ok" }),
-    } as any;
+    } as unknown as ToolRegistry;
 
     const testLayer = Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
       Layer.succeed(PresentationServiceTag, mockPresentationService),
       Layer.succeed(ToolRegistryTag, mockToolRegistry),
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, {} as any),
-      Layer.succeed(TerminalServiceTag, {} as any),
-      Layer.succeed(GmailServiceTag, {} as any),
-      Layer.succeed(CalendarServiceTag, {} as any),
-      Layer.succeed(FileSystemContextServiceTag, {} as any),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(GmailServiceTag, emptyGmail),
+      Layer.succeed(CalendarServiceTag, emptyCalendar),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, {} as any),
-      Layer.succeed(MCPServerManagerTag, {} as any),
+      Layer.succeed(LLMServiceTag, emptyLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
     );
 
-    const toolCall = {
+    const toolCall: ToolCall = {
       id: "call_1",
-      type: "function" as const,
+      type: "function",
       function: { name: "test_tool", arguments: "not-valid-json" },
     };
 
@@ -192,7 +224,9 @@ describe("ToolExecutor.executeToolCall", () => {
         "agent-1",
         "conv-123",
         new Set(),
-      ).pipe(Effect.provide(testLayer)),
+      ).pipe(
+        Effect.provide(testLayer),
+      ) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
     );
 
     expect(result.success).toBe(false);
@@ -200,26 +234,27 @@ describe("ToolExecutor.executeToolCall", () => {
   });
 
   it("should skip non-function tool calls", async () => {
+    const emptyRegistry = {} as unknown as ToolRegistry;
     const testLayer = Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
       Layer.succeed(PresentationServiceTag, mockPresentationService),
-      Layer.succeed(ToolRegistryTag, {} as any),
+      Layer.succeed(ToolRegistryTag, emptyRegistry),
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, {} as any),
-      Layer.succeed(TerminalServiceTag, {} as any),
-      Layer.succeed(GmailServiceTag, {} as any),
-      Layer.succeed(CalendarServiceTag, {} as any),
-      Layer.succeed(FileSystemContextServiceTag, {} as any),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(GmailServiceTag, emptyGmail),
+      Layer.succeed(CalendarServiceTag, emptyCalendar),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, {} as any),
-      Layer.succeed(MCPServerManagerTag, {} as any),
+      Layer.succeed(LLMServiceTag, emptyLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
     );
 
     const toolCall = {
       id: "call_1",
-      type: "not_function" as any,
+      type: "not_function",
       function: { name: "test_tool", arguments: "{}" },
-    };
+    } as unknown as ToolCall;
 
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCall(
@@ -231,7 +266,9 @@ describe("ToolExecutor.executeToolCall", () => {
         "agent-1",
         "conv-123",
         new Set(),
-      ).pipe(Effect.provide(testLayer)),
+      ).pipe(
+        Effect.provide(testLayer),
+      ) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
     );
 
     expect(result.success).toBe(false);
@@ -251,32 +288,32 @@ describe("ToolExecutor.executeToolCalls", () => {
         }),
       executeTool: (_name: string) =>
         Effect.succeed({ success: true, result: { data: "ok" } }),
-    } as any;
+    } as unknown as ToolRegistry;
 
     const testLayer = Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
       Layer.succeed(PresentationServiceTag, mockPresentationService),
       Layer.succeed(ToolRegistryTag, mockToolRegistry),
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, {} as any),
-      Layer.succeed(TerminalServiceTag, {} as any),
-      Layer.succeed(GmailServiceTag, {} as any),
-      Layer.succeed(CalendarServiceTag, {} as any),
-      Layer.succeed(FileSystemContextServiceTag, {} as any),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(GmailServiceTag, emptyGmail),
+      Layer.succeed(CalendarServiceTag, emptyCalendar),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, {} as any),
-      Layer.succeed(MCPServerManagerTag, {} as any),
+      Layer.succeed(LLMServiceTag, emptyLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
     );
 
-    const toolCalls = [
+    const toolCalls: ToolCall[] = [
       {
         id: "call_1",
-        type: "function" as const,
+        type: "function",
         function: { name: "tool_a", arguments: '{"arg1":"val1"}' },
       },
       {
         id: "call_2",
-        type: "function" as const,
+        type: "function",
         function: { name: "tool_b", arguments: '{"arg2":"val2"}' },
       },
     ];
@@ -291,7 +328,9 @@ describe("ToolExecutor.executeToolCalls", () => {
         "agent-1",
         "conv-123",
         "test-agent",
-      ).pipe(Effect.provide(testLayer)),
+      ).pipe(
+        Effect.provide(testLayer),
+      ) as unknown as Effect.Effect<readonly ToolCallExecutionResult[], unknown, never>,
     );
 
     expect(results).toHaveLength(2);

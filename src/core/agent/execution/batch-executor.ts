@@ -8,10 +8,10 @@ import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-regi
 import type { ConversationMessages } from "@/core/types";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
+import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import type { RecursiveRunner } from "../context/summarizer";
 import { recordLLMRetry } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
-import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 
 const MAX_RETRIES = 3;
 

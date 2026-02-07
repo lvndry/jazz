@@ -10,13 +10,13 @@ import type { StreamEvent, StreamingConfig } from "@/core/types";
 import { type ChatCompletionResponse } from "@/core/types/chat";
 import { type LLMError, LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
+import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
   recordFirstTokenLatency,
   recordLLMRetry,
 } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
-import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 
 const MAX_RETRIES = 3;
 const STREAM_CREATION_TIMEOUT = Duration.minutes(2);
