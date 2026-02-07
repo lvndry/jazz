@@ -37,7 +37,7 @@ While all agents share the same code structure, you can create different "types"
 
 - **Generalist**: Has a wide array of tools (Web, File, Git). Good for generic tasks.
 - **Specialist**: Has a narrow set of tools context. (e.g., an "Editor" that can only read files and suggest changes, but not write).
-- **Router**: An agent designed to delegate work to other sub-agents or workflows (future concept).
+- **Router**: An agent designed to delegate work to other sub-agents or grooves.
 
 ## Agent Storage
 

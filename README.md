@@ -18,7 +18,7 @@
 
 - ✅ **60+ builtin tools** — Git, Gmail, filesystem, shell, HTTP, PDF, and more
 - ✅ **MCP support** — Connect to Notion, Slack, MongoDB, GitHub, PostgreSQL, and hundreds more
-- ✅ **Scheduled workflows** — Automate recurring tasks with cron-based scheduling
+- ✅ **Scheduled grooves** — Automate recurring tasks with cron-based scheduling
 - ✅ **Agent Skills** — Teach agents complex, multi-step procedures
 - ✅ **Any LLM provider** — OpenAI, Anthropic, Google, Mistral, Ollama, OpenRouter, and more
 - ✅ **Safety first** — Every high-risk action requires your explicit approval
@@ -68,23 +68,23 @@ Git, Gmail, filesystem, shell, web search, HTTP, PDF, and more. Just create an a
 - **Local & Global**: Skills can be stored globally in `~/.jazz` or locally in your project.
 - **Interactive Inspection**: Use the `/skills` command during chat to browse and read available skills yourself.
 
-### ⏰ Workflows, Automated & Scheduled
+### ⏰ Grooves, Automated & Scheduled
 
-**Jazz workflows let you automate recurring tasks and schedule them to run automatically.**
+**Jazz grooves let you automate recurring tasks and schedule them to run automatically.**
 
-Create `WORKFLOW.md` files that describe what the agent should do, then schedule them to run hourly, daily, or on any cron schedule:
+Create `GROOVE.md` files that describe what the agent should do, then schedule them to run hourly, daily, or on any cron schedule:
 
-- **Scheduled Execution**: Run workflows on a cron schedule using your system scheduler (launchd on macOS, cron on Linux)
+- **Scheduled Execution**: Run grooves on a cron schedule using your system scheduler (launchd on macOS, cron on Linux)
 - **Auto-Approve Policies**: Set risk-based auto-approval (`read-only`, `low-risk`, `high-risk`) for unattended execution
-- **Agent Selection**: Choose which agent runs each workflow
+- **Agent Selection**: Choose which agent runs each groove
 - **Run History**: Track execution history, logs, and errors
-- **Catch-Up on Startup**: Optionally run missed workflows when Jazz starts
+- **Catch-Up on Startup**: Optionally run missed grooves when Jazz starts
 - **Built-in Examples**: Email cleanup, weather briefings, tech digests, market analysis, and more
 
 Example: Schedule a daily market analysis at 6 AM:
 
 ```bash
-jazz workflow schedule market-analysis
+jazz groove schedule market-analysis
 ```
 
 ### 🧠 Multi LLM, Model Agnostic
@@ -145,19 +145,19 @@ jazz update
 
 ## 📚 Usage Highlights
 
-| Command                         | Description                              |
-| ------------------------------- | ---------------------------------------- |
-| `jazz agent create`             | Create a new agent                       |
-| `jazz agent chat <name>`        | Start chatting with an agent             |
-| `jazz agent list`               | List all your agents                     |
-| `jazz agent edit <id>`          | Edit an existing agent                   |
-| `jazz workflow list`            | List all available workflows             |
-| `jazz workflow run <name>`      | Run a workflow manually                  |
-| `jazz workflow schedule <name>` | Schedule a workflow to run automatically |
-| `jazz workflow scheduled`       | Show scheduled workflows                 |
-| `jazz config show`              | View your configuration                  |
-| `jazz auth gmail login`         | Authenticate with Google (Gmail)         |
-| `jazz update`                   | Update Jazz to the latest version        |
+| Command                       | Description                            |
+| ----------------------------- | -------------------------------------- |
+| `jazz agent create`           | Create a new agent                     |
+| `jazz agent chat <name>`      | Start chatting with an agent           |
+| `jazz agent list`             | List all your agents                   |
+| `jazz agent edit <id>`        | Edit an existing agent                 |
+| `jazz groove list`            | List all available grooves             |
+| `jazz groove run <name>`      | Run a groove manually                  |
+| `jazz groove schedule <name>` | Schedule a groove to run automatically |
+| `jazz groove scheduled`       | Show scheduled grooves                 |
+| `jazz config show`            | View your configuration                |
+| `jazz auth gmail login`       | Authenticate with Google (Gmail)       |
+| `jazz update`                 | Update Jazz to the latest version      |
 
 ---
 

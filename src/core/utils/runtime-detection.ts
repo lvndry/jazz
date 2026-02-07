@@ -159,40 +159,40 @@ export function getGlobalSkillsDirectory(): string {
 }
 
 /**
- * Get the directory containing built-in workflows shipped with Jazz.
+ * Get the directory containing built-in grooves shipped with Jazz.
  *
- * Built-in workflows are located in the `workflows/` folder within the Jazz package.
- * These are example workflows that demonstrate Jazz's automation capabilities.
+ * Built-in grooves are located in the `grooves/` folder within the Jazz package.
+ * These are example grooves that demonstrate Jazz's automation capabilities.
  *
- * @returns Workflows directory path, or null if not found
+ * @returns Grooves directory path, or null if not found
  *
  */
-export function getBuiltinWorkflowsDirectory(): string | null {
+export function getBuiltinGroovesDirectory(): string | null {
   const packageDir = getPackageRootDirectory();
   if (!packageDir) {
     return null;
   }
 
-  const workflowsDir = path.join(packageDir, "workflows");
-  if (fs.existsSync(workflowsDir) && fs.statSync(workflowsDir).isDirectory()) {
-    return workflowsDir;
+  const groovesDir = path.join(packageDir, "grooves");
+  if (fs.existsSync(groovesDir) && fs.statSync(groovesDir).isDirectory()) {
+    return groovesDir;
   }
 
   return null;
 }
 
 /**
- * Get the directory containing global user workflows.
+ * Get the directory containing global user grooves.
  *
- * Global workflows are user-created workflows stored in `~/.jazz/workflows/`.
- * These workflows are available across all projects and persist between sessions.
+ * Global grooves are user-created grooves stored in `~/.jazz/grooves/`.
+ * These grooves are available across all projects and persist between sessions.
  *
- * @returns Global workflows directory path``
+ * @returns Global grooves directory path
  *
  */
-export function getGlobalWorkflowsDirectory(): string {
+export function getGlobalGroovesDirectory(): string {
   const homeDir = os.homedir();
-  return path.join(homeDir, ".jazz", "workflows");
+  return path.join(homeDir, ".jazz", "grooves");
 }
 
 // ============================================================================

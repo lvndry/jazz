@@ -7,6 +7,11 @@ import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
+import {
+  GrooveServiceTag,
+  type GrooveService,
+} from "@/core/grooves/groove-service";
+import { groupGrooves, formatGroove } from "@/core/grooves/utils";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import {
@@ -26,11 +31,6 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
-import {
-  WorkflowServiceTag,
-  type WorkflowService,
-} from "@/core/workflows/workflow-service";
-import { groupWorkflows, formatWorkflow } from "@/core/workflows/workflow-utils";
 import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
@@ -56,7 +56,7 @@ export function handleSpecialCommand(
   | PresentationService
   | ToolRequirements
   | SkillService
-  | WorkflowService
+  | GrooveService
 > {
   const { agent, conversationId, conversationHistory, sessionId } = context;
 
@@ -103,8 +103,8 @@ export function handleSpecialCommand(
       case "cost":
         return yield* handleCostCommand(terminal, agent, context.sessionUsage);
 
-      case "workflows":
-        return yield* handleWorkflowsCommand(terminal);
+      case "grooves":
+        return yield* handleGroovesCommand(terminal);
 
       case "clear":
         return yield* handleClearCommand(terminal, agent);
@@ -160,7 +160,7 @@ function handleHelpCommand(
     yield* terminal.log("   /copy            - Copy the last agent response to clipboard");
     yield* terminal.log("   /skills          - List and view available skills");
     yield* terminal.log(
-      "   /workflows [action] - List workflows, or send action (e.g. create) to the agent",
+      "   /grooves [action] - List grooves, or send action (e.g. create) to the agent",
     );
     yield* terminal.log("   /help            - Show this help message");
     yield* terminal.log("   /exit            - Exit the chat");
@@ -572,58 +572,58 @@ function handleClearCommand(
 }
 
 /**
- * Handle /workflows command - List available workflows
+ * Handle /grooves command - List available grooves
  */
-function handleWorkflowsCommand(
+function handleGroovesCommand(
   terminal: TerminalService,
-): Effect.Effect<CommandResult, Error, WorkflowService> {
+): Effect.Effect<CommandResult, Error, GrooveService> {
   return Effect.gen(function* () {
-    const workflowService = yield* WorkflowServiceTag;
+    const grooveService = yield* GrooveServiceTag;
 
-    yield* terminal.heading("📋 Available Workflows");
+    yield* terminal.heading("📋 Available Grooves");
     yield* terminal.log("");
 
-    const workflows = yield* workflowService.listWorkflows();
+    const grooves = yield* grooveService.listGrooves();
 
-    if (workflows.length === 0) {
-      yield* terminal.info("No workflows found.");
+    if (grooves.length === 0) {
+      yield* terminal.info("No grooves found.");
       yield* terminal.log("");
-      yield* terminal.info("Create a workflow by adding a WORKFLOW.md file to:");
-      yield* terminal.log("  • ./workflows/<name>/WORKFLOW.md (local)");
-      yield* terminal.log("  • ~/.jazz/workflows/<name>/WORKFLOW.md (global)");
-      yield* terminal.info("Or type /workflows create and the agent will guide you.");
+      yield* terminal.info("Create a groove by adding a GROOVE.md file to:");
+      yield* terminal.log("  • ./grooves/<name>/GROOVE.md (local)");
+      yield* terminal.log("  • ~/.jazz/grooves/<name>/GROOVE.md (global)");
+      yield* terminal.info("Or type /grooves create and the agent will guide you.");
       yield* terminal.log("");
       return { shouldContinue: true };
     }
 
-    const { local, global, builtin } = groupWorkflows(workflows);
+    const { local, global, builtin } = groupGrooves(grooves);
 
     if (local.length > 0) {
-      yield* terminal.log("Local workflows:");
-      for (const w of local) {
-        yield* terminal.log(formatWorkflow(w));
+      yield* terminal.log("Local grooves:");
+      for (const g of local) {
+        yield* terminal.log(formatGroove(g));
       }
       yield* terminal.log("");
     }
 
     if (global.length > 0) {
-      yield* terminal.log("Global workflows (~/.jazz/workflows):");
-      for (const w of global) {
-        yield* terminal.log(formatWorkflow(w));
+      yield* terminal.log("Global grooves (~/.jazz/grooves):");
+      for (const g of global) {
+        yield* terminal.log(formatGroove(g));
       }
       yield* terminal.log("");
     }
 
     if (builtin.length > 0) {
-      yield* terminal.log("Built-in workflows:");
-      for (const w of builtin) {
-        yield* terminal.log(formatWorkflow(w));
+      yield* terminal.log("Built-in grooves:");
+      for (const g of builtin) {
+        yield* terminal.log(formatGroove(g));
       }
       yield* terminal.log("");
     }
 
-    yield* terminal.info(`Total: ${workflows.length} workflow(s)`);
-    yield* terminal.log("   Tip: /workflows create — send 'create' to the agent to guide you.");
+    yield* terminal.info(`Total: ${grooves.length} groove(s)`);
+    yield* terminal.log("   Tip: /grooves create — send 'create' to the agent to guide you.");
     yield* terminal.log("");
     return { shouldContinue: true };
   });

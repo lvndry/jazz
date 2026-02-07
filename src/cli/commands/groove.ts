@@ -5,170 +5,170 @@ import React from "react";
 import { store } from "@/cli/ui/App";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
-import { LoggerServiceTag } from "@/core/interfaces/logger";
-import { TerminalServiceTag } from "@/core/interfaces/terminal";
-import type { Agent } from "@/core/types/agent";
-import { describeCronSchedule } from "@/core/utils/cron-utils";
 import {
   type CatchUpCandidate,
   getCatchUpCandidates,
-  runCatchUpForWorkflows,
-} from "@/core/workflows/catch-up";
+  runCatchUpForGrooves,
+} from "@/core/grooves/catch-up";
+import {
+  GrooveServiceTag,
+  type GrooveMetadata,
+} from "@/core/grooves/groove-service";
 import {
   addRunRecord,
   getRecentRuns,
   getRunHistoryFilePath,
   loadRunHistory,
   updateLatestRunRecord,
-} from "@/core/workflows/run-history";
-import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
-import {
-  WorkflowServiceTag,
-  type WorkflowMetadata,
-} from "@/core/workflows/workflow-service";
-import { groupWorkflows, formatWorkflow } from "@/core/workflows/workflow-utils";
+} from "@/core/grooves/run-history";
+import { SchedulerServiceTag } from "@/core/grooves/scheduler-service";
+import { groupGrooves, formatGroove } from "@/core/grooves/utils";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
+import { TerminalServiceTag } from "@/core/interfaces/terminal";
+import type { Agent } from "@/core/types/agent";
+import { describeCronSchedule } from "@/core/utils/cron-utils";
 
 /**
- * CLI commands for managing and running workflows.
+ * CLI commands for managing and running grooves.
  */
 
 /**
- * List all available workflows.
+ * List all available grooves.
  */
-export function listWorkflowsCommand() {
+export function listGroovesCommand() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const workflowService = yield* WorkflowServiceTag;
+    const grooveService = yield* GrooveServiceTag;
     const scheduler = yield* SchedulerServiceTag;
 
-    yield* terminal.heading("📋 Available Workflows");
+    yield* terminal.heading("📋 Available Grooves");
     yield* terminal.log("");
 
-    const workflows = yield* workflowService.listWorkflows();
+    const grooves = yield* grooveService.listGrooves();
 
-    if (workflows.length === 0) {
-      yield* terminal.info("No workflows found.");
+    if (grooves.length === 0) {
+      yield* terminal.info("No grooves found.");
       yield* terminal.log("");
-      yield* terminal.info("Create a workflow by adding a WORKFLOW.md file to:");
-      yield* terminal.log("  • ./workflows/<name>/WORKFLOW.md (local)");
-      yield* terminal.log("  • ~/.jazz/workflows/<name>/WORKFLOW.md (global)");
+      yield* terminal.info("Create a groove by adding a GROOVE.md file to:");
+      yield* terminal.log("  • ./grooves/<name>/GROOVE.md (local)");
+      yield* terminal.log("  • ~/.jazz/grooves/<name>/GROOVE.md (global)");
       return;
     }
 
     // Resolve scheduled and running status (best-effort; ignore scheduler errors on unsupported platforms)
     const scheduledNames = yield* scheduler.listScheduled().pipe(
-      Effect.map((list) => new Set(list.map((s) => s.workflowName))),
+      Effect.map((list) => new Set(list.map((s) => s.grooveName))),
       Effect.catchAll(() => Effect.succeed(new Set<string>())),
     );
     const runningNames = yield* loadRunHistory().pipe(
-      Effect.map((history) => new Set(history.filter((r) => r.status === "running").map((r) => r.workflowName))),
+      Effect.map((history) => new Set(history.filter((r) => r.status === "running").map((r) => r.grooveName))),
       Effect.catchAll(() => Effect.succeed(new Set<string>())),
     );
 
-    const { local, global, builtin } = groupWorkflows(workflows);
+    const { local, global, builtin } = groupGrooves(grooves);
 
-    function statusBadge(w: WorkflowMetadata): string {
-      if (runningNames.has(w.name)) return " ● running";
-      if (scheduledNames.has(w.name)) return " ○ scheduled";
-      if (w.schedule) return " — not scheduled";
+    function statusBadge(g: GrooveMetadata): string {
+      if (runningNames.has(g.name)) return " ● running";
+      if (scheduledNames.has(g.name)) return " ○ scheduled";
+      if (g.schedule) return " — not scheduled";
       return "";
     }
 
     if (local.length > 0) {
-      yield* terminal.log("Local workflows:");
-      for (const w of local) {
-        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
+      yield* terminal.log("Local grooves:");
+      for (const g of local) {
+        yield* terminal.log(formatGroove(g, { statusBadge: statusBadge(g) }));
       }
       yield* terminal.log("");
     }
 
     if (global.length > 0) {
-      yield* terminal.log("Global workflows (~/.jazz/workflows):");
-      for (const w of global) {
-        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
+      yield* terminal.log("Global grooves (~/.jazz/grooves):");
+      for (const g of global) {
+        yield* terminal.log(formatGroove(g, { statusBadge: statusBadge(g) }));
       }
       yield* terminal.log("");
     }
 
     if (builtin.length > 0) {
-      yield* terminal.log("Built-in workflows:");
-      for (const w of builtin) {
-        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
+      yield* terminal.log("Built-in grooves:");
+      for (const g of builtin) {
+        yield* terminal.log(formatGroove(g, { statusBadge: statusBadge(g) }));
       }
       yield* terminal.log("");
     }
 
-    yield* terminal.info(`Total: ${workflows.length} workflow(s)`);
+    yield* terminal.info(`Total: ${grooves.length} groove(s)`);
   });
 }
 
 /**
- * Show details of a specific workflow.
+ * Show details of a specific groove.
  */
-export function showWorkflowCommand(workflowName: string) {
+export function showGrooveCommand(grooveName: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const workflowService = yield* WorkflowServiceTag;
+    const grooveService = yield* GrooveServiceTag;
 
-    const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
+    const groove = yield* grooveService.loadGroove(grooveName).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
-          yield* terminal.error(`Workflow not found: ${workflowName}`);
-          yield* terminal.info("Run 'jazz workflow list' to see available workflows.");
+          yield* terminal.error(`Groove not found: ${grooveName}`);
+          yield* terminal.info("Run 'jazz groove list' to see available grooves.");
           return yield* Effect.fail(error);
         }),
       ),
     );
 
-    yield* terminal.heading(`📋 Workflow: ${workflow.metadata.name}`);
+    yield* terminal.heading(`📋 Groove: ${groove.metadata.name}`);
     yield* terminal.log("");
-    yield* terminal.log(`Description: ${workflow.metadata.description}`);
-    yield* terminal.log(`Path: ${workflow.metadata.path}`);
+    yield* terminal.log(`Description: ${groove.metadata.description}`);
+    yield* terminal.log(`Path: ${groove.metadata.path}`);
 
-    if (workflow.metadata.agent) {
-      yield* terminal.log(`Agent: ${workflow.metadata.agent}`);
+    if (groove.metadata.agent) {
+      yield* terminal.log(`Agent: ${groove.metadata.agent}`);
     }
 
-    if (workflow.metadata.schedule) {
-      const desc = describeCronSchedule(workflow.metadata.schedule);
+    if (groove.metadata.schedule) {
+      const desc = describeCronSchedule(groove.metadata.schedule);
       const scheduleDisplay = desc
-        ? `${desc} (${workflow.metadata.schedule})`
-        : workflow.metadata.schedule;
+        ? `${desc} (${groove.metadata.schedule})`
+        : groove.metadata.schedule;
       yield* terminal.log(`Schedule: ${scheduleDisplay}`);
     }
 
-    if (workflow.metadata.autoApprove !== undefined) {
-      yield* terminal.log(`Auto-approve: ${workflow.metadata.autoApprove}`);
+    if (groove.metadata.autoApprove !== undefined) {
+      yield* terminal.log(`Auto-approve: ${groove.metadata.autoApprove}`);
     }
 
-    if (workflow.metadata.skills && workflow.metadata.skills.length > 0) {
-      yield* terminal.log(`Skills: ${workflow.metadata.skills.join(", ")}`);
+    if (groove.metadata.skills && groove.metadata.skills.length > 0) {
+      yield* terminal.log(`Skills: ${groove.metadata.skills.join(", ")}`);
     }
 
-    if (workflow.metadata.catchUpOnStartup !== undefined) {
-      yield* terminal.log(`Catch-up on startup: ${workflow.metadata.catchUpOnStartup}`);
+    if (groove.metadata.catchUpOnStartup !== undefined) {
+      yield* terminal.log(`Catch-up on startup: ${groove.metadata.catchUpOnStartup}`);
     }
 
-    if (workflow.metadata.maxCatchUpAge !== undefined) {
-      yield* terminal.log(`Max catch-up age (seconds): ${workflow.metadata.maxCatchUpAge}`);
+    if (groove.metadata.maxCatchUpAge !== undefined) {
+      yield* terminal.log(`Max catch-up age (seconds): ${groove.metadata.maxCatchUpAge}`);
     }
 
     yield* terminal.log("");
     yield* terminal.log("─".repeat(60));
     yield* terminal.log("Prompt:");
     yield* terminal.log("─".repeat(60));
-    yield* terminal.log(workflow.prompt);
+    yield* terminal.log(groove.prompt);
   });
 }
 
-/** Default max iterations for workflows */
+/** Default max iterations for grooves */
 const DEFAULT_MAX_ITERATIONS = 50;
 
 /**
- * Run a workflow once (manually).
+ * Run a groove once (manually).
  */
-export function runWorkflowCommand(
-  workflowName: string,
+export function runGrooveCommand(
+  grooveName: string,
   options?: {
     autoApprove?: boolean;
     agent?: string;
@@ -176,27 +176,27 @@ export function runWorkflowCommand(
 ) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const workflowService = yield* WorkflowServiceTag;
+    const grooveService = yield* GrooveServiceTag;
     const logger = yield* LoggerServiceTag;
 
     const isHeadless = options?.autoApprove === true;
 
-    yield* terminal.heading(`🚀 Running workflow: ${workflowName}`);
+    yield* terminal.heading(`🚀 Running groove: ${grooveName}`);
     yield* terminal.log("");
 
-    // Load the workflow
-    const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
+    // Load the groove
+    const groove = yield* grooveService.loadGroove(grooveName).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
-          yield* terminal.error(`Workflow not found: ${workflowName}`);
-          yield* terminal.info("Run 'jazz workflow list' to see available workflows.");
+          yield* terminal.error(`Groove not found: ${grooveName}`);
+          yield* terminal.info("Run 'jazz groove list' to see available grooves.");
           return yield* Effect.fail(error);
         }),
       ),
     );
 
-    // Determine which agent to use (CLI flag > workflow metadata > default)
-    const agentIdentifier = options?.agent || workflow.metadata.agent || "default";
+    // Determine which agent to use (CLI flag > groove metadata > default)
+    const agentIdentifier = options?.agent || groove.metadata.agent || "default";
 
     // Try to get the specified agent, or prompt user to select one
     let agent: Agent;
@@ -212,10 +212,10 @@ export function runWorkflowCommand(
       if (isHeadless) {
         yield* terminal.error(`Agent '${agentIdentifier}' not found.`);
         yield* terminal.info(
-          "Scheduled workflows require a valid agent. Update the workflow or create the agent.",
+          "Scheduled grooves require a valid agent. Update the groove or create the agent.",
         );
         return yield* Effect.fail(
-          new Error(`Agent '${agentIdentifier}' not found for headless workflow execution`),
+          new Error(`Agent '${agentIdentifier}' not found for headless groove execution`),
         );
       }
 
@@ -238,9 +238,9 @@ export function runWorkflowCommand(
       yield* terminal.log("");
 
       // Prompt user to select an agent
-      const selectedAgent = yield* selectAgentForWorkflow(allAgents, "Select an agent to run this workflow:");
+      const selectedAgent = yield* selectAgentForGroove(allAgents, "Select an agent to run this groove:");
       if (!selectedAgent) {
-        yield* terminal.info("Workflow cancelled.");
+        yield* terminal.info("Groove cancelled.");
         return;
       }
 
@@ -251,16 +251,16 @@ export function runWorkflowCommand(
     // Determine auto-approve policy
     const autoApprovePolicy =
       options?.autoApprove === true
-        ? workflow.metadata.autoApprove ?? true
-        : workflow.metadata.autoApprove;
+        ? groove.metadata.autoApprove ?? true
+        : groove.metadata.autoApprove;
 
     if (autoApprovePolicy) {
       yield* terminal.info(`Auto-approve policy: ${autoApprovePolicy}`);
     }
 
     yield* terminal.log("");
-    yield* logger.info("Starting workflow execution", {
-      workflow: workflowName,
+    yield* logger.info("Starting groove execution", {
+      groove: grooveName,
       agent: agent.name,
       autoApprove: autoApprovePolicy,
     });
@@ -268,32 +268,32 @@ export function runWorkflowCommand(
     // Record the run start
     const startedAt = new Date().toISOString();
     yield* addRunRecord({
-      workflowName,
+      grooveName,
       startedAt,
       status: "running",
       triggeredBy: isHeadless ? "scheduled" : "manual",
     }).pipe(Effect.catchAll(() => Effect.void)); // Don't fail if history tracking fails
 
-    // Use configurable max iterations from workflow metadata
-    const maxIterations = workflow.metadata.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    // Use configurable max iterations from groove metadata
+    const maxIterations = groove.metadata.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
-    // Run the agent with the workflow prompt
+    // Run the agent with the groove prompt
     yield* AgentRunner.run({
       agent,
-      userInput: workflow.prompt,
-      sessionId: `workflow-${workflowName}-${Date.now()}`,
-      conversationId: `workflow-${workflowName}-${Date.now()}`,
+      userInput: groove.prompt,
+      sessionId: `groove-${grooveName}-${Date.now()}`,
+      conversationId: `groove-${grooveName}-${Date.now()}`,
       maxIterations,
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
     }).pipe(
       Effect.tap(() =>
-        updateLatestRunRecord(workflowName, {
+        updateLatestRunRecord(grooveName, {
           completedAt: new Date().toISOString(),
           status: "completed",
         }).pipe(Effect.catchAll(() => Effect.void)),
       ),
       Effect.tapError((error) =>
-        updateLatestRunRecord(workflowName, {
+        updateLatestRunRecord(grooveName, {
           completedAt: new Date().toISOString(),
           status: "failed",
           error: error instanceof Error ? error.message : String(error),
@@ -302,40 +302,40 @@ export function runWorkflowCommand(
     );
 
     yield* terminal.log("");
-    yield* terminal.success(`Workflow completed: ${workflowName}`);
+    yield* terminal.success(`Groove completed: ${grooveName}`);
   });
 }
 
 /**
- * Schedule a workflow for periodic execution.
+ * Schedule a groove for periodic execution.
  */
-export function scheduleWorkflowCommand(workflowName: string) {
+export function scheduleGrooveCommand(grooveName: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const workflowService = yield* WorkflowServiceTag;
+    const grooveService = yield* GrooveServiceTag;
     const scheduler = yield* SchedulerServiceTag;
 
-    yield* terminal.heading(`⏰ Scheduling workflow: ${workflowName}`);
+    yield* terminal.heading(`⏰ Scheduling groove: ${grooveName}`);
     yield* terminal.log("");
 
-    // Load the workflow to verify it exists and has a schedule
-    const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
+    // Load the groove to verify it exists and has a schedule
+    const groove = yield* grooveService.loadGroove(grooveName).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
-          yield* terminal.error(`Workflow not found: ${workflowName}`);
-          yield* terminal.info("Run 'jazz workflow list' to see available workflows.");
+          yield* terminal.error(`Groove not found: ${grooveName}`);
+          yield* terminal.info("Run 'jazz groove list' to see available grooves.");
           return yield* Effect.fail(error);
         }),
       ),
     );
 
-    if (!workflow.metadata.schedule) {
-      yield* terminal.error(`Workflow '${workflowName}' has no schedule defined.`);
-      yield* terminal.info("Add a 'schedule' field to the workflow's WORKFLOW.md frontmatter.");
+    if (!groove.metadata.schedule) {
+      yield* terminal.error(`Groove '${grooveName}' has no schedule defined.`);
+      yield* terminal.info("Add a 'schedule' field to the groove's GROOVE.md frontmatter.");
       yield* terminal.log("");
       yield* terminal.log("Example:");
       yield* terminal.log("  ---");
-      yield* terminal.log('  name: my-workflow');
+      yield* terminal.log('  name: my-groove');
       yield* terminal.log('  schedule: "0 * * * *"  # Every hour');
       yield* terminal.log("  ---");
       return;
@@ -349,21 +349,21 @@ export function scheduleWorkflowCommand(workflowName: string) {
     }
 
     // Check if already scheduled
-    const isScheduled = yield* scheduler.isScheduled(workflowName);
+    const isScheduled = yield* scheduler.isScheduled(grooveName);
     if (isScheduled) {
-      yield* terminal.info(`Workflow '${workflowName}' is already scheduled. Updating...`);
+      yield* terminal.info(`Groove '${grooveName}' is already scheduled. Updating...`);
     }
 
     // Determine which agent to use for scheduled runs
     let agentId: string;
     let agentName: string;
-    const workflowAgentId = workflow.metadata.agent || "default";
+    const grooveAgentId = groove.metadata.agent || "default";
 
     // Try to verify the agent exists
-    const agentResult = yield* getAgentByIdentifier(workflowAgentId).pipe(Effect.either);
+    const agentResult = yield* getAgentByIdentifier(grooveAgentId).pipe(Effect.either);
 
     if (agentResult._tag === "Right") {
-      agentId = workflowAgentId;
+      agentId = grooveAgentId;
       agentName = agentResult.right.name;
       yield* terminal.info(`Using agent: ${agentName}`);
     } else {
@@ -378,17 +378,17 @@ export function scheduleWorkflowCommand(workflowName: string) {
         );
       }
 
-      if (workflowAgentId !== "default") {
-        yield* terminal.warn(`Agent '${workflowAgentId}' specified in workflow not found.`);
+      if (grooveAgentId !== "default") {
+        yield* terminal.warn(`Agent '${grooveAgentId}' specified in groove not found.`);
       } else {
-        yield* terminal.info("No agent specified in workflow. Please select an agent:");
+        yield* terminal.info("No agent specified in groove. Please select an agent:");
       }
       yield* terminal.log("");
 
       // Prompt user to select an agent
-      const selectedAgent = yield* selectAgentForWorkflow(
+      const selectedAgent = yield* selectAgentForGroove(
         allAgents,
-        "Select an agent to run this scheduled workflow:",
+        "Select an agent to run this scheduled groove:",
       );
       if (!selectedAgent) {
         yield* terminal.info("Scheduling cancelled.");
@@ -402,40 +402,40 @@ export function scheduleWorkflowCommand(workflowName: string) {
 
     yield* terminal.log("");
 
-    // Schedule the workflow with the selected agent
-    yield* scheduler.schedule(workflow.metadata, agentId);
+    // Schedule the groove with the selected agent
+    yield* scheduler.schedule(groove.metadata, agentId);
 
-    yield* terminal.success(`Workflow '${workflowName}' scheduled successfully!`);
+    yield* terminal.success(`Groove '${grooveName}' scheduled successfully!`);
     yield* terminal.log("");
-    yield* terminal.log(`  Schedule: ${workflow.metadata.schedule}`);
+    yield* terminal.log(`  Schedule: ${groove.metadata.schedule}`);
     yield* terminal.log(`  Agent: ${agentName}`);
     yield* terminal.log(`  Scheduler: ${schedulerType}`);
     yield* terminal.log("");
 
-    if (workflow.metadata.autoApprove) {
-      yield* terminal.info(`Auto-approve policy: ${workflow.metadata.autoApprove}`);
+    if (groove.metadata.autoApprove) {
+      yield* terminal.info(`Auto-approve policy: ${groove.metadata.autoApprove}`);
     } else {
       yield* terminal.warn(
-        "No auto-approve policy set. The workflow may pause for approval during scheduled runs.",
+        "No auto-approve policy set. The groove may pause for approval during scheduled runs.",
       );
-      yield* terminal.info("Add 'autoApprove: true' or 'autoApprove: low-risk' to the workflow.");
+      yield* terminal.info("Add 'autoApprove: true' or 'autoApprove: low-risk' to the groove.");
     }
 
     yield* terminal.log("");
     yield* terminal.info("Logs will be written to: ~/.jazz/logs/");
-    yield* terminal.info(`To unschedule: jazz workflow unschedule ${workflowName}`);
+    yield* terminal.info(`To unschedule: jazz groove unschedule ${grooveName}`);
   });
 }
 
 /**
- * Remove a workflow from the schedule.
+ * Remove a groove from the schedule.
  */
-export function unscheduleWorkflowCommand(workflowName: string) {
+export function unscheduleGrooveCommand(grooveName: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const scheduler = yield* SchedulerServiceTag;
 
-    yield* terminal.heading(`🛑 Unscheduling workflow: ${workflowName}`);
+    yield* terminal.heading(`🛑 Unscheduling groove: ${grooveName}`);
     yield* terminal.log("");
 
     const schedulerType = scheduler.getSchedulerType();
@@ -445,27 +445,27 @@ export function unscheduleWorkflowCommand(workflowName: string) {
     }
 
     // Check if scheduled
-    const isScheduled = yield* scheduler.isScheduled(workflowName);
+    const isScheduled = yield* scheduler.isScheduled(grooveName);
     if (!isScheduled) {
-      yield* terminal.info(`Workflow '${workflowName}' is not currently scheduled.`);
+      yield* terminal.info(`Groove '${grooveName}' is not currently scheduled.`);
       return;
     }
 
-    // Unschedule the workflow
-    yield* scheduler.unschedule(workflowName);
+    // Unschedule the groove
+    yield* scheduler.unschedule(grooveName);
 
-    yield* terminal.success(`Workflow '${workflowName}' unscheduled successfully.`);
+    yield* terminal.success(`Groove '${grooveName}' unscheduled successfully.`);
   });
 }
 
 /**
- * List workflows that need catch-up, let user select which to run, then run them.
+ * List grooves that need catch-up, let user select which to run, then run them.
  */
-export function catchupWorkflowCommand() {
+export function catchupGrooveCommand() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
 
-    yield* terminal.heading("🔄 Workflow catch-up");
+    yield* terminal.heading("🔄 Groove catch-up");
     yield* terminal.log("");
     yield* terminal.info(
       "Scheduled runs only fire when the machine is awake. If your Mac was asleep or off at the scheduled time, those runs were missed. Here you can run them now.",
@@ -477,51 +477,51 @@ export function catchupWorkflowCommand() {
     );
 
     if (candidates.length === 0) {
-      yield* terminal.info("No workflows need catch-up right now.");
+      yield* terminal.info("No grooves need catch-up right now.");
       yield* terminal.log("");
       yield* terminal.info(
-        "Workflows must be scheduled, have catchUpOnStartup: true, and have missed their last run within the max catch-up window.",
+        "Grooves must be scheduled, have catchUpOnStartup: true, and have missed their last run within the max catch-up window.",
       );
       return;
     }
 
-    yield* terminal.log("Workflows that missed a scheduled run:");
+    yield* terminal.log("Grooves that missed a scheduled run:");
     yield* terminal.log("");
 
     for (const c of candidates) {
       const scheduledStr = c.decision.scheduledAt?.toISOString() ?? "—";
       const scheduleLabel = describeCronSchedule(c.entry.schedule) ?? c.entry.schedule;
       yield* terminal.log(
-        `  • ${c.entry.workflowName} (${scheduleLabel}) — missed at ${scheduledStr}`,
+        `  • ${c.entry.grooveName} (${scheduleLabel}) — missed at ${scheduledStr}`,
       );
     }
 
     yield* terminal.log("");
 
     const choices = candidates.map((c) => ({
-      name: `${c.entry.workflowName} (${c.decision.scheduledAt?.toISOString() ?? "—"})`,
-      value: c.entry.workflowName,
+      name: `${c.entry.grooveName} (${c.decision.scheduledAt?.toISOString() ?? "—"})`,
+      value: c.entry.grooveName,
     }));
 
     const selected = yield* terminal.checkbox<string>(
-      "Select workflows to run now (Space to toggle, Enter to confirm):",
+      "Select grooves to run now (Space to toggle, Enter to confirm):",
       { choices, default: [] },
     );
 
     if (selected.length === 0) {
-      yield* terminal.info("No workflows selected. Exiting.");
+      yield* terminal.info("No grooves selected. Exiting.");
       return;
     }
 
     const entriesToRun = candidates
-      .filter((c) => selected.includes(c.entry.workflowName))
+      .filter((c) => selected.includes(c.entry.grooveName))
       .map((c) => c.entry);
 
     yield* terminal.log("");
-    yield* terminal.info(`Running catch-up for ${entriesToRun.length} workflow(s)...`);
+    yield* terminal.info(`Running catch-up for ${entriesToRun.length} groove(s)...`);
     yield* terminal.log("");
 
-    yield* runCatchUpForWorkflows(entriesToRun);
+    yield* runCatchUpForGrooves(entriesToRun);
 
     yield* terminal.log("");
     yield* terminal.success("Catch-up finished.");
@@ -529,14 +529,14 @@ export function catchupWorkflowCommand() {
 }
 
 /**
- * List all scheduled workflows.
+ * List all scheduled grooves.
  */
-export function listScheduledWorkflowsCommand() {
+export function listScheduledGroovesCommand() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const scheduler = yield* SchedulerServiceTag;
 
-    yield* terminal.heading("⏰ Scheduled Workflows");
+    yield* terminal.heading("⏰ Scheduled Grooves");
     yield* terminal.log("");
 
     const schedulerType = scheduler.getSchedulerType();
@@ -552,42 +552,42 @@ export function listScheduledWorkflowsCommand() {
     const scheduled = yield* scheduler.listScheduled();
 
     if (scheduled.length === 0) {
-      yield* terminal.info("No workflows are currently scheduled.");
+      yield* terminal.info("No grooves are currently scheduled.");
       yield* terminal.log("");
-      yield* terminal.info("To schedule a workflow: jazz workflow schedule <name>");
+      yield* terminal.info("To schedule a groove: jazz groove schedule <name>");
       return;
     }
 
     for (const s of scheduled) {
       const status = s.enabled ? "✓ enabled" : "✗ disabled";
       const scheduleLabel = describeCronSchedule(s.schedule) ?? s.schedule;
-      yield* terminal.log(`  ${s.workflowName} (${scheduleLabel}) agent: ${s.agent} ${status}`);
+      yield* terminal.log(`  ${s.grooveName} (${scheduleLabel}) agent: ${s.agent} ${status}`);
     }
 
     yield* terminal.log("");
-    yield* terminal.info(`Total: ${scheduled.length} scheduled workflow(s)`);
+    yield* terminal.info(`Total: ${scheduled.length} scheduled groove(s)`);
   });
 }
 
 /**
- * Show workflow run history.
+ * Show groove run history.
  */
-export function workflowHistoryCommand(workflowName?: string) {
+export function grooveHistoryCommand(grooveName?: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
 
-    if (workflowName) {
-      yield* terminal.heading(`📜 Run History: ${workflowName}`);
+    if (grooveName) {
+      yield* terminal.heading(`📜 Run History: ${grooveName}`);
     } else {
-      yield* terminal.heading("📜 Recent Workflow Runs");
+      yield* terminal.heading("📜 Recent Groove Runs");
     }
     yield* terminal.log("");
 
     const runs = yield* getRecentRuns(20);
 
-    // Filter by workflow name if provided
-    const filteredRuns = workflowName
-      ? runs.filter((r) => r.workflowName === workflowName)
+    // Filter by groove name if provided
+    const filteredRuns = grooveName
+      ? runs.filter((r) => r.grooveName === grooveName)
       : runs;
 
     if (filteredRuns.length === 0) {
@@ -607,7 +607,7 @@ export function workflowHistoryCommand(workflowName?: string) {
       const trigger = run.triggeredBy === "scheduled" ? " (scheduled)" : "";
 
       yield* terminal.log(
-        `  ${statusIcon} ${run.workflowName}${trigger} - ${run.status} (${duration})`,
+        `  ${statusIcon} ${run.grooveName}${trigger} - ${run.status} (${duration})`,
       );
       yield* terminal.log(`    Started: ${run.startedAt}`);
       if (run.error) {
@@ -621,9 +621,9 @@ export function workflowHistoryCommand(workflowName?: string) {
 }
 
 /**
- * Helper to prompt user to select an agent for workflow execution.
+ * Helper to prompt user to select an agent for groove execution.
  */
-function selectAgentForWorkflow(
+function selectAgentForGroove(
   agents: readonly Agent[],
   prompt: string,
 ): Effect.Effect<Agent | null, never> {

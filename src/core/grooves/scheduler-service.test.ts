@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { ScheduledWorkflow } from "./scheduler-service";
+import type { ScheduledGroove } from "./scheduler-service";
 import { isValidCronExpression } from "../utils/cron-utils";
 
 // Re-implement parseCronField for testing since it's not exported
@@ -49,24 +49,24 @@ function parseCronField(value: string, fieldName: string): number | undefined {
 }
 
 describe("SchedulerService", () => {
-  describe("ScheduledWorkflow metadata", () => {
+  describe("ScheduledGroove metadata", () => {
     it("should store all required fields", () => {
-      const scheduled: ScheduledWorkflow = {
-        workflowName: "test-workflow",
+      const scheduled: ScheduledGroove = {
+        grooveName: "test-groove",
         schedule: "0 8 * * *",
         agent: "my-agent",
         enabled: true,
       };
 
-      expect(scheduled.workflowName).toBe("test-workflow");
+      expect(scheduled.grooveName).toBe("test-groove");
       expect(scheduled.schedule).toBe("0 8 * * *");
       expect(scheduled.agent).toBe("my-agent");
       expect(scheduled.enabled).toBe(true);
     });
 
     it("should support optional lastRun and nextRun fields", () => {
-      const scheduled: ScheduledWorkflow = {
-        workflowName: "test",
+      const scheduled: ScheduledGroove = {
+        grooveName: "test",
         schedule: "0 * * * *",
         agent: "agent1",
         enabled: true,
@@ -161,9 +161,9 @@ describe("SchedulerService", () => {
   });
 
   describe("agent assignment", () => {
-    it("should require agent for scheduled workflows", () => {
-      const scheduled: ScheduledWorkflow = {
-        workflowName: "test",
+    it("should require agent for scheduled grooves", () => {
+      const scheduled: ScheduledGroove = {
+        grooveName: "test",
         schedule: "0 * * * *",
         agent: "research-agent",
         enabled: true,
@@ -173,22 +173,22 @@ describe("SchedulerService", () => {
       expect(typeof scheduled.agent).toBe("string");
     });
 
-    it("should allow different agents for different workflows", () => {
-      const workflow1: ScheduledWorkflow = {
-        workflowName: "email-cleanup",
+    it("should allow different agents for different grooves", () => {
+      const groove1: ScheduledGroove = {
+        grooveName: "email-cleanup",
         schedule: "0 * * * *",
         agent: "email-agent",
         enabled: true,
       };
 
-      const workflow2: ScheduledWorkflow = {
-        workflowName: "tech-digest",
+      const groove2: ScheduledGroove = {
+        grooveName: "tech-digest",
         schedule: "0 8 * * *",
         agent: "research-agent",
         enabled: true,
       };
 
-      expect(workflow1.agent).not.toBe(workflow2.agent);
+      expect(groove1.agent).not.toBe(groove2.agent);
     });
   });
 });

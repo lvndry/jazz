@@ -1,24 +1,24 @@
 ---
-name: create-workflow
-description: Create Jazz workflow automation files (WORKFLOW.md). Use this for scheduling Jazz agents to run recurring tasks. For OS-level scripts/commands, use create-system-routine.
+name: create-groove
+description: Create Jazz groove automation files (GROOVE.md). Use this for scheduling Jazz agents to run recurring tasks. For OS-level scripts/commands, use create-system-routine.
 ---
 
-# Create Workflow
+# Create Groove
 
-Generate workflow automation files that schedule jazz agents to run recurring tasks.
+Generate groove automation files that schedule jazz agents to run recurring tasks.
 
 ## When to Use
 
 - User wants to automate a recurring task using a Jazz Agent
-- User asks to "create a workflow" or "schedule an agent"
+- User asks to "create a groove" or "schedule an agent"
 - User says "I want to check X every Y" (e.g., "check emails every hour")
 - User wants unattended agent execution
 
-**Note:** If the user wants to schedule a simple shell script or system command *without* using a Jazz Agent, use the `create-system-routine` skill instead.
+**Note:** If the user wants to schedule a simple shell script or system command _without_ using a Jazz Agent, use the `create-system-routine` skill instead.
 
 ## Gathering Information (Questionnaire)
 
-**Do not create the workflow file until you have enough information.** If the user's prompt is vague (e.g. "create a workflow", "I want to automate emails") or missing any of the items below, guide them through a short questionnaire instead of guessing.
+**Do not create the groove file until you have enough information.** If the user's prompt is vague (e.g. "create a groove", "I want to automate emails") or missing any of the items below, guide them through a short questionnaire instead of guessing.
 
 **You have enough info when you know:**
 
@@ -28,16 +28,16 @@ Generate workflow automation files that schedule jazz agents to run recurring ta
 4. **Auto-approve**: What risk level? (read-only / low-risk / high-risk / false—default to conservative.)
 5. **Skills**: Which skills does the agent need? (e.g. email, calendar, deep-research.)
 6. **Instructions**: Clear, safety-first prompt with explicit criteria and "when in doubt" rules.
-7. **Location**: Where to save? (Local `./workflows/<name>/` or global `~/.jazz/workflows/<name>/`.)
+7. **Location**: Where to save? (Local `./grooves/<name>/` or global `~/.jazz/grooves/<name>/`.)
 
 **How to run the questionnaire:**
 
 - Ask **one or a few questions at a time**; don't dump a long list.
 - Use the user's words to refine (e.g. "You said 'clean my inbox'—should that be archive only, or also delete? How old is 'old'?").
 - After each answer, confirm what you have and ask only what's still missing.
-- Once you have all seven items above, proceed to create the WORKFLOW.md.
+- Once you have all seven items above, proceed to create the GROOVE.md.
 
-## Workflow
+## Groove
 
 1. **Understand the task**: What should the agent do? When should it run? If unclear, ask.
 2. **Determine schedule**: Convert user intent to cron format; if not stated, ask when they want it to run.
@@ -45,13 +45,13 @@ Generate workflow automation files that schedule jazz agents to run recurring ta
 4. **Choose auto-approve policy**: Based on risk level of operations; default to conservative.
 5. **Identify required skills**: What skills will the agent need?
 6. **Write clear instructions**: Safety-first prompt with explicit guidelines.
-7. **Create WORKFLOW.md**: Place in appropriate directory only after you have enough info from above.
+7. **Create GROOVE.md**: Place in appropriate directory only after you have enough info from above.
 
-## Workflow File Structure
+## Groove File Structure
 
 ```markdown
 ---
-name: workflow-name
+name: groove-name
 description: Brief one-line summary
 schedule: "0 8 * * *"
 autoApprove: read-only
@@ -62,7 +62,7 @@ skills:
   - skill-name
 ---
 
-# Workflow Title
+# Groove Title
 
 [Clear instructions for the agent, including safety guidelines]
 ```
@@ -77,7 +77,7 @@ skills:
 | `agent`            |          | Agent to use (optional, will prompt if omitted) | `research-agent`                                      |
 | `autoApprove`      |          | Auto-approval policy                            | `read-only`, `low-risk`, `high-risk`, `true`, `false` |
 | `skills`           |          | Skills to load                                  | `["email", "calendar"]`                               |
-| `catchUpOnStartup` |          | Run missed workflows on startup                 | `true`                                                |
+| `catchUpOnStartup` |          | Run missed grooves on startup                   | `true`                                                |
 | `maxCatchUpAge`    |          | Max age (seconds) for catch-up runs             | `43200` (12 hours)                                    |
 
 ## Cron Schedule Guide
@@ -97,56 +97,59 @@ Cron format: `minute hour day-of-month month day-of-week`
 
 ## Auto-Approve Policy
 
-Choose based on what tools the workflow will use:
+Choose based on what tools the groove will use:
 
-| Policy      | When to Use                           | Example Workflows                                |
+| Policy      | When to Use                           | Example Grooves                                  |
 | ----------- | ------------------------------------- | ------------------------------------------------ |
 | `read-only` | Only reads/searches, no modifications | Weather check, news digest, monitoring           |
 | `low-risk`  | Modifies data but reversible          | Email archiving, labeling, calendar events       |
 | `high-risk` | Deletes, sends, executes commands     | Email cleanup with deletion, automated responses |
 | `false`     | Always ask for approval               | Testing, development                             |
 
-**Default to the most restrictive policy that allows the workflow to function.**
+**Default to the most restrictive policy that allows the groove to function.**
 
 ## Safety Guidelines
 
-Always include safety rules in the workflow prompt:
+Always include safety rules in the groove prompt:
 
 ```markdown
 **Safety Rules:**
+
 - When in doubt, DO NOTHING
 - Only perform actions you're 100% confident about
 - Leave uncertain items for manual review
 - [Add task-specific safety rules]
 ```
 
-For workflows that modify or delete:
+For grooves that modify or delete:
+
 - Emphasize conservative behavior
 - Specify exact criteria (e.g., "only archive newsletters older than 2 weeks")
 - Add "if unsure, skip it" instructions
 
 ## File Location
 
-Ask user where they want the workflow (or choose based on context):
+Ask user where they want the groove (or choose based on context):
 
-| Location   | Use Case                      | Path                                   |
-| ---------- | ----------------------------- | -------------------------------------- |
-| **Local**  | Project-specific automation   | `./workflows/<name>/WORKFLOW.md`       |
-| **Global** | User-wide personal automation | `~/.jazz/workflows/<name>/WORKFLOW.md` |
+| Location   | Use Case                      | Path                               |
+| ---------- | ----------------------------- | ---------------------------------- |
+| **Local**  | Project-specific automation   | `./grooves/<name>/GROOVE.md`       |
+| **Global** | User-wide personal automation | `~/.jazz/grooves/<name>/GROOVE.md` |
 
-Built-in workflows are shipped with Jazz and shouldn't be modified.
+Built-in grooves are shipped with Jazz and shouldn't be modified.
 
 ## Complete Example
 
-User request: *"I want to clean up my email inbox every hour, archiving old newsletters"*
+User request: _"I want to clean up my email inbox every hour, archiving old newsletters"_
 
 **Questions to ask:**
+
 1. ✓ What counts as "old"? (2 weeks)
 2. ✓ Should it only archive or also delete? (archive only)
 3. ✓ Any specific senders to target? (newsletters, promotional)
-4. ✓ Where to save it? (global: `~/.jazz/workflows/`)
+4. ✓ Where to save it? (global: `~/.jazz/grooves/`)
 
-**Generated workflow:**
+**Generated groove:**
 
 ```markdown
 ---
@@ -163,11 +166,13 @@ skills:
 Review my inbox from the last hour and archive emails matching these criteria:
 
 **Criteria for archiving:**
+
 - Newsletters older than 2 weeks
 - Promotional emails older than 3 days
 - GitHub notifications already read
 
 **Safety Rules:**
+
 - When in doubt, DO NOTHING
 - Only archive emails you're 100% confident match the criteria
 - If an email might be important, leave it in inbox
@@ -179,7 +184,7 @@ Log count of archived emails to console.
 
 ## Skills Integration
 
-If the workflow needs specific capabilities, suggest relevant skills:
+If the groove needs specific capabilities, suggest relevant skills:
 
 | Task Type           | Skills to Include             |
 | ------------------- | ----------------------------- |
@@ -190,6 +195,7 @@ If the workflow needs specific capabilities, suggest relevant skills:
 | Web searches        | (none needed, built-in)       |
 
 Include skills in frontmatter:
+
 ```yaml
 skills:
   - email
@@ -197,6 +203,7 @@ skills:
 ```
 
 And reference in prompt:
+
 ```markdown
 Use the `email` skill to access my inbox efficiently.
 ```
@@ -206,20 +213,20 @@ Use the `email` skill to access my inbox efficiently.
 Tell the user what to do next:
 
 ```bash
-# Test the workflow manually first
-jazz workflow run <name>
+# Test the groove manually first
+jazz groove run <name>
 
 # Once confident, schedule it
-jazz workflow schedule <name>
+jazz groove schedule <name>
 
 # Monitor logs
 tail -f ~/.jazz/logs/<name>.log
 
 # View run history
-jazz workflow history <name>
+jazz groove history <name>
 ```
 
-## Common Workflow Patterns
+## Common Groove Patterns
 
 ### Daily Research Digest
 
@@ -318,7 +325,7 @@ Before creating the file, verify:
 - ✓ Auto-approve matches task risk level
 - ✓ Safety rules are explicit and conservative
 - ✓ Skills are listed if needed
-- ✓ Output location is specified if workflow saves files
+- ✓ Output location is specified if groove saves files
 - ✓ Instructions are clear enough for an AI agent
 
 ## Anti-Patterns
@@ -327,24 +334,25 @@ Before creating the file, verify:
 - ❌ Overly aggressive auto-approve: Don't use `high-risk` unless necessary
 - ❌ Missing safety rules: Always include "when in doubt" guidelines
 - ❌ No schedule: If automating, include a schedule (or explain it's manual-only)
-- ❌ Wrong location: Project-specific workflows shouldn't be global
-- ❌ Too complex: Break into multiple simple workflows instead
+- ❌ Wrong location: Project-specific grooves shouldn't be global
+- ❌ Too complex: Break into multiple simple grooves instead
 
 ## Testing Guidance
 
 Always recommend testing before scheduling:
 
-1. **Manual run first**: `jazz workflow run <name>` to verify logic
+1. **Manual run first**: `jazz groove run <name>` to verify logic
 2. **Check with `--auto-approve`**: Test the auto-approval behavior
 3. **Monitor initial runs**: Watch logs for first few scheduled executions
 4. **Iterate**: Adjust safety rules and criteria based on actual behavior
 
 ## Documentation
 
-After creating the workflow, optionally create a README in the workflow directory explaining:
+After creating the groove, optionally create a README in the groove directory explaining:
+
 - What it does
 - When it runs
 - What to expect
 - How to customize
 
-Example: `workflows/email-cleanup/README.md`
+Example: `grooves/email-cleanup/README.md`

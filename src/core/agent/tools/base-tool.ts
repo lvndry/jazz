@@ -38,7 +38,7 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
   /** If true, hide this tool from UI listings while keeping it callable. */
   readonly hidden?: boolean;
   /**
-   * Risk level for auto-approval in workflows.
+   * Risk level for auto-approval in grooves.
    * Defaults to "read-only" for regular tools, "high-risk" for approval tools.
    */
   readonly riskLevel?: ToolRiskLevel;
@@ -163,7 +163,7 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
   /** Zod schema for parameters */
   readonly parameters: z.ZodTypeAny;
   /**
-   * Risk level for auto-approval in workflows.
+   * Risk level for auto-approval in grooves.
    * Defaults to "high-risk" for approval tools.
    */
   readonly riskLevel?: ToolRiskLevel;

@@ -120,7 +120,7 @@ Add to `src/core/agent/`:
 
 - Keep it pure - no direct I/O or external calls
 - Use dependency injection via interfaces
-- Example: New workflow → `agent/workflows/my-workflow.ts`
+- Example: New groove → `grooves/my-groove/GROOVE.md`
 
 ### What Belongs in Core?
 

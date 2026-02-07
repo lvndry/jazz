@@ -31,7 +31,7 @@ Create effective Jazz skills for automating workflows and specialized tasks.
 ```
 skill-name/
 ├── SKILL.md              # Required - main instructions
-├── reference.md          # Optional - detailed documentation  
+├── reference.md          # Optional - detailed documentation
 ├── examples.md           # Optional - usage examples
 └── scripts/              # Optional - utility scripts
 ```
@@ -57,9 +57,11 @@ description: Brief description of what this skill does and when to use it
 # Your Skill Name
 
 ## Instructions
+
 Clear, step-by-step guidance.
 
 ## Examples
+
 Concrete usage examples.
 ```
 
@@ -95,8 +97,10 @@ The description determines when Jazz applies the skill.
 Context window is shared. Only add information Jazz doesn't already know.
 
 **Good:**
+
 ```markdown
 ## Generate report
+
 Use pandas for data analysis:
 \`\`\`python
 import pandas as pd
@@ -105,8 +109,10 @@ df = pd.read_csv("data.csv")
 ```
 
 **Bad:**
+
 ```markdown
 ## Generate report
+
 Data analysis is important for understanding patterns.
 There are many ways to analyze data, but we recommend...
 ```
@@ -121,6 +127,7 @@ Essential info in SKILL.md; details in separate files:
 
 ```markdown
 ## Additional resources
+
 - For API details, see [reference.md](reference.md)
 - For examples, see [examples.md](examples.md)
 ```
@@ -149,19 +156,23 @@ If the skill deals with news, research, or time-sensitive information:
 ## Report structure
 
 \`\`\`markdown
+
 # [Title]
 
 ## Summary
+
 [Overview]
 
 ## Findings
+
 - Finding 1
 - Finding 2
 
 ## Recommendations
+
 1. Action 1
 2. Action 2
-\`\`\`
+   \`\`\`
 ```
 
 ### Workflow Pattern
@@ -190,21 +201,25 @@ Run: `python scripts/analyze.py input.json`
 ## Creation Workflow
 
 ### Phase 1: Discovery (questionnaire if needed)
+
 Gather purpose, location, triggers, requirements, examples. If the user hasn't provided all of these, guide them through questions until you have enough info—then proceed to Phase 2.
 
 ### Phase 2: Design
+
 1. Draft skill name (lowercase, hyphens, max 64 chars)
 2. Write specific description
 3. Outline main sections
 4. Identify supporting files needed
 
 ### Phase 3: Implementation
+
 1. Create directory structure
 2. Write SKILL.md with frontmatter
 3. Create supporting files
 4. Add utility scripts if needed
 
 ### Phase 4: Verification
+
 - [ ] SKILL.md under 500 lines
 - [ ] Description is specific with trigger terms
 - [ ] Consistent terminology
@@ -226,6 +241,7 @@ Gather purpose, location, triggers, requirements, examples. If the user hasn't p
 ## Complete Example
 
 **Directory:**
+
 ```
 code-review/
 ├── SKILL.md
@@ -233,6 +249,7 @@ code-review/
 ```
 
 **SKILL.md:**
+
 ```markdown
 ---
 name: code-review
@@ -242,16 +259,19 @@ description: Review code for quality and security. Use when reviewing PRs or cod
 # Code Review
 
 ## Checklist
+
 - [ ] Logic correct, handles edge cases
 - [ ] No security vulnerabilities
 - [ ] Follows style conventions
 - [ ] Tests cover changes
 
 ## Feedback Format
+
 - 🔴 **Critical**: Must fix
 - 🟡 **Suggestion**: Consider improving
 - 🟢 **Nice to have**: Optional
 
 ## Details
+
 See [standards.md](standards.md) for coding standards.
 ```

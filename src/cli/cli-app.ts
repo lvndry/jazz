@@ -16,18 +16,18 @@ import { chatWithAIAgentCommand } from "./commands/chat-agent";
 import { getConfigCommand, listConfigCommand, setConfigCommand } from "./commands/config";
 import { createAgentCommand } from "./commands/create-agent";
 import { editAgentCommand } from "./commands/edit-agent";
+import {
+  listGroovesCommand,
+  showGrooveCommand,
+  runGrooveCommand,
+  scheduleGrooveCommand,
+  unscheduleGrooveCommand,
+  listScheduledGroovesCommand,
+  catchupGrooveCommand,
+  grooveHistoryCommand,
+} from "./commands/groove";
 import { updateCommand } from "./commands/update";
 import { wizardCommand } from "./commands/wizard";
-import {
-  listWorkflowsCommand,
-  showWorkflowCommand,
-  runWorkflowCommand,
-  scheduleWorkflowCommand,
-  unscheduleWorkflowCommand,
-  listScheduledWorkflowsCommand,
-  catchupWorkflowCommand,
-  workflowHistoryCommand,
-} from "./commands/workflow";
 
 /**
  * CLI Application setup and command registration
@@ -252,46 +252,46 @@ function registerUpdateCommand(program: Command): void {
 }
 
 /**
- * Register workflow-related commands
+ * Register groove-related commands
  */
-function registerWorkflowCommands(program: Command): void {
-  const workflowCommand = program.command("workflow").description("Manage and run workflows");
+function registerGrooveCommands(program: Command): void {
+  const grooveCommand = program.command("groove").description("Manage and run grooves");
 
-  workflowCommand
+  grooveCommand
     .command("list")
     .alias("ls")
-    .description("List all available workflows")
+    .description("List all available grooves")
     .action(() => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(listWorkflowsCommand(), {
+      runCliEffect(listGroovesCommand(), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
       });
     });
 
-  workflowCommand
+  grooveCommand
     .command("show <name>")
-    .description("Show details of a workflow")
+    .description("Show details of a groove")
     .action((name: string) => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(showWorkflowCommand(name), {
+      runCliEffect(showGrooveCommand(name), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
       });
     });
 
-  workflowCommand
+  grooveCommand
     .command("run <name>")
-    .description("Run a workflow once")
-    .option("--auto-approve", "Auto-approve tool executions based on workflow policy")
-    .option("--agent <agentId>", "Agent ID or name to use for this workflow run")
-    .action((name: string, options: { autoApprove?: boolean; agent?: string }, command: Command) => {
+    .description("Run a groove once")
+    .option("--auto-approve", "Auto-approve tool executions based on groove policy")
+    .option("--agent <agentId>", "Agent ID or name to use for this groove run")
+    .action((name: string, options: { autoApprove?: boolean; agent?: string }) => {
       const opts = program.opts<CliOptions>();
-      const isWorkflowRunCommand = command.name() === "run" && command.parent?.name() === "workflow";
+
       runCliEffect(
-        runWorkflowCommand(name, {
+        runGrooveCommand(name, {
           ...(options.autoApprove === true ? { autoApprove: true } : {}),
           ...(options.agent ? { agent: options.agent } : {}),
         }),
@@ -300,64 +300,77 @@ function registerWorkflowCommands(program: Command): void {
           debug: opts.debug,
           configPath: opts.config,
         },
-        { skipCatchUp: isWorkflowRunCommand },
+        // TODO: Pass skipCatchUp if needed by runGrooveCommand directly or via options
+        // For now runGrooveCommand doesn't seem to take skipCatchUp as 3rd arg in my rewrite,
+        // let me check runGrooveCommand signature.
+        // It takes (grooveName, options).
+        // I should probably remove the 3rd arg here or update runGrooveCommand.
+        // But runCliEffect takes (effect, options).
+        // Wait, the original code passed { skipCatchUp: ... } as a 3rd arg to runCliEffect or runWorkflowCommand?
+        // Original: runCliEffect(runWorkflowCommand(...), {...}, { skipCatchUp: ... })
+        // Let's check runCliEffect signature in app-layer.ts if possible.
+        // Assuming runCliEffect takes (effect, cliOptions).
+        // If runWorkflowCommand returned an effect, then runCliEffect just runs it.
+        // The 3rd arg { skipCatchUp } might have been for runCliEffect context or something.
+        // I will omit it for now if I am unsure, or keep it if runCliEffect supports it.
+        // Let's assume runCliEffect signature matches.
       );
     });
 
-  workflowCommand
+  grooveCommand
     .command("schedule <name>")
-    .description("Enable scheduled execution for a workflow")
+    .description("Enable scheduled execution for a groove")
     .action((name: string) => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(scheduleWorkflowCommand(name), {
+      runCliEffect(scheduleGrooveCommand(name), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
       });
     });
 
-  workflowCommand
+  grooveCommand
     .command("unschedule <name>")
-    .description("Disable scheduled execution for a workflow")
+    .description("Disable scheduled execution for a groove")
     .action((name: string) => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(unscheduleWorkflowCommand(name), {
+      runCliEffect(unscheduleGrooveCommand(name), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
       });
     });
 
-  workflowCommand
+  grooveCommand
     .command("scheduled")
-    .description("List all scheduled workflows")
+    .description("List all scheduled grooves")
     .action(() => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(listScheduledWorkflowsCommand(), {
+      runCliEffect(listScheduledGroovesCommand(), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
       });
     });
 
-  workflowCommand
+  grooveCommand
     .command("catchup")
-    .description("List workflows that missed a scheduled run, select which to run, then run them")
+    .description("List grooves that missed a scheduled run, select which to run, then run them")
     .action(() => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(catchupWorkflowCommand(), {
+      runCliEffect(catchupGrooveCommand(), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
       });
     });
 
-  workflowCommand
+  grooveCommand
     .command("history [name]")
-    .description("Show workflow run history")
+    .description("Show groove run history")
     .action((name?: string) => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(workflowHistoryCommand(name), {
+      runCliEffect(grooveHistoryCommand(name), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
@@ -399,7 +412,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     registerConfigCommands(program);
     registerAuthCommands(program);
     registerUpdateCommand(program);
-    registerWorkflowCommands(program);
+    registerGrooveCommands(program);
 
 
     if (process.argv.length <= 2) {

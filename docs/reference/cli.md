@@ -17,14 +17,14 @@ Manage your AI agents.
 - `delete <id>`: Remove an agent.
 - `chat <name>`: Start a session with a specific agent.
 
-### `jazz workflow`
+### `jazz groove`
 
-Manage automated workflows.
+Manage automated grooves.
 
-- `list`: Show available workflow files.
-- `run <name>`: Manually trigger a workflow.
-- `schedule <name>`: Add a workflow to the system scheduler.
-- `scheduled`: List currently scheduled workflows.
+- `list`: Show available groove files.
+- `run <name>`: Manually trigger a groove.
+- `schedule <name>`: Add a groove to the system scheduler.
+- `scheduled`: List currently scheduled grooves.
 
 ### `jazz config`
 

@@ -23,7 +23,7 @@ Understand the core building blocks of Jazz.
 
 - [Agents](./concepts/agents.md)
 - [Skills](./concepts/skills.md)
-- [Workflows](./concepts/workflows.md)
+- [Grooves](./concepts/grooves.md)
 - [Scheduling](./concepts/scheduling.md)
 
 ### [Integrations](./integrations/index.md)
