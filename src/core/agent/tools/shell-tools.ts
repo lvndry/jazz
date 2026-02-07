@@ -269,13 +269,12 @@ This command will be executed on your system. Only approve commands you trust.`;
           }
 
           // Log command execution for security auditing
-          console.warn(`🔒 SECURITY LOG: Command executed by agent ${context.agentId}:`);
-          console.warn({
-            command: args.command,
-            workingDirectory: workingDir,
-            exitCode: result.exitCode,
-            timestamp: new Date().toISOString(),
-          });
+          console.warn(`🔒 Command executed. Exit code: ${result.exitCode}`);
+          const output = (result.stdout + (result.stderr ? `\nERR: ${result.stderr}` : "")).trim();
+          if (output) {
+            const preview = output.length > 200 ? output.substring(0, 200) + "..." : output;
+            console.warn(`Output: ${preview}`);
+          }
 
           return {
             success: true,
@@ -313,6 +312,6 @@ This command will be executed on your system. Only approve commands you trust.`;
     },
   };
 
-   
+
   return defineApprovalTool<ShellCommandDeps, ExecuteCommandArgs>(config);
 }

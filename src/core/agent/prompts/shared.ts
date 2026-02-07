@@ -2,6 +2,7 @@ export const SYSTEM_INFORMATION = `
 - Date: {currentDate}
 - OS: {osInfo}
 - Shell: {shell}
+- Home: {homeDirectory}
 - Hostname: {hostname}
 - User: {username}
 `;
