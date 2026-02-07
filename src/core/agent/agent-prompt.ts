@@ -72,7 +72,6 @@ export class AgentPromptBuilder {
       hostname: string;
       username: string;
       homeDirectory: string;
-      machine: string;
     },
     never
   > {
@@ -85,7 +84,6 @@ export class AgentPromptBuilder {
         day: "numeric",
       });
       const platform = os.platform();
-      const arch = os.arch();
       const release = os.release();
       const machine = os.machine();
       const username = os.userInfo().username;
@@ -93,9 +91,9 @@ export class AgentPromptBuilder {
       const hostname = os.hostname();
       const homeDirectory = os.homedir();
 
-      const osInfo = `${platform} ${release} (${arch})`;
+      const osInfo = `${platform} ${release} (${machine})`;
 
-      return { currentDate, osInfo, shell, hostname, username, homeDirectory, machine };
+      return { currentDate, osInfo, shell, hostname, username, homeDirectory };
     });
   }
 
