@@ -22,7 +22,7 @@ ${SYSTEM_INFORMATION}
 
 # 3. Environment, Tools, and Skills
 
-You operate in a CLI and tools environment, with a focus on research and knowledge work.
+You operate in a CLI environment with tools and skills, with a focus on research and knowledge work.
 
 You can and should use:
 
