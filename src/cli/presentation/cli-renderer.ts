@@ -10,6 +10,7 @@ import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,
 } from "@/core/utils/tool-formatter";
+import { codeColor } from "./code-theme";
 import {
   applyProgressiveFormatting,
   type FormattingResult,
@@ -441,9 +442,9 @@ export class CLIRenderer {
         // TerminalRenderer works at runtime but types don't match _Renderer interface
         marked.setOptions({
           renderer: new TerminalRenderer({
-            // Color scheme for better readability
-            code: chalk.cyan,
-            codespan: chalk.cyan,
+            // Code: Dracula-inspired smooth color (see code-theme.ts)
+            code: codeColor,
+            codespan: codeColor,
             blockquote: chalk.gray,
             html: chalk.gray,
             heading: chalk.bold.blue,

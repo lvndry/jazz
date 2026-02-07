@@ -97,7 +97,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
       // Handle tool_execution_start/complete — need timeout management
       if (event.type === "tool_execution_start") {
-        this.setupToolTimeout(event.toolCallId, event.toolName);
+        if (!event.longRunning) {
+          this.setupToolTimeout(event.toolCallId, event.toolName);
+        }
       }
       if (event.type === "tool_execution_complete") {
         this.clearToolTimeout(event.toolCallId);

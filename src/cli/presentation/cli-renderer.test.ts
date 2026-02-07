@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
+import { codeColor } from "./code-theme";
 
 // Test helper class to access protected methods
 class TestCLIRenderer extends CLIRenderer {
@@ -63,7 +64,7 @@ describe("CLIRenderer", () => {
       const text = "`code`";
       renderer.testRenderChunk(text, 0);
       const result = renderer.testFlushBuffer();
-      expect(result).toBe(chalk.cyan("code"));
+      expect(result).toBe(codeColor("code"));
     });
 
     it("should render headers correctly", () => {
@@ -103,11 +104,11 @@ describe("CLIRenderer", () => {
       const result1 = renderer.testRenderChunk(chunk1, 0);
       expect(result1).toBe(chalk.yellow("```typescript") + "\n");
 
-      // Content inside code block (should be cyan)
+      // Content inside code block (should be green)
       const chunk2 = "const x = 1;\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
       // The implementation colors the entire chunk including the newline
-      expect(result2).toBe(chalk.cyan("const x = 1;\n"));
+      expect(result2).toBe(codeColor("const x = 1;\n"));
 
       // End code block
       const chunk3 = "```\n";
@@ -126,10 +127,10 @@ describe("CLIRenderer", () => {
       const result1 = renderer.testRenderChunk(chunk1, 0);
       const lines = result1.split("\n");
       expect(lines[0]).toBe(chalk.yellow("```typescript"));
-      expect(lines[1]).toBe(chalk.cyan("const x = 1;"));
+      expect(lines[1]).toBe(codeColor("const x = 1;"));
       expect(lines[2]).toBe(chalk.yellow("```"));
 
-      // Next chunk should be plain (not cyan)
+      // Next chunk should be plain (not green)
       const chunk2 = "Normal text after code block\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
       expect(result2).toBe("Normal text after code block\n");
@@ -145,7 +146,7 @@ describe("CLIRenderer", () => {
       const result2 = renderer.testRenderChunk(chunk2, 0);
       const lines = result2.split("\n");
       expect(lines[0]).toBe(chalk.yellow("```python"));
-      expect(lines[1]).toBe(chalk.cyan("print('hello')"));
+      expect(lines[1]).toBe(codeColor("print('hello')"));
       expect(lines[2]).toBe(chalk.yellow("```"));
 
       // Text after should be plain
@@ -340,7 +341,7 @@ describe("CLIRenderer", () => {
 
       // renderer2 should not be affected
       const result = (renderer2 as any).renderChunk("Normal text\n", 0);
-      expect(result).toBe("Normal text\n"); // Should not be colored cyan
+      expect(result).toBe("Normal text\n"); // Should not be colored (code color only inside blocks)
     });
   });
 });

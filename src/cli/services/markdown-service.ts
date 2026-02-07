@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { Context, Effect, Layer } from "effect";
+import { codeColor } from "@/cli/presentation/code-theme";
 
 // ============================================================================
 // Types
@@ -148,7 +149,7 @@ function formatItalic(text: string): string {
 }
 
 function formatInlineCode(text: string): string {
-  return text.replace(INLINE_CODE_REGEX, (_match, code) => chalk.cyan(code));
+  return text.replace(INLINE_CODE_REGEX, (_match: string, code: string) => codeColor(code));
 }
 
 function formatHeadings(text: string): string {
@@ -253,7 +254,7 @@ function formatCodeBlockContent(codeBlock: string): string {
       const content = line.trimStart();
       processedLines.push(leadingWhitespace + chalk.yellow(content));
     } else {
-      processedLines.push(chalk.cyan(line));
+      processedLines.push(codeColor(line));
     }
   }
 
@@ -307,7 +308,7 @@ function formatCompleteMarkdown(text: string): string {
   // Restore inline code
   for (let index = 0; index < inlineCodes.length; index++) {
     const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
-    formatted = formatted.replace(placeholder, chalk.cyan(inlineCodes[index]!));
+    formatted = formatted.replace(placeholder, codeColor(inlineCodes[index]!));
   }
 
   // Restore code blocks
@@ -395,7 +396,7 @@ function formatStreamingChunk(
         isInCodeBlock = !isInCodeBlock;
         processedLines.push(chalk.yellow(line));
       } else if (isInCodeBlock) {
-        processedLines.push(chalk.cyan(line));
+        processedLines.push(codeColor(line));
       } else {
         processedLines.push(line);
       }
@@ -431,7 +432,7 @@ function formatStreamingChunk(
   // If inside code block, just color the text
   if (isInCodeBlock) {
     return {
-      formatted: chalk.cyan(fullText),
+      formatted: codeColor(fullText),
       pending: "",
       state: { isInCodeBlock, buffer: "" },
     };
@@ -502,7 +503,7 @@ function createStreamingFormatterImpl(): StreamingFormatter {
         formatted = formatHorizontalRules(formatted);
         formatted = formatLinks(formatted);
       } else {
-        formatted = chalk.cyan(formatted);
+        formatted = codeColor(formatted);
       }
 
       state = INITIAL_STREAMING_STATE;
