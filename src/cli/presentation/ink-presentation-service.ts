@@ -22,8 +22,8 @@ import { createAccumulator, reduceEvent } from "./activity-reducer";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
-import { store } from "../ui/App";
 import { setLastExpandedDiff } from "../ui/diff-expansion-store";
+import { store } from "../ui/store";
 
 export class InkStreamingRenderer implements StreamingRenderer {
   private readonly acc;

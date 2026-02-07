@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import * as path from "node:path";
 import { Effect } from "effect";
 import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
-import { store } from "@/cli/ui/App";
+import { store } from "@/cli/ui/store";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";

@@ -3,7 +3,7 @@ import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import short from "short-uuid";
-import { store } from "@/cli/ui/App";
+import { store } from "@/cli/ui/store";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import {
     FileSystemContextServiceTag,

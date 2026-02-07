@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { InkStreamingRenderer } from "./ink-presentation-service";
 import type { ActivityState } from "../ui/activity-state";
-import { store } from "../ui/App";
+import { store } from "../ui/store";
 import type { LogEntryInput } from "../ui/types";
 
 describe("InkStreamingRenderer", () => {

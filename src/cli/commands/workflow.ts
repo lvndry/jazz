@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import SelectInput from "ink-select-input";
 import React from "react";
-import { store } from "@/cli/ui/App";
+import { store } from "@/cli/ui/store";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
