@@ -12,6 +12,27 @@ import { buildKeyFromContext } from "../context-utils";
  * Search file contents with patterns tool (uses ripgrep when available, falls back to grep)
  */
 
+// Cache ripgrep availability check — avoids spawning `rg --version` on every call
+let ripgrepAvailable: boolean | null = null;
+
+function checkRipgrepAvailable(): Promise<boolean> {
+  if (ripgrepAvailable !== null) return Promise.resolve(ripgrepAvailable);
+  return new Promise((resolve) => {
+    const child = spawn("rg", ["--version"], {
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 5_000,
+    });
+    child.on("close", (code) => {
+      ripgrepAvailable = code === 0;
+      resolve(ripgrepAvailable);
+    });
+    child.on("error", () => {
+      ripgrepAvailable = false;
+      resolve(false);
+    });
+  });
+}
+
 export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
@@ -115,17 +136,8 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           searchPath = start;
         }
 
-        // Try ripgrep first, fall back to grep
-        const useRipgrep = yield* Effect.promise<boolean>(() =>
-          new Promise((resolve) => {
-            const child = spawn("rg", ["--version"], {
-              stdio: ["ignore", "ignore", "ignore"],
-              timeout: 5_000,
-            });
-            child.on("close", (code) => resolve(code === 0));
-            child.on("error", () => resolve(false));
-          }),
-        );
+        // Try ripgrep first, fall back to grep (result is cached after first check)
+        const useRipgrep = yield* Effect.promise(() => checkRipgrepAvailable());
 
         const cmdArgs: string[] = [];
         let cmd: string;

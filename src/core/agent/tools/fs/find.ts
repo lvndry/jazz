@@ -114,8 +114,9 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const filter = args.name ? normalizeFilterPattern(args.name) : null;
 
         if (filter && filter.type === "substring" && filter.value) {
-          // Use glob pattern for substring matching
-          globPattern = `**/*${filter.value}*`;
+          // Escape glob metacharacters in user input before embedding in glob pattern
+          const escaped = glob.escapePath(filter.value);
+          globPattern = `**/*${escaped}*`;
         }
         // For regex filters, we'll filter after glob returns results
 
