@@ -4,7 +4,7 @@ import type { LogEntryInput, PromptState } from "./types";
 
 type PrintOutputHandler = (entry: LogEntryInput) => string;
 
-const MAX_PENDING_LOG_QUEUE = 5000;
+const MAX_PENDING_LOG_QUEUE = 2000;
 
 export class UIStore {
   // Log handlers

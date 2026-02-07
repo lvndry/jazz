@@ -93,6 +93,12 @@ export class ChatServiceImpl implements ChatService {
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
 
+      // Bound conversation history to prevent unbounded memory growth.
+      // The agent's own ContextWindowManager (200 msgs / 150K tokens) handles
+      // per-turn trimming with tool-call integrity; this outer cap is a simple
+      // safety net so the between-turn array doesn't grow without limit.
+      const MAX_CHAT_HISTORY_MESSAGES = 2000;
+
       while (chatActive) {
         // Prompt for user input
         const userMessage = yield* terminal.ask("You:", {
@@ -290,6 +296,12 @@ export class ChatServiceImpl implements ChatService {
             }
             loggedMessageCount = response.messages.length;
             conversationHistory = response.messages;
+
+            // Trim if history exceeds the outer safety cap
+            if (conversationHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
+              conversationHistory = conversationHistory.slice(-MAX_CHAT_HISTORY_MESSAGES);
+              loggedMessageCount = conversationHistory.length;
+            }
           } else if (response.content) {
             // If we have content but no messages array, log both user and assistant messages
             const userChatMessage: ChatMessage = {

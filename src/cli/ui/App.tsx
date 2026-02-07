@@ -15,7 +15,7 @@ import { InputPriority, InputResults } from "../services/input-service";
 // Constants
 // ============================================================================
 
-const MAX_LOG_ENTRIES = 5000;
+const MAX_LOG_ENTRIES = 2000;
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response

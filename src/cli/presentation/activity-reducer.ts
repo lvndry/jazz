@@ -37,7 +37,7 @@ export interface ReducerAccumulator {
   isThinking: boolean;
   lastAgentHeaderWritten: boolean;
   lastAppliedTextSequence: number;
-  activeTools: Map<string, string>;
+  activeTools: Map<string, { toolName: string; startedAt: number }>;
   /** Provider id captured from stream_start for cost calculation */
   currentProvider: string | null;
   /** Model id captured from stream_start for cost calculation */
@@ -112,10 +112,10 @@ function buildThinkingOrStreamingActivity(
 
 function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
   const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(
-    ([toolCallId, toolName]) => ({
+    ([toolCallId, entry]) => ({
       toolCallId,
-      toolName,
-      startedAt: Date.now(),
+      toolName: entry.toolName,
+      startedAt: entry.startedAt,
     }),
   );
   return { phase: "tool-execution", agentName: acc.agentName, tools };
@@ -312,7 +312,7 @@ export function reduceEvent(
     }
 
     case "tool_execution_start": {
-      acc.activeTools.set(event.toolCallId, event.toolName);
+      acc.activeTools.set(event.toolCallId, { toolName: event.toolName, startedAt: Date.now() });
 
       const argsStr = CLIRenderer.formatToolArguments(
         event.toolName,
@@ -334,7 +334,8 @@ export function reduceEvent(
     }
 
     case "tool_execution_complete": {
-      const toolName = acc.activeTools.get(event.toolCallId);
+      const toolEntry = acc.activeTools.get(event.toolCallId);
+      const toolName = toolEntry?.toolName;
       acc.activeTools.delete(event.toolCallId);
 
       let summary = event.summary?.trim();

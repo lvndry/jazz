@@ -167,6 +167,19 @@ export async function getModelsDevMetadata(
 }
 
 /**
+ * Synchronous cache-only lookup. Returns the metadata if the models-dev map
+ * is already cached, or `undefined` when a network fetch would be needed.
+ * Use this to avoid async work in hot rendering paths (e.g. cost display).
+ */
+export function getModelsDevMetadataSync(
+  modelId: string,
+  providerId?: string,
+): ModelsDevMetadata | undefined {
+  if (cachedMap === null || Date.now() >= cacheExpiry) return undefined;
+  return getMetadataFromMap(cachedMap, modelId, providerId);
+}
+
+/**
  * Clear the in-memory cache (e.g. for tests).
  */
 export function clearModelsDevCache(): void {

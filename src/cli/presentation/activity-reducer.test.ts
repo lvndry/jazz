@@ -206,7 +206,7 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      expect(a.activeTools.get("tc-1")).toBe("execute_bash");
+      expect(a.activeTools.get("tc-1")?.toolName).toBe("execute_bash");
       expect(result.activity!.phase).toBe("tool-execution");
       if (result.activity!.phase === "tool-execution") {
         expect(result.activity!.tools).toHaveLength(1);
@@ -218,7 +218,7 @@ describe("activity-reducer", () => {
 
     test("tool_execution_complete removes tool and transitions to idle when last", () => {
       const a = acc();
-      a.activeTools.set("tc-1", "execute_bash");
+      a.activeTools.set("tc-1", { toolName: "execute_bash", startedAt: Date.now() });
 
       const result = reduceEvent(
         a,
@@ -240,8 +240,8 @@ describe("activity-reducer", () => {
 
     test("tool_execution_complete keeps tool-execution phase when other tools remain", () => {
       const a = acc();
-      a.activeTools.set("tc-1", "bash");
-      a.activeTools.set("tc-2", "read");
+      a.activeTools.set("tc-1", { toolName: "bash", startedAt: Date.now() });
+      a.activeTools.set("tc-2", { toolName: "read", startedAt: Date.now() });
 
       const result = reduceEvent(
         a,
@@ -261,7 +261,7 @@ describe("activity-reducer", () => {
 
     test("tool_execution_complete with multi-line summary emits two logs", () => {
       const a = acc();
-      a.activeTools.set("tc-1", "diff_tool");
+      a.activeTools.set("tc-1", { toolName: "diff_tool", startedAt: Date.now() });
 
       const result = reduceEvent(
         a,
