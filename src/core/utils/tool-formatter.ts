@@ -245,7 +245,8 @@ export function formatToolArguments(
       return formatParts(parts);
     }
     case "web_search": {
-      const query = safeString(args["query"]);
+      // Check common query argument names across providers
+      const query = safeString(args["query"] || args["search_query"] || args["q"]);
       if (!query) return "";
       return usePlain ? `{ query: "${query}" }` : formatKeyValue("query", query);
     }

@@ -40,13 +40,13 @@ For mindset and frameworks, see [references/investment-mindset.md](references/in
 - **Price**: Current level, recent range (e.g. 30/90 days), key support/resistance if useful
 - **Volume / liquidity**: Where relevant (e.g. crypto, equities)
 - **Trend**: Short- and medium-term direction; cite time frame
-- **Context**: Rates, inflation, dollar, geopolitics—only what’s relevant to the asset
+- **Context**: Rates, inflation, dollar, geopolitics—only what's relevant to the asset
 
 Cite source and date for every number (e.g. "BTC price as of [date] per [source]").
 
 ### Pattern Recognition
 
-- **Technical**: Trends, ranges, common patterns (e.g. breakout, consolidation). Describe, don’t guarantee.
+- **Technical**: Trends, ranges, common patterns (e.g. breakout, consolidation). Describe, don't guarantee.
 - **Sentiment**: Fear/greed, positioning, flows—when data is available and relevant
 - **On-chain (crypto)**: Active addresses, supply in profit/loss, exchange flows—when available
 - **Seasonal / cyclical**: Historical patterns (e.g. gold in certain periods); state that past ≠ future
@@ -76,35 +76,42 @@ Output: A clear conclusion with reasoning. E.g. "Given [situation], I'd lean [fo
 # Investment Analysis: [Asset] — [Date]
 
 ## Summary
+
 [2–4 sentences: current state, main pattern/outlook, and fit with user situation. Include a clear conclusion when analysis supports it—e.g. "For a long-term, risk-tolerant profile, a small allocation could fit; for short horizons, likely misaligned."]
 
 ## Your Situation (as shared)
+
 - Goals: [e.g. long-term growth, hedge inflation]
 - Risk: [e.g. moderate, can tolerate 20% drawdown]
 - Horizon: [e.g. 5+ years]
 - [Optional] Current exposure: [e.g. none, 5% in gold]
 
 ## Current Market State
+
 - **Price / level**: [value] as of [date] ([source])
 - **Recent trend**: [e.g. up/down/sideways over 30/90 days]
 - **Context**: [rates, inflation, or other relevant factor in 1–2 lines]
 
 ## Patterns & Indicators
+
 - [Pattern 1]: [What you see and time frame]
 - [Pattern 2]: [What you see and time frame]
 - [Sentiment / on-chain if relevant]: [1–2 lines]
 
 ## Outlook & Previsions
+
 - **Bull case**: [Short summary + source/date if applicable]
 - **Bear case**: [Short summary]
 - **Base case / range**: [If useful, with assumptions stated]
 
 ## Fit for Your Situation
+
 - **Pros**: [How it could align with goals/risk/horizon]
 - **Cons**: [Risks or misalignment with situation]
 - **Conclusion**: [Clear view with reasoning. E.g. "For your profile (long-term, moderate risk), a 2–5% allocation could fit as a diversification/hedge—because [sourced reasons]. I'd avoid or minimize if [conditions]." Or "Given your short horizon, I'd lean against—[reasons]." State confidence and caveats.]
 
 ## Risks & Caveats
+
 - [Risk 1]
 - [Risk 2]
 - Past performance does not guarantee future results. For large or complex decisions, consult a qualified professional.

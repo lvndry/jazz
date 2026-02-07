@@ -144,6 +144,7 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
+  readonly sessionId?: string;
   readonly conversationId?: string;
   /**
    * Auto-approve policy for this execution context.
@@ -168,5 +169,10 @@ export interface ToolExecutionContext {
    * Used by tools like spawn_subagent to inherit LLM configuration.
    */
   readonly parentAgent?: Agent;
+  /**
+   * Callback to replace conversation messages with compacted versions.
+   * Used by summarize_context to actually update the executor's message array.
+   */
+  readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
   readonly [key: string]: unknown;
 }

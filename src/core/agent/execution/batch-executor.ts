@@ -203,6 +203,9 @@ export function executeWithoutStreaming(
                 },
                 conversationMessages: currentMessages,
                 parentAgent: agent,
+                compactConversation: (compacted: readonly import("@/core/types/message").ChatMessage[]) => {
+                  currentMessages = [currentMessages[0], ...compacted.slice(1)] as typeof currentMessages;
+                },
               };
               const toolResults = yield* ToolExecutor.executeToolCalls(
                 completion.toolCalls,

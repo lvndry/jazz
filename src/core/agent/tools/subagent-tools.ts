@@ -4,6 +4,7 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
+import type { ConversationMessages } from "@/core/types/message";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { AgentRunner } from "../agent-runner";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
@@ -12,6 +13,9 @@ import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 
 /** Sub-agent execution timeout: 30 minutes */
 const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** Monotonic counter for unique sub-agent IDs within this process */
+let subagentCounter = 0;
 
 // ─── Sub-Agent Tool ──────────────────────────────────────────────────
 
@@ -96,7 +100,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
 
           // Create an ephemeral sub-agent with the parent's LLM config but a specific persona
           const subAgent: Agent = {
-            id: `subagent-${Date.now()}`,
+            id: `subagent-${++subagentCounter}-${Date.now()}`,
             name: `Sub-Agent (${args.persona})`,
             description: `Ephemeral sub-agent spawned for: ${args.task.substring(0, 100)}`,
             model: parentAgent.model,
@@ -122,8 +126,8 @@ ${args.task}`;
           const response = yield* AgentRunner.runRecursive({
             agent: subAgent,
             userInput: wrappedTask,
-            sessionId: context.conversationId ?? `session-${Date.now()}`,
-            conversationId: `subagent-${Date.now()}`,
+            sessionId: context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
+            conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
             maxIterations: 20,
           });
 
@@ -202,34 +206,38 @@ ${args.task}`;
             parentAgentId: parentAgent.id,
           });
 
-          // Use the existing Summarizer module — skip system message (index 0) and recent messages
-          const messagesToSummarize = conversationMessages.slice(1);
-
-          if (messagesToSummarize.length === 0) {
-            return {
-              success: true,
-              result: "Not enough messages to summarize.",
-            };
-          }
-
           const runRecursive: RecursiveRunner = (runOpts) => AgentRunner.runRecursive(runOpts);
 
-          const summaryMessage = yield* Summarizer.summarizeHistory(
-            messagesToSummarize,
+          // Use compactIfNeeded which handles system message preservation and recent message retention
+          const compacted = yield* Summarizer.compactIfNeeded(
+            [...conversationMessages] as unknown as ConversationMessages,
             parentAgent,
-            context.conversationId ?? `session-${Date.now()}`,
+            context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
             context.conversationId ?? `conv-${Date.now()}`,
             runRecursive,
           );
 
+          // Check if compaction actually happened (messages changed)
+          if (compacted.length === conversationMessages.length) {
+            return {
+              success: true,
+              result: "Context is within limits — no compaction needed.",
+            };
+          }
+
+          // Actually replace messages in the executor loop via callback
+          if (context.compactConversation) {
+            context.compactConversation(compacted);
+          }
+
           yield* logger.info("Context summarization completed", {
-            summaryLength: (summaryMessage.content ?? "").length,
-            originalMessageCount: messagesToSummarize.length,
+            originalMessageCount: conversationMessages.length,
+            compactedMessageCount: compacted.length,
           });
 
           return {
             success: true,
-            result: summaryMessage.content || "Summary completed but returned no content.",
+            result: `Context compacted from ${conversationMessages.length} to ${compacted.length} messages.`,
           };
         }),
       createSummary: (result) => {

@@ -269,11 +269,33 @@ export function reduceEvent(
     }
 
     case "tool_call": {
-      logs.push({
-        type: "debug",
-        message: `Tool call detected: ${event.toolCall.function.name}`,
-        timestamp: new Date(),
-      });
+      // Provider-native tools (e.g. web_search via OpenAI) never get a
+      // tool_execution_start event, so this is the only place to log them.
+      // Non-native tools will be logged by tool_execution_start instead.
+      if (!event.providerNative) {
+        return { activity: null, logs };
+      }
+
+      const toolName = event.toolCall.function.name;
+      let parsedArgs: Record<string, unknown> | undefined;
+      try {
+        const raw: unknown = JSON.parse(event.toolCall.function.arguments);
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          parsedArgs = raw as Record<string, unknown>;
+        }
+      } catch {
+        // ignore parse errors
+      }
+
+      const argsStr = CLIRenderer.formatToolArguments(toolName, parsedArgs);
+      let providerLabel = "";
+      if (toolName === "web_search" && acc.currentProvider) {
+        providerLabel = chalk.dim(` [${acc.currentProvider}]`);
+      }
+      const message = argsStr
+        ? `⚙️  Executing tool: ${toolName}${providerLabel}${argsStr}`
+        : `⚙️  Executing tool: ${toolName}${providerLabel}`;
+      logs.push({ type: "log", message, timestamp: new Date() });
       return { activity: null, logs };
     }
 

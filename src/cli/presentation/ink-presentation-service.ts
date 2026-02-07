@@ -126,7 +126,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (result.activity) {
         this.throttledSetActivity(result.activity);
       }
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll((error) => Effect.sync(() => {
+      // Log swallowed errors to stderr for debugging missing tool call events
+      if (process.env["DEBUG"]) {
+        console.error(`[InkStreamingRenderer] handleEvent error for ${event.type}:`, error);
+      }
+    })));
   }
 
   private handleComplete(

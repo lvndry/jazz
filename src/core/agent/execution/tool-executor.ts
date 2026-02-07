@@ -40,6 +40,7 @@ export class ToolExecutor {
     name: string,
     args: Record<string, unknown>,
     context: ToolExecutionContext,
+    overrideTimeoutMs?: number,
   ): Effect.Effect<
     ToolExecutionResult,
     Error,
@@ -49,11 +50,14 @@ export class ToolExecutor {
       const registry = yield* ToolRegistryTag;
       const logger = yield* LoggerServiceTag;
 
-      // Use per-tool timeout if set, otherwise fall back to default
-      const toolMeta = yield* registry.getTool(name).pipe(
-        Effect.catchAll(() => Effect.succeed(undefined)),
-      );
-      const timeoutMs = toolMeta?.timeoutMs ?? TOOL_TIMEOUT_MS;
+      // Use caller-provided timeout, or look up per-tool timeout, or fall back to default
+      let timeoutMs = overrideTimeoutMs;
+      if (timeoutMs === undefined) {
+        const toolMeta = yield* registry.getTool(name).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        );
+        timeoutMs = toolMeta?.timeoutMs ?? TOOL_TIMEOUT_MS;
+      }
       const timeoutMinutes = Math.round(timeoutMs / 60000);
       const result = yield* registry.executeTool(name, args, context).pipe(
         Effect.timeoutFail({
@@ -158,8 +162,8 @@ export class ToolExecutor {
           }
         }
 
-        // Execute tool
-        let result = yield* ToolExecutor.executeTool(name, args, context);
+        // Execute tool — pass pre-fetched timeout to avoid redundant getTool lookup
+        let result = yield* ToolExecutor.executeTool(name, args, context, toolMeta?.timeoutMs);
         let toolDuration = Date.now() - toolStartTime;
         let finalToolName = name;
 

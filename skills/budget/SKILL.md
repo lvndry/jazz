@@ -17,7 +17,7 @@ Create budgets, track spending, and plan savings. For planning and awareness onl
 
 ## Workflow
 
-1. **Clarify scope**: Monthly? Weekly? One-off project? What’s the goal (spending control, savings target, debt payoff)?
+1. **Clarify scope**: Monthly? Weekly? One-off project? What's the goal (spending control, savings target, debt payoff)?
 2. **Gather numbers**: Income(s), fixed expenses, variable expenses, current savings, target amount or date
 3. **Choose format**: Allocation rule (e.g. 50/30/20), category list, or custom
 4. **Build budget**: Categories, amounts, and (if applicable) savings/debt line
@@ -55,7 +55,7 @@ Use when the user has a list of categories or wants to "envelope" by category.
 - Budget the rest for expenses
 - Formula: Income − Savings = Spending allowance
 
-Use when the user’s main goal is hitting a savings target.
+Use when the user's main goal is hitting a savings target.
 
 ## Output Format
 
@@ -63,9 +63,11 @@ Use when the user’s main goal is hitting a savings target.
 # Budget: [Title — e.g. Monthly 2025]
 
 ## Summary
+
 [Income, total planned spending, planned savings, and one-line takeaway.]
 
 ## Income
+
 | Source   | Amount   |
 | -------- | -------- |
 | [Source] | [Amount] |
@@ -73,27 +75,32 @@ Use when the user’s main goal is hitting a savings target.
 ## Planned Spending
 
 ### Needs (or Fixed)
+
 | Category   | Amount   |
 | ---------- | -------- |
 | [Category] | [Amount] |
 
 ### Wants (or Variable)
+
 | Category   | Amount   |
 | ---------- | -------- |
 | [Category] | [Amount] |
 
 ### Savings & Debt
+
 | Category       | Amount   |
 | -------------- | -------- |
 | [Savings/Debt] | [Amount] |
 
 ## Totals
+
 - Income: [total]
 - Planned spending: [total]
 - Planned savings: [total]
 - Difference: [surplus/deficit]
 
 ## [Optional] Savings Goal
+
 - Target: [amount]
 - Monthly to save: [amount]
 - At this rate: [time to goal] (assuming no change)
@@ -105,7 +112,7 @@ When the user has a target amount or date:
 
 - **Target + date** → Required monthly (or weekly) savings = Target / Months (or weeks) to date
 - **Target + monthly amount** → Time to goal = Target / Monthly amount (in months)
-- **Current + monthly + rate** → Simple projection: "In N months you’d have about X" (no interest or inflation unless user asks; state assumptions)
+- **Current + monthly + rate** → Simple projection: "In N months you'd have about X" (no interest or inflation unless user asks; state assumptions)
 
 Always state assumptions (e.g. no interest, no tax, nominal amounts).
 
@@ -117,12 +124,12 @@ When the user wants to track or categorize spending:
 - **Format**: Table or list with category and amount; optional percentage of income.
 - **If they provide a list**: Map items to categories and sum; show breakdown and total.
 
-Don’t invent transactions; use only what the user provides.
+Don't invent transactions; use only what the user provides.
 
 ## Time Scope
 
 - **Monthly** is the default for personal budgets unless the user says weekly, annual, or one-off.
-- **Annual**: Multiply monthly by 12 or use annual income/expenses if that’s what they give.
+- **Annual**: Multiply monthly by 12 or use annual income/expenses if that's what they give.
 - State the period clearly (e.g. "Monthly budget" or "January–December 2025").
 
 ## Caveats

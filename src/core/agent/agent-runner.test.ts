@@ -74,6 +74,8 @@ const mockToolRegistry = {
   getTool: mock((name: string) => Effect.succeed({
     name,
     approvalExecuteToolName: undefined,
+    longRunning: false,
+    timeoutMs: undefined,
     function: { name, description: `Description for ${name}` }
   })),
   getToolDefinitions: mock(() => Effect.succeed([

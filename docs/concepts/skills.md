@@ -1,12 +1,12 @@
 # Skills: Give Your Agent Superpowers Without the Bloat
 
-You’ve got an agent that can run shell commands, call tools, and search the web. But when you ask it to “plan this project” or “research this topic properly,” you don’t want it to wing it every time. You want it to follow a **proven playbook**—decompose the ask, use the right steps, and output something consistent and useful.
+You've got an agent that can run shell commands, call tools, and search the web. But when you ask it to “plan this project” or “research this topic properly,” you don't want it to wing it every time. You want it to follow a **proven playbook**—decompose the ask, use the right steps, and output something consistent and useful.
 
-That’s what **Skills** are for in Jazz: packaged expertise your agent can discover and apply only when it matters.
+That's what **Skills** are for in Jazz: packaged expertise your agent can discover and apply only when it matters.
 
 ---
 
-## What’s a Skill, Really?
+## What's a Skill, Really?
 
 A **Skill** is a folder that contains:
 
@@ -14,7 +14,7 @@ A **Skill** is a folder that contains:
 - **References** (optional) — extra docs, checklists, or data the agent can pull in when needed
 - **Scripts** (optional) — small utilities the skill can call
 
-Think of it as a **reusable workflow + knowledge pack**. The agent doesn’t carry all of that in every turn. It sees a short **name** and **description** for every skill. When your request matches one, it **loads** that skill’s instructions and follows them. For deeper detail, it can load specific sections or files from inside the skill. So you get **domain expertise on demand**, without stuffing the context window with dozens of long guides.
+Think of it as a **reusable workflow + knowledge pack**. The agent doesn't carry all of that in every turn. It sees a short **name** and **description** for every skill. When your request matches one, it **loads** that skill's instructions and follows them. For deeper detail, it can load specific sections or files from inside the skill. So you get **domain expertise on demand**, without stuffing the context window with dozens of long guides.
 
 ---
 
@@ -25,15 +25,15 @@ Without skills, the agent has to infer how to do “research” or “planning�
 - **You get consistency** — same structure for meeting notes, same pipeline for deep research, same checklist for code review.
 - **You keep context lean** — the agent only pulls in the full instructions when a skill is relevant.
 - **You can share and version** — put skills in a repo, copy them across projects, or install them globally.
-- **The agent stays in control** — it still decides *when* to use a skill and can combine skills with tools and shell.
+- **The agent stays in control** — it still decides _when_ to use a skill and can combine skills with tools and shell.
 
-So skills aren’t “another kind of tool.” They’re **how you teach your agent *how* to do complex tasks**, while tools are *what* it uses to do them.
+So skills aren't “another kind of tool.” They're **how you teach your agent _how_ to do complex tasks**, while tools are _what_ it uses to do them.
 
 ---
 
 ## How Skills Work Under the Hood
 
-Jazz uses a **progressive disclosure** model so the agent (and the context window) only see what’s needed.
+Jazz uses a **progressive disclosure** model so the agent (and the context window) only see what's needed.
 
 ### Level 1: Discovery (always)
 
@@ -42,7 +42,7 @@ When a chat starts, the agent gets a **list of all available skills** with only:
 - **name** — e.g. `deep-research`, `todo`, `commit-message`
 - **description** — what the skill does and when to use it
 
-So the agent knows “there’s a skill for multi-source research” and “there’s a skill for task lists” without reading thousands of lines. It uses these descriptions to decide if a skill is relevant to the user’s request.
+So the agent knows “there's a skill for multi-source research” and “there's a skill for task lists” without reading thousands of lines. It uses these descriptions to decide if a skill is relevant to the user's request.
 
 ### Level 2: Load the playbook
 
@@ -50,7 +50,7 @@ When the agent decides a skill fits, it calls the **`load_skill`** tool with the
 
 ### Level 3: Go deeper when needed
 
-For heavy skills (e.g. deep research, documentation), SKILL.md may point to extra docs—e.g. `references/verification-patterns.md`. The agent uses **`load_skill_section`** to pull in only those sections when the workflow demands it. So you get **detailed guidance without loading every skill’s full manual up front**.
+For heavy skills (e.g. deep research, documentation), SKILL.md may point to extra docs—e.g. `references/verification-patterns.md`. The agent uses **`load_skill_section`** to pull in only those sections when the workflow demands it. So you get **detailed guidance without loading every skill's full manual up front**.
 
 Net result: the agent can have access to many skills, but only pays the “token cost” for the ones it actually uses, and only for the depth it needs.
 
@@ -70,9 +70,9 @@ If the same **name** exists in more than one place, **local wins over global, gl
 
 ---
 
-## What’s In the Box: Built-in Skills
+## What's In the Box: Built-in Skills
 
-Jazz ships with a set of skills that cover common workflows. The exact list can grow over time; here’s the kind of thing you get:
+Jazz ships with a set of skills that cover common workflows. The exact list can grow over time; here's the kind of thing you get:
 
 - **todo** — Create and track task lists for multi-step work; great for planning and not dropping steps.
 - **deep-research** — Multi-source research with query decomposition, verification, and synthesis.
@@ -99,7 +99,7 @@ In chat, you can type **`/skills`** to list all available skills (from all three
 
 ## Creating Your Own Skills
 
-You don’t need to be a contributor to add skills. You can add them **per project** or **for all projects**.
+You don't need to be a contributor to add skills. You can add them **per project** or **for all projects**.
 
 ### Minimal shape
 
@@ -118,21 +118,23 @@ description: Short description of what this does and when to use it (e.g. "Gener
 # My Skill
 
 ## When to use
+
 - Scenario A
 - Scenario B
 
 ## Steps
+
 1. Do X.
 2. Do Y.
 3. Output in format Z.
 ```
 
-The **description** is what the agent sees in the Level 1 list. It’s the main signal for “should I use this skill?” So make it concrete: what it does and when (e.g. trigger words or situations).
+The **description** is what the agent sees in the Level 1 list. It's the main signal for “should I use this skill?” So make it concrete: what it does and when (e.g. trigger words or situations).
 
 ### Going further
 
 - **references/** — Add `reference.md`, `checklist.md`, or topic-specific files. In SKILL.md, tell the agent when to use **`load_skill_section`** for a given file.
-- **scripts/** — Small scripts the skill’s instructions refer to; the agent can run them via shell or tools.
+- **scripts/** — Small scripts the skill's instructions refer to; the agent can run them via shell or tools.
 
 The **skill-creator** skill walks through purpose, location (global vs project), triggers, and structure, and helps you generate a proper SKILL.md. Use it when you want to add a new skill without memorizing the format.
 
@@ -154,7 +156,7 @@ So the **full feature set** of skills is:
 - **Section loading** — Deeper references loaded only when the workflow needs them.
 - **Composability** — One skill can direct the agent to use tools, shell, other skills, or MCP.
 - **Layering** — Built-in, global, and local skills with a clear override order.
-- **Inspection** — `/skills` in chat to list and open any skill’s SKILL.md.
+- **Inspection** — `/skills` in chat to list and open any skill's SKILL.md.
 
 ---
 
@@ -162,7 +164,7 @@ So the **full feature set** of skills is:
 
 - **Descriptions are the lever.** Clear, trigger-rich descriptions (“Use when…”) make the right skill get chosen more often.
 - **Keep SKILL.md focused.** Put the main workflow and “when to use” in SKILL.md; move long reference material into separate files and load them by section.
-- **Use the skill-creator skill** when you’re adding a new skill so you get metadata and structure right.
+- **Use the skill-creator skill** when you're adding a new skill so you get metadata and structure right.
 - **Override built-ins when needed.** Drop a project-specific `./skills/todo/SKILL.md` (or full folder) to tailor behavior for that repo.
 
 ---

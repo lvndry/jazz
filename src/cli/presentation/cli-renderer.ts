@@ -54,8 +54,22 @@ export const DEFAULT_STREAMING_CONFIG: StreamingConfig = {
 };
 
 /**
- * Unified CLI renderer for terminal display
- * Handles streaming events, markdown formatting, and progressive rendering
+ * CLI renderer for terminal display — the NON-INK rendering path.
+ *
+ * ⚠️  There are TWO rendering paths for stream events:
+ *
+ * 1. **Ink path** (primary): `InkStreamingRenderer` in `ink-presentation-service.ts`
+ *    uses the pure reducer (`activity-reducer.ts`) → pushes logs to the Ink `store`.
+ *    This is the path used when the Ink UI is active (interactive CLI mode).
+ *
+ * 2. **Direct-write path** (this class): `CLIRenderer.handleEvent()` renders events
+ *    to strings and writes them directly to stdout via `OutputWriter`.
+ *    Used as a fallback when Ink is not available (non-interactive/piped output)
+ *    and by `InkPresentationService` for one-off formatting (e.g. `formatToolExecutionStart`).
+ *
+ * When modifying tool call display, update BOTH paths:
+ * - `activity-reducer.ts` (Ink path) — `tool_call` / `tool_execution_start` cases
+ * - `CLIRenderer.renderEvent()` (this file) — corresponding render methods
  */
 export class CLIRenderer {
   private readonly writer: OutputWriter;

@@ -56,7 +56,7 @@ export type StreamEvent =
   | { type: "text_chunk"; delta: string; accumulated: string; sequence: number }
 
   // Tool calls
-  | { type: "tool_call"; toolCall: ToolCall; sequence: number }
+  | { type: "tool_call"; toolCall: ToolCall; sequence: number; providerNative?: boolean }
   | {
       type: "tools_detected";
       toolNames: readonly string[];

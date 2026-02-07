@@ -33,34 +33,42 @@ Record decisions with context, options considered, and rationale. Retrieve and e
 **Deciders**: [who was involved]
 
 ## Context
+
 [What situation or problem led to this decision? What constraints exist?]
 
 ## Options Considered
 
 ### Option A: [Name]
+
 - **Pros**: [list]
 - **Cons**: [list]
 
 ### Option B: [Name]
+
 - **Pros**: [list]
 - **Cons**: [list]
 
 ### Option C: [Name]
+
 - ...
 
 ## Decision
+
 **[Chosen option]** because [1–2 sentence rationale].
 
 ## Rationale
+
 [Why this option? What trade-offs were accepted? What was rejected and why?]
 
 ## Consequences
+
 - [What we gain]
 - [What we give up or risk]
 - [Follow-up work]
 - [When to revisit: e.g. in 6 months, or when X happens]
 
 ## References
+
 - [Link to ticket, doc, or discussion]
 ```
 
@@ -77,11 +85,12 @@ Skip for tiny, reversible choices (e.g. variable name). Use for choices that aff
 ## Retrieving Decisions
 
 When someone asks "why did we choose X?":
+
 1. Search decision log (or codebase for ADR files)
 2. Return the matching record: context, options, decision, rationale
 3. If superseded, point to the newer decision and brief reason
 
-If no record exists: say so and offer to draft one from what’s known or from conversation.
+If no record exists: say so and offer to draft one from what's known or from conversation.
 
 ## Lightweight Variant
 
@@ -89,6 +98,7 @@ For quick logs without full ADR format:
 
 ```markdown
 ## [Date] [Decision in one line]
+
 - **Context**: [1 sentence]
 - **Options**: A, B, C
 - **Chosen**: A. **Why**: [1 sentence]
@@ -106,5 +116,5 @@ For quick logs without full ADR format:
 
 - ❌ Recording every tiny choice; reserve for meaningful decisions
 - ❌ Only stating the outcome without options or rationale
-- ❌ No date or status (hard to know if it’s still current)
+- ❌ No date or status (hard to know if it's still current)
 - ❌ Mixing multiple decisions in one record

@@ -150,6 +150,7 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
+      sessionId: options.sessionId,
       conversationId: actualConversationId,
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }

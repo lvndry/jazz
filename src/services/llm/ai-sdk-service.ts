@@ -747,7 +747,6 @@ class AISDKService implements LLMService {
           toolsDisabled,
         } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
 
-        // Prepare tools for AI SDK if present
         const prepared = this.prepareTools(providerName, requestedTools);
         const tools = prepared?.tools;
         const providerNativeToolNames = prepared?.providerNativeToolNames ?? new Set<string>();
@@ -802,6 +801,16 @@ class AISDKService implements LLMService {
         // provider during the API call. The results are already embedded in the response
         // content. We must not pass these to Jazz's tool executor.
         if (result.toolCalls && result.toolCalls.length > 0) {
+          // Log provider-native tool calls so they're visible to the user
+          for (const tc of result.toolCalls) {
+            if (providerNativeToolNames.has((tc as TypedToolCall<ToolSet>).toolName)) {
+              void this.logger.info(`Provider-native tool used: ${(tc as TypedToolCall<ToolSet>).toolName}`, {
+                provider: providerName,
+                toolName: (tc as TypedToolCall<ToolSet>).toolName,
+              });
+            }
+          }
+
           const filteredToolCalls = result.toolCalls.filter(
             (tc: TypedToolCall<ToolSet>) => !providerNativeToolNames.has(tc.toolName),
           );

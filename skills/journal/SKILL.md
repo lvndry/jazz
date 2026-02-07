@@ -24,33 +24,38 @@ Support personal reflection and journaling with prompts, structure, and light gu
 ## Prompt Types
 
 ### Daily check-in
+
 - What went well today?
 - What was hard or frustrating?
 - What do you want to do differently tomorrow?
 
 ### Gratitude
-- Name three things you’re grateful for right now.
+
+- Name three things you're grateful for right now.
 - One person who helped you recently and how.
 - One small good thing that happened today.
 
 ### Reflection (end of day / week)
+
 - What was the highlight of your day/week?
 - What did you learn or notice?
 - What are you looking forward to?
 
 ### Rose / Thorn / Bud
+
 - **Rose**: Something good that happened
 - **Thorn**: Something difficult or annoying
-- **Bud**: Something you’re looking forward to
+- **Bud**: Something you're looking forward to
 
 ### Open-ended
-- What’s on your mind?
+
+- What's on your mind?
 - What do you need to get off your chest?
 - If today had a theme, what would it be?
 
 ## Output Format
 
-Give the user prompts they can answer; don’t write the journal for them.
+Give the user prompts they can answer; don't write the journal for them.
 
 ```markdown
 # [Type]: [e.g. Daily check-in]
@@ -75,7 +80,7 @@ If they share a few sentences, you can reflect back one insight or one gentle fo
 
 ## What Not to Do
 
-- Don’t write the user’s journal entries for them
-- Don’t give long lectures on mindfulness or psychology
-- Don’t ask too many questions at once (2–5 is enough)
-- Don’t assume trauma or heavy topics; keep it light unless they go there
+- Don't write the user's journal entries for them
+- Don't give long lectures on mindfulness or psychology
+- Don't ask too many questions at once (2–5 is enough)
+- Don't assume trauma or heavy topics; keep it light unless they go there

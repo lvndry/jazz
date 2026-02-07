@@ -17,6 +17,7 @@ Generate and evaluate startup ideas using the mental models of top founders (Thi
 ## Research Requirement
 
 **Before generating or evaluating ideas**, use web search to:
+
 - **Trends**: Macro, tech, regulatory, societal trends (use recency constraints: last 12–24 months)
 - **Competition**: Direct competitors, adjacent players, substitutes
 - **Market signals**: Funding rounds, acquisitions, analyst reports, "why now" factors
@@ -39,6 +40,7 @@ Cite sources and dates. Never invent market data.
 ### Step 2: Trends (Search)
 
 Search for:
+
 - Macro: Regulation, policy, economics, labor, demographics
 - Tech: AI/ML, infra, dev tools, hardware breakthroughs
 - Societal: Remote work, health, climate, privacy, creator economy
@@ -47,6 +49,7 @@ Search for:
 ### Step 3: Brainstorm
 
 Apply founder mental models (see [references/founder-frameworks.md](references/founder-frameworks.md)):
+
 - **Thiel**: "What important truth do few people agree with you on?" Monopoly vs competition.
 - **Graham**: Do things that don't scale. Make something people want. Talk to users.
 - **Andreessen**: "Software is eating the world." Timing, market size, 10x better.
@@ -58,6 +61,7 @@ Generate 3–7 raw ideas. Mix problem-first and technology-first. Prefer contrar
 ### Step 4: Competition (Search)
 
 For each shortlisted idea, search:
+
 - Direct competitors (same problem, similar solution)
 - Indirect competitors (same outcome, different approach)
 - Substitutes (status quo, manual process, "do nothing")
@@ -68,6 +72,7 @@ Map: Who exists? Funding? Traction? Gaps they leave?
 ### Step 5: Evaluate
 
 Score each idea on:
+
 - **Problem**: Real pain? Willingness to pay? Frequency?
 - **Market**: TAM/SAM, growth rate, "why now" clarity
 - **Solution**: 10x better or 10%? Defensibility? Moat potential
@@ -85,27 +90,31 @@ Use output format below. Lead with strongest ideas. Include trend and competitio
 # Startup Brainstorm — [Domain/Theme] — [Date]
 
 ## Summary
+
 [2–4 sentences: strongest idea(s), why now, key insight.]
 
 ## Trends (Sources: [date range])
-- **[Trend 1]**: [What’s happening + why it matters] — [source/date]
-- **[Trend 2]**: [What’s happening + why it matters] — [source/date]
+
+- **[Trend 1]**: [What's happening + why it matters] — [source/date]
+- **[Trend 2]**: [What's happening + why it matters] — [source/date]
 - **Why now**: [2–3 bullets on what changed recently]
 
 ## Ideas
 
 ### Idea 1: [Name]
+
 **One-liner**: [What it does in one sentence]
 
 **Problem**: [Who has it, how painful, how often]
 **Solution**: [Core value prop, 10x angle]
 **Market**: [TAM/SAM, growth, geography]
 **Competition**:
+
 - Direct: [Player A], [Player B] — [gap they leave]
 - Indirect: [Player C] — [how you differ]
-**Moat**: [Network effects, data, brand, distribution, etc.]
-**Founder fit**: [How user's edge helps]
-**Trend alignment**: [How trends support this]
+  **Moat**: [Network effects, data, brand, distribution, etc.]
+  **Founder fit**: [How user's edge helps]
+  **Trend alignment**: [How trends support this]
 
 **Risk**: [Main risk]
 **Why it could win**: [Key insight]
@@ -113,15 +122,18 @@ Use output format below. Lead with strongest ideas. Include trend and competitio
 ---
 
 ### Idea 2: [Name]
+
 [Same structure]
 
 ## Competition Landscape (Summary)
-| Idea | Direct Competitors | Gap |
-|------|--------------------|-----|
-| Idea 1 | [List] | [Opportunity] |
-| Idea 2 | [List] | [Opportunity] |
+
+| Idea   | Direct Competitors | Gap           |
+| ------ | ------------------ | ------------- |
+| Idea 1 | [List]             | [Opportunity] |
+| Idea 2 | [List]             | [Opportunity] |
 
 ## Recommended Next Steps
+
 1. [Validate X with users/customers]
 2. [Search/research Y]
 3. [Build MVP of Z]
@@ -130,11 +142,12 @@ Use output format below. Lead with strongest ideas. Include trend and competitio
 ## Founder Questions to Ask
 
 For each idea, mentally run through:
-- **Thiel**: "What do I believe that’s true but almost nobody agrees?"
+
+- **Thiel**: "What do I believe that's true but almost nobody agrees?"
 - **Graham**: "Would 10 people pay for this today?"
-- **Andreessen**: "Why couldn’t this have been built 5 years ago?"
-- **Bezos**: "What does the customer deeply want that we’re not giving?"
-- **Hoffman**: "Where’s the network effect or blitzscaling potential?"
+- **Andreessen**: "Why couldn't this have been built 5 years ago?"
+- **Bezos**: "What does the customer deeply want that we're not giving?"
+- **Hoffman**: "Where's the network effect or blitzscaling potential?"
 
 ## Anti-Patterns
 
