@@ -1,4 +1,6 @@
 import type z from "zod";
+import type { Agent } from "@/core/types/agent";
+import type { ChatMessage } from "@/core/types/message";
 
 // Re-export ToolRiskLevel from tool-registry interface
 export type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
@@ -142,6 +144,7 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
+  readonly sessionId?: string;
   readonly conversationId?: string;
   /**
    * Auto-approve policy for this execution context.
@@ -156,5 +159,20 @@ export interface ToolExecutionContext {
     readonly currentTokens: number;
     readonly maxTokens: number;
   };
+  /**
+   * Current conversation messages, injected by executors.
+   * Used by tools like summarize_context to access the full conversation.
+   */
+  readonly conversationMessages?: readonly ChatMessage[];
+  /**
+   * The parent agent running this tool execution.
+   * Used by tools like spawn_subagent to inherit LLM configuration.
+   */
+  readonly parentAgent?: Agent;
+  /**
+   * Callback to replace conversation messages with compacted versions.
+   * Used by summarize_context to actually update the executor's message array.
+   */
+  readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
   readonly [key: string]: unknown;
 }

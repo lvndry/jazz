@@ -2,7 +2,7 @@
 
 This guide shows, step-by-step, how to create a minimal "hello" agent with Jazz and start a conversation. The goal is to give a tiny, zero-friction sample so newcomers can see Jazz in action in under five minutes.
 
-What you’ll get
+What you'll get
 
 - Create a simple agent via the interactive CLI wizard
 - Start a chat session with that agent
@@ -31,7 +31,7 @@ jazz agent create
 
 - What would you like to name your agent? `hello-agent`
 - What should this agent do? `Greet me and answer simple questions about the repo`
-- Select LLM provider: choose one from the list (e.g. `OpenAI`). If you don’t have an API key configured, the wizard will ask you to enter it now.
+- Select LLM provider: choose one from the list (e.g. `OpenAI`). If you don't have an API key configured, the wizard will ask you to enter it now.
 - Select model: pick a model (e.g. `gpt-4o` or any available)
 - Select tools: for the hello agent you can skip tools, or select `File System` if you want the agent to inspect files
 

@@ -106,7 +106,7 @@ You may add or rename subsections if that makes the summary clearer for the spec
 - Keep chronological order when it helps understanding, but group related actions together to reduce repetition.
 - When multiple approaches were considered, briefly describe each and why some were rejected.
 - If a bug or issue was investigated, summarize the symptoms, hypotheses, tests performed, and current best explanation.
-- If the user’s preferences or constraints were revealed, highlight them.
+- If the user's preferences or constraints were revealed, highlight them.
 
 Your summaries should enable another agent to continue the work as if they had read the original conversation or document carefully, but without exceeding context limits.
 `;

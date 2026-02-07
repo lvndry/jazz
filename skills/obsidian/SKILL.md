@@ -17,6 +17,7 @@ Use `obsidian-cli` (Yakitrak) to manage notes and vaults.
 ## Core Philosophy: User-Driven Design
 
 **Ask the user for their preferences** before creating complex structures. While you can create rich, visual notes, always check if they have specific requirements for:
+
 - **Depth**: Quick summary vs. exhaustive guide.
 - **Visuals**: Do they want images, LaTeX, or Mermaid diagrams?
 - **Organization**: Should it be a single note, a folder structure, slides or a Canvas?
@@ -32,8 +33,9 @@ Use `obsidian-cli` (Yakitrak) to manage notes and vaults.
    - `obsidian-cli search-content "term"`
    - `obsidian-cli fm "Note.md" --edit --key "status" --value "done"`
 3. **CLI Help and commands**
- - `obsidian-cli --help`
- - `obsidian-cli [command] --help`
+
+- `obsidian-cli --help`
+- `obsidian-cli [command] --help`
 
 ## Best Practices
 
@@ -50,7 +52,7 @@ Use `obsidian-cli` (Yakitrak) to manage notes and vaults.
 **Always verify you are in the correct vault before any operation.**
 
 1. **Before any operation** (create, open, search, edit, move, delete, fm, etc.): check the current default vault with `obsidian-cli print-default --path-only` (or without `--path-only` to see the vault name).
-2. **If the target vault differs** from the user’s intended vault: switch with `obsidian-cli set-default "VaultName"` (use the exact vault name the user wants).
+2. **If the target vault differs** from the user's intended vault: switch with `obsidian-cli set-default "VaultName"` (use the exact vault name the user wants).
 3. **Then** run the operation.
 
 Never assume the CLI is already on the right vault. If the user specified a vault or you infer one from context, confirm it matches the default and call `set-default` when it does not.

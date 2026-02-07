@@ -36,6 +36,7 @@ interface StreamProcessorConfig {
   readonly hasReasoningEnabled: boolean;
   readonly startTime: number;
   readonly toolsDisabled?: boolean;
+  readonly providerNativeToolNames?: Set<string>;
 }
 
 /**
@@ -54,6 +55,8 @@ interface StreamProcessorState {
 
   // Tool calls
   collectedToolCalls: ToolCall[];
+  /** Provider-native tool calls waiting for tool-result to arrive with enriched data (e.g. query) */
+  pendingNativeToolCalls: Map<string, { toolCall: ToolCall; sequence: number }>;
 
   // Timing
   firstTokenTime: number | null;
@@ -81,6 +84,7 @@ function createInitialState(): StreamProcessorState {
     reasoningTokens: undefined,
     reasoningStreamCompleted: false,
     collectedToolCalls: [],
+    pendingNativeToolCalls: new Map(),
     firstTokenTime: null,
     firstTextTime: null,
     firstReasoningTime: null,
@@ -312,6 +316,8 @@ export class StreamProcessor {
           }
 
           case "tool-call": {
+            const isProviderNative = this.config.providerNativeToolNames?.has(part.toolName) ?? false;
+
             const toolCall: ToolCall = {
               id: part.toolCallId,
               type: "function",
@@ -332,17 +338,63 @@ export class StreamProcessor {
               }
             }
 
-            this.state.collectedToolCalls.push(toolCall);
+            if (isProviderNative) {
+              // Buffer provider-native tool calls (e.g. OpenAI web_search).
+              // The AI SDK hardcodes empty input for these; the real data (e.g.
+              // search query) arrives in the subsequent tool-result event.
+              // We wait for tool-result to emit a single, complete tool_call.
+              this.state.pendingNativeToolCalls.set(toolCall.id, {
+                toolCall,
+                sequence: this.state.textSequence++,
+              });
+            } else {
+              void this.emitEvent({
+                type: "tool_call",
+                toolCall,
+                sequence: this.state.textSequence++,
+              });
+              this.state.collectedToolCalls.push(toolCall);
+            }
+            break;
+          }
+
+          // Provider-native tool results (e.g. OpenAI web_search).
+          // The AI SDK emits tool-result after tool-call for provider-executed tools.
+          // For web_search the query is NOT in tool-call input (hardcoded {})
+          // but IS in tool-result output as action.query.
+          case "tool-result": {
+            const pending = this.state.pendingNativeToolCalls.get(part.toolCallId);
+            if (!pending) break;
+            this.state.pendingNativeToolCalls.delete(part.toolCallId);
+
+            // Enrich the buffered tool call with data from the result
+            const output = part.output as Record<string, unknown> | undefined;
+            const action = output?.["action"] as Record<string, unknown> | undefined;
+            if (action?.["type"] === "search" && typeof action["query"] === "string") {
+              pending.toolCall.function.arguments = JSON.stringify({ query: action["query"] });
+            }
 
             void this.emitEvent({
               type: "tool_call",
-              toolCall,
-              sequence: this.state.textSequence++,
+              toolCall: pending.toolCall,
+              sequence: pending.sequence,
+              providerNative: true,
             });
             break;
           }
 
           case "finish": {
+            // Flush any buffered provider-native tool calls that never got a tool-result
+            for (const [id, pending] of this.state.pendingNativeToolCalls) {
+              void this.emitEvent({
+                type: "tool_call",
+                toolCall: pending.toolCall,
+                sequence: pending.sequence,
+                providerNative: true,
+              });
+              this.state.pendingNativeToolCalls.delete(id);
+            }
+
             const finishReason = part.finishReason || "unknown";
             this.state.finishEventReceived = true;
             this.state.finishReason = finishReason;

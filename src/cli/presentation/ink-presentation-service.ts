@@ -97,7 +97,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
       // Handle tool_execution_start/complete — need timeout management
       if (event.type === "tool_execution_start") {
-        this.setupToolTimeout(event.toolCallId, event.toolName);
+        if (!event.longRunning) {
+          this.setupToolTimeout(event.toolCallId, event.toolName);
+        }
       }
       if (event.type === "tool_execution_complete") {
         this.clearToolTimeout(event.toolCallId);
@@ -124,7 +126,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (result.activity) {
         this.throttledSetActivity(result.activity);
       }
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll((error) => Effect.sync(() => {
+      // Log swallowed errors to stderr for debugging missing tool call events
+      if (process.env["DEBUG"]) {
+        console.error(`[InkStreamingRenderer] handleEvent error for ${event.type}:`, error);
+      }
+    })));
   }
 
   private handleComplete(

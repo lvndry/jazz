@@ -81,12 +81,12 @@ Break the complex question into atomic sub-questions.
 
 For each sub-question, generate 2-3 search query variants:
 
-| Technique              | Example                                                             |
-| ---------------------- | ------------------------------------------------------------------- |
-| **Synonym expansion**  | "AI healthcare" → "artificial intelligence medicine", "ML clinical" |
-| **Specificity ladder** | Broad: "AI costs" → Specific: "radiology AI ROI 2024 study"         |
-| **Source targeting**   | Add: "research paper", "meta-analysis", "government report"         |
-| **Recency filter**     | Add year constraints for time-sensitive topics                      |
+| Technique              | Example                                                                     |
+| ---------------------- | --------------------------------------------------------------------------- |
+| **Synonym expansion**  | "renewable energy" → "solar wind power", "clean energy generation"          |
+| **Specificity ladder** | Broad: "diet benefits" → Specific: "Mediterranean diet cardiovascular 2023" |
+| **Source targeting**   | Add: "research paper", "meta-analysis", "government report"                 |
+| **Recency filter**     | Add year constraints for time-sensitive topics                              |
 
 ---
 

@@ -56,7 +56,7 @@ export type StreamEvent =
   | { type: "text_chunk"; delta: string; accumulated: string; sequence: number }
 
   // Tool calls
-  | { type: "tool_call"; toolCall: ToolCall; sequence: number }
+  | { type: "tool_call"; toolCall: ToolCall; sequence: number; providerNative?: boolean }
   | {
       type: "tools_detected";
       toolNames: readonly string[];
@@ -69,6 +69,8 @@ export type StreamEvent =
       toolCallId: string;
       arguments?: Record<string, unknown>;
       metadata?: Record<string, unknown>;
+      /** If true, the tool is expected to take a long time (skip timeout warning) */
+      longRunning?: boolean;
     }
   | {
       type: "tool_execution_complete";

@@ -110,7 +110,7 @@ an evolving repository of best-known playbooks and measurable skill growth per a
     (weights configurable).
   - Additional badges for “no approvals required”, “single tool use”, etc.
 - **Surfacing**: `jazz session leaderboard <session-id>` prints top N submissions plus deltas.
-- **Automation**: When a new submission beats the current champion’s score, mark it as
+- **Automation**: When a new submission beats the current champion's score, mark it as
   `CURRENT_BEST`. Agents can challenge by referencing the champion ID in their run metadata.
 
 ### 6. Practice Queue & Trigger Integration

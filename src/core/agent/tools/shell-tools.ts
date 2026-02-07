@@ -187,16 +187,22 @@ This command will be executed on your system. Only approve commands you trust.`;
                 let stdout = "";
                 let stderr = "";
 
-                const child = spawn("sh", ["-c", command], {
-                  cwd: workingDir,
-                  stdio: ["ignore", "pipe", "pipe"],
-                  timeout: timeout,
-                  env: sanitizedEnv,
-                  // Additional security options
-                  detached: false,
-                  uid: process.getuid ? process.getuid() : undefined,
-                  gid: process.getgid ? process.getgid() : undefined,
-                });
+                let child;
+                try {
+                  child = spawn("sh", ["-c", command], {
+                    cwd: workingDir,
+                    stdio: ["ignore", "pipe", "pipe"],
+                    timeout: timeout,
+                    env: sanitizedEnv,
+                    // Additional security options
+                    detached: false,
+                    uid: process.getuid ? process.getuid() : undefined,
+                    gid: process.getgid ? process.getgid() : undefined,
+                  });
+                } catch (spawnError) {
+                  reject(spawnError instanceof Error ? spawnError : new Error(String(spawnError)));
+                  return;
+                }
 
                 if (child.stdout) {
                   child.stdout.on("data", (data: Buffer) => {

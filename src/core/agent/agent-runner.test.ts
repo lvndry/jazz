@@ -70,10 +70,12 @@ const mockFileSystemContext = {} as unknown as FileSystemContextService;
 
 const mockToolRegistry = {
   listTools: mock(() => Effect.succeed(["tool1", "tool2", "load_skill", "load_skill_section"])),
-  listAllTools: mock(() => Effect.succeed(["tool1", "tool2", "load_skill", "load_skill_section", "ask_user_question", "ask_file_picker"])),
+  listAllTools: mock(() => Effect.succeed(["tool1", "tool2", "load_skill", "load_skill_section", "ask_user_question", "ask_file_picker", "spawn_subagent", "summarize_context"])),
   getTool: mock((name: string) => Effect.succeed({
     name,
     approvalExecuteToolName: undefined,
+    longRunning: false,
+    timeoutMs: undefined,
     function: { name, description: `Description for ${name}` }
   })),
   getToolDefinitions: mock(() => Effect.succeed([

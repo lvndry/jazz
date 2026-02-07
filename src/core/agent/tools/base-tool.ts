@@ -62,6 +62,15 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    * Set automatically by defineApprovalTool.
    */
   readonly approvalExecuteToolName?: string;
+  /**
+   * If true, this tool is expected to take a long time.
+   * The UI will skip the "taking longer than expected" warning.
+   */
+  readonly longRunning?: boolean;
+  /**
+   * Custom timeout in milliseconds. Overrides the default 3-minute timeout.
+   */
+  readonly timeoutMs?: number;
 }
 
 /**
@@ -84,6 +93,8 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     hidden: config.hidden === true,
     riskLevel: config.riskLevel ?? defaultRiskLevel,
     ...(config.approvalExecuteToolName ? { approvalExecuteToolName: config.approvalExecuteToolName } : {}),
+    ...(config.longRunning ? { longRunning: true } : {}),
+    ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
     createSummary: config.createSummary,
     execute(
       args: Record<string, unknown>,

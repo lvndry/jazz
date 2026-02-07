@@ -8,7 +8,7 @@ import { NotificationServiceTag } from "@/core/interfaces/notification";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
-import type { ConversationMessages, StreamEvent, StreamingConfig } from "@/core/types";
+import type { ChatMessage, ConversationMessages, StreamEvent, StreamingConfig } from "@/core/types";
 import { type ChatCompletionResponse } from "@/core/types/chat";
 import { type LLMError, LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
@@ -406,12 +406,17 @@ export function executeWithStreaming(
               });
 
               // Execute tools - use completion.toolCalls as the source of truth
-              // Inject current token stats into context for tools like context_info
+              // Inject current token stats, conversation messages, and parent agent into context
               const contextWithTokenStats = {
                 ...context,
                 tokenStats: {
                   currentTokens: DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages),
                   maxTokens: DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens ?? 150_000,
+                },
+                conversationMessages: currentMessages,
+                parentAgent: agent,
+                compactConversation: (compacted: readonly ChatMessage[]) => {
+                  currentMessages = [currentMessages[0], ...compacted.slice(1)] as typeof currentMessages;
                 },
               };
               const toolResults = yield* ToolExecutor.executeToolCalls(

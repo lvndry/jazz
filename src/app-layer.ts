@@ -221,13 +221,20 @@ export function runCliEffect<R, E extends JazzError | Error>(
     let signalCount = 0;
     type SignalName = "SIGINT" | "SIGTERM";
 
+    // Ref so the Node signal handler can request shutdown; interrupt must run in this runtime.
+    type ShutdownRequest = { _tag: "request" };
+    const requestShutdownRef: { current: ((req: ShutdownRequest) => void) | null } = {
+      current: null,
+    };
+
     function handler(signal: SignalName): void {
       signalCount += 1;
       const label = signal === "SIGINT" ? "Ctrl+C" : signal;
 
       if (signalCount === 1) {
         process.stdout.write(`\nReceived ${label}. Shutting down...\n`);
-        Effect.runFork(Fiber.interrupt(fiber));
+        const notify = requestShutdownRef.current;
+        if (notify) notify({ _tag: "request" });
       } else {
         process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");
         throw new Error("Force exit requested (second termination signal)");
@@ -245,6 +252,30 @@ export function runCliEffect<R, E extends JazzError | Error>(
           process.off("SIGTERM", handler);
         }),
     );
+
+    const shutdownRequest = Effect.async<ShutdownRequest>((resume) => {
+      requestShutdownRef.current = (req) => {
+        requestShutdownRef.current = null;
+        resume(Effect.succeed(req));
+      };
+      return Effect.sync(() => {
+        requestShutdownRef.current = null;
+      });
+    });
+
+    const exit = yield* Effect.race(
+      Fiber.await(fiber).pipe(Effect.map((exit) => ({ _tag: "exit" as const, exit }))),
+      shutdownRequest.pipe(Effect.map((req) => ({ _tag: "signal" as const, req }))),
+    ).pipe(
+      Effect.flatMap((result) =>
+        result._tag === "signal"
+          ? Fiber.interrupt(fiber).pipe(
+              Effect.zipRight(Fiber.await(fiber)),
+              Effect.map((exit) => ({ _tag: "exit" as const, exit })),
+            )
+          : Effect.succeed(result),
+      ),
+    ).pipe(Effect.map((r) => r.exit));
 
     // Register cleanup for MCP server connections
     yield* Effect.addFinalizer(() =>
@@ -277,8 +308,6 @@ export function runCliEffect<R, E extends JazzError | Error>(
         }
       }),
     );
-
-    const exit = yield* Fiber.await(fiber);
 
     if (Exit.isFailure(exit)) {
       if (Exit.isInterrupted(exit)) {

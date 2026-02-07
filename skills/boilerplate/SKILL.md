@@ -23,7 +23,7 @@ Generate minimal project scaffolds from short descriptions. Turn "CLI in Go with
 
 ## Scaffold Rules
 
-1. **Minimal**: Only what’s needed to run and one clear path (e.g. one command, one route).
+1. **Minimal**: Only what's needed to run and one clear path (e.g. one command, one route).
 2. **Conventional**: Standard layout (e.g. cmd/ for Go, src/ for TS/JS).
 3. **Runnable**: User can install deps and run with 1–2 commands.
 4. **Documented**: README with install, run, and (if applicable) env vars.
@@ -59,6 +59,7 @@ Generate minimal project scaffolds from short descriptions. Turn "CLI in Go with
 ## Ambiguity
 
 If the request is vague:
+
 - Pick one reasonable stack and say what you chose: "Using Vite + React; say if you want Next.js instead."
 - Default to TypeScript for Node/React unless they say "JavaScript".
 

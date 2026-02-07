@@ -218,20 +218,6 @@ type AISDKToolChoice = Parameters<typeof generateText>[0]["toolChoice"];
 const OPENROUTER_GATEWAY_MODELS = new Set(["openrouter/free", "openrouter/auto"]);
 
 /**
- * Check if any external web search API keys are configured
- * Returns true if at least one external provider (exa, parallel, tavily) has an API key
- */
-function hasExternalWebSearchKeys(webSearchConfig?: WebSearchConfig): boolean {
-  if (!webSearchConfig) return false;
-
-  return !!(
-    webSearchConfig.exa?.api_key ||
-    webSearchConfig.parallel?.api_key ||
-    webSearchConfig.tavily?.api_key
-  );
-}
-
-/**
  * Get provider-native web search tool if supported by the provider
  * Returns the tool instance or null if not supported
  */
@@ -668,13 +654,14 @@ class AISDKService implements LLMService {
   private prepareTools(
     providerName: ProviderName,
     requestedTools: ChatCompletionOptions["tools"],
-  ): ToolSet | undefined {
+  ): { tools: ToolSet; providerNativeToolNames: Set<string> } | undefined {
     if (!requestedTools || requestedTools.length === 0) {
       return undefined;
     }
 
     const toolConversionStart = Date.now();
     const tools: ToolSet = {};
+    const providerNativeToolNames = new Set<string>();
 
     // First, map all requested tools to the AI SDK format.
     for (const toolDef of requestedTools) {
@@ -688,24 +675,33 @@ class AISDKService implements LLMService {
     const hasWebSearch = requestedTools.some((t) => t.function.name === "web_search");
     if (hasWebSearch) {
       const providerNativeWebSearch = getProviderNativeWebSearchTool(providerName, this.logger);
-      const hasExternalKeys = hasExternalWebSearchKeys(this.config.webSearchConfig);
-      const shouldUseProviderNative = providerNativeWebSearch && !hasExternalKeys;
+      // Check if user explicitly selected an external provider (vs "none"/undefined for builtin)
+      const selectedExternalProvider = this.config.webSearchConfig?.provider;
+      const hasSelectedProviderKey = selectedExternalProvider
+        ? !!this.config.webSearchConfig?.[selectedExternalProvider]?.api_key
+        : false;
+
+      // Use native if: no external provider selected AND native is available
+      // Use external if: external provider is selected AND has API key
+      const shouldUseProviderNative = !selectedExternalProvider && providerNativeWebSearch;
+      const shouldUseExternal = selectedExternalProvider && hasSelectedProviderKey;
 
       if (shouldUseProviderNative) {
         void this.logger.debug(
-          `[Web Search] Using provider-native web search tool for ${providerName} (no external API keys configured)`,
+          `[Web Search] Using provider-native web search tool for ${providerName} (builtin selected, no external provider configured)`,
         );
         tools["web_search"] = providerNativeWebSearch;
-      } else {
-        if (providerNativeWebSearch && hasExternalKeys) {
-          void this.logger.debug(
-            `[Web Search] Using Jazz web_search tool (external API keys configured, overriding provider-native tool)`,
-          );
-        } else if (!providerNativeWebSearch) {
-          void this.logger.debug(
-            `[Web Search] Using Jazz web_search tool (provider ${providerName} does not support native web search)`,
-          );
-        }
+        providerNativeToolNames.add("web_search");
+      } else if (shouldUseExternal) {
+        void this.logger.debug(
+          `[Web Search] Using Jazz web_search tool with external provider: ${selectedExternalProvider}`,
+        );
+        // Keep Jazz's web_search tool - it will route to the external provider
+      } else if (!providerNativeWebSearch && !shouldUseExternal) {
+        void this.logger.debug(
+          `[Web Search] web_search tool available but may fail: provider ${providerName} has no native support and no external provider configured`,
+        );
+        // Keep Jazz's web_search tool but it will return an error when called
       }
     }
 
@@ -713,7 +709,7 @@ class AISDKService implements LLMService {
       `[LLM Timing] Tool conversion (${Object.keys(tools).length} tools) took ${Date.now() - toolConversionStart}ms`,
     );
 
-    return tools;
+    return { tools, providerNativeToolNames };
   }
 
   createChatCompletion(
@@ -751,9 +747,9 @@ class AISDKService implements LLMService {
           toolsDisabled,
         } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
 
-        // Prepare tools for AI SDK if present
-        // Prepare tools for AI SDK if present
-        const tools = this.prepareTools(providerName, requestedTools);
+        const prepared = this.prepareTools(providerName, requestedTools);
+        const tools = prepared?.tools;
+        const providerNativeToolNames = prepared?.providerNativeToolNames ?? new Set<string>();
 
         const providerOptions = buildProviderOptions(providerName, options);
 
@@ -800,32 +796,51 @@ class AISDKService implements LLMService {
           };
         }
 
-        // Extract tool calls if present
+        // Extract tool calls if present, filtering out provider-native tool calls.
+        // Provider-native tools (e.g., OpenAI web search) are handled server-side by the
+        // provider during the API call. The results are already embedded in the response
+        // content. We must not pass these to Jazz's tool executor.
         if (result.toolCalls && result.toolCalls.length > 0) {
-          toolCalls = result.toolCalls.map((tc: TypedToolCall<ToolSet>) => {
-            const toolCall: ToolCall = {
-              id: tc.toolCallId,
-              type: "function" as const,
-              function: {
-                name: tc.toolName,
-                arguments: JSON.stringify(tc.input ?? {}),
-              },
-            };
-
-            // Preserve thought_signature for Google/Gemini models if present
-            // The AI SDK includes it in providerMetadata.google.thoughtSignature
-            if ("providerMetadata" in tc && tc.providerMetadata) {
-              const providerMetadata = tc.providerMetadata as {
-                google?: { thoughtSignature?: string };
-              };
-              if (providerMetadata?.google?.thoughtSignature) {
-                (toolCall as { thought_signature?: string }).thought_signature =
-                  providerMetadata.google.thoughtSignature;
-              }
+          // Log provider-native tool calls so they're visible to the user
+          for (const tc of result.toolCalls) {
+            if (providerNativeToolNames.has(tc.toolName)) {
+              void this.logger.info(`Provider-native tool used: ${tc.toolName}`, {
+                provider: providerName,
+                toolName: tc.toolName,
+              });
             }
+          }
 
-            return toolCall;
-          });
+          const filteredToolCalls = result.toolCalls.filter(
+            (tc: TypedToolCall<ToolSet>) => !providerNativeToolNames.has(tc.toolName),
+          );
+
+          if (filteredToolCalls.length > 0) {
+            toolCalls = filteredToolCalls.map((tc: TypedToolCall<ToolSet>) => {
+              const toolCall: ToolCall = {
+                id: tc.toolCallId,
+                type: "function" as const,
+                function: {
+                  name: tc.toolName,
+                  arguments: JSON.stringify(tc.input ?? {}),
+                },
+              };
+
+              // Preserve thought_signature for Google/Gemini models if present
+              // The AI SDK includes it in providerMetadata.google.thoughtSignature
+              if ("providerMetadata" in tc && tc.providerMetadata) {
+                const providerMetadata = tc.providerMetadata as {
+                  google?: { thoughtSignature?: string };
+                };
+                if (providerMetadata?.google?.thoughtSignature) {
+                  (toolCall as { thought_signature?: string }).thought_signature =
+                    providerMetadata.google.thoughtSignature;
+                }
+              }
+
+              return toolCall;
+            });
+          }
         }
 
         const resultObj: ChatCompletionResponse = {
@@ -944,7 +959,8 @@ class AISDKService implements LLMService {
               options.toolChoice,
             );
 
-            const tools = this.prepareTools(providerName, requestedTools);
+            const prepared = this.prepareTools(providerName, requestedTools);
+            const tools = prepared?.tools;
 
             if (toolsDisabled) {
               void this.logger.info(
@@ -969,6 +985,8 @@ class AISDKService implements LLMService {
               `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
             );
 
+            const providerNativeToolNames = prepared?.providerNativeToolNames;
+
             const processor = new StreamProcessor(
               {
                 providerName,
@@ -978,6 +996,7 @@ class AISDKService implements LLMService {
                 ),
                 startTime: Date.now(),
                 toolsDisabled,
+                ...(providerNativeToolNames && { providerNativeToolNames }),
               },
               emit,
               this.logger,

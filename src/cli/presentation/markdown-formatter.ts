@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { codeColor } from "./code-theme";
 
 /**
  * Shared markdown formatting utilities for terminal output.
@@ -116,7 +117,7 @@ export function formatItalic(text: string): string {
  * Format markdown inline code
  */
 export function formatInlineCode(text: string): string {
-  return text.replace(INLINE_CODE_REGEX, (_match, code) => chalk.cyan(code));
+  return text.replace(INLINE_CODE_REGEX, (_match: string, code: string) => codeColor(code));
 }
 
 /**
@@ -252,7 +253,7 @@ export function formatCodeBlocks(text: string, state: StreamingState): Formattin
         isInCodeBlock = !isInCodeBlock;
         processedLines.push(chalk.yellow(line));
       } else if (isInCodeBlock) {
-        processedLines.push(chalk.cyan(line));
+        processedLines.push(codeColor(line));
       } else {
         processedLines.push(line);
       }
@@ -266,7 +267,7 @@ export function formatCodeBlocks(text: string, state: StreamingState): Formattin
 
   if (isInCodeBlock) {
     return {
-      formatted: chalk.cyan(text),
+      formatted: codeColor(text),
       state: { isInCodeBlock },
     };
   }
@@ -287,7 +288,7 @@ export function formatCodeBlockContent(codeBlock: string): string {
       const content = line.trimStart();
       processedLines.push(leadingWhitespace + chalk.yellow(content));
     } else {
-      processedLines.push(chalk.cyan(line));
+      processedLines.push(codeColor(line));
     }
   }
 
@@ -371,7 +372,7 @@ export function formatMarkdown(text: string): string {
   // Restore inline code - use simple string replace since placeholders are unique
   for (let index = 0; index < inlineCodes.length; index++) {
     const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
-    formatted = formatted.replace(placeholder, chalk.cyan(inlineCodes[index]!));
+    formatted = formatted.replace(placeholder, codeColor(inlineCodes[index]!));
   }
 
   // Restore code blocks - use simple string replace since placeholders are unique
@@ -427,7 +428,7 @@ export function formatItalicHybrid(text: string): string {
  * Format inline code in hybrid mode - keeps backticks visible
  */
 export function formatInlineCodeHybrid(text: string): string {
-  return text.replace(INLINE_CODE_REGEX, (_match, code) => `\`${chalk.cyan(code)}\``);
+  return text.replace(INLINE_CODE_REGEX, (_match: string, code: string) => `\`${codeColor(code)}\``);
 }
 
 /**
@@ -495,7 +496,7 @@ export function formatCodeBlockContentHybrid(codeBlock: string): string {
       const content = line.trimStart();
       processedLines.push(leadingWhitespace + chalk.yellow(content));
     } else {
-      processedLines.push(chalk.cyan(line));
+      processedLines.push(codeColor(line));
     }
   }
 
@@ -544,7 +545,7 @@ export function formatMarkdownHybrid(text: string): string {
   // Restore inline code with hybrid formatting (keeps backticks)
   for (let index = 0; index < inlineCodes.length; index++) {
     const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
-    formatted = formatted.replace(placeholder, `\`${chalk.cyan(inlineCodes[index]!)}\``);
+    formatted = formatted.replace(placeholder, `\`${codeColor(inlineCodes[index]!)}\``);
   }
 
   // Restore code blocks with hybrid formatting (keeps ``` markers)

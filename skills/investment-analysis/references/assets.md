@@ -52,7 +52,7 @@ Reference for asset types and relevant metrics/sources. Use when building an inv
 | **Price**     | Current price, 30/90-day range, 52-week high/low        | Cite exchange or provider     |
 | **Valuation** | P/E, P/S, or ETF metrics (e.g. expense ratio, holdings) | Context: sector, history      |
 | **Trend**     | Short- and medium-term direction                        | Support/resistance if useful  |
-| **Context**   | Sector, rates, earnings (if single name)                | What’s driving or could drive |
+| **Context**   | Sector, rates, earnings (if single name)                | What's driving or could drive |
 | **Use case**  | Growth, income, diversification                         | Fit with goals and horizon    |
 
 ### Typical Data Sources
@@ -66,5 +66,5 @@ Reference for asset types and relevant metrics/sources. Use when building an inv
 
 1. **Always cite source and date** for price and any metric.
 2. **State time frame** for trends (e.g. "last 30 days", "since 2024").
-3. **Label opinions and forecasts**; don’t present as fact.
+3. **Label opinions and forecasts**; don't present as fact.
 4. **Tie analysis to user situation** (goals, risk, horizon) in the main skill output.

@@ -4,6 +4,8 @@ import { PresentationServiceTag, type UserInputRequest, type FilePickerRequest }
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "./base-tool";
 
+const USER_INPUT_TIMEOUT_MS = 5 * 60 * 1000;
+
 const askUserSchema = z.object({
   question: z.string().describe("A single, clear question to ask the user"),
   suggested_responses: z
@@ -58,6 +60,8 @@ type FilePickerArgs = z.infer<typeof filePickerSchema>;
 export const userInteractionTools: Tool<ToolRequirements>[] = [
   defineTool({
     name: "ask_user_question",
+    longRunning: true,
+    timeoutMs: USER_INPUT_TIMEOUT_MS,
     description:
       "Ask the user a question with suggested responses before proceeding. Use when you need to offer the user clear choices or alternatives. The user can select from suggestions or type a custom response. IMPORTANT: Ask only ONE question per call if you have multiple questions, call this tool multiple times sequentially.",
     parameters: askUserSchema,
@@ -85,6 +89,8 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
   }),
   defineTool({
     name: "ask_file_picker",
+    longRunning: true,
+    timeoutMs: USER_INPUT_TIMEOUT_MS,
     description:
       "Let the user interactively select a file from the filesystem. Shows a fuzzy file picker where the user can type to filter files and navigate through results. Use when you need the user to choose a specific file.",
     parameters: filePickerSchema,
