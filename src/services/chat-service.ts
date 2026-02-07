@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
 import { AgentRunner, type AgentRunnerOptions } from "@/core/agent/agent-runner";
+import type { GrooveService } from "@/core/grooves/groove-service";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { ChatServiceTag, type ChatService } from "@/core/interfaces/chat-service";
@@ -23,7 +24,6 @@ import {
 } from "@/core/types/errors";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
-import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
 import {
   generateConversationId,
@@ -58,7 +58,7 @@ export class ChatServiceImpl implements ChatService {
     | MCPServerManager
     | ToolRequirements
     | SkillService
-    | WorkflowService
+    | GrooveService
   > {
     return Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;
@@ -153,7 +153,7 @@ export class ChatServiceImpl implements ChatService {
 
           // Commands that support pass-through: trailing text is sent as a message to the agent
           const passThroughMessage =
-            specialCommand.type === "workflows" && specialCommand.args.length > 0
+            specialCommand.type === "grooves" && specialCommand.args.length > 0
               ? specialCommand.args.join(" ").trim()
               : null;
 

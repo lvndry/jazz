@@ -12,8 +12,8 @@ import { getUserDataDirectory } from "@/core/utils/runtime-detection";
 /**
  * Record of a single workflow run.
  */
-export interface WorkflowRunRecord {
-  readonly workflowName: string;
+export interface GrooveRunRecord {
+  readonly grooveName: string;
   readonly startedAt: string;
   readonly completedAt?: string;
   readonly status: "running" | "completed" | "failed";
@@ -106,7 +106,7 @@ function withLock<A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E | Er
  * Load the run history from disk.
  * Returns empty array if the file does not exist (e.g. no workflows run yet) or is invalid.
  */
-export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error> {
+export function loadRunHistory(): Effect.Effect<GrooveRunRecord[], Error> {
   return Effect.gen(function* () {
     const historyPath = getHistoryPath();
 
@@ -128,7 +128,7 @@ export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error> {
     if (content === "") return [];
 
     try {
-      const history = JSON.parse(content) as WorkflowRunRecord[];
+      const history = JSON.parse(content) as GrooveRunRecord[];
       return Array.isArray(history) ? history : [];
     } catch {
       return [];
@@ -139,7 +139,7 @@ export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error> {
 /**
  * Save the run history to disk using atomic write (temp file + rename).
  */
-function saveRunHistory(history: WorkflowRunRecord[]): Effect.Effect<void, Error> {
+function saveRunHistory(history: GrooveRunRecord[]): Effect.Effect<void, Error> {
   return Effect.gen(function* () {
     const historyPath = getHistoryPath();
     const dir = path.dirname(historyPath);
@@ -158,7 +158,7 @@ function saveRunHistory(history: WorkflowRunRecord[]): Effect.Effect<void, Error
  * Keeps only the last N records to prevent unbounded growth.
  * Uses file locking to prevent race conditions.
  */
-export function addRunRecord(record: WorkflowRunRecord): Effect.Effect<void, Error> {
+export function addRunRecord(record: GrooveRunRecord): Effect.Effect<void, Error> {
   return withLock(
     Effect.gen(function* () {
       const history = yield* loadRunHistory();
@@ -179,8 +179,8 @@ export function addRunRecord(record: WorkflowRunRecord): Effect.Effect<void, Err
  * Uses file locking to prevent race conditions.
  */
 export function updateLatestRunRecord(
-  workflowName: string,
-  update: Partial<WorkflowRunRecord>,
+  grooveName: string,
+  update: Partial<GrooveRunRecord>,
 ): Effect.Effect<void, Error> {
   return withLock(
     Effect.gen(function* () {
@@ -189,7 +189,7 @@ export function updateLatestRunRecord(
       // Find the most recent record for this workflow that is still running
       for (let i = history.length - 1; i >= 0; i--) {
         const record = history[i];
-        if (record && record.workflowName === workflowName && record.status === "running") {
+        if (record && record.grooveName === grooveName && record.status === "running") {
           history[i] = { ...record, ...update };
           yield* saveRunHistory(history);
           return;
@@ -200,21 +200,21 @@ export function updateLatestRunRecord(
 }
 
 /**
- * Get run history for a specific workflow.
+ * Get run history for a specific groove.
  */
-export function getWorkflowHistory(
-  workflowName: string,
-): Effect.Effect<WorkflowRunRecord[], Error> {
+export function getGrooveHistory(
+  grooveName: string,
+): Effect.Effect<GrooveRunRecord[], Error> {
   return Effect.gen(function* () {
     const history = yield* loadRunHistory();
-    return history.filter((r) => r.workflowName === workflowName);
+    return history.filter((r) => r.grooveName === grooveName);
   });
 }
 
 /**
  * Get the most recent runs (across all workflows).
  */
-export function getRecentRuns(limit = 20): Effect.Effect<WorkflowRunRecord[], Error> {
+export function getRecentRuns(limit = 20): Effect.Effect<GrooveRunRecord[], Error> {
   return Effect.gen(function* () {
     const history = yield* loadRunHistory();
     return history.slice(-limit).reverse();

@@ -12,7 +12,7 @@ import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 
 /**
- * Headless presentation service for background workflow runs (e.g. catch-up).
+ * Headless presentation service for background groove runs (e.g. catch-up).
  * Does not update the shared UI (store.setStatus / setStream), so the main
  * command's terminal is not overwritten by "pilot is thinking" or tool output.
  * All presentation methods no-op; approval requests are auto-approved.
@@ -119,7 +119,7 @@ class HeadlessPresentationService implements PresentationService {
 
 /**
  * Layer that provides a headless presentation service for background runs.
- * Use with Effect.provide when forking workflow catch-up so the main UI is not updated.
+ * Use with Effect.provide when forking groove catch-up so the main UI is not updated.
  */
 export const HeadlessPresentationServiceLayer = Layer.effect(
   PresentationServiceTag,

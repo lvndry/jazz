@@ -1,28 +1,28 @@
 /**
- * Workflow management and scheduling module.
+ * Groove management and scheduling module.
  *
  * This module provides:
- * - WorkflowService: Discovery and loading of workflow definitions
+ * - GrooveService: Discovery and loading of groove definitions
  * - SchedulerService: System scheduler integration (launchd/cron)
  * - Run history tracking
  * - Catch-up logic for missed scheduled runs
  */
 
-// Workflow service
+// Groove service
 export {
-  WorkflowServiceTag,
-  WorkflowsLive,
-  type WorkflowService,
-  type WorkflowMetadata,
-  type WorkflowContent,
-} from "./workflow-service";
+  GrooveServiceTag,
+  GroovesLive,
+  type GrooveService,
+  type GrooveMetadata,
+  type GrooveContent,
+} from "./groove-service";
 
 // Scheduler service
 export {
   SchedulerServiceTag,
   SchedulerServiceLayer,
   type SchedulerService,
-  type ScheduledWorkflow,
+  type ScheduledGroove,
 } from "./scheduler-service";
 
 // Run history
@@ -30,15 +30,15 @@ export {
   loadRunHistory,
   addRunRecord,
   updateLatestRunRecord,
-  getWorkflowHistory,
+  getGrooveHistory,
   getRecentRuns,
-  type WorkflowRunRecord,
+  type GrooveRunRecord,
 } from "./run-history";
 
 // Catch-up
 export {
-  runWorkflowCatchUp,
-  runCatchUpForWorkflows,
+  runGrooveCatchUp,
+  runCatchUpForGrooves,
   getCatchUpCandidates,
   decideCatchUp,
   type CatchUpDecision,

@@ -20,7 +20,7 @@ Prepare for meetings with automated context gathering and generate minutes after
 
 You can combine these with the `calendar` skill to automatically check your schedule and prep briefs for external meetings every morning.
 
-`morning-brief.workflow.md`:
+`grooves/morning-brief/GROOVE.md`:
 
 ```markdown
 1. Check my calendar for today.

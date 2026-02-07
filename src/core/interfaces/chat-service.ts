@@ -1,8 +1,8 @@
 import type { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
+import type { GrooveService } from "@/core/grooves/groove-service";
 import type { SkillService } from "@/core/skills/skill-service";
 import type { Agent } from "@/core/types/index";
-import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { AgentConfigServiceTag } from "./agent-config";
 import type { AgentService } from "./agent-service";
 import type { FileSystemContextService } from "./fs";
@@ -48,7 +48,7 @@ export interface ChatService {
     | PresentationService
     | ToolRequirements
     | SkillService
-    | WorkflowService
+    | GrooveService
   >;
 }
 

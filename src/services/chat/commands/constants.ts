@@ -20,7 +20,7 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "cost", description: "Show conversation token usage and estimated cost" },
   { name: "copy", description: "Copy the last agent response to clipboard" },
   { name: "skills", description: "List and view available skills" },
-  { name: "workflows", description: "List workflows or send action (e.g. create) to the agent" },
+  { name: "grooves", description: "List grooves or send action (e.g. create) to the agent" },
   { name: "exit", description: "Exit the chat" },
 ] as const;
 

@@ -3,48 +3,48 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer } from "effect";
 import plist from "plist";
-import type { WorkflowMetadata } from "./workflow-service";
+import type { GrooveMetadata } from "./groove-service";
 import { isValidCronExpression } from "../utils/cron-utils";
 import { getJazzSchedulerInvocation, getUserDataDirectory } from "../utils/runtime-detection";
 import { execCommand, execCommandWithStdin } from "../utils/shell-utils";
 
 /**
- * Information about a scheduled workflow.
+ * Information about a scheduled groove.
  */
-export interface ScheduledWorkflow {
-  readonly workflowName: string;
+export interface ScheduledGroove {
+  readonly grooveName: string;
   readonly schedule: string;
-  readonly agent: string; // Agent ID to use for this scheduled workflow
+  readonly agent: string; // Agent ID to use for this scheduled groove
   readonly enabled: boolean;
   readonly lastRun?: string;
   readonly nextRun?: string;
 }
 
 /**
- * Service for managing workflow schedules using system schedulers.
+ * Service for managing groove schedules using system schedulers.
  */
 export interface SchedulerService {
   /**
-   * Schedule a workflow for periodic execution.
-   * @param workflow - The workflow metadata
+   * Schedule a groove for periodic execution.
+   * @param groove - The groove metadata
    * @param agentId - The agent ID to use for scheduled runs (required)
    */
-  readonly schedule: (workflow: WorkflowMetadata, agentId: string) => Effect.Effect<void, Error>;
+  readonly schedule: (groove: GrooveMetadata, agentId: string) => Effect.Effect<void, Error>;
 
   /**
-   * Remove a workflow from the schedule.
+   * Remove a groove from the schedule.
    */
-  readonly unschedule: (workflowName: string) => Effect.Effect<void, Error>;
+  readonly unschedule: (grooveName: string) => Effect.Effect<void, Error>;
 
   /**
-   * List all scheduled workflows.
+   * List all scheduled grooves.
    */
-  readonly listScheduled: () => Effect.Effect<readonly ScheduledWorkflow[], Error>;
+  readonly listScheduled: () => Effect.Effect<readonly ScheduledGroove[], Error>;
 
   /**
-   * Check if a workflow is currently scheduled.
+   * Check if a groove is currently scheduled.
    */
-  readonly isScheduled: (workflowName: string) => Effect.Effect<boolean, Error>;
+  readonly isScheduled: (grooveName: string) => Effect.Effect<boolean, Error>;
 
   /**
    * Get the scheduler type being used (launchd, cron, etc.)
@@ -192,17 +192,17 @@ function cronToLaunchdSchedule(
  * Generate a launchd plist file content.
  */
 function generateLaunchdPlist(
-  workflow: WorkflowMetadata,
+  workflow: GrooveMetadata,
   jazzInvocation: readonly string[],
   agentId: string,
 ): string {
   const schedule = cronToLaunchdSchedule(workflow.schedule!);
   const logDir = path.join(getUserDataDirectory(), "logs");
 
-  const programArgs = [...jazzInvocation, "workflow", "run", workflow.name, "--agent", agentId, "--auto-approve"];
+  const programArgs = [...jazzInvocation, "groove", "run", workflow.name, "--agent", agentId, "--auto-approve"];
 
   const plistObject = {
-    Label: `com.jazz.workflow.${workflow.name}`,
+    Label: `com.jazz.groove.${workflow.name}`,
     ProgramArguments: programArgs,
     StartCalendarInterval: schedule,
     StandardOutPath: `${logDir}/${workflow.name}.log`,
@@ -218,7 +218,7 @@ function generateLaunchdPlist(
  * Uses shell escaping to prevent command injection.
  */
 function generateCrontabEntry(
-  workflow: WorkflowMetadata,
+  workflow: GrooveMetadata,
   jazzInvocation: readonly string[],
   agentId: string,
 ): string {
@@ -227,7 +227,7 @@ function generateCrontabEntry(
   const escapedLogPath = escapeShellArg(`${logDir}/${workflow.name}.log`);
 
   const commandTokens = jazzInvocation.concat([
-    "workflow",
+    "groove",
     "run",
     workflow.name,
     "--agent",
@@ -243,20 +243,20 @@ ${workflow.schedule} ${command} >> ${escapedLogPath} 2>&1`;
 }
 
 /**
- * Parse and validate a ScheduledWorkflow from JSON content.
+ * Parse and validate a ScheduledGroove from JSON content.
  * Returns null if the content is invalid or missing required fields.
  */
-function parseScheduledWorkflow(content: string): ScheduledWorkflow | null {
+function parseScheduledGroove(content: string): ScheduledGroove | null {
   try {
-    const parsed = JSON.parse(content) as Partial<ScheduledWorkflow>;
+    const parsed = JSON.parse(content) as Partial<ScheduledGroove>;
 
     // Validate required fields
-    if (typeof parsed.workflowName !== "string" || typeof parsed.schedule !== "string") {
+    if (typeof parsed.grooveName !== "string" || typeof parsed.schedule !== "string") {
       return null;
     }
 
     return {
-      workflowName: parsed.workflowName,
+      grooveName: parsed.grooveName,
       schedule: parsed.schedule,
       agent: typeof parsed.agent === "string" ? parsed.agent : "default",
       enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : true,
@@ -272,7 +272,7 @@ function parseScheduledWorkflow(content: string): ScheduledWorkflow | null {
  * List all scheduled workflows from the schedules directory.
  * Shared implementation for both LaunchdScheduler and CronScheduler.
  */
-function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
+function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledGroove[], Error> {
   return Effect.gen(function* () {
     const schedulesDir = getSchedulesDirectory();
 
@@ -283,14 +283,14 @@ function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkf
     const files = yield* Effect.tryPromise(() => fs.readdir(schedulesDir));
     const jsonFiles = files.filter((f) => f.endsWith(".json"));
 
-    const scheduled: ScheduledWorkflow[] = [];
+    const scheduled: ScheduledGroove[] = [];
     for (const file of jsonFiles) {
       const content = yield* Effect.tryPromise(() =>
         fs.readFile(path.join(schedulesDir, file), "utf-8"),
       ).pipe(Effect.catchAll(() => Effect.succeed(null)));
 
       if (content) {
-        const metadata = parseScheduledWorkflow(content);
+        const metadata = parseScheduledGroove(content);
         if (metadata) {
           scheduled.push(metadata);
         }
@@ -304,9 +304,9 @@ function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkf
 /**
  * Check if a workflow is scheduled by checking metadata file existence.
  */
-function isScheduledByMetadata(workflowName: string): Effect.Effect<boolean, Error> {
+function isScheduledByMetadata(grooveName: string): Effect.Effect<boolean, Error> {
   return Effect.gen(function* () {
-    const metadataPath = path.join(getSchedulesDirectory(), `${workflowName}.json`);
+    const metadataPath = path.join(getSchedulesDirectory(), `${grooveName}.json`);
     const stat = yield* Effect.tryPromise(() => fs.stat(metadataPath)).pipe(
       Effect.catchAll(() => Effect.succeed(null)),
     );
@@ -324,30 +324,30 @@ class LaunchdScheduler implements SchedulerService {
     return "launchd";
   }
 
-  private getPlistPath(workflowName: string): string {
-    return path.join(this.launchAgentsDir, `com.jazz.workflow.${workflowName}.plist`);
+  private getPlistPath(grooveName: string): string {
+    return path.join(this.launchAgentsDir, `com.jazz.groove.${grooveName}.plist`);
   }
 
-  private getMetadataPath(workflowName: string): string {
-    return path.join(getSchedulesDirectory(), `${workflowName}.json`);
+  private getMetadataPath(grooveName: string): string {
+    return path.join(getSchedulesDirectory(), `${grooveName}.json`);
   }
 
-  schedule(workflow: WorkflowMetadata, agentId: string): Effect.Effect<void, Error> {
+  schedule(groove: GrooveMetadata, agentId: string): Effect.Effect<void, Error> {
     return Effect.gen(function* (this: LaunchdScheduler) {
-      if (!workflow.schedule) {
-        return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
+      if (!groove.schedule) {
+        return yield* Effect.fail(new Error(`Groove ${groove.name} has no schedule defined`));
       }
 
-      if (!isValidCronExpression(workflow.schedule)) {
+      if (!isValidCronExpression(groove.schedule)) {
         return yield* Effect.fail(
-          new Error(`Workflow ${workflow.name} has invalid cron expression: ${workflow.schedule}`),
+          new Error(`Groove ${groove.name} has invalid cron expression: ${groove.schedule}`),
         );
       }
 
       const jazzInvocation = yield* getJazzSchedulerInvocation();
-      const plistContent = generateLaunchdPlist(workflow, jazzInvocation, agentId);
-      const plistPath = this.getPlistPath(workflow.name);
-      const metadataPath = this.getMetadataPath(workflow.name);
+      const plistContent = generateLaunchdPlist(groove, jazzInvocation, agentId);
+      const plistPath = this.getPlistPath(groove.name);
+      const metadataPath = this.getMetadataPath(groove.name);
 
       // Ensure directories exist
       yield* Effect.tryPromise(() => fs.mkdir(this.launchAgentsDir, { recursive: true }));
@@ -363,9 +363,9 @@ class LaunchdScheduler implements SchedulerService {
       yield* Effect.tryPromise(() => fs.writeFile(plistPath, plistContent, "utf-8"));
 
       // Save metadata
-      const metadata: ScheduledWorkflow = {
-        workflowName: workflow.name,
-        schedule: workflow.schedule,
+      const metadata: ScheduledGroove = {
+        grooveName: groove.name,
+        schedule: groove.schedule,
         agent: agentId,
         enabled: true,
       };
@@ -376,10 +376,10 @@ class LaunchdScheduler implements SchedulerService {
     }.bind(this));
   }
 
-  unschedule(workflowName: string): Effect.Effect<void, Error> {
+  unschedule(grooveName: string): Effect.Effect<void, Error> {
     return Effect.gen(function* (this: LaunchdScheduler) {
-      const plistPath = this.getPlistPath(workflowName);
-      const metadataPath = this.getMetadataPath(workflowName);
+      const plistPath = this.getPlistPath(grooveName);
+      const metadataPath = this.getMetadataPath(grooveName);
 
       // Unload the job (ignore errors if not loaded)
       yield* execCommand("launchctl", ["unload", plistPath]).pipe(
@@ -396,12 +396,12 @@ class LaunchdScheduler implements SchedulerService {
     }.bind(this));
   }
 
-  listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
+  listScheduled(): Effect.Effect<readonly ScheduledGroove[], Error> {
     return listScheduledFromMetadataFiles();
   }
 
-  isScheduled(workflowName: string): Effect.Effect<boolean, Error> {
-    return isScheduledByMetadata(workflowName);
+  isScheduled(grooveName: string): Effect.Effect<boolean, Error> {
+    return isScheduledByMetadata(grooveName);
   }
 }
 
@@ -409,14 +409,14 @@ class LaunchdScheduler implements SchedulerService {
  * Linux cron implementation of SchedulerService.
  */
 class CronScheduler implements SchedulerService {
-  private readonly cronMarker = "# Jazz workflow:";
+  private readonly cronMarker = "# Jazz groove:";
 
   getSchedulerType(): "launchd" | "cron" | "unsupported" {
     return "cron";
   }
 
-  private getMetadataPath(workflowName: string): string {
-    return path.join(getSchedulesDirectory(), `${workflowName}.json`);
+  private getMetadataPath(grooveName: string): string {
+    return path.join(getSchedulesDirectory(), `${grooveName}.json`);
   }
 
   private getCurrentCrontab(): Effect.Effect<string, Error> {
@@ -429,21 +429,21 @@ class CronScheduler implements SchedulerService {
     return execCommandWithStdin("crontab", ["-"], content);
   }
 
-  schedule(workflow: WorkflowMetadata, agentId: string): Effect.Effect<void, Error> {
+  schedule(groove: GrooveMetadata, agentId: string): Effect.Effect<void, Error> {
     return Effect.gen(function* (this: CronScheduler) {
-      if (!workflow.schedule) {
-        return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
+      if (!groove.schedule) {
+        return yield* Effect.fail(new Error(`Groove ${groove.name} has no schedule defined`));
       }
 
-      if (!isValidCronExpression(workflow.schedule)) {
+      if (!isValidCronExpression(groove.schedule)) {
         return yield* Effect.fail(
-          new Error(`Workflow ${workflow.name} has invalid cron expression: ${workflow.schedule}`),
+          new Error(`Groove ${groove.name} has invalid cron expression: ${groove.schedule}`),
         );
       }
 
       const jazzInvocation = yield* getJazzSchedulerInvocation();
-      const entry = generateCrontabEntry(workflow, jazzInvocation, agentId);
-      const metadataPath = this.getMetadataPath(workflow.name);
+      const entry = generateCrontabEntry(groove, jazzInvocation, agentId);
+      const metadataPath = this.getMetadataPath(groove.name);
 
       // Ensure directories exist
       yield* Effect.tryPromise(() => fs.mkdir(getSchedulesDirectory(), { recursive: true }));
@@ -459,7 +459,7 @@ class CronScheduler implements SchedulerService {
       const filtered: string[] = [];
       let skipNext = false;
       for (const line of lines) {
-        if (line.includes(`${this.cronMarker} ${workflow.name}`)) {
+        if (line.includes(`${this.cronMarker} ${groove.name}`)) {
           skipNext = true;
           continue;
         }
@@ -477,9 +477,9 @@ class CronScheduler implements SchedulerService {
       yield* this.setCrontab(filtered.join("\n"));
 
       // Save metadata
-      const metadata: ScheduledWorkflow = {
-        workflowName: workflow.name,
-        schedule: workflow.schedule,
+      const metadata: ScheduledGroove = {
+        grooveName: groove.name,
+        schedule: groove.schedule,
         agent: agentId,
         enabled: true,
       };
@@ -487,9 +487,9 @@ class CronScheduler implements SchedulerService {
     }.bind(this));
   }
 
-  unschedule(workflowName: string): Effect.Effect<void, Error> {
+  unschedule(grooveName: string): Effect.Effect<void, Error> {
     return Effect.gen(function* (this: CronScheduler) {
-      const metadataPath = this.getMetadataPath(workflowName);
+      const metadataPath = this.getMetadataPath(grooveName);
 
       // Get current crontab
       const crontab = yield* this.getCurrentCrontab();
@@ -499,7 +499,7 @@ class CronScheduler implements SchedulerService {
       const filtered: string[] = [];
       let skipNext = false;
       for (const line of lines) {
-        if (line.includes(`${this.cronMarker} ${workflowName}`)) {
+        if (line.includes(`${this.cronMarker} ${grooveName}`)) {
           skipNext = true;
           continue;
         }
@@ -520,12 +520,12 @@ class CronScheduler implements SchedulerService {
     }.bind(this));
   }
 
-  listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
+  listScheduled(): Effect.Effect<readonly ScheduledGroove[], Error> {
     return listScheduledFromMetadataFiles();
   }
 
-  isScheduled(workflowName: string): Effect.Effect<boolean, Error> {
-    return isScheduledByMetadata(workflowName);
+  isScheduled(grooveName: string): Effect.Effect<boolean, Error> {
+    return isScheduledByMetadata(grooveName);
   }
 }
 
@@ -537,23 +537,23 @@ class UnsupportedScheduler implements SchedulerService {
     return "unsupported";
   }
 
-  schedule(_workflow: WorkflowMetadata, _agentId: string): Effect.Effect<void, Error> {
+  schedule(_workflow: GrooveMetadata, _agentId: string): Effect.Effect<void, Error> {
     return Effect.fail(
       new Error("Scheduling is not supported on this platform. Supported: macOS, Linux."),
     );
   }
 
-  unschedule(_workflowName: string): Effect.Effect<void, Error> {
+  unschedule(_grooveName: string): Effect.Effect<void, Error> {
     return Effect.fail(
       new Error("Scheduling is not supported on this platform. Supported: macOS, Linux."),
     );
   }
 
-  listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
+  listScheduled(): Effect.Effect<readonly ScheduledGroove[], Error> {
     return Effect.succeed([]);
   }
 
-  isScheduled(_workflowName: string): Effect.Effect<boolean, Error> {
+  isScheduled(_grooveName: string): Effect.Effect<boolean, Error> {
     return Effect.succeed(false);
   }
 }

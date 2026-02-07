@@ -57,9 +57,9 @@ describe("parseSpecialCommand", () => {
       expect(result.args).toEqual([]);
     });
 
-    it("should parse /workflows command with no args", () => {
-      const result = parseSpecialCommand("/workflows");
-      expect(result.type).toBe("workflows");
+    it("should parse /grooves command with no args", () => {
+      const result = parseSpecialCommand("/grooves");
+      expect(result.type).toBe("grooves");
       expect(result.args).toEqual([]);
     });
   });
@@ -83,15 +83,15 @@ describe("parseSpecialCommand", () => {
       expect(result.args).toEqual(["my-agent"]);
     });
 
-    it("should parse /workflows create (pass-through to agent)", () => {
-      const result = parseSpecialCommand("/workflows create");
-      expect(result.type).toBe("workflows");
+    it("should parse /grooves create (pass-through to agent)", () => {
+      const result = parseSpecialCommand("/grooves create");
+      expect(result.type).toBe("grooves");
       expect(result.args).toEqual(["create"]);
     });
 
-    it("should parse /workflows create my-newsletter", () => {
-      const result = parseSpecialCommand("/workflows create my-newsletter");
-      expect(result.type).toBe("workflows");
+    it("should parse /grooves create my-newsletter", () => {
+      const result = parseSpecialCommand("/grooves create my-newsletter");
+      expect(result.type).toBe("grooves");
       expect(result.args).toEqual(["create", "my-newsletter"]);
     });
   });

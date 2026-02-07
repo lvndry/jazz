@@ -20,7 +20,7 @@ import type { TerminalService } from "./terminal";
 
 /**
  * Risk level for tool execution.
- * Used to determine auto-approval behavior in workflows.
+ * Used to determine auto-approval behavior in grooves.
  *
  * - `read-only`: Tools that only read data (web search, list emails, read files)
  * - `low-risk`: Tools that make minor changes (archive email, create calendar event)
@@ -56,9 +56,9 @@ export interface Tool<R = never> {
   /** If true, this tool is hidden from UI listings (but still usable programmatically). */
   readonly hidden: boolean;
   /**
-   * Risk level for auto-approval in workflows.
+   * Risk level for auto-approval in grooves.
    * - `read-only`: Always auto-approved (default for non-approval tools)
-   * - `low-risk`: Auto-approved when workflow allows low-risk operations
+   * - `low-risk`: Auto-approved when groove allows low-risk operations
    * - `high-risk`: Only auto-approved when explicitly allowed (default for approval tools)
    */
   readonly riskLevel: ToolRiskLevel;

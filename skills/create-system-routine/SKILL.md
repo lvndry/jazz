@@ -1,6 +1,6 @@
 ---
 name: create-system-routine
-description: Create time-based system routines (cron/launchd) for scripts or commands. Use this for OS-level scheduling, NOT for Jazz Workflows.
+description: Create time-based system routines (cron/launchd) for scripts or commands. Use this for OS-level scheduling, NOT for Jazz Grooves.
 ---
 
 # Create System Routine
@@ -38,7 +38,6 @@ Use this skill when the user wants to create or manage time-based routines (sche
    **Do not create the cron entry or plist until you have enough information.** If the user's request is vague (e.g. "schedule something", "run a script daily") or missing any of the items below, guide them through a short questionnaire instead of guessing.
 
    **You have enough info when you know:**
-
    - **Command or script** to run (absolute path preferred). If they only have a relative path or "a script", ask for the full path or help them resolve it.
    - **Schedule**: When should it run?
      - For Linux: cron expression (e.g. `0 8 * * *`)
@@ -46,13 +45,11 @@ Use this skill when the user wants to create or manage time-based routines (sche
    - **Behavior if the machine is off/asleep at the scheduled time**: Explain that neither cron nor launchd will run while the machine is off; offer "run at scheduled time and on boot/login" if they want catch-up.
 
    **How to run the questionnaire:**
-
    - Ask **one or a few questions at a time**; don't dump a long list.
    - If they said "daily" or "every hour", convert to cron/launchd and confirm.
    - Once you have command/script and schedule (and optionally catch-up behavior), proceed to create the routine.
 
 3. **Linux / cron workflow** (`os=linux`)
-
    1. **Validate tools**:
 
       Check for `crontab` availability:
@@ -91,14 +88,11 @@ Use this skill when the user wants to create or manage time-based routines (sche
    4. **(Optional) Boot or login catch-up**:
 
       For "run at 8am or next boot" semantics, instruct the user to:
-
       - Create a small script that records a last-run timestamp and only runs once per day after a given time.
       - Add **both** a time-based cron (e.g. `0 8 * * *`) and an `@reboot` cron entry that call the same script.
 
 4. **macOS / launchd workflow** (`os=macos`)
-
    1. **Choose target: LaunchAgent vs LaunchDaemon**:
-
       - Prefer **LaunchAgent** for user-level routines:
         - Location: `~/Library/LaunchAgents`
         - Runs in the context of the logged-in user.
@@ -170,7 +164,6 @@ Use this skill when the user wants to create or manage time-based routines (sche
       - For "run at 8am or next login" behavior, combine `StartCalendarInterval` with `RunAtLoad` and implement a small guard in the script that only runs once per day after a certain time.
 
 5. **Windows / unsupported workflow** (`os=windows` or `os=unknown`)
-
    - Do **not** attempt to create or modify tasks.
    - Respond with clear guidance:
      - Explain that this skill does not manage Windows Task Scheduler.
@@ -179,7 +172,6 @@ Use this skill when the user wants to create or manage time-based routines (sche
 6. **Removal / update of routines**
 
    When the user wants to remove or update routines created by this skill:
-
    - **Linux (cron)**:
      - Read the current crontab: `crontab -l`.
      - Filter out or edit lines with `# created-by-jazz-create-routines`.

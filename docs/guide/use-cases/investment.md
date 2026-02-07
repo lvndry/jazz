@@ -11,7 +11,7 @@ Receive a consolidated report on market trends and specific assets every week.
 
 ## Setup
 
-1. **Create Workflow**: `market-report.workflow.md`
+1. **Create Groove**: `market-report/GROOVE.md`
 
    ```markdown
    # Weekly Market Report
@@ -24,7 +24,7 @@ Receive a consolidated report on market trends and specific assets every week.
 
 2. **Schedule**:
    ```bash
-   jazz workflow schedule market-report --cron "0 8 * * 1"
+   jazz groove schedule market-report --cron "0 8 * * 1"
    ```
 
 ## Outcome

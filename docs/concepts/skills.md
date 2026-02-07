@@ -83,7 +83,7 @@ Jazz ships with a set of skills that cover common workflows. The exact list can 
 - **pr-description** — Draft PR descriptions from branch and changes.
 - **email** — Email workflows (e.g. with Himalaya CLI).
 - **browser-use** — Browser automation for testing, forms, screenshots, scraping.
-- **create-workflow** / **create-cron** — Define and schedule workflows.
+- **create-groove** / **create-cron** — Define and schedule grooves.
 - **digest** — Summarize and digest content from configured sources.
 - **meeting-notes** — Turn transcripts or notes into structured meeting notes.
 - **journal** — Journaling and reflection workflows.

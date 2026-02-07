@@ -1,20 +1,20 @@
-# Workflows - Automated Agent Tasks
+# Grooves - Automated Agent Tasks
 
-Workflows let you automate recurring tasks by scheduling agents to run at specific times. Think of them as "cron jobs for AI agents" - scheduled automation that can read your emails, research topics, manage your calendar, and more.
+Grooves let you automate recurring tasks by scheduling agents to run at specific times. Think of them as "cron jobs for AI agents" - scheduled automation that can read your emails, research topics, manage your calendar, and more.
 
 ## Quick Start
 
-**💡 Tip**: Use the `create-workflow` skill to generate workflows interactively. Just ask your agent: *"Create a workflow to clean my email every hour"* and it will guide you through the process.
+**💡 Tip**: Use the `create-groove` skill to generate grooves interactively. Just ask your agent: _"Create a groove to clean my email every hour"_ and it will guide you through the process.
 
-### 1. Create a Workflow
+### 1. Create a Groove
 
-Create a `WORKFLOW.md` file in one of these locations:
+Create a `GROOVE.md` file in one of these locations:
 
-- **Local** (project-specific): `./workflows/<name>/WORKFLOW.md`
-- **Global** (user-wide): `~/.jazz/workflows/<name>/WORKFLOW.md`
-- **Built-in** (shipped with Jazz): `<jazz-install>/workflows/<name>/WORKFLOW.md`
+- **Local** (project-specific): `./grooves/<name>/GROOVE.md`
+- **Global** (user-wide): `~/.jazz/grooves/<name>/GROOVE.md`
+- **Built-in** (shipped with Jazz): `<jazz-install>/grooves/<name>/GROOVE.md`
 
-### 2. Define the Workflow
+### 2. Define the Groove
 
 ```markdown
 ---
@@ -37,32 +37,32 @@ Review my inbox from the last hour and archive low-value emails.
 ### 3. Schedule It
 
 ```bash
-# List available workflows
-jazz workflow list
+# List available grooves
+jazz groove list
 
-# Schedule the workflow
-jazz workflow schedule email-cleanup
+# Schedule the groove
+jazz groove schedule email-cleanup
 
-# View scheduled workflows
-jazz workflow scheduled
+# View scheduled grooves
+jazz groove scheduled
 
 # Check run history
-jazz workflow history email-cleanup
+jazz groove history email-cleanup
 ```
 
-## Workflow File Format
+## Groove File Format
 
 ### Frontmatter Fields
 
 | Field              | Required | Description                                       | Example                                               |
 | ------------------ | -------- | ------------------------------------------------- | ----------------------------------------------------- |
-| `name`             | ✓        | Unique workflow identifier                        | `email-cleanup`                                       |
+| `name`             | ✓        | Unique groove identifier                          | `email-cleanup`                                       |
 | `description`      | ✓        | Human-readable summary                            | `Clean up old emails`                                 |
 | `schedule`         |          | Cron expression for scheduling                    | `0 8 * * *` (daily at 8 AM)                           |
 | `agent`            |          | Agent ID/name to use (defaults to user selection) | `research-bot`                                        |
 | `autoApprove`      |          | Auto-approval policy for unattended runs          | `true`, `false`, `read-only`, `low-risk`, `high-risk` |
-| `skills`           |          | Skills to load for this workflow                  | `["email", "calendar"]`                               |
-| `catchUpOnStartup` |          | Run missed workflows on startup                   | `true`                                                |
+| `skills`           |          | Skills to load for this groove                    | `["email", "calendar"]`                               |
+| `catchUpOnStartup` |          | Run missed grooves on startup                     | `true`                                                |
 | `maxCatchUpAge`    |          | Max age (seconds) for catch-up runs               | `43200` (12 hours)                                    |
 
 ### Cron Schedule Format
@@ -90,6 +90,7 @@ Auto-approve policies control which tools can execute without user confirmation 
 | `true`             | Same as `high-risk`                                                    | Fully trusted automation   |
 
 **Safety Note**: Tools are categorized by risk level:
+
 - **Read-only**: `web_search`, `read_file`, `list_emails`, `get_calendar`
 - **Low-risk**: `archive_email`, `create_calendar_event`, `label_email`
 - **High-risk**: `delete_file`, `send_email`, `execute_command`, `git_push`
@@ -105,99 +106,99 @@ The content below the frontmatter is the prompt that will be sent to the agent. 
 
 ## CLI Commands
 
-### List Workflows
+### List Grooves
 
 ```bash
-# List all available workflows
-jazz workflow list
+# List all available grooves
+jazz groove list
 
-# Show detailed information about a workflow
-jazz workflow show tech-digest
+# Show detailed information about a groove
+jazz groove show tech-digest
 ```
 
-### Run Workflows
+### Run Grooves
 
 ```bash
-# Run a workflow once (manually)
-jazz workflow run email-cleanup
+# Run a groove once (manually)
+jazz groove run email-cleanup
 
 # Run with auto-approve
-jazz workflow run email-cleanup --auto-approve
+jazz groove run email-cleanup --auto-approve
 
 # Run with a specific agent
-jazz workflow run email-cleanup --agent research-bot
+jazz groove run email-cleanup --agent research-bot
 ```
 
-### Schedule Workflows
+### Schedule Grooves
 
 ```bash
-# Schedule a workflow for periodic execution
-jazz workflow schedule email-cleanup
+# Schedule a groove for periodic execution
+jazz groove schedule email-cleanup
 
-# If the workflow doesn't specify an agent, you'll be prompted to select one
+# If the groove doesn't specify an agent, you'll be prompted to select one
 
-# View all scheduled workflows
-jazz workflow scheduled
+# View all scheduled grooves
+jazz groove scheduled
 
-# Remove a workflow from the schedule
-jazz workflow unschedule email-cleanup
+# Remove a groove from the schedule
+jazz groove unschedule email-cleanup
 ```
 
 ### When do scheduled runs happen?
 
-Scheduled workflows use the **system scheduler** (launchd on macOS, cron on Linux). The OS only runs jobs when the machine is awake, if the computer is asleep or off at the scheduled time, that run is skipped. The system does not queue or replay missed runs when you wake the machine.
+Scheduled grooves use the **system scheduler** (launchd on macOS, cron on Linux). The OS only runs jobs when the machine is awake, if the computer is asleep or off at the scheduled time, that run is skipped. The system does not queue or replay missed runs when you wake the machine.
 
-**Jazz's catch-up feature** addresses this: you can run missed workflows when you're back at your computer.
+**Jazz's catch-up feature** addresses this: you can run missed grooves when you're back at your computer.
 
-- **Interactive catch-up**: If any workflow has `catchUpOnStartup: true` and missed its scheduled time (within `maxCatchUpAge`), the next time you run any `jazz` command (e.g. `jazz chat` or `jazz workflow list`), Jazz will notify you and ask if you'd like to catch them up. If you say yes, you can select which workflows to run (multi-select), and they'll run in the background while you continue with your original command.
-- **Manual catch-up**: Run `jazz workflow catchup` to see all workflows that need catch-up, choose which to run, and run them.
+- **Interactive catch-up**: If any groove has `catchUpOnStartup: true` and missed its scheduled time (within `maxCatchUpAge`), the next time you run any `jazz` command (e.g. `jazz chat` or `jazz groove list`), Jazz will notify you and ask if you'd like to catch them up. If you say yes, you can select which grooves to run (multi-select), and they'll run in the background while you continue with your original command.\_
+- **Manual catch-up**: Run `jazz groove catchup` to see all grooves that need catch-up, choose which to run, and run them.
 
 For more detail (including why this happens and other options), see [Workflow scheduling: behavior & limitations](workflows-scheduling.md).
 
 ### Catch-up missed runs
 
-When you start Jazz with pending catch-up workflows:
+When you start Jazz with pending catch-up grooves:
 
 ```
 $ jazz chat
-⚠️  2 workflows need to catch up:
+⚠️  2 grooves need to catch up:
    • market-analysis (missed 6:00 AM today)
    • tech-digest (missed 8:00 AM today)
 
 Would you like to catch them up? (y/n): y
 
-Select workflows to catch up:
+Select grooves to catch up:
   [x] market-analysis
   [x] tech-digest
 
-Running selected workflows in background...
+Running selected grooves in background...
 Starting chat session...
 ```
 
 You can also run catch-up manually anytime:
 
 ```bash
-# List workflows that missed a run, select which to run, then run them
-jazz workflow catchup
+# List grooves that missed a run, select which to run, then run them
+jazz groove catchup
 ```
 
-Shows workflows that are scheduled, have `catchUpOnStartup: true`, and missed their last run within the max catch-up window. You can select which ones to run (multi-select with Space, confirm with Enter).
+Shows grooves that are scheduled, have `catchUpOnStartup: true`, and missed their last run within the max catch-up window. You can select which ones to run (multi-select with Space, confirm with Enter).
 
 ### View History
 
 ```bash
-# View recent workflow runs (all workflows)
-jazz workflow history
+# View recent groove runs (all grooves)
+jazz groove history
 
-# View history for a specific workflow
-jazz workflow history email-cleanup
+# View history for a specific groove
+jazz groove history email-cleanup
 ```
 
-## Example Workflows
+## Example Grooves
 
 ### Email Cleanup (Hourly)
 
-**File**: `~/.jazz/workflows/email-cleanup/WORKFLOW.md`
+**File**: `~/.jazz/grooves/email-cleanup/GROOVE.md`
 
 ```markdown
 ---
@@ -212,6 +213,7 @@ skills:
 # Email Cleanup
 
 Review my inbox from the last hour and archive:
+
 - Newsletters older than 2 weeks
 - Promotional emails older than 3 days
 - GitHub notifications I've already seen
@@ -221,7 +223,7 @@ Review my inbox from the last hour and archive:
 
 ### Morning Weather Briefing
 
-**File**: `~/.jazz/workflows/weather-briefing/WORKFLOW.md`
+**File**: `~/.jazz/grooves/weather-briefing/GROOVE.md`
 
 ```markdown
 ---
@@ -239,7 +241,7 @@ Keep it brief - this is a quick morning glance.
 
 ### Daily Tech Digest
 
-**File**: `./workflows/tech-digest/WORKFLOW.md`
+**File**: `./grooves/tech-digest/GROOVE.md`
 
 ```markdown
 ---
@@ -261,7 +263,7 @@ Sources: Twitter, Reddit, Hugging Face, Hacker News, TechCrunch...
 
 ### Market Analysis (Daily)
 
-**File**: `./workflows/market-analysis/WORKFLOW.md`
+**File**: `./grooves/market-analysis/GROOVE.md`
 
 ```markdown
 ---
@@ -287,7 +289,7 @@ Save to ~/market-analysis/YYYY/MM/DD.md
 
 ### macOS (launchd)
 
-Jazz creates a plist file at `~/Library/LaunchAgents/com.jazz.workflow.<name>.plist` that tells macOS when to run your workflow.
+Jazz creates a plist file at `~/Library/LaunchAgents/com.jazz.groove.<name>.plist` that tells macOS when to run your groove.
 
 View logs: `~/.jazz/logs/<workflow-name>.log`
 
@@ -299,14 +301,16 @@ View logs: `~/.jazz/logs/<workflow-name>.log`
 
 ### ⚠️ Important: Computer Must Be Awake
 
-**Scheduled workflows only run if your computer is powered on and awake at the scheduled time.**
+**Scheduled grooves only run if your computer is powered on and awake at the scheduled time.**
 
-If your computer is closed, asleep, or off when a workflow is scheduled:
-- ❌ The workflow will NOT run at that time
+If your computer is closed, asleep, or off when a groove is scheduled:
+
+- ❌ The groove will NOT run at that time
 - ✅ It WILL run at the next scheduled time (if computer is awake)
 - ✅ You can enable catch-up on startup (see below)
 
 **Solutions:**
+
 1. **Keep your computer awake** during times when workflows should run
 2. **Run Jazz on an always-on device** (Raspberry Pi, server, cloud VM)
 3. **Schedule workflows** when you know your computer will be on
@@ -314,28 +318,29 @@ If your computer is closed, asleep, or off when a workflow is scheduled:
 
 ### ✅ Catch-Up on Startup
 
-Enable catch-up to prompt for missed workflows when Jazz starts:
+Enable catch-up to prompt for missed grooves when Jazz starts:
 
 ```yaml
 ---
 catchUpOnStartup: true
-maxCatchUpAge: 43200  # seconds (12 hours)
+maxCatchUpAge: 43200 # seconds (12 hours)
 ---
 ```
 
-If a scheduled run was missed and is within `maxCatchUpAge`, Jazz will notify you when you run any command and ask if you'd like to catch up. You can select which workflows to run, and they'll execute in the background while you continue with your original command.
+If a scheduled run was missed and is within `maxCatchUpAge`, Jazz will notify you when you run any command and ask if you'd like to catch up. You can select which grooves to run, and they'll execute in the background while you continue with your original command.
 
-See [Workflow Scheduling Behavior](./workflows-scheduling.md) for detailed information and workarounds.
+See [Groove Scheduling Behavior](./scheduling.md) for detailed information and workarounds.
 
 ## Run History & Logs
 
-Every workflow execution is tracked:
+Every groove execution is tracked:
 
 - **Run history**: `~/.jazz/run-history.json` (last 100 runs)
-- **Logs**: `~/.jazz/logs/<workflow-name>.log`
-- **Schedule metadata**: `~/.jazz/schedules/<workflow-name>.json`
+- **Logs**: `~/.jazz/logs/<groove-name>.log`
+- **Schedule metadata**: `~/.jazz/schedules/<groove-name>.json`
 
 View history with:
+
 ```bash
 jazz workflow history
 ```
@@ -344,13 +349,15 @@ jazz workflow history
 
 ### 1. Start Conservative
 
-Use `autoApprove: read-only` for research/monitoring workflows, then increase to `low-risk` or `high-risk` once you trust the workflow.
+Use `autoApprove: read-only` for research/monitoring grooves, then increase to `low-risk` or `high-risk` once you trust the groove.
 
 ### 2. Be Explicit About Safety
 
-Include safety guidelines in your workflow prompt:
+Include safety guidelines in your groove prompt:
+
 ```markdown
 **Safety Rules:**
+
 - When in doubt, DO NOTHING
 - Only perform actions you're 100% confident about
 - Leave uncertain items for manual review
@@ -358,82 +365,87 @@ Include safety guidelines in your workflow prompt:
 
 ### 3. Test Manually First
 
-Before scheduling, run the workflow manually to verify it works:
+Before scheduling, run the groove manually to verify it works:
+
 ```bash
-jazz workflow run my-workflow
+jazz groove run my-groove
 ```
 
 ### 4. Choose the Right Agent
 
-Different workflows may need different agents:
-- Research workflows → agent with strong reasoning
+Different grooves may need different agents:
+
+- Research grooves → agent with strong reasoning
 - Email management → agent with email tools enabled
 - Code tasks → agent with filesystem and git tools
 
 ### 5. Monitor Logs
 
 Check logs after scheduled runs to ensure everything works:
+
 ```bash
 tail -f ~/.jazz/logs/email-cleanup.log
 ```
 
 ## Troubleshooting
 
-### Workflow Not Running
+### Groove Not Running
 
-1. **Check if it's scheduled**: `jazz workflow scheduled`
+1. **Check if it's scheduled**: `jazz groove scheduled`
 2. **Verify the agent exists**: `jazz agent list`
-3. **Check logs**: `~/.jazz/logs/<workflow-name>.log`
+3. **Check logs**: `~/.jazz/logs/<groove-name>.log`
 4. **Check system scheduler**:
    - macOS: `launchctl list | grep jazz`
    - Linux: `crontab -l | grep jazz`
 
 ### Agent Not Found During Scheduled Run
 
-The agent must exist when the workflow runs. If you delete an agent that's used by a scheduled workflow, the workflow will fail. Update the schedule with a new agent:
+The agent must exist when the groove runs. If you delete an agent that's used by a scheduled groove, the groove will fail. Update the schedule with a new agent:
 
 ```bash
-jazz workflow unschedule my-workflow
-jazz workflow schedule my-workflow
+jazz groove unschedule my-groove
+jazz groove schedule my-groove
 # Select a different agent
 ```
 
-### Workflow Asks for Approval Despite autoApprove
+### Groove Asks for Approval Despite autoApprove
 
 Make sure you're using `--auto-approve` when running manually:
+
 ```bash
-jazz workflow run my-workflow --auto-approve
+jazz groove run my-groove --auto-approve
 ```
 
-For scheduled runs, auto-approve is automatically enabled based on the workflow's `autoApprove` setting.
+For scheduled runs, auto-approve is automatically enabled based on the groove's `autoApprove` setting.
 
 ## Advanced Usage
 
-### Using the Create-Workflow Skill
+### Using the Create-Groove Skill
 
-Jazz includes a `create-workflow` skill that helps you generate workflows interactively:
+Jazz includes a `create-groove` skill that helps you generate grooves interactively:
 
 ```bash
 # Start a chat with your agent
 jazz
 
 # Then ask:
-> Create a workflow that checks my email every hour and archives old newsletters
+> Create a groove that checks my email every hour and archives old newsletters
 
 # Or:
 > Help me automate checking GitHub issues every morning
 ```
 
 The skill will:
+
 1. Ask clarifying questions (schedule, safety level, output location)
-2. Generate the complete `WORKFLOW.md` file
+2. Generate the complete `GROOVE.md` file
 3. Suggest next steps (testing, scheduling)
 
-This is the easiest way to create workflows - the agent will handle all the formatting, cron syntax, and safety guidelines.
+This is the easiest way to create grooves - the agent will handle all the formatting, cron syntax, and safety guidelines.
 
 ### Skills Integration
 
-Workflows can reference skills in their prompt:
+Grooves can reference skills in their prompt:
 
 ```markdown
 ---
@@ -449,7 +461,7 @@ The agent will automatically have access to load and use these skills.
 
 ### Conditional Logic
 
-You can include conditional instructions in your workflow prompt:
+You can include conditional instructions in your groove prompt:
 
 ```markdown
 If there are more than 10 emails to clean up, create a summary
@@ -458,9 +470,9 @@ and save it to ~/email-cleanup-summary.md
 Otherwise, just log the count.
 ```
 
-### Multi-Step Workflows
+### Multi-Step Grooves
 
-Break complex workflows into clear steps:
+Break complex grooves into clear steps:
 
 ```markdown
 # Daily Standup Report
@@ -474,7 +486,7 @@ Break complex workflows into clear steps:
 
 ## Security & Privacy
 
-- **Credentials**: Workflows use the same OAuth2 tokens as interactive sessions
+- **Credentials**: Grooves use the same OAuth2 tokens as interactive sessions
 - **Approval**: Auto-approve only applies to tools matching the risk policy
 - **Logs**: All actions are logged to `~/.jazz/logs/`
 - **Audit Trail**: Full run history in `~/.jazz/run-history.json`
@@ -482,9 +494,10 @@ Break complex workflows into clear steps:
 ## What's Next
 
 Future enhancements planned:
-- **File triggers**: Run workflows when files change
-- **Webhook triggers**: HTTP endpoints to trigger workflows
-- **Workflow dependencies**: Chain workflows together
+
+- **File triggers**: Run grooves when files change
+- **Webhook triggers**: HTTP endpoints to trigger grooves
+- **Groove dependencies**: Chain grooves together
 - **Retry policies**: Automatic retry on failure
 - **Notifications**: Desktop/email notifications on completion
 
@@ -492,8 +505,9 @@ See [`TODO.md`](../TODO.md) for the full roadmap.
 
 ## Examples
 
-See the `workflows/` directory for complete examples:
-- [`workflows/email-cleanup/`](../workflows/email-cleanup/WORKFLOW.md) - Hourly email management
-- [`workflows/weather-briefing/`](../workflows/weather-briefing/WORKFLOW.md) - Morning weather check
-- [`workflows/tech-digest/`](../workflows/tech-digest/WORKFLOW.md) - Daily AI/tech news digest
-- [`workflows/market-analysis/`](../workflows/market-analysis/WORKFLOW.md) - Daily stock market & crypto analysis
+See the `grooves/` directory for complete examples:
+
+- [`grooves/email-cleanup/`](../grooves/email-cleanup/GROOVE.md) - Hourly email management
+- [`grooves/weather-briefing/`](../grooves/weather-briefing/GROOVE.md) - Morning weather check
+- [`grooves/tech-digest/`](../grooves/tech-digest/GROOVE.md) - Daily AI/tech news digest
+- [`grooves/market-analysis/`](../grooves/market-analysis/GROOVE.md) - Daily stock market & crypto analysis

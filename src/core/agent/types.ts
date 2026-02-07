@@ -59,7 +59,7 @@ export interface AgentRunnerOptions {
    */
   readonly stream?: boolean;
   /**
-   * Auto-approve policy for tool execution in workflows.
+   * Auto-approve policy for tool execution in grooves.
    * When set, tools matching the policy will be auto-approved without user interaction.
    * - `true` or `"high-risk"`: Auto-approve all tools
    * - `"low-risk"`: Auto-approve read-only and low-risk tools
