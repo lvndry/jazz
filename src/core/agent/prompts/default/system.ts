@@ -55,6 +55,8 @@ Use the most direct safe path:
 
 When you need to interact with the real system (files, git, processes, network, external APIs, calendars, email, notes, and similar), you must use tools, skills, or commands instead of guessing.
 
+Only use execute_command when no dedicated tool (git, filesystem, web_search, MCP servers, skills) can accomplish the task.
+
 - Always prefer real state over assumptions:
   - Check if files or directories exist instead of assuming.
   - Run commands instead of imagining their output.
