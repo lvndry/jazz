@@ -23,6 +23,7 @@ import { createHttpRequestTool } from "./http-tools";
 import { registerMCPServerTools } from "./mcp-tools";
 import { createShellCommandTools } from "./shell-tools";
 import { skillTools } from "./skill-tools";
+import { createSubagentTools } from "./subagent-tools";
 import { userInteractionTools } from "./user-interaction-tools";
 import { createWebSearchTool } from "./web-search-tools";
 
@@ -60,6 +61,7 @@ export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDe
     yield* registerHttpTools();
     yield* registerSkillSystemTools();
     yield* registerContextTools();
+    yield* registerSubagentTools();
     yield* registerUserInteractionTools();
     yield* registerMCPToolsLazy();
   });
@@ -432,6 +434,7 @@ export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
 export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Web Search" };
 export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
 export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Context" };
+export const SUBAGENT_CATEGORY: ToolCategory = { id: "subagent", displayName: "Sub Agents" };
 export const USER_INTERACTION_CATEGORY: ToolCategory = { id: "user_interaction", displayName: "User Interaction" };
 
 /**
@@ -489,6 +492,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   CALENDAR_CATEGORY,
   SKILLS_CATEGORY,
   CONTEXT_CATEGORY,
+  SUBAGENT_CATEGORY,
   USER_INTERACTION_CATEGORY,
 ] as const;
 
@@ -497,6 +501,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
  */
 export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
   SKILLS_CATEGORY,
+  SUBAGENT_CATEGORY,
   USER_INTERACTION_CATEGORY,
   CONTEXT_CATEGORY,
 ] as const;
@@ -733,6 +738,18 @@ export function registerContextTools(): Effect.Effect<void, Error, ToolRegistry>
     const registerTool = registry.registerForCategory(CONTEXT_CATEGORY);
 
     yield* registerTool(createContextInfoTool());
+  });
+}
+
+// Register sub-agent tools (spawn_subagent, summarize_context)
+export function registerSubagentTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(SUBAGENT_CATEGORY);
+
+    for (const tool of createSubagentTools()) {
+      yield* registerTool(tool);
+    }
   });
 }
 

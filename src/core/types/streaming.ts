@@ -69,6 +69,8 @@ export type StreamEvent =
       toolCallId: string;
       arguments?: Record<string, unknown>;
       metadata?: Record<string, unknown>;
+      /** If true, the tool is expected to take a long time (skip timeout warning) */
+      longRunning?: boolean;
     }
   | {
       type: "tool_execution_complete";

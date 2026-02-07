@@ -12,6 +12,7 @@ import type { AgentConfigService } from "./agent-config";
 import type { CalendarService } from "./calendar";
 import type { FileSystemContextService } from "./fs";
 import type { GmailService } from "./gmail";
+import type { LLMService } from "./llm";
 import type { LoggerService } from "./logger";
 import type { MCPServerManager } from "./mcp-server";
 import type { PresentationService } from "./presentation";
@@ -40,6 +41,7 @@ export type ToolRequirements =
   | GmailService
   | CalendarService
   | AgentConfigService
+  | LLMService
   | LoggerService
   | MCPServerManager
   | TerminalService
@@ -65,6 +67,16 @@ export interface Tool<R = never> {
    * that should be made available once user confirmation is granted.
    */
   readonly approvalExecuteToolName?: string;
+  /**
+   * If true, this tool is expected to take a long time (e.g., sub-agent, user input).
+   * The UI will suppress the "taking longer than expected" warning.
+   */
+  readonly longRunning?: boolean;
+  /**
+   * Custom timeout in milliseconds for this tool's execution.
+   * Overrides the default TOOL_TIMEOUT_MS (3 minutes).
+   */
+  readonly timeoutMs?: number;
   /**
    * Executes the tool with the provided arguments and context.
    *

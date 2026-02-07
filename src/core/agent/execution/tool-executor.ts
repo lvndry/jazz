@@ -49,10 +49,15 @@ export class ToolExecutor {
       const registry = yield* ToolRegistryTag;
       const logger = yield* LoggerServiceTag;
 
-      const timeoutMinutes = Math.round(TOOL_TIMEOUT_MS / 60000);
+      // Use per-tool timeout if set, otherwise fall back to default
+      const toolMeta = yield* registry.getTool(name).pipe(
+        Effect.catchAll(() => Effect.succeed(undefined)),
+      );
+      const timeoutMs = toolMeta?.timeoutMs ?? TOOL_TIMEOUT_MS;
+      const timeoutMinutes = Math.round(timeoutMs / 60000);
       const result = yield* registry.executeTool(name, args, context).pipe(
         Effect.timeoutFail({
-          duration: TOOL_TIMEOUT_MS,
+          duration: timeoutMs,
           onTimeout: () =>
             new Error(
               `Tool '${name}' timed out after ${timeoutMinutes} minutes. The operation took too long to complete.`,
@@ -117,6 +122,13 @@ export class ToolExecutor {
 
         yield* logger.logToolCall(name, args);
 
+        // Look up tool metadata for UI hints
+        const registry = yield* ToolRegistryTag;
+        const toolMeta = yield* registry.getTool(name).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        );
+        const isLongRunning = toolMeta?.longRunning === true;
+
         // Emit tool execution start - skip for approval tools to avoid interleaving with
         // approval UI when multiple tools run in parallel (approval wrapper returns
         // immediately; the real "Executing tool" is emitted after user approval)
@@ -137,6 +149,7 @@ export class ToolExecutor {
               toolCallId: toolCall.id,
               arguments: args,
               ...(metadata ? { metadata } : {}),
+              ...(isLongRunning ? { longRunning: true } : {}),
             });
           } else {
             const message = yield* presentationService.formatToolExecutionStart(name, args);

@@ -93,7 +93,7 @@ function initializeAgentRun(
     );
 
     // Always include skill tools and user interaction tools so agents can use them by default
-    const BUILT_IN_TOOLS = ["load_skill", "load_skill_section", "ask_user_question", "ask_file_picker"];
+    const BUILT_IN_TOOLS = ["load_skill", "load_skill_section", "ask_user_question", "ask_file_picker", "spawn_subagent", "summarize_context"];
 
     // Combine agent tools with skill tools (skill tools always available)
     const combinedToolNames = [...new Set([...agentToolNames, ...BUILT_IN_TOOLS])];
@@ -235,13 +235,13 @@ export class AgentRunner {
       const runContext = yield* initializeAgentRun(options);
 
       // Determine if streaming should be enabled
-      // Force non-streaming for internal runs
-      const streamDetection = options.internal
-        ? { shouldStream: false, reason: "Internal sub-agent run" }
-        : shouldEnableStreaming(
-          appConfig,
-          options.stream !== undefined ? { stream: options.stream } : {},
-        );
+      // Internal runs (sub-agents) use the same streaming detection as the parent
+      // to ensure provider-native tools (e.g., OpenAI web search) work correctly.
+      // Batch mode cannot reliably handle provider-native tool calls.
+      const streamDetection = shouldEnableStreaming(
+        appConfig,
+        options.stream !== undefined ? { stream: options.stream } : {},
+      );
 
       // Get display config with defaults
       const displayConfig: DisplayConfig = resolveDisplayConfig(appConfig);
