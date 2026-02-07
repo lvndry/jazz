@@ -7,7 +7,7 @@ import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
-import type { ConversationMessages } from "@/core/types";
+import type { ChatMessage, ConversationMessages } from "@/core/types";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import { formatToolResultForContext } from "@/core/utils/tool-result-summarizer";
@@ -203,7 +203,7 @@ export function executeWithoutStreaming(
                 },
                 conversationMessages: currentMessages,
                 parentAgent: agent,
-                compactConversation: (compacted: readonly import("@/core/types/message").ChatMessage[]) => {
+                compactConversation: (compacted: readonly ChatMessage[]) => {
                   currentMessages = [currentMessages[0], ...compacted.slice(1)] as typeof currentMessages;
                 },
               };

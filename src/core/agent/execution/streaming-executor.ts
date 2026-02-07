@@ -8,7 +8,7 @@ import { NotificationServiceTag } from "@/core/interfaces/notification";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
-import type { ConversationMessages, StreamEvent, StreamingConfig } from "@/core/types";
+import type { ChatMessage, ConversationMessages, StreamEvent, StreamingConfig } from "@/core/types";
 import { type ChatCompletionResponse } from "@/core/types/chat";
 import { type LLMError, LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
@@ -415,7 +415,7 @@ export function executeWithStreaming(
                 },
                 conversationMessages: currentMessages,
                 parentAgent: agent,
-                compactConversation: (compacted: readonly import("@/core/types/message").ChatMessage[]) => {
+                compactConversation: (compacted: readonly ChatMessage[]) => {
                   currentMessages = [currentMessages[0], ...compacted.slice(1)] as typeof currentMessages;
                 },
               };
