@@ -442,7 +442,6 @@ export class CLIRenderer {
         // TerminalRenderer works at runtime but types don't match _Renderer interface
         marked.setOptions({
           renderer: new TerminalRenderer({
-            // Code: Dracula-inspired smooth color (see code-theme.ts)
             code: codeColor,
             codespan: codeColor,
             blockquote: chalk.gray,

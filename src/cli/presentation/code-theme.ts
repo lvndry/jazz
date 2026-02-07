@@ -7,7 +7,7 @@ function getCodeColor(): (text: string) => string {
   if (chalk.level === 2) {
     return chalk.ansi256(250);
   }
-  return chalk.gray;
+  return chalk.greenBright;
 }
 
 export const codeColor: (text: string) => string = getCodeColor();

@@ -104,7 +104,7 @@ describe("CLIRenderer", () => {
       const result1 = renderer.testRenderChunk(chunk1, 0);
       expect(result1).toBe(chalk.yellow("```typescript") + "\n");
 
-      // Content inside code block (should be green)
+      // Content inside code block
       const chunk2 = "const x = 1;\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
       // The implementation colors the entire chunk including the newline
