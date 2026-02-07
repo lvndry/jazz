@@ -803,10 +803,10 @@ class AISDKService implements LLMService {
         if (result.toolCalls && result.toolCalls.length > 0) {
           // Log provider-native tool calls so they're visible to the user
           for (const tc of result.toolCalls) {
-            if (providerNativeToolNames.has((tc as TypedToolCall<ToolSet>).toolName)) {
-              void this.logger.info(`Provider-native tool used: ${(tc as TypedToolCall<ToolSet>).toolName}`, {
+            if (providerNativeToolNames.has(tc.toolName)) {
+              void this.logger.info(`Provider-native tool used: ${tc.toolName}`, {
                 provider: providerName,
-                toolName: (tc as TypedToolCall<ToolSet>).toolName,
+                toolName: tc.toolName,
               });
             }
           }
