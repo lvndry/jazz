@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@/core/constants/models";
 import type { ModelInfo } from "@/core/types";
 import { LLMConfigurationError } from "@/core/types/errors";
-import { getMetadataFromMap, getModelsDevMap, type ModelsDevMetadata } from "./models-dev-client";
+import { getMetadataFromMap, getModelsDevMap, type ModelsDevMetadata } from "@/core/utils/models-dev-client";
 
 /**
  * Model fetcher: models.dev as single source of metadata

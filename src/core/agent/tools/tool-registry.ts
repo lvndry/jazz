@@ -7,6 +7,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import { ToolNotFoundError } from "@/core/types/errors";
 import type {
   ToolCategory,
   ToolDefinition,
@@ -56,17 +57,19 @@ class DefaultToolRegistry implements ToolRegistry {
     return (tool: Tool<ToolRequirements>) => this.registerTool(tool, category);
   }
 
-  getTool(name: string): Effect.Effect<Tool<ToolRequirements>, Error> {
-    return Effect.try({
-      try: () => {
-        const tool = this.tools.get(name);
-        if (!tool) {
-          throw new Error(`Tool not found: ${name}`);
-        }
-        return tool;
-      },
-      catch: (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
-    });
+  getTool(name: string): Effect.Effect<Tool<ToolRequirements>, ToolNotFoundError> {
+    return Effect.sync(() => this.tools.get(name)).pipe(
+      Effect.flatMap((tool) =>
+        tool
+          ? Effect.succeed(tool)
+          : Effect.fail(
+              new ToolNotFoundError({
+                toolName: name,
+                suggestion: `Check that the tool "${name}" is registered before use.`,
+              }),
+            ),
+      ),
+    );
   }
 
   listTools(): Effect.Effect<readonly string[], never> {
@@ -259,13 +262,14 @@ class DefaultToolRegistry implements ToolRegistry {
 
       return result;
     }).pipe(
-      Effect.catchAll((error: Error) => {
+      Effect.catchAll((error: ToolNotFoundError | Error) => {
         return Effect.gen(function* () {
-          yield* logToolExecutionError(name, 0, error.message);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          yield* logToolExecutionError(name, 0, errorMessage);
           return {
             success: false,
             result: null,
-            error: error.message,
+            error: errorMessage,
           } as ToolExecutionResult;
         });
       }),

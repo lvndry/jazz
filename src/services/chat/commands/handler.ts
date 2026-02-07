@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import * as path from "node:path";
 import { Effect } from "effect";
 import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
-import { store } from "@/cli/ui/App";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
@@ -26,12 +25,12 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
+import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import {
   WorkflowServiceTag,
   type WorkflowService,
 } from "@/core/workflows/workflow-service";
 import { groupWorkflows, formatWorkflow } from "@/core/workflows/workflow-utils";
-import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
@@ -438,7 +437,7 @@ function handleCompactCommand(
     const messageCount = conversationHistory.length - 1; // Exclude system message
 
     // Stage 1: Reading
-    store.printOutput({ type: "info", message: `📖 Reading ${messageCount} messages from conversation history...`, timestamp: new Date() });
+    yield* terminal.info(`📖 Reading ${messageCount} messages from conversation history...`);
     yield* Effect.sleep("1 seconds");
 
     try {
@@ -450,15 +449,15 @@ function handleCompactCommand(
       yield* terminal.log("");
 
       // Stage 2: Analyzing
-      store.printOutput({ type: "info", message: "🧠 Analyzing content and extracting key information...", timestamp: new Date() });
+      yield* terminal.info("Analyzing content and extracting key information...");
       yield* Effect.sleep("2.5 seconds");
 
       // Show success for Stage 2
-      yield* terminal.success("🧠 Analyzed content and extracted key information");
+      yield* terminal.success("Analyzed content and extracted key information");
       yield* terminal.log("");
 
       // Stage 3: Summarizing
-      store.printOutput({ type: "info", message: "✨ Generating high-density summary...", timestamp: new Date() });
+      yield* terminal.info("✨ Generating high-density summary...");
 
       const summaryMessage = yield* AgentRunner.summarizeHistory(
         messagesToSummarize,

@@ -36,8 +36,9 @@ function ReasoningSection({
   return (
     <Box marginTop={1} paddingLeft={1} flexDirection="column">
       <Box>
+        <Text dimColor>{"▸ "}</Text>
         <Text dimColor italic>
-          🧠 Reasoning
+          Reasoning
         </Text>
         {isThinking && (
           <Text dimColor>
@@ -88,9 +89,20 @@ export const ActivityView = React.memo(function ActivityView({
           </Box>
           <ReasoningSection reasoning={activity.reasoning} isThinking={false} />
           {activity.text && (
-            <Box marginTop={1} paddingLeft={1}>
-              <Text>{activity.text}</Text>
-            </Box>
+            <>
+              {activity.reasoning && (
+                <Box marginTop={1} paddingLeft={1} flexDirection="column">
+                  <Text dimColor>{"─".repeat(40)}</Text>
+                  <Box>
+                    <Text dimColor>{"▸ "}</Text>
+                    <Text dimColor italic>Response</Text>
+                  </Box>
+                </Box>
+              )}
+              <Box marginTop={activity.reasoning ? 0 : 1} paddingLeft={1}>
+                <Text>{activity.text}</Text>
+              </Box>
+            </>
           )}
         </Box>
       );

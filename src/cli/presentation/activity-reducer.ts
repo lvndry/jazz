@@ -37,7 +37,7 @@ export interface ReducerAccumulator {
   isThinking: boolean;
   lastAgentHeaderWritten: boolean;
   lastAppliedTextSequence: number;
-  activeTools: Map<string, string>;
+  activeTools: Map<string, { toolName: string; startedAt: number }>;
   /** Provider id captured from stream_start for cost calculation */
   currentProvider: string | null;
   /** Model id captured from stream_start for cost calculation */
@@ -75,6 +75,7 @@ export interface ReducerResult {
 // ---------------------------------------------------------------------------
 
 const MAX_REASONING_LENGTH = 8000;
+const MAX_LIVE_TEXT_LENGTH = 200_000;
 
 // ---------------------------------------------------------------------------
 // Helper: build the current activity from accumulator state
@@ -111,10 +112,10 @@ function buildThinkingOrStreamingActivity(
 
 function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
   const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(
-    ([toolCallId, toolName]) => ({
+    ([toolCallId, entry]) => ({
       toolCallId,
-      toolName,
-      startedAt: Date.now(),
+      toolName: entry.toolName,
+      startedAt: entry.startedAt,
     }),
   );
   return { phase: "tool-execution", agentName: acc.agentName, tools };
@@ -185,7 +186,7 @@ export function reduceEvent(
         const displayReasoning = chalk.gray(formattedReasoning);
         logs.push({
           type: "log",
-          message: chalk.gray(`🧠 Reasoning:\n${displayReasoning}`),
+          message: chalk.gray(`▸ Reasoning\n${displayReasoning}`),
           timestamp: new Date(),
         });
       }
@@ -227,6 +228,14 @@ export function reduceEvent(
     // ---- Text content ---------------------------------------------------
 
     case "text_start": {
+      // If reasoning was produced, log a separator before the response
+      if (acc.completedReasoning.trim().length > 0) {
+        logs.push({
+          type: "log",
+          message: chalk.dim(`${"─".repeat(40)}\n▸ Response`),
+          timestamp: new Date(),
+        });
+      }
       acc.liveText = "";
       acc.lastAppliedTextSequence = -1;
       return {
@@ -243,7 +252,10 @@ export function reduceEvent(
         },
         { sequence: event.sequence, accumulated: event.accumulated },
       );
-      acc.liveText = next.liveText;
+      // Cap live text to prevent unbounded memory growth during long responses
+      acc.liveText = next.liveText.length > MAX_LIVE_TEXT_LENGTH
+        ? next.liveText.slice(-MAX_LIVE_TEXT_LENGTH)
+        : next.liveText;
       acc.lastAppliedTextSequence = next.lastAppliedSequence;
       return {
         activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
@@ -293,14 +305,14 @@ export function reduceEvent(
         providerLabel = chalk.dim(` [${acc.currentProvider}]`);
       }
       const message = argsStr
-        ? `⚙️  Executing tool: ${toolName}${providerLabel}${argsStr}`
-        : `⚙️  Executing tool: ${toolName}${providerLabel}`;
+        ? `▸ Executing tool: ${toolName}${providerLabel}${argsStr}`
+        : `▸ Executing tool: ${toolName}${providerLabel}`;
       logs.push({ type: "log", message, timestamp: new Date() });
       return { activity: null, logs };
     }
 
     case "tool_execution_start": {
-      acc.activeTools.set(event.toolCallId, event.toolName);
+      acc.activeTools.set(event.toolCallId, { toolName: event.toolName, startedAt: Date.now() });
 
       const argsStr = CLIRenderer.formatToolArguments(
         event.toolName,
@@ -314,15 +326,16 @@ export function reduceEvent(
         }
       }
       const message = argsStr
-        ? `⚙️  Executing tool: ${event.toolName}${providerSuffix}${argsStr}`
-        : `⚙️  Executing tool: ${event.toolName}${providerSuffix}`;
+        ? `▸ Executing tool: ${event.toolName}${providerSuffix}${argsStr}`
+        : `▸ Executing tool: ${event.toolName}${providerSuffix}`;
       logs.push({ type: "log", message, timestamp: new Date() });
 
       return { activity: buildToolExecutionActivity(acc), logs };
     }
 
     case "tool_execution_complete": {
-      const toolName = acc.activeTools.get(event.toolCallId);
+      const toolEntry = acc.activeTools.get(event.toolCallId);
+      const toolName = toolEntry?.toolName;
       acc.activeTools.delete(event.toolCallId);
 
       let summary = event.summary?.trim();

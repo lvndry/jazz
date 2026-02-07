@@ -12,7 +12,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { GenerationInterruptedError } from "@/core/types/errors";
+import { GenerationInterruptedError, type ToolNotFoundError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import {
   isApprovalRequiredResult,
@@ -43,7 +43,7 @@ export class ToolExecutor {
     overrideTimeoutMs?: number,
   ): Effect.Effect<
     ToolExecutionResult,
-    Error,
+    ToolNotFoundError | Error,
     ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
   > {
     return Effect.gen(function* () {

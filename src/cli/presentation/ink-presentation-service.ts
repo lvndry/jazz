@@ -17,13 +17,13 @@ import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
-import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
+import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/models-dev-client";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
-import { store } from "../ui/App";
 import { setLastExpandedDiff } from "../ui/diff-expansion-store";
+import { store } from "../ui/store";
 
 export class InkStreamingRenderer implements StreamingRenderer {
   private readonly acc;
@@ -58,6 +58,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         clearTimeout(this.updateTimeoutId);
         this.updateTimeoutId = null;
       }
+      this.clearAllToolTimeouts();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
     });
@@ -71,6 +72,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.updateTimeoutId = null;
       }
       this.pendingActivity = null;
+      this.clearAllToolTimeouts();
 
       if (this.acc.liveText.trim().length > 0) {
         store.printOutput({ type: "log", message: this.acc.liveText, timestamp: new Date() });
@@ -104,7 +106,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "tool_execution_complete") {
         this.clearToolTimeout(event.toolCallId);
         this.storeExpandableDiff(
-          this.acc.activeTools.get(event.toolCallId),
+          this.acc.activeTools.get(event.toolCallId)?.toolName,
           event.result,
         );
       }
@@ -126,11 +128,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (result.activity) {
         this.throttledSetActivity(result.activity);
       }
-    }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-      // Log swallowed errors to stderr for debugging missing tool call events
-      if (process.env["DEBUG"]) {
-        console.error(`[InkStreamingRenderer] handleEvent error for ${event.type}:`, error);
-      }
+    }).pipe(Effect.catchAllDefect((defect) => Effect.sync(() => {
+      const message = defect instanceof Error ? defect.message : String(defect);
+      store.printOutput({
+        type: "warn",
+        message: `Stream rendering error (${event.type}): ${message}`,
+        timestamp: new Date(),
+      });
     })));
   }
 
@@ -146,11 +150,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     const wasStreaming = this.acc.lastAgentHeaderWritten;
 
-    // Clear the live area FIRST to avoid the visual jump where content appears
-    // in both the live area and Static simultaneously
-    store.setActivity({ phase: "idle" });
-    store.setInterruptHandler(null);
-
     const finalText =
       this.acc.liveText.trim().length > 0
         ? this.acc.liveText
@@ -159,6 +158,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
           : "";
     const formattedFinalText = this.formatMarkdown(finalText);
 
+    // Print to Static FIRST so the content is visible before the live area clears.
+    // Ink's render cycle erases the live area, writes new static output, then
+    // re-renders the live area — so brief duplication is invisible to the user.
+    // The previous approach (clear live first, then print) caused a blank flash
+    // where content vanished for one frame before reappearing in Static.
     if (formattedFinalText.length > 0) {
       if (wasStreaming) {
         // When we were streaming, the user already saw the agent header and reasoning
@@ -217,42 +221,61 @@ export class InkStreamingRenderer implements StreamingRenderer {
         });
       }
 
-      // Calculate and display cost asynchronously
+      // Calculate and display cost synchronously from cache when possible.
+      // The models-dev map is cached in memory after the first fetch (which happens
+      // during model selection), so this lookup is synchronous in practice.
+      // Using a sync path avoids the cost line popping in after the prompt.
       if (usage && this.acc.currentProvider && this.acc.currentModel) {
         const provider = this.acc.currentProvider;
         const model = this.acc.currentModel;
         const promptTokens = usage.promptTokens;
         const completionTokens = usage.completionTokens;
 
-        void getModelsDevMetadata(model, provider)
-          .then((meta) => {
-            if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
-              const inputPrice = meta.inputPricePerMillion ?? 0;
-              const outputPrice = meta.outputPricePerMillion ?? 0;
-              const inputCost = (promptTokens / 1_000_000) * inputPrice;
-              const outputCost = (completionTokens / 1_000_000) * outputPrice;
-              const totalCost = inputCost + outputCost;
+        const printCost = (meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined): void => {
+          if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
+            const inputPrice = meta.inputPricePerMillion ?? 0;
+            const outputPrice = meta.outputPricePerMillion ?? 0;
+            const inputCost = (promptTokens / 1_000_000) * inputPrice;
+            const outputCost = (completionTokens / 1_000_000) * outputPrice;
+            const totalCost = inputCost + outputCost;
 
-              const formatCost = (cost: number): string => {
-                if (cost === 0) return "$0.00";
-                if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-                if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-                return `$${cost.toExponential(2)}`;
-              };
+            const formatCost = (cost: number): string => {
+              if (cost === 0) return "$0.00";
+              if (cost >= 0.01) return `$${cost.toFixed(2)}`;
+              if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
+              return `$${cost.toExponential(2)}`;
+            };
 
-              store.printOutput({
-                type: "debug",
-                message: `[Cost: ${formatCost(inputCost)} input + ${formatCost(outputCost)} output = ${formatCost(totalCost)} total]`,
-                timestamp: new Date(),
-              });
+            store.printOutput({
+              type: "debug",
+              message: `[Cost: ${formatCost(inputCost)} input + ${formatCost(outputCost)} output = ${formatCost(totalCost)} total]`,
+              timestamp: new Date(),
+            });
+          }
+          store.printOutput({ type: "log", message: "", timestamp: new Date() });
+        };
+
+        // Try synchronous cache hit first to avoid async print-after-prompt
+        const cachedMeta = getModelsDevMetadataSync(model, provider);
+        if (cachedMeta !== undefined) {
+          printCost(cachedMeta);
+        } else {
+          // Fallback: async fetch (first run before cache is warm)
+          void getModelsDevMetadata(model, provider)
+            .then(printCost)
+            .catch(() => {
               store.printOutput({ type: "log", message: "", timestamp: new Date() });
-            }
-          })
-          .catch(() => {});
+            });
+        }
       } else {
         store.printOutput({ type: "log", message: "", timestamp: new Date() });
       }
     }
+
+    // Clear the live area AFTER Static content is committed, so the user never
+    // sees a blank frame where the streamed content has disappeared.
+    store.setActivity({ phase: "idle" });
+    store.setInterruptHandler(null);
 
     this.acc.liveText = "";
     this.acc.reasoningBuffer = "";
@@ -278,6 +301,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
       clearTimeout(timeoutId);
       this.toolTimeouts.delete(toolCallId);
     }
+  }
+
+  private clearAllToolTimeouts(): void {
+    for (const timeoutId of this.toolTimeouts.values()) {
+      clearTimeout(timeoutId);
+    }
+    this.toolTimeouts.clear();
   }
 
   private storeExpandableDiff(toolName: string | undefined, result: string): void {

@@ -2,22 +2,6 @@
  * UI Hooks - centralized exports for all React hooks.
  */
 
-// App State hooks
-export {
-  useAppStateService,
-  useLogs,
-  usePrompt,
-  useStatus,
-  useStream,
-  useWorkingDirectory,
-  useCustomView,
-  useLogActions,
-  usePromptActions,
-  useStatusActions,
-  useStreamActions,
-  useAppStateActions,
-} from "./use-app-state";
-
 // Input hooks
 export {
   useInputService,

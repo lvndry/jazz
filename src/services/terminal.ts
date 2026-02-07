@@ -2,8 +2,9 @@ import chalk from "chalk";
 import { Effect, Layer } from "effect";
 import { render } from "ink";
 import React from "react";
-import App, { store } from "@/cli/ui/App";
+import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
+import { store } from "@/cli/ui/store";
 import type { LogEntryInput } from "@/cli/ui/types";
 import {
   TerminalServiceTag,

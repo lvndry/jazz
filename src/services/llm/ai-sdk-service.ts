@@ -54,7 +54,7 @@ import shortUUID from "short-uuid";
 import { z } from "zod";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
-import { getMetadataFromMap, getModelsDevMap } from "./models-dev-client";
+import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
 import { StreamProcessor } from "./stream-processor";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 
@@ -121,16 +121,30 @@ function toCoreMessages(
       thought_signature?: string;
     }>;
   }>,
+  providerName?: ProviderName,
 ): ModelMessage[] {
   return messages.map((m) => {
     const role = m.role;
     const content = sanitize(m.content);
 
     if (role === "system") {
-      return {
+      const msg: SystemModelMessage = {
         role: "system",
         content,
-      } as SystemModelMessage;
+      };
+      // Enable prompt caching: the system prompt is stable across turns,
+      // so caching it gives cost reduction and latency improvement on the cached prefix
+      const normalized = providerName?.toLowerCase();
+      if (normalized === "anthropic") {
+        (msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }).providerOptions = {
+          anthropic: { cacheControl: { type: "ephemeral" } },
+        };
+      } else if (normalized === "openai") {
+        (msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }).providerOptions = {
+          openai: { promptCacheKey: "system-prompt" },
+        };
+      }
+      return msg;
     }
 
     if (role === "user") {
@@ -754,7 +768,7 @@ class AISDKService implements LLMService {
         const providerOptions = buildProviderOptions(providerName, options);
 
         const messageConversionStart = Date.now();
-        const coreMessages = toCoreMessages(options.messages);
+        const coreMessages = toCoreMessages(options.messages, providerName);
         void this.logger.debug(
           `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
         );
@@ -918,7 +932,7 @@ class AISDKService implements LLMService {
 
     // Message conversion timing
     const messageConversionStart = Date.now();
-    const coreMessages = toCoreMessages(options.messages);
+    const coreMessages = toCoreMessages(options.messages, providerName);
     void this.logger.debug(
       `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
     );

@@ -1,5 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
+import { store } from "@/cli/ui/store";
 import { AgentRunner, type AgentRunnerOptions } from "@/core/agent/agent-runner";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
@@ -80,8 +81,8 @@ export class ChatServiceImpl implements ChatService {
           }),
         ),
       );
-      // Update working directory in store after initialization
-      updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
+
+      updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext, store.setWorkingDirectory);
 
       // Agent setup phase: Connect to MCP servers and register tools before first message
       // Errors are handled gracefully inside setupAgent - conversation continues even if some MCPs fail
@@ -91,6 +92,12 @@ export class ChatServiceImpl implements ChatService {
       let conversationHistory: ChatMessage[] = [];
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
+
+      // Bound conversation history to prevent unbounded memory growth.
+      // The agent's own ContextWindowManager (200 msgs / 150K tokens) handles
+      // per-turn trimming with tool-call integrity; this outer cap is a simple
+      // safety net so the between-turn array doesn't grow without limit.
+      const MAX_CHAT_HISTORY_MESSAGES = 2000;
 
       while (chatActive) {
         // Prompt for user input
@@ -183,13 +190,13 @@ export class ChatServiceImpl implements ChatService {
                 ),
               );
               // Update working directory in store after conversation change
-              updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
+              updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext, store.setWorkingDirectory);
             }
             if (commandResult.newAgent !== undefined) {
               agent = commandResult.newAgent;
               // Update working directory in store after agent switch
               const fileSystemContext = yield* FileSystemContextServiceTag;
-              updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
+              updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext, store.setWorkingDirectory);
             }
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
@@ -289,6 +296,12 @@ export class ChatServiceImpl implements ChatService {
             }
             loggedMessageCount = response.messages.length;
             conversationHistory = response.messages;
+
+            // Trim if history exceeds the outer safety cap
+            if (conversationHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
+              conversationHistory = conversationHistory.slice(-MAX_CHAT_HISTORY_MESSAGES);
+              loggedMessageCount = conversationHistory.length;
+            }
           } else if (response.content) {
             // If we have content but no messages array, log both user and assistant messages
             const userChatMessage: ChatMessage = {
@@ -318,7 +331,7 @@ export class ChatServiceImpl implements ChatService {
 
           // Update working directory in store after agent run (in case cd was called)
           const fileSystemContext = yield* FileSystemContextServiceTag;
-          updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext);
+          updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext, store.setWorkingDirectory);
         });
       }
     }).pipe(Effect.catchAll(() => Effect.void));

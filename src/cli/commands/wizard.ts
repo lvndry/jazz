@@ -9,7 +9,7 @@ import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
-import { store } from "../ui/App";
+import { store } from "../ui/store";
 import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
 
 /**

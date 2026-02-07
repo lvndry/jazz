@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { InkStreamingRenderer } from "./ink-presentation-service";
 import type { ActivityState } from "../ui/activity-state";
-import { store } from "../ui/App";
+import { store } from "../ui/store";
 import type { LogEntryInput } from "../ui/types";
 
 describe("InkStreamingRenderer", () => {
@@ -188,7 +188,7 @@ describe("InkStreamingRenderer", () => {
   });
 
   describe("complete phase", () => {
-    test("clears activity to idle before printing response", async () => {
+    test("prints response to Static before clearing activity to idle", async () => {
       const renderer = createRenderer();
       emitStreamStart(renderer);
 
@@ -223,12 +223,13 @@ describe("InkStreamingRenderer", () => {
       store.setActivity = origActivity;
       store.printOutput = origPrint;
 
-      // activity:idle should come BEFORE print:log (the response text)
+      // print:log (the response text) should come BEFORE activity:idle
+      // to prevent a blank flash where streamed content vanishes for one frame
       const idleIdx = callOrder.indexOf("activity:idle");
       const printIdx = callOrder.indexOf("print:log");
       expect(idleIdx).toBeGreaterThanOrEqual(0);
       expect(printIdx).toBeGreaterThanOrEqual(0);
-      expect(idleIdx).toBeLessThan(printIdx);
+      expect(printIdx).toBeLessThan(idleIdx);
     });
 
     test("does not use AgentResponseCard when streaming was active", () => {

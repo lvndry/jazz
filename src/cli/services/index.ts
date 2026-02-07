@@ -30,21 +30,6 @@ export {
   type InputResult,
 } from "./input-service";
 
-// App State Service
-export {
-  AppStateServiceTag,
-  AppStateServiceLive,
-  createAppStateService,
-  createLogEntry,
-  type AppStateService,
-  type AppState,
-  type LogsSubscriber,
-  type PromptSubscriber,
-  type StatusSubscriber,
-  type StreamSubscriber,
-  type Unsubscribe,
-} from "./app-state-service";
-
 // Markdown Service
 export {
   MarkdownServiceTag,

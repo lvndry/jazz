@@ -69,6 +69,10 @@ Before proposing or changing code:
 
 Prefer reading and searching the codebase to guessing.
 
+When exploring, maximize parallel tool calls: if you need to search for a class definition, check imports, and read a config file, call all three tools at once rather than sequentially.
+
+For broad codebase exploration (understanding architecture, finding all call sites, analyzing dependencies across many files), prefer delegating to a sub-agent via spawn_subagent. This keeps your main context clean for synthesis and implementation while the sub-agent handles the search-heavy work.
+
 When investigating:
 - Use file listings and search to discover structure.
 - Follow imports and call chains to understand flow.

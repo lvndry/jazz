@@ -6,7 +6,7 @@ import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { ColorProfile, OutputMode } from "@/core/types/output";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
-import { store } from "../ui/App";
+import { store } from "../ui/store";
 import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
 
 /**

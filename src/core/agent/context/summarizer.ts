@@ -9,7 +9,7 @@ import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-regi
 import type { Agent } from "@/core/types";
 import type { LLMConfig } from "@/core/types/config";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
-import { getMetadataFromMap, getModelsDevMap } from "@/services/llm/models-dev-client";
+import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import type { AgentResponse } from "../types";
 

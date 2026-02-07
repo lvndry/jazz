@@ -1,5 +1,5 @@
 import { Box, Static, useInput } from "ink";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import { ActivityView } from "./ActivityView";
 import { clearLastExpandedDiff, getLastExpandedDiff } from "./diff-expansion-store";
@@ -7,6 +7,7 @@ import ErrorBoundary from "./ErrorBoundary";
 import { useInputHandler } from "./hooks/use-input-service";
 import { LogEntryItem } from "./LogList";
 import { Prompt } from "./Prompt";
+import { store } from "./store";
 import type { LogEntry, LogEntryInput, PromptState } from "./types";
 import { InputPriority, InputResults } from "../services/input-service";
 
@@ -14,69 +15,7 @@ import { InputPriority, InputResults } from "../services/input-service";
 // Constants
 // ============================================================================
 
-const MAX_LOG_ENTRIES = 5000;
-
-// ============================================================================
-// Store - Global state setters (populated by islands)
-// ============================================================================
-
-type PrintOutputHandler = (entry: LogEntryInput) => string;
-
-let printOutputHandler: PrintOutputHandler | null = null;
-let clearLogsHandler: (() => void) | null = null;
-const pendingLogQueue: LogEntryInput[] = [];
-let pendingClear = false;
-let pendingLogIdCounter = 0;
-
-let promptSnapshot: PromptState | null = null;
-let activitySnapshot: ActivityState = { phase: "idle" };
-let workingDirectorySnapshot: string | null = null;
-
-let promptSetter: ((prompt: PromptState | null) => void) | null = null;
-let activitySetter: ((activity: ActivityState) => void) | null = null;
-let workingDirectorySetter: ((workingDirectory: string | null) => void) | null = null;
-
-export const store = {
-  printOutput: (entry: LogEntryInput): string => {
-    const id = entry.id ?? `queued-log-${++pendingLogIdCounter}`;
-    const entryWithId = entry.id ? entry : { ...entry, id };
-
-    if (!printOutputHandler) {
-      pendingLogQueue.push(entryWithId);
-      return id;
-    }
-    return printOutputHandler(entryWithId);
-  },
-  setPrompt: (prompt: PromptState | null): void => {
-    promptSnapshot = prompt;
-    if (promptSetter) {
-      promptSetter(prompt);
-    }
-  },
-  setActivity: (activity: ActivityState): void => {
-    activitySnapshot = activity;
-    if (activitySetter) {
-      activitySetter(activity);
-    }
-  },
-  setWorkingDirectory: (workingDirectory: string | null): void => {
-    workingDirectorySnapshot = workingDirectory;
-    if (workingDirectorySetter) {
-      workingDirectorySetter(workingDirectory);
-    }
-  },
-  setCustomView: (_view: React.ReactNode | null): void => {},
-  setInterruptHandler: (_handler: (() => void) | null): void => {},
-  clearLogs: (): void => {
-    if (!clearLogsHandler) {
-      pendingClear = true;
-      pendingLogQueue.length = 0;
-      return;
-    }
-    clearLogsHandler();
-  },
-};
-
+const MAX_LOG_ENTRIES = 2000;
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response
@@ -88,12 +27,17 @@ function ActivityIsland(): React.ReactElement | null {
 
   // Register setter synchronously during render
   if (!initializedRef.current) {
-    activitySetter = (next) => {
+    store.registerActivitySetter((next) => {
       setActivity((prev) => (isActivityEqual(prev, next) ? prev : next));
-    };
-    setActivity(activitySnapshot);
+    });
+    setActivity(store.getActivitySnapshot());
     initializedRef.current = true;
   }
+
+  // Cleanup on unmount to prevent stale setter calls
+  useEffect(() => {
+    return () => { store.registerActivitySetter(() => {}); };
+  }, []);
 
   if (activity.phase === "idle" || activity.phase === "complete") return null;
 
@@ -111,12 +55,20 @@ function PromptIsland(): React.ReactElement | null {
 
   // Register setters synchronously during render
   if (!initializedRef.current) {
-    promptSetter = setPrompt;
-    workingDirectorySetter = setWorkingDirectory;
-    setPrompt(promptSnapshot);
-    setWorkingDirectory(workingDirectorySnapshot);
+    store.registerPromptSetter(setPrompt);
+    store.registerWorkingDirectorySetter(setWorkingDirectory);
+    setPrompt(store.getPromptSnapshot());
+    setWorkingDirectory(store.getWorkingDirectorySnapshot());
     initializedRef.current = true;
   }
+
+  // Cleanup on unmount to prevent stale setter calls
+  useEffect(() => {
+    return () => {
+      store.registerPromptSetter(() => {});
+      store.registerWorkingDirectorySetter(() => {});
+    };
+  }, []);
 
   if (!prompt) return null;
 
@@ -166,20 +118,26 @@ function LogIsland(): React.ReactElement {
 
   // Register store methods synchronously during render
   if (!initializedRef.current) {
-    printOutputHandler = printOutput;
-    clearLogsHandler = clearLogs;
-    if (pendingClear) {
+    store.registerPrintOutput(printOutput);
+    store.registerClearLogs(clearLogs);
+    if (store.hasPendingClear()) {
       clearLogs();
-      pendingClear = false;
+      store.consumePendingClear();
     }
-    if (pendingLogQueue.length > 0) {
-      const queued = pendingLogQueue.splice(0, pendingLogQueue.length);
-      for (const entry of queued) {
-        printOutput(entry);
-      }
+    const queued = store.drainPendingLogQueue();
+    for (const entry of queued) {
+      printOutput(entry);
     }
     initializedRef.current = true;
   }
+
+  // Cleanup on unmount to prevent stale handler calls
+  useEffect(() => {
+    return () => {
+      store.registerPrintOutput(() => "");
+      store.registerClearLogs(() => {});
+    };
+  }, []);
 
   return (
     <>
@@ -217,12 +175,20 @@ export function App(): React.ReactElement {
 
   // Setup store methods synchronously during render
   if (!initializedRef.current) {
-    store.setCustomView = setCustomView;
-    store.setInterruptHandler = (handler) => {
+    store.registerCustomView(setCustomView);
+    store.registerInterruptHandler((handler) => {
       interruptHandlerRef.current = handler;
-    };
+    });
     initializedRef.current = true;
   }
+
+  // Cleanup on unmount to prevent stale handler calls
+  useEffect(() => {
+    return () => {
+      store.registerCustomView(() => {});
+      store.registerInterruptHandler(() => {});
+    };
+  }, []);
 
   // Handle interrupt (Ctrl+I / Tab)
   useInput((input, key) => {

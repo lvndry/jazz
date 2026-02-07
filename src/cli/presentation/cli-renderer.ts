@@ -623,7 +623,7 @@ export class CLIRenderer {
    */
   formatToolExecutionStart(toolName: string, argsStr: string): Effect.Effect<string, never> {
     return Effect.sync(() => {
-      return `\n${chalk.cyan("⚙️")}  Executing tool: ${chalk.cyan(toolName)}${argsStr}...`;
+      return `\n${chalk.cyan("▸")} Executing tool: ${chalk.cyan(toolName)}${argsStr}...`;
     });
   }
 
