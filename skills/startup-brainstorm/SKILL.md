@@ -112,9 +112,10 @@ Use output format below. Lead with strongest ideas. Include trend and competitio
 
 - Direct: [Player A], [Player B] — [gap they leave]
 - Indirect: [Player C] — [how you differ]
-  **Moat**: [Network effects, data, brand, distribution, etc.]
-  **Founder fit**: [How user's edge helps]
-  **Trend alignment**: [How trends support this]
+
+**Moat**: [Network effects, data, brand, distribution, etc.]
+**Founder fit**: [How user's edge helps]
+**Trend alignment**: [How trends support this]
 
 **Risk**: [Main risk]
 **Why it could win**: [Key insight]
