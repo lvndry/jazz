@@ -1,5 +1,5 @@
 import { Box, Static, useInput } from "ink";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import { ActivityView } from "./ActivityView";
 import { clearLastExpandedDiff, getLastExpandedDiff } from "./diff-expansion-store";
@@ -34,6 +34,11 @@ function ActivityIsland(): React.ReactElement | null {
     initializedRef.current = true;
   }
 
+  // Cleanup on unmount to prevent stale setter calls
+  useEffect(() => {
+    return () => { store.registerActivitySetter(() => {}); };
+  }, []);
+
   if (activity.phase === "idle" || activity.phase === "complete") return null;
 
   return <ActivityView activity={activity} />;
@@ -56,6 +61,14 @@ function PromptIsland(): React.ReactElement | null {
     setWorkingDirectory(store.getWorkingDirectorySnapshot());
     initializedRef.current = true;
   }
+
+  // Cleanup on unmount to prevent stale setter calls
+  useEffect(() => {
+    return () => {
+      store.registerPromptSetter(() => {});
+      store.registerWorkingDirectorySetter(() => {});
+    };
+  }, []);
 
   if (!prompt) return null;
 
@@ -118,6 +131,14 @@ function LogIsland(): React.ReactElement {
     initializedRef.current = true;
   }
 
+  // Cleanup on unmount to prevent stale handler calls
+  useEffect(() => {
+    return () => {
+      store.registerPrintOutput(() => "");
+      store.registerClearLogs(() => {});
+    };
+  }, []);
+
   return (
     <>
       {/* All logs rendered via Static — Ink paints each once and never re-renders them */}
@@ -160,6 +181,14 @@ export function App(): React.ReactElement {
     });
     initializedRef.current = true;
   }
+
+  // Cleanup on unmount to prevent stale handler calls
+  useEffect(() => {
+    return () => {
+      store.registerCustomView(() => {});
+      store.registerInterruptHandler(() => {});
+    };
+  }, []);
 
   // Handle interrupt (Ctrl+I / Tab)
   useInput((input, key) => {

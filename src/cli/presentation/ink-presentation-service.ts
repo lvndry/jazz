@@ -17,7 +17,7 @@ import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
-import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
+import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
@@ -58,6 +58,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         clearTimeout(this.updateTimeoutId);
         this.updateTimeoutId = null;
       }
+      this.clearAllToolTimeouts();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
     });
@@ -71,6 +72,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.updateTimeoutId = null;
       }
       this.pendingActivity = null;
+      this.clearAllToolTimeouts();
 
       if (this.acc.liveText.trim().length > 0) {
         store.printOutput({ type: "log", message: this.acc.liveText, timestamp: new Date() });
@@ -126,11 +128,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (result.activity) {
         this.throttledSetActivity(result.activity);
       }
-    }).pipe(Effect.catchAll((error) => Effect.sync(() => {
-      // Log swallowed errors to stderr for debugging missing tool call events
-      if (process.env["DEBUG"]) {
-        console.error(`[InkStreamingRenderer] handleEvent error for ${event.type}:`, error);
-      }
+    }).pipe(Effect.catchAllDefect((defect) => Effect.sync(() => {
+      const message = defect instanceof Error ? defect.message : String(defect);
+      store.printOutput({
+        type: "warn",
+        message: `Stream rendering error (${event.type}): ${message}`,
+        timestamp: new Date(),
+      });
     })));
   }
 
@@ -278,6 +282,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
       clearTimeout(timeoutId);
       this.toolTimeouts.delete(toolCallId);
     }
+  }
+
+  private clearAllToolTimeouts(): void {
+    for (const timeoutId of this.toolTimeouts.values()) {
+      clearTimeout(timeoutId);
+    }
+    this.toolTimeouts.clear();
   }
 
   private storeExpandableDiff(toolName: string | undefined, result: string): void {

@@ -32,8 +32,8 @@ import {
 } from "@/core/types/errors";
 import type { MCPTool } from "@/core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp-utils";
+import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { toPascalCase } from "@/core/utils/string";
-import { getModelsDevMetadata } from "@/services/llm/models-dev-client";
 
 /**
  * CLI commands for editing existing agents
@@ -66,7 +66,7 @@ export function editAgentCommand(
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    yield* terminal.heading("✏️  Welcome to the Jazz Agent Edit Wizard!");
+    yield* terminal.heading("Welcome to the Jazz Agent Edit Wizard!");
     yield* terminal.log("Let's update your agent step by step.");
     yield* terminal.log("");
 

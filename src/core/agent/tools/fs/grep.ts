@@ -9,7 +9,7 @@ import { defineTool } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
- * Search file contents with patterns tool
+ * Search file contents with patterns tool (uses ripgrep when available, falls back to grep)
  */
 
 export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
@@ -31,18 +31,18 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       filePattern: z
         .string()
         .optional()
-        .describe("File pattern to search in (e.g., '*.js', '*.ts'). Uses --include flag."),
+        .describe("File pattern to search in (e.g., '*.js', '*.ts'). Uses glob filter."),
       exclude: z
         .string()
         .optional()
         .describe(
-          "Exclude files matching this pattern (e.g., '*.min.js', '*.log'). Uses --exclude flag.",
+          "Exclude files matching this pattern (e.g., '*.min.js', '*.log').",
         ),
       excludeDir: z
         .string()
         .optional()
         .describe(
-          "Exclude directories matching this pattern (e.g., 'node_modules', '.git'). Uses --exclude-dir flag.",
+          "Exclude directories matching this pattern (e.g., 'node_modules', '.git').",
         ),
       contextLines: z
         .number()
@@ -52,6 +52,12 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         .describe(
           "Number of context lines to show above and below each match. Use this to see surrounding content when searching for patterns.",
         ),
+      outputMode: z
+        .enum(["content", "files", "count"])
+        .optional()
+        .describe(
+          "Output mode: 'content' returns matching lines (default), 'files' returns only file paths, 'count' returns match counts per file.",
+        ),
     })
     .strict();
 
@@ -60,7 +66,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GrepArgs>({
     name: "grep",
     description:
-      "Search for text patterns within file contents using grep. Supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers. Defaults to 200 results (hard cap 2000). **Tip: Start with narrow paths or filePattern, then read specific files if needed.**",
+      "Search for text patterns within file contents using ripgrep (rg). Multi-threaded, respects .gitignore, and supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers by default. Use outputMode 'files' for file paths only (minimal tokens) or 'count' for match counts per file. Defaults to 200 results (hard cap 2000). **Tip: Start with narrow paths or filePattern, then read specific files if needed.**",
     tags: ["search", "text"],
     parameters,
     validate: (args) => {
@@ -83,6 +89,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const requestedMaxResults =
           typeof args.maxResults === "number" && args.maxResults > 0 ? args.maxResults : 200;
         const maxResults = Math.min(requestedMaxResults, 2000);
+        const outputMode = args.outputMode ?? "content";
 
         // Check if the path exists and determine if it's a file or directory
         const stat = yield* fs.stat(start).pipe(Effect.catchAll(() => Effect.succeed(null)));
@@ -108,60 +115,146 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           searchPath = start;
         }
 
-        // Build grep command arguments
-        const grepArgs: string[] = [];
+        // Try ripgrep first, fall back to grep
+        const useRipgrep = yield* Effect.promise<boolean>(() =>
+          new Promise((resolve) => {
+            const child = spawn("rg", ["--version"], {
+              stdio: ["ignore", "ignore", "ignore"],
+              timeout: 5_000,
+            });
+            child.on("close", (code) => resolve(code === 0));
+            child.on("error", () => resolve(false));
+          }),
+        );
 
-        // Add recursive flag (only if searching a directory)
-        if (recursive && stat.type === "Directory") {
-          grepArgs.push("-r");
-        }
+        const cmdArgs: string[] = [];
+        let cmd: string;
 
-        // Add case sensitivity
-        if (args.ignoreCase) {
-          grepArgs.push("-i");
-        }
+        if (useRipgrep) {
+          cmd = "rg";
 
-        // Add line numbers
-        grepArgs.push("-n");
+          // ripgrep is recursive by default; use --no-recursive for non-recursive
+          if (!recursive || stat.type === "File") {
+            // When searching a single file, rg handles it naturally
+            if (stat.type === "Directory" && !recursive) {
+              cmdArgs.push("--max-depth", "1");
+            }
+          }
 
-        // Add context lines if specified (highly recommended for better code understanding)
-        if (typeof args.contextLines === "number" && args.contextLines > 0) {
-          grepArgs.push("-C", args.contextLines.toString());
-        }
+          // Case sensitivity
+          if (args.ignoreCase) {
+            cmdArgs.push("-i");
+          }
 
-        // Add file pattern if specified (include)
-        if (args.filePattern) {
-          grepArgs.push("--include", args.filePattern);
-        }
+          // Output mode flags
+          if (outputMode === "files") {
+            cmdArgs.push("-l");
+          } else if (outputMode === "count") {
+            cmdArgs.push("-c");
+          } else {
+            // content mode: line numbers
+            cmdArgs.push("-n");
+          }
 
-        // Add exclude file pattern if specified
-        if (args.exclude) {
-          grepArgs.push("--exclude", args.exclude);
-        }
+          // Context lines (only for content mode)
+          if (outputMode === "content" && typeof args.contextLines === "number" && args.contextLines > 0) {
+            cmdArgs.push("-C", args.contextLines.toString());
+          }
 
-        // Add exclude directory pattern if specified
-        if (args.excludeDir) {
-          grepArgs.push("--exclude-dir", args.excludeDir);
-        }
+          // File pattern (glob filter)
+          if (args.filePattern) {
+            cmdArgs.push("-g", args.filePattern);
+          }
 
-        // Add max count to limit results
-        grepArgs.push("-m", maxResults.toString());
+          // Exclude file pattern
+          if (args.exclude) {
+            cmdArgs.push("-g", `!${args.exclude}`);
+          }
 
-        // Determine if pattern is regex
-        let searchPattern: string;
-        if (args.regex === true || args.pattern.startsWith("re:")) {
-          const source = args.regex === true ? args.pattern : args.pattern.slice(3) || "";
-          searchPattern = source;
-          grepArgs.push("-E"); // Extended regex
+          // Exclude directory pattern
+          if (args.excludeDir) {
+            cmdArgs.push("-g", `!${args.excludeDir}/`);
+          }
+
+          // Max count
+          cmdArgs.push("-m", maxResults.toString());
+
+          // Determine if pattern is regex
+          let searchPattern: string;
+          if (args.regex === true || args.pattern.startsWith("re:")) {
+            const source = args.regex === true ? args.pattern : args.pattern.slice(3) || "";
+            searchPattern = source;
+            // rg uses regex by default, no flag needed
+          } else {
+            searchPattern = args.pattern;
+            cmdArgs.push("--fixed-strings");
+          }
+
+          // Add the search pattern and path
+          cmdArgs.push(searchPattern, searchPath);
         } else {
-          searchPattern = args.pattern;
-          grepArgs.push("-F"); // Fixed string
+          // Fallback to grep
+          cmd = "grep";
+
+          // Add recursive flag (only if searching a directory)
+          if (recursive && stat.type === "Directory") {
+            cmdArgs.push("-r");
+          }
+
+          // Case sensitivity
+          if (args.ignoreCase) {
+            cmdArgs.push("-i");
+          }
+
+          // Output mode flags
+          if (outputMode === "files") {
+            cmdArgs.push("-l");
+          } else if (outputMode === "count") {
+            cmdArgs.push("-c");
+          } else {
+            // content mode: line numbers
+            cmdArgs.push("-n");
+          }
+
+          // Context lines (only for content mode)
+          if (outputMode === "content" && typeof args.contextLines === "number" && args.contextLines > 0) {
+            cmdArgs.push("-C", args.contextLines.toString());
+          }
+
+          // File pattern
+          if (args.filePattern) {
+            cmdArgs.push("--include", args.filePattern);
+          }
+
+          // Exclude file pattern
+          if (args.exclude) {
+            cmdArgs.push("--exclude", args.exclude);
+          }
+
+          // Exclude directory pattern
+          if (args.excludeDir) {
+            cmdArgs.push("--exclude-dir", args.excludeDir);
+          }
+
+          // Max count
+          cmdArgs.push("-m", maxResults.toString());
+
+          // Determine if pattern is regex
+          let searchPattern: string;
+          if (args.regex === true || args.pattern.startsWith("re:")) {
+            const source = args.regex === true ? args.pattern : args.pattern.slice(3) || "";
+            searchPattern = source;
+            cmdArgs.push("-E");
+          } else {
+            searchPattern = args.pattern;
+            cmdArgs.push("-F");
+          }
+
+          // Add the search pattern and path
+          cmdArgs.push(searchPattern, searchPath);
         }
 
-        // Add the search pattern and path
-        grepArgs.push(searchPattern, searchPath);
-
-        // Execute the grep command using proper argument passing (no shell injection risk)
+        // Execute the command using proper argument passing (no shell injection risk)
         const result = yield* Effect.promise<{
           stdout: string;
           stderr: string;
@@ -170,7 +263,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           () =>
             new Promise((resolve, reject) => {
               const sanitizedEnv = createSanitizedEnv();
-              const child = spawn("grep", grepArgs, {
+              const child = spawn(cmd, cmdArgs, {
                 cwd: workingDir,
                 stdio: ["ignore", "pipe", "pipe"],
                 env: sanitizedEnv,
@@ -215,23 +308,79 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           ),
         );
 
-        // Grep returns exit code 1 when no matches are found, which is normal
+        // Both rg and grep return exit code 1 when no matches are found, which is normal
         if (result.exitCode !== 0 && result.exitCode !== 1) {
           return {
             success: false,
             result: null,
-            error: `grep command failed: ${result.stderr}`,
+            error: `${cmd} command failed: ${result.stderr}`,
           };
         }
 
+        // Handle different output modes
+        if (outputMode === "files") {
+          const files = result.stdout
+            .split("\n")
+            .filter((line) => line.trim())
+            .slice(0, maxResults);
+
+          return {
+            success: true,
+            result: {
+              pattern: args.pattern,
+              searchPath: start,
+              outputMode,
+              files,
+              totalFound: files.length,
+              message:
+                files.length === 0
+                  ? `No files found matching pattern "${args.pattern}"`
+                  : `Found ${files.length} files matching pattern "${args.pattern}"`,
+            },
+          };
+        }
+
+        if (outputMode === "count") {
+          const counts: Array<{ file: string; count: number }> = [];
+          const lines = result.stdout.split("\n").filter((line) => line.trim());
+
+          for (const line of lines) {
+            // Format: file:count
+            const lastColon = line.lastIndexOf(":");
+            if (lastColon > 0) {
+              const file = line.slice(0, lastColon);
+              const count = parseInt(line.slice(lastColon + 1), 10);
+              if (!isNaN(count) && count > 0) {
+                counts.push({ file, count });
+              }
+            }
+          }
+
+          return {
+            success: true,
+            result: {
+              pattern: args.pattern,
+              searchPath: start,
+              outputMode,
+              counts: counts.slice(0, maxResults),
+              totalFound: counts.length,
+              message:
+                counts.length === 0
+                  ? `No matches found for pattern "${args.pattern}"`
+                  : `Found matches in ${counts.length} files for pattern "${args.pattern}"`,
+            },
+          };
+        }
+
+        // Default: content mode
         // Parse results
-        // When contextLines is used, grep adds "--" separators between match groups
+        // When contextLines is used, grep/rg adds "--" separators between match groups
         const lines = result.stdout.split("\n").filter((line) => line.trim());
         const matches: Array<{ file: string; line: number; text: string }> = [];
         const seenMatches = new Set<string>(); // Track unique file:line combinations to avoid duplicates
 
         for (const line of lines) {
-          // Skip separator lines added by grep -C
+          // Skip separator lines added by -C
           if (line === "--") continue;
 
           // Parse format: file:line:content
@@ -266,6 +415,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
             exclude: args.exclude,
             excludeDir: args.excludeDir,
             contextLines: args.contextLines,
+            outputMode,
             matches: matches.slice(0, maxResults),
             totalFound: matches.length,
             message:

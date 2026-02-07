@@ -2,6 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type z from "zod";
 import type { SkillService } from "@/core/skills/skill-service";
+import type { ToolNotFoundError } from "@/core/types/errors";
 import type {
     ToolCategory,
     ToolDefinition,
@@ -156,7 +157,7 @@ export interface ToolRegistry {
    * @returns An Effect that resolves to the tool, or fails with an Error
    *          if the tool is not found.
    */
-  readonly getTool: (name: string) => Effect.Effect<Tool<ToolRequirements>, Error>;
+  readonly getTool: (name: string) => Effect.Effect<Tool<ToolRequirements>, ToolNotFoundError>;
   /**
    * Lists all registered tool names.
    *

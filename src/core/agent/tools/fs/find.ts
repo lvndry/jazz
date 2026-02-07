@@ -1,16 +1,15 @@
-import { spawn } from "child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
+import glob from "fast-glob";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import { createSanitizedEnv } from "@/core/utils/env-utils";
 import { defineTool } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { normalizeFilterPattern } from "./utils";
 
 /**
- * Find files and directories tool
+ * Find files and directories tool (uses fast-glob for speed)
  */
 
 export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
@@ -44,7 +43,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, FindArgs>({
     name: "find",
     description:
-      "Advanced file and directory search with smart hierarchical search strategy. By default (when path is omitted), searches in this order: (1) current directory, (2) parent directories (up to 3 levels), (3) home directory. NEVER specify path: '/' as it's too broad and slow—always omit the path parameter to use smart search, or provide a specific directory. Supports deep traversal (default 25 levels), regex patterns, type filters, and hidden files. Defaults to 200 results (hard cap 2000). Use for comprehensive searches when find_path doesn't locate what you need.",
+      "Advanced file and directory search with smart hierarchical search strategy. By default (when path is omitted), searches in this order: (1) current directory, (2) parent directories (up to 3 levels), (3) home directory. NEVER specify path: '/' as it's too broad and slow—always omit the path parameter to use smart search, or provide a specific directory. Supports deep traversal (default 25 levels), regex patterns, type filters, and hidden files. Results are sorted by most recently modified first. Defaults to 200 results (hard cap 2000). Use for comprehensive searches when find_path doesn't locate what you need.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {
@@ -107,116 +106,69 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
           searchPaths.push(start);
         }
 
-        const allResults: { path: string; name: string; type: "file" | "dir" }[] = [];
+        const allResults: { path: string; name: string; type: "file" | "dir"; mtimeMs?: number }[] = [];
 
-        // Search each path in order using system find command
+        // Build the glob pattern based on name filter
+        let globPattern = "**";
+        const filter = args.name ? normalizeFilterPattern(args.name) : null;
+
+        if (filter && filter.type === "substring" && filter.value) {
+          // Use glob pattern for substring matching
+          globPattern = `**/*${filter.value}*`;
+        }
+        // For regex filters, we'll filter after glob returns results
+
+        // Search each path in order using fast-glob
         for (const searchPath of searchPaths) {
           if (allResults.length >= maxResults) break;
 
-          // Build find command arguments
-          const findArgs: string[] = [searchPath];
+          const globOptions: glob.Options = {
+            cwd: searchPath,
+            absolute: true,
+            deep: maxDepth === 0 ? 1 : maxDepth,
+            dot: includeHidden,
+            stats: true,
+            suppressErrors: true,
+            followSymbolicLinks: false,
+            ignore: includeHidden ? [] : ["**/node_modules/**", "**/.git/**"],
+            onlyFiles: typeFilter === "file",
+            onlyDirectories: typeFilter === "dir",
+            markDirectories: true,
+          };
 
-          // Add max depth
-          findArgs.push("-maxdepth", maxDepth.toString());
-
-          // Add type filter
-          if (typeFilter === "dir") {
-            findArgs.push("-type", "d");
-          } else if (typeFilter === "file") {
-            findArgs.push("-type", "f");
-          }
-
-          // Add name pattern if specified
-          if (args.name) {
-            const filter = normalizeFilterPattern(args.name);
-            if (filter.type === "regex" && filter.regex) {
-              findArgs.push("-regex", filter.regex.source);
-            } else if (filter.value) {
-              findArgs.push("-iname", `*${filter.value}*`);
-            }
-          }
-
-          // Handle hidden files
-          if (!includeHidden) {
-            findArgs.push("!", "-name", ".*");
-          }
-
-          // Execute the find command using proper argument passing (no shell injection risk)
-          const result = yield* Effect.promise<{
-            stdout: string;
-            stderr: string;
-            exitCode: number;
-          }>(
-            () =>
-              new Promise((resolve, reject) => {
-                const sanitizedEnv = createSanitizedEnv();
-                const child = spawn("find", findArgs, {
-                  cwd: searchPath,
-                  stdio: ["ignore", "pipe", "pipe"],
-                  env: sanitizedEnv,
-                  timeout: 30_000,
-                  detached: false,
-                });
-
-                let stdout = "";
-                let stderr = "";
-
-                if (child.stdout) {
-                  child.stdout.on("data", (data: Buffer) => {
-                    stdout += data.toString();
-                  });
-                }
-
-                if (child.stderr) {
-                  child.stderr.on("data", (data: Buffer) => {
-                    stderr += data.toString();
-                  });
-                }
-
-                child.on("close", (code: number | null) => {
-                  resolve({
-                    stdout: stdout.trim(),
-                    stderr: stderr.trim(),
-                    exitCode: code || 0,
-                  });
-                });
-
-                child.on("error", (error: Error) => {
-                  reject(error);
-                });
-              }),
-          ).pipe(
-            Effect.catchAll((error: Error) =>
-              Effect.succeed({
-                stdout: "",
-                stderr: error.message,
-                exitCode: 1,
-              }),
-            ),
+          const entries = yield* Effect.promise(() =>
+            glob(globPattern, globOptions),
           );
 
-          if (result.exitCode !== 0) {
-            // Continue to next search path if this one fails
-            continue;
+          // Process entries
+          const results: { path: string; name: string; type: "file" | "dir"; mtimeMs: number }[] = [];
+
+          for (const entry of entries) {
+            // fast-glob with stats returns Entry objects
+            const entryObj = entry as unknown as { path: string; name: string; stats?: { isDirectory: () => boolean; mtimeMs: number } };
+            const entryPath = entryObj.path;
+            const entryName = entryObj.name || entryPath.split("/").pop() || "";
+            const stats = entryObj.stats;
+            const isDir = stats ? stats.isDirectory() : entryPath.endsWith("/");
+            const mtimeMs = stats?.mtimeMs ?? 0;
+
+            // Apply regex filter if needed
+            if (filter && filter.type === "regex" && filter.regex) {
+              if (!filter.regex.test(entryName)) continue;
+            }
+
+            results.push({
+              path: entryPath,
+              name: entryName,
+              type: isDir ? "dir" : "file",
+              mtimeMs,
+            });
           }
 
-          // Parse results
-          const paths = result.stdout
-            .split("\n")
-            .filter((line) => line.trim())
-            .map((path) => {
-              const name = path.split("/").pop() || "";
-              // Determine type by checking if it's a directory
-              // We'll use a simple heuristic: if it doesn't have an extension and is likely a dir
-              const isDir = !name.includes(".") || name.endsWith("/");
-              return {
-                path: path.trim(),
-                name,
-                type: isDir ? ("dir" as const) : ("file" as const),
-              };
-            });
+          // Sort by modification time (most recent first)
+          results.sort((a, b) => b.mtimeMs - a.mtimeMs);
 
-          allResults.push(...paths);
+          allResults.push(...results);
 
           // If we found results and using smart search, we can stop early
           // This prevents searching too many locations when we already have good results
@@ -225,9 +177,19 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
           }
         }
 
+        // Sort all results by mtime (most recent first) and trim
+        allResults.sort((a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0));
+
+        // Strip mtimeMs from output
+        const finalResults = allResults.slice(0, maxResults).map(({ path, name, type }) => ({
+          path,
+          name,
+          type,
+        }));
+
         return {
           success: true,
-          result: allResults.slice(0, maxResults),
+          result: finalResults,
         };
       }),
   });

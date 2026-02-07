@@ -34,6 +34,16 @@ export class GenerationInterruptedError extends Data.TaggedError("GenerationInte
   readonly reason: string;
 }> {}
 
+// Tool Errors
+export class ToolNotFoundError extends Data.TaggedError("ToolNotFoundError")<{
+  readonly toolName: string;
+  readonly suggestion?: string;
+}> {
+  override get message(): string {
+    return `Tool not found: ${this.toolName}`;
+  }
+}
+
 // Task Errors
 export class TaskNotFoundError extends Data.TaggedError("TaskNotFoundError")<{
   readonly taskId: string;
@@ -306,6 +316,11 @@ export type LLMError =
   | LLMRequestError
   | LLMRateLimitError
   | LLMConfigurationError;
+
+export type ExecutorError =
+  | LLMError
+  | AgentExecutionError
+  | GenerationInterruptedError;
 
 export type MCPError =
   | MCPConnectionError

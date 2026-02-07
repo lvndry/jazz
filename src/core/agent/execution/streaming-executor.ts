@@ -1,30 +1,22 @@
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
-import { MAX_AGENT_STEPS } from "@/core/constants/agent";
-import { type AgentConfigService } from "@/core/interfaces/agent-config";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
 import { NotificationServiceTag } from "@/core/interfaces/notification";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
-import type { ChatMessage, ConversationMessages, StreamEvent, StreamingConfig } from "@/core/types";
+import type { StreamEvent, StreamingConfig } from "@/core/types";
 import { type ChatCompletionResponse } from "@/core/types/chat";
 import { type LLMError, LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
-import { formatToolResultForContext } from "@/core/utils/tool-result-summarizer";
-import { ToolExecutor } from "./tool-executor";
-import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "../context/context-window-manager";
-import { Summarizer, type RecursiveRunner } from "../context/summarizer";
+import type { RecursiveRunner } from "../context/summarizer";
 import {
-  beginIteration,
-  completeIteration,
-  finalizeAgentRun,
   recordFirstTokenLatency,
   recordLLMRetry,
-  recordLLMUsage,
 } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
+import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 
 const MAX_RETRIES = 3;
 const STREAM_CREATION_TIMEOUT = Duration.minutes(2);
@@ -50,289 +42,204 @@ export function executeWithStreaming(
   | PresentationService
   | ToolRequirements
 > {
-  return Effect.acquireUseRelease(
-    Effect.gen(function* () {
-      const logger = yield* LoggerServiceTag;
-      const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const logger = yield* LoggerServiceTag;
+    const presentationService = yield* PresentationServiceTag;
+    const notificationServiceOption = yield* Effect.serviceOption(NotificationServiceTag);
+    const { agent } = options;
+    const { runMetrics, provider, model, actualConversationId } = runContext;
 
-      yield* logger.setSessionId(options.sessionId);
+    // Create renderer
+    const normalizedStreamingConfig: StreamingConfig = {
+      enabled: true,
+      ...(streamingConfig.textBufferMs !== undefined && {
+        textBufferMs: streamingConfig.textBufferMs,
+      }),
+    };
 
-      const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
-        Option.none(),
-      );
-      return { logger, mcpManager, finalizeFiberRef };
-    }),
-    ({ logger, mcpManager: _mcpManager, finalizeFiberRef }) =>
-      Effect.gen(function* () {
-        const { agent, maxIterations = MAX_AGENT_STEPS } = options;
-        const llmService = yield* LLMServiceTag;
-        const presentationService = yield* PresentationServiceTag;
-        const notificationServiceOption = yield* Effect.serviceOption(NotificationServiceTag);
-        const { actualConversationId, context, tools, messages, runMetrics, provider, model } =
-          runContext;
+    const renderer = yield* presentationService.createStreamingRenderer({
+      displayConfig,
+      streamingConfig: normalizedStreamingConfig,
+      showMetrics,
+      agentName: agent.name,
+      reasoningEffort: agent.config.reasoningEffort,
+    });
 
-        // Create renderer
-        const normalizedStreamingConfig: StreamingConfig = {
-          enabled: true, // Always enabled in streaming mode
-          ...(streamingConfig.textBufferMs !== undefined && {
-            textBufferMs: streamingConfig.textBufferMs,
-          }),
-        };
+    // Create interruption signal
+    const interruptDeferred = yield* Deferred.make<void>();
+    const onInterrupt = () => {
+      Effect.runSync(Deferred.succeed(interruptDeferred, void 0));
+    };
+    yield* renderer.setInterruptHandler(onInterrupt);
 
-        const renderer = yield* presentationService.createStreamingRenderer({
-          displayConfig,
-          streamingConfig: normalizedStreamingConfig,
-          showMetrics,
-          agentName: agent.name,
-          reasoningEffort: agent.config.reasoningEffort,
-        });
+    // Ref to capture partial completion from stream events — hoisted to avoid per-iteration allocation
+    const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
 
-        // Create interruption signal
-        const interruptDeferred = yield* Deferred.make<void>();
-        const onInterrupt = () => {
-          // Safely complete the deferred; ignore if already completed
-          Effect.runSync(Deferred.succeed(interruptDeferred, void 0));
-        };
-        yield* renderer.setInterruptHandler(onInterrupt);
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: true,
 
-        // Run agent loop
-        let currentMessages: ConversationMessages = [messages[0], ...messages.slice(1)];
-        let response: AgentResponse = {
-          content: "",
-          conversationId: actualConversationId,
-        };
-        let finished = false;
-        let interrupted = false;
-        let iterationsUsed = 0;
+      getCompletion(currentMessages, _iteration) {
+        return Effect.gen(function* () {
+          // Reset for this iteration
+          yield* Ref.set(completionRef, undefined);
 
-        for (let i = 0; i < maxIterations; i++) {
-          yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
-          try {
-            // Log thinking indicator
-            if (!options.internal) {
-              if (i === 0) {
-                yield* presentationService.presentThinking(agent.name, true);
-              } else {
-                yield* presentationService.presentThinking(agent.name, false);
+          const llmOptions = {
+            model,
+            messages: currentMessages,
+            tools: runContext.tools,
+            toolChoice: "auto" as const,
+            reasoning_effort: agent.config.reasoningEffort ?? "disable",
+          };
+
+          const streamingResult = yield* Effect.retry(
+            Effect.gen(function* () {
+              try {
+                return yield* llmService.createStreamingChatCompletion(provider, llmOptions);
+              } catch (error) {
+                recordLLMRetry(runMetrics, error);
+                if (
+                  error instanceof LLMRequestError ||
+                  error instanceof LLMRateLimitError ||
+                  error instanceof LLMAuthenticationError
+                ) {
+                  yield* logger.error("LLM request error", {
+                    provider,
+                    model: agent.config.llmModel,
+                    errorType: error._tag,
+                    message: error.message,
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                  });
+                }
+                throw error;
               }
-            }
-
-            // Proactively compact context if approaching token limit
-            currentMessages = yield* Summarizer.compactIfNeeded(
-              currentMessages,
-              agent,
-              options.sessionId,
-              actualConversationId,
-              runRecursive,
-            );
-
-            // Create streaming completion with retry and fallback
-            const llmOptions = {
-              model,
-              messages: currentMessages,
-              tools,
-              toolChoice: "auto" as const,
-              reasoning_effort: agent.config.reasoningEffort ?? "disable",
-            };
-
-            // Log LLM request details
-            yield* logger.debug("Sending LLM request", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              provider,
-              model,
-              messageCount: currentMessages.length,
-              toolsAvailable: tools.length,
-              reasoningEffort: agent.config.reasoningEffort,
-              lastUserMessage: currentMessages
-                .filter((m) => m.role === "user")
-                .slice(-1)[0]
-                ?.content?.substring(0, 500),
-            });
-
-            const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
-
-            const streamingResult = yield* Effect.retry(
+            }),
+            Schedule.exponential("1 second").pipe(
+              Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
+              Schedule.whileInput((error) => error instanceof LLMRateLimitError),
+            ),
+          ).pipe(
+            Effect.timeout(STREAM_CREATION_TIMEOUT),
+            Effect.catchAll((error) =>
               Effect.gen(function* () {
-                try {
-                  return yield* llmService.createStreamingChatCompletion(provider, llmOptions);
-                } catch (error) {
-                  recordLLMRetry(runMetrics, error);
-                  // Log LLM error details
-                  if (
-                    error instanceof LLMRequestError ||
-                    error instanceof LLMRateLimitError ||
-                    error instanceof LLMAuthenticationError
-                  ) {
-                    yield* logger.error("LLM request error", {
-                      provider,
-                      model: agent.config.llmModel,
-                      errorType: error._tag,
-                      message: error.message,
-                      agentId: agent.id,
-                      conversationId: actualConversationId,
-                    });
+                if (
+                  error instanceof LLMRequestError ||
+                  error instanceof LLMRateLimitError ||
+                  error instanceof LLMAuthenticationError
+                ) {
+                  yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
+                    provider,
+                    model: agent.config.llmModel,
+                    errorType: error._tag,
+                    message: error.message,
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                  });
+                } else {
+                  yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
+                    provider,
+                    model: agent.config.llmModel,
+                    error: error instanceof Error ? error.message : String(error),
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                  });
+                }
+                const fallback = yield* llmService.createChatCompletion(provider, llmOptions);
+                return {
+                  stream: Stream.empty,
+                  response: Effect.succeed(fallback),
+                  cancel: Effect.void,
+                };
+              }),
+            ),
+          );
+
+          // Process stream events
+          const streamFiber = yield* Effect.fork(
+            Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
+              Effect.gen(function* () {
+                yield* renderer.handleEvent(event);
+                if (event.type === "complete") {
+                  yield* Ref.set(completionRef, event.response);
+                  if (event.metrics?.firstTokenLatencyMs) {
+                    recordFirstTokenLatency(runMetrics, event.metrics.firstTokenLatencyMs);
                   }
-                  throw error;
+                }
+                if (event.type === "error") {
+                  const error = event.error as
+                    | LLMAuthenticationError
+                    | LLMRateLimitError
+                    | LLMRequestError;
+                  yield* logger.error("Stream event error", {
+                    provider,
+                    model: agent.config.llmModel,
+                    errorType: error._tag,
+                    message: error.message,
+                    recoverable: event.recoverable,
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                  });
+                  if (!event.recoverable) {
+                    yield* streamingResult.cancel;
+                  }
                 }
               }),
-              Schedule.exponential("1 second").pipe(
-                Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
-                Schedule.whileInput((error) => error instanceof LLMRateLimitError),
+            ),
+          );
+
+          // Wait for stream completion or interruption
+          const streamExit = yield* Fiber.await(streamFiber).pipe(
+            Effect.raceFirst(Deferred.await(interruptDeferred)),
+          );
+
+          const isInterrupted = yield* Deferred.isDone(interruptDeferred);
+
+          if (isInterrupted) {
+            yield* streamingResult.cancel.pipe(
+              Effect.catchAll((e) =>
+                logger.debug(`Stream cancel error (safe to ignore): ${String(e)}`),
               ),
-            ).pipe(
-              Effect.timeout(STREAM_CREATION_TIMEOUT),
-              Effect.catchAll((error) =>
-                Effect.gen(function* () {
-                  // Log the error that caused fallback
-                  if (
-                    error instanceof LLMRequestError ||
-                    error instanceof LLMRateLimitError ||
-                    error instanceof LLMAuthenticationError
-                  ) {
-                    yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
-                      provider,
-                      model: agent.config.llmModel,
-                      errorType: error._tag,
-                      message: error.message,
-                      agentId: agent.id,
-                      conversationId: actualConversationId,
-                    });
-                  } else {
-                    yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
-                      provider,
-                      model: agent.config.llmModel,
-                      error: error instanceof Error ? error.message : String(error),
-                      agentId: agent.id,
-                      conversationId: actualConversationId,
-                    });
-                  }
-                  const fallback = yield* llmService.createChatCompletion(provider, llmOptions);
-                  return {
-                    stream: Stream.empty,
-                    response: Effect.succeed(fallback),
-                    cancel: Effect.void,
-                  };
-                }),
+            );
+            yield* Fiber.interrupt(streamFiber).pipe(
+              Effect.catchAll((e) =>
+                logger.debug(`Fiber interrupt error (safe to ignore): ${String(e)}`),
+              ),
+            );
+            yield* renderer.reset().pipe(
+              Effect.catchAll((e) =>
+                logger.debug(`Renderer reset error (safe to ignore): ${String(e)}`),
               ),
             );
 
-            // Process stream events
-            const streamFiber = yield* Effect.fork(
-              Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
-                Effect.gen(function* () {
-                  yield* renderer.handleEvent(event);
-                  if (event.type === "complete") {
-                    yield* Ref.set(completionRef, event.response);
-                    if (event.metrics?.firstTokenLatencyMs) {
-                      recordFirstTokenLatency(runMetrics, event.metrics.firstTokenLatencyMs);
-                    }
-                  }
+            const fromRef = yield* Ref.get(completionRef);
+            const partialCompletion: ChatCompletionResponse = fromRef ?? {
+              id: "interrupted",
+              model,
+              content: "",
+            };
+            return { completion: partialCompletion, interrupted: true };
+          }
 
-                  if (event.type === "error") {
-                    // Log the error
-                    const error = event.error as
-                      | LLMAuthenticationError
-                      | LLMRateLimitError
-                      | LLMRequestError;
-                    yield* logger.error("Stream event error", {
-                      provider,
-                      model: agent.config.llmModel,
-                      errorType: error._tag,
-                      message: error.message,
-                      recoverable: event.recoverable,
-                      agentId: agent.id,
-                      conversationId: actualConversationId,
-                    });
-                    if (!event.recoverable) {
-                      yield* streamingResult.cancel;
-                    }
-                  }
-                }),
-              ),
-            );
+          let completion: ChatCompletionResponse;
+          const exit = streamExit as Exit.Exit<void, LLMError>;
 
-            // Wait for stream completion or interruption
-            const streamExit = yield* Fiber.await(streamFiber).pipe(
-              Effect.raceFirst(Deferred.await(interruptDeferred)),
-            );
-
-            // Check if we were interrupted (stream fiber still running or race won by deferred)
-            const isInterrupted = yield* Deferred.isDone(interruptDeferred);
-
-            if (isInterrupted) {
-              // Gracefully cancel stream and interrupt fiber - don't crash if these fail
-              yield* streamingResult.cancel.pipe(
-                Effect.catchAll((e) => logger.debug(`Stream cancel error (safe to ignore): ${String(e)}`)),
-              );
-              yield* Fiber.interrupt(streamFiber).pipe(
-                Effect.catchAll((e) => logger.debug(`Fiber interrupt error (safe to ignore): ${String(e)}`)),
-              );
-
-              // Reset the renderer to clear any pending state
-              yield* renderer.reset().pipe(
-                Effect.catchAll((e) => logger.debug(`Renderer reset error (safe to ignore): ${String(e)}`)),
-              );
-
-              const fromRef = yield* Ref.get(completionRef);
-              if (fromRef) {
-                // We have a partial completion from the stream
-                response = {
-                  ...response,
-                  content: fromRef.content,
-                  ...(fromRef.toolCalls ? { toolCalls: fromRef.toolCalls } : {}),
-                };
-              }
-              yield* presentationService.presentWarning(agent.name, "generation stopped by user");
-
-              finished = true;
-              interrupted = true;
-              yield* logger.debug("Interruption handled, breaking loop");
-              break;
-            }
-
-            let completion: ChatCompletionResponse;
-            // streamExit can be void (if interrupted) or Exit (if finished)
-            // But if isInterrupted is false, it MUST be Exit
-            const exit = streamExit as Exit.Exit<void, LLMError>;
-
-            if (Exit.isFailure(exit)) {
-              yield* streamingResult.cancel;
-              // We need to handle potential defects (panics) or failures
-              // Cause.failureOption returns existing failure or none if it's a defect/interruption
-              const errorOption = Cause.failureOption(exit.cause);
-              if (Option.isSome(errorOption)) {
-                yield* logger.error("Stream processing failed", {
-                  error: errorOption.value instanceof Error ? errorOption.value.message : String(errorOption.value),
-                });
-                return yield* Effect.fail(errorOption.value);
-              } else {
-                // Determine if it was a defect or interruption
-                const defectOption = Cause.dieOption(exit.cause);
-                if (Option.isSome(defectOption)) {
-                   // Re-die if it was a defect
-                   return yield* Effect.die(defectOption.value);
-                }
-
-                // If we are here, it might be that we just didn't get a result but it wasn't a failure-failure?
-                // Fallback to previous logic
-                const fromRef = yield* Ref.get(completionRef);
-                if (fromRef) {
-                  completion = fromRef;
-                } else {
-                  completion = yield* streamingResult.response.pipe(
-                    Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
-                    Effect.catchAll(() =>
-                      Effect.gen(function* () {
-                        yield* streamingResult.cancel;
-                        return yield* llmService.createChatCompletion(provider, llmOptions);
-                      }),
-                    ),
-                  );
-                }
-              }
+          if (Exit.isFailure(exit)) {
+            yield* streamingResult.cancel;
+            const errorOption = Cause.failureOption(exit.cause);
+            if (Option.isSome(errorOption)) {
+              yield* logger.error("Stream processing failed", {
+                error:
+                  errorOption.value instanceof Error
+                    ? errorOption.value.message
+                    : String(errorOption.value),
+              });
+              return yield* Effect.fail(errorOption.value);
             } else {
+              const defectOption = Cause.dieOption(exit.cause);
+              if (Option.isSome(defectOption)) {
+                return yield* Effect.die(defectOption.value);
+              }
               const fromRef = yield* Ref.get(completionRef);
               if (fromRef) {
                 completion = fromRef;
@@ -348,252 +255,50 @@ export function executeWithStreaming(
                 );
               }
             }
-
-            // Log LLM response summary
-            yield* logger.debug("LLM response received", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              contentLength: completion.content.length,
-              toolCallsCount: completion.toolCalls?.length ?? 0,
-              tokenUsage: completion.usage,
-              contentPreview: completion.content.substring(0, 300),
-            });
-
-            if (completion.usage) {
-              recordLLMUsage(runMetrics, completion.usage);
-            }
-
-            if (completion.toolsDisabled) {
-              response = { ...response, toolsDisabled: true };
-            }
-
-            // Add assistant response to conversation
-            const assistantMessage = {
-              role: "assistant" as const,
-              content: completion.content,
-              ...(completion.toolCalls
-                ? {
-                    tool_calls: completion.toolCalls.map((tc) => ({
-                      id: tc.id,
-                      type: tc.type,
-                      function: { name: tc.function.name, arguments: tc.function.arguments },
-                      ...(tc.thought_signature ? { thought_signature: tc.thought_signature } : {}),
-                    })),
-                  }
-                : {}),
-            };
-
-            currentMessages.push(assistantMessage);
-
-            const trimUpdate = yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
-              currentMessages,
-              logger,
-              agent.id,
-              actualConversationId,
-            );
-            currentMessages = trimUpdate.messages;
-
-            // Handle tool calls
-            if (completion.toolCalls && completion.toolCalls.length > 0) {
-              // Log agent decision to use tools
-              yield* logger.info("Agent decided to use tools", {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-                toolsChosen: completion.toolCalls.map((tc) => tc.function.name),
-                reasoning: completion.content,
-              });
-
-              // Execute tools - use completion.toolCalls as the source of truth
-              // Inject current token stats, conversation messages, and parent agent into context
-              const contextWithTokenStats = {
-                ...context,
-                tokenStats: {
-                  currentTokens: DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages),
-                  maxTokens: DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens ?? 150_000,
-                },
-                conversationMessages: currentMessages,
-                parentAgent: agent,
-                compactConversation: (compacted: readonly ChatMessage[]) => {
-                  currentMessages = [currentMessages[0], ...compacted.slice(1)] as typeof currentMessages;
-                },
-              };
-              const toolResults = yield* ToolExecutor.executeToolCalls(
-                completion.toolCalls,
-                contextWithTokenStats,
-                displayConfig,
-                renderer,
-                runMetrics,
-                agent.id,
-                actualConversationId,
-                agent.name,
-              );
-
-              // Add tool results to conversation
-              // Create mapping for quick lookup
-              const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
-
-              // Validate that all tool calls have results
-              const missingResults: string[] = [];
-              for (const toolCall of completion.toolCalls) {
-                if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
-                  missingResults.push(toolCall.id);
-                }
-              }
-              if (missingResults.length > 0) {
-                yield* logger.error("Missing tool results for some tool calls", {
-                  agentId: agent.id,
-                  conversationId: actualConversationId,
-                  missingToolCallIds: missingResults,
-                  expectedCount: completion.toolCalls.length,
-                  actualCount: toolResults.length,
-                });
-                return yield* Effect.fail(
-                  new Error(
-                    `Missing tool results for ${missingResults.length} tool call(s). This indicates a bug in tool execution.`,
-                  ),
-                );
-              }
-
-              // Add tool result messages
-              for (const toolCall of completion.toolCalls) {
-                if (toolCall.type === "function") {
-                  const result = resultMap.get(toolCall.id);
-                  // Result should always be defined due to validation above, but add safety check
-                  if (result === undefined) {
-                    yield* logger.error("Tool result is undefined despite validation", {
-                      agentId: agent.id,
-                      conversationId: actualConversationId,
-                      toolCallId: toolCall.id,
-                      toolName: toolCall.function.name,
-                    });
-                    // Use error result as fallback
-                    currentMessages.push({
-                      role: "tool",
-                      name: toolCall.function.name,
-                      content: formatToolResultForContext(
-                        toolCall.function.name,
-                        { error: "Tool execution result was undefined" },
-                      ),
-                      tool_call_id: toolCall.id,
-                    });
-                  } else {
-                    currentMessages.push({
-                      role: "tool",
-                      name: toolCall.function.name,
-                      content: formatToolResultForContext(
-                        toolCall.function.name,
-                        result,
-                      ),
-                      tool_call_id: toolCall.id,
-                    });
-                  }
-                }
-              }
-
-              response = {
-                ...response,
-                toolCalls: completion.toolCalls,
-                toolResults: Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
-              };
-              continue;
-            }
-
-            // No tool calls - final response
-            yield* logger.info("Agent provided final response", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              completionLength: completion.content.length,
-              totalToolsUsed: runMetrics.toolCalls,
-            });
-
-            response = { ...response, content: completion.content };
-            yield* presentationService.presentCompletion(agent.name);
-
-            // Send task completion notification
-            if (Option.isSome(notificationServiceOption)) {
-              yield* notificationServiceOption.value.notify(
-                `${agent.name} has completed the task.`,
-                {
-                  title: "Jazz Task Complete",
-                  sound: true,
-                },
-              ).pipe(
-                Effect.catchAll(() => Effect.void),
+          } else {
+            const fromRef = yield* Ref.get(completionRef);
+            if (fromRef) {
+              completion = fromRef;
+            } else {
+              completion = yield* streamingResult.response.pipe(
+                Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
+                Effect.catchAll(() =>
+                  Effect.gen(function* () {
+                    yield* streamingResult.cancel;
+                    return yield* llmService.createChatCompletion(provider, llmOptions);
+                  }),
+                ),
               );
             }
-
-            iterationsUsed = i + 1;
-            finished = true;
-            break;
-          } finally {
-            yield* Effect.sync(() => completeIteration(runMetrics));
           }
-        }
 
-        // Post-loop cleanup
-        if (!finished) {
-          iterationsUsed = maxIterations;
-          yield* presentationService.presentWarning(
-            agent.name,
-            `iteration limit reached (${maxIterations}) - type 'continue' to resume`,
-          );
-        } else if (!response.content?.trim() && !response.toolCalls && !interrupted) {
-          yield* presentationService.presentWarning(agent.name, "model returned an empty response");
-        }
+          return { completion, interrupted: false };
+        });
+      },
 
-        yield* logger.debug("Finalizing agent run", { interrupted, finished });
+      presentResponse(_agentName, _content, _completion) {
+        // Streaming mode: response is already rendered by the stream handler
+        return Effect.void;
+      },
 
-        const finalizeFiber = yield* finalizeAgentRun(runMetrics, {
-          iterationsUsed,
-          finished,
-        }).pipe(
-          Effect.catchAll((error) =>
-            logger.warn("Failed to write agent token usage log", { error: error.message }),
-          ),
-          Effect.fork,
-        );
-        yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
-
-        return {
-          ...response,
-          messages: currentMessages,
-          usage: {
-            promptTokens: runMetrics.totalPromptTokens,
-            completionTokens: runMetrics.totalCompletionTokens,
-          },
-        };
-      }),
-    ({ logger, mcpManager, finalizeFiberRef }) =>
-      Effect.gen(function* () {
-        const fiberOption = yield* Ref.get(finalizeFiberRef);
-        if (Option.isSome(fiberOption)) {
-          yield* Fiber.await(fiberOption.value).pipe(
-            Effect.asVoid,
-            Effect.catchAll(() => Effect.void),
-          );
-        }
-
-        // Disconnect MCP servers used in this conversation
-        if (runContext.connectedMCPServers.length > 0 && Option.isSome(mcpManager)) {
-          yield* logger.debug(
-            `Disconnecting ${runContext.connectedMCPServers.length} MCP server(s) for conversation ${runContext.actualConversationId}`,
-          );
-          for (const serverName of runContext.connectedMCPServers) {
-            yield* mcpManager.value.disconnectServer(serverName).pipe(
-              Effect.catchAll((error) =>
-                logger.warn(`Failed to disconnect MCP server ${serverName}`, {
-                  error: error instanceof Error ? error.message : String(error),
-                }),
-              ),
-            );
+      onComplete(agentName, _completion) {
+        return Effect.gen(function* () {
+          if (Option.isSome(notificationServiceOption)) {
+            yield* notificationServiceOption.value
+              .notify(`${agentName} has completed the task.`, {
+                title: "Jazz Task Complete",
+                sound: true,
+              })
+              .pipe(Effect.catchAll(() => Effect.void));
           }
-          yield* logger.debug("All MCP servers disconnected for this conversation");
-        }
+        });
+      },
 
-        yield* logger.clearSessionId();
-      }),
-  );
+      getRenderer() {
+        return renderer;
+      },
+    };
+
+    return yield* executeAgentLoop(options, runContext, displayConfig, strategy, runRecursive);
+  });
 }

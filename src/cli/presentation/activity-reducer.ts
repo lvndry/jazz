@@ -75,6 +75,7 @@ export interface ReducerResult {
 // ---------------------------------------------------------------------------
 
 const MAX_REASONING_LENGTH = 8000;
+const MAX_LIVE_TEXT_LENGTH = 200_000;
 
 // ---------------------------------------------------------------------------
 // Helper: build the current activity from accumulator state
@@ -185,7 +186,7 @@ export function reduceEvent(
         const displayReasoning = chalk.gray(formattedReasoning);
         logs.push({
           type: "log",
-          message: chalk.gray(`🧠 Reasoning:\n${displayReasoning}`),
+          message: chalk.gray(`▸ Reasoning\n${displayReasoning}`),
           timestamp: new Date(),
         });
       }
@@ -227,6 +228,14 @@ export function reduceEvent(
     // ---- Text content ---------------------------------------------------
 
     case "text_start": {
+      // If reasoning was produced, log a separator before the response
+      if (acc.completedReasoning.trim().length > 0) {
+        logs.push({
+          type: "log",
+          message: chalk.dim(`${"─".repeat(40)}\n▸ Response`),
+          timestamp: new Date(),
+        });
+      }
       acc.liveText = "";
       acc.lastAppliedTextSequence = -1;
       return {
@@ -243,7 +252,10 @@ export function reduceEvent(
         },
         { sequence: event.sequence, accumulated: event.accumulated },
       );
-      acc.liveText = next.liveText;
+      // Cap live text to prevent unbounded memory growth during long responses
+      acc.liveText = next.liveText.length > MAX_LIVE_TEXT_LENGTH
+        ? next.liveText.slice(-MAX_LIVE_TEXT_LENGTH)
+        : next.liveText;
       acc.lastAppliedTextSequence = next.lastAppliedSequence;
       return {
         activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
@@ -293,8 +305,8 @@ export function reduceEvent(
         providerLabel = chalk.dim(` [${acc.currentProvider}]`);
       }
       const message = argsStr
-        ? `⚙️  Executing tool: ${toolName}${providerLabel}${argsStr}`
-        : `⚙️  Executing tool: ${toolName}${providerLabel}`;
+        ? `▸ Executing tool: ${toolName}${providerLabel}${argsStr}`
+        : `▸ Executing tool: ${toolName}${providerLabel}`;
       logs.push({ type: "log", message, timestamp: new Date() });
       return { activity: null, logs };
     }
@@ -314,8 +326,8 @@ export function reduceEvent(
         }
       }
       const message = argsStr
-        ? `⚙️  Executing tool: ${event.toolName}${providerSuffix}${argsStr}`
-        : `⚙️  Executing tool: ${event.toolName}${providerSuffix}`;
+        ? `▸ Executing tool: ${event.toolName}${providerSuffix}${argsStr}`
+        : `▸ Executing tool: ${event.toolName}${providerSuffix}`;
       logs.push({ type: "log", message, timestamp: new Date() });
 
       return { activity: buildToolExecutionActivity(acc), logs };

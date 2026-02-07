@@ -3,7 +3,6 @@ import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import short from "short-uuid";
-import { store } from "@/cli/ui/store";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import {
     FileSystemContextServiceTag,
@@ -37,18 +36,21 @@ export function initializeSession(
 }
 
 /**
- * Update the working directory in the UI store.
+ * Update the working directory in the UI via the provided setter.
  */
 export function updateWorkingDirectoryInStore(
   agentId: string,
   conversationId: string | undefined,
   fileSystemContext: FileSystemContextService,
+  setWorkingDirectory?: (cwd: string) => void,
 ): void {
   Effect.gen(function* () {
     const cwd = yield* fileSystemContext.getCwd(
       conversationId ? { agentId, conversationId } : { agentId },
     );
-    store.setWorkingDirectory(cwd);
+    if (setWorkingDirectory) {
+      setWorkingDirectory(cwd);
+    }
   }).pipe(Effect.runSync);
 }
 

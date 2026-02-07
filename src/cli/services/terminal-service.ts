@@ -383,6 +383,19 @@ export const TerminalCapabilityServiceLive = Layer.sync(TerminalCapabilityServic
     return cachedCapabilities;
   };
 
+  // Listen for terminal resize events to keep cached dimensions fresh
+  if (process.stdout.isTTY) {
+    process.stdout.on("resize", () => {
+      if (cachedCapabilities) {
+        cachedCapabilities = {
+          ...cachedCapabilities,
+          columns: process.stdout.columns || 80,
+          rows: process.stdout.rows || 24,
+        };
+      }
+    });
+  }
+
   return {
     capabilities: Effect.sync(() => {
       if (!cachedCapabilities) {

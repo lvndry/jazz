@@ -4,6 +4,8 @@ import type { LogEntryInput, PromptState } from "./types";
 
 type PrintOutputHandler = (entry: LogEntryInput) => string;
 
+const MAX_PENDING_LOG_QUEUE = 5000;
+
 export class UIStore {
   // Log handlers
   private printOutputHandler: PrintOutputHandler | null = null;
@@ -29,7 +31,9 @@ export class UIStore {
     const entryWithId = entry.id ? entry : { ...entry, id };
 
     if (!this.printOutputHandler) {
-      this.pendingLogQueue.push(entryWithId);
+      if (this.pendingLogQueue.length < MAX_PENDING_LOG_QUEUE) {
+        this.pendingLogQueue.push(entryWithId);
+      }
       return id;
     }
     return this.printOutputHandler(entryWithId);

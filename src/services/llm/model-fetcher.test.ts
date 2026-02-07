@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { createModelFetcher } from "./model-fetcher";
 
 // Mock models-dev-client
-mock.module("./models-dev-client", () => ({
+mock.module("@/core/utils/models-dev-client", () => ({
   getModelsDevMap: mock(() => Promise.resolve(new Map())),
   getMetadataFromMap: mock(() => null),
 }));
