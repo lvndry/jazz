@@ -71,7 +71,7 @@ export class AgentPromptBuilder {
       shell: string;
       hostname: string;
       username: string;
-      workingDirectory: string;
+      homeDirectory: string;
     },
     never
   > {
@@ -84,16 +84,16 @@ export class AgentPromptBuilder {
         day: "numeric",
       });
       const platform = os.platform();
-      const arch = os.arch();
       const release = os.release();
+      const machine = os.machine();
       const username = os.userInfo().username;
       const shell = process.env["SHELL"] || "unknown";
       const hostname = os.hostname();
-      const workingDirectory = process.cwd();
+      const homeDirectory = os.homedir();
 
-      const osInfo = `${platform} ${release} (${arch})`;
+      const osInfo = `${platform} ${release} (${machine})`;
 
-      return { currentDate, osInfo, shell, hostname, username, workingDirectory };
+      return { currentDate, osInfo, shell, hostname, username, homeDirectory };
     });
   }
 
@@ -152,7 +152,8 @@ export class AgentPromptBuilder {
         if (cached) return cached;
 
         const persona = yield* this.getPersona(personaName);
-        const { currentDate, osInfo, shell, hostname, username } = yield* this.getSystemInfo();
+        const { currentDate, osInfo, shell, hostname, username, homeDirectory } =
+          yield* this.getSystemInfo();
 
         // Replace placeholders in system prompt
         let systemPrompt = persona.systemPrompt
@@ -161,6 +162,7 @@ export class AgentPromptBuilder {
           .replace("{currentDate}", currentDate)
           .replace("{osInfo}", osInfo)
           .replace("{shell}", shell)
+          .replace("{homeDirectory}", homeDirectory)
           .replace("{hostname}", hostname)
           .replace("{username}", username);
 

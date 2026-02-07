@@ -98,14 +98,18 @@ class DefaultToolRegistry implements ToolRegistry {
       const definitions: ToolDefinition[] = [];
 
       this.tools.forEach((tool) => {
-        definitions.push({
-          type: "function",
-          function: {
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.parameters,
-          },
-        });
+        // Filter out hidden tools - they should not be exposed to the LLM
+        // Hidden tools (like execute_* approval tools) are only called by the system
+        if (!tool.hidden) {
+          definitions.push({
+            type: "function",
+            function: {
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.parameters,
+            },
+          });
+        }
       });
 
       this.cachedDefinitions = definitions;
