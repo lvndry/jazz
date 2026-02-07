@@ -36,6 +36,7 @@ interface StreamProcessorConfig {
   readonly hasReasoningEnabled: boolean;
   readonly startTime: number;
   readonly toolsDisabled?: boolean;
+  readonly providerNativeToolNames?: Set<string>;
 }
 
 /**
@@ -312,6 +313,12 @@ export class StreamProcessor {
           }
 
           case "tool-call": {
+            // Skip provider-native tool calls (e.g., OpenAI web_search) that are already
+            // handled server-side by the provider. Their results are embedded in the response.
+            if (this.config.providerNativeToolNames?.has(part.toolName)) {
+              break;
+            }
+
             const toolCall: ToolCall = {
               id: part.toolCallId,
               type: "function",

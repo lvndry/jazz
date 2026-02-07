@@ -976,6 +976,8 @@ class AISDKService implements LLMService {
               `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
             );
 
+            const providerNativeToolNames = prepared?.providerNativeToolNames;
+
             const processor = new StreamProcessor(
               {
                 providerName,
@@ -985,6 +987,7 @@ class AISDKService implements LLMService {
                 ),
                 startTime: Date.now(),
                 toolsDisabled,
+                ...(providerNativeToolNames && { providerNativeToolNames }),
               },
               emit,
               this.logger,
