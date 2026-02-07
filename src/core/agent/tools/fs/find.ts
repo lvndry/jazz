@@ -6,7 +6,7 @@ import { type FileSystemContextService, FileSystemContextServiceTag } from "@/co
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
-import { normalizeFilterPattern } from "./utils";
+import { normalizeFilterPattern, readGitignorePatterns } from "./utils";
 
 /**
  * Find files and directories tool (uses fast-glob for speed)
@@ -57,6 +57,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     },
     handler: (args, context) =>
       Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
 
         const includeHidden = args.includeHidden === true;
@@ -122,6 +123,8 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         for (const searchPath of searchPaths) {
           if (allResults.length >= maxResults) break;
 
+          const ignorePatterns = includeHidden ? [] : yield* readGitignorePatterns(fs, searchPath);
+
           const globOptions: glob.Options = {
             cwd: searchPath,
             absolute: true,
@@ -130,7 +133,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
             stats: true,
             suppressErrors: true,
             followSymbolicLinks: false,
-            ignore: includeHidden ? [] : ["**/node_modules/**", "**/.git/**"],
+            ignore: ignorePatterns,
             onlyFiles: typeFilter === "file",
             onlyDirectories: typeFilter === "dir",
             markDirectories: true,
