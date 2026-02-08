@@ -26,12 +26,40 @@ import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/store";
 import { CHALK_THEME, THEME } from "../ui/theme";
 
+/**
+ * Bridges the pure activity reducer with Ink's rendering system.
+ *
+ * Receives `StreamEvent`s from the agent runtime, runs them through
+ * `reduceEvent()` to get UI state + output side-effects, then pushes
+ * those into the Ink store.
+ *
+ * **Throttling**: High-frequency events (text_chunk, thinking_chunk) are
+ * throttled to one React re-render per `UPDATE_THROTTLE_MS` to keep CPU
+ * usage reasonable. Infrequent events (tool start/complete) bypass the
+ * throttle so spinners appear immediately.
+ *
+ * **Live-area flushing**: When the reducer flushes paragraphs from the live
+ * area to Static (via output entries on text_chunk), this renderer bypasses
+ * the throttle for that update so the live area shrinks in the same frame
+ * the Static content appears — preventing brief duplication.
+ *
+ * **Completion**: On `complete`, the unflushed tail of `liveText` (not the
+ * full accumulation) is printed to Static, since earlier portions were
+ * already flushed during streaming.
+ */
 export class InkStreamingRenderer implements StreamingRenderer {
   private readonly acc;
+  /** Timestamp of the last activity state push to the store. */
   private lastUpdateTime: number = 0;
+  /** Most recent activity state waiting to be flushed by the throttle timer. */
   private pendingActivity: import("../ui/activity-state").ActivityState | null = null;
+  /** Timer handle for the throttled activity update. */
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private static readonly UPDATE_THROTTLE_MS = 30;
+  /**
+   * Minimum interval between React re-renders of the live area. 50ms (~20fps)
+   * balances smooth streaming appearance with low CPU overhead.
+   */
+  private static readonly UPDATE_THROTTLE_MS = 50;
 
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000; // 30 seconds
@@ -53,6 +81,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.acc.isThinking = false;
       this.acc.lastAgentHeaderWritten = false;
       this.acc.lastAppliedTextSequence = -1;
+      this.acc.flushedTextOffset = 0;
       this.lastUpdateTime = 0;
       this.pendingActivity = null;
       if (this.updateTimeoutId) {
@@ -75,10 +104,14 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.pendingActivity = null;
       this.clearAllToolTimeouts();
 
-      if (this.acc.liveText.trim().length > 0) {
-        store.printOutput({ type: "log", message: this.acc.liveText, timestamp: new Date() });
+      // Only print the portion not yet promoted to Static by the reducer's
+      // paragraph flushing. Earlier content is already visible in Static.
+      const unflushedText = this.acc.liveText.slice(this.acc.flushedTextOffset);
+      if (unflushedText.trim().length > 0) {
+        store.printOutput({ type: "log", message: unflushedText, timestamp: new Date() });
       }
       this.acc.liveText = "";
+      this.acc.flushedTextOffset = 0;
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
     });
@@ -125,9 +158,31 @@ export class InkStreamingRenderer implements StreamingRenderer {
         store.printOutput(entry);
       }
 
-      // Throttle activity state updates
+      // Throttle high-frequency activity updates (streaming text / thinking).
+      // Tool execution and other infrequent events are set immediately so the
+      // spinner appears without delay after tool-call approval.
       if (result.activity) {
-        this.throttledSetActivity(result.activity);
+        const phase = result.activity.phase;
+        if (phase === "thinking" || phase === "streaming") {
+          // When text was flushed to Static (outputs produced during text_chunk),
+          // bypass the throttle so the live area shrinks immediately, avoiding
+          // brief duplication of the flushed content.
+          if (event.type === "text_chunk" && result.outputs.length > 0) {
+            this.lastUpdateTime = Date.now();
+            this.pendingActivity = null;
+            if (this.updateTimeoutId) {
+              clearTimeout(this.updateTimeoutId);
+              this.updateTimeoutId = null;
+            }
+            store.setActivity(result.activity);
+          } else {
+            this.throttledSetActivity(result.activity);
+          }
+        } else {
+          this.lastUpdateTime = Date.now();
+          this.pendingActivity = null;
+          store.setActivity(result.activity);
+        }
       }
     }).pipe(Effect.catchAllDefect((defect) => Effect.sync(() => {
       const message = defect instanceof Error ? defect.message : String(defect);
@@ -151,9 +206,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     const wasStreaming = this.acc.lastAgentHeaderWritten;
 
+    // Only the unflushed tail needs to go to Static here — earlier paragraphs
+    // were already promoted during streaming via the reducer's flush logic.
+    const unflushedTail = this.acc.liveText.slice(this.acc.flushedTextOffset);
     const finalText =
-      this.acc.liveText.trim().length > 0
-        ? this.acc.liveText
+      unflushedTail.trim().length > 0
+        ? unflushedTail
         : event.response.content.trim().length > 0
           ? event.response.content
           : "";
@@ -283,6 +341,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     store.setInterruptHandler(null);
 
     this.acc.liveText = "";
+    this.acc.flushedTextOffset = 0;
     this.acc.reasoningBuffer = "";
     this.acc.completedReasoning = "";
   }
@@ -716,6 +775,24 @@ class InkPresentationService implements PresentationService {
 
     this.isProcessingUserInput = true;
     const { request, resume } = this.userInputQueue.shift()!;
+
+    // Send system notification for user input request
+    if (this.notificationService) {
+      Effect.runFork(
+        this.notificationService.notify(
+          `Agent is asking a question`,
+          {
+            title: "Jazz Input Required",
+            sound: true,
+          },
+        ).pipe(
+          Effect.catchAll((error) => {
+            console.error("[Notification] Failed to send user input notification:", error);
+            return Effect.void;
+          }),
+        ),
+      );
+    }
 
     // Show the question with formatted suggestions
     const separator = chalk.dim("─".repeat(50));

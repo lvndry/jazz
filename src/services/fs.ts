@@ -231,10 +231,12 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
                   const found = yield* findDirectoryByName(base, targetName, 3);
                   if (found.results.length > 0) {
                     const suggestion = found.results[0];
-                    throw new Error(
-                      `Path not found: ${cleanedPath}\n` +
-                        `Did you mean: ${suggestion}?\n` +
-                        `Found ${found.results.length} similar directory${found.results.length > 1 ? "ies" : "y"}: ${found.results.join(", ")}`,
+                    return yield* Effect.fail(
+                      new Error(
+                        `Path not found: ${cleanedPath}\n` +
+                          `Did you mean: ${suggestion}?\n` +
+                          `Found ${found.results.length} similar directory${found.results.length > 1 ? "ies" : "y"}: ${found.results.join(", ")}`,
+                      ),
                     );
                   }
                 }

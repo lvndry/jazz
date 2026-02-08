@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Cause, Chunk, Effect, Layer, Option } from "effect";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import {
@@ -213,17 +213,31 @@ class DefaultToolRegistry implements ToolRegistry {
 
       yield* logToolExecutionStart(name, args);
 
-      // Execute tool and catch all errors (both Effect errors and tool handler errors)
-      // Use either to convert errors to success values
-      const eitherResult = yield* tool.execute(args, context).pipe(Effect.either);
+      // Execute tool and catch all errors (both Effect typed failures and defects/throws)
+      // Use sandbox to promote defects into the error channel, then either to convert to values
+      const eitherResult = yield* tool.execute(args, context).pipe(
+        Effect.sandbox,
+        Effect.either,
+      );
 
       let result: ToolExecutionResult;
       if (eitherResult._tag === "Left") {
         const durationMs = Date.now() - start;
-        const errorMessage =
-          eitherResult.left instanceof Error
-            ? eitherResult.left.message
-            : String(eitherResult.left);
+        const cause = eitherResult.left;
+
+        // Extract error message from the Cause: check typed failure first, then defects
+        const failureOpt = Cause.failureOption(cause);
+        let errorMessage: string;
+        if (Option.isSome(failureOpt)) {
+          const failure = failureOpt.value;
+          errorMessage = failure instanceof Error ? failure.message : String(failure);
+        } else {
+          const defects = Cause.defects(cause);
+          const firstDefect = Chunk.get(defects, 0);
+          errorMessage = Option.isSome(firstDefect)
+            ? (firstDefect.value instanceof Error ? firstDefect.value.message : String(firstDefect.value))
+            : "Unknown error";
+        }
 
         yield* logToolExecutionError(name, durationMs, errorMessage);
 

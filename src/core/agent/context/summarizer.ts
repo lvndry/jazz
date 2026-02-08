@@ -246,6 +246,42 @@ export const Summarizer = {
       const recentMessages = currentMessages.slice(-recentCount);
       const messagesToSummarize = currentMessages.slice(1, -recentCount);
 
+      // Sanitize recent messages to avoid orphaned tool call/result references.
+      // The split may land in the middle of a tool call group, leaving:
+      // 1. Tool result messages whose parent assistant tool_call was summarized away
+      // 2. Assistant tool_calls whose corresponding tool results were summarized away
+      // Either case causes API errors (e.g. OpenAI "No tool call found for function call output").
+      const recentToolCallIds = new Set<string>();
+      const recentToolResultIds = new Set<string>();
+      for (const msg of recentMessages) {
+        if (msg.role === "assistant" && msg.tool_calls) {
+          for (const tc of msg.tool_calls) {
+            recentToolCallIds.add(tc.id);
+          }
+        }
+        if (msg.role === "tool" && msg.tool_call_id) {
+          recentToolResultIds.add(msg.tool_call_id);
+        }
+      }
+
+      const sanitizedRecentMessages = recentMessages.reduce<ChatMessage[]>((acc, msg) => {
+        // Drop tool results whose parent assistant tool_call was summarized
+        if (msg.role === "tool" && msg.tool_call_id && !recentToolCallIds.has(msg.tool_call_id)) {
+          return acc;
+        }
+        // Strip tool_calls whose results were summarized
+        if (msg.role === "assistant" && msg.tool_calls) {
+          const keptToolCalls = msg.tool_calls.filter((tc) => recentToolResultIds.has(tc.id));
+          if (keptToolCalls.length < msg.tool_calls.length) {
+            const { tool_calls: _, ...rest } = msg;
+            acc.push(keptToolCalls.length > 0 ? { ...rest, tool_calls: keptToolCalls } : rest);
+            return acc;
+          }
+        }
+        acc.push(msg);
+        return acc;
+      }, []);
+
       if (messagesToSummarize.length === 0) {
         // Not enough to summarize, just return as-is
         return currentMessages;
@@ -270,7 +306,7 @@ export const Summarizer = {
       const compactedMessages: ConversationMessages = [
         systemMessage,
         summaryMessage,
-        ...recentMessages,
+        ...sanitizedRecentMessages,
       ] as ConversationMessages;
 
       const newTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(compactedMessages);

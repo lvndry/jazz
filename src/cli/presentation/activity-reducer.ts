@@ -5,6 +5,26 @@
  * function (given the same accumulator snapshot + event, it produces the same
  * output). Side-effects (printing output) are returned as OutputEntry descriptors
  * so the caller can flush them through the store.
+ *
+ * ## Live-area flush strategy (anti-blink)
+ *
+ * Ink's terminal rendering has two regions:
+ *   - **Static**: content written once via `<Static>`, never re-rendered.
+ *   - **Live area**: the non-Static portion, cleared and redrawn every render cycle.
+ *
+ * During LLM streaming the response text grows continuously. If the entire
+ * accumulated response lives in the live area, each throttled re-render clears
+ * and redraws hundreds of lines, causing visible terminal flicker/blink.
+ *
+ * To fix this, once the unflushed tail of `liveText` exceeds
+ * `MAX_LIVE_DISPLAY_CHARS` (~20 lines), we find a safe paragraph boundary
+ * (`\n\n` outside fenced code blocks) and move everything before it into Static
+ * as an output entry. The live area then only contains the recent tail,
+ * keeping redraws small and flicker-free regardless of response length.
+ *
+ * The `flushedTextOffset` field in the accumulator tracks how much of
+ * `liveText` has already been promoted to Static. The full `liveText` string
+ * is still kept for the `handleComplete` path which needs the complete response.
  */
 
 import chalk from "chalk";
@@ -32,17 +52,31 @@ function renderToolBadge(label: string): React.ReactElement {
 
 export interface ReducerAccumulator {
   agentName: string;
+  /**
+   * Full accumulated response text for the current LLM turn. Only the portion
+   * after `flushedTextOffset` is shown in the live area — the rest has already
+   * been promoted to Ink's Static region.
+   */
   liveText: string;
+  /** In-progress reasoning content (cleared on thinking_complete). */
   reasoningBuffer: string;
+  /** All completed reasoning blocks concatenated (for display in live area). */
   completedReasoning: string;
   isThinking: boolean;
   lastAgentHeaderWritten: boolean;
+  /** Sequence number for ordering out-of-order text chunks from the stream. */
   lastAppliedTextSequence: number;
   activeTools: Map<string, { toolName: string; startedAt: number }>;
-  /** Provider id captured from stream_start for cost calculation */
+  /** Provider id captured from stream_start for cost calculation. */
   currentProvider: string | null;
-  /** Model id captured from stream_start for cost calculation */
+  /** Model id captured from stream_start for cost calculation. */
   currentModel: string | null;
+  /**
+   * Character offset into `liveText` up to which content has been flushed to
+   * Ink's Static region. `liveText.slice(flushedTextOffset)` is the portion
+   * still rendered in the live area. Reset to 0 on text_start and completion.
+   */
+  flushedTextOffset: number;
 }
 
 export function createAccumulator(agentName: string): ReducerAccumulator {
@@ -57,6 +91,7 @@ export function createAccumulator(agentName: string): ReducerAccumulator {
     activeTools: new Map(),
     currentProvider: null,
     currentModel: null,
+    flushedTextOffset: 0,
   };
 }
 
@@ -75,8 +110,60 @@ export interface ReducerResult {
 // Constants
 // ---------------------------------------------------------------------------
 
+/** Cap for accumulated reasoning text before truncation. */
 const MAX_REASONING_LENGTH = 8000;
+/** Hard cap for total `liveText` length to prevent unbounded memory growth. */
 const MAX_LIVE_TEXT_LENGTH = 200_000;
+/**
+ * Maximum characters kept in the live area before flushing older paragraphs
+ * to Static. ~1500 chars ≈ ~20 terminal lines, small enough to redraw without
+ * visible flicker, large enough to show meaningful context while streaming.
+ */
+const MAX_LIVE_DISPLAY_CHARS = 1500;
+
+/**
+ * Find a safe paragraph break (`\n\n`) to flush text up to, avoiding splits
+ * inside fenced code blocks. Scans from `startOffset` to
+ * `text.length - maxLiveChars` and returns the position just after the last
+ * safe `\n\n`. Returns -1 if no safe point is found.
+ */
+function findSafeFlushPoint(
+  text: string,
+  startOffset: number,
+  maxLiveChars: number,
+): number {
+  const searchEnd = text.length - maxLiveChars;
+  if (searchEnd <= startOffset) return -1;
+
+  let insideCodeBlock = false;
+  let lastSafeBreak = -1;
+
+  for (let i = startOffset; i < searchEnd; i++) {
+    // Detect fenced code block toggles (``` at start of line)
+    if (
+      text[i] === '`' &&
+      i + 2 < text.length &&
+      text[i + 1] === '`' &&
+      text[i + 2] === '`' &&
+      (i === 0 || text[i - 1] === '\n')
+    ) {
+      insideCodeBlock = !insideCodeBlock;
+    }
+
+    // Look for paragraph breaks (\n\n) outside code blocks
+    if (
+      !insideCodeBlock &&
+      text[i] === '\n' &&
+      i + 1 < searchEnd &&
+      text[i + 1] === '\n'
+    ) {
+      // Position after the double newline
+      lastSafeBreak = i + 2;
+    }
+  }
+
+  return lastSafeBreak;
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build the current activity from accumulator state
@@ -95,12 +182,14 @@ function buildThinkingOrStreamingActivity(
   const formattedReasoning =
     reasoningToShow.length > 0 ? formatMarkdown(reasoningToShow) : "";
 
-  if (acc.liveText.length > 0) {
+  // Only show the unflushed tail in the live area — earlier text is already in Static.
+  const displayText = acc.liveText.slice(acc.flushedTextOffset);
+  if (displayText.length > 0) {
     return {
       phase: "streaming",
       agentName: acc.agentName,
       reasoning: formattedReasoning,
-      text: formatMarkdown(acc.liveText),
+      text: formatMarkdown(displayText),
     };
   }
 
@@ -249,6 +338,7 @@ export function reduceEvent(
         });
       }
       acc.liveText = "";
+      acc.flushedTextOffset = 0;
       acc.lastAppliedTextSequence = -1;
       return {
         activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
@@ -264,11 +354,47 @@ export function reduceEvent(
         },
         { sequence: event.sequence, accumulated: event.accumulated },
       );
-      // Cap live text to prevent unbounded memory growth during long responses
-      acc.liveText = next.liveText.length > MAX_LIVE_TEXT_LENGTH
-        ? next.liveText.slice(-MAX_LIVE_TEXT_LENGTH)
-        : next.liveText;
+      // Cap live text to prevent unbounded memory growth during long responses.
+      // When trimming, shift flushedTextOffset down by the same amount so it
+      // still points at the correct position within the shortened string.
+      if (next.liveText.length > MAX_LIVE_TEXT_LENGTH) {
+        const trimAmount = next.liveText.length - MAX_LIVE_TEXT_LENGTH;
+        acc.liveText = next.liveText.slice(-MAX_LIVE_TEXT_LENGTH);
+        acc.flushedTextOffset = Math.max(0, acc.flushedTextOffset - trimAmount);
+      } else {
+        acc.liveText = next.liveText;
+      }
       acc.lastAppliedTextSequence = next.lastAppliedSequence;
+
+      // --- Live-area flush ---
+      // When the unflushed tail exceeds the display threshold, find a safe
+      // paragraph boundary and promote everything before it to Static output.
+      // This keeps the live area small (≤ MAX_LIVE_DISPLAY_CHARS) so Ink
+      // redraws don't cause terminal flicker. If no safe split point exists
+      // (e.g. one giant code block), we skip the flush and let the live area
+      // grow — better to have some flicker than to corrupt markdown formatting.
+      if (acc.liveText.length - acc.flushedTextOffset > MAX_LIVE_DISPLAY_CHARS) {
+        const flushPoint = findSafeFlushPoint(
+          acc.liveText,
+          acc.flushedTextOffset,
+          MAX_LIVE_DISPLAY_CHARS,
+        );
+        if (flushPoint > acc.flushedTextOffset) {
+          const flushableText = acc.liveText.slice(acc.flushedTextOffset, flushPoint);
+          const formatted = formatMarkdown(flushableText);
+          outputs.push({
+            type: "log",
+            message: inkRender(
+              React.createElement(Box, { paddingLeft: 2 },
+                React.createElement(Text, {}, formatted),
+              ),
+            ),
+            timestamp: new Date(),
+          });
+          acc.flushedTextOffset = flushPoint;
+        }
+      }
+
       return {
         activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
         outputs,
