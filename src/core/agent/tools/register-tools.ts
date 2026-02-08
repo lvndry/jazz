@@ -22,7 +22,7 @@ import { gmail } from "./gmail";
 import { createHttpRequestTool } from "./http-tools";
 import { registerMCPServerTools } from "./mcp-tools";
 import { createShellCommandTools } from "./shell-tools";
-import { skillTools } from "./skill-tools";
+import { createSkillTools } from "./skill-tools";
 import { createSubagentTools } from "./subagent-tools";
 import { userInteractionTools } from "./user-interaction-tools";
 import { createWebSearchTool } from "./web-search-tools";
@@ -59,7 +59,6 @@ export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDe
     yield* registerGitTools();
     yield* registerSearchTools();
     yield* registerHttpTools();
-    yield* registerSkillSystemTools();
     yield* registerContextTools();
     yield* registerSubagentTools();
     yield* registerUserInteractionTools();
@@ -720,12 +719,12 @@ export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> 
   });
 }
 
-export function registerSkillSystemTools(): Effect.Effect<void, Error, ToolRegistry> {
+export function registerSkillSystemTools(skillNames: readonly string[]): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(SKILLS_CATEGORY);
 
-    for (const tool of skillTools) {
+    for (const tool of createSkillTools(skillNames)) {
       yield* registerTool(tool);
     }
   });

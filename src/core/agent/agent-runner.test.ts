@@ -69,6 +69,8 @@ const mockFileSystem = {} as unknown as FileSystem.FileSystem;
 const mockFileSystemContext = {} as unknown as FileSystemContextService;
 
 const mockToolRegistry = {
+  registerTool: mock(() => Effect.succeed(undefined)),
+  registerForCategory: mock(() => mock(() => Effect.succeed(undefined))),
   listTools: mock(() => Effect.succeed(["tool1", "tool2", "load_skill", "load_skill_section"])),
   listAllTools: mock(() => Effect.succeed(["tool1", "tool2", "load_skill", "load_skill_section", "ask_user_question", "ask_file_picker", "spawn_subagent", "summarize_context"])),
   getTool: mock((name: string) => Effect.succeed({

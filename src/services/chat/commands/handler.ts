@@ -1,13 +1,11 @@
 import { spawn } from "node:child_process";
-import * as path from "node:path";
 import { Effect } from "effect";
-import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { STATIC_PROVIDER_MODELS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import {
   FileSystemContextServiceTag,
@@ -31,7 +29,6 @@ import {
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
-import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import {
   WorkflowServiceTag,
@@ -779,52 +776,80 @@ function handleUnknownCommand(
  */
 function handleSkillsCommand(
   terminal: TerminalService,
-): Effect.Effect<CommandResult, Error, AgentConfigService | SkillService> {
+): Effect.Effect<CommandResult, Error, SkillService> {
   return Effect.gen(function* () {
     const skillService = yield* SkillServiceTag;
-    const configService = yield* AgentConfigServiceTag;
-    const appConfig = yield* configService.appConfig;
-    const displayConfig = resolveDisplayConfig(appConfig);
-    const skills = yield* skillService.listSkills();
+    const { builtin, global, agents, local } = yield* skillService.listSkillsBySource();
 
-    if (skills.length === 0) {
-      yield* terminal.warn("No skills found in ~/.jazz or local folder.");
+    const totalCount = builtin.length + global.length + agents.length + local.length;
+
+    if (totalCount === 0) {
+      yield* terminal.warn("No skills found.");
+      yield* terminal.log("");
+      yield* terminal.info("Create a skill by adding a SKILL.md file to:");
+      yield* terminal.log("  • ./skills/<name>/SKILL.md (local)");
+      yield* terminal.log("  • ~/.jazz/skills/<name>/SKILL.md (global)");
+      yield* terminal.log("  • ~/.agents/skills/<name>/SKILL.md (shared agents)");
       yield* terminal.log("");
       return { shouldContinue: true };
     }
 
-    // Sort by name
-    const sortedSkills = [...skills].sort((a, b) => a.name.localeCompare(b.name));
-
-    const choices = sortedSkills.map((s) => ({
-      name: `${s.name} - ${s.description}`,
-      value: s.name,
-    }));
-
-    const selectedSkillName = yield* terminal.select<string>("Select a skill to view:", {
-      choices,
-    });
-
-    // User cancelled selection (Escape key)
-    if (!selectedSkillName) {
-      return { shouldContinue: true };
-    }
-
-    const skillContent = yield* skillService.loadSkill(selectedSkillName);
-
-    yield* terminal.heading(`📜 Skill: ${skillContent.metadata.name}`);
-    yield* terminal.log(
-      `${path.join(skillContent.metadata.path, "SKILL.md")}`,
-    );
-    if (skillContent.metadata.description) {
-      yield* terminal.log(skillContent.metadata.description);
-    }
+    yield* terminal.heading("📜 Available Skills");
     yield* terminal.log("");
-    const formattedSkill =
-      displayConfig.mode === "rendered"
-        ? formatMarkdown(skillContent.core)
-        : skillContent.core;
-    yield* terminal.log(formattedSkill);
+
+    let sourcesCount = 0;
+
+    if (builtin.length > 0) {
+      sourcesCount++;
+      const sorted = [...builtin].sort((a, b) => a.name.localeCompare(b.name));
+      yield* terminal.log(
+        `   📦 Built-in (${builtin.length} ${builtin.length === 1 ? "skill" : "skills"}):`,
+      );
+      for (const s of sorted) {
+        yield* terminal.log(`      • ${s.name} - ${s.description}`);
+      }
+      yield* terminal.log("");
+    }
+
+    if (global.length > 0) {
+      sourcesCount++;
+      const sorted = [...global].sort((a, b) => a.name.localeCompare(b.name));
+      yield* terminal.log(
+        `   🌐 Global (${global.length} ${global.length === 1 ? "skill" : "skills"}):`,
+      );
+      for (const s of sorted) {
+        yield* terminal.log(`      • ${s.name} - ${s.description}`);
+      }
+      yield* terminal.log("");
+    }
+
+    if (agents.length > 0) {
+      sourcesCount++;
+      const sorted = [...agents].sort((a, b) => a.name.localeCompare(b.name));
+      yield* terminal.log(
+        `   🤖 Agents (${agents.length} ${agents.length === 1 ? "skill" : "skills"}):`,
+      );
+      for (const s of sorted) {
+        yield* terminal.log(`      • ${s.name} - ${s.description}`);
+      }
+      yield* terminal.log("");
+    }
+
+    if (local.length > 0) {
+      sourcesCount++;
+      const sorted = [...local].sort((a, b) => a.name.localeCompare(b.name));
+      yield* terminal.log(
+        `   📁 Local (${local.length} ${local.length === 1 ? "skill" : "skills"}):`,
+      );
+      for (const s of sorted) {
+        yield* terminal.log(`      • ${s.name} - ${s.description}`);
+      }
+      yield* terminal.log("");
+    }
+
+    yield* terminal.log(
+      `   Total: ${totalCount} ${totalCount === 1 ? "skill" : "skills"} across ${sourcesCount} ${sourcesCount === 1 ? "source" : "sources"}`,
+    );
     yield* terminal.log("");
 
     return { shouldContinue: true };

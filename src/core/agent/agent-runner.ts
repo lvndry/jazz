@@ -25,7 +25,7 @@ import { agentPromptBuilder } from "./agent-prompt";
 import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
-import { registerMCPToolsForAgent } from "./tools/register-tools";
+import { registerMCPToolsForAgent, registerSkillSystemTools } from "./tools/register-tools";
 import {
   type AgentResponse,
   type AgentRunContext,
@@ -72,6 +72,9 @@ function initializeAgentRun(
     const relevantSkills = yield* skillService.listSkills();
     const logger = yield* LoggerServiceTag;
     yield* logger.debug(`[Skills] Discovered ${relevantSkills.length} skills: ${relevantSkills.map(s => s.name).join(", ")}`);
+
+    // Register skill tools with discovered skill names as enum constraint
+    yield* registerSkillSystemTools(relevantSkills.map(s => s.name));
 
     // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {

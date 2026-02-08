@@ -6,6 +6,7 @@ import { Context, Effect, Layer, Ref } from "effect";
 import matter from "gray-matter";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "../utils/markdown-index.js";
 import {
+  getAgentsSkillsDirectory,
   getBuiltinSkillsDirectory,
   getGlobalSkillsDirectory,
 } from "../utils/runtime-detection.js";
@@ -14,6 +15,14 @@ export interface SkillMetadata {
   readonly name: string;
   readonly description: string;
   readonly path: string;
+  readonly source: "builtin" | "global" | "agents" | "local";
+}
+
+export interface SkillsBySource {
+  readonly builtin: readonly SkillMetadata[];
+  readonly global: readonly SkillMetadata[];
+  readonly agents: readonly SkillMetadata[];
+  readonly local: readonly SkillMetadata[];
 }
 
 export interface SkillContent {
@@ -28,6 +37,11 @@ export interface SkillService {
    * Returns a list of skills with their metadata (Level 1 Progressive Disclosure).
    */
   readonly listSkills: () => Effect.Effect<readonly SkillMetadata[], Error>;
+
+  /**
+   * List all skills grouped by source (builtin, global, local) before merging.
+   */
+  readonly listSkillsBySource: () => Effect.Effect<SkillsBySource, Error>;
 
   /**
    * Load full skill content (Level 2 Progressive Disclosure).
@@ -47,7 +61,7 @@ export interface SkillService {
 
 export const SkillServiceTag = Context.GenericTag<SkillService>("SkillService");
 
-function parseSkillFrontmatter(data: Record<string, unknown>, skillPath: string): SkillMetadata | null {
+function parseSkillFrontmatter(data: Record<string, unknown>, skillPath: string, source: SkillMetadata["source"]): SkillMetadata | null {
   const name = data["name"];
   const description = data["description"];
 
@@ -59,6 +73,7 @@ function parseSkillFrontmatter(data: Record<string, unknown>, skillPath: string)
     name,
     description,
     path: skillPath,
+    source,
   };
 }
 
@@ -98,16 +113,29 @@ export class SkillsLive implements SkillService {
       // 2. Get Global Skills (Cached, medium priority - ~/.jazz/skills)
       const globalSkills = yield* this.getGlobalSkills();
 
-      // 3. Get Local Skills (Fresh scan, highest priority - cwd)
+      // 3. Get Agents Skills (~/.agents/skills)
+      const agentsSkills = yield* this.getAgentsSkills();
+
+      // 4. Get Local Skills (Fresh scan, highest priority - cwd)
       const localSkills = yield* this.scanLocalSkills();
 
-      // 4. Merge (Local > Global > Built-in by name)
-      const merged = mergeByName(builtinSkills, globalSkills, localSkills);
+      // 5. Merge (Local > Agents > Global > Built-in by name)
+      const merged = mergeByName(builtinSkills, globalSkills, agentsSkills, localSkills);
 
       // Cache for the session
       yield* Ref.set(this.skillsListCache, merged);
 
       return merged;
+    }.bind(this));
+  }
+
+  listSkillsBySource(): Effect.Effect<SkillsBySource, Error> {
+    return Effect.gen(function* (this: SkillsLive) {
+      const builtin = yield* this.getBuiltinSkills();
+      const global = yield* this.getGlobalSkills();
+      const agents = yield* this.getAgentsSkills();
+      const local = yield* this.scanLocalSkills();
+      return { builtin, global, agents, local };
     }.bind(this));
   }
 
@@ -205,8 +233,18 @@ export class SkillsLive implements SkillService {
         dir: globalSkillsDir,
         fileName: "SKILL.md",
         depth: 3,
-        parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir),
+        parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir, "global"),
       }),
+    });
+  }
+
+  private getAgentsSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
+    const agentsSkillsDir = getAgentsSkillsDirectory();
+    return scanMarkdownIndex({
+      dir: agentsSkillsDir,
+      fileName: "SKILL.md",
+      depth: 3,
+      parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir, "agents"),
     });
   }
 
@@ -216,7 +254,7 @@ export class SkillsLive implements SkillService {
       dir: cwd,
       fileName: "SKILL.md",
       depth: 4,
-      parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir),
+      parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir, "local"),
     });
   }
 
@@ -233,7 +271,7 @@ export class SkillsLive implements SkillService {
         dir: builtinDir,
         fileName: "SKILL.md",
         depth: 2,
-        parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir),
+        parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir, "builtin"),
       });
     }.bind(this));
   }

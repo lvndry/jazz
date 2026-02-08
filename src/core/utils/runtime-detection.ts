@@ -159,6 +159,25 @@ export function getGlobalSkillsDirectory(): string {
 }
 
 /**
+ * Get the directory containing shared agent skills.
+ *
+ * Agent skills are stored in `~/.agents/skills/` and are shared across
+ * different agent tools. These skills persist between sessions.
+ *
+ * @returns Agents skills directory path
+ *
+ * @example
+ * ```typescript
+ * const skillsDir = getAgentsSkillsDirectory();
+ * // "/Users/alice/.agents/skills"
+ * ```
+ */
+export function getAgentsSkillsDirectory(): string {
+  const homeDir = os.homedir();
+  return path.join(homeDir, ".agents", "skills");
+}
+
+/**
  * Get the directory containing built-in workflows shipped with Jazz.
  *
  * Built-in workflows are located in the `workflows/` folder within the Jazz package.
