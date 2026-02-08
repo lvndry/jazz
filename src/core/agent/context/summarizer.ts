@@ -274,7 +274,12 @@ export const Summarizer = {
           const keptToolCalls = msg.tool_calls.filter((tc) => recentToolResultIds.has(tc.id));
           if (keptToolCalls.length < msg.tool_calls.length) {
             const { tool_calls: _, ...rest } = msg;
-            acc.push(keptToolCalls.length > 0 ? { ...rest, tool_calls: keptToolCalls } : rest);
+            if (keptToolCalls.length > 0) {
+              acc.push({ ...rest, tool_calls: keptToolCalls });
+            } else if (rest.content) {
+              // Only keep the assistant message if it has text content
+              acc.push(rest);
+            }
             return acc;
           }
         }
