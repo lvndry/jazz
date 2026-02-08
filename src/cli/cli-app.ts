@@ -16,6 +16,13 @@ import { chatWithAIAgentCommand } from "./commands/chat-agent";
 import { getConfigCommand, listConfigCommand, setConfigCommand } from "./commands/config";
 import { createAgentCommand } from "./commands/create-agent";
 import { editAgentCommand } from "./commands/edit-agent";
+import {
+  addMcpServerCommand,
+  listMcpServersCommand,
+  removeMcpServerCommand,
+  enableMcpServerCommand,
+  disableMcpServerCommand,
+} from "./commands/mcp";
 import { updateCommand } from "./commands/update";
 import { wizardCommand } from "./commands/wizard";
 import {
@@ -234,6 +241,76 @@ function registerAuthCommands(program: Command): void {
 }
 
 /**
+ * Register MCP server management commands
+ */
+function registerMCPCommands(program: Command): void {
+  const mcpCommand = program.command("mcp").description("Manage MCP servers");
+
+  mcpCommand
+    .command("add [json]")
+    .description("Add an MCP server from JSON (inline, --file, or interactive)")
+    .option("-f, --file <path>", "Read MCP server JSON from a file")
+    .action((json?: string, options?: { file?: string }) => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(addMcpServerCommand(json, options?.file), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  mcpCommand
+    .command("list")
+    .alias("ls")
+    .description("List all configured MCP servers")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(listMcpServersCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  mcpCommand
+    .command("remove")
+    .alias("rm")
+    .description("Remove an MCP server")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(removeMcpServerCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  mcpCommand
+    .command("enable")
+    .description("Enable a disabled MCP server")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(enableMcpServerCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+
+  mcpCommand
+    .command("disable")
+    .description("Disable an enabled MCP server")
+    .action(() => {
+      const opts = program.opts<CliOptions>();
+      runCliEffect(disableMcpServerCommand(), {
+        verbose: opts.verbose,
+        debug: opts.debug,
+        configPath: opts.config,
+      });
+    });
+}
+
+/**
  * Register update command
  */
 function registerUpdateCommand(program: Command): void {
@@ -398,6 +475,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     registerAgentCommands(program);
     registerConfigCommands(program);
     registerAuthCommands(program);
+    registerMCPCommands(program);
     registerUpdateCommand(program);
     registerWorkflowCommands(program);
 
