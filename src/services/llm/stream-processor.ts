@@ -465,6 +465,16 @@ export class StreamProcessor {
           ...(this.state.reasoningTokens !== undefined && {
             reasoningTokens: this.state.reasoningTokens,
           }),
+          ...(usageResult.outputTokenDetails?.reasoningTokens != null &&
+            this.state.reasoningTokens === undefined && {
+              reasoningTokens: usageResult.outputTokenDetails.reasoningTokens,
+            }),
+          ...(usageResult.inputTokenDetails?.cacheReadTokens != null && {
+            cacheReadTokens: usageResult.inputTokenDetails.cacheReadTokens,
+          }),
+          ...(usageResult.inputTokenDetails?.cacheWriteTokens != null && {
+            cacheWriteTokens: usageResult.inputTokenDetails.cacheWriteTokens,
+          }),
         };
 
         // Emit usage update

@@ -123,7 +123,7 @@ function toCoreMessages(
   }>,
   providerName?: ProviderName,
 ): ModelMessage[] {
-  return messages.map((m) => {
+  const result = messages.map((m) => {
     const role = m.role;
     const content = sanitize(m.content);
 
@@ -135,7 +135,7 @@ function toCoreMessages(
       // Enable prompt caching: the system prompt is stable across turns,
       // so caching it gives cost reduction and latency improvement on the cached prefix
       const normalized = providerName?.toLowerCase();
-      if (normalized === "anthropic") {
+      if (normalized === "anthropic" || normalized === "ai_gateway") {
         (msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }).providerOptions = {
           anthropic: { cacheControl: { type: "ephemeral" } },
         };
@@ -219,6 +219,8 @@ function toCoreMessages(
     // Fallback - should not reach here
     throw new Error(`Unsupported message role: ${String(role)}`);
   });
+
+  return result;
 }
 
 type ModelName = string;
@@ -495,6 +497,8 @@ function buildProviderOptions(
           openai: {
             reasoningEffort,
             reasoningSummary: "auto",
+            systemMessageMode: "system",
+            promptCacheKey: "conversation",
             // store: false,
             // include: ["reasoning.encrypted_content"],
           } satisfies OpenAIResponsesProviderOptions,
@@ -848,6 +852,15 @@ class AISDKService implements LLMService {
             promptTokens: usageData.inputTokens ?? 0,
             completionTokens: usageData.outputTokens ?? 0,
             totalTokens: usageData.totalTokens ?? 0,
+            ...(usageData.outputTokenDetails?.reasoningTokens != null && {
+              reasoningTokens: usageData.outputTokenDetails.reasoningTokens,
+            }),
+            ...(usageData.inputTokenDetails?.cacheReadTokens != null && {
+              cacheReadTokens: usageData.inputTokenDetails.cacheReadTokens,
+            }),
+            ...(usageData.inputTokenDetails?.cacheWriteTokens != null && {
+              cacheWriteTokens: usageData.inputTokenDetails.cacheWriteTokens,
+            }),
           };
         }
 

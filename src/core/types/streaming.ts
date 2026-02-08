@@ -15,6 +15,8 @@ export interface TokenUsage {
   completionTokens: number;
   totalTokens: number;
   reasoningTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 /**

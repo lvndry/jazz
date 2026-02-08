@@ -38,6 +38,9 @@ export interface AgentRunMetrics {
   readonly startedAt: Date;
   totalPromptTokens: number;
   totalCompletionTokens: number;
+  totalReasoningTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
   llmRetryCount: number;
   lastError?: string;
   toolCalls: number;
@@ -70,6 +73,9 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     startedAt: new Date(),
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
+    totalReasoningTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheWriteTokens: 0,
     llmRetryCount: 0,
     toolCalls: 0,
     toolErrors: 0,
@@ -85,10 +91,25 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
 
 export function recordLLMUsage(
   metrics: AgentRunMetrics,
-  usage: { readonly promptTokens: number; readonly completionTokens: number },
+  usage: {
+    readonly promptTokens: number;
+    readonly completionTokens: number;
+    readonly reasoningTokens?: number;
+    readonly cacheReadTokens?: number;
+    readonly cacheWriteTokens?: number;
+  },
 ): void {
   metrics.totalPromptTokens += usage.promptTokens;
   metrics.totalCompletionTokens += usage.completionTokens;
+  if (usage.reasoningTokens != null) {
+    metrics.totalReasoningTokens += usage.reasoningTokens;
+  }
+  if (usage.cacheReadTokens != null) {
+    metrics.totalCacheReadTokens += usage.cacheReadTokens;
+  }
+  if (usage.cacheWriteTokens != null) {
+    metrics.totalCacheWriteTokens += usage.cacheWriteTokens;
+  }
 }
 
 export function recordLLMRetry(metrics: AgentRunMetrics, error: unknown): void {
@@ -185,6 +206,9 @@ export function finalizeAgentRun(
     promptTokens: metrics.totalPromptTokens,
     completionTokens: metrics.totalCompletionTokens,
     totalTokens,
+    ...(metrics.totalReasoningTokens > 0 && { reasoningTokens: metrics.totalReasoningTokens }),
+    ...(metrics.totalCacheReadTokens > 0 && { cacheReadTokens: metrics.totalCacheReadTokens }),
+    ...(metrics.totalCacheWriteTokens > 0 && { cacheWriteTokens: metrics.totalCacheWriteTokens }),
     iterations: details.iterationsUsed,
     maxIterations: metrics.maxIterations,
     finished: details.finished,
@@ -220,6 +244,9 @@ interface TokenUsageLogPayload {
   readonly promptTokens: number;
   readonly completionTokens: number;
   readonly totalTokens: number;
+  readonly reasoningTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
   readonly iterations: number;
   readonly maxIterations: number;
   readonly finished: boolean;
@@ -270,6 +297,9 @@ function writeTokenUsageLog(
       promptTokens: payload.promptTokens,
       completionTokens: payload.completionTokens,
       totalTokens: payload.totalTokens,
+      ...(payload.reasoningTokens != null && { reasoningTokens: payload.reasoningTokens }),
+      ...(payload.cacheReadTokens != null && { cacheReadTokens: payload.cacheReadTokens }),
+      ...(payload.cacheWriteTokens != null && { cacheWriteTokens: payload.cacheWriteTokens }),
       ...(payload.firstTokenLatencyMs !== undefined
         ? { firstTokenLatencyMs: payload.firstTokenLatencyMs }
         : {}),
