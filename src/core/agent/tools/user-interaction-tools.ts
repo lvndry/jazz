@@ -17,6 +17,7 @@ const askUserSchema = z.object({
       }),
     )
     .min(2)
+    .default([])
     .describe(
       "At least 2 suggested responses the user can pick from. Keep suggestions concise and actionable.",
     ),

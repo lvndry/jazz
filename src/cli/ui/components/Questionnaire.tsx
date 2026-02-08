@@ -18,6 +18,7 @@ interface QuestionnaireProps {
  * Questionnaire component that displays suggested responses and an inline custom input.
  * Supports both single-select (radio) and multi-select (checkbox) modes.
  * The custom input is the last option and can be typed into directly when selected.
+ * When there are no suggestions, only the custom text input is shown so the user is never blocked.
  */
 export function Questionnaire({
   suggestions,
@@ -30,7 +31,9 @@ export function Questionnaire({
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [customValue] = useState("");
 
-  const totalItems = allowCustom ? suggestions.length + 1 : suggestions.length;
+  // When no suggestions, always show custom input so the user can type (never blocked)
+  const effectiveAllowCustom = allowCustom || suggestions.length === 0;
+  const totalItems = effectiveAllowCustom ? suggestions.length + 1 : suggestions.length;
   const customOptionIndex = suggestions.length;
 
   useInputHandler({
@@ -99,7 +102,7 @@ export function Questionnaire({
         }
 
         // Quick select by number key (only if not currently typing in the input field)
-        const isTyping = selectedIndex === customOptionIndex && allowCustom;
+        const isTyping = selectedIndex === customOptionIndex && effectiveAllowCustom;
         if (!isTyping && action.char >= "1" && action.char <= "9") {
           const index = parseInt(action.char, 10) - 1;
           if (index < suggestions.length) {
@@ -127,7 +130,7 @@ export function Questionnaire({
       }
       return InputResults.ignored();
     },
-    deps: [selectedIndex, selectedIndices, suggestions, allowCustom, allowMultiple, onSubmit, onCancel],
+    deps: [selectedIndex, selectedIndices, suggestions, effectiveAllowCustom, allowMultiple, onSubmit, onCancel],
   });
 
   const renderIndicator = (index: number) => {
@@ -173,7 +176,7 @@ export function Questionnaire({
       })}
 
       {/* Inline Custom input */}
-      {allowCustom && (
+      {effectiveAllowCustom && (
         <Box marginTop={suggestions.length > 0 ? 1 : 0}>
           <Box>
             <Text color={selectedIndex === customOptionIndex ? THEME.selected : "gray"} bold={selectedIndex === customOptionIndex}>

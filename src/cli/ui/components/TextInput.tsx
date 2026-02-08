@@ -18,6 +18,8 @@ export interface TextInputProps {
  * A minimalistic inline text input for wizard prompts.
  * Just the input field with cursor - no message, no borders, no hints.
  * The parent Prompt component handles rendering the message.
+ *
+ * Single-line only: Enter submits, newlines are not inserted.
  */
 export function TextInput({
   inputId,
@@ -83,25 +85,21 @@ export function TextInput({
     }
   }, [value, validationError]);
 
-  // Render cursor in value
+  // Render value with a visible block cursor (works in any terminal theme)
   const renderValue = () => {
     const displayValue = mask ? mask.repeat(value.length) : value;
 
-    if (displayValue.length === 0) {
-      // Show cursor at start
-      return <Text inverse> </Text>;
-    }
-
-    // Render text with cursor
     const beforeCursor = displayValue.slice(0, cursor);
-    const cursorChar = displayValue[cursor] || " ";
-    const afterCursor = displayValue.slice(cursor + 1);
+    const cursorChar = cursor < displayValue.length ? displayValue[cursor] : " ";
+    const afterCursor = cursor < displayValue.length ? displayValue.slice(cursor + 1) : "";
 
     return (
       <>
-        <Text>{beforeCursor}</Text>
-        <Text inverse>{cursorChar}</Text>
-        <Text>{afterCursor}</Text>
+        {beforeCursor && <Text>{beforeCursor}</Text>}
+        <Text inverse color={THEME.primary}>
+          {cursorChar}
+        </Text>
+        {afterCursor && <Text>{afterCursor}</Text>}
       </>
     );
   };
