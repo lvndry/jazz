@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
+import { Box, Text } from "ink";
 import React from "react";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -24,6 +25,7 @@ import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { setLastExpandedDiff } from "../ui/diff-expansion-store";
 import { store } from "../ui/store";
+import { CHALK_THEME, THEME } from "../ui/theme";
 
 export class InkStreamingRenderer implements StreamingRenderer {
   private readonly acc;
@@ -166,11 +168,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
     if (formattedFinalText.length > 0) {
       if (wasStreaming) {
         // When we were streaming, the user already saw the agent header and reasoning
-        // in the live area. Just flush the response text to Static as-is — no card
-        // wrapper — so the content height stays consistent and avoids a visual jump.
+        // in the live area. Wrap in a padded Ink element to match the streaming
+        // layout (paddingLeft=2) so text doesn't jump to full width on completion.
         store.printOutput({
           type: "log",
-          message: formattedFinalText,
+          message: ink(
+            React.createElement(Box, { paddingLeft: 2 },
+              React.createElement(Text, {}, formattedFinalText),
+            ),
+          ),
           timestamp: new Date(),
         });
       } else {
@@ -594,33 +600,39 @@ class InkPresentationService implements PresentationService {
       );
     }
 
-    // Format the approval message
-    const toolLabel = chalk.cyan(request.toolName);
-    const separator = chalk.dim("─".repeat(50));
+    // Format the approval message as an Ink bordered card
     const pendingCount = this.approvalQueue.length;
-    const pendingIndicator = pendingCount > 0
-      ? chalk.dim(` (${pendingCount} more pending)`)
-      : "";
 
-    // Show approval details in Ink UI
+    const approvalCard = React.createElement(
+      Box,
+      {
+        flexDirection: "column",
+        borderStyle: "round",
+        borderColor: "yellow",
+        paddingX: 2,
+        paddingY: 1,
+        marginTop: 1,
+      },
+      React.createElement(
+        Box,
+        {},
+        React.createElement(Text, { color: "yellow", bold: true }, "Approval Required"),
+        React.createElement(Text, {}, " for "),
+        React.createElement(Text, { color: THEME.primary, bold: true }, request.toolName),
+        pendingCount > 0
+          ? React.createElement(Text, { dimColor: true }, ` (${pendingCount} more pending)`)
+          : null,
+      ),
+      React.createElement(
+        Box,
+        { marginTop: 1 },
+        React.createElement(Text, { bold: true }, request.message),
+      ),
+    );
+
     store.printOutput({
       type: "log",
-      message: `\n${separator}`,
-      timestamp: new Date(),
-    });
-    store.printOutput({
-      type: "log",
-      message: `${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}${pendingIndicator}\n`,
-      timestamp: new Date(),
-    });
-    store.printOutput({
-      type: "log",
-      message: `${chalk.bold(request.message)}\n`,
-      timestamp: new Date(),
-    });
-    store.printOutput({
-      type: "log",
-      message: separator,
+      message: ink(approvalCard),
       timestamp: new Date(),
     });
 
@@ -638,7 +650,7 @@ class InkPresentationService implements PresentationService {
         const approved = val as boolean;
         store.printOutput({
           type: "log",
-          message: `Approve this action? ${chalk.green(approved ? "Yes" : "No")}`,
+          message: `Approve this action? ${CHALK_THEME.success(approved ? "Yes" : "No")}`,
           timestamp: new Date(),
         });
 
@@ -661,7 +673,7 @@ class InkPresentationService implements PresentationService {
             if (userMessage) {
               store.printOutput({
                 type: "log",
-                message: `${followUpMessage} ${chalk.green(userMessage)}`,
+                message: `${followUpMessage} ${CHALK_THEME.success(userMessage)}`,
                 timestamp: new Date(),
               });
             }
@@ -715,7 +727,7 @@ class InkPresentationService implements PresentationService {
     });
     store.printOutput({
       type: "log",
-      message: `${chalk.cyan("❓")} ${chalk.bold(request.question)}`,
+      message: `${CHALK_THEME.primary("❓")} ${chalk.bold(request.question)}`,
       timestamp: new Date(),
     });
     store.printOutput({
@@ -737,7 +749,7 @@ class InkPresentationService implements PresentationService {
         const response = String(value);
         store.printOutput({
           type: "log",
-          message: `${chalk.dim("Your response:")} ${chalk.green(response)}`,
+          message: `${chalk.dim("Your response:")} ${CHALK_THEME.success(response)}`,
           timestamp: new Date(),
         });
         store.setPrompt(null);
@@ -765,7 +777,7 @@ class InkPresentationService implements PresentationService {
       });
       store.printOutput({
         type: "log",
-        message: `${chalk.cyan("📁")} ${chalk.bold(request.message)}`,
+        message: `${CHALK_THEME.primary("📁")} ${chalk.bold(request.message)}`,
         timestamp: new Date(),
       });
       store.printOutput({
@@ -787,7 +799,7 @@ class InkPresentationService implements PresentationService {
           const selectedPath = String(value);
           store.printOutput({
             type: "log",
-            message: `${chalk.dim("Selected:")} ${chalk.green(selectedPath)}`,
+            message: `${chalk.dim("Selected:")} ${CHALK_THEME.success(selectedPath)}`,
             timestamp: new Date(),
           });
           store.setPrompt(null);

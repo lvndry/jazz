@@ -104,9 +104,9 @@ describe("activity-reducer", () => {
       expect(a.isThinking).toBe(false);
       expect(a.reasoningBuffer).toBe("");
       expect(a.completedReasoning).toBe("some reasoning");
-      // Should emit a reasoning log
+      // Should emit a reasoning log (rendered as Ink element)
       expect(result.logs.length).toBeGreaterThan(0);
-      expect(result.logs[0]!.message).toContain("Reasoning");
+      expect(result.logs[0]!.type).toBe("log");
     });
 
     test("thinking_complete with empty buffer does not log", () => {
@@ -213,7 +213,7 @@ describe("activity-reducer", () => {
         expect(result.activity!.tools[0]!.toolName).toBe("execute_bash");
       }
       expect(result.logs.length).toBeGreaterThan(0);
-      expect(result.logs[0]!.message).toContain("execute_bash");
+      expect(result.logs[0]!.type).toBe("log");
     });
 
     test("tool_execution_complete removes tool and transitions to idle when last", () => {
@@ -235,7 +235,7 @@ describe("activity-reducer", () => {
       expect(a.activeTools.size).toBe(0);
       expect(result.activity!.phase).toBe("idle");
       expect(result.logs.length).toBeGreaterThan(0);
-      expect(result.logs[0]!.type).toBe("success");
+      expect(result.logs[0]!.type).toBe("log");
     });
 
     test("tool_execution_complete keeps tool-execution phase when other tools remain", () => {
@@ -277,7 +277,7 @@ describe("activity-reducer", () => {
       );
 
       expect(result.logs).toHaveLength(2);
-      expect(result.logs[0]!.type).toBe("success");
+      expect(result.logs[0]!.type).toBe("log");
       expect(result.logs[1]!.type).toBe("log");
     });
   });

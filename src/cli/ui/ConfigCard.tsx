@@ -1,5 +1,6 @@
 import { Box, Text, useStdout } from "ink";
 import React from "react";
+import { THEME } from "./theme";
 
 /**
  * ConfigCard displays configuration with a minimal header design.
@@ -34,7 +35,7 @@ export function ConfigCard(props: {
     <Box flexDirection="column" paddingX={1} width={width}>
       {/* Header */}
       <Box justifyContent="space-between">
-        <Text bold color="cyan">
+        <Text bold color={THEME.primary}>
           {props.title}
         </Text>
         <Text dimColor>jazz config get &lt;key&gt; · jazz config set &lt;key&gt;</Text>

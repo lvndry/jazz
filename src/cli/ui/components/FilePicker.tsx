@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useState } from "react";
+import { THEME } from "../theme";
 
 interface FilePickerProps {
   readonly basePath: string;
@@ -283,7 +284,7 @@ export function FilePicker({
       {/* Search input */}
       <Box>
         <Text color="gray">Path: </Text>
-        <Text color="cyan">{query}</Text>
+        <Text color={THEME.primary}>{query}</Text>
         <Text color="gray">│</Text>
       </Box>
 
@@ -318,7 +319,7 @@ export function FilePicker({
           return (
             <Text
               key={file.path}
-              {...(isActive ? { color: "green" as const, bold: true as const } : {})}
+              {...(isActive ? { color: THEME.selected, bold: true as const } : {})}
             >
               {isActive ? "> " : "  "}{icon}{relativePath}
             </Text>

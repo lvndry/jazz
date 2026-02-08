@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTextInput } from "../hooks/use-input-service";
+import { THEME } from "../theme";
 
 export interface TextInputProps {
   /** Unique identifier for this input (used to prevent state sharing) */
@@ -109,7 +110,7 @@ export function TextInput({
     <Box flexDirection="column">
       {/* Just the input - message is rendered by parent Prompt component */}
       <Box>
-        <Text color="cyan">{"> "}</Text>
+        <Text color={THEME.primary}>{"> "}</Text>
         {renderValue()}
       </Box>
 

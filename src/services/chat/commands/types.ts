@@ -14,6 +14,8 @@ export type CommandType =
   | "switch"
   | "compact"
   | "copy"
+  | "model"
+  | "config"
   | "skills"
   | "context"
   | "cost"

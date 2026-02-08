@@ -15,13 +15,14 @@ import type { StreamEvent } from "@/core/types/streaming";
 import { CLIRenderer } from "./cli-renderer";
 import { applyTextChunkOrdered } from "./stream-text-order";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
+import { THEME } from "../ui/theme";
 import type { LogEntryInput } from "../ui/types";
 
 function renderToolBadge(label: string): React.ReactElement {
   return React.createElement(
     Box,
-    { borderStyle: "round", borderColor: "cyan", paddingX: 1 },
-    React.createElement(Text, { color: "cyan" }, label),
+    { borderStyle: "round", borderColor: THEME.primary, paddingX: 1 },
+    React.createElement(Text, { color: THEME.primary }, label),
   );
 }
 
@@ -179,14 +180,20 @@ export function reduceEvent(
     case "thinking_complete": {
       acc.isThinking = false;
 
-      // Log the reasoning block
+      // Log the reasoning block as an Ink element with padding
       const reasoning = acc.reasoningBuffer.trim();
       if (reasoning.length > 0) {
         const formattedReasoning = formatMarkdown(reasoning);
-        const displayReasoning = chalk.gray(formattedReasoning);
         logs.push({
           type: "log",
-          message: chalk.gray(`▸ Reasoning\n${displayReasoning}`),
+          message: inkRender(
+            React.createElement(Box, { flexDirection: "column", paddingLeft: 2, marginTop: 1, marginBottom: 1 },
+              React.createElement(Text, { dimColor: true, italic: true }, "▸ Reasoning"),
+              React.createElement(Box, { marginTop: 0, paddingLeft: 1 },
+                React.createElement(Text, { dimColor: true }, formattedReasoning),
+              ),
+            ),
+          ),
           timestamp: new Date(),
         });
       }
@@ -232,7 +239,12 @@ export function reduceEvent(
       if (acc.completedReasoning.trim().length > 0) {
         logs.push({
           type: "log",
-          message: chalk.dim(`${"─".repeat(40)}\n▸ Response`),
+          message: inkRender(
+            React.createElement(Box, { flexDirection: "column", paddingLeft: 2 },
+              React.createElement(Text, { dimColor: true }, "─".repeat(40)),
+              React.createElement(Text, { dimColor: true, italic: true }, "▸ Response"),
+            ),
+          ),
           timestamp: new Date(),
         });
       }
@@ -302,12 +314,24 @@ export function reduceEvent(
       const argsStr = CLIRenderer.formatToolArguments(toolName, parsedArgs);
       let providerLabel = "";
       if (toolName === "web_search" && acc.currentProvider) {
-        providerLabel = chalk.dim(` [${acc.currentProvider}]`);
+        providerLabel = ` [${acc.currentProvider}]`;
       }
-      const message = argsStr
-        ? `▸ Executing tool: ${toolName}${providerLabel}${argsStr}`
-        : `▸ Executing tool: ${toolName}${providerLabel}`;
-      logs.push({ type: "log", message, timestamp: new Date() });
+      logs.push({
+        type: "log",
+        message: inkRender(
+          React.createElement(Box, { paddingLeft: 2, marginTop: 1 },
+            React.createElement(Text, { color: THEME.primary }, "▸ "),
+            React.createElement(Text, { bold: true }, toolName),
+            providerLabel
+              ? React.createElement(Text, { dimColor: true }, providerLabel)
+              : null,
+            argsStr
+              ? React.createElement(Text, { dimColor: true }, argsStr)
+              : null,
+          ),
+        ),
+        timestamp: new Date(),
+      });
       return { activity: null, logs };
     }
 
@@ -322,13 +346,25 @@ export function reduceEvent(
       if (event.toolName === "web_search") {
         const provider = event.metadata?.["provider"];
         if (typeof provider === "string") {
-          providerSuffix = chalk.dim(` [${provider}]`);
+          providerSuffix = ` [${provider}]`;
         }
       }
-      const message = argsStr
-        ? `▸ Executing tool: ${event.toolName}${providerSuffix}${argsStr}`
-        : `▸ Executing tool: ${event.toolName}${providerSuffix}`;
-      logs.push({ type: "log", message, timestamp: new Date() });
+      logs.push({
+        type: "log",
+        message: inkRender(
+          React.createElement(Box, { paddingLeft: 2, marginTop: 1 },
+            React.createElement(Text, { color: THEME.primary }, "▸ "),
+            React.createElement(Text, { bold: true }, event.toolName),
+            providerSuffix
+              ? React.createElement(Text, { dimColor: true }, providerSuffix)
+              : null,
+            argsStr
+              ? React.createElement(Text, { dimColor: true }, argsStr)
+              : null,
+          ),
+        ),
+        timestamp: new Date(),
+      });
 
       return { activity: buildToolExecutionActivity(acc), logs };
     }
@@ -350,15 +386,35 @@ export function reduceEvent(
 
       if (hasMultiLine) {
         logs.push({
-          type: "success",
-          message: `${namePrefix}done (${event.durationMs}ms)`,
+          type: "log",
+          message: inkRender(
+            React.createElement(Box, { paddingLeft: 2 },
+              React.createElement(Text, { color: THEME.success }, "✔ "),
+              React.createElement(Text, {}, `${namePrefix}done`),
+              React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
+            ),
+          ),
           timestamp: new Date(),
         });
-        logs.push({ type: "log", message: displayText, timestamp: new Date() });
+        logs.push({
+          type: "log",
+          message: inkRender(
+            React.createElement(Box, { paddingLeft: 4 },
+              React.createElement(Text, {}, displayText),
+            ),
+          ),
+          timestamp: new Date(),
+        });
       } else {
         logs.push({
-          type: "success",
-          message: `${displayText} (${event.durationMs}ms)`,
+          type: "log",
+          message: inkRender(
+            React.createElement(Box, { paddingLeft: 2 },
+              React.createElement(Text, { color: THEME.success }, "✔ "),
+              React.createElement(Text, {}, displayText),
+              React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
+            ),
+          ),
           timestamp: new Date(),
         });
       }

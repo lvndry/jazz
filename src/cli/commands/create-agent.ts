@@ -1,5 +1,9 @@
 import { Effect } from "effect";
+import { Box, Text } from "ink";
+import Spinner from "ink-spinner";
+import React from "react";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
+import { THEME } from "@/cli/ui/theme";
 import { agentPromptBuilder } from "@/core/agent/agent-prompt";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
@@ -18,7 +22,7 @@ import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-serv
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@/core/interfaces/mcp-server";
-import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import {
   AgentAlreadyExistsError,
@@ -168,6 +172,16 @@ export function createAgentCommand(): Effect.Effect<
         selectedServerNames.includes(server.name),
       );
 
+      // Show spinner while discovering MCP tools
+      yield* terminal.log(
+        ink(React.createElement(Box, {},
+          React.createElement(Text, { color: THEME.primary },
+            React.createElement(Spinner, { type: "dots" }),
+          ),
+          React.createElement(Text, {}, " Discovering tools from MCP servers..."),
+        )),
+      );
+
       // Register tools from all selected MCP servers in parallel with timeout
       const registrationEffects = selectedServers.map((serverConfig) =>
         Effect.gen(function* () {
@@ -185,11 +199,11 @@ export function createAgentCommand(): Effect.Effect<
                 if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
                   if (isAuthRequired) {
                     yield* logger.warn(
-                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 30 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
+                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
                     );
                   } else {
                     yield* logger.warn(
-                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 30 seconds`,
+                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds`,
                     );
                   }
                 } else if (isAuthRequired) {

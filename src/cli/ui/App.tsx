@@ -236,7 +236,7 @@ export function App(): React.ReactElement {
     <ErrorBoundary>
       <Box flexDirection="column">
         {/* Main Chat Area */}
-        <Box flexDirection="column" paddingX={1} marginTop={1}>
+        <Box flexDirection="column" paddingX={3} marginTop={1}>
           {/* Logs - Isolated state with Static optimization */}
           <LogIsland />
 

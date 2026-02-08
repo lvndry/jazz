@@ -1,15 +1,16 @@
 import { Box, Text } from "ink";
 import React from "react";
+import { THEME } from "./theme";
 import type { LogEntry, LogType } from "./types";
 
 // Pre-created icon elements to avoid creating new React elements on every render
 const ICONS: Record<LogType, React.ReactElement> = {
-  success: <Text color="green">✔</Text>,
+  success: <Text color={THEME.success}>✔</Text>,
   error: <Text color="red">✖</Text>,
   warn: <Text color="yellow">⚠</Text>,
-  info: <Text color="cyan">ℹ</Text>,
+  info: <Text color={THEME.info}>ℹ</Text>,
   debug: <Text dimColor>•</Text>,
-  user: <Text color="cyan">›</Text>,
+  user: <Text color={THEME.primary}>›</Text>,
   log: <></>,
 };
 
@@ -18,8 +19,8 @@ const COLORS: Record<LogType, string> = {
   error: "red",
   warn: "yellow",
   debug: "gray",
-  user: "cyan",
-  info: "cyan",
+  user: THEME.primary,
+  info: THEME.info,
   log: "white",
 };
 
@@ -51,7 +52,7 @@ export const LogEntryItem = React.memo(function LogEntryItem({
         <Box marginTop={addSpacing ? 1 : 0} marginBottom={1}>
           {icon}
           <Text> </Text>
-          <Text color="cyan" bold>{log.message}</Text>
+          <Text color={THEME.primary} bold>{log.message}</Text>
         </Box>
       );
     }

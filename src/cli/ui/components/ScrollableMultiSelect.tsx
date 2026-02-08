@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useMemo, useState } from "react";
+import { THEME } from "../theme";
 import type { Choice } from "../types";
 
 interface ScrollableMultiSelectProps<T = unknown> {
@@ -153,7 +154,7 @@ export function ScrollableMultiSelect<T = unknown>({
         return (
           <Text
             key={absoluteIndex}
-            {...(isActive ? { color: "green" as const, bold: true as const } : {})}
+            {...(isActive ? { color: THEME.selected, bold: true as const } : {})}
           >
             {isActive ? ">" : " "} [{isSelected ? "x" : " "}] {choice.label}
           </Text>

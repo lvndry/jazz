@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useMemo, useState } from "react";
+import { THEME } from "../theme";
 import type { Choice } from "../types";
 
 interface SearchSelectProps<T = unknown> {
@@ -124,7 +125,7 @@ export function SearchSelect<T = unknown>({
       {/* Search input */}
       <Box>
         <Text color="gray">Search: </Text>
-        <Text color="cyan">{query}</Text>
+        <Text color={THEME.primary}>{query}</Text>
         <Text color="gray">│</Text>
       </Box>
 
@@ -150,7 +151,7 @@ export function SearchSelect<T = unknown>({
           return (
             <Text
               key={absoluteIndex}
-              {...(isActive ? { color: "green" as const, bold: true as const } : {})}
+              {...(isActive ? { color: THEME.selected as typeof THEME.selected, bold: true as const } : {})}
             >
               {isActive ? "> " : "  "}{choice.label}
             </Text>

@@ -75,6 +75,8 @@ export function executeWithStreaming(
 
     // Ref to capture partial completion from stream events — hoisted to avoid per-iteration allocation
     const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
+    // Ref to accumulate streamed text so interruption can capture partial output
+    const textAccumulatorRef = yield* Ref.make<string>("");
 
     const strategy: CompletionStrategy = {
       shouldShowThinking: true,
@@ -83,6 +85,7 @@ export function executeWithStreaming(
         return Effect.gen(function* () {
           // Reset for this iteration
           yield* Ref.set(completionRef, undefined);
+          yield* Ref.set(textAccumulatorRef, "");
 
           const llmOptions = {
             model,
@@ -160,6 +163,9 @@ export function executeWithStreaming(
             Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
               Effect.gen(function* () {
                 yield* renderer.handleEvent(event);
+                if (event.type === "text_chunk") {
+                  yield* Ref.set(textAccumulatorRef, event.accumulated);
+                }
                 if (event.type === "complete") {
                   yield* Ref.set(completionRef, event.response);
                   if (event.metrics?.firstTokenLatencyMs) {
@@ -206,9 +212,13 @@ export function executeWithStreaming(
                 logger.debug(`Fiber interrupt error (safe to ignore): ${String(e)}`),
               ),
             );
-            yield* renderer.reset().pipe(
+
+            // Read accumulated text before flush clears the renderer state
+            const accumulatedText = yield* Ref.get(textAccumulatorRef);
+
+            yield* renderer.flush().pipe(
               Effect.catchAll((e) =>
-                logger.debug(`Renderer reset error (safe to ignore): ${String(e)}`),
+                logger.debug(`Renderer flush error (safe to ignore): ${String(e)}`),
               ),
             );
 
@@ -216,7 +226,7 @@ export function executeWithStreaming(
             const partialCompletion: ChatCompletionResponse = fromRef ?? {
               id: "interrupted",
               model,
-              content: "",
+              content: accumulatedText,
             };
             return { completion: partialCompletion, interrupted: true };
           }

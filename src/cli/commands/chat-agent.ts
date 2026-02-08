@@ -55,8 +55,8 @@ export function chatWithAIAgentCommand(
       yield* terminal.log(`   Description: ${agent.description}`);
     }
     yield* terminal.log("");
-    yield* terminal.info("Type '/exit' to end the conversation.");
     yield* terminal.info("Type '/help' to see available special commands.");
+    yield* terminal.info("Type '/exit' to end the conversation.");
     yield* terminal.log("");
 
     // Start the chat session using the chat service

@@ -104,18 +104,39 @@ describe("AI SDK Service - Unit Tests", () => {
     });
 
     it("should handle empty LLM config", async () => {
-      const testEffect = Effect.gen(function* () {
-        const llmService = yield* LLMServiceTag;
-        return yield* llmService.listProviders();
-      });
+      // Clear env vars that would be detected as fallback API keys
+      const envVarsToSave = [
+        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY",
+        "MISTRAL_API_KEY", "XAI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY",
+        "OPENROUTER_API_KEY",
+      ];
+      const savedEnvVars: Record<string, string | undefined> = {};
+      for (const key of envVarsToSave) {
+        savedEnvVars[key] = process.env[key];
+        delete process.env[key];
+      }
 
-      const configLayer = createTestConfigLayer({});
+      try {
+        const testEffect = Effect.gen(function* () {
+          const llmService = yield* LLMServiceTag;
+          return yield* llmService.listProviders();
+        });
 
-      const result = await runWithTestLayers(testEffect, configLayer);
+        const configLayer = createTestConfigLayer({});
 
-      const configuredProviders = result.filter((p) => p.configured);
-      expect(configuredProviders.length).toBe(1); // Only Ollama
-      expect(configuredProviders[0]?.name).toBe("ollama");
+        const result = await runWithTestLayers(testEffect, configLayer);
+
+        const configuredProviders = result.filter((p) => p.configured);
+        expect(configuredProviders.length).toBe(1); // Only Ollama
+        expect(configuredProviders[0]?.name).toBe("ollama");
+      } finally {
+        // Restore env vars
+        for (const key of envVarsToSave) {
+          if (savedEnvVars[key] !== undefined) {
+            process.env[key] = savedEnvVars[key];
+          }
+        }
+      }
     });
 
     it("should have a check for every provider in LLMConfig", () => {

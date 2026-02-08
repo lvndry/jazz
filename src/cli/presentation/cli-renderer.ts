@@ -10,7 +10,6 @@ import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,
 } from "@/core/utils/tool-formatter";
-import { codeColor } from "./code-theme";
 import {
   applyProgressiveFormatting,
   type FormattingResult,
@@ -20,6 +19,7 @@ import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
 import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
+import { codeColor, CHALK_THEME } from "../ui/theme";
 
 
 
@@ -460,12 +460,12 @@ export class CLIRenderer {
             codespan: codeColor,
             blockquote: chalk.gray,
             html: chalk.gray,
-            heading: chalk.bold.blue,
-            firstHeading: chalk.bold.blue.underline,
+            heading: CHALK_THEME.heading,
+            firstHeading: CHALK_THEME.headingUnderline,
             strong: chalk.bold.white,
             em: chalk.italic,
             del: chalk.strikethrough,
-            link: chalk.blue.underline,
+            link: CHALK_THEME.link,
             href: chalk.gray,
             listitem: chalk.white,
             // Custom styling for better terminal experience
@@ -612,7 +612,7 @@ export class CLIRenderer {
    */
   formatAgentResponse(agentName: string, content: string): Effect.Effect<string, never> {
     return Effect.gen(this, function* () {
-      const header = chalk.bold.blue(`🤖 ${agentName}:`);
+      const header = CHALK_THEME.primaryBold(`🤖 ${agentName}:`);
       const renderedContent = yield* this.renderMarkdown(content);
       return `${header}\n${renderedContent}`;
     });
@@ -623,7 +623,7 @@ export class CLIRenderer {
    */
   formatToolExecutionStart(toolName: string, argsStr: string): Effect.Effect<string, never> {
     return Effect.sync(() => {
-      return `\n${chalk.cyan("▸")} Executing tool: ${chalk.cyan(toolName)}${argsStr}...`;
+      return `\n${CHALK_THEME.primary("▸")} Executing tool: ${CHALK_THEME.primary(toolName)}${argsStr}...`;
     });
   }
 
@@ -635,7 +635,7 @@ export class CLIRenderer {
     durationMs: number,
   ): Effect.Effect<string, never> {
     return Effect.sync(() => {
-      return ` ${chalk.green("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+      return ` ${CHALK_THEME.success("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${durationMs}ms)`)}\n`;
     });
   }
 
@@ -666,7 +666,7 @@ export class CLIRenderer {
           return name;
         })
         .join(", ");
-      return `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${chalk.cyan(formattedTools)}\n`;
+      return `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
     });
   }
 
@@ -679,7 +679,7 @@ export class CLIRenderer {
   ): Effect.Effect<string, never> {
     return Effect.sync(() => {
       const message = isFirstIteration ? "thinking..." : "processing results...";
-      return chalk.cyan(`🤖  ${agentName} is ${message}`);
+      return CHALK_THEME.primary(`🤖  ${agentName} is ${message}`);
     });
   }
 
@@ -687,7 +687,7 @@ export class CLIRenderer {
    * Format completion message with styling
    */
   formatCompletion(agentName: string): Effect.Effect<string, never> {
-    return Effect.sync(() => chalk.green(`✅  ${agentName} completed successfully`));
+    return Effect.sync(() => CHALK_THEME.success(`✅  ${agentName} completed successfully`));
   }
 
   /**

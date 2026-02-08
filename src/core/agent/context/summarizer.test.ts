@@ -4,6 +4,7 @@ import { Summarizer, type RecursiveRunner } from "./summarizer";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
+import { PresentationServiceTag, type PresentationService } from "../../interfaces/presentation";
 import type { Agent, AgentConfig, AppConfig } from "../../types";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
 import type { AgentResponse } from "../types";
@@ -73,12 +74,40 @@ const mockLLMService: LLMService = {
   supportsNativeWebSearch: () => Effect.succeed(false),
 };
 
+// Mock PresentationService (minimal implementation for tests)
+const mockPresentationService: PresentationService = {
+  presentThinking: () => Effect.void,
+  presentCompletion: () => Effect.void,
+  presentWarning: () => Effect.void,
+  presentAgentResponse: () => Effect.void,
+  renderMarkdown: (md) => Effect.succeed(md),
+  formatToolArguments: () => "",
+  formatToolResult: () => "",
+  formatToolExecutionStart: () => Effect.succeed(""),
+  formatToolExecutionComplete: () => Effect.succeed(""),
+  formatToolExecutionError: () => Effect.succeed(""),
+  formatToolsDetected: () => Effect.succeed(""),
+  createStreamingRenderer: () => Effect.succeed({
+    handleEvent: () => Effect.void,
+    setInterruptHandler: () => Effect.void,
+    reset: () => Effect.void,
+    flush: () => Effect.void,
+  }),
+  writeOutput: () => Effect.void,
+  writeBlankLine: () => Effect.void,
+  requestApproval: () => Effect.succeed({ approved: true }),
+  signalToolExecutionStarted: () => Effect.void,
+  requestUserInput: () => Effect.succeed(""),
+  requestFilePicker: () => Effect.succeed(""),
+};
+
 // Create a mock layer for testing
 function createTestLayer() {
   return Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, mockLogger),
     Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
     Layer.succeed(LLMServiceTag, mockLLMService),
+    Layer.succeed(PresentationServiceTag, mockPresentationService),
   );
 }
 

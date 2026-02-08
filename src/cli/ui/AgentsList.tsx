@@ -7,6 +7,7 @@ import {
   padRight,
   truncateMiddle,
 } from "@/cli/utils/string-utils";
+import { THEME } from "./theme";
 
 interface AgentListItem {
   readonly id: string;
@@ -71,7 +72,7 @@ export function AgentsList(props: {
       {/* Header Section */}
       <Box justifyContent="space-between" marginBottom={1}>
         <Text>
-          <Text bold color="cyan">AGENTS</Text>
+          <Text bold color={THEME.primary}>AGENTS</Text>
           <Text dimColor> ({props.agents.length})</Text>
         </Text>
         <Text dimColor>jazz chat &lt;id|name&gt; · jazz edit &lt;id|name&gt;</Text>
@@ -105,15 +106,15 @@ export function AgentsList(props: {
           return (
             <Box key={agent.id} flexDirection="column" marginBottom={1}>
               <Text>
-                <Text color="cyan">{padRight(String(i + 1), idxW)}</Text>
+                <Text color={THEME.primary}>{padRight(String(i + 1), idxW)}</Text>
                 {sp}
                 <Text bold color="white">{padRight(truncateMiddle(agent.name, nameW), nameW)}</Text>
                 {sp}
-                <Text color="blue">{padRight(truncateMiddle(model, modelW), modelW)}</Text>
+                <Text color={THEME.primary}>{padRight(truncateMiddle(model, modelW), modelW)}</Text>
                 {sp}
                 <Text color="yellow">{padRight(truncateMiddle(type, typeW), typeW)}</Text>
                 {sp}
-                <Text color={reasoning === "—" ? "gray" : "magenta"}>{padRight(truncateMiddle(reasoning, reasoningW), reasoningW)}</Text>
+                <Text color={reasoning === "—" ? "gray" : THEME.primary}>{padRight(truncateMiddle(reasoning, reasoningW), reasoningW)}</Text>
                 {sp}
                 <Text dimColor>{truncateMiddle(desc, descW)}</Text>
               </Text>

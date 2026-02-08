@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useState } from "react";
+import { THEME } from "../theme";
 import type { Choice } from "../types";
 
 interface ScrollableSelectProps<T = unknown> {
@@ -151,7 +152,7 @@ export function ScrollableSelect<T = unknown>({
         return (
           <Text
             key={absoluteIndex}
-            {...(isActive ? { color: "green" as const, bold: true as const } : {})}
+            {...(isActive ? { color: THEME.selected as typeof THEME.selected, bold: true as const } : {})}
           >
             {isActive ? "> " : "  "}{choice.label}
           </Text>

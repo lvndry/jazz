@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import BigText from "ink-big-text";
 import Gradient from "ink-gradient";
 import React from "react";
+import { THEME } from "./theme";
 import packageJson from "../../../package.json";
 
 
@@ -22,11 +23,11 @@ export const Header = React.memo(function Header() {
         </Gradient>
         <Box
           borderStyle="round"
-          borderColor="cyan"
+          borderColor={THEME.primary}
           paddingX={1}
           marginTop={-1}
         >
-          <Text color="cyan">v{packageJson.version}</Text>
+          <Text color={THEME.primary}>v{packageJson.version}</Text>
           <Text> | </Text>
           <Text dimColor>Your AI agent that actually does things</Text>
         </Box>

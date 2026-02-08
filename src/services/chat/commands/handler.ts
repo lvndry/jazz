@@ -5,7 +5,8 @@ import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
-import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
+import { STATIC_PROVIDER_MODELS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
+import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import {
@@ -93,6 +94,12 @@ export function handleSpecialCommand(
       case "copy":
         return yield* handleCopyCommand(terminal, conversationHistory);
 
+      case "model":
+        return yield* handleModelCommand(terminal, agent, command.args);
+
+      case "config":
+        return yield* handleConfigCommand(terminal, agent, command.args);
+
       case "skills":
         return yield* handleSkillsCommand(terminal);
 
@@ -157,6 +164,8 @@ function handleHelpCommand(
     yield* terminal.log("   /context         - Show context window usage and token breakdown");
     yield* terminal.log("   /cost            - Show conversation token usage and estimated cost");
     yield* terminal.log("   /copy            - Copy the last agent response to clipboard");
+    yield* terminal.log("   /model           - Show or change model and reasoning effort");
+    yield* terminal.log("   /config          - Show or modify agent configuration");
     yield* terminal.log("   /skills          - List and view available skills");
     yield* terminal.log(
       "   /workflows [action] - List workflows, or send action (e.g. create) to the agent",
@@ -341,17 +350,8 @@ function handleSwitchCommand(
 
       if (switchResult.success) {
         const newAgent = switchResult.agent;
-        yield* terminal.success(`Switched to agent: ${newAgent.name} (${newAgent.id})`);
-        if (newAgent.description) {
-          yield* terminal.log(`   Description: ${newAgent.description}`);
-        }
-        yield* terminal.log(
-          `   Model: ${newAgent.config.llmProvider}/${newAgent.config.llmModel}`,
-        );
+        yield* terminal.success(`Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`);
         yield* terminal.log("");
-        yield* terminal.info("Conversation history preserved.");
-        yield* terminal.log("");
-
         return { shouldContinue: true, newAgent };
       }
 
@@ -375,7 +375,8 @@ function handleSwitchCommand(
       return { shouldContinue: true };
     }
 
-    // Show interactive prompt
+    // Show interactive prompt with history preservation note
+    yield* terminal.info("History will be preserved after switching.");
     const choices = allAgents.map((ag) => ({
       name: `${ag.name} - ${ag.config.llmProvider}/${ag.config.llmModel}${ag.id === currentAgent.id ? " (current)" : ""}`,
       value: ag.id,
@@ -400,13 +401,7 @@ function handleSwitchCommand(
 
     const newAgent = yield* agentService.getAgent(selectedAgentId);
 
-    yield* terminal.success(`Switched to agent: ${newAgent.name} (${newAgent.id})`);
-    if (newAgent.description) {
-      yield* terminal.log(`   Description: ${newAgent.description}`);
-    }
-    yield* terminal.log(`   Model: ${newAgent.config.llmProvider}/${newAgent.config.llmModel}`);
-    yield* terminal.log("");
-    yield* terminal.info("Conversation history preserved.");
+    yield* terminal.success(`Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`);
     yield* terminal.log("");
 
     return { shouldContinue: true, newAgent };
@@ -438,7 +433,6 @@ function handleCompactCommand(
 
     // Stage 1: Reading
     yield* terminal.info(`📖 Reading ${messageCount} messages from conversation history...`);
-    yield* Effect.sleep("1 seconds");
 
     try {
       // Keep system message [0], summarize everything else [1...N]
@@ -450,7 +444,6 @@ function handleCompactCommand(
 
       // Stage 2: Analyzing
       yield* terminal.info("Analyzing content and extracting key information...");
-      yield* Effect.sleep("2.5 seconds");
 
       // Show success for Stage 2
       yield* terminal.success("Analyzed content and extracted key information");
@@ -554,6 +547,157 @@ function handleCopyCommand(
 }
 
 /**
+ * Handle /model command - Show or change model and reasoning effort
+ */
+function handleModelCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  args: string[],
+): Effect.Effect<CommandResult, StorageError | StorageNotFoundError | Error, AgentService> {
+  return Effect.gen(function* () {
+    const agentService = yield* AgentServiceTag;
+
+    // No args: show current model info
+    if (args.length === 0) {
+      yield* terminal.heading("Current Model");
+      yield* terminal.log(`   Provider: ${agent.config.llmProvider}`);
+      yield* terminal.log(`   Model: ${agent.config.llmModel}`);
+      yield* terminal.log(`   Reasoning: ${agent.config.reasoningEffort ?? "default"}`);
+      yield* terminal.log("");
+      yield* terminal.info("Usage: /model <provider>/<model> or /model reasoning <level>");
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    // Handle "reasoning" subcommand
+    if (args[0] === "reasoning") {
+      const level = args[1];
+      const validLevels = ["low", "medium", "high", "disable"] as const;
+      if (!level || !validLevels.includes(level as typeof validLevels[number])) {
+        yield* terminal.error(`Invalid reasoning level. Use: ${validLevels.join(", ")}`);
+        yield* terminal.log("");
+        return { shouldContinue: true };
+      }
+
+      const updatedConfig = {
+        ...agent.config,
+        reasoningEffort: level as "low" | "medium" | "high" | "disable",
+      };
+      const newAgent = yield* agentService.updateAgent(agent.id, { config: updatedConfig });
+      yield* terminal.success(`Reasoning effort set to: ${level}`);
+      yield* terminal.log("");
+      return { shouldContinue: true, newAgent };
+    }
+
+    // Handle provider/model argument
+    const modelArg = args.join(" ");
+    const slashIndex = modelArg.indexOf("/");
+    if (slashIndex === -1) {
+      yield* terminal.error("Format: /model <provider>/<model>");
+      yield* terminal.info("Example: /model openai/gpt-4o");
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    const providerName = modelArg.substring(0, slashIndex) as ProviderName;
+    const modelId = modelArg.substring(slashIndex + 1);
+
+    // Validate provider exists
+    if (!(providerName in STATIC_PROVIDER_MODELS)) {
+      yield* terminal.error(`Unknown provider: ${providerName}`);
+      yield* terminal.info(`Available: ${Object.keys(STATIC_PROVIDER_MODELS).join(", ")}`);
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    const updatedConfig = {
+      ...agent.config,
+      llmProvider: providerName,
+      llmModel: modelId,
+    };
+    const newAgent = yield* agentService.updateAgent(agent.id, { config: updatedConfig });
+    yield* terminal.success(`Model switched to: ${providerName}/${modelId}`);
+    yield* terminal.log("");
+    return { shouldContinue: true, newAgent };
+  });
+}
+
+/**
+ * Handle /config command - Show or modify agent configuration
+ */
+function handleConfigCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  args: string[],
+): Effect.Effect<CommandResult, StorageError | StorageNotFoundError | Error, AgentService | ToolRegistry> {
+  return Effect.gen(function* () {
+    const agentService = yield* AgentServiceTag;
+
+    // "tools" subcommand: show and toggle tools
+    if (args[0] === "tools") {
+      const toolRegistry = yield* ToolRegistryTag;
+      const allToolsByCategory = yield* toolRegistry.listToolsByCategory();
+      const allToolNames = Object.values(allToolsByCategory).flat();
+
+      const agentToolNames = normalizeToolConfig(agent.config.tools, { agentId: agent.id });
+      const agentToolSet = new Set(agentToolNames);
+
+      const choices = allToolNames.map((tool) => ({
+        name: `${agentToolSet.has(tool) ? "[x]" : "[ ]"} ${tool}`,
+        value: tool,
+      }));
+
+      const selectedTool = yield* terminal.select<string>("Toggle a tool:", { choices });
+
+      if (!selectedTool) {
+        return { shouldContinue: true };
+      }
+
+      // Toggle the selected tool
+      let newTools: string[];
+      if (agentToolSet.has(selectedTool)) {
+        newTools = agentToolNames.filter((t) => t !== selectedTool);
+        yield* terminal.success(`Disabled tool: ${selectedTool}`);
+      } else {
+        newTools = [...agentToolNames, selectedTool];
+        yield* terminal.success(`Enabled tool: ${selectedTool}`);
+      }
+
+      const updatedConfig = { ...agent.config, tools: newTools };
+      const newAgent = yield* agentService.updateAgent(agent.id, { config: updatedConfig });
+      yield* terminal.log("");
+      return { shouldContinue: true, newAgent };
+    }
+
+    // No args: show full config
+    yield* terminal.heading("Agent Configuration");
+    yield* terminal.log(`   Name: ${agent.name}`);
+    if (agent.description) {
+      yield* terminal.log(`   Description: ${agent.description}`);
+    }
+    yield* terminal.log(`   Type: ${agent.config.agentType}`);
+    yield* terminal.log(`   Model: ${agent.config.llmProvider}/${agent.config.llmModel}`);
+    yield* terminal.log(`   Reasoning: ${agent.config.reasoningEffort ?? "default"}`);
+
+    const agentToolNames = normalizeToolConfig(agent.config.tools, { agentId: agent.id });
+    yield* terminal.log(`   Tools: ${agentToolNames.length} enabled`);
+    if (agentToolNames.length > 0) {
+      for (const tool of agentToolNames.slice(0, 10)) {
+        yield* terminal.log(`     • ${tool}`);
+      }
+      if (agentToolNames.length > 10) {
+        yield* terminal.log(`     ... and ${agentToolNames.length - 10} more`);
+      }
+    }
+
+    yield* terminal.log("");
+    yield* terminal.info("Subcommands: /config tools");
+    yield* terminal.log("");
+    return { shouldContinue: true };
+  });
+}
+
+/**
  * Handle /clear command - Clear the screen
  */
 function handleClearCommand(
@@ -563,8 +707,8 @@ function handleClearCommand(
   return Effect.gen(function* () {
     console.clear();
     yield* terminal.info(`Chat with ${agent.name} - Screen cleared`);
-    yield* terminal.info("Type '/exit' to end the conversation.");
     yield* terminal.info("Type '/help' to see available commands.");
+    yield* terminal.info("Type '/exit' to end the conversation.");
     yield* terminal.log("");
     return { shouldContinue: true };
   });

@@ -1,5 +1,9 @@
 import { Effect } from "effect";
+import { Box, Text } from "ink";
+import Spinner from "ink-spinner";
+import React from "react";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
+import { THEME } from "@/cli/ui/theme";
 import { agentPromptBuilder } from "@/core/agent/agent-prompt";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
@@ -19,7 +23,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { MCPServerManager } from "@/core/interfaces/mcp-server";
 import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
-import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent, AgentConfig, LLMProvider } from "@/core/types";
 import {
@@ -180,7 +184,14 @@ export function editAgentCommand(
       const enabledServers = allServers.filter((server) => server.enabled !== false);
 
       if (enabledServers.length > 0) {
-        yield* terminal.log("Discovering tools from MCP servers...");
+        yield* terminal.log(
+          ink(React.createElement(Box, {},
+            React.createElement(Text, { color: THEME.primary },
+              React.createElement(Spinner, { type: "dots" }),
+            ),
+            React.createElement(Text, {}, " Discovering tools from MCP servers..."),
+          )),
+        );
 
         // Discover and register tools from all enabled MCP servers
         const discoveryEffects = enabledServers.map((serverConfig) =>
@@ -239,11 +250,11 @@ export function editAgentCommand(
                   if (errorMessage.includes("timeout") || errorMessage.includes("Timeout") || errorString.includes("timeout") || errorString.includes("Timeout")) {
                     if (isAuthRequired) {
                       yield* terminal.warn(
-                        `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 30 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
+                        `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
                       );
                     } else {
                       yield* terminal.warn(
-                        `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 30 seconds`,
+                        `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds`,
                       );
                     }
                   } else if (isAuthRequired) {

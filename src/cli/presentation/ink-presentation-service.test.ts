@@ -252,11 +252,14 @@ describe("InkStreamingRenderer", () => {
         totalDurationMs: 50,
       }));
 
-      // The response should be printed as a plain log, not as an ink node (AgentResponseCard)
-      const responseLogs = printOutputCalls.filter((e) => e.type === "log" && e.message === "response");
+      // The response should be printed as a padded Ink element (not AgentResponseCard)
+      const responseLogs = printOutputCalls.filter((e) => e.type === "log");
       expect(responseLogs.length).toBeGreaterThan(0);
-      // Verify it's a string, not a TerminalInkNode
-      expect(typeof responseLogs[0]!.message).toBe("string");
+      // Verify it's an Ink node (TerminalInkNode with _tag "ink"), not a raw AgentResponseCard
+      const msg = responseLogs[0]!.message;
+      if (typeof msg === "object" && msg !== null && "_tag" in msg) {
+        expect(msg._tag).toBe("ink");
+      }
     });
   });
 

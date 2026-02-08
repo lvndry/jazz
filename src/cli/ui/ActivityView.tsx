@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
 import type { ActivityState } from "./activity-state";
+import { THEME } from "./theme";
 
 function AgentHeader({
   agentName,
@@ -12,11 +13,11 @@ function AgentHeader({
 }): React.ReactElement {
   return (
     <Box>
-      <Text color="magenta">
+      <Text color={THEME.agent}>
         <Spinner type="dots" />
       </Text>
       <Text> </Text>
-      <Text bold color="magenta">
+      <Text bold color={THEME.agent}>
         {agentName}
       </Text>
       <Text dimColor> {label}</Text>
@@ -68,7 +69,7 @@ export const ActivityView = React.memo(function ActivityView({
 
     case "thinking":
       return (
-        <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Box flexDirection="column" marginTop={1} paddingX={2}>
           <AgentHeader agentName={activity.agentName} label="is thinking…" />
           <Box marginTop={0}>
             <Text dimColor>{"─".repeat(40)}</Text>
@@ -79,7 +80,7 @@ export const ActivityView = React.memo(function ActivityView({
 
     case "streaming":
       return (
-        <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Box flexDirection="column" marginTop={1} paddingX={2}>
           <AgentHeader
             agentName={activity.agentName}
             label="is responding…"
@@ -91,7 +92,7 @@ export const ActivityView = React.memo(function ActivityView({
           {activity.text && (
             <>
               {activity.reasoning && (
-                <Box marginTop={1} paddingLeft={1} flexDirection="column">
+                <Box marginTop={1} paddingLeft={2} flexDirection="column">
                   <Text dimColor>{"─".repeat(40)}</Text>
                   <Box>
                     <Text dimColor>{"▸ "}</Text>
@@ -99,7 +100,7 @@ export const ActivityView = React.memo(function ActivityView({
                   </Box>
                 </Box>
               )}
-              <Box marginTop={activity.reasoning ? 0 : 1} paddingLeft={1}>
+              <Box marginTop={activity.reasoning ? 0 : 1} paddingLeft={2}>
                 <Text>{activity.text}</Text>
               </Box>
             </>
