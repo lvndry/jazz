@@ -14,9 +14,6 @@ export interface TextInputProps {
   onCancel?: () => void;
 }
 
-/** Block character used for the cursor so it's visible in any terminal theme */
-const CURSOR_BLOCK = "\u2588";
-
 /**
  * A minimalistic inline text input for wizard prompts.
  * Just the input field with cursor - no message, no borders, no hints.
@@ -92,24 +89,17 @@ export function TextInput({
   const renderValue = () => {
     const displayValue = mask ? mask.repeat(value.length) : value;
 
-    if (displayValue.length === 0) {
-      return (
-        <Text inverse color={THEME.primary}>
-          {CURSOR_BLOCK}
-        </Text>
-      );
-    }
-
     const beforeCursor = displayValue.slice(0, cursor);
-    const afterCursor = displayValue.slice(cursor);
+    const cursorChar = cursor < displayValue.length ? displayValue[cursor] : " ";
+    const afterCursor = cursor < displayValue.length ? displayValue.slice(cursor + 1) : "";
 
     return (
       <>
-        <Text>{beforeCursor}</Text>
+        {beforeCursor && <Text>{beforeCursor}</Text>}
         <Text inverse color={THEME.primary}>
-          {CURSOR_BLOCK}
+          {cursorChar}
         </Text>
-        <Text>{afterCursor}</Text>
+        {afterCursor && <Text>{afterCursor}</Text>}
       </>
     );
   };
