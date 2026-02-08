@@ -121,7 +121,7 @@ export function executeAgentLoop(
         const { actualConversationId, context, tools, messages, runMetrics, provider, model } =
           runContext;
 
-        const contextWindowMaxTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens ?? 150_000;
+        const contextWindowMaxTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens ?? 50_000;
 
         let currentMessages: ConversationMessages = [messages[0], ...messages.slice(1)];
         let response: AgentResponse = {

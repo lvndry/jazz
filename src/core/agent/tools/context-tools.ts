@@ -19,7 +19,7 @@ export function createContextInfoTool(): Tool<never> {
     execute: (_args, context) => {
       // Token stats are passed via context from the executor
       const currentTokens = context.tokenStats?.currentTokens ?? 0;
-      const maxTokens = context.tokenStats?.maxTokens ?? 150_000;
+      const maxTokens = context.tokenStats?.maxTokens ?? 50_000;
       const percentUsed = Math.round((currentTokens / maxTokens) * 100);
       const remainingTokens = maxTokens - currentTokens;
 

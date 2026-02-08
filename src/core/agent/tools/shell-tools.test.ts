@@ -5,6 +5,9 @@ import { Effect, Layer } from "effect";
 import { createShellCommandTools } from "./shell-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
+import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "../../interfaces/terminal";
+import type { ToolExecutionResult } from "../../types";
 
 describe("Shell Tools", () => {
   const createTestLayer = () => {
@@ -35,12 +38,36 @@ describe("Shell Tools", () => {
       escapePath: (path) => path,
     };
 
+    const mockLoggerService: LoggerService = {
+      debug: () => Effect.void,
+      info: () => Effect.void,
+      warn: () => Effect.void,
+      error: () => Effect.void,
+      writeToFile: () => Effect.void,
+      logToolCall: () => Effect.void,
+      setSessionId: () => Effect.void,
+      clearSessionId: () => Effect.void,
+    };
+
+    const mockTerminalService: Partial<TerminalService> = {
+      log: () => Effect.succeed(undefined),
+      info: () => Effect.void,
+      success: () => Effect.void,
+      error: () => Effect.void,
+      warn: () => Effect.void,
+      debug: () => Effect.void,
+    };
+
     const shellLayer = Layer.succeed(FileSystemContextServiceTag, mockFileSystemContextService);
+    const loggerLayer = Layer.succeed(LoggerServiceTag, mockLoggerService);
+    const terminalLayer = Layer.succeed(TerminalServiceTag, mockTerminalService as TerminalService);
     const toolRegistryLayer = createToolRegistryLayer();
     return Layer.mergeAll(
       toolRegistryLayer,
       Layer.provide(shellLayer, NodeFileSystem.layer),
       NodeFileSystem.layer,
+      loggerLayer,
+      terminalLayer,
     );
   };
 
@@ -96,7 +123,7 @@ describe("Shell Tools", () => {
       conversationId: "test-conversation",
     };
 
-    const result = await Effect.runPromise(
+    const result: ToolExecutionResult = await Effect.runPromise(
       Effect.provide(
         tool.execute(
           {
@@ -122,7 +149,7 @@ describe("Shell Tools", () => {
     };
 
     // Test missing required field
-    const result1 = await Effect.runPromise(
+    const result1: ToolExecutionResult = await Effect.runPromise(
       Effect.provide(tool.execute({}, context), createTestLayer()),
     );
 
@@ -151,7 +178,7 @@ describe("Shell Tools", () => {
     ];
 
     for (const command of dangerousCommands) {
-      const result = await Effect.runPromise(
+      const result: ToolExecutionResult = await Effect.runPromise(
         Effect.provide(
           tool.execute(
             {
@@ -175,7 +202,7 @@ describe("Shell Tools", () => {
       conversationId: "test-conversation",
     };
 
-    const result = await Effect.runPromise(
+    const result: ToolExecutionResult = await Effect.runPromise(
       Effect.provide(
         tool.execute(
           {
@@ -202,7 +229,7 @@ describe("Shell Tools", () => {
       conversationId: "test-conversation",
     };
 
-    const result = await Effect.runPromise(
+    const result: ToolExecutionResult = await Effect.runPromise(
       Effect.provide(
         tool.execute(
           {

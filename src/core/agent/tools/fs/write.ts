@@ -27,9 +27,9 @@ const writeFileParameters = z
       .describe(
         "File path to write to, will be created if it doesn't exist (relative to cwd allowed)",
       ),
-    content: z.string().describe("Content to write to the file"),
-    encoding: z.string().optional().describe("Text encoding (currently utf-8)"),
-    createDirs: z.boolean().optional().describe("Create parent directories if they don't exist"),
+    content: z.string().describe("The full content to write to the file. This replaces the entire file if it already exists."),
+    encoding: z.string().optional().describe("Text encoding (default: utf-8)"),
+    createDirs: z.boolean().optional().describe("Automatically create parent directories if they don't exist (default: false). Set to true when writing to a new path structure."),
   })
   .strict();
 
@@ -43,7 +43,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
   const config: ApprovalToolConfig<WriteFileDeps, WriteFileArgs> = {
     name: "write_file",
     description:
-      "Write content to a file, creating it if it doesn't exist. Supports creating parent directories.",
+      "Write complete content to a file, creating it if it doesn't exist. Use this for creating NEW files or when you need to REPLACE the entire file content. For modifying specific parts of an existing file (replacing lines, inserting, deleting, or pattern-based edits), use edit_file instead — it's safer and more precise. Supports creating parent directories automatically.",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
     validate: (args) => {
@@ -89,14 +89,14 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         message += `\n\nPress Ctrl+O to preview changes`;
 
         // Generate full diff for Ctrl+O expansion
-        const { diff: previewDiff } = generateDiffWithMetadata(
+        const { diff } = generateDiffWithMetadata(
           originalContent,
           args.content,
           target,
           { isNewFile, maxLines: Number.POSITIVE_INFINITY },
         );
 
-        return { message, previewDiff };
+        return { message, previewDiff: diff };
       }),
 
     handler: (args: WriteFileArgs, context: ToolExecutionContext) =>

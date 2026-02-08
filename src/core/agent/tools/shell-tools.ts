@@ -3,6 +3,10 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { LoggerService } from "@/core/interfaces/logger";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
+import type { TerminalService } from "@/core/interfaces/terminal";
+import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { createSanitizedEnv } from "@/core/utils/env-utils";
 import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "./base-tool";
@@ -95,7 +99,7 @@ const executeCommandParameters = z
   })
   .strict();
 
-type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService;
+type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService | LoggerService | TerminalService;
 
 /**
  * Create shell command tools (approval + execution pair).
@@ -111,7 +115,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
   const config: ApprovalToolConfig<ShellCommandDeps, ExecuteCommandArgs> = {
     name: "execute_command",
     description:
-      "Execute a shell command on the system. Runs commands in a specified working directory with configurable timeout. Includes security checks to block dangerous operations. All command executions are logged for security auditing.",
+      "Execute a shell command on the system. IMPORTANT: Only use this when no dedicated tool can accomplish the task. Prefer git_* tools for git operations, filesystem tools (read_file, write_file, edit_file, grep, find, ls) for file operations, and web_search for web queries. Use execute_command for: running build/test commands (npm, make, cargo), starting/stopping services, package management, or any shell operation not covered by dedicated tools. Includes security checks to block dangerous operations.",
     tags: ["shell", "execution"],
     parameters: executeCommandParameters,
     validate: (args) => {
@@ -144,6 +148,8 @@ This command will be executed on your system. Only approve commands you trust.`;
     handler: (args: ExecuteCommandArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
+        const logger = yield* LoggerServiceTag;
+        const terminal = yield* TerminalServiceTag;
 
         // Resolve and validate working directory (prevents path traversal attacks)
         const key = buildKeyFromContext(context);
@@ -274,12 +280,14 @@ This command will be executed on your system. Only approve commands you trust.`;
             } as ToolExecutionResult;
           }
 
-          // Log command execution for security auditing
-          console.warn(`🔒 Command executed. Exit code: ${result.exitCode}`);
+          const exitMsg = `Command executed. Exit code: ${result.exitCode}`;
+          yield* terminal.log(exitMsg);
+          yield* logger.info(exitMsg);
           const output = (result.stdout + (result.stderr ? `\nERR: ${result.stderr}` : "")).trim();
           if (output) {
             const preview = output.length > 200 ? output.substring(0, 200) + "..." : output;
-            console.warn(`Output: ${preview}`);
+            yield* terminal.log(`Output: ${preview}`);
+            yield* logger.info(`Output: ${output}`);
           }
 
           return {

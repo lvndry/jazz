@@ -32,7 +32,7 @@ function makeMessage(role: string, content: string, extra?: Record<string, unkno
 describe("ContextWindowManager", () => {
   describe("calculateTotalTokens", () => {
     it("should estimate tokens based on content length", () => {
-      const manager = new ContextWindowManager({ maxMessages: 100 });
+      const manager = new ContextWindowManager({ maxTokens: 100_000 });
       // ~4 chars per token + 4 overhead per message
       const messages = [makeMessage("user", "Hello world")]; // 11 chars = ~3 tokens + 4 overhead = 7
       const tokens = manager.calculateTotalTokens(messages);
@@ -41,7 +41,7 @@ describe("ContextWindowManager", () => {
     });
 
     it("should include tool call tokens in estimate", () => {
-      const manager = new ContextWindowManager({ maxMessages: 100 });
+      const manager = new ContextWindowManager({ maxTokens: 100_000 });
       const withoutTools = [makeMessage("assistant", "content")];
       const withTools = [
         makeMessage("assistant", "content", {
@@ -55,42 +55,25 @@ describe("ContextWindowManager", () => {
   });
 
   describe("needsTrimming", () => {
-    it("should return true when message count exceeds limit", () => {
-      const manager = new ContextWindowManager({ maxMessages: 3 });
-      const messages = [
-        makeMessage("system", "sys"),
-        makeMessage("user", "1"),
-        makeMessage("assistant", "2"),
-        makeMessage("user", "3"),
-      ];
-      expect(manager.needsTrimming(messages)).toBe(true);
-    });
-
-    it("should return false when within limits", () => {
-      const manager = new ContextWindowManager({ maxMessages: 10 });
-      const messages = [makeMessage("user", "Hello")];
-      expect(manager.needsTrimming(messages)).toBe(false);
-    });
-
     it("should return true when token count exceeds limit", () => {
-      const manager = new ContextWindowManager({ maxMessages: 1000, maxTokens: 10 });
+      const manager = new ContextWindowManager({ maxTokens: 10 });
       // Create messages with enough content to exceed 10 tokens
       const messages = [
         makeMessage("user", "This is a very long message that should exceed the token limit for testing"),
       ];
       expect(manager.needsTrimming(messages)).toBe(true);
     });
+
+    it("should return false when within limits", () => {
+      const manager = new ContextWindowManager({ maxTokens: 100_000 });
+      const messages = [makeMessage("user", "Hello")];
+      expect(manager.needsTrimming(messages)).toBe(false);
+    });
   });
 
   describe("shouldSummarize", () => {
-    it("should return false when no maxTokens is set", () => {
-      const manager = new ContextWindowManager({ maxMessages: 100 });
-      const messages = [makeMessage("user", "test")];
-      expect(manager.shouldSummarize(messages)).toBe(false);
-    });
-
     it("should return true when tokens exceed 80% threshold", () => {
-      const manager = new ContextWindowManager({ maxMessages: 1000, maxTokens: 20 });
+      const manager = new ContextWindowManager({ maxTokens: 20 });
       // Create enough content to exceed 80% of 20 = 16 tokens
       const messages = [
         makeMessage("user", "This is a test message with enough content to exceed the threshold for summarization"),
@@ -99,7 +82,7 @@ describe("ContextWindowManager", () => {
     });
 
     it("should return false when well below threshold", () => {
-      const manager = new ContextWindowManager({ maxMessages: 1000, maxTokens: 100_000 });
+      const manager = new ContextWindowManager({ maxTokens: 100_000 });
       const messages = [makeMessage("user", "short")];
       expect(manager.shouldSummarize(messages)).toBe(false);
     });
@@ -107,7 +90,7 @@ describe("ContextWindowManager", () => {
 
   describe("trim", () => {
     it("should not trim when within limits", async () => {
-      const manager = new ContextWindowManager({ maxMessages: 100 });
+      const manager = new ContextWindowManager({ maxTokens: 100_000 });
       const messages: ConversationMessages = [
         makeMessage("system", "sys"),
         makeMessage("user", "hello"),
@@ -121,17 +104,17 @@ describe("ContextWindowManager", () => {
       expect(result.result).toBeUndefined();
     });
 
-    it("should trim when message count exceeds limit", async () => {
+    it("should trim when token count exceeds limit", async () => {
       const manager = new ContextWindowManager({
-        maxMessages: 4,
-        protectedRecentMessages: 2,
+        maxTokens: 30,
+        protectedRecentTurns: 1,
       });
       const messages: ConversationMessages = [
         makeMessage("system", "sys"),
-        makeMessage("user", "old1"),
-        makeMessage("assistant", "old2"),
-        makeMessage("user", "old3"),
-        makeMessage("assistant", "old4"),
+        makeMessage("user", "old message one"),
+        makeMessage("assistant", "old message two"),
+        makeMessage("user", "old message three"),
+        makeMessage("assistant", "old message four"),
         makeMessage("user", "recent1"),
         makeMessage("assistant", "recent2"),
       ] as ConversationMessages;
@@ -140,17 +123,55 @@ describe("ContextWindowManager", () => {
         manager.trim(messages, mockLogger, "agent-1", "conv-1").pipe(Effect.provide(TestLayer)),
       );
 
-      expect(result.messages.length).toBeLessThanOrEqual(4);
+      expect(result.messages.length).toBeLessThan(messages.length);
       expect(result.result).toBeDefined();
       expect(result.result!.messagesRemoved).toBeGreaterThan(0);
       // System message should always be preserved
       expect(result.messages[0].role).toBe("system");
     });
 
-    it("should preserve tool call/result pairs", async () => {
+    it("should protect entire turns including tool calls", async () => {
+      // With protectedRecentTurns: 1, the last turn (user + assistant with tools + tool results)
+      // should all be protected, regardless of how many tool messages there are
       const manager = new ContextWindowManager({
-        maxMessages: 5,
-        protectedRecentMessages: 2,
+        maxTokens: 40,
+        protectedRecentTurns: 1,
+      });
+      const messages: ConversationMessages = [
+        makeMessage("system", "sys"),
+        makeMessage("user", "old question"),
+        makeMessage("assistant", "old answer"),
+        // Last turn: user + assistant with 3 tool calls + 3 tool results + final assistant
+        makeMessage("user", "do stuff"),
+        makeMessage("assistant", "calling tools", {
+          tool_calls: [
+            { id: "tc1", type: "function", function: { name: "read", arguments: "{}" } },
+            { id: "tc2", type: "function", function: { name: "write", arguments: "{}" } },
+            { id: "tc3", type: "function", function: { name: "exec", arguments: "{}" } },
+          ],
+        }),
+        makeMessage("tool", "r1", { tool_call_id: "tc1", name: "read" }),
+        makeMessage("tool", "r2", { tool_call_id: "tc2", name: "write" }),
+        makeMessage("tool", "r3", { tool_call_id: "tc3", name: "exec" }),
+        makeMessage("assistant", "done"),
+      ] as ConversationMessages;
+
+      const result = await Effect.runPromise(
+        manager.trim(messages, mockLogger, "agent-1", "conv-1").pipe(Effect.provide(TestLayer)),
+      );
+
+      // The last turn's user message must be present
+      expect(result.messages.some((m) => m.content === "do stuff")).toBe(true);
+      // All 3 tool results must be present (they're in the protected turn)
+      expect(result.messages.filter((m) => m.role === "tool")).toHaveLength(3);
+      // The final assistant response must be present
+      expect(result.messages.some((m) => m.content === "done")).toBe(true);
+    });
+
+    it("should preserve tool call/result pairs in non-protected zone", async () => {
+      const manager = new ContextWindowManager({
+        maxTokens: 80,
+        protectedRecentTurns: 1,
       });
       const messages: ConversationMessages = [
         makeMessage("system", "sys"),
@@ -182,8 +203,8 @@ describe("ContextWindowManager", () => {
 
     it("should always preserve system message", async () => {
       const manager = new ContextWindowManager({
-        maxMessages: 2,
-        protectedRecentMessages: 1,
+        maxTokens: 20,
+        protectedRecentTurns: 1,
       });
       const messages: ConversationMessages = [
         makeMessage("system", "important system prompt"),
@@ -203,10 +224,9 @@ describe("ContextWindowManager", () => {
 
   describe("getConfig", () => {
     it("should return a copy of the configuration", () => {
-      const config = { maxMessages: 50, maxTokens: 10000, strategy: "token-based" as const };
+      const config = { maxTokens: 10000 };
       const manager = new ContextWindowManager(config);
       const retrieved = manager.getConfig();
-      expect(retrieved.maxMessages).toBe(50);
       expect(retrieved.maxTokens).toBe(10000);
     });
   });

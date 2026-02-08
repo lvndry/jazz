@@ -2,7 +2,6 @@ import { Box, Static, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import { ActivityView } from "./ActivityView";
-import { clearLastExpandedDiff, getLastExpandedDiff } from "./diff-expansion-store";
 import ErrorBoundary from "./ErrorBoundary";
 import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
@@ -207,7 +206,7 @@ export function App(): React.ReactElement {
         return InputResults.ignored();
       }
 
-      const payload = getLastExpandedDiff();
+      const payload = store.getExpandableDiff();
       if (!payload) {
         store.printOutput({
           type: "warn",
@@ -222,7 +221,7 @@ export function App(): React.ReactElement {
         message: payload.fullDiff,
         timestamp: new Date(),
       });
-      clearLastExpandedDiff();
+      store.clearExpandableDiff();
       return InputResults.consumed();
     },
     deps: [],

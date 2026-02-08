@@ -30,7 +30,7 @@ const spawnSubagentSchema = z.object({
     .optional()
     .default("default")
     .describe(
-      "Persona for the sub-agent: 'default' (general assistant), 'coder' (software engineering), 'researcher' (deep research and analysis). Default: 'default'",
+      "Persona determines the sub-agent's system prompt and tool preferences. 'coder': optimized for code search, file editing, git operations, and software engineering tasks. 'researcher': optimized for web search, information gathering, and synthesizing findings. 'default': balanced general-purpose assistant. Default: 'default'.",
     ),
 });
 
@@ -68,7 +68,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
-        "Spawn a specialised sub-agent to accomplish a specific task. The sub-agent runs independently with its own context and returns a result. Use this for tasks that benefit from a focused agent, such as codebase exploration, deep research, or complex analysis.",
+        "Spawn a specialised sub-agent to accomplish a specific task in a fresh context window. The sub-agent runs independently and returns a result. Use this for: (1) extensive codebase exploration that would bloat your context, (2) deep research requiring many web searches, (3) complex analysis across many files. Choose the right persona: 'coder' for software engineering tasks (code search, architecture analysis, debugging), 'researcher' for web research and information synthesis, 'default' for general-purpose tasks.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",

@@ -63,7 +63,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     longRunning: true,
     timeoutMs: USER_INPUT_TIMEOUT_MS,
     description:
-      "Ask the user a question with suggested responses before proceeding. Use when you need to offer the user clear choices or alternatives. The user can select from suggestions or type a custom response. IMPORTANT: Ask only ONE question per call if you have multiple questions, call this tool multiple times sequentially.",
+      "Ask the user a question with selectable suggested responses. This is a CLI environment — interactive selection is MUCH better UX than walls of text with questions buried in them. ALWAYS prefer this tool over plain-text questions when you need clarification, confirmation, or the user to choose between options. The user sees a clean interactive prompt where they can pick from suggestions or type a custom response. Ask only ONE question per call; if you have multiple questions, call this tool multiple times sequentially so the user can address each point individually.",
     parameters: askUserSchema,
     hidden: false,
     riskLevel: "read-only",

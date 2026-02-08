@@ -28,7 +28,7 @@ export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemCo
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitStatusArgs>({
     name: "git_status",
     description:
-      "Display the current status of a Git repository's working tree. Shows modified files, untracked files, staged changes, and current branch information. Use this to understand what changes exist before committing or to check repository state.",
+      "Display the current Git repository status: current branch, modified files, untracked files, and staged changes. Use this BEFORE git_add or git_commit to see what's changed. Also use after file edits to verify changes were applied correctly. This is a read-only operation with no side effects.",
     tags: ["git", "status"],
     parameters,
     validate: (args) => {

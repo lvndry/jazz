@@ -94,9 +94,9 @@ export class ChatServiceImpl implements ChatService {
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
 
       // Bound conversation history to prevent unbounded memory growth.
-      // The agent's own ContextWindowManager (200 msgs / 150K tokens) handles
-      // per-turn trimming with tool-call integrity; this outer cap is a simple
-      // safety net so the between-turn array doesn't grow without limit.
+      // The agent's own ContextWindowManager (50K tokens) handles per-turn
+      // trimming with tool-call integrity; this outer cap is a simple safety
+      // net so the between-turn array doesn't grow without limit.
       const MAX_CHAT_HISTORY_MESSAGES = 2000;
 
       while (chatActive) {

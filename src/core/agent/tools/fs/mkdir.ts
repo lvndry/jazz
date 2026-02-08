@@ -18,8 +18,8 @@ type MkdirArgs = {
 
 const mkdirParameters = z
   .object({
-    path: z.string().min(1).describe("Directory path to create"),
-    recursive: z.boolean().optional().describe("Create parent directories as needed"),
+    path: z.string().min(1).describe("Directory path to create (absolute or relative to cwd)"),
+    recursive: z.boolean().optional().describe("Create parent directories as needed (default: true). Set to false to fail if parent directories don't exist."),
   })
   .strict();
 
@@ -32,7 +32,7 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
   const config: ApprovalToolConfig<MkdirDeps, MkdirArgs> = {
     name: "mkdir",
     description:
-      "Create a directory, optionally creating parent directories as needed (recursive by default).",
+      "Create a directory (recursive by default — parent directories are created automatically). Safe to call if the directory already exists. Use before write_file when you need to ensure the target directory structure exists.",
     tags: ["filesystem", "write"],
     parameters: mkdirParameters,
     validate: (args) => {
