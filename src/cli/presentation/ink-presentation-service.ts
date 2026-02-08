@@ -121,9 +121,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
         ink,
       );
 
-      // Flush log side-effects immediately
-      for (const log of result.logs) {
-        store.printOutput(log);
+      // Flush output side-effects immediately
+      for (const entry of result.outputs) {
+        store.printOutput(entry);
       }
 
       // Throttle activity state updates

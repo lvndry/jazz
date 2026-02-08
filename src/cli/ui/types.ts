@@ -2,20 +2,20 @@ import type { TerminalOutput } from "@/core/interfaces/terminal";
 
 export type { ActivityState, ActiveTool, ActivityPhase } from "./activity-state";
 
-export type LogType = "info" | "success" | "warn" | "error" | "debug" | "log" | "user";
+export type OutputType = "info" | "success" | "warn" | "error" | "debug" | "log" | "user";
 
-/** Input type for adding logs - id is auto-generated */
-export interface LogEntryInput {
-  type: LogType;
+/** Input type for adding output entries - id is auto-generated */
+export interface OutputEntry {
+  type: OutputType;
   message: TerminalOutput;
   meta?: Record<string, unknown>;
   timestamp: Date;
-  /** Optional ID for logs that need to be updated later */
+  /** Optional ID for entries that need to be updated later */
   id?: string;
 }
 
-/** Full log entry with auto-generated id */
-export interface LogEntry extends LogEntryInput {
+/** Full output entry with auto-generated id */
+export interface OutputEntryWithId extends OutputEntry {
   id: string;
 }
 

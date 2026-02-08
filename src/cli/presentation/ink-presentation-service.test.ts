@@ -3,11 +3,11 @@ import { Effect } from "effect";
 import { InkStreamingRenderer } from "./ink-presentation-service";
 import type { ActivityState } from "../ui/activity-state";
 import { store } from "../ui/store";
-import type { LogEntryInput } from "../ui/types";
+import type { OutputEntry } from "../ui/types";
 
 describe("InkStreamingRenderer", () => {
   const setActivityCalls: ActivityState[] = [];
-  const printOutputCalls: LogEntryInput[] = [];
+  const printOutputCalls: OutputEntry[] = [];
   let originalSetActivity: (typeof store)["setActivity"];
   let originalPrintOutput: (typeof store)["printOutput"];
 
@@ -38,7 +38,7 @@ describe("InkStreamingRenderer", () => {
       setActivityCalls.push(next);
       originalSetActivity(next);
     };
-    store.printOutput = (entry: LogEntryInput) => {
+    store.printOutput = (entry: OutputEntry) => {
       printOutputCalls.push(entry);
       return originalPrintOutput(entry);
     };
@@ -209,7 +209,7 @@ describe("InkStreamingRenderer", () => {
         callOrder.push(`activity:${next.phase}`);
         origActivity(next);
       };
-      store.printOutput = (entry: LogEntryInput) => {
+      store.printOutput = (entry: OutputEntry) => {
         callOrder.push(`print:${entry.type}`);
         return origPrint(entry);
       };

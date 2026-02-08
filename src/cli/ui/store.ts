@@ -1,18 +1,18 @@
 import type React from "react";
 import type { ActivityState } from "./activity-state";
-import type { LogEntryInput, PromptState } from "./types";
+import type { OutputEntry, PromptState } from "./types";
 
-type PrintOutputHandler = (entry: LogEntryInput) => string;
+type PrintOutputHandler = (entry: OutputEntry) => string;
 
-const MAX_PENDING_LOG_QUEUE = 2000;
+const MAX_PENDING_OUTPUT_QUEUE = 2000;
 
 export class UIStore {
-  // Log handlers
+  // Output handlers
   private printOutputHandler: PrintOutputHandler | null = null;
-  private clearLogsHandler: (() => void) | null = null;
-  private pendingLogQueue: LogEntryInput[] = [];
+  private clearOutputsHandler: (() => void) | null = null;
+  private pendingOutputQueue: OutputEntry[] = [];
   private _pendingClear = false;
-  private pendingLogIdCounter = 0;
+  private pendingOutputIdCounter = 0;
 
   // Snapshots (kept in sync so late-registering components can hydrate)
   private promptSnapshot: PromptState | null = null;
@@ -26,13 +26,13 @@ export class UIStore {
 
   // ── Public API (called by consumers) ──────────────────────────────
 
-  printOutput = (entry: LogEntryInput): string => {
-    const id = entry.id ?? `queued-log-${++this.pendingLogIdCounter}`;
+  printOutput = (entry: OutputEntry): string => {
+    const id = entry.id ?? `queued-output-${++this.pendingOutputIdCounter}`;
     const entryWithId = entry.id ? entry : { ...entry, id };
 
     if (!this.printOutputHandler) {
-      if (this.pendingLogQueue.length < MAX_PENDING_LOG_QUEUE) {
-        this.pendingLogQueue.push(entryWithId);
+      if (this.pendingOutputQueue.length < MAX_PENDING_OUTPUT_QUEUE) {
+        this.pendingOutputQueue.push(entryWithId);
       }
       return id;
     }
@@ -64,13 +64,13 @@ export class UIStore {
 
   setInterruptHandler = (_handler: (() => void) | null): void => {};
 
-  clearLogs = (): void => {
-    if (!this.clearLogsHandler) {
+  clearOutputs = (): void => {
+    if (!this.clearOutputsHandler) {
       this._pendingClear = true;
-      this.pendingLogQueue.length = 0;
+      this.pendingOutputQueue.length = 0;
       return;
     }
-    this.clearLogsHandler();
+    this.clearOutputsHandler();
   };
 
   // ── Registration methods (called by island components) ────────────
@@ -79,8 +79,8 @@ export class UIStore {
     this.printOutputHandler = handler;
   }
 
-  registerClearLogs(handler: () => void): void {
-    this.clearLogsHandler = handler;
+  registerClearOutputs(handler: () => void): void {
+    this.clearOutputsHandler = handler;
   }
 
   registerActivitySetter(setter: (activity: ActivityState) => void): void {
@@ -127,8 +127,8 @@ export class UIStore {
     this._pendingClear = false;
   }
 
-  drainPendingLogQueue(): LogEntryInput[] {
-    return this.pendingLogQueue.splice(0, this.pendingLogQueue.length);
+  drainPendingOutputQueue(): OutputEntry[] {
+    return this.pendingOutputQueue.splice(0, this.pendingOutputQueue.length);
   }
 }
 

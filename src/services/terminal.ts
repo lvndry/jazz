@@ -5,7 +5,7 @@ import React from "react";
 import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { store } from "@/cli/ui/store";
-import type { LogEntryInput } from "@/cli/ui/types";
+import type { OutputEntry } from "@/cli/ui/types";
 import {
   TerminalServiceTag,
   type TerminalOutput,
@@ -85,7 +85,7 @@ export class InkTerminalService implements TerminalService {
 
   log(message: TerminalOutput): Effect.Effect<string | undefined, never> {
     return Effect.sync(() => {
-      const entry: LogEntryInput = {
+      const entry: OutputEntry = {
         type: "log",
         message,
         timestamp: new Date(),
@@ -125,7 +125,7 @@ export class InkTerminalService implements TerminalService {
   clear(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       console.clear();
-      store.clearLogs();
+      store.clearOutputs();
     });
   }
 

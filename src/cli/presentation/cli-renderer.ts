@@ -336,7 +336,7 @@ export class CLIRenderer {
         ` ${colors.success(icons.success)}` +
         ` ${colors.dim(`(${event.durationMs}ms)`)}` +
         `${summary}` +
-        "\n"
+        "\n\n"
       );
     }
 
@@ -345,7 +345,7 @@ export class CLIRenderer {
       ` ${colors.success(icons.success)}` +
       (summary ? ` ${summary}` : "") +
       ` ${colors.dim(`(${event.durationMs}ms)`)}` +
-      "\n"
+      "\n\n"
     );
   }
 

@@ -1,10 +1,10 @@
 import { Box, Text } from "ink";
 import React from "react";
 import { THEME } from "./theme";
-import type { LogEntry, LogType } from "./types";
+import type { OutputEntryWithId, OutputType } from "./types";
 
 // Pre-created icon elements to avoid creating new React elements on every render
-const ICONS: Record<LogType, React.ReactElement> = {
+const ICONS: Record<OutputType, React.ReactElement> = {
   success: <Text color={THEME.success}>✔</Text>,
   error: <Text color="red">✖</Text>,
   warn: <Text color="yellow">⚠</Text>,
@@ -14,7 +14,7 @@ const ICONS: Record<LogType, React.ReactElement> = {
   log: <></>,
 };
 
-const COLORS: Record<LogType, string> = {
+const COLORS: Record<OutputType, string> = {
   success: "green",
   error: "red",
   warn: "yellow",
@@ -25,34 +25,34 @@ const COLORS: Record<LogType, string> = {
 };
 
 /**
- * Individual log entry component - memoized to prevent re-renders
- * when other logs are added to the list.
+ * Individual output entry component - memoized to prevent re-renders
+ * when other entries are added to the list.
  *
  * IMPORTANT: Props must be stable for memoization to work effectively.
- * - `log` object reference should be stable (not recreated)
+ * - `entry` object reference should be stable (not recreated)
  * - `addSpacing` is a primitive boolean (pre-computed in parent)
  *
- * Without React.memo, every log entry would re-render whenever ANY log
+ * Without React.memo, every entry would re-render whenever ANY entry
  * is added to the list, causing significant performance degradation
  * during streaming responses.
  */
-export const LogEntryItem = React.memo(function LogEntryItem({
-  log,
+export const OutputEntryView = React.memo(function OutputEntryView({
+  entry,
   addSpacing,
 }: {
-  log: LogEntry;
+  entry: OutputEntryWithId;
   addSpacing: boolean;
 }): React.ReactElement {
-  const icon = ICONS[log.type];
-  const color = COLORS[log.type];
+  const icon = ICONS[entry.type];
+  const color = COLORS[entry.type];
 
-  if (typeof log.message === "string") {
-    if (log.type === "user") {
+  if (typeof entry.message === "string") {
+    if (entry.type === "user") {
       return (
         <Box marginTop={addSpacing ? 1 : 0} marginBottom={1}>
           {icon}
           <Text> </Text>
-          <Text color={THEME.primary} bold>{log.message}</Text>
+          <Text color={THEME.primary} bold>{entry.message}</Text>
         </Box>
       );
     }
@@ -61,21 +61,21 @@ export const LogEntryItem = React.memo(function LogEntryItem({
       <Box marginTop={addSpacing ? 1 : 0} marginBottom={0}>
         {icon}
         <Text> </Text>
-        {log.type === "log" ? (
+        {entry.type === "log" ? (
           // Important: don't force a color for plain logs so ANSI styling (chalk/marked)
           // can render correctly and not get overwritten by Ink's `color` prop.
-          <Text>{log.message}</Text>
+          <Text>{entry.message}</Text>
         ) : (
-          <Text dimColor={log.type === "debug"} color={color}>
-            {log.message}
+          <Text dimColor={entry.type === "debug"} color={color}>
+            {entry.message}
           </Text>
         )}
       </Box>
     );
   }
 
-  if (log.message._tag === "ink" && React.isValidElement(log.message.node)) {
-    return <Box marginTop={addSpacing ? 1 : 0} marginBottom={0}>{log.message.node}</Box>;
+  if (entry.message._tag === "ink" && React.isValidElement(entry.message.node)) {
+    return <Box marginTop={addSpacing ? 1 : 0} marginBottom={0}>{entry.message.node}</Box>;
   }
 
   return (

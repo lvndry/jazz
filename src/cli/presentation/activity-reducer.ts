@@ -1,9 +1,9 @@
 /**
- * Pure activity reducer — maps StreamEvents to ActivityState + log side-effects.
+ * Pure activity reducer — maps StreamEvents to ActivityState + output side-effects.
  *
  * All mutable state lives in the ReducerAccumulator. The reducer is a pure
  * function (given the same accumulator snapshot + event, it produces the same
- * output). Side-effects (printing logs) are returned as LogEntry descriptors
+ * output). Side-effects (printing output) are returned as OutputEntry descriptors
  * so the caller can flush them through the store.
  */
 
@@ -16,7 +16,7 @@ import { CLIRenderer } from "./cli-renderer";
 import { applyTextChunkOrdered } from "./stream-text-order";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
 import { THEME } from "../ui/theme";
-import type { LogEntryInput } from "../ui/types";
+import type { OutputEntry } from "../ui/types";
 
 function renderToolBadge(label: string): React.ReactElement {
   return React.createElement(
@@ -67,8 +67,8 @@ export function createAccumulator(agentName: string): ReducerAccumulator {
 export interface ReducerResult {
   /** New activity state to push to the UI (null = no change). */
   activity: ActivityState | null;
-  /** Log entries to print immediately. */
-  logs: LogEntryInput[];
+  /** Output entries to print immediately. */
+  outputs: OutputEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ export function reduceEvent(
   formatMarkdown: (text: string) => string,
   inkRender: (node: unknown) => TerminalOutput,
 ): ReducerResult {
-  const logs: LogEntryInput[] = [];
+  const outputs: OutputEntry[] = [];
 
   switch (event.type) {
     // ---- Stream lifecycle ------------------------------------------------
@@ -144,18 +144,18 @@ export function reduceEvent(
       acc.reasoningBuffer = "";
       acc.completedReasoning = "";
 
-      logs.push({
+      outputs.push({
         type: "info",
         message: `${acc.agentName} (${event.provider}/${event.model})`,
         timestamp: new Date(),
       });
-      logs.push({
+      outputs.push({
         type: "log",
         message: chalk.dim("(Tip: Press Ctrl+I to stop generation)"),
         timestamp: new Date(),
       });
 
-      return { activity: null, logs };
+      return { activity: null, outputs };
     }
 
     // ---- Thinking / Reasoning -------------------------------------------
@@ -165,7 +165,7 @@ export function reduceEvent(
       acc.isThinking = true;
       return {
         activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
-        logs,
+        outputs,
       };
     }
 
@@ -173,7 +173,7 @@ export function reduceEvent(
       acc.reasoningBuffer += event.content;
       return {
         activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
-        logs,
+        outputs,
       };
     }
 
@@ -184,7 +184,7 @@ export function reduceEvent(
       const reasoning = acc.reasoningBuffer.trim();
       if (reasoning.length > 0) {
         const formattedReasoning = formatMarkdown(reasoning);
-        logs.push({
+        outputs.push({
           type: "log",
           message: inkRender(
             React.createElement(Box, { flexDirection: "column", paddingLeft: 2, marginTop: 1, marginBottom: 1 },
@@ -228,7 +228,7 @@ export function reduceEvent(
 
       return {
         activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
-        logs,
+        outputs,
       };
     }
 
@@ -237,7 +237,7 @@ export function reduceEvent(
     case "text_start": {
       // If reasoning was produced, log a separator before the response
       if (acc.completedReasoning.trim().length > 0) {
-        logs.push({
+        outputs.push({
           type: "log",
           message: inkRender(
             React.createElement(Box, { flexDirection: "column", paddingLeft: 2 },
@@ -252,7 +252,7 @@ export function reduceEvent(
       acc.lastAppliedTextSequence = -1;
       return {
         activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
-        logs,
+        outputs,
       };
     }
 
@@ -271,7 +271,7 @@ export function reduceEvent(
       acc.lastAppliedTextSequence = next.lastAppliedSequence;
       return {
         activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
-        logs,
+        outputs,
       };
     }
 
@@ -284,12 +284,12 @@ export function reduceEvent(
           approvalSet.has(name) ? `${name} (requires approval)` : name,
         )
         .join(", ");
-      logs.push({
+      outputs.push({
         type: "info",
         message: inkRender(renderToolBadge(`Tools: ${formattedTools}`)),
         timestamp: new Date(),
       });
-      return { activity: null, logs };
+      return { activity: null, outputs };
     }
 
     case "tool_call": {
@@ -297,7 +297,7 @@ export function reduceEvent(
       // tool_execution_start event, so this is the only place to log them.
       // Non-native tools will be logged by tool_execution_start instead.
       if (!event.providerNative) {
-        return { activity: null, logs };
+        return { activity: null, outputs };
       }
 
       const toolName = event.toolCall.function.name;
@@ -316,7 +316,7 @@ export function reduceEvent(
       if (toolName === "web_search" && acc.currentProvider) {
         providerLabel = ` [${acc.currentProvider}]`;
       }
-      logs.push({
+      outputs.push({
         type: "log",
         message: inkRender(
           React.createElement(Box, { paddingLeft: 2, marginTop: 1 },
@@ -332,7 +332,7 @@ export function reduceEvent(
         ),
         timestamp: new Date(),
       });
-      return { activity: null, logs };
+      return { activity: null, outputs };
     }
 
     case "tool_execution_start": {
@@ -349,7 +349,7 @@ export function reduceEvent(
           providerSuffix = ` [${provider}]`;
         }
       }
-      logs.push({
+      outputs.push({
         type: "log",
         message: inkRender(
           React.createElement(Box, { paddingLeft: 2, marginTop: 1 },
@@ -366,7 +366,7 @@ export function reduceEvent(
         timestamp: new Date(),
       });
 
-      return { activity: buildToolExecutionActivity(acc), logs };
+      return { activity: buildToolExecutionActivity(acc), outputs };
     }
 
     case "tool_execution_complete": {
@@ -385,7 +385,7 @@ export function reduceEvent(
       const hasMultiLine = displayText.includes("\n");
 
       if (hasMultiLine) {
-        logs.push({
+        outputs.push({
           type: "log",
           message: inkRender(
             React.createElement(Box, { paddingLeft: 2 },
@@ -396,7 +396,7 @@ export function reduceEvent(
           ),
           timestamp: new Date(),
         });
-        logs.push({
+        outputs.push({
           type: "log",
           message: inkRender(
             React.createElement(Box, { paddingLeft: 4 },
@@ -406,7 +406,7 @@ export function reduceEvent(
           timestamp: new Date(),
         });
       } else {
-        logs.push({
+        outputs.push({
           type: "log",
           message: inkRender(
             React.createElement(Box, { paddingLeft: 2 },
@@ -419,28 +419,35 @@ export function reduceEvent(
         });
       }
 
+      // Add spacing after tool completion
+      outputs.push({
+        type: "log",
+        message: "",
+        timestamp: new Date(),
+      });
+
       const activity: ActivityState =
         acc.activeTools.size > 0
           ? buildToolExecutionActivity(acc)
           : { phase: "idle" };
 
-      return { activity, logs };
+      return { activity, outputs };
     }
 
     // ---- Usage updates (no-op) ------------------------------------------
 
     case "usage_update":
-      return { activity: null, logs };
+      return { activity: null, outputs };
 
     // ---- Error ----------------------------------------------------------
 
     case "error": {
-      logs.push({
+      outputs.push({
         type: "error",
         message: `Error: ${event.error.message}`,
         timestamp: new Date(),
       });
-      return { activity: { phase: "error", message: event.error.message }, logs };
+      return { activity: { phase: "error", message: event.error.message }, outputs };
     }
 
     // ---- Complete -------------------------------------------------------
@@ -449,7 +456,7 @@ export function reduceEvent(
       // Note: completion card rendering + cost calc stay in the renderer
       // because they need async work and Ink/React rendering.
       // The reducer only signals the phase transition.
-      return { activity: { phase: "complete" }, logs: [] };
+      return { activity: { phase: "complete" }, outputs: [] };
     }
   }
 }
