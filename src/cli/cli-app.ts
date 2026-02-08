@@ -246,68 +246,44 @@ function registerAuthCommands(program: Command): void {
 function registerMCPCommands(program: Command): void {
   const mcpCommand = program.command("mcp").description("Manage MCP servers");
 
+  const run = <R, E extends Error>(effect: Effect.Effect<void, E, R>) => {
+    const opts = program.opts<CliOptions>();
+    runCliEffect(effect, {
+      verbose: opts.verbose,
+      debug: opts.debug,
+      configPath: opts.config,
+    });
+  };
+
   mcpCommand
     .command("add [json]")
     .description("Add an MCP server from JSON (inline, --file, or interactive)")
     .option("-f, --file <path>", "Read MCP server JSON from a file")
     .action((json?: string, options?: { file?: string }) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(addMcpServerCommand(json, options?.file), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
+      run(addMcpServerCommand(json, options?.file));
     });
 
   mcpCommand
     .command("list")
     .alias("ls")
     .description("List all configured MCP servers")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(listMcpServersCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action(() => run(listMcpServersCommand()));
 
   mcpCommand
     .command("remove")
     .alias("rm")
     .description("Remove an MCP server")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(removeMcpServerCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action(() => run(removeMcpServerCommand()));
 
   mcpCommand
     .command("enable")
     .description("Enable a disabled MCP server")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(enableMcpServerCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action(() => run(enableMcpServerCommand()));
 
   mcpCommand
     .command("disable")
     .description("Disable an enabled MCP server")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(disableMcpServerCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action(() => run(disableMcpServerCommand()));
 }
 
 /**

@@ -3,11 +3,32 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
+import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type { MCPServerConfig as MCPServerConfigType } from "@/core/types/config";
 
 type McpServersRecord = Record<string, MCPServerConfigType>;
+
+const StdioServerConfigSchema = z.object({
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  enabled: z.boolean().optional(),
+  inputs: z.record(z.string(), z.string()).optional(),
+});
+
+const HttpServerConfigSchema = z.object({
+  transport: z.literal("http"),
+  url: z.string(),
+  headers: z.record(z.string(), z.string()).optional(),
+  enabled: z.boolean().optional(),
+  inputs: z.record(z.string(), z.string()).optional(),
+});
+
+const McpServerConfigSchema = z.union([HttpServerConfigSchema, StdioServerConfigSchema]);
+
+const McpServersInputSchema = z.record(z.string(), McpServerConfigSchema);
 
 /**
  * Parse and validate MCP server JSON, then save to config
@@ -27,13 +48,15 @@ function parseAndSaveMcpServers(
       return;
     }
 
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      yield* terminal.error("Expected a JSON object with server name keys.");
+    const result = McpServersInputSchema.safeParse(parsed);
+
+    if (!result.success) {
+      const issues = result.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`);
+      yield* terminal.error(`Invalid MCP server configuration:\n${issues.join("\n")}`);
       return;
     }
 
-    const servers = parsed as Record<string, unknown>;
-    const entries = Object.entries(servers);
+    const entries = Object.entries(result.data);
 
     if (entries.length === 0) {
       yield* terminal.warn("No servers found in the provided JSON.");
@@ -41,25 +64,7 @@ function parseAndSaveMcpServers(
     }
 
     for (const [name, config] of entries) {
-      if (typeof config !== "object" || config === null || Array.isArray(config)) {
-        yield* terminal.error(`Invalid configuration for server "${name}". Expected an object.`);
-        return;
-      }
-
-      const serverConfig = config as Record<string, unknown>;
-
-      // Validate: must have either "command" (stdio) or "url" (http)
-      const hasCommand = typeof serverConfig["command"] === "string";
-      const hasUrl = typeof serverConfig["url"] === "string";
-
-      if (!hasCommand && !hasUrl) {
-        yield* terminal.error(
-          `Server "${name}" must have either a "command" (stdio) or "url" (http) field.`,
-        );
-        return;
-      }
-
-      yield* configService.set(`mcpServers.${name}`, serverConfig);
+      yield* configService.set(`mcpServers.${name}`, config);
       yield* terminal.success(`Added MCP server: ${name}`);
     }
   });
