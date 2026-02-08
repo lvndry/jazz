@@ -13,6 +13,7 @@ import { ScrollableSelect } from "./components/ScrollableSelect";
 import { SearchSelect } from "./components/SearchSelect";
 import { TextInput } from "./components/TextInput";
 import { useInputHandler, InputResults, useTextInput } from "./hooks/use-input-service";
+import { THEME } from "./theme";
 import type { PromptState } from "./types";
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
@@ -28,7 +29,7 @@ function CommandSuggestionItem({
 }: CommandSuggestionItemProps): React.ReactElement {
   return (
     <Box marginLeft={1}>
-      <Text color={isSelected ? "green" : "white"} bold={isSelected}>
+      <Text color={isSelected ? THEME.selected : "white"} bold={isSelected}>
         {isSelected ? "> " : "  "}
         /{command.name}
       </Text>
@@ -199,7 +200,7 @@ function PromptComponent({
     <Box flexDirection="column" marginTop={1} paddingX={1}>
       {/* Prompt message with indicator */}
       <Box>
-        <Text color="green">?</Text>
+        <Text color={THEME.primary}>?</Text>
         <Text> </Text>
         <Text bold>{prompt.message}</Text>
       </Box>

@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import SelectInput from "ink-select-input";
 import React from "react";
 import { store } from "@/cli/ui/store";
+import { THEME } from "@/cli/ui/theme";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -640,7 +641,7 @@ function selectAgentForWorkflow(
       React.createElement(
         Box,
         { flexDirection: "column", padding: 1 },
-        React.createElement(Text, { bold: true, color: "cyan" }, prompt),
+        React.createElement(Text, { bold: true, color: THEME.primary }, prompt),
         React.createElement(Box, { marginTop: 1 },
           React.createElement(SelectInput, {
             items,

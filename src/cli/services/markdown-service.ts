@@ -1,6 +1,5 @@
 import chalk from "chalk";
 import { Context, Effect, Layer } from "effect";
-import { codeColor } from "@/cli/presentation/code-theme";
 import {
   formatMarkdown as formatMarkdownFromFormatter,
   stripAnsiCodes,
@@ -17,6 +16,7 @@ import {
   formatHorizontalRules,
   formatLinks,
 } from "@/cli/presentation/markdown-formatter";
+import { codeColor } from "@/cli/ui/theme";
 
 // ============================================================================
 // Types

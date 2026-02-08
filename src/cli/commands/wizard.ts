@@ -310,8 +310,8 @@ function startChatWithAgent(
       yield* terminal.log(`   Description: ${agent.description}`);
     }
     yield* terminal.log("");
-    yield* terminal.info("Type '/exit' to end the conversation.");
     yield* terminal.info("Type '/help' to see available special commands.");
+    yield* terminal.info("Type '/exit' to end the conversation.");
     yield* terminal.log("");
 
     // Start the chat session
@@ -341,17 +341,44 @@ function promptNotificationsOnFirstRun(
       return; // Already configured, skip prompt
     }
 
-    // First run - ask user about notifications
+    // First run - welcome and setup
     yield* terminal.log("");
-    yield* terminal.heading("🎷 Welcome to Jazz!");
-    yield* terminal.log("");
-    yield* terminal.info("Jazz can send you desktop notifications when:");
-    yield* terminal.log("  • A task is completed");
-    yield* terminal.log("  • Approval is needed for an action");
+    yield* terminal.heading("🎷 Welcome to Jazz! Let's get you set up.");
     yield* terminal.log("");
 
+    // Check for API keys from environment variables
+    const envVarMap: Record<string, string> = {
+      OPENAI_API_KEY: "openai",
+      ANTHROPIC_API_KEY: "anthropic",
+      GOOGLE_GENERATIVE_AI_API_KEY: "google",
+      MISTRAL_API_KEY: "mistral",
+      XAI_API_KEY: "xai",
+      DEEPSEEK_API_KEY: "deepseek",
+      GROQ_API_KEY: "groq",
+      OPENROUTER_API_KEY: "openrouter",
+    };
+    const detectedProviders: string[] = [];
+    for (const [envVar, provider] of Object.entries(envVarMap)) {
+      if (process.env[envVar]) {
+        detectedProviders.push(`${provider} (${envVar})`);
+      }
+    }
+    if (detectedProviders.length > 0) {
+      yield* terminal.success("Detected API keys from environment:");
+      for (const p of detectedProviders) {
+        yield* terminal.log(`   • ${p}`);
+      }
+      yield* terminal.log("");
+    } else {
+      yield* terminal.info("No API keys detected from environment.");
+      yield* terminal.log("  Set up a key via 'Update configuration' or export OPENAI_API_KEY");
+      yield* terminal.log("");
+    }
+
+    // Ask about notifications
+    yield* terminal.info("Jazz can send desktop notifications for completions and approvals.");
     const enableNotifications = yield* terminal.confirm(
-      "Would you like to enable desktop notifications?",
+      "Enable desktop notifications?",
       true // Default to yes
     );
 
@@ -363,9 +390,9 @@ function promptNotificationsOnFirstRun(
         true
       );
       yield* configService.set("notifications.sound", enableSound);
-      yield* terminal.success("Notifications enabled! You can change this anytime in Settings.");
+      yield* terminal.success("Notifications enabled! Change anytime in Settings.");
     } else {
-      yield* terminal.info("Notifications disabled. You can enable them anytime in Settings.");
+      yield* terminal.info("Notifications disabled. Enable anytime in Settings.");
     }
 
     yield* terminal.log("");

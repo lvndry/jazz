@@ -1,5 +1,6 @@
 import { Box, Text, useStdout } from "ink";
 import React from "react";
+import { THEME } from "./theme";
 
 interface AgentDetailsItem {
   readonly id: string;
@@ -49,7 +50,7 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
     <Box flexDirection="column" paddingX={1} width={width}>
       {/* Header */}
       <Box justifyContent="space-between">
-        <Text bold color="cyan">
+        <Text bold color={THEME.primary}>
           Agent: {agent.name}
         </Text>
         <Text dimColor>jazz agent chat &lt;id|name&gt;</Text>

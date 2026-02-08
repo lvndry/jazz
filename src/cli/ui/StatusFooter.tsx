@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { THEME } from "./theme";
 
 function StatusFooter({
   status,
@@ -23,7 +24,7 @@ function StatusFooter({
       <Box flexDirection="row">
         {status && (
           <Box marginRight={2}>
-            <Text color="cyan">
+            <Text color={THEME.primary}>
               <Spinner type="dots" />
             </Text>
             <Text> {status}</Text>

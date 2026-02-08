@@ -16,6 +16,7 @@ import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
+import { CHALK_THEME } from "../ui/theme";
 
 /**
  * CLI implementation of PresentationService
@@ -173,7 +174,7 @@ export class CLIPresentationService implements PresentationService {
   requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
     return Effect.gen(this, function* () {
       // Format the approval message with details about the action
-      const toolLabel = chalk.cyan(request.toolName);
+      const toolLabel = CHALK_THEME.primary(request.toolName);
       const separator = chalk.dim("─".repeat(50));
 
       // Write the approval details
@@ -211,7 +212,7 @@ export class CLIPresentationService implements PresentationService {
 
       // Display the question
       yield* this.writeOutput(`\n${separator}\n`);
-      yield* this.writeOutput(`${chalk.cyan("❓")} ${chalk.bold(request.question)}\n`);
+      yield* this.writeOutput(`${CHALK_THEME.primary("❓")} ${chalk.bold(request.question)}\n`);
 
       // Display suggestions if any
       if (request.suggestions && request.suggestions.length > 0) {
@@ -222,7 +223,7 @@ export class CLIPresentationService implements PresentationService {
           const label = suggestion.label ?? suggestion.value;
           const description = suggestion.description ? ` - ${suggestion.description}` : "";
           yield* this.writeOutput(
-            `  ${chalk.cyan(`${i + 1}.`)} ${chalk.bold(label)}${chalk.dim(description)}\n`,
+            `  ${CHALK_THEME.primary(`${i + 1}.`)} ${chalk.bold(label)}${chalk.dim(description)}\n`,
           );
         }
         yield* this.writeOutput(`\n`);
@@ -242,7 +243,7 @@ export class CLIPresentationService implements PresentationService {
 
       // Display the prompt
       yield* this.writeOutput(`\n${separator}\n`);
-      yield* this.writeOutput(`${chalk.cyan("📁")} ${chalk.bold(request.message)}\n`);
+      yield* this.writeOutput(`${CHALK_THEME.primary("📁")} ${chalk.bold(request.message)}\n`);
       if (request.basePath) {
         yield* this.writeOutput(`${chalk.dim(`Base path: ${request.basePath}`)}\n`);
       }

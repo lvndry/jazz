@@ -1,10 +1,21 @@
 import chalk from "chalk";
-import { codeColor } from "./code-theme";
+import { codeColor, CHALK_THEME } from "../ui/theme";
 
 /**
  * Shared markdown formatting utilities for terminal output.
  * Used by both cli-renderer.ts (streaming) and markdown-ansi.ts (static).
  */
+
+/**
+ * Wrap displayed text with an OSC 8 terminal hyperlink so the URL is embedded
+ * as metadata. Modern terminals (Warp, iTerm2, Kitty, etc.) render the text as
+ * a single clickable link even when it soft-wraps across lines.
+ *
+ * Format: \e]8;params;URI\e\\ DISPLAYED_TEXT \e]8;;\e\\
+ */
+function terminalHyperlink(text: string, url: string): string {
+  return `\x1b]8;;${url}\x07${text}\x1b]8;;\x07`;
+}
 
 // Placeholder constants using Unicode private use area to avoid markdown conflicts
 const CODE_BLOCK_PLACEHOLDER_START = "\uE000";
@@ -130,16 +141,16 @@ export function formatHeadings(text: string): string {
   formatted = formatted.replace(H4_REGEX, (_match, header) => chalk.bold(header));
 
   // H3 (###)
-  formatted = formatted.replace(H3_REGEX, (_match, header) => chalk.bold.blue(header));
+  formatted = formatted.replace(H3_REGEX, (_match, header) => CHALK_THEME.heading(header));
 
   // H2 (##)
   formatted = formatted.replace(H2_REGEX, (_match, header) =>
-    chalk.bold.blue.underline(header),
+    CHALK_THEME.headingUnderline(header),
   );
 
   // H1 (#)
   formatted = formatted.replace(H1_REGEX, (_match, header) =>
-    chalk.bold.blue.underline(header),
+    CHALK_THEME.headingUnderline(header),
   );
 
   return formatted;
@@ -162,7 +173,7 @@ export function formatTaskLists(text: string): string {
     TASK_LIST_REGEX,
     (_match: string, checked: string, content: string) => {
       const isChecked = checked.toLowerCase() === "x";
-      const checkbox = isChecked ? chalk.green("✓") : chalk.gray("○");
+      const checkbox = isChecked ? CHALK_THEME.success("✓") : chalk.gray("○");
       const indent = "  ";
       return `${TASK_LIST_MARKER}${indent}${checkbox} ${content}`;
     },
@@ -232,10 +243,13 @@ export function formatHorizontalRules(text: string, terminalWidth: number = 80):
 }
 
 /**
- * Format markdown links with underlined blue text
+ * Format markdown links as clickable OSC 8 terminal hyperlinks.
+ * The URL is embedded as metadata so the link stays clickable even when text wraps.
  */
 export function formatLinks(text: string): string {
-  return text.replace(LINK_REGEX, (_match: string, linkText: string, _url: string) => chalk.blue.underline(linkText));
+  return text.replace(LINK_REGEX, (_match: string, linkText: string, url: string) =>
+    terminalHyperlink(CHALK_THEME.link(linkText), url),
+  );
 }
 
 /**
@@ -441,16 +455,16 @@ export function formatHeadingsHybrid(text: string): string {
   formatted = formatted.replace(H4_REGEX, (_match, header) => `#### ${chalk.bold(header)}`);
 
   // H3 (###)
-  formatted = formatted.replace(H3_REGEX, (_match, header) => `### ${chalk.bold.blue(header)}`);
+  formatted = formatted.replace(H3_REGEX, (_match, header) => `### ${CHALK_THEME.heading(header)}`);
 
   // H2 (##)
   formatted = formatted.replace(H2_REGEX, (_match, header) =>
-    `## ${chalk.bold.blue.underline(header)}`,
+    `## ${CHALK_THEME.headingUnderline(header)}`,
   );
 
   // H1 (#)
   formatted = formatted.replace(H1_REGEX, (_match, header) =>
-    `# ${chalk.bold.blue.underline(header)}`,
+    `# ${CHALK_THEME.headingUnderline(header)}`,
   );
 
   return formatted;
@@ -475,11 +489,12 @@ export function formatStrikethroughHybrid(text: string): string {
 }
 
 /**
- * Format links in hybrid mode - keeps [text](url) visible
+ * Format links in hybrid mode — shows [text](url) with both parts styled,
+ * wrapped in an OSC 8 hyperlink so the entire thing is clickable.
  */
 export function formatLinksHybrid(text: string): string {
   return text.replace(LINK_REGEX, (_match: string, linkText: string, url: string) =>
-    `[${chalk.blue.underline(linkText)}](${chalk.dim(url)})`,
+    terminalHyperlink(`[${CHALK_THEME.link(linkText)}](${chalk.dim(url)})`, url),
   );
 }
 

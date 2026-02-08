@@ -181,6 +181,13 @@ export function executeAgentLoop(
                 content: completion.content,
                 ...(completion.toolCalls ? { toolCalls: completion.toolCalls } : {}),
               };
+              // Add partial response to history so the model has context on next turn
+              if (completion.content.length > 0) {
+                currentMessages.push({
+                  role: "assistant",
+                  content: completion.content,
+                });
+              }
               yield* presentationService.presentWarning(agent.name, "generation stopped by user");
               finished = true;
               interrupted = true;

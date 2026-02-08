@@ -5,6 +5,7 @@ import type { LLMService } from "@/core/interfaces/llm";
 import { LLMServiceTag } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { PresentationService } from "@/core/interfaces/presentation";
+import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { LLMConfig } from "@/core/types/config";
@@ -184,6 +185,7 @@ export const Summarizer = {
   > {
     return Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
+      const presentationService = yield* PresentationServiceTag;
 
       // Check if summarization is needed
       if (!DEFAULT_CONTEXT_WINDOW_MANAGER.shouldSummarize(currentMessages)) {
@@ -200,6 +202,11 @@ export const Summarizer = {
         agentId: agent.id,
         conversationId,
       });
+
+      yield* presentationService.presentWarning(
+        agent.name,
+        "Context window ~80% full — auto-compacting conversation history...",
+      );
 
       yield* logger.info("Compacting history to preserve context...", {
         messageCount: currentMessages.length,
@@ -275,6 +282,11 @@ export const Summarizer = {
         compactedTokens: newTokens,
         tokensSaved: currentTokens - newTokens,
       });
+
+      yield* presentationService.presentWarning(
+        agent.name,
+        `Compacted ${currentMessages.length} → ${compactedMessages.length} messages (saved ~${currentTokens - newTokens} tokens)`,
+      );
 
       return compactedMessages;
     });

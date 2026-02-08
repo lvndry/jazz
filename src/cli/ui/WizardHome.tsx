@@ -3,6 +3,7 @@ import BigText from "ink-big-text";
 import Gradient from "ink-gradient";
 import SelectInput from "ink-select-input";
 import React, { useState, useEffect } from "react";
+import { THEME } from "./theme";
 import packageJson from "../../../package.json";
 
 /**
@@ -93,28 +94,24 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="cyan"
+      borderColor={THEME.primary}
       paddingX={2}
       paddingY={1}
-      width={80} // Fixed width for consistent look
+      width="100%"
+      alignItems="center"
     >
       {/* Top Header Section */}
-      <Box flexDirection="row" justifyContent="space-between" alignItems="center" marginBottom={1}>
-        <Box flexDirection="column">
-            <Gradient name="morning">
-                <BigText text="Jazz" font="tiny" />
-            </Gradient>
-            <Text dimColor>v{packageJson.version} • Agentic CLI</Text>
-        </Box>
-        <Box>
-           <Text>🎷</Text>
-        </Box>
+      <Box flexDirection="column" alignItems="center" marginBottom={1}>
+        <Gradient name="morning">
+          <BigText text="Jazz" font="tiny" />
+        </Gradient>
+        <Text dimColor>v{packageJson.version} • Agentic CLI 🎷</Text>
       </Box>
 
-      {/* Main Content Split */}
-      <Box flexDirection="row" marginTop={1}>
+      {/* Main Content — capped width so it doesn't stretch too thin */}
+      <Box flexDirection="row" marginTop={1} width={72}>
         {/* Left Column: Menu */}
-        <Box flexDirection="column" width="55%" paddingRight={2}>
+        <Box flexDirection="column" flexGrow={1} paddingRight={2}>
           <Box marginBottom={1}>
             <Text bold color="white">{title || "What would you like to do?"}</Text>
           </Box>
@@ -129,13 +126,13 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
 
         {/* Vertical Separator */}
         <Box marginRight={2}>
-            <Text dimColor>│</Text>
+          <Text dimColor>│</Text>
         </Box>
 
         {/* Right Column: Info/Tips */}
-        <Box flexDirection="column" width="40%">
+        <Box flexDirection="column" width={24}>
           <Box marginBottom={1}>
-            <Text bold color="cyan">💡 Pro Tip</Text>
+            <Text bold color={THEME.primary}>💡 Pro Tip</Text>
           </Box>
           <Box>
             <Text dimColor wrap="wrap">
@@ -148,7 +145,7 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
       {/* Footer */}
       <Box marginTop={2}>
         <Text dimColor>
-          Use <Text bold color="cyan">↑/↓</Text> to navigate, <Text bold color="cyan">Enter</Text> to select
+          Use <Text bold color={THEME.primary}>↑/↓</Text> to navigate, <Text bold color={THEME.primary}>Enter</Text> to select
         </Text>
       </Box>
     </Box>
@@ -158,7 +155,7 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
 function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): React.ReactElement {
   return (
     <Box marginRight={1}>
-      <Text color="green">
+      <Text color={THEME.selected}>
         {isSelected ? ">" : " "}
       </Text>
     </Box>
@@ -175,7 +172,7 @@ function ItemComponent({
   return (
     <Box>
       <Text
-        color={isSelected ? "green" : "white"}
+        color={isSelected ? THEME.selected : "white"}
         bold={isSelected}
       >
         {label}

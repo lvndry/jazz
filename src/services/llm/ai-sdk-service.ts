@@ -320,44 +320,85 @@ function checkProviderNativeWebSearchSupport(
 /**
  * Extract all configured providers from LLMConfig with their API keys
  */
+/**
+ * Environment variable names for each provider's API key.
+ * Used as a fallback when no key is configured in the config file.
+ */
+const PROVIDER_ENV_VARS: Record<string, string> = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  google: "GOOGLE_GENERATIVE_AI_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+  xai: "XAI_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  groq: "GROQ_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+};
+
 function getConfiguredProviders(
   llmConfig?: LLMConfig,
 ): { name: ProviderName; apiKey: string; displayName?: string }[] {
-  if (!llmConfig) return [];
   const providers: { name: ProviderName; apiKey: string; displayName?: string }[] = [];
+  const addedProviders = new Set<string>();
 
-  if (llmConfig.openai?.api_key) {
-    providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
+  if (llmConfig) {
+    if (llmConfig.openai?.api_key) {
+      providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
+      addedProviders.add("openai");
+    }
+    if (llmConfig.anthropic?.api_key) {
+      providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
+      addedProviders.add("anthropic");
+    }
+    if (llmConfig.google?.api_key) {
+      providers.push({ name: "google", apiKey: llmConfig.google.api_key });
+      addedProviders.add("google");
+    }
+    if (llmConfig.mistral?.api_key) {
+      providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
+      addedProviders.add("mistral");
+    }
+    if (llmConfig.xai?.api_key) {
+      providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
+      addedProviders.add("xai");
+    }
+    if (llmConfig.deepseek?.api_key) {
+      providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
+      addedProviders.add("deepseek");
+    }
+    if (llmConfig.openrouter?.api_key) {
+      providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
+      addedProviders.add("openrouter");
+    }
+    if (llmConfig.ai_gateway?.api_key) {
+      providers.push({
+        name: "ai_gateway",
+        displayName: "ai gateway",
+        apiKey: llmConfig.ai_gateway.api_key,
+      });
+      addedProviders.add("ai_gateway");
+    }
+    if (llmConfig.groq?.api_key) {
+      providers.push({ name: "groq", apiKey: llmConfig.groq.api_key });
+      addedProviders.add("groq");
+    }
   }
-  if (llmConfig.anthropic?.api_key) {
-    providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
+
+  // Fallback: check environment variables for providers not yet configured
+  for (const [providerName, envVar] of Object.entries(PROVIDER_ENV_VARS)) {
+    if (!addedProviders.has(providerName)) {
+      const envKey = process.env[envVar];
+      if (envKey) {
+        providers.push({ name: providerName as ProviderName, apiKey: envKey });
+        addedProviders.add(providerName);
+      }
+    }
   }
-  if (llmConfig.google?.api_key) {
-    providers.push({ name: "google", apiKey: llmConfig.google.api_key });
+
+  // Ollama is always available (no API key required)
+  if (!addedProviders.has("ollama")) {
+    providers.push({ name: "ollama", apiKey: llmConfig?.ollama?.api_key ?? "" });
   }
-  if (llmConfig.mistral?.api_key) {
-    providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
-  }
-  if (llmConfig.xai?.api_key) {
-    providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
-  }
-  if (llmConfig.deepseek?.api_key) {
-    providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
-  }
-  if (llmConfig.openrouter?.api_key) {
-    providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
-  }
-  if (llmConfig.ai_gateway?.api_key) {
-    providers.push({
-      name: "ai_gateway",
-      displayName: "ai gateway",
-      apiKey: llmConfig.ai_gateway.api_key,
-    });
-  }
-  if (llmConfig.groq?.api_key) {
-    providers.push({ name: "groq", apiKey: llmConfig.groq.api_key });
-  }
-  providers.push({ name: "ollama", apiKey: llmConfig.ollama?.api_key ?? "" });
 
   return providers;
 }

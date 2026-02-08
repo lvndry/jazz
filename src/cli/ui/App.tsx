@@ -5,17 +5,17 @@ import { ActivityView } from "./ActivityView";
 import { clearLastExpandedDiff, getLastExpandedDiff } from "./diff-expansion-store";
 import ErrorBoundary from "./ErrorBoundary";
 import { useInputHandler } from "./hooks/use-input-service";
-import { LogEntryItem } from "./LogList";
+import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { store } from "./store";
-import type { LogEntry, LogEntryInput, PromptState } from "./types";
+import type { OutputEntry, OutputEntryWithId, PromptState } from "./types";
 import { InputPriority, InputResults } from "../services/input-service";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const MAX_LOG_ENTRIES = 2000;
+const MAX_OUTPUT_ENTRIES = 2000;
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response
@@ -76,55 +76,55 @@ function PromptIsland(): React.ReactElement | null {
 }
 
 // ============================================================================
-// Log Island - Isolated state for log entries
-// Uses Static for finalized logs (Ink won't re-render them)
+// Output Island - Isolated state for output entries
+// Uses Static for finalized entries (Ink won't re-render them)
 // ============================================================================
 
-interface LogIslandState {
-  logs: LogEntry[];
-  logIdCounter: number;
+interface OutputIslandState {
+  entries: OutputEntryWithId[];
+  outputIdCounter: number;
 }
 
-function LogIsland(): React.ReactElement {
-  const [state, setState] = useState<LogIslandState>({
-    logs: [],
-    logIdCounter: 0,
+function OutputIsland(): React.ReactElement {
+  const [state, setState] = useState<OutputIslandState>({
+    entries: [],
+    outputIdCounter: 0,
   });
   const initializedRef = useRef(false);
 
-  const printOutput = useCallback((entry: LogEntryInput): string => {
+  const printOutput = useCallback((entry: OutputEntry): string => {
     let newId = "";
     setState((prev) => {
-      const id = entry.id ?? `log-${prev.logIdCounter + 1}`;
+      const id = entry.id ?? `output-${prev.outputIdCounter + 1}`;
       newId = id;
 
-      const entryWithId: LogEntry = { ...entry, id } as LogEntry;
-      const newLogs =
-        prev.logs.length >= MAX_LOG_ENTRIES
-          ? [...prev.logs.slice(1), entryWithId]
-          : [...prev.logs, entryWithId];
+      const entryWithId: OutputEntryWithId = { ...entry, id } as OutputEntryWithId;
+      const newEntries =
+        prev.entries.length >= MAX_OUTPUT_ENTRIES
+          ? [...prev.entries.slice(1), entryWithId]
+          : [...prev.entries, entryWithId];
 
       return {
-        logs: newLogs,
-        logIdCounter: prev.logIdCounter + 1,
+        entries: newEntries,
+        outputIdCounter: prev.outputIdCounter + 1,
       };
     });
     return newId;
   }, []);
 
-  const clearLogs = useCallback((): void => {
-    setState({ logs: [], logIdCounter: 0 });
+  const clearOutputs = useCallback((): void => {
+    setState({ entries: [], outputIdCounter: 0 });
   }, []);
 
   // Register store methods synchronously during render
   if (!initializedRef.current) {
     store.registerPrintOutput(printOutput);
-    store.registerClearLogs(clearLogs);
+    store.registerClearOutputs(clearOutputs);
     if (store.hasPendingClear()) {
-      clearLogs();
+      clearOutputs();
       store.consumePendingClear();
     }
-    const queued = store.drainPendingLogQueue();
+    const queued = store.drainPendingOutputQueue();
     for (const entry of queued) {
       printOutput(entry);
     }
@@ -135,24 +135,24 @@ function LogIsland(): React.ReactElement {
   useEffect(() => {
     return () => {
       store.registerPrintOutput(() => "");
-      store.registerClearLogs(() => {});
+      store.registerClearOutputs(() => {});
     };
   }, []);
 
   return (
     <>
-      {/* All logs rendered via Static — Ink paints each once and never re-renders them */}
-      {state.logs.length > 0 && (
-        <Static items={state.logs}>
-          {(log, index) => {
-            const prevLog = index > 0 ? state.logs[index - 1] : null;
+      {/* All output entries rendered via Static — Ink paints each once and never re-renders them */}
+      {state.entries.length > 0 && (
+        <Static items={state.entries}>
+          {(entry, index) => {
+            const prevEntry = index > 0 ? state.entries[index - 1] : null;
             const addSpacing =
-              log.type === "user" ||
-              (log.type === "info" && prevLog?.type === "user");
+              entry.type === "user" ||
+              (entry.type === "info" && prevEntry?.type === "user");
             return (
-              <React.Fragment key={log.id}>
-                <LogEntryItem
-                  log={log}
+              <React.Fragment key={entry.id}>
+                <OutputEntryView
+                  entry={entry}
                   addSpacing={addSpacing}
                 />
               </React.Fragment>
@@ -236,9 +236,9 @@ export function App(): React.ReactElement {
     <ErrorBoundary>
       <Box flexDirection="column">
         {/* Main Chat Area */}
-        <Box flexDirection="column" paddingX={1} marginTop={1}>
-          {/* Logs - Isolated state with Static optimization */}
-          <LogIsland />
+        <Box flexDirection="column" paddingX={3} marginTop={1}>
+          {/* Output entries - Isolated state with Static optimization */}
+          <OutputIsland />
 
           {/* Activity - Unified status + streaming response */}
           <ActivityIsland />

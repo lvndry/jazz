@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import type { ColorProfile, RenderTheme } from "@/core/types";
+import { CHALK_THEME } from "../ui/theme";
 
 /**
  * ANSI escape sequences
@@ -42,17 +43,17 @@ export function createTheme(profile: ColorProfile): RenderTheme {
 function createFullColorTheme(): RenderTheme {
   return {
     colors: {
-      thinking: chalk.blue.bold,
+      thinking: CHALK_THEME.primaryBold,
       thinkingContent: chalk.italic.gray.dim,
-      toolName: chalk.cyan,
-      toolArgs: chalk.cyan,
-      success: chalk.green,
+      toolName: CHALK_THEME.primary,
+      toolArgs: CHALK_THEME.primary,
+      success: CHALK_THEME.success,
       error: chalk.red,
       warning: chalk.yellow,
-      info: chalk.blue,
+      info: CHALK_THEME.primary,
       dim: chalk.dim,
       highlight: chalk.bold.white,
-      agentName: chalk.bold.blue,
+      agentName: CHALK_THEME.primaryBold,
     },
     icons: {
       thinking: "▸",
@@ -73,17 +74,17 @@ function createFullColorTheme(): RenderTheme {
 function createBasicColorTheme(): RenderTheme {
   return {
     colors: {
-      thinking: chalk.blue,
+      thinking: chalk.yellowBright,
       thinkingContent: chalk.gray,
-      toolName: chalk.cyan,
-      toolArgs: chalk.cyan,
+      toolName: chalk.yellowBright,
+      toolArgs: chalk.yellowBright,
       success: chalk.green,
       error: chalk.red,
       warning: chalk.yellow,
-      info: chalk.blue,
+      info: chalk.yellowBright,
       dim: chalk.gray,
       highlight: chalk.white,
-      agentName: chalk.blue,
+      agentName: chalk.yellowBright,
     },
     icons: {
       thinking: "[*]",

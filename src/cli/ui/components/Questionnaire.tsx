@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import React, { useState } from "react";
 import type { Suggestion } from "@/core/interfaces/presentation";
+import { THEME } from "../theme";
 import { TextInput } from "./TextInput";
 import { useInputHandler, InputPriority, InputResults } from "../hooks/use-input-service";
 
@@ -134,14 +135,14 @@ export function Questionnaire({
       const isSelected = selectedIndices.has(index);
       const isFocused = index === selectedIndex;
       return (
-        <Text color={isFocused ? "green" : "white"}>
+        <Text color={isFocused ? THEME.selected : "white"}>
           {isFocused ? "› " : "  "}
-          <Text color={isSelected ? "green" : "gray"}>{isSelected ? "[✓]" : "[ ]"}</Text>
+          <Text color={isSelected ? THEME.selected : "gray"}>{isSelected ? "[✓]" : "[ ]"}</Text>
         </Text>
       );
     }
     return (
-      <Text color={index === selectedIndex ? "green" : "white"} bold={index === selectedIndex}>
+      <Text color={index === selectedIndex ? THEME.selected : "white"} bold={index === selectedIndex}>
         {index === selectedIndex ? "› " : "  "}
       </Text>
     );
@@ -159,8 +160,8 @@ export function Questionnaire({
           <Box key={i} flexDirection="column">
             <Box>
               {renderIndicator(i)}
-              <Text color={isFocused ? "green" : "cyan"}> {i + 1}.</Text>
-              <Text color={isFocused ? "green" : "white"} bold={isFocused}> {label}</Text>
+              <Text color={isFocused ? THEME.selected : THEME.primary}> {i + 1}.</Text>
+              <Text color={isFocused ? THEME.selected : "white"} bold={isFocused}> {label}</Text>
             </Box>
             {description && (
               <Box paddingLeft={5}>
@@ -175,7 +176,7 @@ export function Questionnaire({
       {allowCustom && (
         <Box marginTop={suggestions.length > 0 ? 1 : 0}>
           <Box>
-            <Text color={selectedIndex === customOptionIndex ? "green" : "gray"} bold={selectedIndex === customOptionIndex}>
+            <Text color={selectedIndex === customOptionIndex ? THEME.selected : "gray"} bold={selectedIndex === customOptionIndex}>
               {selectedIndex === customOptionIndex ? "› " : "  "}
             </Text>
             {selectedIndex === customOptionIndex ? (

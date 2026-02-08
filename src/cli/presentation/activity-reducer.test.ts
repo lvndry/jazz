@@ -48,11 +48,11 @@ describe("activity-reducer", () => {
       );
 
       expect(result.activity).toBeNull();
-      expect(result.logs).toHaveLength(2);
-      expect(result.logs[0]!.type).toBe("info");
-      expect(result.logs[0]!.message).toContain("TestAgent");
-      expect(result.logs[0]!.message).toContain("openai/gpt-4");
-      expect(result.logs[1]!.type).toBe("log");
+      expect(result.outputs).toHaveLength(2);
+      expect(result.outputs[0]!.type).toBe("info");
+      expect(result.outputs[0]!.message).toContain("TestAgent");
+      expect(result.outputs[0]!.message).toContain("openai/gpt-4");
+      expect(result.outputs[1]!.type).toBe("log");
       expect(a.lastAgentHeaderWritten).toBe(true);
       expect(a.currentProvider).toBe("openai");
       expect(a.currentModel).toBe("gpt-4");
@@ -104,16 +104,16 @@ describe("activity-reducer", () => {
       expect(a.isThinking).toBe(false);
       expect(a.reasoningBuffer).toBe("");
       expect(a.completedReasoning).toBe("some reasoning");
-      // Should emit a reasoning log
-      expect(result.logs.length).toBeGreaterThan(0);
-      expect(result.logs[0]!.message).toContain("Reasoning");
+      // Should emit a reasoning log (rendered as Ink element)
+      expect(result.outputs.length).toBeGreaterThan(0);
+      expect(result.outputs[0]!.type).toBe("log");
     });
 
     test("thinking_complete with empty buffer does not log", () => {
       const a = acc({ isThinking: true, reasoningBuffer: "   " });
       const result = reduceEvent(a, { type: "thinking_complete" }, identity, stubInk);
 
-      expect(result.logs).toHaveLength(0);
+      expect(result.outputs).toHaveLength(0);
     });
 
     test("multiple thinking sessions accumulate reasoning with separator", () => {
@@ -188,6 +188,30 @@ describe("activity-reducer", () => {
   });
 
   // -------------------------------------------------------------------------
+  // text memory limits
+  // -------------------------------------------------------------------------
+
+  describe("text memory limits", () => {
+    test("caps liveText to MAX_LIVE_TEXT_LENGTH (200k)", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+
+      // Build a string exceeding 200k
+      const bigText = "x".repeat(250_000);
+      reduceEvent(
+        a,
+        { type: "text_chunk", delta: bigText, accumulated: bigText, sequence: 0 },
+        identity,
+        stubInk,
+      );
+
+      expect(a.liveText.length).toBe(200_000);
+      // Should keep the tail (most recent content)
+      expect(a.liveText).toBe(bigText.slice(-200_000));
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // tool execution
   // -------------------------------------------------------------------------
 
@@ -212,8 +236,8 @@ describe("activity-reducer", () => {
         expect(result.activity!.tools).toHaveLength(1);
         expect(result.activity!.tools[0]!.toolName).toBe("execute_bash");
       }
-      expect(result.logs.length).toBeGreaterThan(0);
-      expect(result.logs[0]!.message).toContain("execute_bash");
+      expect(result.outputs.length).toBeGreaterThan(0);
+      expect(result.outputs[0]!.type).toBe("log");
     });
 
     test("tool_execution_complete removes tool and transitions to idle when last", () => {
@@ -234,8 +258,8 @@ describe("activity-reducer", () => {
 
       expect(a.activeTools.size).toBe(0);
       expect(result.activity!.phase).toBe("idle");
-      expect(result.logs.length).toBeGreaterThan(0);
-      expect(result.logs[0]!.type).toBe("success");
+      expect(result.outputs.length).toBeGreaterThan(0);
+      expect(result.outputs[0]!.type).toBe("log");
     });
 
     test("tool_execution_complete keeps tool-execution phase when other tools remain", () => {
@@ -276,9 +300,11 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      expect(result.logs).toHaveLength(2);
-      expect(result.logs[0]!.type).toBe("success");
-      expect(result.logs[1]!.type).toBe("log");
+      expect(result.outputs).toHaveLength(3);
+      expect(result.outputs[0]!.type).toBe("log");
+      expect(result.outputs[1]!.type).toBe("log");
+      // Third log is the spacing entry
+      expect(result.outputs[2]!.message).toBe("");
     });
   });
 
@@ -302,8 +328,8 @@ describe("activity-reducer", () => {
       );
 
       expect(result.activity).toBeNull();
-      expect(result.logs).toHaveLength(1);
-      expect(result.logs[0]!.type).toBe("info");
+      expect(result.outputs).toHaveLength(1);
+      expect(result.outputs[0]!.type).toBe("info");
     });
   });
 
@@ -326,8 +352,8 @@ describe("activity-reducer", () => {
       if (result.activity!.phase === "error") {
         expect(result.activity!.message).toBe("rate limited");
       }
-      expect(result.logs).toHaveLength(1);
-      expect(result.logs[0]!.type).toBe("error");
+      expect(result.outputs).toHaveLength(1);
+      expect(result.outputs[0]!.type).toBe("error");
     });
   });
 
@@ -350,7 +376,7 @@ describe("activity-reducer", () => {
       );
 
       expect(result.activity).toEqual({ phase: "complete" });
-      expect(result.logs).toHaveLength(0);
+      expect(result.outputs).toHaveLength(0);
     });
   });
 
@@ -372,7 +398,7 @@ describe("activity-reducer", () => {
       );
 
       expect(result.activity).toBeNull();
-      expect(result.logs).toHaveLength(0);
+      expect(result.outputs).toHaveLength(0);
     });
   });
 
