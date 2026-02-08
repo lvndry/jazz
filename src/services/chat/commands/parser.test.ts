@@ -15,12 +15,6 @@ describe("parseSpecialCommand", () => {
       expect(result.args).toEqual([]);
     });
 
-    it("should parse /status command", () => {
-      const result = parseSpecialCommand("/status");
-      expect(result.type).toBe("status");
-      expect(result.args).toEqual([]);
-    });
-
     it("should parse /clear command", () => {
       const result = parseSpecialCommand("/clear");
       expect(result.type).toBe("clear");
@@ -60,6 +54,18 @@ describe("parseSpecialCommand", () => {
     it("should parse /workflows command with no args", () => {
       const result = parseSpecialCommand("/workflows");
       expect(result.type).toBe("workflows");
+      expect(result.args).toEqual([]);
+    });
+
+    it("should parse /stats command", () => {
+      const result = parseSpecialCommand("/stats");
+      expect(result.type).toBe("stats");
+      expect(result.args).toEqual([]);
+    });
+
+    it("should parse /mcp command", () => {
+      const result = parseSpecialCommand("/mcp");
+      expect(result.type).toBe("mcp");
       expect(result.args).toEqual([]);
     });
   });
