@@ -325,10 +325,10 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         // Generate full diff for Ctrl+O expansion
         if (!simulationError) {
           const newContent = resultLines.join("\n");
-          const { diff: previewDiff } = generateDiffWithMetadata(fileContent, newContent, target, {
+          const { diff } = generateDiffWithMetadata(fileContent, newContent, target, {
             maxLines: Number.POSITIVE_INFINITY,
           });
-          return { message, previewDiff };
+          return { message, previewDiff: diff };
         }
 
         return message;

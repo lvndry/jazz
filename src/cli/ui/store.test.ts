@@ -148,4 +148,34 @@ describe("UIStore", () => {
       expect(calls).toHaveLength(1);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Expandable diff
+  // -------------------------------------------------------------------------
+
+  describe("expandable diff", () => {
+    test("returns null when no diff is set", () => {
+      const s = new UIStore();
+      expect(s.getExpandableDiff()).toBeNull();
+    });
+
+    test("stores and retrieves diff", () => {
+      const s = new UIStore();
+      s.setExpandableDiff("--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new");
+
+      const payload = s.getExpandableDiff();
+      expect(payload).not.toBeNull();
+      expect(payload!.fullDiff).toBe("--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new");
+      expect(payload!.timestamp).toBeGreaterThan(0);
+    });
+
+    test("clear resets to null", () => {
+      const s = new UIStore();
+      s.setExpandableDiff("diff content");
+      expect(s.getExpandableDiff()).not.toBeNull();
+
+      s.clearExpandableDiff();
+      expect(s.getExpandableDiff()).toBeNull();
+    });
+  });
 });

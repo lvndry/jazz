@@ -5,10 +5,9 @@ import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool } from "./base-tool";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
-const RESPONSE_TYPES = ["json", "text", "bytes"] as const;
 
 type HttpMethod = (typeof HTTP_METHODS)[number];
-type ResponseType = (typeof RESPONSE_TYPES)[number];
+type ResponseType = "json" | "text" | "bytes";
 
 type QueryValue = string | number | boolean;
 
@@ -131,10 +130,6 @@ const HttpRequestSchema = z
       .max(5_000_000, "maxResponseBytes cannot exceed 5MB.")
       .optional()
       .describe("Maximum response size in bytes before truncation (default: 1MB)."),
-    responseType: z
-      .enum(RESPONSE_TYPES)
-      .optional()
-      .describe("How to interpret the response body (default: json)."),
     cacheTtlSeconds: z
       .number()
       .int("Cache TTL must be an integer number of seconds.")
@@ -370,7 +365,6 @@ export function createHttpRequestTool(): Tool<never> {
     handler: (args: HttpRequestArgs, _context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const method = args.method;
-        const responseType = args.responseType ?? "json";
 
         let urlInstance: URL;
         try {
@@ -465,6 +459,21 @@ export function createHttpRequestTool(): Tool<never> {
           return response;
         }
 
+        const effectiveResponseType: ResponseType = (() => {
+          const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+          if (contentType.includes("application/json")) {
+            return "json";
+          }
+          if (
+            contentType.startsWith("image/") ||
+            contentType.startsWith("audio/") ||
+            contentType.startsWith("video/")
+          ) {
+            return "bytes";
+          }
+          return "text";
+        })();
+
         const elapsedMs = Date.now() - start;
 
         const rawArrayBuffer = yield* Effect.tryPromise({
@@ -494,7 +503,7 @@ export function createHttpRequestTool(): Tool<never> {
         const bodyText = decoder.decode(bytes);
 
         let body: HttpResponseBody;
-        switch (responseType) {
+        switch (effectiveResponseType) {
           case "json": {
             const parsed = parseJsonBody(bodyText);
             if (parsed.error) {
@@ -562,7 +571,7 @@ export function createHttpRequestTool(): Tool<never> {
             timeoutMs,
             followRedirects,
             maxResponseBytes,
-            responseType,
+            responseType: effectiveResponseType,
           },
           response: {
             status: response.status,

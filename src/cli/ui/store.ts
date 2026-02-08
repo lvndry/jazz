@@ -6,6 +6,11 @@ type PrintOutputHandler = (entry: OutputEntry) => string;
 
 const MAX_PENDING_OUTPUT_QUEUE = 2000;
 
+export interface ExpandableDiffPayload {
+  readonly fullDiff: string;
+  readonly timestamp: number;
+}
+
 export class UIStore {
   // Output handlers
   private printOutputHandler: PrintOutputHandler | null = null;
@@ -13,6 +18,9 @@ export class UIStore {
   private pendingOutputQueue: OutputEntry[] = [];
   private _pendingClear = false;
   private pendingOutputIdCounter = 0;
+
+  // Expandable diff for Ctrl+O expansion
+  private expandableDiff: ExpandableDiffPayload | null = null;
 
   // Snapshots (kept in sync so late-registering components can hydrate)
   private promptSnapshot: PromptState | null = null;
@@ -63,6 +71,18 @@ export class UIStore {
   setCustomView = (_view: React.ReactNode | null): void => {};
 
   setInterruptHandler = (_handler: (() => void) | null): void => {};
+
+  setExpandableDiff = (fullDiff: string): void => {
+    this.expandableDiff = { fullDiff, timestamp: Date.now() };
+  };
+
+  getExpandableDiff = (): ExpandableDiffPayload | null => {
+    return this.expandableDiff;
+  };
+
+  clearExpandableDiff = (): void => {
+    this.expandableDiff = null;
+  };
 
   clearOutputs = (): void => {
     if (!this.clearOutputsHandler) {

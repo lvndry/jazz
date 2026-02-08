@@ -24,8 +24,8 @@ const gitCommitParameters = z
       .describe(
         "Path to a file or directory in the Git repository (defaults to current working directory)",
       ),
-    message: z.string().min(1).describe("Commit message"),
-    all: z.boolean().optional().describe("Commit all changes in the working directory"),
+    message: z.string().min(1).describe("Commit message describing the changes. Use imperative mood (e.g., 'Add user authentication', 'Fix login redirect bug'). Keep the first line under 72 characters."),
+    all: z.boolean().optional().describe("Commit all modified tracked files (skips staging). Prefer using git_add + git_commit separately for more control over what's included."),
   })
   .strict();
 
@@ -35,7 +35,7 @@ export function createGitCommitTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitCommitArgs> = {
     name: "git_commit",
     description:
-      "Create a commit to permanently record staged changes in the repository history. Requires a commit message describing the changes. Can commit all staged changes or all working directory changes.",
+      "Create a git commit from staged changes. Always use git_add first to stage specific files, then commit. Write clear, descriptive commit messages that explain WHY the change was made (not just what changed). If a commit-message skill is available, use it for generating conventional commit messages.",
     tags: ["git", "commit"],
     parameters: gitCommitParameters,
     validate: (args) => {

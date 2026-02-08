@@ -23,7 +23,6 @@ import { createAccumulator, reduceEvent } from "./activity-reducer";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
-import { setLastExpandedDiff } from "../ui/diff-expansion-store";
 import { store } from "../ui/store";
 import { CHALK_THEME, THEME } from "../ui/theme";
 
@@ -329,7 +328,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       const fullDiff = obj["fullDiff"];
       const wasTruncated = obj["wasTruncated"];
       if (typeof fullDiff === "string" && fullDiff.length > 0 && wasTruncated === true) {
-        setLastExpandedDiff(fullDiff);
+        store.setExpandableDiff(fullDiff);
       }
     } catch {
       // Ignore parse errors
@@ -638,7 +637,7 @@ class InkPresentationService implements PresentationService {
 
     // Store preview diff for Ctrl+O expansion
     if (request.previewDiff) {
-      setLastExpandedDiff(request.previewDiff);
+      store.setExpandableDiff(request.previewDiff);
     }
 
     // Use confirm prompt (default to Yes for faster workflow)

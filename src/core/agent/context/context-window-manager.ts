@@ -7,21 +7,17 @@ import type { ChatMessage, ConversationMessages } from "@/core/types/message";
  * Configuration for context window management
  */
 export interface ContextWindowConfig {
-  /** Maximum number of tokens to keep in history (heuristic) */
-  readonly maxTokens?: number;
-
-  /** Maximum number of messages to keep in history */
-  readonly maxMessages: number;
-
-  /** Strategy for trimming messages */
-  readonly strategy?: "recent" | "semantic" | "token-based";
+  /** Maximum number of tokens to keep in history */
+  readonly maxTokens: number;
 
   /**
-   * Number of recent messages to always keep intact (never trim).
-   * This protects recent tool call/result pairs from being broken.
-   * Default: 10
+   * Number of recent turns to always keep intact (never trim).
+   * A turn is a user message plus all subsequent assistant/tool messages
+   * until the next user message. This ensures complete interaction cycles
+   * (including all tool calls) are preserved.
+   * Default: 2
    */
-  readonly protectedRecentMessages?: number;
+  readonly protectedRecentTurns?: number;
 }
 
 /**
@@ -100,21 +96,40 @@ export class ContextWindowManager {
     never,
     LoggerService | AgentConfigService
   > {
-    const currentTokens = this.config.maxTokens ? this.calculateTotalTokens(messages) : 0;
-    const needsTokenTrim =
-      this.config.maxTokens !== undefined && currentTokens > this.config.maxTokens;
-    const needsMessageTrim = messages.length > this.config.maxMessages;
-
-    if (!needsMessageTrim && !needsTokenTrim) {
+    const currentTokens = this.calculateTotalTokens(messages);
+    if (currentTokens <= this.config.maxTokens) {
       return Effect.succeed({ messages, result: undefined });
     }
 
     const originalLength = messages.length;
-    const protectedCount = this.config.protectedRecentMessages ?? 10;
+    const protectedTurns = this.config.protectedRecentTurns ?? 2;
 
-    // Step 1: Identify protected zone (last N messages are never trimmed)
-    // This prevents breaking recent tool call/result pairs
-    const protectedStartIndex = Math.max(1, messages.length - protectedCount);
+    // Step 1: Identify protected zone — last N complete turns.
+    // A turn starts at each "user" message and includes all subsequent
+    // assistant/tool messages until the next user message.
+    // Scan backwards to find the start index of the Nth-from-last turn.
+    let turnsFound = 0;
+    let protectedStartIndex = messages.length; // nothing protected yet
+    for (let i = messages.length - 1; i >= 1; i--) {
+      if (messages[i]?.role === "user") {
+        turnsFound++;
+        if (turnsFound >= protectedTurns) {
+          protectedStartIndex = i;
+          break;
+        }
+      }
+    }
+    // If we didn't find enough turns, protect from index 1 (after system)
+    if (turnsFound < protectedTurns && turnsFound > 0) {
+      // Find the earliest user message (after system)
+      for (let i = 1; i < messages.length; i++) {
+        if (messages[i]?.role === "user") {
+          protectedStartIndex = i;
+          break;
+        }
+      }
+    }
+
     const protectedIndices = new Set<number>();
     for (let i = protectedStartIndex; i < messages.length; i++) {
       protectedIndices.add(i);
@@ -145,7 +160,6 @@ export class ContextWindowManager {
     // Step 4: Scan backwards from the message before protected zone to collect messages until limit reached
     const recentIndices: number[] = [];
     let accumulatedTokens = systemTokens + protectedTokens;
-    let accumulatedMessages = 1 + protectedIndices.size; // System message + protected messages
 
     for (let i = protectedStartIndex - 1; i >= 1; i--) {
       const msg = messages[i];
@@ -153,18 +167,12 @@ export class ContextWindowManager {
 
       const tokens = this.estimateTokensCached(msg);
 
-      // Check limits
-      const willExceedMessages = accumulatedMessages + 1 > this.config.maxMessages;
-      const willExceedTokens =
-        this.config.maxTokens !== undefined && accumulatedTokens + tokens > this.config.maxTokens;
-
-      if (willExceedMessages || willExceedTokens) {
+      if (accumulatedTokens + tokens > this.config.maxTokens) {
         break;
       }
 
       recentIndices.push(i);
       accumulatedTokens += tokens;
-      accumulatedMessages += 1;
     }
 
     // Reverse to get chronological order [oldest ... newest]
@@ -218,9 +226,8 @@ export class ContextWindowManager {
         agentId,
         conversationId,
         limits: {
-          maxMessages: this.config.maxMessages,
           maxTokens: this.config.maxTokens,
-          protectedRecentMessages: protectedCount,
+          protectedRecentTurns: protectedTurns,
         },
         originalCount: trimResult.originalCount,
         trimmedCount: trimResult.trimmedCount,
@@ -233,11 +240,7 @@ export class ContextWindowManager {
    * Check if messages need trimming
    */
   needsTrimming(messages: ChatMessage[]): boolean {
-    if (messages.length > this.config.maxMessages) return true;
-    if (this.config.maxTokens) {
-      return this.calculateTotalTokens(messages) > this.config.maxTokens;
-    }
-    return false;
+    return this.calculateTotalTokens(messages) > this.config.maxTokens;
   }
 
   /**
@@ -245,11 +248,8 @@ export class ContextWindowManager {
    * This provides early warning before hitting the hard limit
    */
   shouldSummarize(messages: ChatMessage[]): boolean {
-    if (!this.config.maxTokens) return false;
-
     const currentTokens = this.calculateTotalTokens(messages);
     const threshold = this.config.maxTokens * 0.8; // 80% threshold
-
     return currentTokens > threshold;
   }
 
@@ -262,11 +262,9 @@ export class ContextWindowManager {
 }
 
 /**
- * Default context window manager with 200 message limit
+ * Default context window manager with 50K token limit
  */
 export const DEFAULT_CONTEXT_WINDOW_MANAGER = new ContextWindowManager({
-  maxMessages: 200,
-  maxTokens: 150_000,
-  strategy: "token-based",
-  protectedRecentMessages: 10,
+  maxTokens: 50_000,
+  protectedRecentTurns: 3,
 });

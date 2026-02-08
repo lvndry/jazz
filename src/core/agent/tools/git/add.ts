@@ -24,8 +24,8 @@ const gitAddParameters = z
       .describe(
         "Path to a file or directory in the Git repository (defaults to current working directory)",
       ),
-    files: z.array(z.string()).min(1).describe("Files to add to the staging area"),
-    all: z.boolean().optional().describe("Add all changes in the working directory"),
+    files: z.array(z.string()).min(1).describe("Specific file paths to stage (e.g., ['src/index.ts', 'README.md']). Prefer listing explicit files over using 'all'."),
+    all: z.boolean().optional().describe("Stage ALL modified and untracked files. Use with caution — prefer listing specific files to avoid staging unrelated changes."),
   })
   .strict();
 
@@ -35,7 +35,7 @@ export function createGitAddTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitAddArgs> = {
     name: "git_add",
     description:
-      "Stage files for commit by adding them to Git's index. Prepares changes to be included in the next commit. Can stage specific files or all changes.",
+      "Stage files for the next git commit. Always run git_status first to see what's changed, then stage specific files by path. Prefer staging specific files over using 'all: true' to avoid accidentally committing unrelated changes. Use git_diff with staged: true to review what you're about to commit.",
     tags: ["git", "index"],
     parameters: gitAddParameters,
     validate: (args) => {
