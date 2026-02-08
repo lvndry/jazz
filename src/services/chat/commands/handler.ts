@@ -643,24 +643,29 @@ function handleConfigCommand(
       const agentToolSet = new Set(agentToolNames);
 
       const choices = allToolNames.map((tool) => ({
-        name: `${agentToolSet.has(tool) ? "[x]" : "[ ]"} ${tool}`,
+        name: tool,
         value: tool,
       }));
 
-      const selectedTool = yield* terminal.select<string>("Toggle a tool:", { choices });
+      const selected = yield* terminal.checkbox<string>("Select tools to enable:", {
+        choices,
+        default: agentToolNames,
+      });
 
-      if (!selectedTool) {
-        return { shouldContinue: true };
+      const newTools = [...selected];
+
+      // Report changes
+      const added = newTools.filter((t) => !agentToolSet.has(t));
+      const removed = agentToolNames.filter((t) => !newTools.includes(t));
+      for (const tool of added) {
+        yield* terminal.success(`Enabled tool: ${tool}`);
       }
-
-      // Toggle the selected tool
-      let newTools: string[];
-      if (agentToolSet.has(selectedTool)) {
-        newTools = agentToolNames.filter((t) => t !== selectedTool);
-        yield* terminal.success(`Disabled tool: ${selectedTool}`);
-      } else {
-        newTools = [...agentToolNames, selectedTool];
-        yield* terminal.success(`Enabled tool: ${selectedTool}`);
+      for (const tool of removed) {
+        yield* terminal.success(`Disabled tool: ${tool}`);
+      }
+      if (added.length === 0 && removed.length === 0) {
+        yield* terminal.info("No changes made.");
+        return { shouldContinue: true };
       }
 
       const updatedConfig = { ...agent.config, tools: newTools };
