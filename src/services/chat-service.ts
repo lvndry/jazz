@@ -92,6 +92,7 @@ export class ChatServiceImpl implements ChatService {
       let conversationHistory: ChatMessage[] = [];
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
+      const sessionStartedAt = new Date();
 
       // Bound conversation history to prevent unbounded memory growth.
       // The agent's own ContextWindowManager (50K tokens) handles per-turn
@@ -175,6 +176,7 @@ export class ChatServiceImpl implements ChatService {
               conversationHistory,
               sessionId,
               sessionUsage,
+              sessionStartedAt,
             });
 
             if (commandResult.newConversationId !== undefined) {

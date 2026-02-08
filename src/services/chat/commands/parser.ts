@@ -22,8 +22,6 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "new", args };
     case "help":
       return { type: "help", args };
-    case "status":
-      return { type: "status", args };
     case "clear":
       return { type: "clear", args };
     case "tools":
@@ -48,6 +46,10 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "cost", args };
     case "workflows":
       return { type: "workflows", args };
+    case "stats":
+      return { type: "stats", args };
+    case "mcp":
+      return { type: "mcp", args };
     default:
       return { type: "unknown", args: [command, ...args] };
   }

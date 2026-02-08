@@ -15,6 +15,12 @@ import {
 } from "@/core/interfaces/fs";
 import type { LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
+import {
+  MCPServerManagerTag,
+  isStdioConfig,
+  isHttpConfig,
+  type MCPServerManager,
+} from "@/core/interfaces/mcp-server";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import {
@@ -57,6 +63,7 @@ export function handleSpecialCommand(
   | ToolRequirements
   | SkillService
   | WorkflowService
+  | MCPServerManager
 > {
   const { agent, conversationId, conversationHistory, sessionId } = context;
 
@@ -69,9 +76,6 @@ export function handleSpecialCommand(
 
       case "help":
         return yield* handleHelpCommand(terminal);
-
-      case "status":
-        return yield* handleStatusCommand(terminal, agent, conversationId, conversationHistory);
 
       case "tools":
         return yield* handleToolsCommand(terminal, agent);
@@ -111,6 +115,12 @@ export function handleSpecialCommand(
 
       case "workflows":
         return yield* handleWorkflowsCommand(terminal);
+
+      case "stats":
+        return yield* handleStatsCommand(terminal, agent, context);
+
+      case "mcp":
+        return yield* handleMcpCommand(terminal);
 
       case "clear":
         return yield* handleClearCommand(terminal, agent);
@@ -153,7 +163,6 @@ function handleHelpCommand(
   return Effect.gen(function* () {
     yield* terminal.heading("📖 Available special commands");
     yield* terminal.log("   /new             - Start a new conversation (clear context)");
-    yield* terminal.log("   /status          - Show current conversation status");
     yield* terminal.log("   /tools           - List all agent tools by category");
     yield* terminal.log("   /agents          - List all available agents");
     yield* terminal.log(
@@ -170,37 +179,10 @@ function handleHelpCommand(
     yield* terminal.log(
       "   /workflows [action] - List workflows, or send action (e.g. create) to the agent",
     );
+    yield* terminal.log("   /stats           - Show session statistics and usage summary");
+    yield* terminal.log("   /mcp             - Show MCP server status and connections");
     yield* terminal.log("   /help            - Show this help message");
     yield* terminal.log("   /exit            - Exit the chat");
-    yield* terminal.log("");
-    return { shouldContinue: true };
-  });
-}
-
-/**
- * Handle /status command - Show conversation status
- */
-function handleStatusCommand(
-  terminal: TerminalService,
-  agent: CommandContext["agent"],
-  conversationId: string | undefined,
-  conversationHistory: CommandContext["conversationHistory"],
-): Effect.Effect<CommandResult, never, FileSystemContextService> {
-  return Effect.gen(function* () {
-    yield* terminal.heading("📊 Conversation Status");
-    yield* terminal.log(`   Agent: ${agent.name} (${agent.id})`);
-    yield* terminal.log(`   Conversation ID: ${conversationId || "Not started"}`);
-    yield* terminal.log(`   Messages in history: ${conversationHistory.length}`);
-    yield* terminal.log(`   Agent type: ${agent.config.agentType}`);
-    yield* terminal.log(`   Model: ${agent.config.llmProvider}/${agent.config.llmModel}`);
-    yield* terminal.log(`   Reasoning effort: ${agent.config.reasoningEffort}`);
-    const totalTools = agent.config.tools?.length ?? 0;
-    yield* terminal.log(`   Tools: ${totalTools} available`);
-    const fileSystemContext = yield* FileSystemContextServiceTag;
-    const workingDirectory = yield* fileSystemContext.getCwd(
-      conversationId ? { agentId: agent.id, conversationId } : { agentId: agent.id },
-    );
-    yield* terminal.log(`   Working directory: ${workingDirectory}`);
     yield* terminal.log("");
     return { shouldContinue: true };
   });
@@ -845,6 +827,109 @@ function handleSkillsCommand(
     yield* terminal.log(formattedSkill);
     yield* terminal.log("");
 
+    return { shouldContinue: true };
+  });
+}
+
+/**
+ * Handle /stats command - Show session statistics and usage summary
+ */
+function handleStatsCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  context: CommandContext,
+): Effect.Effect<CommandResult, never, FileSystemContextService> {
+  return Effect.gen(function* () {
+    yield* terminal.heading("Session Statistics");
+
+    // Session duration
+    const now = new Date();
+    const elapsed = now.getTime() - context.sessionStartedAt.getTime();
+    const seconds = Math.floor(elapsed / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const durationParts: string[] = [];
+    if (hours > 0) durationParts.push(`${hours}h`);
+    if (minutes % 60 > 0 || hours > 0) durationParts.push(`${minutes % 60}m`);
+    durationParts.push(`${seconds % 60}s`);
+    const duration = durationParts.join(" ");
+
+    yield* terminal.log(`   Agent:      ${agent.name} (${agent.id})`);
+    yield* terminal.log(`   Model:      ${agent.config.llmProvider}/${agent.config.llmModel}`);
+    yield* terminal.log(`   Reasoning:  ${agent.config.reasoningEffort ?? "default"}`);
+    const totalTools = agent.config.tools?.length ?? 0;
+    yield* terminal.log(`   Tools:      ${totalTools} available`);
+
+    const fileSystemContext = yield* FileSystemContextServiceTag;
+    const workingDirectory = yield* fileSystemContext.getCwd(
+      context.conversationId ? { agentId: agent.id, conversationId: context.conversationId } : { agentId: agent.id },
+    );
+    yield* terminal.log(`   Directory:  ${workingDirectory}`);
+
+    yield* terminal.log("");
+    yield* terminal.log(`   Duration:   ${duration}`);
+    yield* terminal.log(`   Messages:   ${context.conversationHistory.length}`);
+
+    const { promptTokens, completionTokens } = context.sessionUsage;
+    const totalTokens = promptTokens + completionTokens;
+    yield* terminal.log(`   Tokens:     ${totalTokens.toLocaleString()} (in: ${promptTokens.toLocaleString()}, out: ${completionTokens.toLocaleString()})`);
+
+    // Estimated cost
+    const meta = yield* Effect.promise(() =>
+      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+    );
+    const inputPricePerMillion = meta?.inputPricePerMillion ?? 0;
+    const outputPricePerMillion = meta?.outputPricePerMillion ?? 0;
+    const inputCost = (promptTokens / 1_000_000) * inputPricePerMillion;
+    const outputCost = (completionTokens / 1_000_000) * outputPricePerMillion;
+    const totalCost = inputCost + outputCost;
+    yield* terminal.log(`   Est. cost:  ${formatUsd(totalCost)}`);
+
+    yield* terminal.log("");
+    return { shouldContinue: true };
+  });
+}
+
+/**
+ * Handle /mcp command - Show MCP server status and connections
+ */
+function handleMcpCommand(
+  terminal: TerminalService,
+): Effect.Effect<CommandResult, never, MCPServerManager | AgentConfigService> {
+  return Effect.gen(function* () {
+    const mcpManager = yield* MCPServerManagerTag;
+    const servers = yield* mcpManager.listServers();
+
+    yield* terminal.heading("MCP Servers");
+
+    if (servers.length === 0) {
+      yield* terminal.info("No MCP servers configured.");
+      yield* terminal.log("   Add servers in your agent config or ~/.jazz/config.json");
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    for (const server of servers) {
+      const connected = yield* mcpManager.isConnected(server.name);
+      const enabledStr = server.enabled === false ? "disabled" : "enabled";
+      const connectedStr = connected ? "connected" : "disconnected";
+      const statusIcon = connected ? "●" : "○";
+
+      yield* terminal.log(`   ${statusIcon} ${server.name}`);
+      yield* terminal.log(`     Status:    ${enabledStr}, ${connectedStr}`);
+      yield* terminal.log(`     Transport: ${server.transport ?? "stdio"}`);
+
+      if (isStdioConfig(server)) {
+        yield* terminal.log(`     Command:   ${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`);
+      } else if (isHttpConfig(server)) {
+        yield* terminal.log(`     URL:       ${server.url}`);
+      }
+
+      yield* terminal.log("");
+    }
+
+    yield* terminal.log(`   Total: ${servers.length} server(s)`);
+    yield* terminal.log("");
     return { shouldContinue: true };
   });
 }

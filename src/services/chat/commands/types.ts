@@ -7,7 +7,6 @@ import type { ChatMessage } from "@/core/types/message";
 export type CommandType =
   | "new"
   | "help"
-  | "status"
   | "clear"
   | "tools"
   | "agents"
@@ -20,6 +19,8 @@ export type CommandType =
   | "context"
   | "cost"
   | "workflows"
+  | "stats"
+  | "mcp"
   | "unknown";
 
 /**
@@ -60,4 +61,6 @@ export interface CommandContext {
   sessionId: string;
   /** Accumulated input/output tokens for this session (reset on /new). */
   sessionUsage: SessionUsage;
+  /** Timestamp when the chat session started (for /stats duration). */
+  sessionStartedAt: Date;
 }

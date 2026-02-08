@@ -10,7 +10,6 @@ export interface ChatCommandInfo {
 export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "new", description: "Start a new conversation (clear context)" },
   { name: "help", description: "Show this help message" },
-  { name: "status", description: "Show current conversation status" },
   { name: "tools", description: "List all agent tools by category" },
   { name: "agents", description: "List all available agents" },
   { name: "switch", description: "Switch to a different agent in the same conversation" },
@@ -23,6 +22,8 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "config", description: "Show or modify agent configuration" },
   { name: "skills", description: "List and view available skills" },
   { name: "workflows", description: "List workflows or send action (e.g. create) to the agent" },
+  { name: "stats", description: "Show session statistics and usage summary" },
+  { name: "mcp", description: "Show MCP server status and connections" },
   { name: "exit", description: "Exit the chat" },
 ] as const;
 
