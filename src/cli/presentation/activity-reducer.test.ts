@@ -188,6 +188,30 @@ describe("activity-reducer", () => {
   });
 
   // -------------------------------------------------------------------------
+  // text memory limits
+  // -------------------------------------------------------------------------
+
+  describe("text memory limits", () => {
+    test("caps liveText to MAX_LIVE_TEXT_LENGTH (200k)", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+
+      // Build a string exceeding 200k
+      const bigText = "x".repeat(250_000);
+      reduceEvent(
+        a,
+        { type: "text_chunk", delta: bigText, accumulated: bigText, sequence: 0 },
+        identity,
+        stubInk,
+      );
+
+      expect(a.liveText.length).toBe(200_000);
+      // Should keep the tail (most recent content)
+      expect(a.liveText).toBe(bigText.slice(-200_000));
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // tool execution
   // -------------------------------------------------------------------------
 

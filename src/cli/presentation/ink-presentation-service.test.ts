@@ -263,6 +263,92 @@ describe("InkStreamingRenderer", () => {
     });
   });
 
+  describe("throttle behavior", () => {
+    test("latest activity wins when multiple arrive within throttle window", async () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      // Fire 3 text_chunks rapidly — all within 30ms throttle window
+      Effect.runSync(renderer.handleEvent({
+        type: "text_chunk",
+        delta: "A",
+        accumulated: "A",
+        sequence: 0,
+      }));
+      Effect.runSync(renderer.handleEvent({
+        type: "text_chunk",
+        delta: "B",
+        accumulated: "AB",
+        sequence: 1,
+      }));
+      Effect.runSync(renderer.handleEvent({
+        type: "text_chunk",
+        delta: "C",
+        accumulated: "ABC",
+        sequence: 2,
+      }));
+
+      // Wait for throttle to flush
+      await new Promise((r) => setTimeout(r, 60));
+
+      const streaming = setActivityCalls.filter(
+        (s): s is Extract<ActivityState, { phase: "streaming" }> =>
+          s.phase === "streaming" && s.text.length > 0,
+      );
+      expect(streaming.length).toBeGreaterThan(0);
+      // The final flushed state must reflect the latest chunk, not an intermediate one
+      const last = streaming[streaming.length - 1]!;
+      expect(last.text).toBe("ABC");
+    });
+  });
+
+  describe("non-streaming complete (fallback path)", () => {
+    test("uses AgentResponseCard when no stream_start was emitted", () => {
+      // Create renderer without emitting stream_start — simulates non-streaming response
+      const renderer = createRenderer();
+
+      printOutputCalls.length = 0;
+
+      Effect.runSync(renderer.handleEvent({
+        type: "complete",
+        response: { content: "Non-streamed answer", role: "assistant", usage: undefined, toolCalls: [] },
+        totalDurationMs: 50,
+      }));
+
+      // Should emit an info entry (agent name header) followed by a log entry (response card)
+      const infoEntries = printOutputCalls.filter((e) => e.type === "info");
+      const logEntries = printOutputCalls.filter((e) => e.type === "log");
+      expect(infoEntries.length).toBeGreaterThan(0);
+      expect(logEntries.length).toBeGreaterThan(0);
+
+      // The log entry should be an Ink node (AgentResponseCard)
+      const responseEntry = logEntries[0]!;
+      const msg = responseEntry.message;
+      if (typeof msg === "object" && msg !== null && "_tag" in msg) {
+        expect(msg._tag).toBe("ink");
+      }
+    });
+
+    test("does not print when response content is empty", () => {
+      const renderer = createRenderer();
+
+      printOutputCalls.length = 0;
+
+      Effect.runSync(renderer.handleEvent({
+        type: "complete",
+        response: { content: "", role: "assistant", usage: undefined, toolCalls: [] },
+        totalDurationMs: 50,
+      }));
+
+      // No info or log entries for the response body (only activity:idle)
+      const contentEntries = printOutputCalls.filter(
+        (e) => (e.type === "info" || e.type === "log") && e.message !== "",
+      );
+      expect(contentEntries).toHaveLength(0);
+    });
+  });
+
   describe("reset", () => {
     test("clears activity to idle", () => {
       const renderer = createRenderer();
