@@ -994,9 +994,6 @@ class AISDKService implements LLMService {
     const abortController = new AbortController();
 
     const responseDeferred = createDeferred<ChatCompletionResponse>();
-    void responseDeferred.promise.catch((err) => {
-      throw err;
-    });
 
 
 

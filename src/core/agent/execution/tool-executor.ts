@@ -52,27 +52,37 @@ export class ToolExecutor {
 
       // Use caller-provided timeout, or look up per-tool timeout, or fall back to default
       let timeoutMs = overrideTimeoutMs;
+      const toolMeta = timeoutMs === undefined
+        ? yield* registry.getTool(name).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+        : undefined;
       if (timeoutMs === undefined) {
-        const toolMeta = yield* registry.getTool(name).pipe(
-          Effect.catchAll(() => Effect.succeed(undefined)),
-        );
-        timeoutMs = toolMeta?.timeoutMs ?? TOOL_TIMEOUT_MS;
+        timeoutMs = toolMeta?.timeoutMs;
+        // Long-running tools (e.g. user interaction) with no explicit timeout run indefinitely
+        if (timeoutMs === undefined && !toolMeta?.longRunning) {
+          timeoutMs = TOOL_TIMEOUT_MS;
+        }
       }
-      const timeoutMinutes = Math.round(timeoutMs / 60000);
-      const result = yield* registry.executeTool(name, args, context).pipe(
-        Effect.timeoutFail({
-          duration: timeoutMs,
-          onTimeout: () =>
-            new Error(
-              `Tool '${name}' timed out after ${timeoutMinutes} minutes. The operation took too long to complete.`,
-            ),
-        }),
-        Effect.catchAll((error) => {
-          if (error instanceof Error && error.message.includes("timed out")) {
-            void logger.warn(`Tool timeout: ${error.message}`);
-          }
-          return Effect.fail(error);
-        }),
+
+      const execution = registry.executeTool(name, args, context);
+      const result = yield* (timeoutMs !== undefined
+        ? execution.pipe(
+            Effect.timeoutFail({
+              duration: timeoutMs,
+              onTimeout: () => {
+                const timeoutMinutes = Math.round(timeoutMs! / 60000);
+                return new Error(
+                  `Tool '${name}' timed out after ${timeoutMinutes} minutes. The operation took too long to complete.`,
+                );
+              },
+            }),
+            Effect.catchAll((error) => {
+              if (error instanceof Error && error.message.includes("timed out")) {
+                void logger.warn(`Tool timeout: ${error.message}`);
+              }
+              return Effect.fail(error);
+            }),
+          )
+        : execution
       );
 
       return result;
