@@ -227,13 +227,10 @@ export function App(): React.ReactElement {
     deps: [],
   });
 
-  if (customView) {
-    return <ErrorBoundary>{customView}</ErrorBoundary>;
-  }
-
   return (
     <ErrorBoundary>
-      <Box flexDirection="column">
+      {customView}
+      <Box flexDirection="column" display={customView ? 'none' : 'flex'}>
         {/* Main Chat Area */}
         <Box flexDirection="column" paddingX={3} marginTop={1}>
           {/* Output entries - Isolated state with Static optimization */}
