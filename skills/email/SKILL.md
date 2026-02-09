@@ -130,24 +130,29 @@ himalaya message reply <id>
 # Reply all
 himalaya message reply <id> --all
 
-# Forward
-himalaya message forward <id>
-```
-
 ### Search Emails
 
 ```bash
+# NOTE: `envelope list` does NOT support a `--query` flag.
+# Any trailing arguments are interpreted as the search query.
+# Put options FIRST (e.g., --folder/--output/--page-size), then query tokens.
+
 # Search by subject
-himalaya envelope list --query "subject:meeting"
+himalaya envelope list --folder INBOX subject "meeting"
 
 # Search by sender
-himalaya envelope list --query "from:boss@company.com"
+himalaya envelope list --folder INBOX from "boss@company.com"
 
-# Search by date
-himalaya envelope list --query "since:2024-01-01"
+# Unread (not seen)
+himalaya envelope list --folder INBOX not flag seen
 
-# Combined search
-himalaya envelope list --query "from:client subject:invoice unseen"
+# Search by exact date (YYYY-MM-DD or YYYY/MM/DD)
+himalaya envelope list --folder INBOX date 2026-02-09
+
+# (example above already demonstrates combined filters)
+
+# Combine filters with and/or (quote the expression to keep it as one arg)
+himalaya envelope list --folder INBOX "from client@example.com and subject invoice and not flag seen"
 ```
 
 ### Manage Folders
@@ -216,11 +221,9 @@ himalaya account list
 # Check unread across accounts
 for account in $(himalaya account list --output json | jq -r '.[].name'); do
   echo "=== $account ==="
-  himalaya --account "$account" envelope list --query "unseen" --page-size 5
+  himalaya --account "$account" envelope list --page-size 5 not flag seen
 done
 ```
-
----
 
 ## Output Formats
 
@@ -326,11 +329,10 @@ Here's the screenshot:
 | Read email  | `himalaya message read <id>`                           |
 | Compose new | `himalaya message write`                               |
 | Reply       | `himalaya message reply <id>`                          |
-| Search      | `himalaya envelope list --query "..."`                 |
+| Search      | `himalaya envelope list <filters...>`                  |
 | Mark read   | `himalaya flag add <id> seen`                          |
 | Delete      | `himalaya message delete <id>`                         |
 | Move        | `himalaya message move --folder SOURCE TARGET <id...>` |
-
 
 - For provider-specific setup, see [references/providers.md](references/providers.md)
 - Official docs: https://github.com/pimalaya/himalaya

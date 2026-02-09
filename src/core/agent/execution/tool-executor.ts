@@ -180,8 +180,9 @@ export class ToolExecutor {
           const riskLevel = toolInfo.riskLevel;
           const autoApprovePolicy = context.autoApprovePolicy;
 
-          // Check if auto-approve policy allows this tool
-          const isAutoApproved = shouldAutoApprove(riskLevel, autoApprovePolicy);
+          // Check if auto-approve policy allows this tool, or if per-command allowlist matches
+          const isAutoApproved = shouldAutoApprove(riskLevel, autoApprovePolicy)
+            || isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
           if (isAutoApproved) {
             yield* logger.info("Tool auto-approved by policy", {
@@ -211,6 +212,14 @@ export class ToolExecutor {
               });
 
           if (outcome.approved) {
+            // Handle "always approve this command" choice
+            if (outcome.alwaysApproveCommand && context.onAutoApproveCommand) {
+              context.onAutoApproveCommand(outcome.alwaysApproveCommand);
+              yield* logger.info("User chose to always approve command", {
+                command: outcome.alwaysApproveCommand,
+              });
+            }
+
             if (!isAutoApproved) {
               yield* logger.info("User approved tool execution", {
                 toolName: name,
@@ -489,4 +498,20 @@ export class ToolExecutor {
       return resultsOrInterrupt.results;
     });
   }
+}
+
+/**
+ * Check if a command is auto-approved via the per-command allowlist.
+ * Only applies to `execute_command` tools; returns false for all others.
+ */
+function isCommandAutoApproved(
+  toolName: string,
+  executeArgs: Record<string, unknown>,
+  allowedCommands: readonly string[] | undefined,
+): boolean {
+  if (!allowedCommands?.length) return false;
+  if (toolName !== "execute_command") return false;
+  const command = executeArgs["command"];
+  if (typeof command !== "string") return false;
+  return allowedCommands.some((allowed) => command === allowed);
 }

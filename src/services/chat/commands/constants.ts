@@ -24,6 +24,7 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "workflows", description: "List workflows or send action (e.g. create) to the agent" },
   { name: "stats", description: "Show session statistics and usage summary" },
   { name: "mcp", description: "Show MCP server status and connections" },
+  { name: "mode", description: "Switch between safe mode and yolo mode for tool approvals" },
   { name: "exit", description: "Exit the chat" },
 ] as const;
 

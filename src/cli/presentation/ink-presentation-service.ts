@@ -699,50 +699,103 @@ class InkPresentationService implements PresentationService {
       store.setExpandableDiff(request.previewDiff);
     }
 
-    // Use confirm prompt (default to Yes for faster workflow)
-    store.setPrompt({
-      type: "confirm",
-      message: "Approve this action?",
-      options: { defaultValue: true },
-      resolve: (val: unknown) => {
-        const approved = val as boolean;
-        store.printOutput({
-          type: "log",
-          message: `Approve this action? ${CHALK_THEME.success(approved ? "Yes" : "No")}`,
-          timestamp: new Date(),
-        });
+    // Check if this is an execute_command tool — if so, offer "always approve" option
+    const command = request.executeToolName === "execute_command"
+      ? (typeof request.executeArgs["command"] === "string" ? request.executeArgs["command"] : null)
+      : null;
 
-        if (approved) {
-          store.setPrompt(null);
-          this.completeApproval(resume, { approved: true });
-          return;
-        }
+    if (command) {
+      // Three-option select: Yes / Yes and always approve / No
+      const truncatedCmd = command.length > 60 ? command.slice(0, 57) + "..." : command;
+      store.setPrompt({
+        type: "select",
+        message: "Approve this action?",
+        options: {
+          choices: [
+            { label: "Yes", value: "yes" },
+            { label: `Yes, and always approve "${truncatedCmd}" for this session`, value: "always" },
+            { label: "No", value: "no" },
+          ],
+        },
+        resolve: (val: unknown) => {
+          const choice = val as string;
+          store.printOutput({
+            type: "log",
+            message: `Approve this action? ${CHALK_THEME.success(choice === "no" ? "No" : "Yes")}`,
+            timestamp: new Date(),
+          });
 
-        // Rejected: prompt for optional message to guide the agent
-        const followUpMessage =
-          "What should the agent do instead? (optional — press Enter to skip)";
-        store.setPrompt({
-          type: "text",
-          message: followUpMessage,
-          options: {},
-          resolve: (input: unknown) => {
+          if (choice === "yes") {
             store.setPrompt(null);
-            const userMessage = typeof input === "string" ? input.trim() : "";
-            if (userMessage) {
-              store.printOutput({
-                type: "log",
-                message: `${followUpMessage} ${CHALK_THEME.success(userMessage)}`,
-                timestamp: new Date(),
-              });
-            }
-            this.completeApproval(
-              resume,
-              userMessage
-                ? ({ approved: false, userMessage } as const)
-                : ({ approved: false } as const),
-            );
-          },
-        });
+            this.completeApproval(resume, { approved: true });
+            return;
+          }
+
+          if (choice === "always") {
+            store.setPrompt(null);
+            this.completeApproval(resume, { approved: true, alwaysApproveCommand: command });
+            return;
+          }
+
+          // Rejected: prompt for optional message to guide the agent
+          this.promptRejectionMessage(resume);
+        },
+      });
+    } else {
+      // Non-command tool: standard Yes/No confirm
+      store.setPrompt({
+        type: "confirm",
+        message: "Approve this action?",
+        options: { defaultValue: true },
+        resolve: (val: unknown) => {
+          const approved = val as boolean;
+          store.printOutput({
+            type: "log",
+            message: `Approve this action? ${CHALK_THEME.success(approved ? "Yes" : "No")}`,
+            timestamp: new Date(),
+          });
+
+          if (approved) {
+            store.setPrompt(null);
+            this.completeApproval(resume, { approved: true });
+            return;
+          }
+
+          // Rejected: prompt for optional message to guide the agent
+          this.promptRejectionMessage(resume);
+        },
+      });
+    }
+  }
+
+  /**
+   * Show follow-up text prompt after a rejection to let the user guide the agent.
+   */
+  private promptRejectionMessage(
+    resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
+  ): void {
+    const followUpMessage =
+      "What should the agent do instead? (optional — press Enter to skip)";
+    store.setPrompt({
+      type: "text",
+      message: followUpMessage,
+      options: {},
+      resolve: (input: unknown) => {
+        store.setPrompt(null);
+        const userMessage = typeof input === "string" ? input.trim() : "";
+        if (userMessage) {
+          store.printOutput({
+            type: "log",
+            message: `${followUpMessage} ${CHALK_THEME.success(userMessage)}`,
+            timestamp: new Date(),
+          });
+        }
+        this.completeApproval(
+          resume,
+          userMessage
+            ? ({ approved: false, userMessage } as const)
+            : ({ approved: false } as const),
+        );
       },
     });
   }

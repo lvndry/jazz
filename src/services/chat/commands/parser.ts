@@ -50,6 +50,8 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "stats", args };
     case "mcp":
       return { type: "mcp", args };
+    case "mode":
+      return { type: "mode", args };
     default:
       return { type: "unknown", args: [command, ...args] };
   }

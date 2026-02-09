@@ -158,6 +158,12 @@ function initializeAgentRun(
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }
         : {}),
+      ...(options.autoApprovedCommands?.length
+        ? { autoApprovedCommands: options.autoApprovedCommands }
+        : {}),
+      ...(options.onAutoApproveCommand
+        ? { onAutoApproveCommand: options.onAutoApproveCommand }
+        : {}),
     };
 
     return {

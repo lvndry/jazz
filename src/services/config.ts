@@ -200,6 +200,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     ...(override.notifications && {
       notifications: { ...(base.notifications ?? {}), ...override.notifications },
     }),
+    ...(override.autoApprovedCommands && {
+      autoApprovedCommands: override.autoApprovedCommands,
+    }),
   };
 }
 

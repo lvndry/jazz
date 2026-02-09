@@ -13,6 +13,7 @@ export interface AppConfig {
   readonly output?: OutputConfig;
   readonly mcpServers?: Record<string, MCPServerConfig>;
   readonly notifications?: NotificationsConfig;
+  readonly autoApprovedCommands?: readonly string[];
 }
 
 export interface NotificationsConfig {

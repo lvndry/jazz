@@ -189,6 +189,15 @@ export function App(): React.ReactElement {
     };
   }, []);
 
+  // Handle Ctrl+C — bridge from Ink raw mode to process SIGINT
+  // With exitOnCtrlC: false, Ink forwards Ctrl+C to useInput instead of
+  // swallowing it. We raise a real SIGINT so the handler in app-layer.ts fires.
+  useInput((input, key) => {
+    if (input === 'c' && key.ctrl) {
+      process.kill(process.pid, 'SIGINT');
+    }
+  });
+
   // Handle interrupt (Ctrl+I / Tab)
   useInput((input, key) => {
     const isTabOrCtrlI = key.tab || input === "\t" || input.charCodeAt(0) === 9;

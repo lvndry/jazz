@@ -117,7 +117,7 @@ export interface ApprovalRequest {
  * When rejected, the user may optionally provide a message to guide the agent (e.g. "Don't bump version, do X instead").
  */
 export type ApprovalOutcome =
-  | { readonly approved: true }
+  | { readonly approved: true; readonly alwaysApproveCommand?: string }
   | { readonly approved: false; readonly userMessage?: string };
 
 /**
@@ -174,5 +174,15 @@ export interface ToolExecutionContext {
    * Used by summarize_context to actually update the executor's message array.
    */
   readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
+  /**
+   * Commands that are always auto-approved for execute_command tool.
+   * Each entry is a prefix — a command is approved if it starts with any entry.
+   */
+  readonly autoApprovedCommands?: readonly string[];
+  /**
+   * Callback invoked when the user chooses "always approve" for a specific command.
+   * The chat service uses this to add the command to the auto-approved list.
+   */
+  readonly onAutoApproveCommand?: (command: string) => void;
   readonly [key: string]: unknown;
 }

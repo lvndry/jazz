@@ -1,5 +1,6 @@
 import type { Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
+import type { AutoApprovePolicy } from "@/core/types/tools";
 
 /**
  * Types of special commands available in the chat interface
@@ -21,6 +22,7 @@ export type CommandType =
   | "workflows"
   | "stats"
   | "mcp"
+  | "mode"
   | "unknown";
 
 /**
@@ -43,6 +45,12 @@ export interface CommandResult {
   newHistory?: ChatMessage[];
   /** New agent if agent was switched */
   newAgent?: Agent;
+  /** New auto-approve policy for tool calls (set by /mode command) */
+  newAutoApprovePolicy?: AutoApprovePolicy | false;
+  /** Command prefix to add to auto-approved commands list */
+  addAutoApprovedCommand?: string;
+  /** Command prefix to remove from auto-approved commands list */
+  removeAutoApprovedCommand?: string;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */
@@ -63,4 +71,10 @@ export interface CommandContext {
   sessionUsage: SessionUsage;
   /** Timestamp when the chat session started (for /stats duration). */
   sessionStartedAt: Date;
+  /** Current auto-approve policy (for /mode display). */
+  autoApprovePolicy?: AutoApprovePolicy;
+  /** Currently auto-approved command prefixes (for /mode display). */
+  autoApprovedCommands?: readonly string[];
+  /** Commands persisted in config (always auto-approved across sessions). */
+  persistedAutoApprovedCommands?: readonly string[];
 }

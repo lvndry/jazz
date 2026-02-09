@@ -67,6 +67,15 @@ export interface AgentRunnerOptions {
    * - `undefined`: Always prompt for approval (default)
    */
   readonly autoApprovePolicy?: AutoApprovePolicy;
+  /**
+   * Shell commands to auto-approve for execute_command tool (prefix match).
+   */
+  readonly autoApprovedCommands?: readonly string[];
+  /**
+   * Callback invoked when the user chooses "always approve" for a specific command
+   * from the approval prompt.
+   */
+  readonly onAutoApproveCommand?: (command: string) => void;
 }
 
 /**

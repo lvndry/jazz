@@ -24,8 +24,10 @@ import {
 } from "@/core/types/errors";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
+import type { AutoApprovePolicy } from "@/core/types/tools";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
+import type { CommandResult } from "./chat/commands/types";
 import {
   generateConversationId,
   generateSessionId,
@@ -34,6 +36,12 @@ import {
   setupAgent,
   updateWorkingDirectoryInStore,
 } from "./chat/session";
+import {
+  loadCommandApprovals,
+  recordCommandApproval,
+  removeCommandApproval,
+  bumpPromotionThreshold,
+} from "./command-approval-tracker";
 
 /**
  * Chat service implementation for managing interactive chat sessions with AI agents
@@ -92,7 +100,16 @@ export class ChatServiceImpl implements ChatService {
       let conversationHistory: ChatMessage[] = [];
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
+      let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
+      let autoApprovedCommands: string[] = [];
       const sessionStartedAt = new Date();
+
+      // Load persistent auto-approved commands from config
+      const configService = yield* AgentConfigServiceTag;
+      const appConfig = yield* configService.appConfig;
+      if (appConfig.autoApprovedCommands?.length) {
+        autoApprovedCommands = [...appConfig.autoApprovedCommands];
+      }
 
       // Bound conversation history to prevent unbounded memory growth.
       // The agent's own ContextWindowManager (50K tokens) handles per-turn
@@ -170,13 +187,17 @@ export class ChatServiceImpl implements ChatService {
             messageForAgent = passThroughMessage;
             // Fall through to agent run below (do not continue)
           } else {
-            const commandResult = yield* handleSpecialCommand(specialCommand, {
+            const latestConfig = yield* configService.appConfig;
+            const commandResult: CommandResult = yield* handleSpecialCommand(specialCommand, {
               agent,
               conversationId,
               conversationHistory,
               sessionId,
               sessionUsage,
               sessionStartedAt,
+              ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+              ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
+              ...(latestConfig.autoApprovedCommands?.length ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands } : {}),
             });
 
             if (commandResult.newConversationId !== undefined) {
@@ -205,6 +226,25 @@ export class ChatServiceImpl implements ChatService {
               // Reset logged message count when history is cleared (e.g., /new command)
               loggedMessageCount = 0;
             }
+            if (commandResult.newAutoApprovePolicy !== undefined) {
+              autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;
+            }
+            if (commandResult.addAutoApprovedCommand) {
+              if (!autoApprovedCommands.includes(commandResult.addAutoApprovedCommand)) {
+                autoApprovedCommands.push(commandResult.addAutoApprovedCommand);
+              }
+              // Track for cross-session promotion (fire-and-forget)
+              Effect.runFork(
+                recordCommandApproval(commandResult.addAutoApprovedCommand, sessionId).pipe(
+                  Effect.catchAll(() => Effect.void),
+                ),
+              );
+            }
+            if (commandResult.removeAutoApprovedCommand) {
+              autoApprovedCommands = autoApprovedCommands.filter(
+                (c) => c !== commandResult.removeAutoApprovedCommand,
+              );
+            }
 
             continue;
           }
@@ -219,6 +259,19 @@ export class ChatServiceImpl implements ChatService {
             sessionId, // Pass the sessionId for logging
             conversationHistory,
             ...(options?.stream !== undefined ? { stream: options.stream } : {}),
+            ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+            ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
+            onAutoApproveCommand: (command: string) => {
+              if (!autoApprovedCommands.includes(command)) {
+                autoApprovedCommands.push(command);
+              }
+              // Track for cross-session promotion (fire-and-forget)
+              Effect.runFork(
+                recordCommandApproval(command, sessionId).pipe(
+                  Effect.catchAll(() => Effect.void),
+                ),
+              );
+            },
           };
 
           // Run the agent with proper error handling
@@ -334,6 +387,36 @@ export class ChatServiceImpl implements ChatService {
           // Update working directory in store after agent run (in case cd was called)
           const fileSystemContext = yield* FileSystemContextServiceTag;
           updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext, store.setWorkingDirectory);
+
+          // Check for commands ready to promote to persistent config
+          const currentConfig = yield* configService.appConfig;
+          const persistedSet = new Set(currentConfig.autoApprovedCommands ?? []);
+          const approvals = yield* loadCommandApprovals().pipe(
+            Effect.catchAll(() => Effect.succeed({} as Record<string, import("./command-approval-tracker").CommandApprovalRecord>)),
+          );
+
+          for (const cmd of autoApprovedCommands) {
+            if (persistedSet.has(cmd)) continue;
+            const record = approvals[cmd];
+            if (!record || record.sessionCount < record.nextPromptAt) continue;
+
+            const promote = yield* terminal.confirm(
+              `You've approved "${cmd}" in ${record.sessionCount} sessions. Always approve it?`,
+              true,
+            );
+            if (promote) {
+              const persisted = [...(currentConfig.autoApprovedCommands ?? [])];
+              if (!persisted.includes(cmd)) {
+                persisted.push(cmd);
+                yield* configService.set("autoApprovedCommands", persisted);
+              }
+              yield* removeCommandApproval(cmd).pipe(Effect.catchAll(() => Effect.void));
+              yield* terminal.success(`"${cmd}" will be auto-approved in all future sessions.`);
+            } else {
+              // Exponential backoff — bump threshold so we don't nag again soon
+              yield* bumpPromotionThreshold(cmd).pipe(Effect.catchAll(() => Effect.void));
+            }
+          }
         });
       }
     }).pipe(Effect.catchAll(() => Effect.void));
