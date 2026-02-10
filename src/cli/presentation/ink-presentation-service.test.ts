@@ -10,14 +10,17 @@ describe("InkStreamingRenderer", () => {
   const printOutputCalls: OutputEntry[] = [];
   let originalSetActivity: (typeof store)["setActivity"];
   let originalPrintOutput: (typeof store)["printOutput"];
+  let lastRenderer: InkStreamingRenderer | null = null;
 
   function createRenderer() {
-    return new InkStreamingRenderer("TestAgent", false, {
+    const renderer = new InkStreamingRenderer("TestAgent", false, {
       showThinking: true,
       showToolExecution: true,
       mode: "rendered",
       colorProfile: "full",
-    });
+    }, 0);
+    lastRenderer = renderer;
+    return renderer;
   }
 
   function emitStreamStart(renderer: InkStreamingRenderer) {
@@ -45,6 +48,10 @@ describe("InkStreamingRenderer", () => {
   });
 
   afterEach(() => {
+    if (lastRenderer) {
+      Effect.runSync(lastRenderer.reset());
+      lastRenderer = null;
+    }
     store.setActivity = originalSetActivity;
     store.printOutput = originalPrintOutput;
   });
@@ -75,8 +82,8 @@ describe("InkStreamingRenderer", () => {
         sequence: 3,
       }));
 
-      // Throttle is 30ms; wait for pending update to flush
-      await new Promise((r) => setTimeout(r, 60));
+      // Wait for pending throttled update to flush
+      await new Promise((r) => setTimeout(r, 0));
 
       const withText = setActivityCalls.filter(
         (s): s is Extract<ActivityState, { phase: "streaming" }> =>
@@ -105,7 +112,7 @@ describe("InkStreamingRenderer", () => {
         sequence: 1,
       }));
 
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 0));
 
       const withText = setActivityCalls.filter(
         (s): s is Extract<ActivityState, { phase: "streaming" }> =>
@@ -122,7 +129,7 @@ describe("InkStreamingRenderer", () => {
       emitStreamStart(renderer);
 
       Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 0));
 
       const thinking = setActivityCalls.filter((s) => s.phase === "thinking");
       expect(thinking.length).toBeGreaterThan(0);
@@ -134,7 +141,7 @@ describe("InkStreamingRenderer", () => {
 
       Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
       Effect.runSync(renderer.handleEvent({ type: "thinking_chunk", content: "let me think", sequence: 0 }));
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 0));
 
       const thinking = setActivityCalls.filter(
         (s): s is Extract<ActivityState, { phase: "thinking" }> => s.phase === "thinking",
@@ -156,7 +163,7 @@ describe("InkStreamingRenderer", () => {
         toolCallId: "tc-1",
         arguments: { command: "ls" },
       }));
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 0));
 
       const toolPhases = setActivityCalls.filter(
         (s): s is Extract<ActivityState, { phase: "tool-execution" }> => s.phase === "tool-execution",
@@ -180,7 +187,7 @@ describe("InkStreamingRenderer", () => {
         result: "done",
         durationMs: 50,
       }));
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 0));
 
       const last = setActivityCalls[setActivityCalls.length - 1];
       expect(last!.phase).toBe("idle");
@@ -199,7 +206,7 @@ describe("InkStreamingRenderer", () => {
         accumulated: "Hello world",
         sequence: 0,
       }));
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 0));
 
       // Record the order of calls
       const callOrder: string[] = [];
@@ -290,7 +297,7 @@ describe("InkStreamingRenderer", () => {
       }));
 
       // Wait for throttle to flush
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 0));
 
       const streaming = setActivityCalls.filter(
         (s): s is Extract<ActivityState, { phase: "streaming" }> =>

@@ -36,19 +36,14 @@ export function loadCommandApprovals(): Effect.Effect<CommandApprovals, Error> {
   return Effect.gen(function* () {
     const approvalsPath = getApprovalsPath();
 
-    const content = yield* Effect.tryPromise(() => fs.readFile(approvalsPath, "utf-8")).pipe(
-      Effect.catchAll((unknownErr) => {
-        const e =
-          unknownErr &&
-          typeof unknownErr === "object" &&
-          "error" in unknownErr &&
-          (unknownErr as { error: unknown }).error;
-        const code = e instanceof Error && "code" in e ? (e as NodeJS.ErrnoException).code : "";
-        if (code === "ENOENT") return Effect.succeed("");
-        return Effect.fail(
-          unknownErr instanceof Error ? unknownErr : new Error(String(unknownErr)),
-        );
-      }),
+    const content = yield* Effect.tryPromise({
+      try: () => fs.readFile(approvalsPath, "utf-8"),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    }).pipe(
+      Effect.catchIf(
+        (e): e is NodeJS.ErrnoException => e instanceof Error && "code" in e && e.code === "ENOENT",
+        () => Effect.succeed(""),
+      ),
     );
 
     if (content === "") return {};

@@ -58,7 +58,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     }
 
     return (
-      <Box marginTop={addSpacing ? 1 : 0} marginBottom={0}>
+      <Box marginTop={addSpacing ? 1 : 0} marginBottom={1}>
         {icon}
         <Text> </Text>
         {entry.type === "log" ? (
@@ -75,7 +75,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
   }
 
   if (entry.message._tag === "ink" && React.isValidElement(entry.message.node)) {
-    return <Box marginTop={addSpacing ? 1 : 0} marginBottom={0}>{entry.message.node}</Box>;
+    return <Box marginTop={addSpacing ? 1 : 0} marginBottom={1}>{entry.message.node}</Box>;
   }
 
   return (

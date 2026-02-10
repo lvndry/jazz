@@ -53,9 +53,9 @@ export class ToolExecutor {
       // Use caller-provided timeout, or look up per-tool timeout, or fall back to default
       let timeoutMs = overrideTimeoutMs;
       if (timeoutMs === undefined) {
-        const toolMeta = yield* registry.getTool(name).pipe(
-          Effect.catchAll(() => Effect.succeed(undefined)),
-        );
+        const toolMeta = yield* registry
+          .getTool(name)
+          .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
         timeoutMs = toolMeta?.timeoutMs ?? TOOL_TIMEOUT_MS;
       }
       const timeoutMinutes = Math.round(timeoutMs / 60000);
@@ -128,9 +128,9 @@ export class ToolExecutor {
 
         // Look up tool metadata for UI hints
         const registry = yield* ToolRegistryTag;
-        const toolMeta = yield* registry.getTool(name).pipe(
-          Effect.catchAll(() => Effect.succeed(undefined)),
-        );
+        const toolMeta = yield* registry
+          .getTool(name)
+          .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
         const isLongRunning = toolMeta?.longRunning === true;
 
         // Emit tool execution start - skip for approval tools to avoid interleaving with
@@ -174,15 +174,16 @@ export class ToolExecutor {
           const registry = yield* ToolRegistryTag;
 
           // Get the tool's risk level to check against auto-approve policy
-          const toolInfo = yield* registry.getTool(name).pipe(
-            Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })),
-          );
+          const toolInfo = yield* registry
+            .getTool(name)
+            .pipe(Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })));
           const riskLevel = toolInfo.riskLevel;
           const autoApprovePolicy = context.autoApprovePolicy;
 
           // Check if auto-approve policy allows this tool, or if per-command allowlist matches
-          const isAutoApproved = shouldAutoApprove(riskLevel, autoApprovePolicy)
-            || isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
+          const isAutoApproved =
+            shouldAutoApprove(riskLevel, autoApprovePolicy) ||
+            isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
           if (isAutoApproved) {
             yield* logger.info("Tool auto-approved by policy", {
@@ -333,7 +334,12 @@ export class ToolExecutor {
         const finalResult = result.success
           ? result.result
           : { error: result.error ?? "Tool execution failed", result: result.result };
-        return { toolCallId: toolCall.id, result: finalResult, success: result.success, name: finalToolName };
+        return {
+          toolCallId: toolCall.id,
+          result: finalResult,
+          success: result.success,
+          name: finalToolName,
+        };
       } catch (error) {
         const toolDuration = Date.now() - toolStartTime;
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -513,5 +519,5 @@ function isCommandAutoApproved(
   if (toolName !== "execute_command") return false;
   const command = executeArgs["command"];
   if (typeof command !== "string") return false;
-  return allowedCommands.some((allowed) => command === allowed);
+  return allowedCommands.some((allowed) => command.startsWith(allowed));
 }

@@ -41,6 +41,7 @@ import {
   recordCommandApproval,
   removeCommandApproval,
   bumpPromotionThreshold,
+  type CommandApprovalRecord,
 } from "./command-approval-tracker";
 
 /**
@@ -392,7 +393,7 @@ export class ChatServiceImpl implements ChatService {
           const currentConfig = yield* configService.appConfig;
           const persistedSet = new Set(currentConfig.autoApprovedCommands ?? []);
           const approvals = yield* loadCommandApprovals().pipe(
-            Effect.catchAll(() => Effect.succeed({} as Record<string, import("./command-approval-tracker").CommandApprovalRecord>)),
+            Effect.catchAll(() => Effect.succeed({} as Record<string, CommandApprovalRecord>)),
           );
 
           for (const cmd of autoApprovedCommands) {

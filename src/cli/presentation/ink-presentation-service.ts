@@ -55,11 +55,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private pendingActivity: import("../ui/activity-state").ActivityState | null = null;
   /** Timer handle for the throttled activity update. */
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  /**
-   * Minimum interval between React re-renders of the live area. 50ms (~20fps)
-   * balances smooth streaming appearance with low CPU overhead.
-   */
-  private static readonly UPDATE_THROTTLE_MS = 50;
+  private readonly updateThrottleMs: number;
 
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000; // 30 seconds
@@ -68,7 +64,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     private readonly agentName: string,
     private readonly showMetrics: boolean,
     private readonly displayConfig: DisplayConfig,
+    throttleMs?: number,
   ) {
+    this.updateThrottleMs = throttleMs ?? 50;
     this.acc = createAccumulator(agentName);
   }
 
@@ -404,11 +402,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const now = Date.now();
     const timeSinceLastUpdate = now - this.lastUpdateTime;
 
-    if (timeSinceLastUpdate < InkStreamingRenderer.UPDATE_THROTTLE_MS) {
+    if (timeSinceLastUpdate < this.updateThrottleMs) {
       // Always store the latest activity so the timer flushes the newest state
       this.pendingActivity = activity;
       if (!this.updateTimeoutId) {
-        const delay = InkStreamingRenderer.UPDATE_THROTTLE_MS - timeSinceLastUpdate;
+        const delay = this.updateThrottleMs - timeSinceLastUpdate;
         this.updateTimeoutId = setTimeout(() => {
           this.updateTimeoutId = null;
           this.lastUpdateTime = Date.now();
