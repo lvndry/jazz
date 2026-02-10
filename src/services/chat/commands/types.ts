@@ -77,4 +77,6 @@ export interface CommandContext {
   autoApprovedCommands?: readonly string[];
   /** Commands persisted in config (always auto-approved across sessions). */
   persistedAutoApprovedCommands?: readonly string[];
+  /** Currently auto-approved tool names for this session (for /mode display). */
+  autoApprovedTools?: readonly string[];
 }

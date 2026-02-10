@@ -17,11 +17,7 @@ import {
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
 import type { SkillService } from "@/core/skills/skill-service";
-import {
-  LLMAuthenticationError,
-  LLMRateLimitError,
-  LLMRequestError,
-} from "@/core/types/errors";
+import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
@@ -91,7 +87,12 @@ export class ChatServiceImpl implements ChatService {
         ),
       );
 
-      updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext, store.setWorkingDirectory);
+      updateWorkingDirectoryInStore(
+        agent.id,
+        conversationId,
+        fileSystemContext,
+        store.setWorkingDirectory,
+      );
 
       // Agent setup phase: Connect to MCP servers and register tools before first message
       // Errors are handled gracefully inside setupAgent - conversation continues even if some MCPs fail
@@ -103,6 +104,7 @@ export class ChatServiceImpl implements ChatService {
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
       let autoApprovedCommands: string[] = [];
+      let autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
 
       // Load persistent auto-approved commands from config
@@ -120,23 +122,25 @@ export class ChatServiceImpl implements ChatService {
 
       while (chatActive) {
         // Prompt for user input
-        const userMessage = yield* terminal.ask("You:", {
-          commandSuggestions: true,
-        }).pipe(
-          Effect.catchAll((error: unknown) => {
-            // Handle ExitPromptError from inquirer when user presses Ctrl+C
-            if (
-              error instanceof Error &&
-              (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
-            ) {
-              // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
-              // The exit check below will handle the goodbye message and cleanup
-              return Effect.succeed("/exit");
-            }
-            // Re-throw other errors, ensuring it's an Error instance
-            return Effect.fail(error instanceof Error ? error : new Error(String(error)));
-          }),
-        );
+        const userMessage = yield* terminal
+          .ask("You:", {
+            commandSuggestions: true,
+          })
+          .pipe(
+            Effect.catchAll((error: unknown) => {
+              // Handle ExitPromptError from inquirer when user presses Ctrl+C
+              if (
+                error instanceof Error &&
+                (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
+              ) {
+                // Exit gracefully on Ctrl+C - return /exit to trigger normal exit flow
+                // The exit check below will handle the goodbye message and cleanup
+                return Effect.succeed("/exit");
+              }
+              // Re-throw other errors, ensuring it's an Error instance
+              return Effect.fail(error instanceof Error ? error : new Error(String(error)));
+            }),
+          );
 
         const trimmedMessage = (userMessage ?? "").trim();
         const lowerMessage = trimmedMessage.toLowerCase();
@@ -198,7 +202,10 @@ export class ChatServiceImpl implements ChatService {
               sessionStartedAt,
               ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
               ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
-              ...(latestConfig.autoApprovedCommands?.length ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands } : {}),
+              ...(latestConfig.autoApprovedCommands?.length
+                ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands }
+                : {}),
+              ...(autoApprovedTools.length > 0 ? { autoApprovedTools } : {}),
             });
 
             if (commandResult.newConversationId !== undefined) {
@@ -214,13 +221,23 @@ export class ChatServiceImpl implements ChatService {
                 ),
               );
               // Update working directory in store after conversation change
-              updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext, store.setWorkingDirectory);
+              updateWorkingDirectoryInStore(
+                agent.id,
+                conversationId,
+                fileSystemContext,
+                store.setWorkingDirectory,
+              );
             }
             if (commandResult.newAgent !== undefined) {
               agent = commandResult.newAgent;
               // Update working directory in store after agent switch
               const fileSystemContext = yield* FileSystemContextServiceTag;
-              updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext, store.setWorkingDirectory);
+              updateWorkingDirectoryInStore(
+                agent.id,
+                conversationId,
+                fileSystemContext,
+                store.setWorkingDirectory,
+              );
             }
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
@@ -262,16 +279,20 @@ export class ChatServiceImpl implements ChatService {
             ...(options?.stream !== undefined ? { stream: options.stream } : {}),
             ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
             ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
+            ...(autoApprovedTools.length > 0 ? { autoApprovedTools } : {}),
             onAutoApproveCommand: (command: string) => {
               if (!autoApprovedCommands.includes(command)) {
                 autoApprovedCommands.push(command);
               }
               // Track for cross-session promotion (fire-and-forget)
               Effect.runFork(
-                recordCommandApproval(command, sessionId).pipe(
-                  Effect.catchAll(() => Effect.void),
-                ),
+                recordCommandApproval(command, sessionId).pipe(Effect.catchAll(() => Effect.void)),
               );
+            },
+            onAutoApproveTool: (toolName: string) => {
+              if (!autoApprovedTools.includes(toolName)) {
+                autoApprovedTools.push(toolName);
+              }
             },
           };
 
@@ -387,7 +408,12 @@ export class ChatServiceImpl implements ChatService {
 
           // Update working directory in store after agent run (in case cd was called)
           const fileSystemContext = yield* FileSystemContextServiceTag;
-          updateWorkingDirectoryInStore(agent.id, conversationId, fileSystemContext, store.setWorkingDirectory);
+          updateWorkingDirectoryInStore(
+            agent.id,
+            conversationId,
+            fileSystemContext,
+            store.setWorkingDirectory,
+          );
 
           // Check for commands ready to promote to persistent config
           const currentConfig = yield* configService.appConfig;

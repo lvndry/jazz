@@ -7,10 +7,7 @@ import { STATIC_PROVIDER_MODELS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants
 import type { ProviderName } from "@/core/constants/models";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
-import {
-  FileSystemContextServiceTag,
-  type FileSystemContextService,
-} from "@/core/interfaces/fs";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import {
@@ -31,10 +28,7 @@ import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
-import {
-  WorkflowServiceTag,
-  type WorkflowService,
-} from "@/core/workflows/workflow-service";
+import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
 import { groupWorkflows, formatWorkflow } from "@/core/workflows/workflow-utils";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
@@ -121,7 +115,14 @@ export function handleSpecialCommand(
         return yield* handleMcpCommand(terminal);
 
       case "mode":
-        return yield* handleModeCommand(terminal, command.args, context.autoApprovePolicy, context.autoApprovedCommands, context.persistedAutoApprovedCommands);
+        return yield* handleModeCommand(
+          terminal,
+          command.args,
+          context.autoApprovePolicy,
+          context.autoApprovedCommands,
+          context.persistedAutoApprovedCommands,
+          context.autoApprovedTools,
+        );
 
       case "clear":
         return yield* handleClearCommand(terminal, agent);
@@ -138,9 +139,7 @@ export function handleSpecialCommand(
 /**
  * Handle /new command - Start a new conversation
  */
-function handleNewCommand(
-  terminal: TerminalService,
-): Effect.Effect<CommandResult, never, never> {
+function handleNewCommand(terminal: TerminalService): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     yield* terminal.info("Starting new conversation...");
     yield* terminal.log("   • Conversation context cleared");
@@ -158,9 +157,7 @@ function handleNewCommand(
 /**
  * Handle /help command - Show available commands
  */
-function handleHelpCommand(
-  terminal: TerminalService,
-): Effect.Effect<CommandResult, never, never> {
+function handleHelpCommand(terminal: TerminalService): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     yield* terminal.heading("📖 Available special commands");
     yield* terminal.log("   /new             - Start a new conversation (clear context)");
@@ -182,7 +179,9 @@ function handleHelpCommand(
     );
     yield* terminal.log("   /stats           - Show session statistics and usage summary");
     yield* terminal.log("   /mcp             - Show MCP server status and connections");
-    yield* terminal.log("   /mode            - Switch approval modes or allow/disallow specific commands");
+    yield* terminal.log(
+      "   /mode            - Switch approval modes or allow/disallow specific commands",
+    );
     yield* terminal.log("   /help            - Show this help message");
     yield* terminal.log("   /exit            - Exit the chat");
     yield* terminal.log("");
@@ -275,9 +274,7 @@ function handleAgentsCommand(
         yield* terminal.log(`${prefix}  ID: ${ag.id}`);
         if (ag.description) {
           const truncatedDesc =
-            ag.description.length > 80
-              ? ag.description.substring(0, 77) + "..."
-              : ag.description;
+            ag.description.length > 80 ? ag.description.substring(0, 77) + "..." : ag.description;
           yield* terminal.log(`${prefix}  Description: ${truncatedDesc}`);
         }
         yield* terminal.log(`${prefix}  Model: ${ag.config.llmProvider}/${ag.config.llmModel}`);
@@ -334,7 +331,9 @@ function handleSwitchCommand(
 
       if (switchResult.success) {
         const newAgent = switchResult.agent;
-        yield* terminal.success(`Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`);
+        yield* terminal.success(
+          `Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`,
+        );
         yield* terminal.log("");
         return { shouldContinue: true, newAgent };
       }
@@ -385,7 +384,9 @@ function handleSwitchCommand(
 
     const newAgent = yield* agentService.getAgent(selectedAgentId);
 
-    yield* terminal.success(`Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`);
+    yield* terminal.success(
+      `Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`,
+    );
     yield* terminal.log("");
 
     return { shouldContinue: true, newAgent };
@@ -404,7 +405,12 @@ function handleCompactCommand(
 ): Effect.Effect<
   CommandResult,
   Error,
-  LLMService | ToolRegistry | LoggerService | AgentConfigService | PresentationService | ToolRequirements
+  | LLMService
+  | ToolRegistry
+  | LoggerService
+  | AgentConfigService
+  | PresentationService
+  | ToolRequirements
 > {
   return Effect.gen(function* () {
     if (!conversationHistory || conversationHistory.length < 5) {
@@ -453,9 +459,7 @@ function handleCompactCommand(
       ];
 
       yield* terminal.success("Conversation context compacted successfully!");
-      yield* terminal.log(
-        `   Reduced from ${messageCount + 1} messages to 2 (system + summary)`,
-      );
+      yield* terminal.log(`   Reduced from ${messageCount + 1} messages to 2 (system + summary)`);
       yield* terminal.log("   Earlier context compressed while preserving key information");
       yield* terminal.log("");
 
@@ -557,7 +561,7 @@ function handleModelCommand(
     if (args[0] === "reasoning") {
       const level = args[1];
       const validLevels = ["low", "medium", "high", "disable"] as const;
-      if (!level || !validLevels.includes(level as typeof validLevels[number])) {
+      if (!level || !validLevels.includes(level as (typeof validLevels)[number])) {
         yield* terminal.error(`Invalid reasoning level. Use: ${validLevels.join(", ")}`);
         yield* terminal.log("");
         return { shouldContinue: true };
@@ -613,7 +617,11 @@ function handleConfigCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   args: string[],
-): Effect.Effect<CommandResult, StorageError | StorageNotFoundError | Error, AgentService | ToolRegistry> {
+): Effect.Effect<
+  CommandResult,
+  StorageError | StorageNotFoundError | Error,
+  AgentService | ToolRegistry
+> {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
 
@@ -892,7 +900,9 @@ function handleStatsCommand(
 
     const fileSystemContext = yield* FileSystemContextServiceTag;
     const workingDirectory = yield* fileSystemContext.getCwd(
-      context.conversationId ? { agentId: agent.id, conversationId: context.conversationId } : { agentId: agent.id },
+      context.conversationId
+        ? { agentId: agent.id, conversationId: context.conversationId }
+        : { agentId: agent.id },
     );
     yield* terminal.log(`   Directory:  ${workingDirectory}`);
 
@@ -902,7 +912,9 @@ function handleStatsCommand(
 
     const { promptTokens, completionTokens } = context.sessionUsage;
     const totalTokens = promptTokens + completionTokens;
-    yield* terminal.log(`   Tokens:     ${totalTokens.toLocaleString()} (in: ${promptTokens.toLocaleString()}, out: ${completionTokens.toLocaleString()})`);
+    yield* terminal.log(
+      `   Tokens:     ${totalTokens.toLocaleString()} (in: ${promptTokens.toLocaleString()}, out: ${completionTokens.toLocaleString()})`,
+    );
 
     // Estimated cost
     const meta = yield* Effect.promise(() =>
@@ -950,7 +962,9 @@ function handleMcpCommand(
       yield* terminal.log(`     Transport: ${server.transport ?? "stdio"}`);
 
       if (isStdioConfig(server)) {
-        yield* terminal.log(`     Command:   ${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`);
+        yield* terminal.log(
+          `     Command:   ${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`,
+        );
       } else if (isHttpConfig(server)) {
         yield* terminal.log(`     URL:       ${server.url}`);
       }
@@ -973,6 +987,7 @@ function handleModeCommand(
   currentPolicy?: AutoApprovePolicy,
   autoApprovedCommands?: readonly string[],
   persistedAutoApprovedCommands?: readonly string[],
+  autoApprovedTools?: readonly string[],
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     const modeArg = args[0]?.toLowerCase();
@@ -1026,7 +1041,10 @@ function handleModeCommand(
     const isYolo = currentPolicy === true || currentPolicy === "high-risk";
     const selected = yield* terminal.select<string>("Select tool approval mode:", {
       choices: [
-        { name: `safe — require approval for every tool call${isSafe ? " (current)" : ""}`, value: "safe" },
+        {
+          name: `safe — require approval for every tool call${isSafe ? " (current)" : ""}`,
+          value: "safe",
+        },
         { name: `yolo — auto-approve all tool calls${isYolo ? " (current)" : ""}`, value: "yolo" },
       ],
     });
@@ -1039,6 +1057,15 @@ function handleModeCommand(
       for (const cmd of autoApprovedCommands) {
         const suffix = persistedSet.has(cmd) ? " (always)" : " (session)";
         yield* terminal.log(`   • ${cmd}${suffix}`);
+      }
+    }
+
+    // Show auto-approved tools if any
+    if (autoApprovedTools?.length) {
+      yield* terminal.log("");
+      yield* terminal.info("Auto-approved tools (session):");
+      for (const tool of autoApprovedTools) {
+        yield* terminal.log(`   • ${tool}`);
       }
     }
 
@@ -1362,12 +1389,11 @@ function handleCostCommand(
     yield* terminal.log(`   Output: ${formatUsd(outputCost)}`);
     yield* terminal.log(`   Total:  ${formatUsd(totalCost)}`);
 
-    if (
-      meta?.inputPricePerMillion === undefined &&
-      meta?.outputPricePerMillion === undefined
-    ) {
+    if (meta?.inputPricePerMillion === undefined && meta?.outputPricePerMillion === undefined) {
       yield* terminal.log("");
-      yield* terminal.warn("Pricing not available for this model on models.dev; total shown as $0.00.");
+      yield* terminal.warn(
+        "Pricing not available for this model on models.dev; total shown as $0.00.",
+      );
     }
 
     yield* terminal.log("");

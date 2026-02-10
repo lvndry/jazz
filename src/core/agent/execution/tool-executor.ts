@@ -52,9 +52,10 @@ export class ToolExecutor {
 
       // Use caller-provided timeout, or look up per-tool timeout, or fall back to default
       let timeoutMs = overrideTimeoutMs;
-      const toolMeta = timeoutMs === undefined
-        ? yield* registry.getTool(name).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
-        : undefined;
+      const toolMeta =
+        timeoutMs === undefined
+          ? yield* registry.getTool(name).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+          : undefined;
       if (timeoutMs === undefined) {
         timeoutMs = toolMeta?.timeoutMs;
         // Long-running tools (e.g. user interaction) with no explicit timeout run indefinitely
@@ -64,7 +65,7 @@ export class ToolExecutor {
       }
 
       const execution = registry.executeTool(name, args, context);
-      const result = yield* (timeoutMs !== undefined
+      const result = yield* timeoutMs !== undefined
         ? execution.pipe(
             Effect.timeoutFail({
               duration: timeoutMs,
@@ -82,8 +83,7 @@ export class ToolExecutor {
               return Effect.fail(error);
             }),
           )
-        : execution
-      );
+        : execution;
 
       return result;
     });
@@ -190,9 +190,11 @@ export class ToolExecutor {
           const riskLevel = toolInfo.riskLevel;
           const autoApprovePolicy = context.autoApprovePolicy;
 
-          // Check if auto-approve policy allows this tool, or if per-command allowlist matches
+          // Check if auto-approve policy allows this tool, per-tool session allowlist,
+          // or per-command prefix allowlist matches
           const isAutoApproved =
             shouldAutoApprove(riskLevel, autoApprovePolicy) ||
+            isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
           if (isAutoApproved) {
@@ -223,11 +225,19 @@ export class ToolExecutor {
               });
 
           if (outcome.approved) {
-            // Handle "always approve this command" choice
+            // Handle "always approve this command" choice (execute_command only)
             if (outcome.alwaysApproveCommand && context.onAutoApproveCommand) {
               context.onAutoApproveCommand(outcome.alwaysApproveCommand);
               yield* logger.info("User chose to always approve command", {
                 command: outcome.alwaysApproveCommand,
+              });
+            }
+
+            // Handle "always approve this tool" choice (any approval tool)
+            if (outcome.alwaysApproveTool && context.onAutoApproveTool) {
+              context.onAutoApproveTool(outcome.alwaysApproveTool);
+              yield* logger.info("User chose to always approve tool", {
+                toolName: outcome.alwaysApproveTool,
               });
             }
 
@@ -530,4 +540,16 @@ function isCommandAutoApproved(
   const command = executeArgs["command"];
   if (typeof command !== "string") return false;
   return allowedCommands.some((allowed) => command.startsWith(allowed));
+}
+
+/**
+ * Check if a tool is auto-approved via the per-tool allowlist.
+ * Matches the approval tool name (e.g. "edit_file") against the session list.
+ */
+function isToolNameAutoApproved(
+  toolName: string,
+  approvedTools: readonly string[] | undefined,
+): boolean {
+  if (!approvedTools?.length) return false;
+  return approvedTools.includes(toolName);
 }

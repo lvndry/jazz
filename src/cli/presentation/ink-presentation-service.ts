@@ -144,12 +144,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
 
       // Run the pure reducer
-      const result = reduceEvent(
-        this.acc,
-        event,
-        (text) => this.formatMarkdown(text),
-        ink,
-      );
+      const result = reduceEvent(this.acc, event, (text) => this.formatMarkdown(text), ink);
 
       // Flush output side-effects immediately
       for (const entry of result.outputs) {
@@ -182,19 +177,21 @@ export class InkStreamingRenderer implements StreamingRenderer {
           store.setActivity(result.activity);
         }
       }
-    }).pipe(Effect.catchAllDefect((defect) => Effect.sync(() => {
-      const message = defect instanceof Error ? defect.message : String(defect);
-      store.printOutput({
-        type: "warn",
-        message: `Stream rendering error (${event.type}): ${message}`,
-        timestamp: new Date(),
-      });
-    })));
+    }).pipe(
+      Effect.catchAllDefect((defect) =>
+        Effect.sync(() => {
+          const message = defect instanceof Error ? defect.message : String(defect);
+          store.printOutput({
+            type: "warn",
+            message: `Stream rendering error (${event.type}): ${message}`,
+            timestamp: new Date(),
+          });
+        }),
+      ),
+    );
   }
 
-  private handleComplete(
-    event: Extract<StreamEvent, { type: "complete" }>,
-  ): void {
+  private handleComplete(event: Extract<StreamEvent, { type: "complete" }>): void {
     // Cancel any pending throttled activity update so it doesn't fire after we clear
     if (this.updateTimeoutId) {
       clearTimeout(this.updateTimeoutId);
@@ -228,7 +225,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
         store.printOutput({
           type: "log",
           message: ink(
-            React.createElement(Box, { paddingLeft: 2 },
+            React.createElement(
+              Box,
+              { paddingLeft: 2 },
               React.createElement(Text, {}, formattedFinalText),
             ),
           ),
@@ -292,8 +291,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
         const promptTokens = usage.promptTokens;
         const completionTokens = usage.completionTokens;
 
-        const printCost = (meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined): void => {
-          if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
+        const printCost = (
+          meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined,
+        ): void => {
+          if (
+            meta?.inputPricePerMillion !== undefined ||
+            meta?.outputPricePerMillion !== undefined
+          ) {
             const inputPrice = meta.inputPricePerMillion ?? 0;
             const outputPrice = meta.outputPricePerMillion ?? 0;
             const inputCost = (promptTokens / 1_000_000) * inputPrice;
@@ -396,9 +400,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * Throttled activity state update. Limits React re-renders to once per
    * UPDATE_THROTTLE_MS while always flushing the latest pending state.
    */
-  private throttledSetActivity(
-    activity: import("../ui/activity-state").ActivityState,
-  ): void {
+  private throttledSetActivity(activity: import("../ui/activity-state").ActivityState): void {
     const now = Date.now();
     const timeSinceLastUpdate = now - this.lastUpdateTime;
 
@@ -571,11 +573,7 @@ class InkPresentationService implements PresentationService {
     config: StreamingRendererConfig,
   ): Effect.Effect<StreamingRenderer, never> {
     return Effect.sync(() => {
-      return new InkStreamingRenderer(
-        config.agentName,
-        config.showMetrics,
-        config.displayConfig,
-      );
+      return new InkStreamingRenderer(config.agentName, config.showMetrics, config.displayConfig);
     });
   }
 
@@ -641,18 +639,17 @@ class InkPresentationService implements PresentationService {
     // Send system notification for approval request
     if (this.notificationService) {
       Effect.runFork(
-        this.notificationService.notify(
-          `Agent needs approval for ${request.toolName}`,
-          {
+        this.notificationService
+          .notify(`Agent needs approval for ${request.toolName}`, {
             title: "Jazz Approval Required",
             sound: true,
-          },
-        ).pipe(
-          Effect.catchAll((error) => {
-            console.error("[Notification] Failed to send approval notification:", error);
-            return Effect.void;
-          }),
-        ),
+          })
+          .pipe(
+            Effect.catchAll((error) => {
+              console.error("[Notification] Failed to send approval notification:", error);
+              return Effect.void;
+            }),
+          ),
       );
     }
 
@@ -697,73 +694,67 @@ class InkPresentationService implements PresentationService {
       store.setExpandableDiff(request.previewDiff);
     }
 
-    // Check if this is an execute_command tool — if so, offer "always approve" option
-    const command = request.executeToolName === "execute_command"
-      ? (typeof request.executeArgs["command"] === "string" ? request.executeArgs["command"] : null)
-      : null;
+    // Build approval choices — all tools get "always approve <tool>" option,
+    // execute_command also gets "always approve <command>" option
+    const toolDisplayName = request.toolName;
+    const command =
+      request.executeToolName === "execute_command"
+        ? typeof request.executeArgs["command"] === "string"
+          ? request.executeArgs["command"]
+          : null
+        : null;
+
+    const choices: Array<{ label: string; value: string }> = [{ label: "Yes", value: "yes" }];
 
     if (command) {
-      // Three-option select: Yes / Yes and always approve / No
       const truncatedCmd = command.length > 60 ? command.slice(0, 57) + "..." : command;
-      store.setPrompt({
-        type: "select",
-        message: "Approve this action?",
-        options: {
-          choices: [
-            { label: "Yes", value: "yes" },
-            { label: `Yes, and always approve "${truncatedCmd}" for this session`, value: "always" },
-            { label: "No", value: "no" },
-          ],
-        },
-        resolve: (val: unknown) => {
-          const choice = val as string;
-          store.printOutput({
-            type: "log",
-            message: `Approve this action? ${CHALK_THEME.success(choice === "no" ? "No" : "Yes")}`,
-            timestamp: new Date(),
-          });
-
-          if (choice === "yes") {
-            store.setPrompt(null);
-            this.completeApproval(resume, { approved: true });
-            return;
-          }
-
-          if (choice === "always") {
-            store.setPrompt(null);
-            this.completeApproval(resume, { approved: true, alwaysApproveCommand: command });
-            return;
-          }
-
-          // Rejected: prompt for optional message to guide the agent
-          this.promptRejectionMessage(resume);
-        },
-      });
-    } else {
-      // Non-command tool: standard Yes/No confirm
-      store.setPrompt({
-        type: "confirm",
-        message: "Approve this action?",
-        options: { defaultValue: true },
-        resolve: (val: unknown) => {
-          const approved = val as boolean;
-          store.printOutput({
-            type: "log",
-            message: `Approve this action? ${CHALK_THEME.success(approved ? "Yes" : "No")}`,
-            timestamp: new Date(),
-          });
-
-          if (approved) {
-            store.setPrompt(null);
-            this.completeApproval(resume, { approved: true });
-            return;
-          }
-
-          // Rejected: prompt for optional message to guide the agent
-          this.promptRejectionMessage(resume);
-        },
+      choices.push({
+        label: `Yes, and always approve "${truncatedCmd}" for this session`,
+        value: "always_command",
       });
     }
+
+    choices.push({
+      label: `Yes, and always approve ${toolDisplayName} for this session`,
+      value: "always_tool",
+    });
+
+    choices.push({ label: "No", value: "no" });
+
+    store.setPrompt({
+      type: "select",
+      message: "Approve this action?",
+      options: { choices },
+      resolve: (val: unknown) => {
+        const choice = val as string;
+        store.printOutput({
+          type: "log",
+          message: `Approve this action? ${CHALK_THEME.success(choice === "no" ? "No" : "Yes")}`,
+          timestamp: new Date(),
+        });
+
+        if (choice === "yes") {
+          store.setPrompt(null);
+          this.completeApproval(resume, { approved: true });
+          return;
+        }
+
+        if (choice === "always_command" && command) {
+          store.setPrompt(null);
+          this.completeApproval(resume, { approved: true, alwaysApproveCommand: command });
+          return;
+        }
+
+        if (choice === "always_tool") {
+          store.setPrompt(null);
+          this.completeApproval(resume, { approved: true, alwaysApproveTool: toolDisplayName });
+          return;
+        }
+
+        // Rejected: prompt for optional message to guide the agent
+        this.promptRejectionMessage(resume);
+      },
+    });
   }
 
   /**
@@ -772,8 +763,7 @@ class InkPresentationService implements PresentationService {
   private promptRejectionMessage(
     resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
   ): void {
-    const followUpMessage =
-      "What should the agent do instead? (optional — press Enter to skip)";
+    const followUpMessage = "What should the agent do instead? (optional — press Enter to skip)";
     store.setPrompt({
       type: "text",
       message: followUpMessage,
@@ -830,18 +820,17 @@ class InkPresentationService implements PresentationService {
     // Send system notification for user input request
     if (this.notificationService) {
       Effect.runFork(
-        this.notificationService.notify(
-          `Agent is asking a question`,
-          {
+        this.notificationService
+          .notify(`Agent is asking a question`, {
             title: "Jazz Input Required",
             sound: true,
-          },
-        ).pipe(
-          Effect.catchAll((error) => {
-            console.error("[Notification] Failed to send user input notification:", error);
-            return Effect.void;
-          }),
-        ),
+          })
+          .pipe(
+            Effect.catchAll((error) => {
+              console.error("[Notification] Failed to send user input notification:", error);
+              return Effect.void;
+            }),
+          ),
       );
     }
 

@@ -27,8 +27,14 @@ export class CLIPresentationService implements PresentationService {
 
   constructor(
     private readonly displayConfig: DisplayConfig,
-    private readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>,
-    private readonly ask: (message: string, options?: { defaultValue?: string }) => Effect.Effect<string | undefined, never>,
+    private readonly confirm: (
+      message: string,
+      defaultValue?: boolean,
+    ) => Effect.Effect<boolean, never>,
+    private readonly ask: (
+      message: string,
+      options?: { defaultValue?: string },
+    ) => Effect.Effect<string | undefined, never>,
   ) {}
 
   /**
@@ -187,30 +193,44 @@ export class CLIPresentationService implements PresentationService {
       const approved = yield* this.confirm("Approve this action?", true);
 
       if (approved) {
-        // For execute_command tools, check if user wants to always approve this command
-        const command = request.executeToolName === "execute_command"
-          ? (typeof request.executeArgs["command"] === "string" ? request.executeArgs["command"] : null)
-          : null;
+        // For execute_command tools, check if user wants to always approve this specific command
+        const command =
+          request.executeToolName === "execute_command"
+            ? typeof request.executeArgs["command"] === "string"
+              ? request.executeArgs["command"]
+              : null
+            : null;
 
         if (command) {
           const truncatedCmd = command.length > 60 ? command.slice(0, 57) + "..." : command;
-          const alwaysApprove = yield* this.confirm(
+          const alwaysApproveCmd = yield* this.confirm(
             `Always approve "${truncatedCmd}" for this session?`,
             false,
           );
-          if (alwaysApprove) {
+          if (alwaysApproveCmd) {
             return { approved: true, alwaysApproveCommand: command };
           }
+        }
+
+        // For all approval tools, check if user wants to always approve this tool type
+        const alwaysApproveTool = yield* this.confirm(
+          `Always approve ${request.toolName} for this session?`,
+          false,
+        );
+        if (alwaysApproveTool) {
+          return { approved: true, alwaysApproveTool: request.toolName };
         }
 
         return { approved: true };
       }
 
       // Rejected: prompt for optional message to guide the agent
-      const userMessage = ((yield* this.ask(
-        "What should the agent do instead? (optional — press Enter to skip)",
-        {},
-      )) ?? "").trim();
+      const userMessage = (
+        (yield* this.ask(
+          "What should the agent do instead? (optional — press Enter to skip)",
+          {},
+        )) ?? ""
+      ).trim();
 
       return userMessage
         ? ({ approved: false, userMessage } as const)
