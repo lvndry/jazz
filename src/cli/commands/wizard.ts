@@ -112,7 +112,7 @@ export function wizardCommand() {
         }
 
         case "new-conversation": {
-          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to chat with:");
+          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to chat with:", lastUsedAgentId);
           if (selectedAgent) {
             yield* startChatWithAgent(selectedAgent, configService);
             yield* terminal.clear();
@@ -169,7 +169,7 @@ export function wizardCommand() {
         }
 
         case "edit-agent": {
-          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to edit:");
+          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to edit:", lastUsedAgentId);
           if (selectedAgent) {
             yield* editAgentCommand(selectedAgent.id).pipe(
               Effect.catchAll((error) =>
@@ -198,7 +198,7 @@ export function wizardCommand() {
         }
 
         case "delete-agent": {
-          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to delete:");
+          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to delete:", lastUsedAgentId);
           if (selectedAgent) {
             yield* deleteAgentCommand(selectedAgent.id).pipe(
               Effect.catchAll((error) =>
@@ -265,7 +265,8 @@ function showWizardMenu(
 function selectAgent(
   agents: readonly Agent[],
   terminal: TerminalService,
-  message: string
+  message: string,
+  lastUsedAgentId?: string | null
 ): Effect.Effect<Agent | null, never, never> {
   return Effect.gen(function* () {
     if (agents.length === 0) {
@@ -273,10 +274,21 @@ function selectAgent(
       return null;
     }
 
-    const choices = agents.map((agent) => ({
-      name: `${agent.name} - ${agent.description || agent.config.agentType || "default"}`,
-      value: agent.id,
-    }));
+    // Sort alphabetically by name, but keep the last-used agent first
+    const sorted = [...agents].sort((a, b) => {
+      if (lastUsedAgentId) {
+        if (a.id === lastUsedAgentId) return -1;
+        if (b.id === lastUsedAgentId) return 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    const choices = sorted.map((agent) => {
+      return {
+        name: `${agent.name} - ${agent.description || agent.config.agentType || "default"}`,
+        value: agent.id,
+      };
+    });
 
     const selectedId = yield* terminal.select<string>(message, { choices });
 

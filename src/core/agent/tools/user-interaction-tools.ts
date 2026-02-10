@@ -4,8 +4,6 @@ import { PresentationServiceTag, type UserInputRequest, type FilePickerRequest }
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "./base-tool";
 
-const USER_INPUT_TIMEOUT_MS = 5 * 60 * 1000;
-
 const askUserSchema = z.object({
   question: z.string().describe("A single, clear question to ask the user"),
   suggested_responses: z
@@ -62,7 +60,6 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
   defineTool({
     name: "ask_user_question",
     longRunning: true,
-    timeoutMs: USER_INPUT_TIMEOUT_MS,
     description:
       "Ask the user a question with selectable suggested responses. This is a CLI environment — interactive selection is MUCH better UX than walls of text with questions buried in them. ALWAYS prefer this tool over plain-text questions when you need clarification, confirmation, or the user to choose between options. The user sees a clean interactive prompt where they can pick from suggestions or type a custom response. Ask only ONE question per call; if you have multiple questions, call this tool multiple times sequentially so the user can address each point individually.",
     parameters: askUserSchema,
@@ -91,7 +88,6 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
   defineTool({
     name: "ask_file_picker",
     longRunning: true,
-    timeoutMs: USER_INPUT_TIMEOUT_MS,
     description:
       "Let the user interactively select a file from the filesystem. Shows a fuzzy file picker where the user can type to filter files and navigate through results. Use when you need the user to choose a specific file.",
     parameters: filePickerSchema,
