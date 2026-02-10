@@ -698,7 +698,7 @@ class InkPresentationService implements PresentationService {
     // execute_command also gets "always approve <command>" option
     const toolDisplayName = request.toolName;
     const command =
-      request.executeToolName === "execute_command"
+      request.toolName === "execute_command"
         ? typeof request.executeArgs["command"] === "string"
           ? request.executeArgs["command"]
           : null

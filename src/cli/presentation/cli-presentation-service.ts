@@ -195,7 +195,7 @@ export class CLIPresentationService implements PresentationService {
       if (approved) {
         // For execute_command tools, check if user wants to always approve this specific command
         const command =
-          request.executeToolName === "execute_command"
+          request.toolName === "execute_command"
             ? typeof request.executeArgs["command"] === "string"
               ? request.executeArgs["command"]
               : null

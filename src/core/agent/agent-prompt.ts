@@ -22,7 +22,11 @@ export interface AgentPromptOptions {
   readonly conversationHistory?: ChatMessage[];
   readonly toolNames?: readonly string[];
   readonly availableTools?: Record<string, string>;
-  readonly knownSkills?: readonly { readonly name: string; readonly description: string; readonly path: string }[];
+  readonly knownSkills?: readonly {
+    readonly name: string;
+    readonly description: string;
+    readonly path: string;
+  }[];
 }
 
 export class AgentPromptBuilder {
@@ -107,7 +111,7 @@ export class AgentPromptBuilder {
     hash.update(options.agentName);
     hash.update(options.agentDescription);
     if (options.knownSkills && options.knownSkills.length > 0) {
-      hash.update(JSON.stringify(options.knownSkills.map(s => s.name).sort()));
+      hash.update(JSON.stringify(options.knownSkills.map((s) => s.name).sort()));
     }
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
@@ -168,7 +172,10 @@ export class AgentPromptBuilder {
 
         if (options.knownSkills && options.knownSkills.length > 0) {
           const skillsXml = options.knownSkills
-            .map(s => `  <skill>\n    <name>${s.name}</name>\n    <description>${s.description}</description>\n  </skill>`)
+            .map(
+              (s) =>
+                `  <skill>\n    <name>${s.name}</name>\n    <description>${s.description}</description>\n  </skill>`,
+            )
             .join("\n");
 
           // Append available skills to system prompt
@@ -233,20 +240,19 @@ ${skillsXml}
           messages.push(...filteredHistory);
         }
 
-        // Add the current user input if not already in history
-        if (
-          !options.conversationHistory ||
-          options.conversationHistory[options.conversationHistory.length - 1]?.role !== "user"
-        ) {
-          // Safety check: ensure userPrompt is not empty
-          if (userPrompt && userPrompt.trim().length > 0) {
-            messages.push({ role: "user", content: userPrompt });
-          } else {
-            // If userPrompt is empty, use the original userInput
-            if (options.userInput && options.userInput.trim().length > 0) {
-              messages.push({ role: "user", content: options.userInput });
-            }
-          }
+        // Add the current user input if not already in history.
+        // We check both role AND content to avoid skipping the new message when
+        // the previous turn was interrupted before the assistant produced any
+        // output (which leaves the old user message as the last entry).
+        const lastHistoryMsg =
+          options.conversationHistory?.[options.conversationHistory.length - 1];
+        const effectiveUserContent =
+          userPrompt && userPrompt.trim().length > 0 ? userPrompt : options.userInput;
+        const alreadyInHistory =
+          lastHistoryMsg?.role === "user" && lastHistoryMsg.content === effectiveUserContent;
+
+        if (!alreadyInHistory && effectiveUserContent && effectiveUserContent.trim().length > 0) {
+          messages.push({ role: "user", content: effectiveUserContent });
         }
 
         return messages;
