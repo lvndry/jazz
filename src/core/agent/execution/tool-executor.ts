@@ -69,7 +69,7 @@ export class ToolExecutor {
             Effect.timeoutFail({
               duration: timeoutMs,
               onTimeout: () => {
-                const timeoutMinutes = Math.round(timeoutMs! / 60000);
+                const timeoutMinutes = Math.round(timeoutMs / 60000);
                 return new Error(
                   `Tool '${name}' timed out after ${timeoutMinutes} minutes. The operation took too long to complete.`,
                 );
