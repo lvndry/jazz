@@ -104,7 +104,7 @@ export class ChatServiceImpl implements ChatService {
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
       let autoApprovedCommands: string[] = [];
-      let autoApprovedTools: string[] = [];
+      const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
 
       // Load persistent auto-approved commands from config
