@@ -117,15 +117,17 @@ export interface ApprovalRequest {
  * When rejected, the user may optionally provide a message to guide the agent (e.g. "Don't bump version, do X instead").
  */
 export type ApprovalOutcome =
-  | { readonly approved: true }
+  | {
+      readonly approved: true;
+      readonly alwaysApproveCommand?: string;
+      readonly alwaysApproveTool?: string;
+    }
   | { readonly approved: false; readonly userMessage?: string };
 
 /**
  * Type guard to check if a tool result requires approval
  */
-export function isApprovalRequiredResult(
-  result: unknown,
-): result is ApprovalRequiredResult {
+export function isApprovalRequiredResult(result: unknown): result is ApprovalRequiredResult {
   if (!result || typeof result !== "object") return false;
   const r = result as Record<string, unknown>;
   return (
@@ -174,5 +176,25 @@ export interface ToolExecutionContext {
    * Used by summarize_context to actually update the executor's message array.
    */
   readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
+  /**
+   * Commands that are always auto-approved for execute_command tool.
+   * Each entry is a prefix — a command is approved if it starts with any entry.
+   */
+  readonly autoApprovedCommands?: readonly string[];
+  /**
+   * Callback invoked when the user chooses "always approve" for a specific command.
+   * The chat service uses this to add the command to the auto-approved list.
+   */
+  readonly onAutoApproveCommand?: (command: string) => void;
+  /**
+   * Tool names that are always auto-approved for this session.
+   * When a tool name appears in this list, it will be auto-approved without prompting.
+   */
+  readonly autoApprovedTools?: readonly string[];
+  /**
+   * Callback invoked when the user chooses "always approve" for a specific tool.
+   * The chat service uses this to add the tool to the auto-approved list.
+   */
+  readonly onAutoApproveTool?: (toolName: string) => void;
   readonly [key: string]: unknown;
 }

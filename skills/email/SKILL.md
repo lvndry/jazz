@@ -27,24 +27,29 @@ If no accounts → Guide through [Account Setup](#account-setup)
 ## Installation
 
 ### pre-built binary
+
 curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh | PREFIX=~/.local sh
 
 ### macOS (Homebrew)
+
 ```bash
 brew install himalaya
 ```
 
 ### Arch Linux
+
 ```bash
 pacman -S himalaya
 ```
 
 ### Cargo (Any OS)
+
 ```bash
 cargo install himalaya --locked
 ```
 
 ### Other Methods
+
 Direct user to: https://github.com/pimalaya/himalaya#installation
 
 ---
@@ -64,6 +69,7 @@ himalaya account configure <account-name>
 ```
 
 The wizard will:
+
 1. Ask for email address
 2. Auto-discover IMAP/SMTP settings
 3. Prompt for password (stored securely in system keyring)
@@ -78,7 +84,7 @@ The wizard will:
 | **iCloud**      | IMAP login is username only (not full email) |
 | **Proton Mail** | Requires Proton Bridge running locally       |
 
-**💡 Tip**: Many providers use the same app-specific password for both email and calendar. Store credentials in `pass` with consistent naming (e.g., `google/app-password`, `icloud/app-password`) to reuse them across both email and calendar skills.
+**💡 Tip**: Many providers use the same app-specific password for both email and calendar. Store credentials in `pass` with consistent naming (e.g., `google/app-password`, `icloud/app-password`) to reuse them across both email and calendar skills. For multiple accounts, use a hierarchical structure (e.g., `google/personal/app-password`, `google/work/app-password`)—the `/` creates folders to keep things organized.
 
 For detailed provider configs, see [references/providers.md](references/providers.md)
 
@@ -129,25 +135,55 @@ himalaya message reply <id>
 
 # Reply all
 himalaya message reply <id> --all
-
-# Forward
-himalaya message forward <id>
 ```
 
 ### Search Emails
 
 ```bash
+# NOTE: `envelope list` does NOT support a `--query` flag.
+# Any trailing arguments are interpreted as the search query.
+# Put options FIRST (e.g., --folder/--output/--page-size), then query tokens.
+
+# Basic filters (direct Himalaya query syntax)
+
 # Search by subject
-himalaya envelope list --query "subject:meeting"
+himalaya envelope list --folder INBOX subject "meeting"
 
 # Search by sender
-himalaya envelope list --query "from:boss@company.com"
+himalaya envelope list --folder INBOX from "boss@company.com"
 
-# Search by date
-himalaya envelope list --query "since:2024-01-01"
+# Unread (not seen)
+himalaya envelope list --folder INBOX not flag seen
 
-# Combined search
-himalaya envelope list --query "from:client subject:invoice unseen"
+# Search by exact date (YYYY-MM-DD or YYYY/MM/DD)
+himalaya envelope list --folder INBOX date 2026-02-09
+
+# Combine filters with and/or (quote the expression to keep it as one arg)
+himalaya envelope list --folder INBOX "from client@example.com and subject invoice and not flag seen"
+
+# ---------------------------------------------------------------------------
+# Shell-level helpers (useful patterns for LLMs)
+# ---------------------------------------------------------------------------
+
+# Count emails received TODAY in INBOX
+# 1) List all envelopes
+# 2) Skip the header lines
+# 3) Grep for today's ISO date string
+# 4) Count lines
+TODAY=$(date +%Y-%m-%d)
+himalaya envelope list --folder INBOX \
+  | tail -n +3 \
+  | grep "${TODAY}" \
+  | wc -l
+
+# Count unread emails in INBOX
+himalaya envelope list --folder INBOX not flag seen \
+  | tail -n +3 \
+  | wc -l
+
+# Show last N emails in INBOX (for quick inspection)
+himalaya envelope list --folder INBOX \
+  | tail -n 10
 ```
 
 ### Manage Folders
@@ -182,23 +218,6 @@ himalaya flag add <id> flagged
 himalaya message delete <id>
 ```
 
-### Attachments
-
-```bash
-# List attachments
-himalaya attachment list <id>
-
-# Download attachment
-himalaya attachment download <id> <attachment-id>
-
-# Download all attachments
-himalaya attachment download <id> --all
-```
-
----
-
-## Multi-Account Workflows
-
 ### Switch Between Accounts
 
 ```bash
@@ -216,11 +235,9 @@ himalaya account list
 # Check unread across accounts
 for account in $(himalaya account list --output json | jq -r '.[].name'); do
   echo "=== $account ==="
-  himalaya --account "$account" envelope list --query "unseen" --page-size 5
+  himalaya --account "$account" envelope list --page-size 5 not flag seen
 done
 ```
-
----
 
 ## Output Formats
 
@@ -276,6 +293,7 @@ himalaya --config /path/to/custom/config.toml envelope list
 ```
 
 **Environment variable override:**
+
 ```bash
 export HIMALAYA_CONFIG=~/.config/himalaya/custom-config.toml
 himalaya envelope list
@@ -297,23 +315,39 @@ Your message body here.
 
 ### Adding Attachments (MML Syntax)
 
+---
+
+## Searching emails
+
+Himalaya’s search uses a **positional query expression**, not a `--query` flag.
+
+### Date filters
+
+```bash
+# Envelopes strictly after a given date
+himalaya envelope list "after 2026-02-10"
+
+# Envelopes strictly before a given date
+himalaya envelope list "before 2026-02-10"
+
+# All emails received today (from local date)
+himalaya envelope list "after $(date +%Y-%m-%d)"
 ```
-To: recipient@example.com
-Subject: Document attached
 
-Please find the document attached.
+### Other common filters
 
-<#part filename=/path/to/document.pdf><#/part>
-```
+```bash
+# From a specific sender
+himalaya envelope list "from me@example.com"
 
-### Inline Images
+# To a specific recipient
+himalaya envelope list "to someone@example.com"
 
-```
-To: recipient@example.com
-Subject: Screenshot
+# Subject contains words
+himalaya envelope list "subject report"
 
-Here's the screenshot:
-<#part disposition=inline filename=/path/to/image.png><#/part>
+# Combine filters (AND semantics)
+himalaya envelope list "from me@example.com and subject report"
 ```
 
 ---
@@ -326,11 +360,10 @@ Here's the screenshot:
 | Read email  | `himalaya message read <id>`                           |
 | Compose new | `himalaya message write`                               |
 | Reply       | `himalaya message reply <id>`                          |
-| Search      | `himalaya envelope list --query "..."`                 |
+| Search      | `himalaya envelope list "from me@example.com"`         |
 | Mark read   | `himalaya flag add <id> seen`                          |
 | Delete      | `himalaya message delete <id>`                         |
 | Move        | `himalaya message move --folder SOURCE TARGET <id...>` |
-
 
 - For provider-specific setup, see [references/providers.md](references/providers.md)
 - Official docs: https://github.com/pimalaya/himalaya

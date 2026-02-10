@@ -1,7 +1,12 @@
 import type { ProviderName } from "@/core/constants/models";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
-import type { AutoApprovePolicy, ToolCall, ToolDefinition, ToolExecutionContext } from "@/core/types/tools";
+import type {
+  AutoApprovePolicy,
+  ToolCall,
+  ToolDefinition,
+  ToolExecutionContext,
+} from "@/core/types/tools";
 import type { Agent } from "../types";
 import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 
@@ -67,6 +72,25 @@ export interface AgentRunnerOptions {
    * - `undefined`: Always prompt for approval (default)
    */
   readonly autoApprovePolicy?: AutoApprovePolicy;
+  /**
+   * Shell commands to auto-approve for execute_command tool (prefix match).
+   */
+  readonly autoApprovedCommands?: readonly string[];
+  /**
+   * Callback invoked when the user chooses "always approve" for a specific command
+   * from the approval prompt.
+   */
+  readonly onAutoApproveCommand?: (command: string) => void;
+  /**
+   * Tool names to auto-approve for this session (e.g. "edit_file", "write_file").
+   * When a tool name appears in this list, it will be auto-approved without prompting.
+   */
+  readonly autoApprovedTools?: readonly string[];
+  /**
+   * Callback invoked when the user chooses "always approve" for a specific tool
+   * from the approval prompt.
+   */
+  readonly onAutoApproveTool?: (toolName: string) => void;
 }
 
 /**
@@ -167,5 +191,9 @@ export interface AgentRunContext {
   readonly provider: ProviderName;
   readonly model: string;
   readonly connectedMCPServers: readonly string[];
-  readonly knownSkills: readonly { readonly name: string; readonly description: string; readonly path: string }[];
+  readonly knownSkills: readonly {
+    readonly name: string;
+    readonly description: string;
+    readonly path: string;
+  }[];
 }

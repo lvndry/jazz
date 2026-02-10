@@ -7,6 +7,7 @@ Detailed configuration examples for popular CalDAV providers.
 ## Google Calendar
 
 ### Requirements
+
 - App-specific password or OAuth 2.0 setup
 - Calendar must be visible in Google Calendar settings
 
@@ -42,6 +43,7 @@ client_secret = "your_client_secret"
 ```
 
 ### Getting App-Specific Password
+
 1. Go to Google Account settings
 2. Navigate to Security → 2-Step Verification
 3. Scroll to "App passwords"
@@ -55,6 +57,7 @@ client_secret = "your_client_secret"
 ## Nextcloud
 
 ### Requirements
+
 - Nextcloud instance with Calendar app enabled
 - Username and password
 
@@ -89,6 +92,7 @@ password = "app-token-here"
 ```
 
 ### Getting Nextcloud App Token
+
 1. Settings → Security → Devices & sessions
 2. Create new app password
 3. Name it "vdirsyncer"
@@ -99,6 +103,7 @@ password = "app-token-here"
 ## iCloud
 
 ### Requirements
+
 - Apple ID with iCloud enabled
 - App-specific password (required if 2FA enabled)
 - Server URL: `https://caldav.icloud.com/`
@@ -124,6 +129,7 @@ password.fetch = ["command", "pass", "icloud/app-password"]  # Same password use
 ```
 
 ### Getting iCloud App-Specific Password
+
 1. Go to appleid.apple.com
 2. Sign in
 3. Navigate to "Security" section
@@ -138,6 +144,7 @@ password.fetch = ["command", "pass", "icloud/app-password"]  # Same password use
 ## Fastmail
 
 ### Requirements
+
 - Fastmail account
 - App password recommended
 
@@ -162,6 +169,7 @@ password.fetch = ["command", "pass", "fastmail/app-password"]
 ```
 
 ### Getting Fastmail App Password
+
 1. Settings → Password & Security
 2. Scroll to "App Passwords"
 3. Click "New App Password"
@@ -175,6 +183,7 @@ password.fetch = ["command", "pass", "fastmail/app-password"]
 ## Radicale (Self-Hosted)
 
 ### Requirements
+
 - Radicale server running
 - Network access to server
 
@@ -214,6 +223,7 @@ verify = false  # Only if using self-signed cert
 ## Baikal (Self-Hosted)
 
 ### Requirements
+
 - Baikal server instance
 - CalDAV access enabled
 
@@ -242,6 +252,7 @@ password.fetch = ["command", "pass", "baikal/app-password"]
 ## SOGo
 
 ### Requirements
+
 - SOGo groupware server
 - User credentials
 
@@ -270,6 +281,7 @@ password.fetch = ["command", "pass", "sogo/app-password"]
 ## Synology Calendar
 
 ### Requirements
+
 - Synology NAS with Calendar package
 - User account with calendar access
 
@@ -312,6 +324,12 @@ pass insert nextcloud/app-password
 pass insert icloud/app-password
 pass insert fastmail/app-password
 
+# Multi-account example (hierarchical)
+pass insert google/account_a/app-password
+pass insert google/account_b/app-password
+pass insert fastmail/personal/app-password
+pass insert fastmail/work/app-password
+
 # Retrieve passwords
 pass show google/app-password
 ```
@@ -329,6 +347,7 @@ password = "${CALDAV_PASSWORD}"
 ```
 
 Then set in shell:
+
 ```bash
 export CALDAV_PASSWORD="your_password"
 ```
@@ -344,6 +363,7 @@ keyring set caldav username
 ```
 
 In vdirsyncer config:
+
 ```ini
 password.fetch = ["command", "keyring", "get", "caldav", "username"]
 ```
@@ -439,7 +459,8 @@ priority = 15
 ### Google Calendar Issues
 
 **Problem**: "401 Unauthorized" errors
-**Solution**: 
+**Solution**:
+
 - Regenerate app-specific password
 - Verify 2FA is enabled
 - Check URL includes your email: `https://apidata.googleusercontent.com/caldav/v2/your@gmail.com/`
@@ -451,6 +472,7 @@ priority = 15
 
 **Problem**: Authentication fails
 **Solution**:
+
 - Must use app-specific password (not main password)
 - Username is full email address
 - May need to wait 5-10 minutes after generating app password
@@ -459,6 +481,7 @@ priority = 15
 
 **Problem**: "404 Not Found"
 **Solution**:
+
 - Verify Calendar app is installed and enabled
 - Check URL includes `/remote.php/dav/`
 - Try discovering collections: `vdirsyncer discover`
@@ -467,6 +490,7 @@ priority = 15
 
 **Problem**: SSL certificate verification fails
 **Solution**:
+
 ```ini
 [storage remote]
 verify = false  # Use with caution

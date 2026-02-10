@@ -237,7 +237,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
         if (notify) notify({ _tag: "request" });
       } else {
         process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");
-        throw new Error("Force exit requested (second termination signal)");
+        process.exit(1);
       }
     }
 

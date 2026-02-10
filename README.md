@@ -6,9 +6,7 @@
 
 ### Your AI agent that actually does things.
 
-<!-- TODO: Add a GIF or screenshot showing Jazz in action -->
-
-<!-- ![Jazz Demo](https://via.placeholder.com/800x400?text=Jazz+Demo+GIF+Coming+Soon) -->
+![Jazz Demo](assets/hero.png)
 
 </div>
 

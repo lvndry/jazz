@@ -39,7 +39,7 @@ export class InkTerminalService implements TerminalService {
     // Wrap App with InputProvider to provide the input service context
     this.inkInstance = render(
       React.createElement(InputProvider, null, React.createElement(App)),
-      { patchConsole: false },
+      { patchConsole: false, exitOnCtrlC: false },
     );
     instanceExists = true;
   }

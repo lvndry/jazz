@@ -55,11 +55,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private pendingActivity: import("../ui/activity-state").ActivityState | null = null;
   /** Timer handle for the throttled activity update. */
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  /**
-   * Minimum interval between React re-renders of the live area. 50ms (~20fps)
-   * balances smooth streaming appearance with low CPU overhead.
-   */
-  private static readonly UPDATE_THROTTLE_MS = 50;
+  private readonly updateThrottleMs: number;
 
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000; // 30 seconds
@@ -68,7 +64,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     private readonly agentName: string,
     private readonly showMetrics: boolean,
     private readonly displayConfig: DisplayConfig,
+    throttleMs?: number,
   ) {
+    this.updateThrottleMs = throttleMs ?? 50;
     this.acc = createAccumulator(agentName);
   }
 
@@ -146,12 +144,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
 
       // Run the pure reducer
-      const result = reduceEvent(
-        this.acc,
-        event,
-        (text) => this.formatMarkdown(text),
-        ink,
-      );
+      const result = reduceEvent(this.acc, event, (text) => this.formatMarkdown(text), ink);
 
       // Flush output side-effects immediately
       for (const entry of result.outputs) {
@@ -184,19 +177,21 @@ export class InkStreamingRenderer implements StreamingRenderer {
           store.setActivity(result.activity);
         }
       }
-    }).pipe(Effect.catchAllDefect((defect) => Effect.sync(() => {
-      const message = defect instanceof Error ? defect.message : String(defect);
-      store.printOutput({
-        type: "warn",
-        message: `Stream rendering error (${event.type}): ${message}`,
-        timestamp: new Date(),
-      });
-    })));
+    }).pipe(
+      Effect.catchAllDefect((defect) =>
+        Effect.sync(() => {
+          const message = defect instanceof Error ? defect.message : String(defect);
+          store.printOutput({
+            type: "warn",
+            message: `Stream rendering error (${event.type}): ${message}`,
+            timestamp: new Date(),
+          });
+        }),
+      ),
+    );
   }
 
-  private handleComplete(
-    event: Extract<StreamEvent, { type: "complete" }>,
-  ): void {
+  private handleComplete(event: Extract<StreamEvent, { type: "complete" }>): void {
     // Cancel any pending throttled activity update so it doesn't fire after we clear
     if (this.updateTimeoutId) {
       clearTimeout(this.updateTimeoutId);
@@ -230,7 +225,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
         store.printOutput({
           type: "log",
           message: ink(
-            React.createElement(Box, { paddingLeft: 2 },
+            React.createElement(
+              Box,
+              { paddingLeft: 2 },
               React.createElement(Text, {}, formattedFinalText),
             ),
           ),
@@ -294,8 +291,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
         const promptTokens = usage.promptTokens;
         const completionTokens = usage.completionTokens;
 
-        const printCost = (meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined): void => {
-          if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
+        const printCost = (
+          meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined,
+        ): void => {
+          if (
+            meta?.inputPricePerMillion !== undefined ||
+            meta?.outputPricePerMillion !== undefined
+          ) {
             const inputPrice = meta.inputPricePerMillion ?? 0;
             const outputPrice = meta.outputPricePerMillion ?? 0;
             const inputCost = (promptTokens / 1_000_000) * inputPrice;
@@ -398,17 +400,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * Throttled activity state update. Limits React re-renders to once per
    * UPDATE_THROTTLE_MS while always flushing the latest pending state.
    */
-  private throttledSetActivity(
-    activity: import("../ui/activity-state").ActivityState,
-  ): void {
+  private throttledSetActivity(activity: import("../ui/activity-state").ActivityState): void {
     const now = Date.now();
     const timeSinceLastUpdate = now - this.lastUpdateTime;
 
-    if (timeSinceLastUpdate < InkStreamingRenderer.UPDATE_THROTTLE_MS) {
+    if (timeSinceLastUpdate < this.updateThrottleMs) {
       // Always store the latest activity so the timer flushes the newest state
       this.pendingActivity = activity;
       if (!this.updateTimeoutId) {
-        const delay = InkStreamingRenderer.UPDATE_THROTTLE_MS - timeSinceLastUpdate;
+        const delay = this.updateThrottleMs - timeSinceLastUpdate;
         this.updateTimeoutId = setTimeout(() => {
           this.updateTimeoutId = null;
           this.lastUpdateTime = Date.now();
@@ -573,11 +573,7 @@ class InkPresentationService implements PresentationService {
     config: StreamingRendererConfig,
   ): Effect.Effect<StreamingRenderer, never> {
     return Effect.sync(() => {
-      return new InkStreamingRenderer(
-        config.agentName,
-        config.showMetrics,
-        config.displayConfig,
-      );
+      return new InkStreamingRenderer(config.agentName, config.showMetrics, config.displayConfig);
     });
   }
 
@@ -643,18 +639,17 @@ class InkPresentationService implements PresentationService {
     // Send system notification for approval request
     if (this.notificationService) {
       Effect.runFork(
-        this.notificationService.notify(
-          `Agent needs approval for ${request.toolName}`,
-          {
+        this.notificationService
+          .notify(`Agent needs approval for ${request.toolName}`, {
             title: "Jazz Approval Required",
             sound: true,
-          },
-        ).pipe(
-          Effect.catchAll((error) => {
-            console.error("[Notification] Failed to send approval notification:", error);
-            return Effect.void;
-          }),
-        ),
+          })
+          .pipe(
+            Effect.catchAll((error) => {
+              console.error("[Notification] Failed to send approval notification:", error);
+              return Effect.void;
+            }),
+          ),
       );
     }
 
@@ -699,50 +694,96 @@ class InkPresentationService implements PresentationService {
       store.setExpandableDiff(request.previewDiff);
     }
 
-    // Use confirm prompt (default to Yes for faster workflow)
+    // Build approval choices — all tools get "always approve <tool>" option,
+    // execute_command also gets "always approve <command>" option
+    const toolDisplayName = request.toolName;
+    const command =
+      request.toolName === "execute_command"
+        ? typeof request.executeArgs["command"] === "string"
+          ? request.executeArgs["command"]
+          : null
+        : null;
+
+    const choices: Array<{ label: string; value: string }> = [{ label: "Yes", value: "yes" }];
+
+    if (command) {
+      const truncatedCmd = command.length > 60 ? command.slice(0, 57) + "..." : command;
+      choices.push({
+        label: `Yes, and always approve "${truncatedCmd}" for this session`,
+        value: "always_command",
+      });
+    }
+
+    choices.push({
+      label: `Yes, and always approve ${toolDisplayName} for this session`,
+      value: "always_tool",
+    });
+
+    choices.push({ label: "No", value: "no" });
+
     store.setPrompt({
-      type: "confirm",
+      type: "select",
       message: "Approve this action?",
-      options: { defaultValue: true },
+      options: { choices },
       resolve: (val: unknown) => {
-        const approved = val as boolean;
+        const choice = val as string;
         store.printOutput({
           type: "log",
-          message: `Approve this action? ${CHALK_THEME.success(approved ? "Yes" : "No")}`,
+          message: `Approve this action? ${CHALK_THEME.success(choice === "no" ? "No" : "Yes")}`,
           timestamp: new Date(),
         });
 
-        if (approved) {
+        if (choice === "yes") {
           store.setPrompt(null);
           this.completeApproval(resume, { approved: true });
           return;
         }
 
+        if (choice === "always_command" && command) {
+          store.setPrompt(null);
+          this.completeApproval(resume, { approved: true, alwaysApproveCommand: command });
+          return;
+        }
+
+        if (choice === "always_tool") {
+          store.setPrompt(null);
+          this.completeApproval(resume, { approved: true, alwaysApproveTool: toolDisplayName });
+          return;
+        }
+
         // Rejected: prompt for optional message to guide the agent
-        const followUpMessage =
-          "What should the agent do instead? (optional — press Enter to skip)";
-        store.setPrompt({
-          type: "text",
-          message: followUpMessage,
-          options: {},
-          resolve: (input: unknown) => {
-            store.setPrompt(null);
-            const userMessage = typeof input === "string" ? input.trim() : "";
-            if (userMessage) {
-              store.printOutput({
-                type: "log",
-                message: `${followUpMessage} ${CHALK_THEME.success(userMessage)}`,
-                timestamp: new Date(),
-              });
-            }
-            this.completeApproval(
-              resume,
-              userMessage
-                ? ({ approved: false, userMessage } as const)
-                : ({ approved: false } as const),
-            );
-          },
-        });
+        this.promptRejectionMessage(resume);
+      },
+    });
+  }
+
+  /**
+   * Show follow-up text prompt after a rejection to let the user guide the agent.
+   */
+  private promptRejectionMessage(
+    resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
+  ): void {
+    const followUpMessage = "What should the agent do instead? (optional — press Enter to skip)";
+    store.setPrompt({
+      type: "text",
+      message: followUpMessage,
+      options: {},
+      resolve: (input: unknown) => {
+        store.setPrompt(null);
+        const userMessage = typeof input === "string" ? input.trim() : "";
+        if (userMessage) {
+          store.printOutput({
+            type: "log",
+            message: `${followUpMessage} ${CHALK_THEME.success(userMessage)}`,
+            timestamp: new Date(),
+          });
+        }
+        this.completeApproval(
+          resume,
+          userMessage
+            ? ({ approved: false, userMessage } as const)
+            : ({ approved: false } as const),
+        );
       },
     });
   }
@@ -779,18 +820,17 @@ class InkPresentationService implements PresentationService {
     // Send system notification for user input request
     if (this.notificationService) {
       Effect.runFork(
-        this.notificationService.notify(
-          `Agent is asking a question`,
-          {
+        this.notificationService
+          .notify(`Agent is asking a question`, {
             title: "Jazz Input Required",
             sound: true,
-          },
-        ).pipe(
-          Effect.catchAll((error) => {
-            console.error("[Notification] Failed to send user input notification:", error);
-            return Effect.void;
-          }),
-        ),
+          })
+          .pipe(
+            Effect.catchAll((error) => {
+              console.error("[Notification] Failed to send user input notification:", error);
+              return Effect.void;
+            }),
+          ),
       );
     }
 

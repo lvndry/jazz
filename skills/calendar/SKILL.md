@@ -33,42 +33,49 @@ If no calendars → Guide through [Calendar Setup](#calendar-setup)
 ## Installation
 
 ### macOS (Homebrew)
+
 ```bash
 brew install khal
 brew install vdirsyncer
 ```
 
 ### Arch Linux
+
 ```bash
 pacman -S khal
 pacman -S vdirsyncer
 ```
 
 ### Debian/Ubuntu
+
 ```bash
 apt install khal
 apt install vdirsyncer
 ```
 
 ### Nix
+
 ```bash
 nix-env -i khal
 nix-env -i vdirsyncer
 ```
 
 ### FreeBSD
+
 ```bash
 pkg install py-khal
 pkg install py-vdirsyncer
 ```
 
 ### pip (Any OS)
+
 ```bash
 pip install khal
 pip install vdirsyncer
 ```
 
 ### Install Latest Version
+
 ```bash
 pip install git+https://github.com/pimutils/khal
 pip install git+https://github.com/pimutils/vdirsyncer
@@ -191,7 +198,7 @@ EOF
 | **Fastmail**        | `https://caldav.fastmail.com/dav/calendars/user/`  | Standard username/password         |
 | **Radicale**        | `http://localhost:5232/`                           | Self-hosted, standard auth         |
 
-**💡 Tip**: Most providers use the same app-specific password for both email and calendar. Store credentials in `pass` with consistent naming (e.g., `google/app-password`, `icloud/app-password`) to reuse them across both email and calendar skills.
+**💡 Tip**: Most providers use the same app-specific password for both email and calendar. Store credentials in `pass` with consistent naming (e.g., `google/app-password`, `icloud/app-password`) to reuse them across both email and calendar skills. For multiple accounts, use a hierarchical structure (e.g., `google/personal/app-password`, `google/work/app-password`)—the `/` creates folders to keep things organized.
 
 For detailed provider configurations, see [references/providers.md](references/providers.md)
 
@@ -306,6 +313,7 @@ vdirsyncer sync --force-delete
 `ikhal` is the interactive TUI for browsing and editing calendars.
 
 ### Launch
+
 ```bash
 ikhal
 ```

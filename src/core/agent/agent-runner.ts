@@ -26,11 +26,7 @@ import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 import { registerMCPToolsForAgent, registerSkillSystemTools } from "./tools/register-tools";
-import {
-  type AgentResponse,
-  type AgentRunContext,
-  type AgentRunnerOptions,
-} from "./types";
+import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
 
 /**
@@ -71,10 +67,12 @@ function initializeAgentRun(
     // Level 1: List all available skills (metadata only)
     const relevantSkills = yield* skillService.listSkills();
     const logger = yield* LoggerServiceTag;
-    yield* logger.debug(`[Skills] Discovered ${relevantSkills.length} skills: ${relevantSkills.map(s => s.name).join(", ")}`);
+    yield* logger.debug(
+      `[Skills] Discovered ${relevantSkills.length} skills: ${relevantSkills.map((s) => s.name).join(", ")}`,
+    );
 
     // Register skill tools with discovered skill names as enum constraint
-    yield* registerSkillSystemTools(relevantSkills.map(s => s.name));
+    yield* registerSkillSystemTools(relevantSkills.map((s) => s.name));
 
     // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
@@ -96,7 +94,14 @@ function initializeAgentRun(
     );
 
     // Always include skill tools and user interaction tools so agents can use them by default
-    const BUILT_IN_TOOLS = ["load_skill", "load_skill_section", "ask_user_question", "ask_file_picker", "spawn_subagent", "summarize_context"];
+    const BUILT_IN_TOOLS = [
+      "load_skill",
+      "load_skill_section",
+      "ask_user_question",
+      "ask_file_picker",
+      "spawn_subagent",
+      "summarize_context",
+    ];
 
     // Combine agent tools with skill tools (skill tools always available)
     const combinedToolNames = [...new Set([...agentToolNames, ...BUILT_IN_TOOLS])];
@@ -158,6 +163,16 @@ function initializeAgentRun(
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }
         : {}),
+      ...(options.autoApprovedCommands?.length
+        ? { autoApprovedCommands: options.autoApprovedCommands }
+        : {}),
+      ...(options.onAutoApproveCommand
+        ? { onAutoApproveCommand: options.onAutoApproveCommand }
+        : {}),
+      ...(options.autoApprovedTools?.length
+        ? { autoApprovedTools: options.autoApprovedTools }
+        : {}),
+      ...(options.onAutoApproveTool ? { onAutoApproveTool: options.onAutoApproveTool } : {}),
     };
 
     return {
@@ -198,7 +213,6 @@ export class AgentRunner {
     | LoggerService
     | AgentConfigService
     | PresentationService
-
     | ToolRequirements
     | SkillService
   > {
@@ -310,7 +324,6 @@ export class AgentRunner {
     | ToolRegistry
     | LoggerService
     | AgentConfigService
-
     | PresentationService
     | ToolRequirements
     | SkillService
