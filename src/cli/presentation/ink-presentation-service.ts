@@ -636,6 +636,16 @@ class InkPresentationService implements PresentationService {
     this.isProcessingApproval = true;
     const { request, resume } = this.approvalQueue.shift()!;
 
+    // Re-check auto-approve status at dequeue time. A parallel tool's
+    // "always approve" choice may have updated the shared allowlist while
+    // this request was waiting in the queue.
+    if (request.isAutoApproved?.()) {
+      resume(Effect.succeed({ approved: true as const }));
+      this.isProcessingApproval = false;
+      this.processNextApproval();
+      return;
+    }
+
     // Send system notification for approval request
     if (this.notificationService) {
       Effect.runFork(

@@ -213,7 +213,10 @@ export class ToolExecutor {
             });
           }
 
-          // Show approval prompt to user (unless auto-approved)
+          // Show approval prompt to user (unless auto-approved).
+          // Pass an isAutoApproved callback so the approval queue can re-check
+          // at dequeue time — a parallel tool's "always approve" may have
+          // updated the shared allowlists while this request was queued.
           const outcome = isAutoApproved
             ? { approved: true as const }
             : yield* presentationService.requestApproval({
@@ -222,6 +225,14 @@ export class ToolExecutor {
                 executeToolName: approvalResult.executeToolName,
                 executeArgs: approvalResult.executeArgs,
                 ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
+                isAutoApproved: () =>
+                  shouldAutoApprove(riskLevel, autoApprovePolicy) ||
+                  isToolNameAutoApproved(name, context.autoApprovedTools) ||
+                  isCommandAutoApproved(
+                    name,
+                    approvalResult.executeArgs,
+                    context.autoApprovedCommands,
+                  ),
               });
 
           if (outcome.approved) {

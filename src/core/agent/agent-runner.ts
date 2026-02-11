@@ -163,15 +163,17 @@ function initializeAgentRun(
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }
         : {}),
-      ...(options.autoApprovedCommands?.length
+      // Always pass arrays by reference (even when empty) so that in-place
+      // mutations via onAutoApproveCommand/onAutoApproveTool callbacks are
+      // visible to subsequent isCommandAutoApproved/isToolNameAutoApproved
+      // checks within the same agent run.
+      ...(options.autoApprovedCommands
         ? { autoApprovedCommands: options.autoApprovedCommands }
         : {}),
       ...(options.onAutoApproveCommand
         ? { onAutoApproveCommand: options.onAutoApproveCommand }
         : {}),
-      ...(options.autoApprovedTools?.length
-        ? { autoApprovedTools: options.autoApprovedTools }
-        : {}),
+      ...(options.autoApprovedTools ? { autoApprovedTools: options.autoApprovedTools } : {}),
       ...(options.onAutoApproveTool ? { onAutoApproveTool: options.onAutoApproveTool } : {}),
     };
 
