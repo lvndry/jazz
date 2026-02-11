@@ -66,7 +66,13 @@ export function editAgentCommand(
   | AgentAlreadyExistsError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry | TerminalService | AgentConfigService | MCPServerManager | LoggerService
+  | AgentService
+  | LLMService
+  | ToolRegistry
+  | TerminalService
+  | AgentConfigService
+  | MCPServerManager
+  | LoggerService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -175,7 +181,9 @@ export function editAgentCommand(
     // BEFORE showing the tool selection, so all MCP tools are available
     if (fieldToUpdate === "tools") {
       if (!supportsTools) {
-        yield* terminal.warn(`\n⚠️  The current model (${agent.config.llmModel}) does not support tools.`);
+        yield* terminal.warn(
+          `\n⚠️  The current model (${agent.config.llmModel}) does not support tools.`,
+        );
         // Re-run the command to let user pick something else, or just exit
         return;
       }
@@ -185,12 +193,18 @@ export function editAgentCommand(
 
       if (enabledServers.length > 0) {
         yield* terminal.log(
-          ink(React.createElement(Box, {},
-            React.createElement(Text, { color: THEME.primary },
-              React.createElement(Spinner, { type: "dots" }),
+          ink(
+            React.createElement(
+              Box,
+              {},
+              React.createElement(
+                Text,
+                { color: THEME.primary },
+                React.createElement(Spinner, { type: "dots" }),
+              ),
+              React.createElement(Text, {}, " Discovering tools from MCP servers..."),
             ),
-            React.createElement(Text, {}, " Discovering tools from MCP servers..."),
-          )),
+          ),
         );
 
         // Discover and register tools from all enabled MCP servers
@@ -201,7 +215,10 @@ export function editAgentCommand(
 
             // Find the display name for this server
             let categoryDisplayName: string | undefined;
-            for (const [displayName, serverName] of mcpServerData.displayNameToServerName.entries()) {
+            for (const [
+              displayName,
+              serverName,
+            ] of mcpServerData.displayNameToServerName.entries()) {
               if (serverName === serverConfig.name) {
                 categoryDisplayName = displayName;
                 break;
@@ -217,8 +234,7 @@ export function editAgentCommand(
               Effect.catchAll((error) =>
                 Effect.gen(function* () {
                   // Log detailed error information
-                  const errorMessage =
-                    error instanceof Error ? error.message : String(error);
+                  const errorMessage = error instanceof Error ? error.message : String(error);
                   const errorString = String(error);
                   const errorStack = error instanceof Error ? error.stack : undefined;
                   const isAuthRequired = isAuthenticationRequired(error);
@@ -247,7 +263,12 @@ export function editAgentCommand(
                     `Error discovering tools from ${toPascalCase(serverConfig.name)}: ${errorDetails}`,
                   );
 
-                  if (errorMessage.includes("timeout") || errorMessage.includes("Timeout") || errorString.includes("timeout") || errorString.includes("Timeout")) {
+                  if (
+                    errorMessage.includes("timeout") ||
+                    errorMessage.includes("Timeout") ||
+                    errorString.includes("timeout") ||
+                    errorString.includes("Timeout")
+                  ) {
                     if (isAuthRequired) {
                       yield* terminal.warn(
                         `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
@@ -273,13 +294,20 @@ export function editAgentCommand(
             );
 
             if (mcpTools.length === 0) {
-              yield* terminal.debug(`No tools discovered from ${serverConfig.name} - this could mean the server has no tools, or there was an error during discovery (check logs above)`);
-              yield* logger.warn(`No tools discovered from ${serverConfig.name} - server may have no tools available or discovery failed silently`);
+              yield* terminal.debug(
+                `No tools discovered from ${serverConfig.name} - this could mean the server has no tools, or there was an error during discovery (check logs above)`,
+              );
+              yield* logger.warn(
+                `No tools discovered from ${serverConfig.name} - server may have no tools available or discovery failed silently`,
+              );
               return;
             }
 
             yield* terminal.debug(
-              `Discovered ${mcpTools.length} tools from ${toPascalCase(serverConfig.name)}: ${mcpTools.map(t => t.name).slice(0, 5).join(", ")}${mcpTools.length > 5 ? "..." : ""}`,
+              `Discovered ${mcpTools.length} tools from ${toPascalCase(serverConfig.name)}: ${mcpTools
+                .map((t) => t.name)
+                .slice(0, 5)
+                .join(", ")}${mcpTools.length > 5 ? "..." : ""}`,
             );
 
             // Determine category for tools using the exact display name from the UI
@@ -306,8 +334,12 @@ export function editAgentCommand(
             Effect.catchAll(() =>
               Effect.gen(function* () {
                 // If discovery/registration fails, continue without this server's tools
-                yield* logger.warn(`Failed to discover/register tools from MCP server ${serverConfig.name}`);
-                yield* terminal.debug(`Failed to discover/register tools from MCP server ${serverConfig.name}`);
+                yield* logger.warn(
+                  `Failed to discover/register tools from MCP server ${serverConfig.name}`,
+                );
+                yield* terminal.debug(
+                  `Failed to discover/register tools from MCP server ${serverConfig.name}`,
+                );
               }),
             ),
           ),
@@ -325,20 +357,26 @@ export function editAgentCommand(
     }
 
     // Prompt for updates
-    const editAnswers = yield* Effect.promise(() =>
-      promptForAgentUpdates(
-        agent,
-        providers,
-        agentTypes,
-        toolsByCategory,
-        terminal,
-        llmService,
-        configService,
-        currentProviderInfo,
-        fieldToUpdate,
-        mcpServerData,
-      ),
-    );
+    const editAnswers = yield* Effect.tryPromise({
+      try: () =>
+        promptForAgentUpdates(
+          agent,
+          providers,
+          agentTypes,
+          toolsByCategory,
+          terminal,
+          llmService,
+          configService,
+          currentProviderInfo,
+          fieldToUpdate,
+          mcpServerData,
+        ),
+      catch: (error) =>
+        new ValidationError({
+          field: "agent",
+          message: `Agent edit wizard failed: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+    });
 
     // Tools are already discovered and registered (if fieldToUpdate was "tools")
     // Just convert selected categories to tool names
@@ -351,10 +389,10 @@ export function editAgentCommand(
       yield* logger.debug(
         `Available categories in toolsByCategory: ${Object.keys(toolsByCategory).join(", ")}`,
       );
-      yield* terminal.debug(`Available categories in toolsByCategory: ${Object.keys(toolsByCategory).join(", ")}`);
-      yield* logger.debug(
-        `Selected category display names: ${editAnswers.tools.join(", ")}`,
+      yield* terminal.debug(
+        `Available categories in toolsByCategory: ${Object.keys(toolsByCategory).join(", ")}`,
       );
+      yield* logger.debug(`Selected category display names: ${editAnswers.tools.join(", ")}`);
       yield* terminal.debug(`Selected category display names: ${editAnswers.tools.join(", ")}`);
 
       // Get tools directly from toolsByCategory using the selected display names
@@ -379,7 +417,9 @@ export function editAgentCommand(
             yield* logger.debug(
               `Found category "${normalizedKey}" using case-insensitive match for "${selectedDisplayName}"`,
             );
-            yield* terminal.debug(`Found category "${normalizedKey}" using case-insensitive match for "${selectedDisplayName}"`);
+            yield* terminal.debug(
+              `Found category "${normalizedKey}" using case-insensitive match for "${selectedDisplayName}"`,
+            );
           }
         }
 
@@ -387,7 +427,9 @@ export function editAgentCommand(
           yield* logger.debug(
             `Found ${toolsInCategory.length} tools in category "${selectedDisplayName}": ${toolsInCategory.slice(0, 5).join(", ")}${toolsInCategory.length > 5 ? "..." : ""}`,
           );
-          yield* terminal.debug(`Found ${toolsInCategory.length} tools in category "${selectedDisplayName}": ${toolsInCategory.slice(0, 5).join(", ")}${toolsInCategory.length > 5 ? "..." : ""}`);
+          yield* terminal.debug(
+            `Found ${toolsInCategory.length} tools in category "${selectedDisplayName}": ${toolsInCategory.slice(0, 5).join(", ")}${toolsInCategory.length > 5 ? "..." : ""}`,
+          );
           selectedToolNames.push(...toolsInCategory);
         } else {
           yield* logger.warn(
@@ -404,7 +446,9 @@ export function editAgentCommand(
       yield* logger.debug(
         `Total unique tool names from selected categories: ${uniqueToolNames.length} tools: ${uniqueToolNames.slice(0, 10).join(", ")}${uniqueToolNames.length > 10 ? "..." : ""}`,
       );
-      yield* terminal.debug(`Total unique tool names from selected categories: ${uniqueToolNames.length} tools: ${uniqueToolNames.slice(0, 10).join(", ")}${uniqueToolNames.length > 10 ? "..." : ""}`);
+      yield* terminal.debug(
+        `Total unique tool names from selected categories: ${uniqueToolNames.length} tools: ${uniqueToolNames.slice(0, 10).join(", ")}${uniqueToolNames.length > 10 ? "..." : ""}`,
+      );
 
       // Always update tools with the actual tool names (including newly registered MCP tools)
       editAnswers.tools = uniqueToolNames;
@@ -461,7 +505,10 @@ async function promptForAgentUpdates(
   configService: AgentConfigService,
   currentProviderInfo: LLMProvider | null,
   fieldToUpdate: string,
-  mcpServerData: { categories: Record<string, readonly string[]>; displayNameToServerName: Map<string, string> },
+  mcpServerData: {
+    categories: Record<string, readonly string[]>;
+    displayNameToServerName: Map<string, string>;
+  },
 ): Promise<AgentEditAnswers> {
   const answers: AgentEditAnswers = {};
 
@@ -695,8 +742,6 @@ async function promptForAgentUpdates(
       }
     }
 
-
-
     const searchCategoryName = WEB_SEARCH_CATEGORY.displayName;
     let selectedCategories: readonly string[] = [...defaultCategories];
 
@@ -726,7 +771,7 @@ async function promptForAgentUpdates(
         // Actually, if we allow multi-field edit later this assumption might break, but for now it's single field.
         const providerName = currentAgent.config.llmProvider;
         if (providerName) {
-           const configured = await Effect.runPromise(
+          const configured = await Effect.runPromise(
             handleWebSearchConfiguration(terminal, configService, llmService, providerName),
           );
 
@@ -752,8 +797,6 @@ async function promptForAgentUpdates(
 
   return answers;
 }
-
-
 
 async function promptForReasoningEffort(
   terminal: TerminalService,

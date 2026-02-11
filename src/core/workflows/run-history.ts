@@ -69,9 +69,7 @@ function acquireLock(
 
       if (stat && Date.now() - stat.mtimeMs > FILE_LOCK_TIMEOUT_MS) {
         // Remove stale lock
-        yield* Effect.tryPromise(() => fs.rmdir(lockPath)).pipe(
-          Effect.catchAll(() => Effect.void),
-        );
+        yield* Effect.tryPromise(() => fs.rmdir(lockPath)).pipe(Effect.catchAll(() => Effect.void));
         continue;
       }
 
@@ -143,12 +141,29 @@ function saveRunHistory(history: WorkflowRunRecord[]): Effect.Effect<void, Error
   return Effect.gen(function* () {
     const historyPath = getHistoryPath();
     const dir = path.dirname(historyPath);
-    const tempPath = path.join(dir, `.run-history-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`);
+    const tempPath = path.join(
+      dir,
+      `.run-history-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
+    );
 
-    yield* Effect.tryPromise(() => fs.mkdir(dir, { recursive: true }));
-    yield* Effect.tryPromise(() => fs.writeFile(tempPath, JSON.stringify(history, null, 2)));
-    yield* Effect.tryPromise(() => fs.rename(tempPath, historyPath)).pipe(
-      Effect.tapError(() => Effect.tryPromise(() => fs.unlink(tempPath)).pipe(Effect.catchAll(() => Effect.void))),
+    yield* Effect.tryPromise({
+      try: () => fs.mkdir(dir, { recursive: true }),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+    yield* Effect.tryPromise({
+      try: () => fs.writeFile(tempPath, JSON.stringify(history, null, 2)),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+    yield* Effect.tryPromise({
+      try: () => fs.rename(tempPath, historyPath),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    }).pipe(
+      Effect.tapError(() =>
+        Effect.tryPromise({
+          try: () => fs.unlink(tempPath),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        }).pipe(Effect.catchAll(() => Effect.void)),
+      ),
     );
   });
 }

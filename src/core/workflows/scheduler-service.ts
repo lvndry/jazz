@@ -112,8 +112,7 @@ function parseCronField(value: string, fieldName: string): number | undefined {
   // Validate it's a valid integer (only digits, optionally with leading sign)
   if (!/^-?\d+$/.test(value)) {
     throw new Error(
-      `Invalid cron value "${value}" in ${fieldName} field. ` +
-        `Expected a simple integer or "*".`,
+      `Invalid cron value "${value}" in ${fieldName} field. ` + `Expected a simple integer or "*".`,
     );
   }
 
@@ -123,8 +122,7 @@ function parseCronField(value: string, fieldName: string): number | undefined {
   // but we validate anyway for safety
   if (Number.isNaN(parsed)) {
     throw new Error(
-      `Invalid cron value "${value}" in ${fieldName} field. ` +
-        `Expected a simple integer or "*".`,
+      `Invalid cron value "${value}" in ${fieldName} field. ` + `Expected a simple integer or "*".`,
     );
   }
 
@@ -199,7 +197,15 @@ function generateLaunchdPlist(
   const schedule = cronToLaunchdSchedule(workflow.schedule!);
   const logDir = path.join(getUserDataDirectory(), "logs");
 
-  const programArgs = [...jazzInvocation, "workflow", "run", workflow.name, "--agent", agentId, "--auto-approve"];
+  const programArgs = [
+    ...jazzInvocation,
+    "workflow",
+    "run",
+    workflow.name,
+    "--agent",
+    agentId,
+    "--auto-approve",
+  ];
 
   const plistObject = {
     Label: `com.jazz.workflow.${workflow.name}`,
@@ -277,17 +283,24 @@ function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkf
     const schedulesDir = getSchedulesDirectory();
 
     // Ensure directory exists
-    yield* Effect.tryPromise(() => fs.mkdir(schedulesDir, { recursive: true }));
+    yield* Effect.tryPromise({
+      try: () => fs.mkdir(schedulesDir, { recursive: true }),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
 
     // List metadata files
-    const files = yield* Effect.tryPromise(() => fs.readdir(schedulesDir));
+    const files = yield* Effect.tryPromise({
+      try: () => fs.readdir(schedulesDir),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
     const jsonFiles = files.filter((f) => f.endsWith(".json"));
 
     const scheduled: ScheduledWorkflow[] = [];
     for (const file of jsonFiles) {
-      const content = yield* Effect.tryPromise(() =>
-        fs.readFile(path.join(schedulesDir, file), "utf-8"),
-      ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      const content = yield* Effect.tryPromise({
+        try: () => fs.readFile(path.join(schedulesDir, file), "utf-8"),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 
       if (content) {
         const metadata = parseScheduledWorkflow(content);
@@ -307,9 +320,10 @@ function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkf
 function isScheduledByMetadata(workflowName: string): Effect.Effect<boolean, Error> {
   return Effect.gen(function* () {
     const metadataPath = path.join(getSchedulesDirectory(), `${workflowName}.json`);
-    const stat = yield* Effect.tryPromise(() => fs.stat(metadataPath)).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
+    const stat = yield* Effect.tryPromise({
+      try: () => fs.stat(metadataPath),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
     return stat !== null;
   });
 }
@@ -333,67 +347,92 @@ class LaunchdScheduler implements SchedulerService {
   }
 
   schedule(workflow: WorkflowMetadata, agentId: string): Effect.Effect<void, Error> {
-    return Effect.gen(function* (this: LaunchdScheduler) {
-      if (!workflow.schedule) {
-        return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
-      }
+    return Effect.gen(
+      function* (this: LaunchdScheduler) {
+        if (!workflow.schedule) {
+          return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
+        }
 
-      if (!isValidCronExpression(workflow.schedule)) {
-        return yield* Effect.fail(
-          new Error(`Workflow ${workflow.name} has invalid cron expression: ${workflow.schedule}`),
+        if (!isValidCronExpression(workflow.schedule)) {
+          return yield* Effect.fail(
+            new Error(
+              `Workflow ${workflow.name} has invalid cron expression: ${workflow.schedule}`,
+            ),
+          );
+        }
+
+        const jazzInvocation = yield* getJazzSchedulerInvocation();
+        const plistContent = generateLaunchdPlist(workflow, jazzInvocation, agentId);
+        const plistPath = this.getPlistPath(workflow.name);
+        const metadataPath = this.getMetadataPath(workflow.name);
+
+        // Ensure directories exist
+        yield* Effect.tryPromise({
+          try: () => fs.mkdir(this.launchAgentsDir, { recursive: true }),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
+        yield* Effect.tryPromise({
+          try: () => fs.mkdir(getSchedulesDirectory(), { recursive: true }),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
+        yield* Effect.tryPromise({
+          try: () => fs.mkdir(path.join(getUserDataDirectory(), "logs"), { recursive: true }),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
+
+        // Unload existing job if present (ignore errors)
+        yield* execCommand("launchctl", ["unload", plistPath]).pipe(
+          Effect.catchAll(() => Effect.void),
         );
-      }
 
-      const jazzInvocation = yield* getJazzSchedulerInvocation();
-      const plistContent = generateLaunchdPlist(workflow, jazzInvocation, agentId);
-      const plistPath = this.getPlistPath(workflow.name);
-      const metadataPath = this.getMetadataPath(workflow.name);
+        // Write the plist file
+        yield* Effect.tryPromise({
+          try: () => fs.writeFile(plistPath, plistContent, "utf-8"),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
 
-      // Ensure directories exist
-      yield* Effect.tryPromise(() => fs.mkdir(this.launchAgentsDir, { recursive: true }));
-      yield* Effect.tryPromise(() => fs.mkdir(getSchedulesDirectory(), { recursive: true }));
-      yield* Effect.tryPromise(() =>
-        fs.mkdir(path.join(getUserDataDirectory(), "logs"), { recursive: true }),
-      );
+        // Save metadata
+        const metadata: ScheduledWorkflow = {
+          workflowName: workflow.name,
+          schedule: workflow.schedule,
+          agent: agentId,
+          enabled: true,
+        };
+        yield* Effect.tryPromise({
+          try: () => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
 
-      // Unload existing job if present (ignore errors)
-      yield* execCommand("launchctl", ["unload", plistPath]).pipe(Effect.catchAll(() => Effect.void));
-
-      // Write the plist file
-      yield* Effect.tryPromise(() => fs.writeFile(plistPath, plistContent, "utf-8"));
-
-      // Save metadata
-      const metadata: ScheduledWorkflow = {
-        workflowName: workflow.name,
-        schedule: workflow.schedule,
-        agent: agentId,
-        enabled: true,
-      };
-      yield* Effect.tryPromise(() => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)));
-
-      // Load the job
-      yield* execCommand("launchctl", ["load", plistPath]);
-    }.bind(this));
+        // Load the job
+        yield* execCommand("launchctl", ["load", plistPath]);
+      }.bind(this),
+    );
   }
 
   unschedule(workflowName: string): Effect.Effect<void, Error> {
-    return Effect.gen(function* (this: LaunchdScheduler) {
-      const plistPath = this.getPlistPath(workflowName);
-      const metadataPath = this.getMetadataPath(workflowName);
+    return Effect.gen(
+      function* (this: LaunchdScheduler) {
+        const plistPath = this.getPlistPath(workflowName);
+        const metadataPath = this.getMetadataPath(workflowName);
 
-      // Unload the job (ignore errors if not loaded)
-      yield* execCommand("launchctl", ["unload", plistPath]).pipe(
-        Effect.catchAll(() => Effect.void),
-      );
+        // Unload the job (ignore errors if not loaded)
+        yield* execCommand("launchctl", ["unload", plistPath]).pipe(
+          Effect.catchAll(() => Effect.void),
+        );
 
-      // Remove the plist file
-      yield* Effect.tryPromise(() => fs.unlink(plistPath)).pipe(Effect.catchAll(() => Effect.void));
+        // Remove the plist file
+        yield* Effect.tryPromise({
+          try: () => fs.unlink(plistPath),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        }).pipe(Effect.catchAll(() => Effect.void));
 
-      // Remove metadata
-      yield* Effect.tryPromise(() => fs.unlink(metadataPath)).pipe(
-        Effect.catchAll(() => Effect.void),
-      );
-    }.bind(this));
+        // Remove metadata
+        yield* Effect.tryPromise({
+          try: () => fs.unlink(metadataPath),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }.bind(this),
+    );
   }
 
   listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
@@ -430,94 +469,108 @@ class CronScheduler implements SchedulerService {
   }
 
   schedule(workflow: WorkflowMetadata, agentId: string): Effect.Effect<void, Error> {
-    return Effect.gen(function* (this: CronScheduler) {
-      if (!workflow.schedule) {
-        return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
-      }
-
-      if (!isValidCronExpression(workflow.schedule)) {
-        return yield* Effect.fail(
-          new Error(`Workflow ${workflow.name} has invalid cron expression: ${workflow.schedule}`),
-        );
-      }
-
-      const jazzInvocation = yield* getJazzSchedulerInvocation();
-      const entry = generateCrontabEntry(workflow, jazzInvocation, agentId);
-      const metadataPath = this.getMetadataPath(workflow.name);
-
-      // Ensure directories exist
-      yield* Effect.tryPromise(() => fs.mkdir(getSchedulesDirectory(), { recursive: true }));
-      yield* Effect.tryPromise(() =>
-        fs.mkdir(path.join(getUserDataDirectory(), "logs"), { recursive: true }),
-      );
-
-      // Get current crontab
-      const crontab = yield* this.getCurrentCrontab();
-
-      // Remove existing entry for this workflow
-      const lines = crontab.split("\n");
-      const filtered: string[] = [];
-      let skipNext = false;
-      for (const line of lines) {
-        if (line.includes(`${this.cronMarker} ${workflow.name}`)) {
-          skipNext = true;
-          continue;
+    return Effect.gen(
+      function* (this: CronScheduler) {
+        if (!workflow.schedule) {
+          return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
         }
-        if (skipNext) {
-          skipNext = false;
-          continue;
+
+        if (!isValidCronExpression(workflow.schedule)) {
+          return yield* Effect.fail(
+            new Error(
+              `Workflow ${workflow.name} has invalid cron expression: ${workflow.schedule}`,
+            ),
+          );
         }
-        filtered.push(line);
-      }
 
-      // Add new entry
-      filtered.push(entry);
+        const jazzInvocation = yield* getJazzSchedulerInvocation();
+        const entry = generateCrontabEntry(workflow, jazzInvocation, agentId);
+        const metadataPath = this.getMetadataPath(workflow.name);
 
-      // Set the new crontab
-      yield* this.setCrontab(filtered.join("\n"));
+        // Ensure directories exist
+        yield* Effect.tryPromise({
+          try: () => fs.mkdir(getSchedulesDirectory(), { recursive: true }),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
+        yield* Effect.tryPromise({
+          try: () => fs.mkdir(path.join(getUserDataDirectory(), "logs"), { recursive: true }),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
 
-      // Save metadata
-      const metadata: ScheduledWorkflow = {
-        workflowName: workflow.name,
-        schedule: workflow.schedule,
-        agent: agentId,
-        enabled: true,
-      };
-      yield* Effect.tryPromise(() => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)));
-    }.bind(this));
+        // Get current crontab
+        const crontab = yield* this.getCurrentCrontab();
+
+        // Remove existing entry for this workflow
+        const lines = crontab.split("\n");
+        const filtered: string[] = [];
+        let skipNext = false;
+        for (const line of lines) {
+          if (line.includes(`${this.cronMarker} ${workflow.name}`)) {
+            skipNext = true;
+            continue;
+          }
+          if (skipNext) {
+            skipNext = false;
+            continue;
+          }
+          filtered.push(line);
+        }
+
+        // Add new entry
+        filtered.push(entry);
+
+        // Set the new crontab
+        yield* this.setCrontab(filtered.join("\n"));
+
+        // Save metadata
+        const metadata: ScheduledWorkflow = {
+          workflowName: workflow.name,
+          schedule: workflow.schedule,
+          agent: agentId,
+          enabled: true,
+        };
+        yield* Effect.tryPromise({
+          try: () => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
+      }.bind(this),
+    );
   }
 
   unschedule(workflowName: string): Effect.Effect<void, Error> {
-    return Effect.gen(function* (this: CronScheduler) {
-      const metadataPath = this.getMetadataPath(workflowName);
+    return Effect.gen(
+      function* (this: CronScheduler) {
+        const metadataPath = this.getMetadataPath(workflowName);
 
-      // Get current crontab
-      const crontab = yield* this.getCurrentCrontab();
+        // Get current crontab
+        const crontab = yield* this.getCurrentCrontab();
 
-      // Remove entry for this workflow
-      const lines = crontab.split("\n");
-      const filtered: string[] = [];
-      let skipNext = false;
-      for (const line of lines) {
-        if (line.includes(`${this.cronMarker} ${workflowName}`)) {
-          skipNext = true;
-          continue;
+        // Remove entry for this workflow
+        const lines = crontab.split("\n");
+        const filtered: string[] = [];
+        let skipNext = false;
+        for (const line of lines) {
+          if (line.includes(`${this.cronMarker} ${workflowName}`)) {
+            skipNext = true;
+            continue;
+          }
+          if (skipNext) {
+            skipNext = false;
+            continue;
+          }
+          filtered.push(line);
         }
-        if (skipNext) {
-          skipNext = false;
-          continue;
-        }
-        filtered.push(line);
-      }
 
-      // Set the new crontab
-      yield* this.setCrontab(filtered.join("\n"));
+        // Set the new crontab
+        yield* this.setCrontab(filtered.join("\n"));
 
-      // Remove metadata
-      yield* Effect.tryPromise(() => fs.unlink(metadataPath)).pipe(
-        Effect.catchAll(() => Effect.void),
-      );
-    }.bind(this));
+        // Remove metadata
+        yield* Effect.tryPromise({
+          try: () => fs.unlink(metadataPath),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }.bind(this),
+    );
   }
 
   listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {

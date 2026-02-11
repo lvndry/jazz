@@ -12,13 +12,9 @@ import type {
   MCPServerConnection,
   MCPServerManager,
   MCPTransport,
-  MCPTransportType
+  MCPTransportType,
 } from "@/core/interfaces/mcp-server";
-import {
-  isHttpConfig,
-  isStdioConfig,
-  MCPServerManagerTag
-} from "@/core/interfaces/mcp-server";
+import { isHttpConfig, isStdioConfig, MCPServerManagerTag } from "@/core/interfaces/mcp-server";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import {
@@ -27,10 +23,7 @@ import {
   MCPToolDiscoveryError,
 } from "@/core/types/errors";
 import type { MCPClient, MCPTool } from "@/core/types/mcp";
-import {
-  isMCPClient,
-  normalizeMCPToolRegistry,
-} from "@/core/types/mcp";
+import { isMCPClient, normalizeMCPToolRegistry } from "@/core/types/mcp";
 import { createSanitizedEnv } from "@/core/utils/env-utils";
 import { retryWithBackoff } from "@/core/utils/mcp-utils";
 
@@ -90,10 +83,7 @@ class MCPServerManagerImpl implements MCPServerManager {
           httpOptions.sessionId = config.sessionId;
         }
 
-        transport = new StreamableHTTPClientTransport(
-          new URL(config.url),
-          httpOptions,
-        );
+        transport = new StreamableHTTPClientTransport(new URL(config.url), httpOptions);
       } else {
         // Stdio transport (default)
         transportType = "stdio";
@@ -124,12 +114,15 @@ class MCPServerManagerImpl implements MCPServerManager {
       }
 
       // Create MCP client with retry logic for transient failures
-      const connectEffect = Effect.promise(() => createMCPClient({ transport })).pipe(
-        Effect.map((client) => {
+      const connectEffect = Effect.tryPromise({
+        try: () => createMCPClient({ transport }),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        Effect.flatMap((client) => {
           if (!isMCPClient(client)) {
-            throw new Error(`Invalid MCP client returned from createMCPClient`);
+            return Effect.fail(new Error(`Invalid MCP client returned from createMCPClient`));
           }
-          return client;
+          return Effect.succeed(client);
         }),
       );
 
@@ -173,7 +166,9 @@ class MCPServerManagerImpl implements MCPServerManager {
 
       manager.connections.set(config.name, connection);
 
-      yield* manager.logger.info(`Connected to MCP server: ${config.name} (${transportType} transport)`);
+      yield* manager.logger.info(
+        `Connected to MCP server: ${config.name} (${transportType} transport)`,
+      );
 
       return client;
     }).pipe(
@@ -193,9 +188,7 @@ class MCPServerManagerImpl implements MCPServerManager {
     );
   }
 
-  disconnectServer(
-    serverName: string,
-  ): Effect.Effect<void, MCPDisconnectionError, LoggerService> {
+  disconnectServer(serverName: string): Effect.Effect<void, MCPDisconnectionError, LoggerService> {
     // Capture this to avoid issues with Effect.gen not preserving context
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
@@ -209,7 +202,10 @@ class MCPServerManagerImpl implements MCPServerManager {
       try {
         // Close the client if it has a close method
         if (connection.client.close) {
-          yield* Effect.promise(() => connection.client.close!()).pipe(
+          yield* Effect.tryPromise({
+            try: () => connection.client.close!(),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          }).pipe(
             Effect.catchAll((error: unknown) =>
               Effect.gen(function* () {
                 const errorMessage = error instanceof Error ? error.message : String(error);
@@ -232,7 +228,8 @@ class MCPServerManagerImpl implements MCPServerManager {
           new MCPDisconnectionError({
             serverName,
             reason: `Error disconnecting from MCP server: ${errorMessage}`,
-            suggestion: "The connection has been removed from the manager, but cleanup may be incomplete",
+            suggestion:
+              "The connection has been removed from the manager, but cleanup may be incomplete",
           }),
         );
       }
@@ -259,7 +256,10 @@ class MCPServerManagerImpl implements MCPServerManager {
 
       // Get tools from MCP client with retry logic
       const getToolsEffect = retryWithBackoff(
-        Effect.promise(() => connection.client.tools()),
+        Effect.tryPromise({
+          try: () => connection.client.tools(),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        }),
         {
           maxRetries: 2,
           initialDelayMs: 500,
@@ -292,11 +292,18 @@ class MCPServerManagerImpl implements MCPServerManager {
       );
 
       if (tools.length === 0) {
-        yield* manager.logger.warn(`No tools discovered from MCP server ${serverName} - the server may not have any tools available`);
-        yield* manager.logger.debug(`[getServerTools] Tools registry was empty or normalized to empty array for ${serverName}`);
+        yield* manager.logger.warn(
+          `No tools discovered from MCP server ${serverName} - the server may not have any tools available`,
+        );
+        yield* manager.logger.debug(
+          `[getServerTools] Tools registry was empty or normalized to empty array for ${serverName}`,
+        );
       } else {
         yield* manager.logger.debug(
-          `Discovered ${tools.length} tool(s) from MCP server ${serverName}: ${tools.map(t => t.name).slice(0, 5).join(", ")}${tools.length > 5 ? "..." : ""}`,
+          `Discovered ${tools.length} tool(s) from MCP server ${serverName}: ${tools
+            .map((t) => t.name)
+            .slice(0, 5)
+            .join(", ")}${tools.length > 5 ? "..." : ""}`,
         );
       }
 

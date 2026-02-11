@@ -15,17 +15,21 @@ function formatTableAsMarkdown(rows: readonly (readonly string[])[]): string {
   if (rows.length === 0) return "";
   const first = rows[0]!;
   const safe = (s: string) => s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
-  const rowToLine = (row: readonly string[]) => "| " + row.map((c) => safe(String(c ?? ""))).join(" | ") + " |";
+  const rowToLine = (row: readonly string[]) =>
+    "| " + row.map((c) => safe(String(c ?? ""))).join(" | ") + " |";
   const header = rowToLine(first);
   const separator = "| " + first.map(() => "---").join(" | ") + " |";
-  const body = rows.slice(1).map((row) => rowToLine(row ?? [])).join("\n");
+  const body = rows
+    .slice(1)
+    .map((row) => rowToLine(row ?? []))
+    .join("\n");
   return [header, separator, body].join("\n");
 }
 
 /** Build tables section with page attribution from pdf-parse getTable result. */
-function buildTablesSection(
-  getTableResult: { pages?: Array<{ num?: number; tables?: (readonly (readonly string[])[])[] }> },
-): { section: string; tables: Array<{ pageNumber: number; rows: string[][] }> } {
+function buildTablesSection(getTableResult: {
+  pages?: Array<{ num?: number; tables?: (readonly (readonly string[])[])[] }>;
+}): { section: string; tables: Array<{ pageNumber: number; rows: string[][] }> } {
   const tables: Array<{ pageNumber: number; rows: string[][] }> = [];
   const parts: string[] = [];
   const pages = getTableResult.pages ?? [];
@@ -45,7 +49,8 @@ function buildTablesSection(
     }
     parts.push("");
   }
-  const section = parts.length === 0 ? "" : "\n\n## Extracted tables\n\n" + parts.join("\n").trimEnd();
+  const section =
+    parts.length === 0 ? "" : "\n\n## Extracted tables\n\n" + parts.join("\n").trimEnd();
   return { section, tables };
 }
 
@@ -119,7 +124,10 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
           let PDFParse;
           try {
-            const pdfModule = yield* Effect.promise(() => import("pdf-parse"));
+            const pdfModule = yield* Effect.tryPromise({
+              try: () => import("pdf-parse"),
+              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            });
             PDFParse = pdfModule.PDFParse;
           } catch (importError) {
             return {
@@ -135,16 +143,20 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
           try {
             const parseParams = args.pages ? { partial: args.pages } : undefined;
-            const textResult = yield* Effect.promise(() => pdfParser.getText(parseParams));
+            const textResult = yield* Effect.tryPromise({
+              try: () => pdfParser.getText(parseParams),
+              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            });
             const textContent = (textResult as { text?: string }).text || "";
 
             // Extract tables (with page attribution); ignore errors so text-only extraction still works
             let tablesSection = "";
             let extractedTables: Array<{ pageNumber: number; rows: string[][] }> = [];
             try {
-              const tableResult = yield* Effect.promise(() =>
-                pdfParser.getTable(parseParams as { partial?: number[] }),
-              );
+              const tableResult = yield* Effect.tryPromise({
+                try: () => pdfParser.getTable(parseParams as { partial?: number[] }),
+                catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+              });
               const built = buildTablesSection(
                 tableResult as {
                   pages?: Array<{ num?: number; tables?: (readonly (readonly string[])[])[] }>;
@@ -154,14 +166,19 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
               extractedTables = built.tables;
             } catch (tableError) {
               // No tables or getTable failed; continue with text only
-              yield* Effect.logDebug(`PDF table extraction failed, continuing with text only. Error: ${tableError instanceof Error ? tableError.message : String(tableError)}`);
+              yield* Effect.logDebug(
+                `PDF table extraction failed, continuing with text only. Error: ${tableError instanceof Error ? tableError.message : String(tableError)}`,
+              );
             }
 
             // Combine text and tables so reader sees one document with page-labeled tables
             let content = textContent + tablesSection;
 
             // Get metadata
-            const infoResult = yield* Effect.promise(() => pdfParser.getInfo());
+            const infoResult = yield* Effect.tryPromise({
+              try: () => pdfParser.getInfo(),
+              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            });
             const pageCount = (infoResult as { pageCount?: number }).pageCount || 0;
 
             // Enforce maxChars safeguard on combined content
@@ -196,9 +213,10 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
               error: `PDF parsing failed: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
             };
           } finally {
-            yield* Effect.promise(() => pdfParser.destroy()).pipe(
-              Effect.catchAll(() => Effect.void),
-            );
+            yield* Effect.tryPromise({
+              try: () => pdfParser.destroy(),
+              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            }).pipe(Effect.catchAll(() => Effect.void));
           }
         } catch (error) {
           return {

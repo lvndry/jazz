@@ -66,11 +66,23 @@ export function saveCommandApprovals(data: CommandApprovals): Effect.Effect<void
       `.command-approvals-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
     );
 
-    yield* Effect.tryPromise(() => fs.mkdir(dir, { recursive: true }));
-    yield* Effect.tryPromise(() => fs.writeFile(tempPath, JSON.stringify(data, null, 2)));
-    yield* Effect.tryPromise(() => fs.rename(tempPath, approvalsPath)).pipe(
+    yield* Effect.tryPromise({
+      try: () => fs.mkdir(dir, { recursive: true }),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+    yield* Effect.tryPromise({
+      try: () => fs.writeFile(tempPath, JSON.stringify(data, null, 2)),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+    yield* Effect.tryPromise({
+      try: () => fs.rename(tempPath, approvalsPath),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    }).pipe(
       Effect.tapError(() =>
-        Effect.tryPromise(() => fs.unlink(tempPath)).pipe(Effect.catchAll(() => Effect.void)),
+        Effect.tryPromise({
+          try: () => fs.unlink(tempPath),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        }).pipe(Effect.catchAll(() => Effect.void)),
       ),
     );
   });

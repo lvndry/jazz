@@ -73,7 +73,10 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
 
           let PDFParse;
           try {
-            const pdfModule = yield* Effect.promise(() => import("pdf-parse"));
+            const pdfModule = yield* Effect.tryPromise({
+              try: () => import("pdf-parse"),
+              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            });
             PDFParse = pdfModule.PDFParse;
           } catch (importError) {
             return {
@@ -88,7 +91,10 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
 
           try {
             // Use getInfo() to extract metadata without processing all content
-            const infoResult = yield* Effect.promise(() => pdfParser.getInfo());
+            const infoResult = yield* Effect.tryPromise({
+              try: () => pdfParser.getInfo(),
+              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            });
             const pageCount = (infoResult as { pageCount?: number }).pageCount || 0;
 
             // Extract basic file info for additional context
@@ -111,9 +117,10 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
               error: `Failed to extract PDF info: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
             };
           } finally {
-            yield* Effect.promise(() => pdfParser.destroy()).pipe(
-              Effect.catchAll(() => Effect.void),
-            );
+            yield* Effect.tryPromise({
+              try: () => pdfParser.destroy(),
+              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            }).pipe(Effect.catchAll(() => Effect.void));
           }
         } catch (error) {
           return {

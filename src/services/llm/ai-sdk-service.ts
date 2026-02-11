@@ -665,7 +665,11 @@ class AISDKService implements LLMService {
     providerName: ProviderName,
     modelId: ModelName,
   ): Promise<ModelInfo | undefined> {
-    const models = await Effect.runPromise(this.getProviderModels(providerName));
+    const models = await Effect.runPromise(
+      this.getProviderModels(providerName).pipe(
+        Effect.catchAll(() => Effect.succeed([] as readonly ModelInfo[])),
+      ),
+    );
     return models.find((model) => model.id === modelId);
   }
 
