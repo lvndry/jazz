@@ -5,6 +5,7 @@ import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { ChatServiceTag } from "@/core/interfaces/chat-service";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/index";
+import { sortAgents } from "@/core/utils/agent-sort";
 import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
@@ -49,15 +50,13 @@ export function wizardCommand() {
       // Get last used agent ID from config
       const lastUsedAgentId = yield* configService.get("wizard.lastUsedAgentId").pipe(
         Effect.map((value) => (typeof value === "string" ? value : null)),
-        Effect.catchAll(() => Effect.succeed(null))
+        Effect.catchAll(() => Effect.succeed(null)),
       );
 
       // Check if last used agent still exists
       let lastUsedAgent: Agent | null = null;
       if (lastUsedAgentId) {
-        const agentResult = yield* Effect.either(
-          agentService.getAgent(lastUsedAgentId)
-        );
+        const agentResult = yield* Effect.either(agentService.getAgent(lastUsedAgentId));
         if (agentResult._tag === "Right") {
           lastUsedAgent = agentResult.right;
         }
@@ -80,9 +79,7 @@ export function wizardCommand() {
         });
       }
 
-      menuOptions.push(
-        { label: "Create agent", value: "create-agent" },
-      );
+      menuOptions.push({ label: "Create agent", value: "create-agent" });
 
       if (agents.length > 0) {
         menuOptions.push(
@@ -112,7 +109,12 @@ export function wizardCommand() {
         }
 
         case "new-conversation": {
-          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to chat with:", lastUsedAgentId);
+          const selectedAgent = yield* selectAgent(
+            agents,
+            terminal,
+            "Select an agent to chat with:",
+            lastUsedAgentId,
+          );
           if (selectedAgent) {
             yield* startChatWithAgent(selectedAgent, configService);
             yield* terminal.clear();
@@ -169,14 +171,19 @@ export function wizardCommand() {
         }
 
         case "edit-agent": {
-          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to edit:", lastUsedAgentId);
+          const selectedAgent = yield* selectAgent(
+            agents,
+            terminal,
+            "Select an agent to edit:",
+            lastUsedAgentId,
+          );
           if (selectedAgent) {
             yield* editAgentCommand(selectedAgent.id).pipe(
               Effect.catchAll((error) =>
                 Effect.gen(function* () {
                   yield* terminal.error(`Failed to edit agent: ${String(error)}`);
-                })
-              )
+                }),
+              ),
             );
             yield* terminal.clear();
           }
@@ -188,8 +195,8 @@ export function wizardCommand() {
             Effect.catchAll((error) =>
               Effect.gen(function* () {
                 yield* terminal.error(`Failed to list agents: ${String(error)}`);
-              })
-            )
+              }),
+            ),
           );
           // Pause to let user see the list
           yield* terminal.ask("Press Enter to continue...", { hidden: true });
@@ -198,14 +205,19 @@ export function wizardCommand() {
         }
 
         case "delete-agent": {
-          const selectedAgent = yield* selectAgent(agents, terminal, "Select an agent to delete:", lastUsedAgentId);
+          const selectedAgent = yield* selectAgent(
+            agents,
+            terminal,
+            "Select an agent to delete:",
+            lastUsedAgentId,
+          );
           if (selectedAgent) {
             yield* deleteAgentCommand(selectedAgent.id).pipe(
               Effect.catchAll((error) =>
                 Effect.gen(function* () {
                   yield* terminal.error(`Failed to delete agent: ${String(error)}`);
-                })
-              )
+                }),
+              ),
             );
             yield* terminal.clear();
           }
@@ -227,17 +239,13 @@ export function wizardCommand() {
 
     yield* terminal.log("");
     yield* Effect.sync(() => process.exit(0));
-  }).pipe(
-    Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e))))
-  );
+  }).pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
 }
 
 /**
  * Show the wizard menu and return the selected action
  */
-function showWizardMenu(
-  options: WizardMenuOption[]
-): Effect.Effect<MenuAction, never, never> {
+function showWizardMenu(options: WizardMenuOption[]): Effect.Effect<MenuAction, never, never> {
   return Effect.async<MenuAction>((resume) => {
     // Guard against double-resume (e.g., if both escape key and menu selection fire)
     let resumed = false;
@@ -254,7 +262,7 @@ function showWizardMenu(
         options,
         onSelect: (value: string) => safeResume(value as MenuAction),
         onExit: () => safeResume("exit" as MenuAction),
-      })
+      }),
     );
   });
 }
@@ -266,7 +274,7 @@ function selectAgent(
   agents: readonly Agent[],
   terminal: TerminalService,
   message: string,
-  lastUsedAgentId?: string | null
+  lastUsedAgentId?: string | null,
 ): Effect.Effect<Agent | null, never, never> {
   return Effect.gen(function* () {
     if (agents.length === 0) {
@@ -275,13 +283,7 @@ function selectAgent(
     }
 
     // Sort alphabetically by name, but keep the last-used agent first
-    const sorted = [...agents].sort((a, b) => {
-      if (lastUsedAgentId) {
-        if (a.id === lastUsedAgentId) return -1;
-        if (b.id === lastUsedAgentId) return 1;
-      }
-      return a.name.localeCompare(b.name);
-    });
+    const sorted = sortAgents(agents, lastUsedAgentId);
 
     const choices = sorted.map((agent) => {
       return {
@@ -303,21 +305,20 @@ function selectAgent(
 /**
  * Start a chat session with an agent and save as last used
  */
-function startChatWithAgent(
-  agent: Agent,
-  configService: AgentConfigService
-) {
+function startChatWithAgent(agent: Agent, configService: AgentConfigService) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
 
     // Save as last used agent
-    yield* configService.set("wizard.lastUsedAgentId", agent.id).pipe(
-      Effect.catchAll(() => Effect.void)
-    );
+    yield* configService
+      .set("wizard.lastUsedAgentId", agent.id)
+      .pipe(Effect.catchAll(() => Effect.void));
 
     yield* terminal.clear();
     yield* terminal.heading(`Starting chat with: ${agent.name}`);
-    yield* terminal.log(`${agent.model} - Reasoning: ${agent.config.reasoningEffort ?? "disabled"}`);
+    yield* terminal.log(
+      `${agent.model} - Reasoning: ${agent.config.reasoningEffort ?? "disabled"}`,
+    );
     if (agent.description) {
       yield* terminal.log(`   Description: ${agent.description}`);
     }
@@ -332,8 +333,8 @@ function startChatWithAgent(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           yield* terminal.error(`Chat session error: ${String(error)}`);
-        })
-      )
+        }),
+      ),
     );
   });
 }
@@ -343,7 +344,7 @@ function startChatWithAgent(
  */
 function promptNotificationsOnFirstRun(
   configService: AgentConfigService,
-  terminal: TerminalService
+  terminal: TerminalService,
 ) {
   return Effect.gen(function* () {
     // Check if notifications have ever been configured
@@ -391,16 +392,13 @@ function promptNotificationsOnFirstRun(
     yield* terminal.info("Jazz can send desktop notifications for completions and approvals.");
     const enableNotifications = yield* terminal.confirm(
       "Enable desktop notifications?",
-      true // Default to yes
+      true, // Default to yes
     );
 
     yield* configService.set("notifications.enabled", enableNotifications);
 
     if (enableNotifications) {
-      const enableSound = yield* terminal.confirm(
-        "Play a sound with notifications?",
-        true
-      );
+      const enableSound = yield* terminal.confirm("Play a sound with notifications?", true);
       yield* configService.set("notifications.sound", enableSound);
       yield* terminal.success("Notifications enabled! Change anytime in Settings.");
     } else {

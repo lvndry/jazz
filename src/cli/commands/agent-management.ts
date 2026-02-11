@@ -9,10 +9,12 @@ import {
   wrapCommaList,
 } from "@/cli/utils/string-utils";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { CLIOptionsTag, type CLIOptions } from "@/core/interfaces/cli-options";
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
+import { sortAgents } from "@/core/utils/agent-sort";
 import { AgentDetailsCard } from "../ui/AgentDetailsCard";
 import { AgentsList } from "../ui/AgentsList";
 
@@ -57,8 +59,7 @@ function formatAgentsListBlock(
   const reasoningW = 12; // "high/low"
   const gap = 2;
 
-  const fixed =
-    idxW + gap + nameW + gap + modelW + gap + typeW + gap + reasoningW + gap; // last gap for padding
+  const fixed = idxW + gap + nameW + gap + modelW + gap + typeW + gap + reasoningW + gap; // last gap for padding
   const descW = Math.max(10, innerWidth - fixed);
 
   const colHeader =
@@ -73,7 +74,9 @@ function formatAgentsListBlock(
     padRight("Reasoning", reasoningW) +
     " ".repeat(gap) +
     padRight("Description", descW);
-  lines.push(chalk.dim("│") + " " + chalk.dim(truncateMiddle(colHeader, innerWidth - 1)) + chalk.dim("│"));
+  lines.push(
+    chalk.dim("│") + " " + chalk.dim(truncateMiddle(colHeader, innerWidth - 1)) + chalk.dim("│"),
+  );
   lines.push(chalk.dim(`├${"─".repeat(innerWidth)}┤`));
 
   for (const [index, agent] of agents.entries()) {
@@ -95,7 +98,9 @@ function formatAgentsListBlock(
       " ".repeat(gap) +
       padRight(truncateMiddle(agent.description ?? "", descW), descW);
 
-    lines.push(chalk.dim("│") + " " + chalk.white(truncateMiddle(row, innerWidth - 1)) + chalk.dim("│"));
+    lines.push(
+      chalk.dim("│") + " " + chalk.white(truncateMiddle(row, innerWidth - 1)) + chalk.dim("│"),
+    );
 
     const metaParts: string[] = [];
     metaParts.push(`${chalk.dim("id")} ${chalk.dim(truncateMiddle(agent.id, 28))}`);
@@ -150,30 +155,36 @@ function formatAgentsListBlock(
 export function listAgentsCommand(): Effect.Effect<
   void,
   StorageError,
-  AgentService | TerminalService | CLIOptions
+  AgentService | TerminalService | CLIOptions | AgentConfigService
 > {
   return Effect.gen(function* () {
-    const agents = yield* listAllAgents();
+    const agentsUnsorted = yield* listAllAgents();
     const terminal = yield* TerminalServiceTag;
     const cliOptions = yield* CLIOptionsTag;
 
-    if (agents.length === 0) {
+    if (agentsUnsorted.length === 0) {
       yield* terminal.info("No agents found. Create your first agent with: jazz agent create");
       return;
     }
 
+    // Sort with last-used agent first, then alphabetically
+    const configService = yield* AgentConfigServiceTag;
+    const lastUsedAgentId = yield* configService.get("wizard.lastUsedAgentId").pipe(
+      Effect.map((value) => (typeof value === "string" ? value : null)),
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
+    const agents = sortAgents(agentsUnsorted, lastUsedAgentId);
+
     // Prefer a responsive Ink component (reflows on terminal resize).
     // Fall back to a plain string block when not in a TTY.
     if (process.stdout.isTTY) {
-      yield* terminal.log(
-        {
-          _tag: "ink",
-          node: React.createElement(AgentsList, {
-            agents,
-            verbose: cliOptions.verbose === true,
-          }),
-        },
-      );
+      yield* terminal.log({
+        _tag: "ink",
+        node: React.createElement(AgentsList, {
+          agents,
+          verbose: cliOptions.verbose === true,
+        }),
+      });
     } else {
       const block = formatAgentsListBlock(agents, { verbose: cliOptions.verbose === true });
       yield* terminal.log(block);
@@ -298,8 +309,9 @@ function formatAgentDetailsBlock(agent: {
   const footer = `└${"─".repeat(innerWidth)}┘`;
   const sep = `├${"─".repeat(innerWidth)}┤`;
 
-  const model =
-    agent.model?.trim().length ? agent.model : `${agent.config.llmProvider}/${agent.config.llmModel}`;
+  const model = agent.model?.trim().length
+    ? agent.model
+    : `${agent.config.llmProvider}/${agent.config.llmModel}`;
   const tools = agent.config.tools ?? [];
 
   const lines: string[] = [];
@@ -324,12 +336,17 @@ function formatAgentDetailsBlock(agent: {
   lines.push(kv("Agent type:", agent.config.agentType ?? "default"));
   lines.push(kv("Provider:", agent.config.llmProvider));
   lines.push(kv("LLM model:", agent.config.llmModel));
-  lines.push(kv("Reasoning:", agent.config.reasoningEffort ? String(agent.config.reasoningEffort) : "—"));
+  lines.push(
+    kv("Reasoning:", agent.config.reasoningEffort ? String(agent.config.reasoningEffort) : "—"),
+  );
 
   lines.push(chalk.dim(sep));
   lines.push(
     chalk.dim("│") +
-      padRight(` ${chalk.bold(`Tools (${tools.length})`)}${tools.length ? ":" : " — none configured"}`, innerWidth) +
+      padRight(
+        ` ${chalk.bold(`Tools (${tools.length})`)}${tools.length ? ":" : " — none configured"}`,
+        innerWidth,
+      ) +
       chalk.dim("│"),
   );
 
@@ -343,5 +360,3 @@ function formatAgentDetailsBlock(agent: {
   lines.push(chalk.dim(footer));
   return lines.join("\n");
 }
-
-

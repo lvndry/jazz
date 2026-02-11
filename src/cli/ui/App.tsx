@@ -1,4 +1,4 @@
-import { Box, Static, useInput } from "ink";
+import { Box, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import { ActivityView } from "./ActivityView";
@@ -35,7 +35,9 @@ function ActivityIsland(): React.ReactElement | null {
 
   // Cleanup on unmount to prevent stale setter calls
   useEffect(() => {
-    return () => { store.registerActivitySetter(() => {}); };
+    return () => {
+      store.registerActivitySetter(() => {});
+    };
   }, []);
 
   if (activity.phase === "idle" || activity.phase === "complete") return null;
@@ -71,12 +73,18 @@ function PromptIsland(): React.ReactElement | null {
 
   if (!prompt) return null;
 
-  return <Prompt prompt={prompt} workingDirectory={workingDirectory} />;
+  return (
+    <Prompt
+      prompt={prompt}
+      workingDirectory={workingDirectory}
+    />
+  );
 }
 
 // ============================================================================
 // Output Island - Isolated state for output entries
-// Uses Static for finalized entries (Ink won't re-render them)
+// Renders entries as regular Box children so they are truly removed on clear,
+// avoiding Ink's <Static> internal accumulation that causes memory leaks.
 // ============================================================================
 
 interface OutputIslandState {
@@ -139,27 +147,20 @@ function OutputIsland(): React.ReactElement {
   }, []);
 
   return (
-    <>
-      {/* All output entries rendered via Static — Ink paints each once and never re-renders them */}
-      {state.entries.length > 0 && (
-        <Static items={state.entries}>
-          {(entry, index) => {
-            const prevEntry = index > 0 ? state.entries[index - 1] : null;
-            const addSpacing =
-              entry.type === "user" ||
-              (entry.type === "info" && prevEntry?.type === "user");
-            return (
-              <React.Fragment key={entry.id}>
-                <OutputEntryView
-                  entry={entry}
-                  addSpacing={addSpacing}
-                />
-              </React.Fragment>
-            );
-          }}
-        </Static>
-      )}
-    </>
+    <Box flexDirection="column">
+      {state.entries.map((entry, index) => {
+        const prevEntry = index > 0 ? state.entries[index - 1] : null;
+        const addSpacing =
+          entry.type === "user" || (entry.type === "info" && prevEntry?.type === "user");
+        return (
+          <OutputEntryView
+            key={entry.id}
+            entry={entry}
+            addSpacing={addSpacing}
+          />
+        );
+      })}
+    </Box>
   );
 }
 
@@ -193,8 +194,8 @@ export function App(): React.ReactElement {
   // With exitOnCtrlC: false, Ink forwards Ctrl+C to useInput instead of
   // swallowing it. We raise a real SIGINT so the handler in app-layer.ts fires.
   useInput((input, key) => {
-    if (input === 'c' && key.ctrl) {
-      process.kill(process.pid, 'SIGINT');
+    if (input === "c" && key.ctrl) {
+      process.kill(process.pid, "SIGINT");
     }
   });
 
@@ -239,10 +240,17 @@ export function App(): React.ReactElement {
   return (
     <ErrorBoundary>
       {customView}
-      <Box flexDirection="column" display={customView ? 'none' : 'flex'}>
+      <Box
+        flexDirection="column"
+        display={customView ? "none" : "flex"}
+      >
         {/* Main Chat Area */}
-        <Box flexDirection="column" paddingX={3} marginTop={1}>
-          {/* Output entries - Isolated state with Static optimization */}
+        <Box
+          flexDirection="column"
+          paddingX={3}
+          marginTop={1}
+        >
+          {/* Output entries - Isolated state, cleared on terminal.clear() */}
           <OutputIsland />
 
           {/* Activity - Unified status + streaming response */}
