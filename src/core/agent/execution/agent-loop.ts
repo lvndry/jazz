@@ -3,7 +3,6 @@ import { MAX_AGENT_STEPS } from "@/core/constants/agent";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
 import type { PresentationService, StreamingRenderer } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
@@ -106,12 +105,11 @@ export function executeAgentLoop(
     // Acquire: setup logger, refs
     Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
-      const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
       yield* logger.setSessionId(options.sessionId);
       const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
         Option.none(),
       );
-      return { logger, mcpManager, finalizeFiberRef };
+      return { logger, finalizeFiberRef };
     }),
     // Use: main loop
     ({ logger, finalizeFiberRef }) =>
@@ -121,7 +119,8 @@ export function executeAgentLoop(
         const { actualConversationId, context, tools, messages, runMetrics, provider, model } =
           runContext;
 
-        const contextWindowMaxTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens ?? 50_000;
+        const contextWindowMaxTokens =
+          DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens ?? 50_000;
 
         let currentMessages: ConversationMessages = [messages[0], ...messages.slice(1)];
         let response: AgentResponse = {
@@ -373,10 +372,7 @@ export function executeAgentLoop(
             `iteration limit reached (${maxIterations}) - type 'continue' to resume`,
           );
         } else if (!response.content?.trim() && !response.toolCalls && !interrupted) {
-          yield* presentationService.presentWarning(
-            agent.name,
-            "model returned an empty response",
-          );
+          yield* presentationService.presentWarning(agent.name, "model returned an empty response");
         }
 
         yield* logger.debug("Finalizing agent run", { interrupted, finished });
@@ -402,7 +398,7 @@ export function executeAgentLoop(
         };
       }),
     // Release: cleanup
-    ({ logger, mcpManager, finalizeFiberRef }) =>
+    ({ logger, finalizeFiberRef }) =>
       Effect.gen(function* () {
         const fiberOption = yield* Ref.get(finalizeFiberRef);
         if (Option.isSome(fiberOption)) {
@@ -410,22 +406,6 @@ export function executeAgentLoop(
             Effect.asVoid,
             Effect.catchAll(() => Effect.void),
           );
-        }
-
-        if (runContext.connectedMCPServers.length > 0 && Option.isSome(mcpManager)) {
-          yield* logger.debug(
-            `Disconnecting ${runContext.connectedMCPServers.length} MCP server(s) for conversation ${runContext.actualConversationId}`,
-          );
-          for (const serverName of runContext.connectedMCPServers) {
-            yield* mcpManager.value.disconnectServer(serverName).pipe(
-              Effect.catchAll((error) =>
-                logger.warn(`Failed to disconnect MCP server ${serverName}`, {
-                  error: error instanceof Error ? error.message : String(error),
-                }),
-              ),
-            );
-          }
-          yield* logger.debug("All MCP servers disconnected for this conversation");
         }
 
         yield* logger.clearSessionId();
