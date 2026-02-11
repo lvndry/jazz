@@ -116,53 +116,59 @@ const MAX_REASONING_LENGTH = 8000;
 const MAX_LIVE_TEXT_LENGTH = 200_000;
 /**
  * Maximum characters kept in the live area before flushing older paragraphs
- * to Static. ~1500 chars ≈ ~20 terminal lines, small enough to redraw without
- * visible flicker, large enough to show meaningful context while streaming.
+ * to Static. ~8000 chars ≈ ~100 terminal lines, generous enough to read
+ * comfortably while streaming. The tiered flush strategy in findSafeFlushPoint
+ * guarantees content is always promoted to Static before Ink clips the viewport.
  */
-const MAX_LIVE_DISPLAY_CHARS = 1500;
+const MAX_LIVE_DISPLAY_CHARS = 8000;
 
 /**
- * Find a safe paragraph break (`\n\n`) to flush text up to, avoiding splits
- * inside fenced code blocks. Scans from `startOffset` to
- * `text.length - maxLiveChars` and returns the position just after the last
- * safe `\n\n`. Returns -1 if no safe point is found.
+ * Find the best point to flush text up to, using a tiered strategy:
+ * 1. Paragraph break (`\n\n`) outside fenced code blocks (ideal — clean split)
+ * 2. Any single newline (`\n`) as fallback (may split inside a code block, but
+ *    prevents Ink's live area from exceeding the terminal viewport)
+ * 3. Hard character boundary as last resort (splits mid-line, but guarantees
+ *    the live area never grows unbounded)
+ *
+ * Scans from `startOffset` to `text.length - maxLiveChars`.
+ * Returns the position just after the chosen break, or -1 if
+ * `text.length - maxLiveChars <= startOffset` (i.e. not enough text yet).
  */
-function findSafeFlushPoint(
-  text: string,
-  startOffset: number,
-  maxLiveChars: number,
-): number {
+function findSafeFlushPoint(text: string, startOffset: number, maxLiveChars: number): number {
   const searchEnd = text.length - maxLiveChars;
   if (searchEnd <= startOffset) return -1;
 
   let insideCodeBlock = false;
-  let lastSafeBreak = -1;
+  let lastParagraphBreak = -1;
+  let lastNewline = -1;
 
   for (let i = startOffset; i < searchEnd; i++) {
     // Detect fenced code block toggles (``` at start of line)
     if (
-      text[i] === '`' &&
+      text[i] === "`" &&
       i + 2 < text.length &&
-      text[i + 1] === '`' &&
-      text[i + 2] === '`' &&
-      (i === 0 || text[i - 1] === '\n')
+      text[i + 1] === "`" &&
+      text[i + 2] === "`" &&
+      (i === 0 || text[i - 1] === "\n")
     ) {
       insideCodeBlock = !insideCodeBlock;
     }
 
-    // Look for paragraph breaks (\n\n) outside code blocks
-    if (
-      !insideCodeBlock &&
-      text[i] === '\n' &&
-      i + 1 < searchEnd &&
-      text[i + 1] === '\n'
-    ) {
-      // Position after the double newline
-      lastSafeBreak = i + 2;
+    if (text[i] === "\n") {
+      // Tier 1: paragraph break (\n\n) outside code blocks
+      if (!insideCodeBlock && i + 1 < searchEnd && text[i + 1] === "\n") {
+        lastParagraphBreak = i + 2;
+      }
+      // Tier 2: any single newline
+      lastNewline = i + 1;
     }
   }
 
-  return lastSafeBreak;
+  // Prefer paragraph break > single newline > hard boundary
+  if (lastParagraphBreak > startOffset) return lastParagraphBreak;
+  if (lastNewline > startOffset) return lastNewline;
+  // Tier 3: hard boundary — just flush everything beyond maxLiveChars
+  return searchEnd;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,8 +185,7 @@ function buildThinkingOrStreamingActivity(
       : acc.completedReasoning.trim().length > 0
         ? acc.completedReasoning
         : "";
-  const formattedReasoning =
-    reasoningToShow.length > 0 ? formatMarkdown(reasoningToShow) : "";
+  const formattedReasoning = reasoningToShow.length > 0 ? formatMarkdown(reasoningToShow) : "";
 
   // Only show the unflushed tail in the live area — earlier text is already in Static.
   const displayText = acc.liveText.slice(acc.flushedTextOffset);
@@ -201,13 +206,11 @@ function buildThinkingOrStreamingActivity(
 }
 
 function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
-  const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(
-    ([toolCallId, entry]) => ({
-      toolCallId,
-      toolName: entry.toolName,
-      startedAt: entry.startedAt,
-    }),
-  );
+  const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(([toolCallId, entry]) => ({
+    toolCallId,
+    toolName: entry.toolName,
+    startedAt: entry.startedAt,
+  }));
   return { phase: "tool-execution", agentName: acc.agentName, tools };
 }
 
@@ -276,9 +279,13 @@ export function reduceEvent(
         outputs.push({
           type: "log",
           message: inkRender(
-            React.createElement(Box, { flexDirection: "column", paddingLeft: 2, marginTop: 1, marginBottom: 1 },
+            React.createElement(
+              Box,
+              { flexDirection: "column", paddingLeft: 2, marginTop: 1, marginBottom: 1 },
               React.createElement(Text, { dimColor: true, italic: true }, "▸ Reasoning"),
-              React.createElement(Box, { marginTop: 0, paddingLeft: 1 },
+              React.createElement(
+                Box,
+                { marginTop: 0, paddingLeft: 1 },
                 React.createElement(Text, { dimColor: true }, formattedReasoning),
               ),
             ),
@@ -297,19 +304,14 @@ export function reduceEvent(
         }
         // Cap reasoning to prevent unbounded growth
         if (acc.completedReasoning.length > MAX_REASONING_LENGTH) {
-          const truncatePoint =
-            acc.completedReasoning.length - MAX_REASONING_LENGTH;
-          const nextSeparator = acc.completedReasoning.indexOf(
-            "---",
-            truncatePoint,
-          );
+          const truncatePoint = acc.completedReasoning.length - MAX_REASONING_LENGTH;
+          const nextSeparator = acc.completedReasoning.indexOf("---", truncatePoint);
           if (nextSeparator > 0) {
             acc.completedReasoning =
               "...(earlier reasoning truncated)...\n\n" +
               acc.completedReasoning.substring(nextSeparator);
           } else {
-            acc.completedReasoning =
-              acc.completedReasoning.substring(truncatePoint);
+            acc.completedReasoning = acc.completedReasoning.substring(truncatePoint);
           }
         }
       }
@@ -329,7 +331,9 @@ export function reduceEvent(
         outputs.push({
           type: "log",
           message: inkRender(
-            React.createElement(Box, { flexDirection: "column", paddingLeft: 2 },
+            React.createElement(
+              Box,
+              { flexDirection: "column", paddingLeft: 2 },
               React.createElement(Text, { dimColor: true }, "─".repeat(40)),
               React.createElement(Text, { dimColor: true, italic: true }, "▸ Response"),
             ),
@@ -367,12 +371,12 @@ export function reduceEvent(
       acc.lastAppliedTextSequence = next.lastAppliedSequence;
 
       // --- Live-area flush ---
-      // When the unflushed tail exceeds the display threshold, find a safe
-      // paragraph boundary and promote everything before it to Static output.
-      // This keeps the live area small (≤ MAX_LIVE_DISPLAY_CHARS) so Ink
-      // redraws don't cause terminal flicker. If no safe split point exists
-      // (e.g. one giant code block), we skip the flush and let the live area
-      // grow — better to have some flicker than to corrupt markdown formatting.
+      // When the unflushed tail exceeds the display threshold, find a flush
+      // point and promote everything before it to Static output. This keeps
+      // the live area small (≤ MAX_LIVE_DISPLAY_CHARS) so Ink redraws don't
+      // cause terminal flicker or viewport clipping. The flush uses a tiered
+      // strategy: paragraph break > single newline > hard boundary, so it
+      // always finds a split point even inside long code blocks.
       if (acc.liveText.length - acc.flushedTextOffset > MAX_LIVE_DISPLAY_CHARS) {
         const flushPoint = findSafeFlushPoint(
           acc.liveText,
@@ -385,7 +389,9 @@ export function reduceEvent(
           outputs.push({
             type: "log",
             message: inkRender(
-              React.createElement(Box, { paddingLeft: 2 },
+              React.createElement(
+                Box,
+                { paddingLeft: 2 },
                 React.createElement(Text, {}, formatted),
               ),
             ),
@@ -406,9 +412,7 @@ export function reduceEvent(
     case "tools_detected": {
       const approvalSet = new Set(event.toolsRequiringApproval);
       const formattedTools = event.toolNames
-        .map((name) =>
-          approvalSet.has(name) ? `${name} (requires approval)` : name,
-        )
+        .map((name) => (approvalSet.has(name) ? `${name} (requires approval)` : name))
         .join(", ");
       outputs.push({
         type: "info",
@@ -445,15 +449,13 @@ export function reduceEvent(
       outputs.push({
         type: "log",
         message: inkRender(
-          React.createElement(Box, { paddingLeft: 2, marginTop: 1 },
+          React.createElement(
+            Box,
+            { paddingLeft: 2, marginTop: 1 },
             React.createElement(Text, { color: THEME.primary }, "▸ "),
             React.createElement(Text, { bold: true }, toolName),
-            providerLabel
-              ? React.createElement(Text, { dimColor: true }, providerLabel)
-              : null,
-            argsStr
-              ? React.createElement(Text, { dimColor: true }, argsStr)
-              : null,
+            providerLabel ? React.createElement(Text, { dimColor: true }, providerLabel) : null,
+            argsStr ? React.createElement(Text, { dimColor: true }, argsStr) : null,
           ),
         ),
         timestamp: new Date(),
@@ -464,10 +466,7 @@ export function reduceEvent(
     case "tool_execution_start": {
       acc.activeTools.set(event.toolCallId, { toolName: event.toolName, startedAt: Date.now() });
 
-      const argsStr = CLIRenderer.formatToolArguments(
-        event.toolName,
-        event.arguments,
-      );
+      const argsStr = CLIRenderer.formatToolArguments(event.toolName, event.arguments);
       let providerSuffix = "";
       if (event.toolName === "web_search") {
         const provider = event.metadata?.["provider"];
@@ -478,15 +477,13 @@ export function reduceEvent(
       outputs.push({
         type: "log",
         message: inkRender(
-          React.createElement(Box, { paddingLeft: 2, marginTop: 1 },
+          React.createElement(
+            Box,
+            { paddingLeft: 2, marginTop: 1 },
             React.createElement(Text, { color: THEME.primary }, "▸ "),
             React.createElement(Text, { bold: true }, event.toolName),
-            providerSuffix
-              ? React.createElement(Text, { dimColor: true }, providerSuffix)
-              : null,
-            argsStr
-              ? React.createElement(Text, { dimColor: true }, argsStr)
-              : null,
+            providerSuffix ? React.createElement(Text, { dimColor: true }, providerSuffix) : null,
+            argsStr ? React.createElement(Text, { dimColor: true }, argsStr) : null,
           ),
         ),
         timestamp: new Date(),
@@ -506,15 +503,16 @@ export function reduceEvent(
       }
 
       const namePrefix = toolName ? `${toolName} ` : "";
-      const displayText =
-        summary && summary.length > 0 ? summary : namePrefix + "done";
+      const displayText = summary && summary.length > 0 ? summary : namePrefix + "done";
       const hasMultiLine = displayText.includes("\n");
 
       if (hasMultiLine) {
         outputs.push({
           type: "log",
           message: inkRender(
-            React.createElement(Box, { paddingLeft: 2 },
+            React.createElement(
+              Box,
+              { paddingLeft: 2 },
               React.createElement(Text, { color: THEME.success }, "✔ "),
               React.createElement(Text, {}, `${namePrefix}done`),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
@@ -525,7 +523,9 @@ export function reduceEvent(
         outputs.push({
           type: "log",
           message: inkRender(
-            React.createElement(Box, { paddingLeft: 4 },
+            React.createElement(
+              Box,
+              { paddingLeft: 4 },
               React.createElement(Text, {}, displayText),
             ),
           ),
@@ -535,7 +535,9 @@ export function reduceEvent(
         outputs.push({
           type: "log",
           message: inkRender(
-            React.createElement(Box, { paddingLeft: 2 },
+            React.createElement(
+              Box,
+              { paddingLeft: 2 },
               React.createElement(Text, { color: THEME.success }, "✔ "),
               React.createElement(Text, {}, displayText),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
@@ -553,9 +555,7 @@ export function reduceEvent(
       });
 
       const activity: ActivityState =
-        acc.activeTools.size > 0
-          ? buildToolExecutionActivity(acc)
-          : { phase: "idle" };
+        acc.activeTools.size > 0 ? buildToolExecutionActivity(acc) : { phase: "idle" };
 
       return { activity, outputs };
     }

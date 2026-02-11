@@ -143,6 +143,8 @@ himalaya message reply <id> --all
 # NOTE: `envelope list` does NOT support a `--query` flag.
 # Any trailing arguments are interpreted as the search query.
 # Put options FIRST (e.g., --folder/--output/--page-size), then query tokens.
+# NOTE: There is no `--max-size` flag. To limit results, use `--page-size` (and optionally `--page`).
+
 
 # Basic filters (direct Himalaya query syntax)
 
@@ -181,9 +183,12 @@ himalaya envelope list --folder INBOX not flag seen \
   | tail -n +3 \
   | wc -l
 
-# Show last N emails in INBOX (for quick inspection)
-himalaya envelope list --folder INBOX \
-  | tail -n 10
+# Show latest N emails in INBOX (for quick inspection)
+# Use pagination flags (not `tail`) to reliably fetch only N messages.
+himalaya envelope list --folder INBOX --page 1 --page-size 10
+
+# Show latest N *unread* emails
+himalaya envelope list --folder INBOX --page 1 --page-size 10 not flag seen
 ```
 
 ### Manage Folders

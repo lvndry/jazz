@@ -84,23 +84,26 @@ function summarizeWebSearch(toolName: string, result: unknown): string | null {
   const results = Array.isArray(resultsValue) ? resultsValue : [];
   if (results.length === 0) return null;
 
-  const topResults = results.slice(0, MAX_WEB_RESULTS).map((entry) => {
-    if (!entry || typeof entry !== "object") return null;
-    const item = entry as Record<string, unknown>;
-    const title = getString(item, "title") ?? "";
-    const url = getString(item, "url") ?? "";
-    const snippet = getString(item, "snippet");
-    const publishedDate = getString(item, "publishedDate");
-    const source = getString(item, "source");
+  const topResults = results
+    .slice(0, MAX_WEB_RESULTS)
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const item = entry as Record<string, unknown>;
+      const title = getString(item, "title") ?? "";
+      const url = getString(item, "url") ?? "";
+      const snippet = getString(item, "snippet");
+      const publishedDate = getString(item, "publishedDate");
+      const source = getString(item, "source");
 
-    return {
-      title,
-      url,
-      snippet: snippet ? truncateText(snippet, MAX_SNIPPET_CHARS) : "",
-      ...(publishedDate ? { publishedDate } : {}),
-      ...(source ? { source } : {}),
-    };
-  }).filter(Boolean);
+      return {
+        title,
+        url,
+        snippet: snippet ? truncateText(snippet, MAX_SNIPPET_CHARS) : "",
+        ...(publishedDate ? { publishedDate } : {}),
+        ...(source ? { source } : {}),
+      };
+    })
+    .filter(Boolean);
 
   const summary: ToolSummaryPayload = {
     toolName,
@@ -205,15 +208,18 @@ function summarizeEditFile(toolName: string, result: unknown): string | null {
 
 function summarizeLs(toolName: string, result: unknown): string | null {
   if (!Array.isArray(result)) return null;
-  const items = result.slice(0, MAX_LS_ITEMS).map((entry) => {
-    if (!entry || typeof entry !== "object") return null;
-    const item = entry as Record<string, unknown>;
-    return {
-      name: getString(item, "name") ?? "",
-      path: getString(item, "path") ?? "",
-      type: getString(item, "type") ?? "",
-    };
-  }).filter(Boolean);
+  const items = result
+    .slice(0, MAX_LS_ITEMS)
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const item = entry as Record<string, unknown>;
+      return {
+        name: getString(item, "name") ?? "",
+        path: getString(item, "path") ?? "",
+        type: getString(item, "type") ?? "",
+      };
+    })
+    .filter(Boolean);
 
   const summary: ToolSummaryPayload = {
     toolName,
@@ -242,16 +248,18 @@ function formatToolResultByName(toolName: string, result: unknown): string | nul
       return summarizeEditFile(toolName, result);
     case "ls":
       return summarizeLs(toolName, result);
+    // Skill content must be passed through in full — truncating instructions
+    // defeats the purpose of loading a skill. The context window manager
+    // handles overall token budget separately.
+    case "load_skill":
+    case "load_skill_section":
+      return typeof result === "string" ? result : safeStringify(result);
     default:
       return null;
   }
 }
 
-function summarizeString(
-  toolName: string,
-  raw: string,
-  maxChars: number,
-): string {
+function summarizeString(toolName: string, raw: string, maxChars: number): string {
   if (raw.length <= maxChars) {
     return raw;
   }

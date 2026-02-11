@@ -63,7 +63,6 @@ interface AISDKConfig {
   webSearchConfig?: WebSearchConfig;
 }
 
-
 function parseToolArguments(input: string): Record<string, unknown> {
   const parsed = safeParseJson<Record<string, unknown>>(input);
   return Option.match(parsed, {
@@ -136,11 +135,15 @@ function toCoreMessages(
       // so caching it gives cost reduction and latency improvement on the cached prefix
       const normalized = providerName?.toLowerCase();
       if (normalized === "anthropic" || normalized === "ai_gateway") {
-        (msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }).providerOptions = {
+        (
+          msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }
+        ).providerOptions = {
           anthropic: { cacheControl: { type: "ephemeral" } },
         };
       } else if (normalized === "openai") {
-        (msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }).providerOptions = {
+        (
+          msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }
+        ).providerOptions = {
           openai: { promptCacheKey: "system-prompt" },
         };
       }
@@ -247,7 +250,12 @@ function getProviderNativeWebSearchTool(
     switch (normalizedProvider) {
       case "openai": {
         const openaiWithTools = openai as typeof openai & {
-          tools?: { webSearch?: (config?: { externalWebAccess?: boolean; searchContextSize?: string }) => ToolSet[string] };
+          tools?: {
+            webSearch?: (config?: {
+              externalWebAccess?: boolean;
+              searchContextSize?: string;
+            }) => ToolSet[string];
+          };
         };
         if (typeof openaiWithTools.tools?.webSearch === "function") {
           return openaiWithTools.tools.webSearch({
@@ -971,207 +979,188 @@ class AISDKService implements LLMService {
     providerName: ProviderName,
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
-    const timingStart = Date.now();
-    void this.logger.debug(
-      `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
-    );
+    return Effect.try({
+      try: () => {
+        const timingStart = Date.now();
+        void this.logger.debug(
+          `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
+        );
 
-    const modelSelectStart = Date.now();
-    const model = selectModel(providerName, options.model, this.config.llmConfig, this.modelCache);
-    void this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`);
+        const modelSelectStart = Date.now();
+        const model = selectModel(
+          providerName,
+          options.model,
+          this.config.llmConfig,
+          this.modelCache,
+        );
+        void this.logger.debug(
+          `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
+        );
 
+        const providerOptions = buildProviderOptions(providerName, options);
 
+        // Message conversion timing
+        const messageConversionStart = Date.now();
+        const coreMessages = toCoreMessages(options.messages, providerName);
+        void this.logger.debug(
+          `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
+        );
 
-    const providerOptions = buildProviderOptions(providerName, options);
+        return { timingStart, model, providerOptions, coreMessages };
+      },
+      catch: (error) => convertToLLMError(error, providerName),
+    }).pipe(
+      Effect.flatMap(({ timingStart, model, providerOptions, coreMessages }) => {
+        const abortController = new AbortController();
 
-    // Message conversion timing
-    const messageConversionStart = Date.now();
-    const coreMessages = toCoreMessages(options.messages, providerName);
-    void this.logger.debug(
-      `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
-    );
+        const responseDeferred = createDeferred<ChatCompletionResponse>();
 
-    const abortController = new AbortController();
+        let processorRef: StreamProcessor | null = null;
+        const stream = Stream.async<StreamEvent, LLMError>(
+          (
+            emit: (
+              effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
+            ) => void,
+          ) => {
+            void (async (): Promise<void> => {
+              try {
+                const streamTextStart = Date.now();
+                void this.logger.debug(
+                  `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
+                );
 
-    const responseDeferred = createDeferred<ChatCompletionResponse>();
+                const modelInfo = await this.resolveModelInfo(providerName, options.model);
+                // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
+                // underlying models, so we assume tool support and pass tools through.
+                const isGatewayModel = OPENROUTER_GATEWAY_MODELS.has(options.model);
+                const supportsTools = isGatewayModel || (modelInfo?.supportsTools ?? false);
+                const {
+                  tools: requestedTools,
+                  toolChoice: requestedToolChoice,
+                  toolsDisabled,
+                } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
 
+                const prepared = this.prepareTools(providerName, requestedTools);
+                const tools = prepared?.tools;
 
+                if (toolsDisabled) {
+                  void this.logger.info(
+                    `Tools were provided but skipped because ${options.model} does not support tools`,
+                  );
+                }
 
-    let processorRef: StreamProcessor | null = null;
-    const stream = Stream.async<StreamEvent, LLMError>(
-      (
-        emit: (effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>) => void,
-      ) => {
-        void (async (): Promise<void> => {
-          try {
-            const streamTextStart = Date.now();
-            void this.logger.debug(
-              `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
-            );
+                const result = streamText({
+                  model,
+                  messages: coreMessages,
+                  ...(typeof options.temperature === "number"
+                    ? { temperature: options.temperature }
+                    : {}),
+                  ...(tools ? { tools } : {}),
+                  ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
+                  ...(providerOptions ? { providerOptions } : {}),
+                  abortSignal: abortController.signal,
+                  stopWhen: stepCountIs(MAX_AGENT_STEPS),
+                });
 
-            const modelInfo = await this.resolveModelInfo(providerName, options.model);
-            // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
-            // underlying models, so we assume tool support and pass tools through.
-            const isGatewayModel = OPENROUTER_GATEWAY_MODELS.has(options.model);
-            const supportsTools = isGatewayModel || (modelInfo?.supportsTools ?? false);
-            const {
-              tools: requestedTools,
-              toolChoice: requestedToolChoice,
-              toolsDisabled,
-            } = buildToolConfig(
-              supportsTools,
-              options.tools,
-              options.toolChoice,
-            );
+                void this.logger.debug(
+                  `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
+                );
 
-            const prepared = this.prepareTools(providerName, requestedTools);
-            const tools = prepared?.tools;
+                const providerNativeToolNames = prepared?.providerNativeToolNames;
 
-            if (toolsDisabled) {
-              void this.logger.info(
-                `Tools were provided but skipped because ${options.model} does not support tools`,
-              );
-            }
+                const processor = new StreamProcessor(
+                  {
+                    providerName,
+                    modelName: options.model,
+                    hasReasoningEnabled: !!(
+                      options.reasoning_effort && options.reasoning_effort !== "disable"
+                    ),
+                    startTime: Date.now(),
+                    toolsDisabled,
+                    ...(providerNativeToolNames && { providerNativeToolNames }),
+                  },
+                  emit,
+                  this.logger,
+                );
+                processorRef = processor;
 
-            const result = streamText({
-              model,
-              messages: coreMessages,
-              ...(typeof options.temperature === "number"
-                ? { temperature: options.temperature }
-                : {}),
-              ...(tools ? { tools } : {}),
-              ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
-              ...(providerOptions ? { providerOptions } : {}),
-              abortSignal: abortController.signal,
-              stopWhen: stepCountIs(MAX_AGENT_STEPS),
-            });
+                // Process the stream and get final response
+                const finalResponse = await processor.process(result);
 
-            void this.logger.debug(
-              `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
-            );
+                // Resolve deferred for consumers who just await response
+                responseDeferred.resolve(finalResponse);
 
-            const providerNativeToolNames = prepared?.providerNativeToolNames;
+                // Close the stream
+                processor.close();
+              } catch (error) {
+                const llmError = convertToLLMError(error, providerName);
 
-            const processor = new StreamProcessor(
-              {
-                providerName,
-                modelName: options.model,
-                hasReasoningEnabled: !!(
-                  options.reasoning_effort && options.reasoning_effort !== "disable"
-                ),
-                startTime: Date.now(),
-                toolsDisabled,
-                ...(providerNativeToolNames && { providerNativeToolNames }),
-              },
-              emit,
-              this.logger,
-            );
-            processorRef = processor;
+                const errorDetails: Record<string, unknown> = {
+                  provider: providerName,
+                  errorType: llmError._tag,
+                  message: llmError.message,
+                };
 
-            // Process the stream and get final response
-            const finalResponse = await processor.process(result);
+                if (error instanceof Error) {
+                  const e = error as Error & {
+                    code?: string;
+                    status?: number;
+                    statusCode?: number;
+                    type?: string;
+                  };
+                  if (e.code) errorDetails["code"] = e.code;
+                  if (e.status) errorDetails["status"] = e.status;
+                  if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
+                  if (e.type) errorDetails["type"] = e.type;
+                  if (typeof error === "object" && error !== null) {
+                    try {
+                      const errorObj = error as unknown as Record<string, unknown>;
+                      if (errorObj["param"]) errorDetails["param"] = errorObj["param"];
+                    } catch {
+                      // Ignore
+                    }
+                  }
+                }
 
-            // Resolve deferred for consumers who just await response
-            responseDeferred.resolve(finalResponse);
+                // Truncate requestBodyValues to keep only last 5 messages
+                const truncatedRequestBody = truncateRequestBodyValues(error, 5);
+                if (truncatedRequestBody) {
+                  errorDetails["requestBodyValues"] = truncatedRequestBody;
+                }
 
-            // Close the stream
-            processor.close();
-          } catch (error) {
-            const llmError = convertToLLMError(error, providerName);
+                const cleanMessage = extractCleanErrorMessage(error);
+                // Log clean error message at error level (user-facing)
+                void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+                // Log detailed error information at debug level (for debugging)
+                void this.logger.debug("LLM Error Details", errorDetails);
 
-            const errorDetails: Record<string, unknown> = {
-              provider: providerName,
-              errorType: llmError._tag,
-              message: llmError.message,
-            };
+                void emit(Effect.fail(Option.some(llmError)));
 
-            if (error instanceof Error) {
-              const e = error as Error & {
-                code?: string;
-                status?: number;
-                statusCode?: number;
-                type?: string;
-              };
-              if (e.code) errorDetails["code"] = e.code;
-              if (e.status) errorDetails["status"] = e.status;
-              if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
-              if (e.type) errorDetails["type"] = e.type;
-              if (typeof error === "object" && error !== null) {
-                try {
-                  const errorObj = error as unknown as Record<string, unknown>;
-                  if (errorObj["param"]) errorDetails["param"] = errorObj["param"];
-                } catch {
-                  // Ignore
+                responseDeferred.reject(llmError);
+              } finally {
+                if (processorRef && !abortController.signal.aborted) {
+                  processorRef.cancel();
                 }
               }
-            }
+            })();
+          },
+        );
 
-            // Truncate requestBodyValues to keep only last 5 messages
-            const truncatedRequestBody = truncateRequestBodyValues(error, 5);
-            if (truncatedRequestBody) {
-              errorDetails["requestBodyValues"] = truncatedRequestBody;
-            }
-
-            const cleanMessage = extractCleanErrorMessage(error);
-            // Log clean error message at error level (user-facing)
-            void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
-            // Log detailed error information at debug level (for debugging)
-            void this.logger.debug("LLM Error Details", errorDetails);
-
-            void emit(Effect.fail(Option.some(llmError)));
-
-            responseDeferred.reject(llmError);
-          } finally {
-            if (processorRef && !abortController.signal.aborted) {
+        return Effect.succeed({
+          stream,
+          response: Effect.tryPromise({
+            try: () => responseDeferred.promise,
+            catch: (error) => convertToLLMError(error, providerName),
+          }),
+          cancel: Effect.sync(() => {
+            if (processorRef) {
               processorRef.cancel();
             }
-          }
-        })();
-      },
-    );
-
-    return Effect.succeed({
-      stream,
-      response: Effect.promise(() => responseDeferred.promise),
-      cancel: Effect.sync(() => {
-        if (processorRef) {
-          processorRef.cancel();
-        }
-        abortController.abort();
-      }),
-    }).pipe(
-      Effect.catchAll((error) => {
-        const llmError = convertToLLMError(error, providerName);
-
-        const errorDetails: Record<string, unknown> = {
-          provider: providerName,
-          errorType: llmError._tag,
-          message: llmError.message,
-        };
-
-        if (error && typeof error === "object" && "code" in error) {
-          const e = error as { code?: string; status?: number; statusCode?: number; type?: string };
-          if (e.code) errorDetails["code"] = e.code;
-          if (e.status) errorDetails["status"] = e.status;
-          if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
-          if (e.type) errorDetails["type"] = e.type;
-        }
-
-        // Truncate requestBodyValues to keep only last 5 messages
-        const truncatedRequestBody = truncateRequestBodyValues(error, 5);
-        if (truncatedRequestBody) {
-          errorDetails["requestBodyValues"] = truncatedRequestBody;
-        }
-
-        const cleanMessage = extractCleanErrorMessage(error);
-        // Log clean error message at error level (user-facing)
-        void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
-        // Log detailed error information at debug level (for debugging)
-        void this.logger.debug("LLM Error Details", errorDetails);
-
-        return Effect.fail(llmError);
-      }),
-    );
+            abortController.abort();
+          }),
+        });
+      }), // close Effect.flatMap
+    ); // close pipe
   }
 }
 
