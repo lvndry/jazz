@@ -110,6 +110,13 @@ export interface ApprovalRequest {
   readonly executeArgs: Record<string, unknown>;
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
+  /**
+   * Optional callback to re-check auto-approve status at dequeue time.
+   * Used by the approval queue to skip prompts for tools that were
+   * auto-approved by a parallel tool's "always approve" choice while
+   * waiting in the queue.
+   */
+  readonly isAutoApproved?: () => boolean;
 }
 
 /**

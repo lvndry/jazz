@@ -150,85 +150,96 @@ export class WorkflowsLive implements WorkflowService {
   );
 
   listWorkflows(): Effect.Effect<readonly WorkflowMetadata[], Error> {
-    return Effect.gen(function* (this: WorkflowsLive) {
-      // Check if we have a cache
-      const cache = yield* Ref.get(this.workflowCache);
-      if (cache.size > 0) {
-        return Array.from(cache.values());
-      }
+    return Effect.gen(
+      function* (this: WorkflowsLive) {
+        // Check if we have a cache
+        const cache = yield* Ref.get(this.workflowCache);
+        if (cache.size > 0) {
+          return Array.from(cache.values());
+        }
 
-      // 1. Get Built-in Workflows (shipped with Jazz)
-      const builtinWorkflows = yield* this.getBuiltinWorkflows();
+        // 1. Get Built-in Workflows (shipped with Jazz)
+        const builtinWorkflows = yield* this.getBuiltinWorkflows();
 
-      // 2. Get Global Workflows (~/.jazz/workflows)
-      const globalWorkflows = yield* this.getGlobalWorkflows();
+        // 2. Get Global Workflows (~/.jazz/workflows)
+        const globalWorkflows = yield* this.getGlobalWorkflows();
 
-      // 3. Get Local Workflows (cwd)
-      const localWorkflows = yield* this.scanLocalWorkflows();
+        // 3. Get Local Workflows (cwd)
+        const localWorkflows = yield* this.scanLocalWorkflows();
 
-      // 4. Merge (Local > Global > Built-in by name)
-      const merged = mergeByName(builtinWorkflows, globalWorkflows, localWorkflows);
-      const workflowMap = new Map<string, WorkflowMetadata>(merged.map((w) => [w.name, w]));
+        // 4. Merge (Local > Global > Built-in by name)
+        const merged = mergeByName(builtinWorkflows, globalWorkflows, localWorkflows);
+        const workflowMap = new Map<string, WorkflowMetadata>(merged.map((w) => [w.name, w]));
 
-      // Update cache
-      yield* Ref.set(this.workflowCache, workflowMap);
+        // Update cache
+        yield* Ref.set(this.workflowCache, workflowMap);
 
-      return merged;
-    }.bind(this));
+        return merged;
+      }.bind(this),
+    );
   }
 
   loadWorkflow(workflowName: string): Effect.Effect<WorkflowContent, Error> {
-    return Effect.gen(function* (this: WorkflowsLive) {
-      // Check memory cache first
-      const loaded = yield* Ref.get(this.loadedWorkflows);
-      const cached = loaded.get(workflowName);
-      if (cached) return cached;
+    return Effect.gen(
+      function* (this: WorkflowsLive) {
+        // Check memory cache first
+        const loaded = yield* Ref.get(this.loadedWorkflows);
+        const cached = loaded.get(workflowName);
+        if (cached) return cached;
 
-      // Find workflow path
-      const allWorkflows = yield* this.listWorkflows();
-      const metadata = allWorkflows.find((w: WorkflowMetadata) => w.name === workflowName);
-      if (!metadata) {
-        return yield* Effect.fail(new Error(`Workflow not found: ${workflowName}`));
-      }
+        // Find workflow path
+        const allWorkflows = yield* this.listWorkflows();
+        const metadata = allWorkflows.find((w: WorkflowMetadata) => w.name === workflowName);
+        if (!metadata) {
+          return yield* Effect.fail(new Error(`Workflow not found: ${workflowName}`));
+        }
 
-      const workflowMdPath = path.join(metadata.path, WORKFLOW_DEFINITION_FILENAME);
+        const workflowMdPath = path.join(metadata.path, WORKFLOW_DEFINITION_FILENAME);
 
-      // Parse WORKFLOW.md
-      const content = yield* Effect.tryPromise(() => fs.readFile(workflowMdPath, "utf-8"));
-      const parsed = matter(content);
+        // Parse WORKFLOW.md
+        const content = yield* Effect.tryPromise({
+          try: () => fs.readFile(workflowMdPath, "utf-8"),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
+        const parsed = matter(content);
 
-      const workflowContent: WorkflowContent = {
-        metadata,
-        prompt: parsed.content.trim(),
-      };
+        const workflowContent: WorkflowContent = {
+          metadata,
+          prompt: parsed.content.trim(),
+        };
 
-      // Cache in memory
-      yield* Ref.update(this.loadedWorkflows, (map) =>
-        new Map(map).set(workflowName, workflowContent),
-      );
+        // Cache in memory
+        yield* Ref.update(this.loadedWorkflows, (map) =>
+          new Map(map).set(workflowName, workflowContent),
+        );
 
-      return workflowContent;
-    }.bind(this));
+        return workflowContent;
+      }.bind(this),
+    );
   }
 
   getWorkflow(workflowName: string): Effect.Effect<WorkflowMetadata, Error> {
-    return Effect.gen(function* (this: WorkflowsLive) {
-      const allWorkflows = yield* this.listWorkflows();
-      const workflow = allWorkflows.find((w: WorkflowMetadata) => w.name === workflowName);
-      if (!workflow) {
-        return yield* Effect.fail(new Error(`Workflow not found: ${workflowName}`));
-      }
-      return workflow;
-    }.bind(this));
+    return Effect.gen(
+      function* (this: WorkflowsLive) {
+        const allWorkflows = yield* this.listWorkflows();
+        const workflow = allWorkflows.find((w: WorkflowMetadata) => w.name === workflowName);
+        if (!workflow) {
+          return yield* Effect.fail(new Error(`Workflow not found: ${workflowName}`));
+        }
+        return workflow;
+      }.bind(this),
+    );
   }
 
   refreshCache(): Effect.Effect<void, Error> {
-    return Effect.gen(function* (this: WorkflowsLive) {
-      yield* Ref.set(this.workflowCache, new Map());
-      yield* Ref.set(this.loadedWorkflows, new Map());
-      // Re-list to rebuild cache
-      yield* this.listWorkflows();
-    }.bind(this));
+    return Effect.gen(
+      function* (this: WorkflowsLive) {
+        yield* Ref.set(this.workflowCache, new Map());
+        yield* Ref.set(this.loadedWorkflows, new Map());
+        // Re-list to rebuild cache
+        yield* this.listWorkflows();
+      }.bind(this),
+    );
   }
 
   private getGlobalWorkflows(): Effect.Effect<readonly WorkflowMetadata[], Error> {
@@ -255,17 +266,19 @@ export class WorkflowsLive implements WorkflowService {
   }
 
   private getBuiltinWorkflows(): Effect.Effect<readonly WorkflowMetadata[], Error> {
-    return Effect.gen(function* (this: WorkflowsLive) {
-      const builtinDir = getBuiltinWorkflowsDirectory();
-      if (!builtinDir) {
-        return [];
-      }
-      return yield* scanMarkdownIndex({
-        dir: builtinDir,
-        fileName: WORKFLOW_DEFINITION_FILENAME,
-        depth: 2,
-        parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
-      });
-    }.bind(this));
+    return Effect.gen(
+      function* (this: WorkflowsLive) {
+        const builtinDir = getBuiltinWorkflowsDirectory();
+        if (!builtinDir) {
+          return [];
+        }
+        return yield* scanMarkdownIndex({
+          dir: builtinDir,
+          fileName: WORKFLOW_DEFINITION_FILENAME,
+          depth: 2,
+          parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
+        });
+      }.bind(this),
+    );
   }
 }

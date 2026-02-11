@@ -499,37 +499,41 @@ function handleCopyCommand(
     }
 
     // Copy to clipboard using pbcopy (macOS specific for now)
-    try {
-      yield* Effect.promise(
-        () =>
-          new Promise<void>((resolve, reject) => {
-            const pbcopy = spawn("pbcopy");
-            pbcopy.stdin.write(lastResponse);
-            pbcopy.stdin.end();
+    yield* Effect.tryPromise({
+      try: () =>
+        new Promise<void>((resolve, reject) => {
+          const pbcopy = spawn("pbcopy");
+          pbcopy.stdin.write(lastResponse);
+          pbcopy.stdin.end();
 
-            pbcopy.on("close", (code) => {
-              if (code === 0) {
-                resolve();
-              } else {
-                reject(new Error(`pbcopy exited with code ${code}`));
-              }
-            });
+          pbcopy.on("close", (code) => {
+            if (code === 0) {
+              resolve();
+            } else {
+              reject(new Error(`pbcopy exited with code ${code}`));
+            }
+          });
 
-            pbcopy.on("error", (err) => {
-              reject(err);
-            });
-          }),
-      );
-
-      yield* terminal.success("Last agent response copied to clipboard!");
-      yield* terminal.log("");
-    } catch (error) {
-      yield* terminal.error(
-        `Failed to copy to clipboard: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      yield* terminal.log("   (Note: /copy currently requires pbcopy on macOS)");
-      yield* terminal.log("");
-    }
+          pbcopy.on("error", (err) => {
+            reject(err);
+          });
+        }),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    }).pipe(
+      Effect.flatMap(() =>
+        Effect.all([
+          terminal.success("Last agent response copied to clipboard!"),
+          terminal.log(""),
+        ]),
+      ),
+      Effect.catchAll((error) =>
+        Effect.all([
+          terminal.error(`Failed to copy to clipboard: ${error.message}`),
+          terminal.log("   (Note: /copy currently requires pbcopy on macOS)"),
+          terminal.log(""),
+        ]),
+      ),
+    );
     return { shouldContinue: true };
   });
 }

@@ -26,9 +26,10 @@ export function scanMarkdownIndex<T>(
   options: ScanMarkdownIndexOptions<T>,
 ): Effect.Effect<readonly T[], Error> {
   return Effect.gen(function* () {
-    const stat = yield* Effect.tryPromise(() => fs.stat(options.dir)).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
+    const stat = yield* Effect.tryPromise({
+      try: () => fs.stat(options.dir),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 
     if (!stat || !stat.isDirectory()) {
       return [];
@@ -37,20 +38,25 @@ export function scanMarkdownIndex<T>(
     const patterns = [`**/${options.fileName}`];
     const ignore = options.ignore ?? ["**/node_modules/**", "**/.git/**"];
 
-    const matches = yield* Effect.tryPromise(() =>
-      glob(patterns, {
-        cwd: options.dir,
-        deep: options.depth,
-        ignore: Array.from(ignore),
-        absolute: true,
-        caseSensitiveMatch: false,
-      }),
-    );
+    const matches = yield* Effect.tryPromise({
+      try: () =>
+        glob(patterns, {
+          cwd: options.dir,
+          deep: options.depth,
+          ignore: Array.from(ignore),
+          absolute: true,
+          caseSensitiveMatch: false,
+        }),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
 
     const items: T[] = [];
     for (const match of matches) {
       try {
-        const content = yield* Effect.tryPromise(() => fs.readFile(match, "utf-8"));
+        const content = yield* Effect.tryPromise({
+          try: () => fs.readFile(match, "utf-8"),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
         const { data } = matter(content);
 
         const parsed = options.parse(data as Record<string, unknown>, path.dirname(match));
@@ -79,21 +85,27 @@ export interface LoadCachedIndexOptions<T> {
 export function loadCachedIndex<T>(
   options: LoadCachedIndexOptions<T>,
 ): Effect.Effect<readonly T[], Error> {
-  return Effect.tryPromise(() => fs.readFile(options.cachePath, "utf-8")).pipe(
+  return Effect.tryPromise({
+    try: () => fs.readFile(options.cachePath, "utf-8"),
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  }).pipe(
     Effect.map((content) => JSON.parse(content) as readonly T[]),
     Effect.catchAll(() =>
       Effect.gen(function* () {
         const items = yield* options.scan;
 
-        yield* Effect.promise(() => fs.mkdir(path.dirname(options.cachePath), { recursive: true }))
-          .pipe(
-            Effect.flatMap(() =>
-              Effect.promise(() =>
-                fs.writeFile(options.cachePath, JSON.stringify(items, null, 2)),
-              ),
-            ),
-            Effect.catchAll(() => Effect.void),
-          );
+        yield* Effect.tryPromise({
+          try: () => fs.mkdir(path.dirname(options.cachePath), { recursive: true }),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        }).pipe(
+          Effect.flatMap(() =>
+            Effect.tryPromise({
+              try: () => fs.writeFile(options.cachePath, JSON.stringify(items, null, 2)),
+              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            }),
+          ),
+          Effect.catchAll(() => Effect.void),
+        );
 
         return items;
       }),
@@ -115,4 +127,3 @@ export function mergeByName<T extends NamedIndexItem>(
   }
   return Array.from(map.values());
 }
-

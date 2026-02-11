@@ -278,8 +278,8 @@ export class ChatServiceImpl implements ChatService {
             conversationHistory,
             ...(options?.stream !== undefined ? { stream: options.stream } : {}),
             ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
-            ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
-            ...(autoApprovedTools.length > 0 ? { autoApprovedTools } : {}),
+            autoApprovedCommands,
+            autoApprovedTools,
             onAutoApproveCommand: (command: string) => {
               if (!autoApprovedCommands.includes(command)) {
                 autoApprovedCommands.push(command);

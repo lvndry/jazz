@@ -518,17 +518,17 @@ export class GmailServiceResource implements GmailService {
           });
         });
 
-        try {
-          const tokenResp = (yield* Effect.promise(() => this.oauthClient.getToken(code))) as {
-            tokens: GoogleOAuthToken;
-          };
-          this.oauthClient.setCredentials(tokenResp.tokens);
-          yield* this.persistToken(tokenResp.tokens);
-        } catch (err) {
-          throw new GmailAuthenticationError({
-            message: `OAuth flow failed: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        const tokenResp = (yield* Effect.tryPromise({
+          try: () => this.oauthClient.getToken(code),
+          catch: (err) =>
+            new GmailAuthenticationError({
+              message: `OAuth token exchange failed: ${err instanceof Error ? err.message : String(err)}`,
+            }),
+        })) as {
+          tokens: GoogleOAuthToken;
+        };
+        this.oauthClient.setCredentials(tokenResp.tokens);
+        yield* this.persistToken(tokenResp.tokens);
       }.bind(this),
     );
   }

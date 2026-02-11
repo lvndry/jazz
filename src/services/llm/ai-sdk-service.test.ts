@@ -4,14 +4,19 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { APICallError } from "ai";
 import { beforeEach, describe, expect, it } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Cause, Effect, Exit, Layer, Stream } from "effect";
 import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
 import type { ProviderName } from "../../core/constants/models";
 import type { AgentConfigService } from "../../core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
-import { LLMAuthenticationError, LLMConfigurationError } from "../../core/types/errors";
-import type { AppConfig, LLMConfig } from "../../core/types/index";
+import {
+  LLMAuthenticationError,
+  LLMConfigurationError,
+  LLMRequestError,
+  type LLMError,
+} from "../../core/types/errors";
+import type { AppConfig, LLMConfig, StreamEvent } from "../../core/types/index";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
 import { createAISDKServiceLayer } from "./ai-sdk-service";
@@ -106,8 +111,13 @@ describe("AI SDK Service - Unit Tests", () => {
     it("should handle empty LLM config", async () => {
       // Clear env vars that would be detected as fallback API keys
       const envVarsToSave = [
-        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY",
-        "MISTRAL_API_KEY", "XAI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GOOGLE_GENERATIVE_AI_API_KEY",
+        "MISTRAL_API_KEY",
+        "XAI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "GROQ_API_KEY",
         "OPENROUTER_API_KEY",
       ];
       const savedEnvVars: Record<string, string | undefined> = {};
@@ -585,6 +595,267 @@ describe("AI SDK Service - Unit Tests", () => {
       // Should find OpenAI regardless of case in config
       const openaiProvider = result.find((p) => p.name === "openai");
       expect(openaiProvider?.configured).toBe(true);
+    });
+  });
+
+  /**
+   * Regression tests for streaming error handling.
+   *
+   * These tests verify that errors in createStreamingChatCompletion are properly
+   * converted to typed LLMError instances rather than leaking as UnknownException.
+   *
+   * Background: A bug caused synchronous throws (e.g. from selectModel) and rejected
+   * deferred promises to surface as "UnknownException: An unknown error occurred in
+   * Effect.tryPromise" — making the core chat workflow completely unusable.
+   */
+  describe("Streaming Error Handling (Regression)", () => {
+    const minimalOptions = {
+      model: "test-model",
+      messages: [{ role: "user" as const, content: "hello" }],
+    };
+
+    it("should return typed LLMError when selectModel throws for unsupported provider (streaming)", async () => {
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        // "unsupported_provider" will cause selectModel to throw
+        return yield* llmService.createStreamingChatCompletion(
+          "unsupported_provider" as ProviderName,
+          minimalOptions,
+        );
+      });
+
+      const configLayer = createTestConfigLayer({
+        openai: { api_key: "sk-test" },
+      });
+
+      const exit = await Effect.runPromiseExit(
+        testEffect.pipe(
+          Effect.provide(createAISDKServiceLayer()),
+          Effect.provide(configLayer),
+          Effect.provide(createLoggerLayer()),
+          Effect.provide(NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>),
+        ) as Effect.Effect<unknown, LLMError, never>,
+      );
+
+      // Must fail with a typed LLMError, NOT an UnknownException/defect
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failure = Cause.failureOption(exit.cause);
+        expect(failure._tag).toBe("Some");
+        if (failure._tag === "Some") {
+          const error = failure.value;
+          // Should be a proper LLMError variant (LLMRequestError for "Unsupported provider")
+          expect(error._tag).toBeDefined();
+          expect(
+            error._tag === "LLMRequestError" ||
+              error._tag === "LLMAuthenticationError" ||
+              error._tag === "LLMRateLimitError" ||
+              error._tag === "LLMConfigurationError",
+          ).toBe(true);
+          expect(error.message).toBeDefined();
+        }
+
+        // Critically: must NOT be a defect (UnknownException)
+        const defects = Cause.defects(exit.cause);
+        expect(defects.length).toBe(0);
+      }
+    });
+
+    it("should return typed LLMError when selectModel throws for unsupported provider (non-streaming)", async () => {
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        return yield* llmService.createChatCompletion(
+          "unsupported_provider" as ProviderName,
+          minimalOptions,
+        );
+      });
+
+      const configLayer = createTestConfigLayer({
+        openai: { api_key: "sk-test" },
+      });
+
+      const exit = await Effect.runPromiseExit(
+        testEffect.pipe(
+          Effect.provide(createAISDKServiceLayer()),
+          Effect.provide(configLayer),
+          Effect.provide(createLoggerLayer()),
+          Effect.provide(NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>),
+        ) as Effect.Effect<unknown, LLMError, never>,
+      );
+
+      // Must fail with a typed LLMError, NOT an UnknownException/defect
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failure = Cause.failureOption(exit.cause);
+        expect(failure._tag).toBe("Some");
+        if (failure._tag === "Some") {
+          const error = failure.value;
+          expect(error._tag).toBeDefined();
+          expect(
+            error._tag === "LLMRequestError" ||
+              error._tag === "LLMAuthenticationError" ||
+              error._tag === "LLMRateLimitError" ||
+              error._tag === "LLMConfigurationError",
+          ).toBe(true);
+        }
+
+        const defects = Cause.defects(exit.cause);
+        expect(defects.length).toBe(0);
+      }
+    });
+
+    it("streaming and non-streaming should produce consistent error types for the same failure", async () => {
+      const configLayer = createTestConfigLayer({
+        openai: { api_key: "sk-test" },
+      });
+      const fsLayer = NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>;
+
+      const streamingEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        return yield* llmService.createStreamingChatCompletion(
+          "unsupported_provider" as ProviderName,
+          minimalOptions,
+        );
+      });
+
+      const nonStreamingEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        return yield* llmService.createChatCompletion(
+          "unsupported_provider" as ProviderName,
+          minimalOptions,
+        );
+      });
+
+      const provide = <A, E>(effect: Effect.Effect<A, E, LLMService>) =>
+        effect.pipe(
+          Effect.provide(createAISDKServiceLayer()),
+          Effect.provide(configLayer),
+          Effect.provide(createLoggerLayer()),
+          Effect.provide(fsLayer),
+        ) as Effect.Effect<A, E, never>;
+
+      const [streamingExit, nonStreamingExit] = await Promise.all([
+        Effect.runPromiseExit(provide(streamingEffect)),
+        Effect.runPromiseExit(provide(nonStreamingEffect)),
+      ]);
+
+      // Both should be typed failures (not defects)
+      expect(Exit.isFailure(streamingExit)).toBe(true);
+      expect(Exit.isFailure(nonStreamingExit)).toBe(true);
+
+      if (Exit.isFailure(streamingExit) && Exit.isFailure(nonStreamingExit)) {
+        const streamingError = Cause.failureOption(streamingExit.cause);
+        const nonStreamingError = Cause.failureOption(nonStreamingExit.cause);
+
+        expect(streamingError._tag).toBe("Some");
+        expect(nonStreamingError._tag).toBe("Some");
+
+        if (streamingError._tag === "Some" && nonStreamingError._tag === "Some") {
+          // Both should produce the same error tag type
+          expect(streamingError.value._tag).toBe(nonStreamingError.value._tag);
+        }
+
+        // Neither should have defects
+        expect(Cause.defects(streamingExit.cause).length).toBe(0);
+        expect(Cause.defects(nonStreamingExit.cause).length).toBe(0);
+      }
+    });
+
+    it("should return typed LLMError from response deferred when stream fails", async () => {
+      // Simulate the scenario where the streaming response deferred is rejected
+      // by providing a mock LLMService that rejects the response deferred.
+      const expectedError = new LLMRequestError({
+        provider: "openai",
+        message: "Simulated stream failure",
+      });
+
+      const mockLLMService: LLMService = {
+        createStreamingChatCompletion: () =>
+          Effect.succeed({
+            stream: Stream.fail(expectedError) as Stream.Stream<StreamEvent, LLMError>,
+            response: Effect.fail(expectedError),
+            cancel: Effect.void,
+          }),
+        createChatCompletion: () => Effect.fail(expectedError),
+        listProviders: () => Effect.succeed([]),
+        getProvider: () =>
+          Effect.fail(new LLMConfigurationError({ provider: "test", message: "not implemented" })),
+        supportsNativeWebSearch: () => Effect.succeed(false),
+      } as unknown as LLMService;
+
+      // Verify that consuming the response gives a typed LLMError
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        const result = yield* llmService.createStreamingChatCompletion("openai", minimalOptions);
+        // Awaiting the response should fail with LLMError, not UnknownException
+        return yield* result.response;
+      });
+
+      const exit = await Effect.runPromiseExit(
+        testEffect.pipe(
+          Effect.provide(Layer.succeed(LLMServiceTag, mockLLMService)),
+        ) as Effect.Effect<unknown, LLMError, never>,
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failure = Cause.failureOption(exit.cause);
+        expect(failure._tag).toBe("Some");
+        if (failure._tag === "Some") {
+          expect(failure.value._tag).toBe("LLMRequestError");
+          expect(failure.value.message).toBe("Simulated stream failure");
+        }
+
+        // Must NOT be a defect
+        expect(Cause.defects(exit.cause).length).toBe(0);
+      }
+    });
+
+    it("should return typed LLMError from stream when stream fails", async () => {
+      const expectedError = new LLMRequestError({
+        provider: "openai",
+        message: "Simulated stream failure",
+      });
+
+      const mockLLMService: LLMService = {
+        createStreamingChatCompletion: () =>
+          Effect.succeed({
+            stream: Stream.fail(expectedError) as Stream.Stream<StreamEvent, LLMError>,
+            response: Effect.fail(expectedError),
+            cancel: Effect.void,
+          }),
+        createChatCompletion: () => Effect.fail(expectedError),
+        listProviders: () => Effect.succeed([]),
+        getProvider: () =>
+          Effect.fail(new LLMConfigurationError({ provider: "test", message: "not implemented" })),
+        supportsNativeWebSearch: () => Effect.succeed(false),
+      } as unknown as LLMService;
+
+      // Verify that consuming the stream gives a typed LLMError
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        const result = yield* llmService.createStreamingChatCompletion("openai", minimalOptions);
+        // Consuming the stream should fail with LLMError
+        return yield* Stream.runCollect(result.stream);
+      });
+
+      const exit = await Effect.runPromiseExit(
+        testEffect.pipe(
+          Effect.provide(Layer.succeed(LLMServiceTag, mockLLMService)),
+        ) as Effect.Effect<unknown, LLMError, never>,
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failure = Cause.failureOption(exit.cause);
+        expect(failure._tag).toBe("Some");
+        if (failure._tag === "Some") {
+          expect(failure.value._tag).toBe("LLMRequestError");
+          expect(failure.value.message).toBe("Simulated stream failure");
+        }
+
+        expect(Cause.defects(exit.cause).length).toBe(0);
+      }
     });
   });
 });

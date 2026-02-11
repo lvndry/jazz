@@ -15,7 +15,12 @@ import { normalizeFilterPattern, readGitignorePatterns } from "./utils";
 export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().optional().describe("Start directory (defaults to smart search from cwd→parent→home). NEVER use '/' as it's too broad and slow. Omit this parameter to use smart search."),
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Start directory (defaults to smart search from cwd→parent→home). NEVER use '/' as it's too broad and slow. Omit this parameter to use smart search.",
+        ),
       name: z.string().optional().describe("Filter by name (substring or 're:<regex>')"),
       type: z.enum(["file", "dir", "all"]).optional().describe("Type filter"),
       maxDepth: z
@@ -34,7 +39,9 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       smart: z
         .boolean()
         .default(true)
-        .describe("Use smart hierarchical search (cwd→parent→home). Keep enabled unless you have a specific directory path."),
+        .describe(
+          "Use smart hierarchical search (cwd→parent→home). Keep enabled unless you have a specific directory path.",
+        ),
     })
     .strict();
 
@@ -107,7 +114,8 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
           searchPaths.push(start);
         }
 
-        const allResults: { path: string; name: string; type: "file" | "dir"; mtimeMs?: number }[] = [];
+        const allResults: { path: string; name: string; type: "file" | "dir"; mtimeMs?: number }[] =
+          [];
 
         // Build the glob pattern based on name filter
         let globPattern = "**";
@@ -140,16 +148,22 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
             markDirectories: true,
           };
 
-          const entries = yield* Effect.promise(() =>
-            glob(globPattern, globOptions),
-          );
+          const entries = yield* Effect.tryPromise({
+            try: () => glob(globPattern, globOptions),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          });
 
           // Process entries
-          const results: { path: string; name: string; type: "file" | "dir"; mtimeMs: number }[] = [];
+          const results: { path: string; name: string; type: "file" | "dir"; mtimeMs: number }[] =
+            [];
 
           for (const entry of entries) {
             // fast-glob with stats returns Entry objects
-            const entryObj = entry as unknown as { path: string; name: string; stats?: { isDirectory: () => boolean; mtimeMs: number } };
+            const entryObj = entry as unknown as {
+              path: string;
+              name: string;
+              stats?: { isDirectory: () => boolean; mtimeMs: number };
+            };
             const entryPath = entryObj.path;
             const entryName = entryObj.name || entryPath.split("/").pop() || "";
             const stats = entryObj.stats;

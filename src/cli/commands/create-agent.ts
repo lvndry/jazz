@@ -75,11 +75,7 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
     id: "researcher",
     displayName: "Researcher",
     emoji: "🔬",
-    toolCategoryIds: [
-      WEB_SEARCH_CATEGORY.id,
-      HTTP_CATEGORY.id,
-      FILE_MANAGEMENT_CATEGORY.id,
-    ],
+    toolCategoryIds: [WEB_SEARCH_CATEGORY.id, HTTP_CATEGORY.id, FILE_MANAGEMENT_CATEGORY.id],
   },
 } as const;
 
@@ -103,7 +99,13 @@ export function createAgentCommand(): Effect.Effect<
   | AgentConfigurationError
   | ValidationError
   | LLMConfigurationError,
-  AgentService | LLMService | ToolRegistry | TerminalService | AgentConfigService | MCPServerManager | LoggerService
+  | AgentService
+  | LLMService
+  | ToolRegistry
+  | TerminalService
+  | AgentConfigService
+  | MCPServerManager
+  | LoggerService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -132,16 +134,22 @@ export function createAgentCommand(): Effect.Effect<
     }
 
     // Get agent basic information
-    const agentAnswers = yield* Effect.promise(() =>
-      promptForAgentInfo(
-        agentTypes,
-        toolsByCategory,
-        llmService,
-        configService,
-        categoryIdToDisplayName,
-        terminal,
-      ),
-    );
+    const agentAnswers = yield* Effect.tryPromise({
+      try: () =>
+        promptForAgentInfo(
+          agentTypes,
+          toolsByCategory,
+          llmService,
+          configService,
+          categoryIdToDisplayName,
+          terminal,
+        ),
+      catch: (error) =>
+        new ValidationError({
+          field: "agent",
+          message: `Agent creation wizard failed: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+    });
 
     // User cancelled agent creation (ESC on first step)
     if (agentAnswers === null) {
@@ -174,12 +182,18 @@ export function createAgentCommand(): Effect.Effect<
 
       // Show spinner while discovering MCP tools
       yield* terminal.log(
-        ink(React.createElement(Box, {},
-          React.createElement(Text, { color: THEME.primary },
-            React.createElement(Spinner, { type: "dots" }),
+        ink(
+          React.createElement(
+            Box,
+            {},
+            React.createElement(
+              Text,
+              { color: THEME.primary },
+              React.createElement(Spinner, { type: "dots" }),
+            ),
+            React.createElement(Text, {}, " Discovering tools from MCP servers..."),
           ),
-          React.createElement(Text, {}, " Discovering tools from MCP servers..."),
-        )),
+        ),
       );
 
       // Register tools from all selected MCP servers in parallel with timeout
@@ -192,8 +206,7 @@ export function createAgentCommand(): Effect.Effect<
             Effect.timeout("45 seconds"),
             Effect.catchAll((error) =>
               Effect.gen(function* () {
-                const errorMessage =
-                  error instanceof Error ? error.message : String(error);
+                const errorMessage = error instanceof Error ? error.message : String(error);
                 const isAuthRequired = isAuthenticationRequired(error);
 
                 if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
@@ -364,7 +377,6 @@ async function promptForAgentInfo(
     terminal.info("💡 Tip: Press ESC at any step to go back to the previous choice."),
   );
 
-
   const hint = "(ESC to go back)";
 
   while (state.step !== "done") {
@@ -478,7 +490,10 @@ async function promptForAgentInfo(
             {
               choices: [
                 { name: "Low - Faster responses, basic reasoning", value: "low" },
-                { name: "Medium - Balanced speed and reasoning depth (recommended)", value: "medium" },
+                {
+                  name: "Medium - Balanced speed and reasoning depth (recommended)",
+                  value: "medium",
+                },
                 { name: "High - Deep reasoning, slower responses", value: "high" },
                 { name: "Disable - No reasoning effort (fastest)", value: "disable" },
               ],
@@ -631,10 +646,12 @@ async function promptForAgentInfo(
 
         if (currentPredefinedAgent) {
           // Predefined agent - show what tools will be included
-          const availableCategoryIds = currentPredefinedAgent.toolCategoryIds.filter((categoryId) => {
-            const displayName = categoryIdToDisplayName.get(categoryId);
-            return displayName && displayName in toolsByCategory;
-          });
+          const availableCategoryIds = currentPredefinedAgent.toolCategoryIds.filter(
+            (categoryId) => {
+              const displayName = categoryIdToDisplayName.get(categoryId);
+              return displayName && displayName in toolsByCategory;
+            },
+          );
 
           const displayNames = availableCategoryIds
             .map((id) => categoryIdToDisplayName.get(id))
@@ -674,8 +691,7 @@ async function promptForAgentInfo(
             terminal.checkbox<string>(`Which tools should this agent have access to? ${hint}`, {
               choices: Object.entries(toolsByCategory)
                 .filter(
-                  ([category]) =>
-                    !BUILTIN_TOOL_CATEGORIES.some((c) => c.displayName === category),
+                  ([category]) => !BUILTIN_TOOL_CATEGORIES.some((c) => c.displayName === category),
                 )
                 .map(([category, toolsInCategory]) => ({
                   name:

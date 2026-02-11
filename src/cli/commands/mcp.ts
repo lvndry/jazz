@@ -117,7 +117,10 @@ export function addMcpServerCommand(
 
     // 3. From stdin pipe (e.g. pbpaste | jazz mcp add)
     if (!process.stdin.isTTY) {
-      const stdinContent = yield* Effect.promise(() => readStdin());
+      const stdinContent = yield* Effect.tryPromise({
+        try: () => readStdin(),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(Effect.catchAll(() => Effect.succeed("")));
       if (stdinContent.trim() === "") {
         yield* terminal.warn("No input received from stdin.");
         return;
@@ -144,7 +147,9 @@ export function addMcpServerCommand(
     try {
       execSync(`${editor} "${tmpFile}"`, { stdio: "inherit" });
     } catch {
-      yield* terminal.error(`Failed to open editor (${editor}). Set $EDITOR or use --file instead.`);
+      yield* terminal.error(
+        `Failed to open editor (${editor}). Set $EDITOR or use --file instead.`,
+      );
       return;
     }
 
@@ -155,7 +160,11 @@ export function addMcpServerCommand(
       yield* terminal.error("Could not read temp file after editing.");
       return;
     } finally {
-      try { fs.unlinkSync(tmpFile); } catch { /* ignore cleanup errors */ }
+      try {
+        fs.unlinkSync(tmpFile);
+      } catch {
+        /* ignore cleanup errors */
+      }
     }
 
     if (content.trim() === "" || content.trim() === template.trim()) {
