@@ -14,8 +14,6 @@ import { InputPriority, InputResults } from "../services/input-service";
 // Constants
 // ============================================================================
 
-const MAX_OUTPUT_ENTRIES = 2000;
-
 /**
  * Maximum entries kept in the live (non-Static) React tree.
  *
@@ -112,16 +110,24 @@ function PromptIsland(): React.ReactElement | null {
 // ============================================================================
 
 interface OutputIslandState {
-  /** All entries ever added (source of truth, capped at MAX_OUTPUT_ENTRIES). */
-  entries: OutputEntryWithId[];
-  /** Entries committed to <Static> — Ink renders them once then ignores them. */
+  /**
+   * Live tail entries — only these participate in Ink's render/layout cycle.
+   * Capped at LIVE_TAIL_SIZE. When overflow occurs, entries are promoted
+   * to `staticEntries` (append-only) where Ink renders them exactly once.
+   */
+  liveEntries: OutputEntryWithId[];
+  /**
+   * Append-only array fed to Ink's <Static>.  Items are only ever pushed
+   * onto the end — never shifted or spliced — so <Static>'s internal
+   * index-based tracking stays correct.
+   */
   staticEntries: OutputEntryWithId[];
   outputIdCounter: number;
 }
 
 function OutputIsland(): React.ReactElement {
   const [state, setState] = useState<OutputIslandState>({
-    entries: [],
+    liveEntries: [],
     staticEntries: [],
     outputIdCounter: 0,
   });
@@ -134,22 +140,28 @@ function OutputIsland(): React.ReactElement {
       newId = id;
 
       const entryWithId: OutputEntryWithId = { ...entry, id } as OutputEntryWithId;
+      const newLive = [...prev.liveEntries, entryWithId];
 
-      // Append to full list, capping at MAX_OUTPUT_ENTRIES
-      const newEntries =
-        prev.entries.length >= MAX_OUTPUT_ENTRIES
-          ? [...prev.entries.slice(1), entryWithId]
-          : [...prev.entries, entryWithId];
+      // When the live tail exceeds LIVE_TAIL_SIZE, promote the oldest
+      // entries to the static tier (append-only, rendered once by <Static>).
+      let newStaticEntries = prev.staticEntries;
+      let trimmedLive = newLive;
 
-      // Promote overflow beyond LIVE_TAIL_SIZE into the static tier.
-      // Static entries are rendered by Ink exactly once (via <Static>),
-      // then never re-laid-out, keeping per-frame cost O(LIVE_TAIL_SIZE).
-      const overflow = newEntries.length - LIVE_TAIL_SIZE;
-      const newStaticEntries =
-        overflow > prev.staticEntries.length ? newEntries.slice(0, overflow) : prev.staticEntries;
+      if (newLive.length > LIVE_TAIL_SIZE) {
+        const overflow = newLive.length - LIVE_TAIL_SIZE;
+        const promoted = newLive.slice(0, overflow);
+        trimmedLive = newLive.slice(overflow);
+        newStaticEntries = [...prev.staticEntries, ...promoted];
+      }
+
+      // Note: we intentionally do NOT trim staticEntries from the front.
+      // Ink's <Static> tracks rendered items by positional index; any
+      // shift would cause it to skip newly promoted items.  The array
+      // only holds small objects (just references, not Yoga nodes), so
+      // the memory cost is negligible compared to the layout savings.
 
       return {
-        entries: newEntries,
+        liveEntries: trimmedLive,
         staticEntries: newStaticEntries,
         outputIdCounter: prev.outputIdCounter + 1,
       };
@@ -158,7 +170,7 @@ function OutputIsland(): React.ReactElement {
   }, []);
 
   const clearOutputs = useCallback((): void => {
-    setState({ entries: [], staticEntries: [], outputIdCounter: 0 });
+    setState({ liveEntries: [], staticEntries: [], outputIdCounter: 0 });
   }, []);
 
   // Register store methods synchronously during render
@@ -184,14 +196,11 @@ function OutputIsland(): React.ReactElement {
     };
   }, []);
 
-  // Live tail: only the most recent entries participate in Ink's render cycle.
-  const liveTail = state.entries.slice(state.staticEntries.length);
-
   return (
     <Box flexDirection="column">
       {/* Static tier: rendered once, never re-laid-out */}
       <Static items={state.staticEntries}>
-        {(entry, index) => {
+        {(entry: OutputEntryWithId, index: number) => {
           const prevEntry = index > 0 ? state.staticEntries[index - 1] : null;
           const addSpacing =
             entry.type === "user" || (entry.type === "info" && prevEntry?.type === "user");
@@ -206,11 +215,11 @@ function OutputIsland(): React.ReactElement {
       </Static>
 
       {/* Live tier: re-rendered on each frame, kept small for performance */}
-      {liveTail.map((entry, index) => {
+      {state.liveEntries.map((entry, index) => {
         // For spacing, check against the last static entry if this is the first live entry
         const prevEntry =
           index > 0
-            ? liveTail[index - 1]
+            ? state.liveEntries[index - 1]
             : state.staticEntries.length > 0
               ? state.staticEntries[state.staticEntries.length - 1]
               : null;

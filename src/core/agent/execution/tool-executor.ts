@@ -21,6 +21,7 @@ import {
   type ToolExecutionContext,
   type ToolExecutionResult,
 } from "@/core/types/tools";
+import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
 import { formatToolArguments } from "@/core/utils/tool-formatter";
 import {
   recordToolError,
@@ -540,6 +541,12 @@ export class ToolExecutor {
 /**
  * Check if a command is auto-approved via the per-command allowlist.
  * Only applies to `execute_command` tools; returns false for all others.
+ *
+ * Approval keys are subcommand-level (e.g. "git diff", "npm test") so we
+ * extract the key from the incoming command and check if any allowed key
+ * is a prefix of it. This correctly matches "git diff --stat" against an
+ * approved key of "git diff" even when flags appear between the binary
+ * and the positional argument.
  */
 function isCommandAutoApproved(
   toolName: string,
@@ -550,7 +557,10 @@ function isCommandAutoApproved(
   if (toolName !== "execute_command") return false;
   const command = executeArgs["command"];
   if (typeof command !== "string") return false;
-  return allowedCommands.some((allowed) => command.startsWith(allowed));
+  const commandKey = extractCommandApprovalKey(command);
+  return allowedCommands.some(
+    (allowed) => commandKey.startsWith(allowed) || command.startsWith(allowed),
+  );
 }
 
 /**

@@ -12,7 +12,6 @@ import type { Agent } from "@/core/types/agent";
 import { describeCronSchedule } from "@/core/utils/cron-utils";
 import {
   type CatchUpCandidate,
-  decideCatchUp,
   getCatchUpCandidates,
   runCatchUpForWorkflows,
 } from "@/core/workflows/catch-up";
@@ -191,58 +190,39 @@ export function runWorkflowCommand(
     const isHeadless = options?.autoApprove === true;
     const isSchedulerTriggered = options?.scheduled === true;
 
-    // When triggered by the system scheduler (--scheduled), verify that a scheduled
-    // time was recently missed before proceeding. This guards against RunAtLoad firing
-    // the workflow immediately when the plist is first loaded (e.g. during scheduling)
-    // while still allowing it to run on login/wake when a real run was missed.
+    // When triggered by the system scheduler (--scheduled), guard against RunAtLoad
+    // firing the workflow immediately when the plist is first loaded during
+    // `jazz workflow schedule`. RunAtLoad triggers arrive within seconds of plist
+    // creation, so we compare the current time against the scheduledAt timestamp in
+    // the metadata. If the workflow was scheduled very recently (within 60s), this is
+    // a RunAtLoad trigger from plist loading, not a genuine cron/calendar interval or
+    // a login/wake catch-up -- skip it.
+    //
+    // All other --scheduled triggers (StartCalendarInterval, cron, and RunAtLoad on
+    // subsequent logins) proceed normally.
     if (isSchedulerTriggered) {
-      const workflow = yield* workflowService
-        .getWorkflow(workflowName)
-        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      const scheduler = yield* SchedulerServiceTag;
+      const allScheduled = yield* scheduler
+        .listScheduled()
+        .pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+      const scheduleMeta = allScheduled.find((s) => s.workflowName === workflowName);
 
-      if (workflow?.schedule) {
-        const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
-        const workflowHistory = history.filter((r) => r.workflowName === workflowName);
+      if (scheduleMeta?.scheduledAt) {
+        const scheduledAtTime = new Date(scheduleMeta.scheduledAt).getTime();
+        const now = Date.now();
+        const RECENT_SCHEDULE_THRESHOLD_MS = 60_000; // 60 seconds
 
-        // If the workflow has never been run before, there is nothing to catch up on.
-        // This prevents RunAtLoad from triggering an immediate run right after the
-        // workflow is first scheduled (when there is no run history yet).
-        if (workflowHistory.length === 0) {
-          yield* logger.info("Scheduler-triggered run skipped: no prior run history", {
+        if (
+          !Number.isNaN(scheduledAtTime) &&
+          now - scheduledAtTime < RECENT_SCHEDULE_THRESHOLD_MS
+        ) {
+          yield* logger.info("Scheduler-triggered run skipped: workflow was just scheduled", {
             workflow: workflowName,
+            scheduledAt: scheduleMeta.scheduledAt,
+            elapsedMs: now - scheduledAtTime,
           });
           return;
         }
-
-        const lastRun = workflowHistory.reduce<Date | undefined>((latest, r) => {
-          const ts = r.completedAt ?? r.startedAt;
-          const parsed = new Date(ts);
-          if (Number.isNaN(parsed.getTime())) return latest;
-          return !latest || parsed.getTime() > latest.getTime() ? parsed : latest;
-        }, undefined);
-
-        const now = new Date();
-        const decision = decideCatchUp(
-          // Use the workflow metadata but force catchUpOnStartup to true for this check,
-          // since the scheduler guard should always evaluate whether a run was missed
-          // regardless of the workflow's catch-up preference.
-          { ...workflow, catchUpOnStartup: true },
-          lastRun,
-          now,
-        );
-
-        if (!decision.shouldRun) {
-          yield* logger.info("Scheduler-triggered run skipped: no missed run detected", {
-            workflow: workflowName,
-            reason: decision.reason,
-          });
-          return;
-        }
-
-        yield* logger.info("Scheduler-triggered run proceeding: missed run detected", {
-          workflow: workflowName,
-          scheduledAt: decision.scheduledAt?.toISOString(),
-        });
       }
     }
 

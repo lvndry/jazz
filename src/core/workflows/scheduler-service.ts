@@ -17,6 +17,7 @@ export interface ScheduledWorkflow {
   readonly agent: string; // Agent ID to use for this scheduled workflow
   readonly enabled: boolean;
   readonly runAtLoad?: boolean; // Whether launchd should run the workflow on login/wake
+  readonly scheduledAt?: string; // ISO timestamp of when the workflow was scheduled (used by --scheduled guard)
   readonly lastRun?: string;
   readonly nextRun?: string;
 }
@@ -420,6 +421,7 @@ class LaunchdScheduler implements SchedulerService {
           agent: agentId,
           enabled: true,
           runAtLoad: options?.runAtLoad ?? false,
+          scheduledAt: new Date().toISOString(),
         };
         yield* Effect.tryPromise({
           try: () => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)),
@@ -555,6 +557,7 @@ class CronScheduler implements SchedulerService {
           schedule: workflow.schedule,
           agent: agentId,
           enabled: true,
+          scheduledAt: new Date().toISOString(),
         };
         yield* Effect.tryPromise({
           try: () => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)),
