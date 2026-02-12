@@ -68,19 +68,42 @@ export function AgentsList(props: {
   const sp = " ".repeat(gap);
 
   return (
-    <Box flexDirection="column" paddingX={2} width={width}>
+    <Box
+      flexDirection="column"
+      paddingX={2}
+      width={width}
+    >
       {/* Header Section */}
-      <Box justifyContent="space-between" marginBottom={1}>
+      <Box
+        justifyContent="space-between"
+        marginBottom={1}
+      >
         <Text>
-          <Text bold color={THEME.primary}>AGENTS</Text>
+          <Text
+            bold
+            color={THEME.primary}
+          >
+            AGENTS
+          </Text>
           <Text dimColor> ({props.agents.length})</Text>
         </Text>
         <Text dimColor>jazz chat &lt;id|name&gt; · jazz edit &lt;id|name&gt;</Text>
       </Box>
 
       {/* Table Header */}
-      <Box borderStyle="single" borderBottom borderColor="gray" borderTop={false} borderLeft={false} borderRight={false} paddingBottom={0}>
-        <Text color="whiteBright" bold>
+      <Box
+        borderStyle="single"
+        borderBottom
+        borderColor="gray"
+        borderTop={false}
+        borderLeft={false}
+        borderRight={false}
+        paddingBottom={0}
+      >
+        <Text
+          color="whiteBright"
+          bold
+        >
           {padRight("#", idxW)}
           {sp}
           {padRight("NAME", nameW)}
@@ -96,7 +119,10 @@ export function AgentsList(props: {
       </Box>
 
       {/* Table Body */}
-      <Box flexDirection="column" marginTop={1}>
+      <Box
+        flexDirection="column"
+        marginTop={1}
+      >
         {props.agents.map((agent, i) => {
           const model = `${formatProviderDisplayName(agent.config.llmProvider)}/${agent.config.llmModel}`;
           const type = agent.config.agentType ?? "default";
@@ -104,24 +130,38 @@ export function AgentsList(props: {
           const desc = agent.description ?? "";
 
           return (
-            <Box key={agent.id} flexDirection="column" marginBottom={1}>
+            <Box
+              key={agent.id}
+              flexDirection="column"
+              marginBottom={1}
+            >
               <Text>
                 <Text color={THEME.primary}>{padRight(String(i + 1), idxW)}</Text>
                 {sp}
-                <Text bold color="white">{padRight(truncateMiddle(agent.name, nameW), nameW)}</Text>
+                <Text
+                  bold
+                  color="white"
+                >
+                  {padRight(truncateMiddle(agent.name, nameW), nameW)}
+                </Text>
                 {sp}
                 <Text color={THEME.primary}>{padRight(truncateMiddle(model, modelW), modelW)}</Text>
                 {sp}
                 <Text color="yellow">{padRight(truncateMiddle(type, typeW), typeW)}</Text>
                 {sp}
-                <Text color={reasoning === "—" ? "gray" : THEME.primary}>{padRight(truncateMiddle(reasoning, reasoningW), reasoningW)}</Text>
+                <Text color={reasoning === "—" ? "gray" : THEME.primary}>
+                  {padRight(truncateMiddle(reasoning, reasoningW), reasoningW)}
+                </Text>
                 {sp}
                 <Text dimColor>{truncateMiddle(desc, descW)}</Text>
               </Text>
 
               {/* Meta info below each row */}
               <Box paddingLeft={idxW + gap}>
-                <Text dimColor italic>
+                <Text
+                  dimColor
+                  italic
+                >
                   {padRight(`ID: ${truncateMiddle(agent.id, 12)}`, 20)}
                   {" · "}
                   Created: {formatIsoShort(agent.createdAt)}
@@ -130,9 +170,7 @@ export function AgentsList(props: {
 
               {props.verbose && (
                 <Box paddingLeft={idxW + gap}>
-                  <Text dimColor>
-                    {formatToolsLine(agent.config.tools, inner - (idxW + gap))}
-                  </Text>
+                  <Text dimColor>{formatToolsLine(agent.config.tools, inner - (idxW + gap))}</Text>
                 </Box>
               )}
             </Box>
@@ -141,10 +179,17 @@ export function AgentsList(props: {
       </Box>
 
       {/* Bottom Footer */}
-      <Box marginTop={1} borderStyle="single" borderTop borderColor="gray" borderBottom={false} borderLeft={false} borderRight={false} paddingTop={0}>
-        <Text dimColor>
-          Total active agents: {props.agents.length}
-        </Text>
+      <Box
+        marginTop={1}
+        borderStyle="single"
+        borderTop
+        borderColor="gray"
+        borderBottom={false}
+        borderLeft={false}
+        borderRight={false}
+        paddingTop={0}
+      >
+        <Text dimColor>Total active agents: {props.agents.length}</Text>
       </Box>
     </Box>
   );

@@ -1,4 +1,15 @@
-import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect";
+import {
+  Cause,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Ref,
+  Schedule,
+  Stream,
+} from "effect";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -8,14 +19,16 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { StreamEvent, StreamingConfig } from "@/core/types";
 import { type ChatCompletionResponse } from "@/core/types/chat";
-import { type LLMError, LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
+import {
+  type LLMError,
+  LLMAuthenticationError,
+  LLMRateLimitError,
+  LLMRequestError,
+} from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import type { RecursiveRunner } from "../context/summarizer";
-import {
-  recordFirstTokenLatency,
-  recordLLMRetry,
-} from "../metrics/agent-run-metrics";
+import { recordFirstTokenLatency, recordLLMRetry } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 const MAX_RETRIES = 3;
@@ -216,11 +229,13 @@ export function executeWithStreaming(
             // Read accumulated text before flush clears the renderer state
             const accumulatedText = yield* Ref.get(textAccumulatorRef);
 
-            yield* renderer.flush().pipe(
-              Effect.catchAll((e) =>
-                logger.debug(`Renderer flush error (safe to ignore): ${String(e)}`),
-              ),
-            );
+            yield* renderer
+              .flush()
+              .pipe(
+                Effect.catchAll((e) =>
+                  logger.debug(`Renderer flush error (safe to ignore): ${String(e)}`),
+                ),
+              );
 
             const fromRef = yield* Ref.get(completionRef);
             const partialCompletion: ChatCompletionResponse = fromRef ?? {

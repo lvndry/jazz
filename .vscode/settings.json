@@ -1,7 +1,8 @@
 {
   "editor.formatOnSave": true,
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.defaultFormatter": "dbaeumer.vscode-eslint",
   "eslint.format.enable": true,
+  "eslint.useFlatConfig": true,
   "typescript.preferences.importModuleSpecifier": "non-relative",
   "typescript.suggest.autoImports": true,
   "typescript.updateImportsOnFileMove.enabled": "always",
@@ -18,5 +19,5 @@
     "**/.git": true,
     "bun.lock": true
   },
-  "makefile.configureOnOpen": false
+  "makefile.configureOnOpen": false,
 }

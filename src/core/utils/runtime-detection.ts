@@ -237,10 +237,9 @@ export function getGlobalWorkflowsDirectory(): string {
  *
  */
 export function isRunningFromGlobalInstall(): boolean {
-  const pathsToCheck = [
-    process.argv[1] ? path.resolve(process.argv[1]) : null,
-    __dirname
-  ].filter((p): p is string => p !== null);
+  const pathsToCheck = [process.argv[1] ? path.resolve(process.argv[1]) : null, __dirname].filter(
+    (p): p is string => p !== null,
+  );
 
   for (const checkPath of pathsToCheck) {
     try {
@@ -525,7 +524,7 @@ function isInSystemGlobalDirectory(filePath: string): boolean {
  * @returns Package manager name or null
  */
 function inferPackageManagerFromNormalizedPath(
-  normalizedPath: string
+  normalizedPath: string,
 ): "bun" | "pnpm" | "npm" | "yarn" | null {
   // Bun: ~/.bun/bin/jazz
   if (normalizedPath.includes("/.bun/") || normalizedPath.includes("\\bun\\")) {

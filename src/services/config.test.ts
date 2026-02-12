@@ -64,7 +64,10 @@ describe("AgentConfigService", () => {
 
     const key = await Effect.runPromise(service.get("llm.openai.api_key"));
     expect(key).toBe("sk-test");
-    expect(mockFS.writeFileString).toHaveBeenCalledWith(configPath, expect.stringContaining("sk-test"));
+    expect(mockFS.writeFileString).toHaveBeenCalledWith(
+      configPath,
+      expect.stringContaining("sk-test"),
+    );
   });
 
   it("should return default value for missing keys with getOrElse", async () => {

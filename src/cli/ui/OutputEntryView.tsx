@@ -49,16 +49,27 @@ export const OutputEntryView = React.memo(function OutputEntryView({
   if (typeof entry.message === "string") {
     if (entry.type === "user") {
       return (
-        <Box marginTop={addSpacing ? 1 : 0} marginBottom={1}>
+        <Box
+          marginTop={addSpacing ? 1 : 0}
+          marginBottom={1}
+        >
           {icon}
           <Text> </Text>
-          <Text color={THEME.primary} bold>{entry.message}</Text>
+          <Text
+            color={THEME.primary}
+            bold
+          >
+            {entry.message}
+          </Text>
         </Box>
       );
     }
 
     return (
-      <Box marginTop={addSpacing ? 1 : 0} marginBottom={1}>
+      <Box
+        marginTop={addSpacing ? 1 : 0}
+        marginBottom={1}
+      >
         {icon}
         <Text> </Text>
         {entry.type === "log" ? (
@@ -66,7 +77,10 @@ export const OutputEntryView = React.memo(function OutputEntryView({
           // can render correctly and not get overwritten by Ink's `color` prop.
           <Text>{entry.message}</Text>
         ) : (
-          <Text dimColor={entry.type === "debug"} color={color}>
+          <Text
+            dimColor={entry.type === "debug"}
+            color={color}
+          >
             {entry.message}
           </Text>
         )}
@@ -75,11 +89,21 @@ export const OutputEntryView = React.memo(function OutputEntryView({
   }
 
   if (entry.message._tag === "ink" && React.isValidElement(entry.message.node)) {
-    return <Box marginTop={addSpacing ? 1 : 0} marginBottom={1}>{entry.message.node}</Box>;
+    return (
+      <Box
+        marginTop={addSpacing ? 1 : 0}
+        marginBottom={1}
+      >
+        {entry.message.node}
+      </Box>
+    );
   }
 
   return (
-    <Box marginTop={0} marginBottom={0}>
+    <Box
+      marginTop={0}
+      marginBottom={0}
+    >
       {ICONS.warn}
       <Text> </Text>
       <Text color="yellow">[Unsupported UI output]</Text>

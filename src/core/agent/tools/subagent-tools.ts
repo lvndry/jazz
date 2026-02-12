@@ -83,7 +83,8 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             return {
               success: false,
               result: null,
-              error: "Sub-agent tool requires parent agent context. This is a bug — please report it.",
+              error:
+                "Sub-agent tool requires parent agent context. This is a bug — please report it.",
             };
           }
 
@@ -94,7 +95,8 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           });
 
           // Show sub-agent launch to the user
-          const taskPreview = args.task.length > 80 ? `${args.task.substring(0, 77)}...` : args.task;
+          const taskPreview =
+            args.task.length > 80 ? `${args.task.substring(0, 77)}...` : args.task;
           yield* presentation.presentThinking(`Sub-Agent (${args.persona})`, true);
           yield* presentation.writeOutput(`  ↳ Task: ${taskPreview}`);
 
@@ -138,7 +140,11 @@ ${args.task}`;
           if (!result?.trim() && response.messages?.length) {
             const parts: string[] = [];
             for (const msg of response.messages) {
-              if (msg.role === "assistant" && typeof msg.content === "string" && msg.content.trim()) {
+              if (
+                msg.role === "assistant" &&
+                typeof msg.content === "string" &&
+                msg.content.trim()
+              ) {
                 parts.push(msg.content.trim());
               }
             }

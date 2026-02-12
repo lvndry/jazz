@@ -37,10 +37,10 @@ export class InkTerminalService implements TerminalService {
     // patchConsole: false prevents Ink from intercepting console.* methods,
     // which can cause flickering when external code writes to console during renders
     // Wrap App with InputProvider to provide the input service context
-    this.inkInstance = render(
-      React.createElement(InputProvider, null, React.createElement(App)),
-      { patchConsole: false, exitOnCtrlC: false },
-    );
+    this.inkInstance = render(React.createElement(InputProvider, null, React.createElement(App)), {
+      patchConsole: false,
+      exitOnCtrlC: false,
+    });
     instanceExists = true;
   }
 
@@ -124,6 +124,11 @@ export class InkTerminalService implements TerminalService {
 
   clear(): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      // Clear visible screen + scrollback buffer, then reset UI state.
+      // console.clear() must come BEFORE store.clearOutputs() because
+      // the store reset changes <Static>'s React key (forcing a remount),
+      // and any content Ink already wrote to stdout needs to be erased
+      // before that remount produces new output.
       console.clear();
       store.clearOutputs();
     });
@@ -170,9 +175,7 @@ export class InkTerminalService implements TerminalService {
                   ? { defaultValue: options.defaultValue }
                   : {}),
                 ...(validateFn ? { validate: validateFn } : {}),
-                ...(options.commandSuggestions === true
-                  ? { commandSuggestions: true }
-                  : {}),
+                ...(options.commandSuggestions === true ? { commandSuggestions: true } : {}),
               },
             }
           : {}),
@@ -203,9 +206,7 @@ export class InkTerminalService implements TerminalService {
       }
 
       store.setPrompt(promptState);
-    }).pipe(
-      Effect.catchAll(() => Effect.succeed(undefined))
-    );
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
   }
 
   password(
@@ -238,14 +239,18 @@ export class InkTerminalService implements TerminalService {
   select<T = string>(
     message: string,
     options: {
-      choices: readonly (string | { name: string; value: T; description?: string; disabled?: boolean })[];
+      choices: readonly (
+        | string
+        | { name: string; value: T; description?: string; disabled?: boolean }
+      )[];
       default?: T;
     },
   ): Effect.Effect<T | undefined, never> {
     return Effect.async<T, Error>((resume) => {
       // Normalize choices for Ink SelectInput
       const choices = options.choices.map((choice) => {
-        if (typeof choice === "string") return { label: choice, value: choice as unknown as T, disabled: false };
+        if (typeof choice === "string")
+          return { label: choice, value: choice as unknown as T, disabled: false };
         return { label: choice.name, value: choice.value, disabled: choice.disabled ?? false };
       });
 
@@ -269,15 +274,13 @@ export class InkTerminalService implements TerminalService {
           store.setPrompt(null);
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.dim('(cancelled)')}`,
+            message: `${message} ${chalk.dim("(cancelled)")}`,
             timestamp: new Date(),
           });
           resume(Effect.fail(new Error("PromptCancelled")));
         },
       });
-    }).pipe(
-      Effect.catchAll(() => Effect.succeed(undefined))
-    );
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
   }
 
   confirm(message: string, defaultValue: boolean = false): Effect.Effect<boolean, never> {
@@ -331,15 +334,13 @@ export class InkTerminalService implements TerminalService {
           store.setPrompt(null);
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.dim('(cancelled)')}`,
+            message: `${message} ${chalk.dim("(cancelled)")}`,
             timestamp: new Date(),
           });
           resume(Effect.fail(new Error("PromptCancelled")));
         },
       });
-    }).pipe(
-      Effect.catchAll(() => Effect.succeed(undefined))
-    );
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
   }
 
   checkbox<T = string>(

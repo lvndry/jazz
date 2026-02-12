@@ -24,8 +24,18 @@ const gitCommitParameters = z
       .describe(
         "Path to a file or directory in the Git repository (defaults to current working directory)",
       ),
-    message: z.string().min(1).describe("Commit message describing the changes. Use imperative mood (e.g., 'Add user authentication', 'Fix login redirect bug'). Keep the first line under 72 characters."),
-    all: z.boolean().optional().describe("Commit all modified tracked files (skips staging). Prefer using git_add + git_commit separately for more control over what's included."),
+    message: z
+      .string()
+      .min(1)
+      .describe(
+        "Commit message describing the changes. Use imperative mood (e.g., 'Add user authentication', 'Fix login redirect bug'). Keep the first line under 72 characters.",
+      ),
+    all: z
+      .boolean()
+      .optional()
+      .describe(
+        "Commit all modified tracked files (skips staging). Prefer using git_add + git_commit separately for more control over what's included.",
+      ),
   })
   .strict();
 

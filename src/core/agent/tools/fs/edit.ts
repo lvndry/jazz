@@ -165,10 +165,7 @@ function applyEdits(
           let match;
           const matches: Array<{ index: number; length: number }> = [];
 
-          while (
-            (match = regex.exec(content)) !== null &&
-            replacementCount < maxReplacements
-          ) {
+          while ((match = regex.exec(content)) !== null && replacementCount < maxReplacements) {
             matches.push({ index: match.index, length: match[0].length });
             replacementCount++;
             if (match.index === regex.lastIndex) {
@@ -180,9 +177,7 @@ function applyEdits(
             const m = matches[i];
             if (m) {
               content =
-                content.slice(0, m.index) +
-                edit.replacement +
-                content.slice(m.index + m.length);
+                content.slice(0, m.index) + edit.replacement + content.slice(m.index + m.length);
             }
           }
         } else {
@@ -240,10 +235,7 @@ function applyEdits(
         }
 
         const deletedCount = endIdx - startIdx + 1;
-        currentLines = [
-          ...currentLines.slice(0, startIdx),
-          ...currentLines.slice(endIdx + 1),
-        ];
+        currentLines = [...currentLines.slice(0, startIdx), ...currentLines.slice(endIdx + 1)];
         appliedEdits.push({
           description: `Deleted lines ${edit.startLine}-${edit.endLine} (${deletedCount} line(s))`,
         });
@@ -373,7 +365,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
             success: true,
             result: {
               path: target,
-              editsApplied: appliedEdits.map(e => e.description),
+              editsApplied: appliedEdits.map((e) => e.description),
               totalEdits: args.edits.length,
               originalLines: lines.length,
               newLines: resultLines.length,

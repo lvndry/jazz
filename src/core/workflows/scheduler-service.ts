@@ -16,8 +16,18 @@ export interface ScheduledWorkflow {
   readonly schedule: string;
   readonly agent: string; // Agent ID to use for this scheduled workflow
   readonly enabled: boolean;
+  readonly runAtLoad?: boolean; // Whether launchd should run the workflow on login/wake
+  readonly scheduledAt?: string; // ISO timestamp of when the workflow was scheduled (used by --scheduled guard)
   readonly lastRun?: string;
   readonly nextRun?: string;
+}
+
+/**
+ * Options for scheduling a workflow.
+ */
+export interface ScheduleOptions {
+  /** Whether launchd should run the workflow on login/wake (macOS only). Defaults to false. */
+  readonly runAtLoad?: boolean;
 }
 
 /**
@@ -28,8 +38,13 @@ export interface SchedulerService {
    * Schedule a workflow for periodic execution.
    * @param workflow - The workflow metadata
    * @param agentId - The agent ID to use for scheduled runs (required)
+   * @param options - Additional scheduling options
    */
-  readonly schedule: (workflow: WorkflowMetadata, agentId: string) => Effect.Effect<void, Error>;
+  readonly schedule: (
+    workflow: WorkflowMetadata,
+    agentId: string,
+    options?: ScheduleOptions,
+  ) => Effect.Effect<void, Error>;
 
   /**
    * Remove a workflow from the schedule.
@@ -193,9 +208,11 @@ function generateLaunchdPlist(
   workflow: WorkflowMetadata,
   jazzInvocation: readonly string[],
   agentId: string,
+  options?: ScheduleOptions,
 ): string {
   const schedule = cronToLaunchdSchedule(workflow.schedule!);
   const logDir = path.join(getUserDataDirectory(), "logs");
+  const runAtLoad = options?.runAtLoad ?? false;
 
   const programArgs = [
     ...jazzInvocation,
@@ -205,6 +222,7 @@ function generateLaunchdPlist(
     "--agent",
     agentId,
     "--auto-approve",
+    "--scheduled",
   ];
 
   const plistObject = {
@@ -213,7 +231,7 @@ function generateLaunchdPlist(
     StartCalendarInterval: schedule,
     StandardOutPath: `${logDir}/${workflow.name}.log`,
     StandardErrorPath: `${logDir}/${workflow.name}.error.log`,
-    RunAtLoad: false,
+    RunAtLoad: runAtLoad,
   };
 
   return plist.build(plistObject);
@@ -239,6 +257,7 @@ function generateCrontabEntry(
     "--agent",
     agentId,
     "--auto-approve",
+    "--scheduled",
   ]);
 
   // Build the command with proper escaping
@@ -346,7 +365,11 @@ class LaunchdScheduler implements SchedulerService {
     return path.join(getSchedulesDirectory(), `${workflowName}.json`);
   }
 
-  schedule(workflow: WorkflowMetadata, agentId: string): Effect.Effect<void, Error> {
+  schedule(
+    workflow: WorkflowMetadata,
+    agentId: string,
+    options?: ScheduleOptions,
+  ): Effect.Effect<void, Error> {
     return Effect.gen(
       function* (this: LaunchdScheduler) {
         if (!workflow.schedule) {
@@ -362,7 +385,7 @@ class LaunchdScheduler implements SchedulerService {
         }
 
         const jazzInvocation = yield* getJazzSchedulerInvocation();
-        const plistContent = generateLaunchdPlist(workflow, jazzInvocation, agentId);
+        const plistContent = generateLaunchdPlist(workflow, jazzInvocation, agentId, options);
         const plistPath = this.getPlistPath(workflow.name);
         const metadataPath = this.getMetadataPath(workflow.name);
 
@@ -397,6 +420,8 @@ class LaunchdScheduler implements SchedulerService {
           schedule: workflow.schedule,
           agent: agentId,
           enabled: true,
+          runAtLoad: options?.runAtLoad ?? false,
+          scheduledAt: new Date().toISOString(),
         };
         yield* Effect.tryPromise({
           try: () => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)),
@@ -468,7 +493,11 @@ class CronScheduler implements SchedulerService {
     return execCommandWithStdin("crontab", ["-"], content);
   }
 
-  schedule(workflow: WorkflowMetadata, agentId: string): Effect.Effect<void, Error> {
+  schedule(
+    workflow: WorkflowMetadata,
+    agentId: string,
+    _options?: ScheduleOptions,
+  ): Effect.Effect<void, Error> {
     return Effect.gen(
       function* (this: CronScheduler) {
         if (!workflow.schedule) {
@@ -522,12 +551,13 @@ class CronScheduler implements SchedulerService {
         // Set the new crontab
         yield* this.setCrontab(filtered.join("\n"));
 
-        // Save metadata
+        // Save metadata (runAtLoad is not applicable to cron, but stored for consistency)
         const metadata: ScheduledWorkflow = {
           workflowName: workflow.name,
           schedule: workflow.schedule,
           agent: agentId,
           enabled: true,
+          scheduledAt: new Date().toISOString(),
         };
         yield* Effect.tryPromise({
           try: () => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)),
@@ -590,7 +620,11 @@ class UnsupportedScheduler implements SchedulerService {
     return "unsupported";
   }
 
-  schedule(_workflow: WorkflowMetadata, _agentId: string): Effect.Effect<void, Error> {
+  schedule(
+    _workflow: WorkflowMetadata,
+    _agentId: string,
+    _options?: ScheduleOptions,
+  ): Effect.Effect<void, Error> {
     return Effect.fail(
       new Error("Scheduling is not supported on this platform. Supported: macOS, Linux."),
     );

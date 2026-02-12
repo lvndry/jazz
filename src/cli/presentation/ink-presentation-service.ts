@@ -19,8 +19,18 @@ import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/models-dev-client";
+import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
-import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
+import {
+  formatToolArguments,
+  formatToolResult,
+  formatCompletion,
+  formatWarning,
+  formatToolExecutionStartEffect,
+  formatToolExecutionCompleteEffect,
+  formatToolExecutionErrorEffect,
+  formatToolsDetectedEffect,
+} from "./format-utils";
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/store";
@@ -80,6 +90,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.acc.lastAgentHeaderWritten = false;
       this.acc.lastAppliedTextSequence = -1;
       this.acc.flushedTextOffset = 0;
+      this.acc._cachedDisplayTextInput = "";
+      this.acc._cachedDisplayTextOutput = "";
+      this.acc._cachedReasoningInput = "";
+      this.acc._cachedReasoningOutput = "";
       this.lastUpdateTime = 0;
       this.pendingActivity = null;
       if (this.updateTimeoutId) {
@@ -199,142 +213,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.pendingActivity = null;
     }
 
-    const wasStreaming = this.acc.lastAgentHeaderWritten;
-
-    // Only the unflushed tail needs to go to Static here — earlier paragraphs
-    // were already promoted during streaming via the reducer's flush logic.
-    const unflushedTail = this.acc.liveText.slice(this.acc.flushedTextOffset);
-    const finalText =
-      unflushedTail.trim().length > 0
-        ? unflushedTail
-        : event.response.content.trim().length > 0
-          ? event.response.content
-          : "";
-    const formattedFinalText = this.formatMarkdown(finalText);
-
-    // Print to Static FIRST so the content is visible before the live area clears.
-    // Ink's render cycle erases the live area, writes new static output, then
-    // re-renders the live area — so brief duplication is invisible to the user.
-    // The previous approach (clear live first, then print) caused a blank flash
-    // where content vanished for one frame before reappearing in Static.
-    if (formattedFinalText.length > 0) {
-      if (wasStreaming) {
-        // When we were streaming, the user already saw the agent header and reasoning
-        // in the live area. Wrap in a padded Ink element to match the streaming
-        // layout (paddingLeft=2) so text doesn't jump to full width on completion.
-        store.printOutput({
-          type: "log",
-          message: ink(
-            React.createElement(
-              Box,
-              { paddingLeft: 2 },
-              React.createElement(Text, {}, formattedFinalText),
-            ),
-          ),
-          timestamp: new Date(),
-        });
-      } else {
-        // Non-streaming fallback: show the full response card since nothing was
-        // displayed in the live area.
-        store.printOutput({
-          type: "info",
-          message: this.agentName,
-          timestamp: new Date(),
-        });
-        store.printOutput({
-          type: "log",
-          message: ink(
-            React.createElement(AgentResponseCard, {
-              agentName: this.agentName,
-              content: formattedFinalText,
-            }),
-          ),
-          timestamp: new Date(),
-        });
-      }
-    }
+    this.printFinalResponse(event);
 
     if (this.showMetrics && event.metrics) {
-      const parts: string[] = [];
-      if (event.metrics.firstTokenLatencyMs) {
-        parts.push(`First token: ${event.metrics.firstTokenLatencyMs}ms`);
-      }
-      if (event.metrics.tokensPerSecond) {
-        parts.push(`Speed: ${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
-      }
-      const usage = event.response.usage;
-      if (usage) {
-        parts.push(`Input: ${usage.promptTokens}`);
-        parts.push(`Output: ${usage.completionTokens}`);
-        if (usage.reasoningTokens !== undefined && usage.reasoningTokens > 0) {
-          parts.push(`Reasoning: ${usage.reasoningTokens}`);
-        }
-        parts.push(`Total: ${usage.totalTokens} tokens`);
-      } else if (event.metrics.totalTokens) {
-        parts.push(`Total: ${event.metrics.totalTokens} tokens`);
-      }
-      if (parts.length > 0) {
-        store.printOutput({
-          type: "debug",
-          message: `[${parts.join(" | ")}]`,
-          timestamp: new Date(),
-        });
-      }
-
-      // Calculate and display cost synchronously from cache when possible.
-      // The models-dev map is cached in memory after the first fetch (which happens
-      // during model selection), so this lookup is synchronous in practice.
-      // Using a sync path avoids the cost line popping in after the prompt.
-      if (usage && this.acc.currentProvider && this.acc.currentModel) {
-        const provider = this.acc.currentProvider;
-        const model = this.acc.currentModel;
-        const promptTokens = usage.promptTokens;
-        const completionTokens = usage.completionTokens;
-
-        const printCost = (
-          meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined,
-        ): void => {
-          if (
-            meta?.inputPricePerMillion !== undefined ||
-            meta?.outputPricePerMillion !== undefined
-          ) {
-            const inputPrice = meta.inputPricePerMillion ?? 0;
-            const outputPrice = meta.outputPricePerMillion ?? 0;
-            const inputCost = (promptTokens / 1_000_000) * inputPrice;
-            const outputCost = (completionTokens / 1_000_000) * outputPrice;
-            const totalCost = inputCost + outputCost;
-
-            const formatCost = (cost: number): string => {
-              if (cost === 0) return "$0.00";
-              if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-              if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-              return `$${cost.toExponential(2)}`;
-            };
-
-            store.printOutput({
-              type: "debug",
-              message: `[Cost: ${formatCost(inputCost)} input + ${formatCost(outputCost)} output = ${formatCost(totalCost)} total]`,
-              timestamp: new Date(),
-            });
-          }
-          store.printOutput({ type: "log", message: "", timestamp: new Date() });
-        };
-
-        // Try synchronous cache hit first to avoid async print-after-prompt
-        const cachedMeta = getModelsDevMetadataSync(model, provider);
-        if (cachedMeta !== undefined) {
-          printCost(cachedMeta);
-        } else {
-          // Fallback: async fetch (first run before cache is warm)
-          void getModelsDevMetadata(model, provider)
-            .then(printCost)
-            .catch(() => {
-              store.printOutput({ type: "log", message: "", timestamp: new Date() });
-            });
-        }
-      } else {
-        store.printOutput({ type: "log", message: "", timestamp: new Date() });
-      }
+      this.printMetrics(event);
+      this.printCost(event);
     }
 
     // Clear the live area AFTER Static content is committed, so the user never
@@ -346,6 +229,150 @@ export class InkStreamingRenderer implements StreamingRenderer {
     this.acc.flushedTextOffset = 0;
     this.acc.reasoningBuffer = "";
     this.acc.completedReasoning = "";
+  }
+
+  /**
+   * Print the final response text to Static. Earlier paragraphs were already
+   * promoted during streaming via the reducer's flush logic, so only the
+   * unflushed tail needs to go here.
+   */
+  private printFinalResponse(event: Extract<StreamEvent, { type: "complete" }>): void {
+    const wasStreaming = this.acc.lastAgentHeaderWritten;
+    const unflushedTail = this.acc.liveText.slice(this.acc.flushedTextOffset);
+    const finalText =
+      unflushedTail.trim().length > 0
+        ? unflushedTail
+        : event.response.content.trim().length > 0
+          ? event.response.content
+          : "";
+    const formattedFinalText = this.formatMarkdown(finalText);
+
+    if (formattedFinalText.length === 0) return;
+
+    // Print to Static FIRST so the content is visible before the live area clears.
+    // Ink's render cycle erases the live area, writes new static output, then
+    // re-renders the live area — so brief duplication is invisible to the user.
+    if (wasStreaming) {
+      // Wrap in a padded Ink element to match the streaming layout (paddingLeft=2)
+      // so text doesn't jump to full width on completion.
+      store.printOutput({
+        type: "log",
+        message: ink(
+          React.createElement(
+            Box,
+            { paddingLeft: 2 },
+            React.createElement(Text, {}, formattedFinalText),
+          ),
+        ),
+        timestamp: new Date(),
+      });
+    } else {
+      // Non-streaming fallback: show the full response card since nothing was
+      // displayed in the live area.
+      store.printOutput({
+        type: "info",
+        message: this.agentName,
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "log",
+        message: ink(
+          React.createElement(AgentResponseCard, {
+            agentName: this.agentName,
+            content: formattedFinalText,
+          }),
+        ),
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  /** Print token usage metrics. */
+  private printMetrics(event: Extract<StreamEvent, { type: "complete" }>): void {
+    if (!event.metrics) return;
+
+    const parts: string[] = [];
+    if (event.metrics.firstTokenLatencyMs) {
+      parts.push(`First token: ${event.metrics.firstTokenLatencyMs}ms`);
+    }
+    if (event.metrics.tokensPerSecond) {
+      parts.push(`Speed: ${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
+    }
+    const usage = event.response.usage;
+    if (usage) {
+      parts.push(`Input: ${usage.promptTokens}`);
+      parts.push(`Output: ${usage.completionTokens}`);
+      if (usage.reasoningTokens !== undefined && usage.reasoningTokens > 0) {
+        parts.push(`Reasoning: ${usage.reasoningTokens}`);
+      }
+      parts.push(`Total: ${usage.totalTokens} tokens`);
+    } else if (event.metrics.totalTokens) {
+      parts.push(`Total: ${event.metrics.totalTokens} tokens`);
+    }
+    if (parts.length > 0) {
+      store.printOutput({
+        type: "debug",
+        message: `[${parts.join(" | ")}]`,
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  /**
+   * Calculate and display cost. Uses synchronous cache lookup when possible
+   * to avoid the cost line popping in after the prompt. Falls back to async
+   * fetch on first run before the cache is warm.
+   */
+  private printCost(event: Extract<StreamEvent, { type: "complete" }>): void {
+    const usage = event.response.usage;
+    if (!usage || !this.acc.currentProvider || !this.acc.currentModel) {
+      store.printOutput({ type: "log", message: "", timestamp: new Date() });
+      return;
+    }
+
+    const provider = this.acc.currentProvider;
+    const model = this.acc.currentModel;
+    const promptTokens = usage.promptTokens;
+    const completionTokens = usage.completionTokens;
+
+    const emitCost = (
+      meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined,
+    ): void => {
+      if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
+        const inputPrice = meta.inputPricePerMillion ?? 0;
+        const outputPrice = meta.outputPricePerMillion ?? 0;
+        const inputCost = (promptTokens / 1_000_000) * inputPrice;
+        const outputCost = (completionTokens / 1_000_000) * outputPrice;
+        const totalCost = inputCost + outputCost;
+
+        const fmt = (cost: number): string => {
+          if (cost === 0) return "$0.00";
+          if (cost >= 0.01) return `$${cost.toFixed(2)}`;
+          if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
+          return `$${cost.toExponential(2)}`;
+        };
+
+        store.printOutput({
+          type: "debug",
+          message: `[Cost: ${fmt(inputCost)} input + ${fmt(outputCost)} output = ${fmt(totalCost)} total]`,
+          timestamp: new Date(),
+        });
+      }
+      store.printOutput({ type: "log", message: "", timestamp: new Date() });
+    };
+
+    // Try synchronous cache hit first to avoid async print-after-prompt
+    const cachedMeta = getModelsDevMetadataSync(model, provider);
+    if (cachedMeta !== undefined) {
+      emitCost(cachedMeta);
+    } else {
+      // Fallback: async fetch (first run before cache is warm)
+      void getModelsDevMetadata(model, provider)
+        .then(emitCost)
+        .catch(() => {
+          store.printOutput({ type: "log", message: "", timestamp: new Date() });
+        });
+    }
   }
 
   private setupToolTimeout(toolCallId: string, toolName: string): void {
@@ -460,8 +487,6 @@ interface QueuedUserInput {
  * Instead, it pushes output into the Ink store.
  */
 class InkPresentationService implements PresentationService {
-  private renderer: CLIRenderer | null = null;
-
   // Approval queue to handle parallel tool calls
   private approvalQueue: QueuedApproval[] = [];
   private isProcessingApproval: boolean = false;
@@ -478,17 +503,11 @@ class InkPresentationService implements PresentationService {
     private readonly notificationService: NotificationService | null,
   ) {}
 
-  private getRenderer(): CLIRenderer {
-    if (!this.renderer) {
-      const config: CLIRendererConfig = {
-        displayConfig: this.displayConfig,
-        streamingConfig: {},
-        showMetrics: false,
-        agentName: "Agent",
-      };
-      this.renderer = new CLIRenderer(config);
-    }
-    return this.renderer;
+  /** Format markdown using the display mode from config. */
+  private formatMarkdownText(text: string): string {
+    if (this.displayConfig.mode === "rendered") return formatMarkdown(text);
+    if (this.displayConfig.mode === "hybrid") return formatMarkdownHybrid(text);
+    return text;
   }
 
   presentThinking(agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {
@@ -502,63 +521,65 @@ class InkPresentationService implements PresentationService {
   }
 
   presentCompletion(agentName: string): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
-      const msg = yield* this.getRenderer().formatCompletion(agentName);
-      store.printOutput({ type: "info", message: msg, timestamp: new Date() });
+    return Effect.sync(() => {
+      store.printOutput({
+        type: "info",
+        message: formatCompletion(agentName),
+        timestamp: new Date(),
+      });
     });
   }
 
   presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
-      const msg = yield* this.getRenderer().formatWarning(agentName, message);
-      store.printOutput({ type: "warn", message: msg, timestamp: new Date() });
+    return Effect.sync(() => {
+      store.printOutput({
+        type: "warn",
+        message: formatWarning(agentName, message),
+        timestamp: new Date(),
+      });
     });
   }
 
   presentAgentResponse(agentName: string, content: string): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
-      const formatted = yield* this.getRenderer().formatAgentResponse(agentName, content);
+    return Effect.sync(() => {
+      const header = CHALK_THEME.primaryBold(`🤖 ${agentName}:`);
+      const rendered = this.formatMarkdownText(content);
       store.printOutput({
         type: "log",
-        message: formatted,
+        message: `${header}\n${rendered}`,
         timestamp: new Date(),
       });
     });
   }
 
   renderMarkdown(markdown: string): Effect.Effect<string, never> {
-    return this.getRenderer().renderMarkdown(markdown);
+    return Effect.sync(() => this.formatMarkdownText(markdown));
   }
 
   formatToolArguments(toolName: string, args?: Record<string, unknown>): string {
-    return CLIRenderer.formatToolArguments(toolName, args);
+    return formatToolArguments(toolName, args);
   }
 
   formatToolResult(toolName: string, result: string): string {
-    return CLIRenderer.formatToolResult(toolName, result);
+    return formatToolResult(toolName, result);
   }
 
   formatToolExecutionStart(
     toolName: string,
     args?: Record<string, unknown>,
   ): Effect.Effect<string, never> {
-    return Effect.sync(() => {
-      const argsStr = this.formatToolArguments(toolName, args);
-      return argsStr;
-    }).pipe(
-      Effect.flatMap((argsStr) => this.getRenderer().formatToolExecutionStart(toolName, argsStr)),
-    );
+    return formatToolExecutionStartEffect(toolName, this.formatToolArguments(toolName, args));
   }
 
   formatToolExecutionComplete(
     summary: string | null,
     durationMs: number,
   ): Effect.Effect<string, never> {
-    return this.getRenderer().formatToolExecutionComplete(summary, durationMs);
+    return formatToolExecutionCompleteEffect(summary, durationMs);
   }
 
   formatToolExecutionError(errorMessage: string, durationMs: number): Effect.Effect<string, never> {
-    return this.getRenderer().formatToolExecutionError(errorMessage, durationMs);
+    return formatToolExecutionErrorEffect(errorMessage, durationMs);
   }
 
   formatToolsDetected(
@@ -566,7 +587,7 @@ class InkPresentationService implements PresentationService {
     toolNames: readonly string[],
     toolsRequiringApproval: readonly string[],
   ): Effect.Effect<string, never> {
-    return this.getRenderer().formatToolsDetected(agentName, toolNames, toolsRequiringApproval);
+    return formatToolsDetectedEffect(agentName, toolNames, toolsRequiringApproval);
   }
 
   createStreamingRenderer(
@@ -707,19 +728,23 @@ class InkPresentationService implements PresentationService {
     // Build approval choices — all tools get "always approve <tool>" option,
     // execute_command also gets "always approve <command>" option
     const toolDisplayName = request.toolName;
-    const command =
+    const rawCommand =
       request.toolName === "execute_command"
         ? typeof request.executeArgs["command"] === "string"
           ? request.executeArgs["command"]
           : null
         : null;
 
+    // Extract a subcommand-level approval key (e.g. "git diff" instead of
+    // "git diff --name-only") so one approval covers all flag variants.
+    const approvalKey = rawCommand ? extractCommandApprovalKey(rawCommand) : null;
+
     const choices: Array<{ label: string; value: string }> = [{ label: "Yes", value: "yes" }];
 
-    if (command) {
-      const truncatedCmd = command.length > 60 ? command.slice(0, 57) + "..." : command;
+    if (approvalKey) {
+      const truncatedKey = approvalKey.length > 60 ? approvalKey.slice(0, 57) + "..." : approvalKey;
       choices.push({
-        label: `Yes, and always approve "${truncatedCmd}" for this session`,
+        label: `Yes, and always approve "${truncatedKey}" for this session`,
         value: "always_command",
       });
     }
@@ -749,9 +774,9 @@ class InkPresentationService implements PresentationService {
           return;
         }
 
-        if (choice === "always_command" && command) {
+        if (choice === "always_command" && approvalKey) {
           store.setPrompt(null);
-          this.completeApproval(resume, { approved: true, alwaysApproveCommand: command });
+          this.completeApproval(resume, { approved: true, alwaysApproveCommand: approvalKey });
           return;
         }
 

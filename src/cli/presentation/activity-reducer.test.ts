@@ -66,7 +66,12 @@ describe("activity-reducer", () => {
   describe("thinking lifecycle", () => {
     test("thinking_start sets phase to thinking", () => {
       const a = acc();
-      const result = reduceEvent(a, { type: "thinking_start", provider: "test" }, identity, stubInk);
+      const result = reduceEvent(
+        a,
+        { type: "thinking_start", provider: "test" },
+        identity,
+        stubInk,
+      );
 
       expect(a.isThinking).toBe(true);
       expect(result.activity).not.toBeNull();

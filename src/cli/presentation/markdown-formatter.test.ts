@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "bun:test";
 import { formatLinks, formatMarkdown } from "./markdown-formatter";
 import { CHALK_THEME } from "../ui/theme";

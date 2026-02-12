@@ -1,12 +1,12 @@
 import type React from "react";
-import type { ActivityState } from "./activity-state";
+import { isActivityEqual, type ActivityState } from "./activity-state";
 import type { OutputEntry, PromptState } from "./types";
 
 type PrintOutputHandler = (entry: OutputEntry) => string;
 
 const MAX_PENDING_OUTPUT_QUEUE = 2000;
 
-export interface ExpandableDiffPayload {
+interface ExpandableDiffPayload {
   readonly fullDiff: string;
   readonly timestamp: number;
 }
@@ -55,6 +55,9 @@ export class UIStore {
   };
 
   setActivity = (activity: ActivityState): void => {
+    if (isActivityEqual(this.activitySnapshot, activity)) {
+      return;
+    }
     this.activitySnapshot = activity;
     if (this.activitySetter) {
       this.activitySetter(activity);

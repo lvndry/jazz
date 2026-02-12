@@ -1,7 +1,5 @@
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 
-export type { ActivityState, ActiveTool, ActivityPhase } from "./activity-state";
-
 export type OutputType = "info" | "success" | "warn" | "error" | "debug" | "log" | "user";
 
 /** Input type for adding output entries - id is auto-generated */
@@ -19,16 +17,17 @@ export interface OutputEntryWithId extends OutputEntry {
   id: string;
 }
 
-/** @deprecated Use ActivityState instead */
-export interface LiveStreamState {
-  agentName: string;
-  text: string;
-  reasoning?: string;
-  /** When true, the agent is actively thinking (show thinking indicator in reasoning area) */
-  isThinking?: boolean;
-}
-
-export type PromptType = "text" | "chat" | "select" | "confirm" | "password" | "checkbox" | "search" | "hidden" | "questionnaire" | "filepicker";
+export type PromptType =
+  | "text"
+  | "chat"
+  | "select"
+  | "confirm"
+  | "password"
+  | "checkbox"
+  | "search"
+  | "hidden"
+  | "questionnaire"
+  | "filepicker";
 
 export interface Choice<T = unknown> {
   label: string;

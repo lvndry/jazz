@@ -31,8 +31,7 @@ function parseCronField(value: string, fieldName: string): number | undefined {
 
   if (!/^-?\d+$/.test(value)) {
     throw new Error(
-      `Invalid cron value "${value}" in ${fieldName} field. ` +
-        `Expected a simple integer or "*".`,
+      `Invalid cron value "${value}" in ${fieldName} field. ` + `Expected a simple integer or "*".`,
     );
   }
 
@@ -40,8 +39,7 @@ function parseCronField(value: string, fieldName: string): number | undefined {
 
   if (Number.isNaN(parsed)) {
     throw new Error(
-      `Invalid cron value "${value}" in ${fieldName} field. ` +
-        `Expected a simple integer or "*".`,
+      `Invalid cron value "${value}" in ${fieldName} field. ` + `Expected a simple integer or "*".`,
     );
   }
 
@@ -154,9 +152,7 @@ describe("SchedulerService", () => {
       expect(() => parseCronField("abc", "minute")).toThrow(
         'Invalid cron value "abc" in minute field',
       );
-      expect(() => parseCronField("12a", "hour")).toThrow(
-        'Invalid cron value "12a" in hour field',
-      );
+      expect(() => parseCronField("12a", "hour")).toThrow('Invalid cron value "12a" in hour field');
     });
   });
 

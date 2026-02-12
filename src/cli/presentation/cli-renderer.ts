@@ -21,8 +21,6 @@ import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
 import { codeColor, CHALK_THEME } from "../ui/theme";
 
-
-
 /**
  * Get terminal width, with fallback to 80
  */
@@ -603,8 +601,6 @@ export class CLIRenderer {
     return applyProgressiveFormatting(text, state);
   }
 
-
-
   // ==================== Public Formatting Methods ====================
 
   /**
@@ -750,6 +746,3 @@ export class CLIRenderer {
     return this.writer;
   }
 }
-
-// Type export for backwards compatibility
-export type { CLIRendererConfig as OutputRendererConfig };

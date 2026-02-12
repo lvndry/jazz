@@ -142,9 +142,7 @@ export function registerMCPToolsForAgent(
     // Connect only to enabled servers that the agent actually uses
     // This avoids unnecessary connections and improves startup performance
     const serversToConnect = allServers.filter(
-      (server) =>
-        server.enabled !== false &&
-        requiredServerNames.has(server.name)
+      (server) => server.enabled !== false && requiredServerNames.has(server.name),
     );
 
     if (serversToConnect.length === 0) {
@@ -188,7 +186,11 @@ export function registerMCPToolsForAgent(
                 React.createElement(Text, { color: "cyan" }, [
                   React.createElement(Spinner, { key: "spinner", type: "dots" }),
                 ]),
-                React.createElement(Text, {}, ` Connecting to ${toPascalCase(serverName)} MCP server...`),
+                React.createElement(
+                  Text,
+                  {},
+                  ` Connecting to ${toPascalCase(serverName)} MCP server...`,
+                ),
               ),
             ),
           );
@@ -222,16 +224,16 @@ export function registerMCPToolsForAgent(
               ? `✗ ${toPascalCase(serverName)} MCP unavailable (invalid credentials)`
               : `✗ Failed to connect to ${toPascalCase(serverName)} MCP server`;
 
-            yield* terminal.log(
-              ink(
-                React.createElement(Text, { color: "yellow" }, errorPrefix),
-              ),
-            );
+            yield* terminal.log(ink(React.createElement(Text, { color: "yellow" }, errorPrefix)));
 
             if (isAuthError) {
               yield* terminal.log(
                 ink(
-                  React.createElement(Text, { color: "gray" }, `  The agent will continue without ${toPascalCase(serverName)} tools.`),
+                  React.createElement(
+                    Text,
+                    { color: "gray" },
+                    `  The agent will continue without ${toPascalCase(serverName)} tools.`,
+                  ),
                 ),
               );
             }
@@ -260,16 +262,26 @@ export function registerMCPToolsForAgent(
           if (showedConnectionUI) {
             yield* terminal.log(
               ink(
-                React.createElement(Text, { color: "yellow" }, `✗ Failed to discover tools from ${toPascalCase(serverName)} MCP server`),
+                React.createElement(
+                  Text,
+                  { color: "yellow" },
+                  `✗ Failed to discover tools from ${toPascalCase(serverName)} MCP server`,
+                ),
               ),
             );
             yield* terminal.log(
               ink(
-                React.createElement(Text, { color: "gray" }, `  The agent will continue without ${toPascalCase(serverName)} tools.`),
+                React.createElement(
+                  Text,
+                  { color: "gray" },
+                  `  The agent will continue without ${toPascalCase(serverName)} tools.`,
+                ),
               ),
             );
           }
-          yield* logger.warn(`Failed to discover tools from MCP server ${serverName}: ${errorMessage}`);
+          yield* logger.warn(
+            `Failed to discover tools from MCP server ${serverName}: ${errorMessage}`,
+          );
           // Return empty array on error - tools won't be available, but we continue
           mcpTools = [];
         }
@@ -280,7 +292,11 @@ export function registerMCPToolsForAgent(
         if (showedConnectionUI) {
           yield* terminal.log(
             ink(
-              React.createElement(Text, { color: "green" }, `✓ Connected to ${toPascalCase(serverName)} MCP server`),
+              React.createElement(
+                Text,
+                { color: "green" },
+                `✓ Connected to ${toPascalCase(serverName)} MCP server`,
+              ),
             ),
           );
         }
@@ -328,7 +344,11 @@ export function registerMCPToolsForAgent(
     }
 
     return connectedServers;
-  }).pipe(Effect.mapError((error: unknown) => (error instanceof Error ? error : new Error(String(error)))));
+  }).pipe(
+    Effect.mapError((error: unknown) =>
+      error instanceof Error ? error : new Error(String(error)),
+    ),
+  );
 }
 
 /**
@@ -434,7 +454,10 @@ export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "W
 export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
 export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Context" };
 export const SUBAGENT_CATEGORY: ToolCategory = { id: "subagent", displayName: "Sub Agents" };
-export const USER_INTERACTION_CATEGORY: ToolCategory = { id: "user_interaction", displayName: "User Interaction" };
+export const USER_INTERACTION_CATEGORY: ToolCategory = {
+  id: "user_interaction",
+  displayName: "User Interaction",
+};
 
 /**
  * Get MCP server names as tool categories without connecting to servers
@@ -719,7 +742,9 @@ export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> 
   });
 }
 
-export function registerSkillSystemTools(skillNames: readonly string[]): Effect.Effect<void, Error, ToolRegistry> {
+export function registerSkillSystemTools(
+  skillNames: readonly string[],
+): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(SKILLS_CATEGORY);

@@ -15,10 +15,8 @@ export interface NotificationService {
    * @param message - The message to display
    * @param options - Optional configuration (title, subtitle, sound)
    */
-  readonly notify: (
-    message: string,
-    options?: NotificationOptions,
-  ) => Effect.Effect<void, never>;
+  readonly notify: (message: string, options?: NotificationOptions) => Effect.Effect<void, never>;
 }
 
-export const NotificationServiceTag = Context.GenericTag<NotificationService>("NotificationService");
+export const NotificationServiceTag =
+  Context.GenericTag<NotificationService>("NotificationService");

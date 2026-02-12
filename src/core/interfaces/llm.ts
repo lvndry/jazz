@@ -15,10 +15,7 @@ export interface LLMService {
   /**
    * List all providers
    */
-  readonly listProviders: () => Effect.Effect<
-    readonly LLMProviderListItem[],
-    never
-  >;
+  readonly listProviders: () => Effect.Effect<readonly LLMProviderListItem[], never>;
 
   /**
    * Create a non-streaming chat completion
@@ -39,9 +36,7 @@ export interface LLMService {
   /**
    * Check if a provider supports native web search
    */
-  readonly supportsNativeWebSearch: (
-    providerName: ProviderName,
-  ) => Effect.Effect<boolean, never>;
+  readonly supportsNativeWebSearch: (providerName: ProviderName) => Effect.Effect<boolean, never>;
 }
 
 /**

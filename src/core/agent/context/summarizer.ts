@@ -28,13 +28,7 @@ const FALLBACK_CHEAP_MODELS: Partial<Record<ProviderName, string>> = {
 /**
  * Static providers that support model selection for summarization.
  */
-const STATIC_PROVIDERS = new Set<ProviderName>([
-  "openai",
-  "anthropic",
-  "google",
-  "mistral",
-  "xai",
-]);
+const STATIC_PROVIDERS = new Set<ProviderName>(["openai", "anthropic", "google", "mistral", "xai"]);
 
 interface SummarizerModelConfig {
   provider: ProviderName;
@@ -100,9 +94,7 @@ function selectSummarizerModel(
     // Priority 2 & 3: For static providers, try to find cheapest model
     if (STATIC_PROVIDERS.has(parentProvider)) {
       // Try to get available models for this provider
-      const providerInfoResult = yield* llmService
-        .getProvider(parentProvider)
-        .pipe(Effect.either);
+      const providerInfoResult = yield* llmService.getProvider(parentProvider).pipe(Effect.either);
 
       if (providerInfoResult._tag === "Right") {
         const providerInfo = providerInfoResult.right;
@@ -396,7 +388,8 @@ export const Summarizer = {
         .join("\n\n---\n\n");
 
       // Define specialized summarizer agent on the fly with cheaper model
-      const summarizerModel = `${summarizerModelConfig.provider}/${summarizerModelConfig.model}` as `${string}/${string}`;
+      const summarizerModel =
+        `${summarizerModelConfig.provider}/${summarizerModelConfig.model}` as `${string}/${string}`;
       const summarizer: Agent = {
         id: "summarizer",
         name: "Summarizer",

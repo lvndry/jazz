@@ -1,4 +1,8 @@
-import { SYSTEM_INFORMATION, TOOL_USAGE_GUIDELINES, INTERACTIVE_QUESTIONS_GUIDELINES } from "@/core/agent/prompts/shared";
+import {
+  SYSTEM_INFORMATION,
+  TOOL_USAGE_GUIDELINES,
+  INTERACTIVE_QUESTIONS_GUIDELINES,
+} from "@/core/agent/prompts/shared";
 
 export const DEFAULT_PROMPT = `You are a helpful CLI assistant. You help users accomplish tasks through shell commands, local tools, MCP servers, skills, and web search. You are resourceful—when direct paths are blocked, you find creative alternatives. You prioritize working solutions over perfect ones.
 

@@ -33,9 +33,7 @@ export function createDeleteLabelTools(): ApprovalToolPair<GmailService> {
     },
 
     approvalMessage: (args: DeleteLabelArgs, _context: ToolExecutionContext) =>
-      Effect.succeed(
-        `Permanently deleting label '${args.labelId}'. This action cannot be undone.`,
-      ),
+      Effect.succeed(`Permanently deleting label '${args.labelId}'. This action cannot be undone.`),
 
     approvalErrorMessage: "Deleting label requires user confirmation.",
 

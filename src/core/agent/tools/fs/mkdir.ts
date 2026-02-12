@@ -19,7 +19,12 @@ type MkdirArgs = {
 const mkdirParameters = z
   .object({
     path: z.string().min(1).describe("Directory path to create (absolute or relative to cwd)"),
-    recursive: z.boolean().optional().describe("Create parent directories as needed (default: true). Set to false to fail if parent directories don't exist."),
+    recursive: z
+      .boolean()
+      .optional()
+      .describe(
+        "Create parent directories as needed (default: true). Set to false to fail if parent directories don't exist.",
+      ),
   })
   .strict();
 
@@ -95,6 +100,5 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
       }),
   };
 
-   
   return defineApprovalTool<MkdirDeps, MkdirArgs>(config);
 }

@@ -106,6 +106,5 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
       }),
   };
 
-   
   return defineApprovalTool<RmDeps, RmArgs>(config);
 }

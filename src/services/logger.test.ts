@@ -1,6 +1,12 @@
 import { decode as decodeToon } from "@toon-format/toon";
 import { describe, expect, it, beforeEach } from "bun:test";
-import { setLogFormat, getLogFormat, formatLogLineAsJson, formatLogLineAsPlain, formatLogLineAsToon } from "./logger";
+import {
+  setLogFormat,
+  getLogFormat,
+  formatLogLineAsJson,
+  formatLogLineAsPlain,
+  formatLogLineAsToon,
+} from "./logger";
 
 describe("LoggerService", () => {
   beforeEach(() => {
@@ -36,7 +42,10 @@ describe("LoggerService", () => {
     });
 
     it("should spread meta fields at top level", () => {
-      const output = formatLogLineAsJson("error", "Error happened", { code: 500, detail: "DB error" });
+      const output = formatLogLineAsJson("error", "Error happened", {
+        code: 500,
+        detail: "DB error",
+      });
       const parsed = JSON.parse(output);
 
       expect(parsed.code).toBe(500);

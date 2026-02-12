@@ -17,17 +17,15 @@ const createTestDiffInfo = (overrides?: Partial<TruncatedDiffInfo>): TruncatedDi
     originalContent: "original content",
     newContent: "new content",
     filepath: "test.ts",
-    options: {}
+    options: {},
   },
   truncatedAtLine: 10,
   totalChanges: 5,
   timestamp: Date.now(),
-  ...overrides
+  ...overrides,
 });
 
-const runWithService = <A, E>(
-  program: Effect.Effect<A, E, DiffExpansionService>
-): Promise<A> => {
+const runWithService = <A, E>(program: Effect.Effect<A, E, DiffExpansionService>): Promise<A> => {
   return Effect.runPromise(Effect.provide(program, DiffExpansionServiceLive));
 };
 
@@ -40,7 +38,7 @@ describe("DiffExpansionService", () => {
         const service = yield* DiffExpansionServiceTag;
         yield* service.registerTruncatedDiff(testInfo);
         return yield* service.getExpandableDiff();
-      })
+      }),
     );
 
     expect(result).toEqual(testInfo);
@@ -58,7 +56,7 @@ describe("DiffExpansionService", () => {
       Effect.gen(function* () {
         yield* registerTruncatedDiff(testInfo);
         return yield* hasExpandableDiff();
-      })
+      }),
     );
 
     expect(result).toBe(true);
@@ -72,7 +70,7 @@ describe("DiffExpansionService", () => {
         yield* registerTruncatedDiff(testInfo);
         yield* clearExpandableDiff();
         return yield* getExpandableDiff();
-      })
+      }),
     );
 
     expect(result).toBeNull();
@@ -99,7 +97,7 @@ describe("DiffExpansionService", () => {
         yield* registerTruncatedDiff(firstInfo);
         yield* registerTruncatedDiff(secondInfo);
         return yield* getExpandableDiff();
-      })
+      }),
     );
 
     expect(result).toEqual(secondInfo);

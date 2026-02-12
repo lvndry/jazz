@@ -143,10 +143,7 @@ describe("MCP Schema Converter", () => {
   describe("Union Types", () => {
     it("should convert oneOf schema", () => {
       const schema = {
-        oneOf: [
-          { type: "string" },
-          { type: "number" },
-        ],
+        oneOf: [{ type: "string" }, { type: "number" }],
       };
       const zodSchema = convertMCPSchemaToZod(schema);
 
@@ -157,10 +154,7 @@ describe("MCP Schema Converter", () => {
 
     it("should convert anyOf schema", () => {
       const schema = {
-        anyOf: [
-          { type: "string" },
-          { type: "boolean" },
-        ],
+        anyOf: [{ type: "string" }, { type: "boolean" }],
       };
       const zodSchema = convertMCPSchemaToZod(schema);
 
@@ -263,7 +257,7 @@ describe("MCP Schema Converter", () => {
 
       // Should return unknown and log warning
       expect(zodSchema.safeParse("anything").success).toBe(true);
-      expect(warnings.some(w => w.includes("$ref not supported"))).toBe(true);
+      expect(warnings.some((w) => w.includes("$ref not supported"))).toBe(true);
     });
 
     it("should unwrap MCP SDK's nested jsonSchema format", () => {

@@ -1,5 +1,8 @@
 import { Effect } from "effect";
-import { WEB_SEARCH_PROVIDERS, type WebSearchProviderName } from "@/core/agent/tools/web-search-tools";
+import {
+  WEB_SEARCH_PROVIDERS,
+  type WebSearchProviderName,
+} from "@/core/agent/tools/web-search-tools";
 import { type ProviderName } from "@/core/constants/models";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { type LLMService } from "@/core/interfaces/llm";
@@ -39,10 +42,12 @@ export function handleWebSearchConfiguration(
     }
 
     // Add external providers
-    choices.push(...WEB_SEARCH_PROVIDERS.map(p => ({
-      name: p.name,
-      value: p.value,
-    })));
+    choices.push(
+      ...WEB_SEARCH_PROVIDERS.map((p) => ({
+        name: p.name,
+        value: p.value,
+      })),
+    );
 
     // Add go back option
     choices.push({
@@ -50,10 +55,9 @@ export function handleWebSearchConfiguration(
       value: "back",
     });
 
-    const selection = yield* terminal.select(
-      "Which web search provider would you like to use?",
-      { choices }
-    );
+    const selection = yield* terminal.select("Which web search provider would you like to use?", {
+      choices,
+    });
 
     if (selection === "back" || !selection) {
       return false;
@@ -73,7 +77,7 @@ export function handleWebSearchConfiguration(
     if (!hasApiKey) {
       // Prompt for API key
       const apiKey = yield* terminal.ask(`Enter API Key for ${provider}:`, {
-        validate: (input) => input.trim().length > 0 ? true : "API Key cannot be empty"
+        validate: (input) => (input.trim().length > 0 ? true : "API Key cannot be empty"),
       });
 
       yield* configService.set(`web_search.${provider}.api_key`, apiKey);

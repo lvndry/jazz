@@ -52,9 +52,7 @@ export function TerminalProvider({
   children,
   service: providedService,
 }: TerminalProviderProps): React.ReactElement {
-  const [service, setService] = useState<TerminalCapabilityService | null>(
-    providedService ?? null,
-  );
+  const [service, setService] = useState<TerminalCapabilityService | null>(providedService ?? null);
   const [capabilities, setCapabilities] = useState<TerminalCapabilities | null>(null);
   const [error, setError] = useState<Error | null>(null);
 

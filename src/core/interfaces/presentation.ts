@@ -216,9 +216,7 @@ export interface StreamingRenderer {
   /**
    * Register or clear a user interrupt handler for the active stream.
    */
-  readonly setInterruptHandler: (
-    handler: (() => void) | null,
-  ) => Effect.Effect<void, never>;
+  readonly setInterruptHandler: (handler: (() => void) | null) => Effect.Effect<void, never>;
 
   /**
    * Reset renderer state (call between conversations)

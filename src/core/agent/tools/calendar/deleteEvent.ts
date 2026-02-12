@@ -42,9 +42,7 @@ export function createDeleteCalendarEventTools(): ApprovalToolPair<CalendarServi
         const calendarService = yield* CalendarServiceTag;
         try {
           const event = yield* calendarService.getEvent(args.calendarId || "primary", args.eventId);
-          return (
-            formatEventForDisplay(event) + `\n\n⚠️  This action cannot be undone!`
-          );
+          return formatEventForDisplay(event) + `\n\n⚠️  This action cannot be undone!`;
         } catch {
           return `Deleting event ${args.eventId}. This cannot be undone!`;
         }
@@ -55,11 +53,7 @@ export function createDeleteCalendarEventTools(): ApprovalToolPair<CalendarServi
     handler: (args: DeleteCalendarEventArgs, _context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const calendarService = yield* CalendarServiceTag;
-        yield* calendarService.deleteEvent(
-          args.calendarId,
-          args.eventId,
-          args.sendNotifications,
-        );
+        yield* calendarService.deleteEvent(args.calendarId, args.eventId, args.sendNotifications);
         return { success: true, result: `Event ${args.eventId} deleted successfully` };
       }),
   };

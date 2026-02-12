@@ -32,7 +32,11 @@ import { groq } from "@ai-sdk/groq";
 import { mistral } from "@ai-sdk/mistral";
 import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
-import { createOpenRouter, type OpenRouterProviderSettings } from "@openrouter/ai-sdk-provider";
+import {
+  createOpenRouter,
+  type OpenRouterProviderOptions,
+  type OpenRouterProviderSettings,
+} from "@openrouter/ai-sdk-provider";
 import {
   gateway,
   generateText,
@@ -145,6 +149,15 @@ function toCoreMessages(
           msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }
         ).providerOptions = {
           openai: { promptCacheKey: "system-prompt" },
+        };
+      } else if (normalized === "openrouter") {
+        // OpenRouter supports Anthropic-style prompt caching via its own providerOptions.
+        // When routing to Anthropic models (e.g., anthropic/claude-*), this enables cache hits
+        // on the system prompt, reducing cost and latency.
+        (
+          msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }
+        ).providerOptions = {
+          openrouter: { cacheControl: { type: "ephemeral" } },
         };
       }
       return msg;
@@ -559,6 +572,29 @@ function buildProviderOptions(
           ollama: {
             think: true,
           } satisfies OllamaCompletionProviderOptions,
+        };
+      }
+      break;
+    }
+    case "openrouter": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        // Map Jazz's reasoning_effort to OpenRouter's effort levels
+        // Jazz uses: "low" | "medium" | "high" | "disable"
+        // OpenRouter uses: "minimal" | "low" | "medium" | "high" | "xhigh" | "none"
+        const effortMap: Record<string, "low" | "medium" | "high"> = {
+          low: "low",
+          medium: "medium",
+          high: "high",
+        };
+        const effort = effortMap[reasoningEffort] ?? "medium";
+        return {
+          openrouter: {
+            reasoning: {
+              enabled: true,
+              effort,
+            },
+          } satisfies OpenRouterProviderOptions,
         };
       }
       break;

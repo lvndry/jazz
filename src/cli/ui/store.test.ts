@@ -107,7 +107,9 @@ describe("UIStore", () => {
     test("delegates to handler when registered", () => {
       const s = new UIStore();
       let cleared = false;
-      s.registerClearOutputs(() => { cleared = true; });
+      s.registerClearOutputs(() => {
+        cleared = true;
+      });
 
       s.clearOutputs();
 

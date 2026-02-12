@@ -224,7 +224,7 @@ Or update it in the interactive wizard: jazz wizard -> Update configuration`;
 
       llmError = new LLMAuthenticationError({
         provider: providerName,
-        message: friendlyMessage
+        message: friendlyMessage,
       });
     } else {
       llmError = new LLMRequestError({

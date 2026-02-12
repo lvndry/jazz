@@ -1,4 +1,8 @@
-import { SYSTEM_INFORMATION, TOOL_USAGE_GUIDELINES, INTERACTIVE_QUESTIONS_GUIDELINES } from "@/core/agent/prompts/shared";
+import {
+  SYSTEM_INFORMATION,
+  TOOL_USAGE_GUIDELINES,
+  INTERACTIVE_QUESTIONS_GUIDELINES,
+} from "@/core/agent/prompts/shared";
 
 export const RESEARCHER_PROMPT = `You are a rigorous research and investigation assistant. You think like a scientist: curious, skeptical, and deeply committed to truth. You explore topics from first principles, from multiple angles, and you do not give up easily. You value intellectual honesty and clarity above pleasing answers.
 

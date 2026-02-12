@@ -8,10 +8,7 @@ import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import { HeadlessPresentationServiceLayer } from "@/core/presentation/headless-presentation-service";
 import { normalizeCronExpression } from "@/core/utils/cron-utils";
 import { addRunRecord, loadRunHistory, updateLatestRunRecord } from "@/core/workflows/run-history";
-import {
-  SchedulerServiceTag,
-  type ScheduledWorkflow,
-} from "@/core/workflows/scheduler-service";
+import { SchedulerServiceTag, type ScheduledWorkflow } from "@/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
 
 export interface CatchUpDecision {
@@ -34,7 +31,9 @@ interface WorkflowRunSnapshot {
   readonly lastRunAt?: Date;
 }
 
-function getLastRunSnapshot(history: readonly { workflowName: string; startedAt: string; completedAt?: string }[]): Map<string, WorkflowRunSnapshot> {
+function getLastRunSnapshot(
+  history: readonly { workflowName: string; startedAt: string; completedAt?: string }[],
+): Map<string, WorkflowRunSnapshot> {
   const map = new Map<string, WorkflowRunSnapshot>();
 
   for (const record of history) {
@@ -112,7 +111,9 @@ export function getCatchUpCandidates() {
     const scheduler = yield* SchedulerServiceTag;
     const workflowService = yield* WorkflowServiceTag;
 
-    const scheduled = yield* scheduler.listScheduled().pipe(Effect.catchAll(() => Effect.succeed([])));
+    const scheduled = yield* scheduler
+      .listScheduled()
+      .pipe(Effect.catchAll(() => Effect.succeed([])));
     if (scheduled.length === 0) {
       return [];
     }
@@ -123,9 +124,9 @@ export function getCatchUpCandidates() {
     const candidates: CatchUpCandidate[] = [];
 
     for (const entry of scheduled) {
-      const workflow = yield* workflowService.getWorkflow(entry.workflowName).pipe(
-        Effect.catchAll(() => Effect.succeed(undefined)),
-      );
+      const workflow = yield* workflowService
+        .getWorkflow(entry.workflowName)
+        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
       if (!workflow) continue;
 
@@ -158,9 +159,9 @@ export function runCatchUpForWorkflows(entries: readonly ScheduledWorkflow[]) {
     const now = new Date();
 
     for (const entry of entries) {
-      const workflow = yield* workflowService.getWorkflow(entry.workflowName).pipe(
-        Effect.catchAll(() => Effect.succeed(undefined)),
-      );
+      const workflow = yield* workflowService
+        .getWorkflow(entry.workflowName)
+        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
       if (!workflow) {
         yield* logger.warn("Catch-up skipped: workflow not found", {
@@ -189,9 +190,9 @@ export function runCatchUpForWorkflows(entries: readonly ScheduledWorkflow[]) {
         continue;
       }
 
-      const workflowContent = yield* workflowService.loadWorkflow(entry.workflowName).pipe(
-        Effect.catchAll(() => Effect.succeed(undefined)),
-      );
+      const workflowContent = yield* workflowService
+        .loadWorkflow(entry.workflowName)
+        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
       if (!workflowContent) {
         yield* logger.warn("Catch-up skipped: workflow content not available", {
           workflow: entry.workflowName,
@@ -252,7 +253,9 @@ export function runCatchUpForWorkflows(entries: readonly ScheduledWorkflow[]) {
 export function runWorkflowCatchUp() {
   return Effect.gen(function* () {
     const scheduler = yield* SchedulerServiceTag;
-    const scheduled = yield* scheduler.listScheduled().pipe(Effect.catchAll(() => Effect.succeed([])));
+    const scheduled = yield* scheduler
+      .listScheduled()
+      .pipe(Effect.catchAll(() => Effect.succeed([])));
     yield* runCatchUpForWorkflows(scheduled);
   }).pipe(Effect.catchAll(() => Effect.void));
 }
@@ -262,7 +265,11 @@ function formatMissedTime(scheduledAt: Date | undefined): string {
 
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const scheduledDay = new Date(scheduledAt.getFullYear(), scheduledAt.getMonth(), scheduledAt.getDate());
+  const scheduledDay = new Date(
+    scheduledAt.getFullYear(),
+    scheduledAt.getMonth(),
+    scheduledAt.getDate(),
+  );
 
   const timeStr = scheduledAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
@@ -356,7 +363,9 @@ export function promptInteractiveCatchUp() {
       .map((c) => c.entry);
 
     yield* terminal.log("");
-    yield* terminal.info(`Running ${entriesToRun.length} workflow${entriesToRun.length > 1 ? "s" : ""} in background...`);
+    yield* terminal.info(
+      `Running ${entriesToRun.length} workflow${entriesToRun.length > 1 ? "s" : ""} in background...`,
+    );
     yield* terminal.log("");
 
     // Fork the catch-up execution so it runs in the background.

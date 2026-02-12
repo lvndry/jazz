@@ -114,7 +114,10 @@ export interface TerminalService {
   readonly select: <T = string>(
     message: string,
     options: {
-      choices: readonly (string | { name: string; value: T; description?: string; disabled?: boolean })[];
+      choices: readonly (
+        | string
+        | { name: string; value: T; description?: string; disabled?: boolean }
+      )[];
       default?: T;
     },
   ) => Effect.Effect<T | undefined, never>;

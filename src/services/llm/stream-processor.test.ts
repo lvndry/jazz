@@ -19,7 +19,7 @@ describe("StreamProcessor", () => {
     const processor = new StreamProcessor(
       { providerName: "p1", modelName: "m1", hasReasoningEnabled: false, startTime: Date.now() },
       emit,
-      mockLogger
+      mockLogger,
     );
 
     // Mock fullStream iterator
@@ -35,9 +35,9 @@ describe("StreamProcessor", () => {
     const finalResponse = await processor.process(mockResult);
 
     expect(finalResponse.content).toBe("Hello world");
-    expect(events.some(e => e.type === "stream_start")).toBe(true);
-    expect(events.some(e => e.type === "text_chunk" && e.delta === "Hello")).toBe(true);
-    expect(events.some(e => e.type === "complete")).toBe(true);
+    expect(events.some((e) => e.type === "stream_start")).toBe(true);
+    expect(events.some((e) => e.type === "text_chunk" && e.delta === "Hello")).toBe(true);
+    expect(events.some((e) => e.type === "complete")).toBe(true);
   });
 
   it("should handle reasoning deltas when enabled", async () => {
@@ -50,7 +50,7 @@ describe("StreamProcessor", () => {
     const processor = new StreamProcessor(
       { providerName: "p1", modelName: "m1", hasReasoningEnabled: true, startTime: Date.now() },
       emit,
-      mockLogger
+      mockLogger,
     );
 
     const mockResult = {
@@ -66,8 +66,10 @@ describe("StreamProcessor", () => {
 
     await processor.process(mockResult);
 
-    expect(events.some(e => e.type === "thinking_start")).toBe(true);
-    expect(events.some(e => e.type === "thinking_chunk" && e.content === "thinking...")).toBe(true);
-    expect(events.some(e => e.type === "thinking_complete")).toBe(true);
+    expect(events.some((e) => e.type === "thinking_start")).toBe(true);
+    expect(events.some((e) => e.type === "thinking_chunk" && e.content === "thinking...")).toBe(
+      true,
+    );
+    expect(events.some((e) => e.type === "thinking_complete")).toBe(true);
   });
 });

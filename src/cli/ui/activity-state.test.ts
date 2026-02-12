@@ -16,9 +16,7 @@ describe("isActivityEqual", () => {
   // ---------------------------------------------------------------------------
 
   test("returns false for different phases", () => {
-    expect(
-      isActivityEqual({ phase: "idle" }, { phase: "complete" }),
-    ).toBe(false);
+    expect(isActivityEqual({ phase: "idle" }, { phase: "complete" })).toBe(false);
     expect(
       isActivityEqual(
         { phase: "thinking", agentName: "A", reasoning: "" },
@@ -36,9 +34,7 @@ describe("isActivityEqual", () => {
   });
 
   test("complete states are always equal", () => {
-    expect(
-      isActivityEqual({ phase: "complete" }, { phase: "complete" }),
-    ).toBe(true);
+    expect(isActivityEqual({ phase: "complete" }, { phase: "complete" })).toBe(true);
   });
 
   // ---------------------------------------------------------------------------
@@ -108,13 +104,15 @@ describe("isActivityEqual", () => {
   // ---------------------------------------------------------------------------
 
   test("tool-execution states with same tools are equal", () => {
-    const tools = [
-      { toolCallId: "1", toolName: "read", startedAt: 100 },
-    ];
+    const tools = [{ toolCallId: "1", toolName: "read", startedAt: 100 }];
     expect(
       isActivityEqual(
         { phase: "tool-execution", agentName: "A", tools },
-        { phase: "tool-execution", agentName: "A", tools: [{ toolCallId: "1", toolName: "read", startedAt: 200 }] },
+        {
+          phase: "tool-execution",
+          agentName: "A",
+          tools: [{ toolCallId: "1", toolName: "read", startedAt: 200 }],
+        },
       ),
     ).toBe(true); // startedAt is not compared
   });
@@ -171,19 +169,13 @@ describe("isActivityEqual", () => {
 
   test("error states with same message are equal", () => {
     expect(
-      isActivityEqual(
-        { phase: "error", message: "boom" },
-        { phase: "error", message: "boom" },
-      ),
+      isActivityEqual({ phase: "error", message: "boom" }, { phase: "error", message: "boom" }),
     ).toBe(true);
   });
 
   test("error states with different messages are not equal", () => {
     expect(
-      isActivityEqual(
-        { phase: "error", message: "a" },
-        { phase: "error", message: "b" },
-      ),
+      isActivityEqual({ phase: "error", message: "a" }, { phase: "error", message: "b" }),
     ).toBe(false);
   });
 });

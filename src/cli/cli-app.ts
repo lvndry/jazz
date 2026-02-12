@@ -340,22 +340,30 @@ function registerWorkflowCommands(program: Command): void {
     .description("Run a workflow once")
     .option("--auto-approve", "Auto-approve tool executions based on workflow policy")
     .option("--agent <agentId>", "Agent ID or name to use for this workflow run")
-    .action((name: string, options: { autoApprove?: boolean; agent?: string }, command: Command) => {
-      const opts = program.opts<CliOptions>();
-      const isWorkflowRunCommand = command.name() === "run" && command.parent?.name() === "workflow";
-      runCliEffect(
-        runWorkflowCommand(name, {
-          ...(options.autoApprove === true ? { autoApprove: true } : {}),
-          ...(options.agent ? { agent: options.agent } : {}),
-        }),
-        {
-          verbose: opts.verbose,
-          debug: opts.debug,
-          configPath: opts.config,
-        },
-        { skipCatchUp: isWorkflowRunCommand },
-      );
-    });
+    .option(
+      "--scheduled",
+      "Indicates this run was triggered by the system scheduler (launchd/cron)",
+    )
+    .action(
+      (
+        name: string,
+        options: { autoApprove?: boolean; agent?: string; scheduled?: boolean },
+        command: Command,
+      ) => {
+        const opts = program.opts<CliOptions>();
+        const isWorkflowRunCommand =
+          command.name() === "run" && command.parent?.name() === "workflow";
+        runCliEffect(
+          runWorkflowCommand(name, options),
+          {
+            verbose: opts.verbose,
+            debug: opts.debug,
+            configPath: opts.config,
+          },
+          { skipCatchUp: isWorkflowRunCommand },
+        );
+      },
+    );
 
   workflowCommand
     .command("schedule <name>")
@@ -454,7 +462,6 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     registerMCPCommands(program);
     registerUpdateCommand(program);
     registerWorkflowCommands(program);
-
 
     if (process.argv.length <= 2) {
       program.action(() => {

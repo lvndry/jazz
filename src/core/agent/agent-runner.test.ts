@@ -42,14 +42,16 @@ const mockLogger = {
 const mockPresentationService = {
   presentThinking: mock(() => Effect.void),
   presentThinkingEnd: mock(() => Effect.void),
-  createStreamingRenderer: mock(() => Effect.succeed({
-    renderEvent: mock(() => Effect.void),
-    stop: mock(() => Effect.void),
-    handleEvent: mock(() => Effect.void),
-    setInterruptHandler: mock(() => Effect.void),
-    reset: mock(() => Effect.void),
-    flush: mock(() => Effect.void),
-  })),
+  createStreamingRenderer: mock(() =>
+    Effect.succeed({
+      renderEvent: mock(() => Effect.void),
+      stop: mock(() => Effect.void),
+      handleEvent: mock(() => Effect.void),
+      setInterruptHandler: mock(() => Effect.void),
+      reset: mock(() => Effect.void),
+      flush: mock(() => Effect.void),
+    }),
+  ),
   renderMarkdown: mock((content: string) => Effect.succeed(content)),
   presentAgentResponse: mock(() => Effect.void),
   presentCompletion: mock(() => Effect.void),
@@ -72,37 +74,54 @@ const mockToolRegistry = {
   registerTool: mock(() => Effect.succeed(undefined)),
   registerForCategory: mock(() => mock(() => Effect.succeed(undefined))),
   listTools: mock(() => Effect.succeed(["tool1", "tool2", "load_skill", "load_skill_section"])),
-  listAllTools: mock(() => Effect.succeed(["tool1", "tool2", "load_skill", "load_skill_section", "ask_user_question", "ask_file_picker", "spawn_subagent", "summarize_context"])),
-  getTool: mock((name: string) => Effect.succeed({
-    name,
-    approvalExecuteToolName: undefined,
-    longRunning: false,
-    timeoutMs: undefined,
-    function: { name, description: `Description for ${name}` }
-  })),
-  getToolDefinitions: mock(() => Effect.succeed([
-    {
-      function: {
-        name: "tool1",
-        description: "Tool 1 description",
-        parameters: {}
-      }
-    },
-    {
-      function: {
-        name: "tool2",
-        description: "Tool 2 description",
-        parameters: {}
-      }
-    }
-  ])),
+  listAllTools: mock(() =>
+    Effect.succeed([
+      "tool1",
+      "tool2",
+      "load_skill",
+      "load_skill_section",
+      "ask_user_question",
+      "ask_file_picker",
+      "spawn_subagent",
+      "summarize_context",
+    ]),
+  ),
+  getTool: mock((name: string) =>
+    Effect.succeed({
+      name,
+      approvalExecuteToolName: undefined,
+      longRunning: false,
+      timeoutMs: undefined,
+      function: { name, description: `Description for ${name}` },
+    }),
+  ),
+  getToolDefinitions: mock(() =>
+    Effect.succeed([
+      {
+        function: {
+          name: "tool1",
+          description: "Tool 1 description",
+          parameters: {},
+        },
+      },
+      {
+        function: {
+          name: "tool2",
+          description: "Tool 2 description",
+          parameters: {},
+        },
+      },
+    ]),
+  ),
 } as unknown as ToolRegistry;
 
 const mockSkillService = {
-  listSkills: mock(() => Effect.succeed([
-    { name: "skill1", description: "Skill 1" },
-    { name: "skill2", description: "Skill 2" }
-  ])),
+  listSkills: mock(() =>
+    Effect.succeed([
+      { name: "skill1", description: "Skill 1" },
+      { name: "skill2", description: "Skill 2" },
+    ]),
+  ),
 } as unknown as SkillService;
 
 const mockAppConfig = {
@@ -184,13 +203,11 @@ describe("AgentRunner", () => {
       Layer.succeed(GmailServiceTag, mockGmailService),
       Layer.succeed(CalendarServiceTag, mockCalendarService),
       Layer.succeed(FileSystem.FileSystem, mockFileSystem),
-      Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext)
+      Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
     );
   }
 
-  function runWithTestLayers<A, E>(
-    program: Effect.Effect<A, E, unknown>
-  ): Promise<A> {
+  function runWithTestLayers<A, E>(program: Effect.Effect<A, E, unknown>): Promise<A> {
     return Effect.runPromise(
       program.pipe(Effect.provide(createTestLayer())) as Effect.Effect<A, E, never>,
     );
@@ -205,16 +222,16 @@ describe("AgentRunner", () => {
       agentType: "default",
       llmProvider: "openai",
       llmModel: "gpt-4",
-      tools: ["tool1", "tool2"]
+      tools: ["tool1", "tool2"],
     },
     createdAt: new Date(),
-    updatedAt: new Date()
+    updatedAt: new Date(),
   };
 
   const defaultOptions: AgentRunnerOptions = {
     agent: mockAgent,
     userInput: "Hello, how can you help me?",
-    sessionId: "test-session-123"
+    sessionId: "test-session-123",
   };
 
   describe("runRecursive", () => {
@@ -226,9 +243,7 @@ describe("AgentRunner", () => {
         maxIterations: 1,
       };
 
-      const result = await runWithTestLayers(
-        AgentRunner.runRecursive(options)
-      );
+      const result = await runWithTestLayers(AgentRunner.runRecursive(options));
 
       expect(result).toBeDefined();
       expect(result.content).toBe("Hello world");
@@ -243,9 +258,7 @@ describe("AgentRunner", () => {
         maxIterations: 1,
       };
 
-      const result = await runWithTestLayers(
-        AgentRunner.run(options)
-      );
+      const result = await runWithTestLayers(AgentRunner.run(options));
 
       expect(result).toBeDefined();
       expect(result.content).toBe("Hello world");

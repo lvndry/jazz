@@ -125,9 +125,7 @@ export function ScrollableSelect<T = unknown>({
       {/* Results count */}
       {(hasMoreAbove || hasMoreBelow) && (
         <Box>
-          <Text dimColor>
-            {options.length} options (↑/↓ to scroll)
-          </Text>
+          <Text dimColor>{options.length} options (↑/↓ to scroll)</Text>
         </Box>
       )}
 
@@ -143,8 +141,12 @@ export function ScrollableSelect<T = unknown>({
         // Disabled items: dimmed, cannot be selected
         if (isDisabled) {
           return (
-            <Text key={absoluteIndex} dimColor>
-              {"  "}{choice.label}
+            <Text
+              key={absoluteIndex}
+              dimColor
+            >
+              {"  "}
+              {choice.label}
             </Text>
           );
         }
@@ -152,9 +154,12 @@ export function ScrollableSelect<T = unknown>({
         return (
           <Text
             key={absoluteIndex}
-            {...(isActive ? { color: THEME.selected as typeof THEME.selected, bold: true as const } : {})}
+            {...(isActive
+              ? { color: THEME.selected as typeof THEME.selected, bold: true as const }
+              : {})}
           >
-            {isActive ? "> " : "  "}{choice.label}
+            {isActive ? "> " : "  "}
+            {choice.label}
           </Text>
         );
       })}

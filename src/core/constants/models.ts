@@ -19,7 +19,6 @@
  */
 export const DEFAULT_CONTEXT_WINDOW = 128_000;
 
-
 export interface StaticModelEntry {
   readonly id: string;
   readonly displayName?: string;
@@ -78,9 +77,7 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "grok-4-0709", displayName: "Grok 4 (0709)" },
     { id: "grok-3-mini", displayName: "Grok 3 Mini" },
   ],
-  deepseek: [
-    { id: "deepseek-chat", displayName: "DeepSeek Chat" },
-  ],
+  deepseek: [{ id: "deepseek-chat", displayName: "DeepSeek Chat" }],
   ollama: [],
   openrouter: [],
   ai_gateway: [],

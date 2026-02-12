@@ -1,4 +1,8 @@
-import { STATIC_PROVIDER_MODELS, type ProviderName, type StaticModelEntry } from "@/core/constants/models";
+import {
+  STATIC_PROVIDER_MODELS,
+  type ProviderName,
+  type StaticModelEntry,
+} from "@/core/constants/models";
 
 /**
  * This type represents how models are fetched for each provider.

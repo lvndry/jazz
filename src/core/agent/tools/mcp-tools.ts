@@ -13,9 +13,7 @@ import type { TerminalService } from "@/core/interfaces/terminal";
 import { ink, TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import {
-  MCPToolExecutionError,
-} from "@/core/types/errors";
+import { MCPToolExecutionError } from "@/core/types/errors";
 import type { MCPTool } from "@/core/types/mcp";
 import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
 import { safeStringify, toPascalCase } from "@/core/utils/string";
@@ -29,7 +27,6 @@ export type MCPToolDependencies =
   | LoggerService
   | MCPServerManager
   | TerminalService;
-
 
 /**
  * Adapt an MCP tool to a Jazz tool with lazy connection support
@@ -115,24 +112,36 @@ function executeMCPToolWithLazyConnection(
             React.createElement(Text, { color: "cyan" }, [
               React.createElement(Spinner, { key: "spinner", type: "dots" }),
             ]),
-            React.createElement(Text, {}, ` Connecting to ${toPascalCase(serverName)} MCP server...`),
+            React.createElement(
+              Text,
+              {},
+              ` Connecting to ${toPascalCase(serverName)} MCP server...`,
+            ),
           ),
         ),
       );
 
-      yield* logger.debug(`MCP server ${serverName} not connected, establishing lazy connection...`);
+      yield* logger.debug(
+        `MCP server ${serverName} not connected, establishing lazy connection...`,
+      );
 
       // Reconnect to the server - provide all required services
-      yield* mcpManager.connectServer(serverConfig).pipe(
-        Effect.provideService(LoggerServiceTag, logger),
-        Effect.provideService(AgentConfigServiceTag, configService),
-        Effect.provideService(TerminalServiceTag, terminal),
-      );
+      yield* mcpManager
+        .connectServer(serverConfig)
+        .pipe(
+          Effect.provideService(LoggerServiceTag, logger),
+          Effect.provideService(AgentConfigServiceTag, configService),
+          Effect.provideService(TerminalServiceTag, terminal),
+        );
 
       // Show success
       yield* terminal.log(
         ink(
-          React.createElement(Text, { color: "green" }, `✓ Connected to ${toPascalCase(serverName)} MCP server`),
+          React.createElement(
+            Text,
+            { color: "green" },
+            `✓ Connected to ${toPascalCase(serverName)} MCP server`,
+          ),
         ),
       );
       yield* logger.info(`Lazy connection established to MCP server: ${serverName}`);

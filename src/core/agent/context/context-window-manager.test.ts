@@ -45,7 +45,9 @@ describe("ContextWindowManager", () => {
       const withoutTools = [makeMessage("assistant", "content")];
       const withTools = [
         makeMessage("assistant", "content", {
-          tool_calls: [{ id: "1", type: "function", function: { name: "test", arguments: '{"key":"value"}' } }],
+          tool_calls: [
+            { id: "1", type: "function", function: { name: "test", arguments: '{"key":"value"}' } },
+          ],
         }),
       ];
       const tokensWithout = manager.calculateTotalTokens(withoutTools);
@@ -59,7 +61,10 @@ describe("ContextWindowManager", () => {
       const manager = new ContextWindowManager({ maxTokens: 10 });
       // Create messages with enough content to exceed 10 tokens
       const messages = [
-        makeMessage("user", "This is a very long message that should exceed the token limit for testing"),
+        makeMessage(
+          "user",
+          "This is a very long message that should exceed the token limit for testing",
+        ),
       ];
       expect(manager.needsTrimming(messages)).toBe(true);
     });
@@ -76,7 +81,10 @@ describe("ContextWindowManager", () => {
       const manager = new ContextWindowManager({ maxTokens: 20 });
       // Create enough content to exceed 80% of 20 = 16 tokens
       const messages = [
-        makeMessage("user", "This is a test message with enough content to exceed the threshold for summarization"),
+        makeMessage(
+          "user",
+          "This is a test message with enough content to exceed the threshold for summarization",
+        ),
       ];
       expect(manager.shouldSummarize(messages)).toBe(true);
     });
@@ -177,7 +185,9 @@ describe("ContextWindowManager", () => {
         makeMessage("system", "sys"),
         makeMessage("user", "old"),
         makeMessage("assistant", "calling tool", {
-          tool_calls: [{ id: "tc1", type: "function", function: { name: "test", arguments: "{}" } }],
+          tool_calls: [
+            { id: "tc1", type: "function", function: { name: "test", arguments: "{}" } },
+          ],
         }),
         makeMessage("tool", "result", { tool_call_id: "tc1", name: "test" }),
         makeMessage("user", "recent1"),

@@ -215,10 +215,7 @@ class DefaultToolRegistry implements ToolRegistry {
 
       // Execute tool and catch all errors (both Effect typed failures and defects/throws)
       // Use sandbox to promote defects into the error channel, then either to convert to values
-      const eitherResult = yield* tool.execute(args, context).pipe(
-        Effect.sandbox,
-        Effect.either,
-      );
+      const eitherResult = yield* tool.execute(args, context).pipe(Effect.sandbox, Effect.either);
 
       let result: ToolExecutionResult;
       if (eitherResult._tag === "Left") {
@@ -235,7 +232,9 @@ class DefaultToolRegistry implements ToolRegistry {
           const defects = Cause.defects(cause);
           const firstDefect = Chunk.get(defects, 0);
           errorMessage = Option.isSome(firstDefect)
-            ? (firstDefect.value instanceof Error ? firstDefect.value.message : String(firstDefect.value))
+            ? firstDefect.value instanceof Error
+              ? firstDefect.value.message
+              : String(firstDefect.value)
             : "Unknown error";
         }
 

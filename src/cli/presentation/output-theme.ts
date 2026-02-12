@@ -3,24 +3,11 @@ import type { ColorProfile, RenderTheme } from "@/core/types";
 import { CHALK_THEME } from "../ui/theme";
 
 /**
- * ANSI escape sequences
- */
-export const ANSI = {
-  MOVE_UP_1_CLEAR: "\x1b[1A\x1b[0J",
-  MOVE_UP_2_CLEAR: "\x1b[2A\x1b[0J",
-  MOVE_UP_3_CLEAR: "\x1b[3A\x1b[0J",
-  CLEAR_LINE: "\x1b[2K",
-  CURSOR_TO_START: "\x1b[0G",
-} as const;
-
-/**
  * Display constants
  */
 export const DISPLAY = {
   SEPARATOR_WIDTH: 60,
   SEPARATOR_CHAR: "─",
-  MAX_TOOL_ARG_LENGTH: 60,
-  MAX_TOOL_RESULT_PREVIEW: 50,
 } as const;
 
 /**

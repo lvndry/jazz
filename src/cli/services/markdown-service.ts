@@ -67,10 +67,7 @@ export interface MarkdownService {
   readonly createStreamingFormatter: Effect.Effect<StreamingFormatter>;
 
   /** Format a single chunk with provided state (low-level) */
-  readonly formatChunk: (
-    text: string,
-    state: StreamingState,
-  ) => Effect.Effect<FormattedChunk>;
+  readonly formatChunk: (text: string, state: StreamingState) => Effect.Effect<FormattedChunk>;
 }
 
 export const MarkdownServiceTag = Context.GenericTag<MarkdownService>("MarkdownService");
@@ -170,10 +167,7 @@ function findIncompleteSyntax(text: string): { complete: string; pending: string
 /**
  * Format a streaming chunk with state tracking.
  */
-function formatStreamingChunk(
-  text: string,
-  state: StreamingState,
-): FormattedChunk {
+function formatStreamingChunk(text: string, state: StreamingState): FormattedChunk {
   if (!text || text.trim().length === 0) {
     return { formatted: text, pending: "", state };
   }
@@ -203,9 +197,8 @@ function formatStreamingChunk(
     const { complete, pending } = findIncompleteSyntax(joined);
 
     // Apply formatting to complete portion (if not in code block)
-    const formatted = !isInCodeBlock && complete.length > 0
-      ? applyInlineFormatting(complete)
-      : complete;
+    const formatted =
+      !isInCodeBlock && complete.length > 0 ? applyInlineFormatting(complete) : complete;
 
     return {
       formatted,
@@ -227,9 +220,7 @@ function formatStreamingChunk(
   const { complete, pending } = findIncompleteSyntax(fullText);
 
   // Apply formatting to complete portion
-  const formatted = complete.length > 0
-    ? applyInlineFormatting(complete)
-    : complete;
+  const formatted = complete.length > 0 ? applyInlineFormatting(complete) : complete;
 
   return {
     formatted,
@@ -263,9 +254,7 @@ function createStreamingFormatterImpl(): StreamingFormatter {
       }
 
       // Format any remaining buffered content
-      const formatted = !state.isInCodeBlock
-        ? applyInlineFormatting(pending)
-        : codeColor(pending);
+      const formatted = !state.isInCodeBlock ? applyInlineFormatting(pending) : codeColor(pending);
 
       state = INITIAL_STREAMING_STATE;
       return formatted;

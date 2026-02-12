@@ -18,11 +18,9 @@ export interface ChatInputProps {
   textColor?: string;
 }
 
-
 /** Exported so parents can render hints below the input box (keeps selection inside box to input text only). */
 export const SHORTCUTS_HINT =
   "Ctrl+A/E: start/end · Ctrl+U/K: clear · Opt+←/→: word nav · Opt+Del: delete word";
-
 
 /**
  * TextInput component that renders the current input value.
@@ -46,7 +44,12 @@ export function ChatInput({
 
   let renderedValue: React.ReactNode = displayValueMasked;
   let renderedPlaceholder: React.ReactNode = placeholder ? (
-    <Text {...textProps} dimColor={!textColor}>{placeholder}</Text>
+    <Text
+      {...textProps}
+      dimColor={!textColor}
+    >
+      {placeholder}
+    </Text>
   ) : null;
 
   if (showCursor && focus) {
@@ -55,18 +58,32 @@ export function ChatInput({
       renderedPlaceholder = (
         <Text {...textProps}>
           <Text inverse>{placeholder[0]}</Text>
-          <Text {...textProps} dimColor={!textColor}>{placeholder.slice(1)}</Text>
+          <Text
+            {...textProps}
+            dimColor={!textColor}
+          >
+            {placeholder.slice(1)}
+          </Text>
         </Text>
       );
     } else if (displayValueMasked.length === 0) {
-      renderedPlaceholder = <Text {...textProps} inverse> </Text>;
+      renderedPlaceholder = (
+        <Text
+          {...textProps}
+          inverse
+        >
+          {" "}
+        </Text>
+      );
     }
 
     // Value with cursor
     if (displayValueMasked.length > 0) {
       const before = displayValueMasked.slice(0, safeCursor);
-      const cursorChar = safeCursor < displayValueMasked.length ? displayValueMasked[safeCursor] : " ";
-      const after = safeCursor < displayValueMasked.length ? displayValueMasked.slice(safeCursor + 1) : "";
+      const cursorChar =
+        safeCursor < displayValueMasked.length ? displayValueMasked[safeCursor] : " ";
+      const after =
+        safeCursor < displayValueMasked.length ? displayValueMasked.slice(safeCursor + 1) : "";
 
       renderedValue = (
         <Text {...textProps}>
@@ -76,7 +93,14 @@ export function ChatInput({
         </Text>
       );
     } else {
-      renderedValue = <Text {...textProps} inverse> </Text>;
+      renderedValue = (
+        <Text
+          {...textProps}
+          inverse
+        >
+          {" "}
+        </Text>
+      );
     }
   }
 

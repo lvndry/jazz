@@ -1,6 +1,10 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import { PresentationServiceTag, type UserInputRequest, type FilePickerRequest } from "@/core/interfaces/presentation";
+import {
+  PresentationServiceTag,
+  type UserInputRequest,
+  type FilePickerRequest,
+} from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -28,7 +32,9 @@ const askUserSchema = z.object({
     .boolean()
     .optional()
     .default(false)
-    .describe("Whether the user can select multiple suggestions (default: false, single selection)"),
+    .describe(
+      "Whether the user can select multiple suggestions (default: false, single selection)",
+    ),
 });
 
 type AskUserArgs = z.infer<typeof askUserSchema>;

@@ -317,10 +317,7 @@ export type LLMError =
   | LLMRateLimitError
   | LLMConfigurationError;
 
-export type ExecutorError =
-  | LLMError
-  | AgentExecutionError
-  | GenerationInterruptedError;
+export type ExecutorError = LLMError | AgentExecutionError | GenerationInterruptedError;
 
 export type MCPError =
   | MCPConnectionError
