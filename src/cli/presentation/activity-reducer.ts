@@ -77,6 +77,19 @@ export interface ReducerAccumulator {
    * still rendered in the live area. Reset to 0 on text_start and completion.
    */
   flushedTextOffset: number;
+
+  // ── Markdown formatting cache ──────────────────────────────────────
+  // Avoids re-running ~15 regex passes over potentially 8KB of text on
+  // every throttled update (20×/s) when the underlying source hasn't changed.
+
+  /** Cached display text input (liveText.slice(flushedTextOffset)) */
+  _cachedDisplayTextInput: string;
+  /** Cached formatted result for display text */
+  _cachedDisplayTextOutput: string;
+  /** Cached reasoning input */
+  _cachedReasoningInput: string;
+  /** Cached formatted result for reasoning */
+  _cachedReasoningOutput: string;
 }
 
 export function createAccumulator(agentName: string): ReducerAccumulator {
@@ -92,6 +105,10 @@ export function createAccumulator(agentName: string): ReducerAccumulator {
     currentProvider: null,
     currentModel: null,
     flushedTextOffset: 0,
+    _cachedDisplayTextInput: "",
+    _cachedDisplayTextOutput: "",
+    _cachedReasoningInput: "",
+    _cachedReasoningOutput: "",
   };
 }
 
@@ -185,16 +202,39 @@ function buildThinkingOrStreamingActivity(
       : acc.completedReasoning.trim().length > 0
         ? acc.completedReasoning
         : "";
-  const formattedReasoning = reasoningToShow.length > 0 ? formatMarkdown(reasoningToShow) : "";
+
+  // Use cached formatted reasoning to avoid redundant regex work
+  let formattedReasoning: string;
+  if (reasoningToShow.length === 0) {
+    formattedReasoning = "";
+  } else if (reasoningToShow === acc._cachedReasoningInput) {
+    formattedReasoning = acc._cachedReasoningOutput;
+  } else {
+    formattedReasoning = formatMarkdown(reasoningToShow);
+    acc._cachedReasoningInput = reasoningToShow;
+    acc._cachedReasoningOutput = formattedReasoning;
+  }
 
   // Only show the unflushed tail in the live area — earlier text is already in Static.
   const displayText = acc.liveText.slice(acc.flushedTextOffset);
   if (displayText.length > 0) {
+    // Use cached formatted display text to avoid redundant regex work.
+    // During streaming, text changes on every chunk so the cache won't hit often,
+    // but it prevents duplicate work when the throttle fires without new text.
+    let formattedText: string;
+    if (displayText === acc._cachedDisplayTextInput) {
+      formattedText = acc._cachedDisplayTextOutput;
+    } else {
+      formattedText = formatMarkdown(displayText);
+      acc._cachedDisplayTextInput = displayText;
+      acc._cachedDisplayTextOutput = formattedText;
+    }
+
     return {
       phase: "streaming",
       agentName: acc.agentName,
       reasoning: formattedReasoning,
-      text: formatMarkdown(displayText),
+      text: formattedText,
     };
   }
 

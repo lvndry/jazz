@@ -81,6 +81,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.acc.lastAgentHeaderWritten = false;
       this.acc.lastAppliedTextSequence = -1;
       this.acc.flushedTextOffset = 0;
+      this.acc._cachedDisplayTextInput = "";
+      this.acc._cachedDisplayTextOutput = "";
+      this.acc._cachedReasoningInput = "";
+      this.acc._cachedReasoningOutput = "";
       this.lastUpdateTime = 0;
       this.pendingActivity = null;
       if (this.updateTimeoutId) {

@@ -1,4 +1,4 @@
-import { Box, useInput } from "ink";
+import { Box, Static, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import { ActivityView } from "./ActivityView";
@@ -15,6 +15,18 @@ import { InputPriority, InputResults } from "../services/input-service";
 // ============================================================================
 
 const MAX_OUTPUT_ENTRIES = 2000;
+
+/**
+ * Maximum entries kept in the live (non-Static) React tree.
+ *
+ * Ink re-runs Yoga layout over every node in the live area on each render
+ * frame (keystrokes, spinner ticks, streaming updates, etc.). Keeping this
+ * small ensures layout stays O(1) regardless of conversation length.
+ *
+ * Entries beyond this tail are promoted to Ink's <Static> region where they
+ * are rendered to stdout exactly once and never re-laid-out.
+ */
+const LIVE_TAIL_SIZE = 50;
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response
@@ -83,18 +95,34 @@ function PromptIsland(): React.ReactElement | null {
 
 // ============================================================================
 // Output Island - Isolated state for output entries
-// Renders entries as regular Box children so they are truly removed on clear,
-// avoiding Ink's <Static> internal accumulation that causes memory leaks.
+//
+// Uses a two-tier rendering strategy for performance:
+//
+//   1. **Static tier** (Ink <Static>): entries that have scrolled out of the
+//      recent tail. Ink renders these to stdout exactly once, then never
+//      re-lays-out or diffs them again. This keeps Yoga's per-frame layout
+//      cost independent of total conversation length.
+//
+//   2. **Live tier** (regular <Box>): the most recent `LIVE_TAIL_SIZE`
+//      entries. Only these participate in Ink's render/layout cycle, so
+//      keystroke latency stays constant even after thousands of messages.
+//
+// On `clearOutputs()` both tiers are reset (new arrays), avoiding the
+// <Static> memory-leak concern from earlier revisions.
 // ============================================================================
 
 interface OutputIslandState {
+  /** All entries ever added (source of truth, capped at MAX_OUTPUT_ENTRIES). */
   entries: OutputEntryWithId[];
+  /** Entries committed to <Static> — Ink renders them once then ignores them. */
+  staticEntries: OutputEntryWithId[];
   outputIdCounter: number;
 }
 
 function OutputIsland(): React.ReactElement {
   const [state, setState] = useState<OutputIslandState>({
     entries: [],
+    staticEntries: [],
     outputIdCounter: 0,
   });
   const initializedRef = useRef(false);
@@ -106,13 +134,23 @@ function OutputIsland(): React.ReactElement {
       newId = id;
 
       const entryWithId: OutputEntryWithId = { ...entry, id } as OutputEntryWithId;
+
+      // Append to full list, capping at MAX_OUTPUT_ENTRIES
       const newEntries =
         prev.entries.length >= MAX_OUTPUT_ENTRIES
           ? [...prev.entries.slice(1), entryWithId]
           : [...prev.entries, entryWithId];
 
+      // Promote overflow beyond LIVE_TAIL_SIZE into the static tier.
+      // Static entries are rendered by Ink exactly once (via <Static>),
+      // then never re-laid-out, keeping per-frame cost O(LIVE_TAIL_SIZE).
+      const overflow = newEntries.length - LIVE_TAIL_SIZE;
+      const newStaticEntries =
+        overflow > prev.staticEntries.length ? newEntries.slice(0, overflow) : prev.staticEntries;
+
       return {
         entries: newEntries,
+        staticEntries: newStaticEntries,
         outputIdCounter: prev.outputIdCounter + 1,
       };
     });
@@ -120,7 +158,7 @@ function OutputIsland(): React.ReactElement {
   }, []);
 
   const clearOutputs = useCallback((): void => {
-    setState({ entries: [], outputIdCounter: 0 });
+    setState({ entries: [], staticEntries: [], outputIdCounter: 0 });
   }, []);
 
   // Register store methods synchronously during render
@@ -146,10 +184,36 @@ function OutputIsland(): React.ReactElement {
     };
   }, []);
 
+  // Live tail: only the most recent entries participate in Ink's render cycle.
+  const liveTail = state.entries.slice(state.staticEntries.length);
+
   return (
     <Box flexDirection="column">
-      {state.entries.map((entry, index) => {
-        const prevEntry = index > 0 ? state.entries[index - 1] : null;
+      {/* Static tier: rendered once, never re-laid-out */}
+      <Static items={state.staticEntries}>
+        {(entry, index) => {
+          const prevEntry = index > 0 ? state.staticEntries[index - 1] : null;
+          const addSpacing =
+            entry.type === "user" || (entry.type === "info" && prevEntry?.type === "user");
+          return (
+            <OutputEntryView
+              key={entry.id}
+              entry={entry}
+              addSpacing={addSpacing}
+            />
+          );
+        }}
+      </Static>
+
+      {/* Live tier: re-rendered on each frame, kept small for performance */}
+      {liveTail.map((entry, index) => {
+        // For spacing, check against the last static entry if this is the first live entry
+        const prevEntry =
+          index > 0
+            ? liveTail[index - 1]
+            : state.staticEntries.length > 0
+              ? state.staticEntries[state.staticEntries.length - 1]
+              : null;
         const addSpacing =
           entry.type === "user" || (entry.type === "info" && prevEntry?.type === "user");
         return (
