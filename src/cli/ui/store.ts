@@ -1,5 +1,5 @@
 import type React from "react";
-import type { ActivityState } from "./activity-state";
+import { isActivityEqual, type ActivityState } from "./activity-state";
 import type { OutputEntry, PromptState } from "./types";
 
 type PrintOutputHandler = (entry: OutputEntry) => string;
@@ -55,6 +55,9 @@ export class UIStore {
   };
 
   setActivity = (activity: ActivityState): void => {
+    if (isActivityEqual(this.activitySnapshot, activity)) {
+      return;
+    }
     this.activitySnapshot = activity;
     if (this.activitySetter) {
       this.activitySetter(activity);

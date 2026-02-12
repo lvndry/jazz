@@ -52,9 +52,22 @@ let cacheExpiry = 0;
 function lookupKeys(modelId: string): string[] {
   const normalized = modelId.toLowerCase().trim();
   const keys = [normalized];
+  // Handle Ollama-style "model:tag" → try bare model name
   const beforeColon = normalized.split(":")[0];
   if (typeof beforeColon === "string" && beforeColon !== normalized) {
     keys.push(beforeColon);
+  }
+  // Handle OpenRouter-style "provider/model" → try bare model name and "provider:model" scoped key
+  if (normalized.includes("/")) {
+    const slashIndex = normalized.indexOf("/");
+    const afterSlash = normalized.slice(slashIndex + 1);
+    const beforeSlash = normalized.slice(0, slashIndex);
+    if (afterSlash) {
+      keys.push(afterSlash);
+    }
+    if (beforeSlash && afterSlash) {
+      keys.push(`${beforeSlash}:${afterSlash}`);
+    }
   }
   return keys;
 }

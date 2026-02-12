@@ -30,7 +30,7 @@ const LIVE_TAIL_SIZE = 50;
 // Activity Island - Unified state for status + streaming response
 // ============================================================================
 
-function ActivityIsland(): React.ReactElement | null {
+function ActivityIslandComponent(): React.ReactElement | null {
   const [activity, setActivity] = useState<ActivityState>({ phase: "idle" });
   const initializedRef = useRef(false);
 
@@ -55,11 +55,13 @@ function ActivityIsland(): React.ReactElement | null {
   return <ActivityView activity={activity} />;
 }
 
+const ActivityIsland = React.memo(ActivityIslandComponent);
+
 // ============================================================================
 // Prompt Island - Isolated state for user input prompt
 // ============================================================================
 
-function PromptIsland(): React.ReactElement | null {
+function PromptIslandComponent(): React.ReactElement | null {
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
   const initializedRef = useRef(false);
@@ -90,6 +92,8 @@ function PromptIsland(): React.ReactElement | null {
     />
   );
 }
+
+const PromptIsland = React.memo(PromptIslandComponent);
 
 // ============================================================================
 // Output Island - Isolated state for output entries
@@ -125,7 +129,7 @@ interface OutputIslandState {
   outputIdCounter: number;
 }
 
-function OutputIsland(): React.ReactElement {
+function OutputIslandComponent(): React.ReactElement {
   const [state, setState] = useState<OutputIslandState>({
     liveEntries: [],
     staticEntries: [],
@@ -236,6 +240,8 @@ function OutputIsland(): React.ReactElement {
     </Box>
   );
 }
+
+const OutputIsland = React.memo(OutputIslandComponent);
 
 // ============================================================================
 // Main App Component
