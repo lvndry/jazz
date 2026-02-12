@@ -1,8 +1,5 @@
 import { Context, Effect, Layer } from "effect";
-import {
-  TerminalCapabilityServiceTag,
-  type TerminalCapabilities,
-} from "./terminal-service";
+import { TerminalCapabilityServiceTag, type TerminalCapabilities } from "./terminal-service";
 import {
   createEscapeStateMachine,
   type KeyInfo,
@@ -148,9 +145,7 @@ export const InputPriority = {
  *
  * Requires TerminalCapabilityService for terminal-aware escape sequence parsing.
  */
-export function createInputService(
-  terminalCapabilities: TerminalCapabilities,
-): InputService {
+export function createInputService(terminalCapabilities: TerminalCapabilities): InputService {
   // Create escape state machine with terminal capabilities
   const stateMachine = createEscapeStateMachine(terminalCapabilities);
 
@@ -169,9 +164,7 @@ export function createInputService(
    * Rebuild the sorted handlers list.
    */
   function rebuildSortedHandlers(): void {
-    sortedHandlers = Array.from(handlers.values()).sort(
-      (a, b) => a.priority - b.priority,
-    );
+    sortedHandlers = Array.from(handlers.values()).sort((a, b) => a.priority - b.priority);
     handlersDirty = false;
   }
 
@@ -211,14 +204,9 @@ export function createInputService(
     const current = getTextInputState(id);
     const clampedCursor = Math.max(0, Math.min(next.cursor, next.value.length));
     const normalized =
-      clampedCursor === next.cursor
-        ? next
-        : { value: next.value, cursor: clampedCursor };
+      clampedCursor === next.cursor ? next : { value: next.value, cursor: clampedCursor };
 
-    if (
-      current.value === normalized.value &&
-      current.cursor === normalized.cursor
-    ) {
+    if (current.value === normalized.value && current.cursor === normalized.cursor) {
       return;
     }
     textInputStates.set(id, normalized);

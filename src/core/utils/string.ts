@@ -34,26 +34,22 @@ const REPLACEMENT_CHAR = "\uFFFD";
  */
 export function sanitizeUnicodeSurrogates(str: string): string {
   if (typeof str !== "string" || str.length === 0) return str;
-  return str.replace(
-    /[\uD800-\uDFFF]/g,
-    (ch: string, i: number, s: string) => {
-      const code = ch.charCodeAt(0);
-      const isHigh =
-        code >= HIGH_SURROGATE_MIN && code <= HIGH_SURROGATE_MAX;
-      const isLow = code >= LOW_SURROGATE_MIN && code <= LOW_SURROGATE_MAX;
-      if (isHigh) {
-        const next = s.charCodeAt(i + 1);
-        if (next >= LOW_SURROGATE_MIN && next <= LOW_SURROGATE_MAX) return ch;
-        return REPLACEMENT_CHAR;
-      }
-      if (isLow) {
-        const prev = s.charCodeAt(i - 1);
-        if (prev >= HIGH_SURROGATE_MIN && prev <= HIGH_SURROGATE_MAX) return ch;
-        return REPLACEMENT_CHAR;
-      }
+  return str.replace(/[\uD800-\uDFFF]/g, (ch: string, i: number, s: string) => {
+    const code = ch.charCodeAt(0);
+    const isHigh = code >= HIGH_SURROGATE_MIN && code <= HIGH_SURROGATE_MAX;
+    const isLow = code >= LOW_SURROGATE_MIN && code <= LOW_SURROGATE_MAX;
+    if (isHigh) {
+      const next = s.charCodeAt(i + 1);
+      if (next >= LOW_SURROGATE_MIN && next <= LOW_SURROGATE_MAX) return ch;
       return REPLACEMENT_CHAR;
-    },
-  );
+    }
+    if (isLow) {
+      const prev = s.charCodeAt(i - 1);
+      if (prev >= HIGH_SURROGATE_MIN && prev <= HIGH_SURROGATE_MAX) return ch;
+      return REPLACEMENT_CHAR;
+    }
+    return REPLACEMENT_CHAR;
+  });
 }
 
 /** Sanitize string for LLM payloads (e.g. UTF-8–safe, no lone surrogates). */
@@ -115,7 +111,5 @@ export function toPascalCase(str: string): string {
     .filter((word) => word.length > 0); // Remove empty strings
 
   // Capitalize first letter of each word and join
-  return words
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join("");
+  return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join("");
 }

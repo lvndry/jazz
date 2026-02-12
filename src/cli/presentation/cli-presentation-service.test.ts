@@ -18,7 +18,7 @@ describe("CLIPresentationService", () => {
   const mockPresentationService = new CLIPresentationService(
     DEFAULT_DISPLAY_CONFIG,
     mockTerminal.confirm.bind(mockTerminal),
-    mockTerminal.ask.bind(mockTerminal)
+    mockTerminal.ask.bind(mockTerminal),
   );
 
   const testLayer = Layer.succeed(PresentationServiceTag, mockPresentationService);
@@ -34,7 +34,7 @@ describe("CLIPresentationService", () => {
         toolName: "test-tool",
         message: "Danger!",
         executeToolName: "real-tool",
-        executeArgs: {}
+        executeArgs: {},
       });
     });
 
@@ -64,7 +64,7 @@ describe("CLIPresentationService", () => {
         toolName: "test-tool",
         message: "Danger!",
         executeToolName: "real-tool",
-        executeArgs: {}
+        executeArgs: {},
       });
     });
 

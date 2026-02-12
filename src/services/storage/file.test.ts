@@ -55,7 +55,7 @@ describe("FileStorageService", () => {
     expect(mockFS.makeDirectory).toHaveBeenCalledWith("/tmp/jazz/agents", { recursive: true });
     expect(mockFS.writeFileString).toHaveBeenCalledWith(
       "/tmp/jazz/agents/a1.json",
-      expect.stringContaining('"name": "Agent 1"')
+      expect.stringContaining('"name": "Agent 1"'),
     );
   });
 
@@ -63,13 +63,17 @@ describe("FileStorageService", () => {
     // @ts-expect-error - mocking
     mockFS.readDirectory.mockReturnValueOnce(Effect.succeed(["a1.json"]));
     // @ts-expect-error - mocking
-    mockFS.readFileString.mockReturnValueOnce(Effect.succeed(JSON.stringify({
-      id: "a1",
-      name: "Agent 1",
-      config: { agentType: "default", llmProvider: "openai", llmModel: "gpt-4" },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    })));
+    mockFS.readFileString.mockReturnValueOnce(
+      Effect.succeed(
+        JSON.stringify({
+          id: "a1",
+          name: "Agent 1",
+          config: { agentType: "default", llmProvider: "openai", llmModel: "gpt-4" },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+      ),
+    );
 
     const program = service.listAgents();
     const result = await Effect.runPromise(program);

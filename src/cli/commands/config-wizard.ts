@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 import React from "react";
-import { WEB_SEARCH_PROVIDERS, type WebSearchProviderName } from "@/core/agent/tools/web-search-tools";
+import {
+  WEB_SEARCH_PROVIDERS,
+  type WebSearchProviderName,
+} from "@/core/agent/tools/web-search-tools";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
@@ -70,7 +73,7 @@ export function configWizardCommand() {
 }
 
 function showConfigMenu(
-  options: WizardMenuOption[]
+  options: WizardMenuOption[],
 ): Effect.Effect<ConfigMenuAction, never, never> {
   return Effect.async<ConfigMenuAction>((resume) => {
     store.setCustomView(
@@ -85,7 +88,7 @@ function showConfigMenu(
           store.setCustomView(null);
           resume(Effect.succeed("back" as ConfigMenuAction));
         },
-      })
+      }),
     );
   });
 }
@@ -99,18 +102,20 @@ function configureLLMProviders() {
       // Get current config to show status
       const config = yield* configService.appConfig;
 
-      const choices: { name: string; value: ProviderName | "back" }[] = AVAILABLE_PROVIDERS.map(p => {
-        const hasKey = !!config.llm?.[p]?.api_key;
-        return {
-          name: `${p} ${hasKey ? "(configured)" : ""}`,
-          value: p
-        };
-      });
+      const choices: { name: string; value: ProviderName | "back" }[] = AVAILABLE_PROVIDERS.map(
+        (p) => {
+          const hasKey = !!config.llm?.[p]?.api_key;
+          return {
+            name: `${p} ${hasKey ? "(configured)" : ""}`,
+            value: p,
+          };
+        },
+      );
 
       choices.push({ name: "Back", value: "back" });
 
       const providerChoice = yield* terminal.select<string>("Select provider to configure:", {
-        choices
+        choices,
       });
 
       if (!providerChoice || providerChoice === "back") {
@@ -120,7 +125,9 @@ function configureLLMProviders() {
       const provider = providerChoice as ProviderName;
 
       yield* terminal.info(`Configuring ${provider}...`);
-      const apiKey = yield* terminal.password(`Enter API Key for ${provider} (leave empty to keep current):`);
+      const apiKey = yield* terminal.password(
+        `Enter API Key for ${provider} (leave empty to keep current):`,
+      );
 
       if (apiKey.trim()) {
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
@@ -145,19 +152,22 @@ function configureWebSearchProviders() {
       const providerDisplay = currentProvider ?? "Built-in (if available)";
 
       const choices = [
-        { name: `Select external provider (current: ${providerDisplay})`, value: "select-provider" },
-        ...WEB_SEARCH_PROVIDERS.map(p => {
+        {
+          name: `Select external provider (current: ${providerDisplay})`,
+          value: "select-provider",
+        },
+        ...WEB_SEARCH_PROVIDERS.map((p) => {
           const hasKey = !!config.web_search?.[p.value]?.api_key;
           return {
             name: `${p.name} API Key ${hasKey ? "(configured)" : ""}`,
-            value: p.value as string
+            value: p.value as string,
           };
         }),
-        { name: "Back", value: "back" }
+        { name: "Back", value: "back" },
       ];
 
       const selection = yield* terminal.select<string>("Web Search Configuration:", {
-        choices
+        choices,
       });
 
       if (!selection || selection === "back") {
@@ -167,19 +177,21 @@ function configureWebSearchProviders() {
       if (selection === "select-provider") {
         const providerChoices: Array<{ name: string; value: WebSearchProviderName | "none" }> = [
           { name: "None (use built-in if available)", value: "none" },
-          ...WEB_SEARCH_PROVIDERS.map(p => ({
+          ...WEB_SEARCH_PROVIDERS.map((p) => ({
             name: p.name,
-            value: p.value
-          }))
+            value: p.value,
+          })),
         ];
 
         const choice = yield* terminal.select<WebSearchProviderName | "none">("Select provider:", {
-          choices: providerChoices
+          choices: providerChoices,
         });
 
         if (choice === "none") {
           yield* configService.set("web_search.provider", undefined);
-          yield* terminal.success("External provider disabled. Built-in provider web search will be used if available.");
+          yield* terminal.success(
+            "External provider disabled. Built-in provider web search will be used if available.",
+          );
         } else if (choice) {
           yield* configService.set("web_search.provider", choice);
           yield* terminal.success(`External provider set to ${choice}.`);
@@ -188,7 +200,9 @@ function configureWebSearchProviders() {
         const provider = selection as WebSearchProviderName;
 
         yield* terminal.info(`Configuring ${provider}...`);
-        const apiKey = yield* terminal.password(`Enter API Key for ${provider} (leave empty to keep current):`);
+        const apiKey = yield* terminal.password(
+          `Enter API Key for ${provider} (leave empty to keep current):`,
+        );
 
         if (apiKey.trim()) {
           yield* configService.set(`web_search.${provider}.api_key`, apiKey);
@@ -228,7 +242,10 @@ function configureOutputDisplay() {
         choices: [
           { name: `Output mode (${displayConfig.mode})`, value: "mode" },
           { name: `Color profile (${colorProfileLabel})`, value: "color-profile" },
-          { name: `Show thinking (${displayConfig.showThinking ? "on" : "off"})`, value: "show-thinking" },
+          {
+            name: `Show thinking (${displayConfig.showThinking ? "on" : "off"})`,
+            value: "show-thinking",
+          },
           {
             name: `Show tool execution (${displayConfig.showToolExecution ? "on" : "off"})`,
             value: "show-tool-execution",
@@ -258,17 +275,14 @@ function configureOutputDisplay() {
           break;
         }
         case "color-profile": {
-          const profile = yield* terminal.select<"auto" | ColorProfile>(
-            "Select color profile:",
-            {
-              choices: [
-                { name: "Auto (default)", value: "auto" },
-                { name: "Full", value: "full" },
-                { name: "Basic", value: "basic" },
-                { name: "None", value: "none" },
-              ],
-            },
-          );
+          const profile = yield* terminal.select<"auto" | ColorProfile>("Select color profile:", {
+            choices: [
+              { name: "Auto (default)", value: "auto" },
+              { name: "Full", value: "full" },
+              { name: "Basic", value: "basic" },
+              { name: "None", value: "none" },
+            ],
+          });
           if (profile) {
             if (profile === "auto") {
               yield* configService.set("output.colorProfile", undefined);

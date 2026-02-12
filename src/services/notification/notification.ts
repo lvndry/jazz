@@ -1,7 +1,11 @@
 import { Effect, Layer, Option } from "effect";
 import notifier, { type Notification } from "node-notifier";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
-import { NotificationServiceTag, type NotificationService, type NotificationOptions } from "@/core/interfaces/notification";
+import {
+  NotificationServiceTag,
+  type NotificationService,
+  type NotificationOptions,
+} from "@/core/interfaces/notification";
 
 /**
  * Detect the macOS bundle ID for the current terminal emulator.

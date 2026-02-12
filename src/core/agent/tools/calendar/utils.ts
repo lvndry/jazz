@@ -7,7 +7,11 @@ import type { CalendarEvent, CalendarInfo } from "@/core/types/calendar";
 /**
  * Helper function to format date/time for display
  */
-export function formatDateTime(dt: { dateTime?: string; date?: string; timeZone?: string }): string {
+export function formatDateTime(dt: {
+  dateTime?: string;
+  date?: string;
+  timeZone?: string;
+}): string {
   if (dt.dateTime) {
     const date = new Date(dt.dateTime);
     return `${date.toLocaleDateString()} ${date.toLocaleTimeString()} ${dt.timeZone ? `(${dt.timeZone})` : ""}`;

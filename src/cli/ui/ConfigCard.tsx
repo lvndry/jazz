@@ -32,10 +32,17 @@ export function ConfigCard(props: {
   const jsonLines = props.json.split("\n").flatMap((line) => wrapIndentedLine(line, contentWidth));
 
   return (
-    <Box flexDirection="column" paddingX={1} width={width}>
+    <Box
+      flexDirection="column"
+      paddingX={1}
+      width={width}
+    >
       {/* Header */}
       <Box justifyContent="space-between">
-        <Text bold color={THEME.primary}>
+        <Text
+          bold
+          color={THEME.primary}
+        >
           {props.title}
         </Text>
         <Text dimColor>jazz config get &lt;key&gt; · jazz config set &lt;key&gt;</Text>
@@ -53,7 +60,11 @@ export function ConfigCard(props: {
       ) : null}
 
       {/* JSON content - no borders for easy copying */}
-      <Box marginTop={1} flexDirection="column" paddingLeft={1}>
+      <Box
+        marginTop={1}
+        flexDirection="column"
+        paddingLeft={1}
+      >
         {jsonLines.map((line, idx) => (
           <Text key={idx}>{line}</Text>
         ))}
@@ -88,9 +99,7 @@ function wrapIndentedLine(line: string, width: number): string[] {
   // First chunk keeps original indentation; subsequent chunks keep the same indentation.
   while (true) {
     // Check if we need to wrap
-    const needsWrap = isFirstChunk
-      ? rest.length > width
-      : (indent.length + rest.length) > width;
+    const needsWrap = isFirstChunk ? rest.length > width : indent.length + rest.length > width;
 
     if (!needsWrap) {
       break;

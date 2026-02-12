@@ -6,7 +6,7 @@ import js from "@eslint/js";
 import prettierConfig from "eslint-config-prettier";
 import importPlugin from "eslint-plugin-import";
 import nodePlugin from "eslint-plugin-n";
-// Used via globals.node - ESLint doesn't detect property access as usage
+import prettierPlugin from "eslint-plugin-prettier";
 // eslint-disable-next-line
 import globals from "globals";
 import tseslint from "typescript-eslint";
@@ -39,7 +39,10 @@ export default [
       },
     },
     rules: {
-      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
       "@typescript-eslint/no-explicit-any": "warn",
       "no-console": "off",
       "@typescript-eslint/explicit-function-return-type": "off",
@@ -99,11 +102,21 @@ export default [
       },
     },
     rules: {
-      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
       "@typescript-eslint/no-explicit-any": "warn",
       "no-console": "off",
       "n/no-missing-import": "off",
       "n/no-unsupported-features/es-syntax": "off",
+    },
+  },
+  {
+    files: ["**/*.{js,mjs,ts,tsx}"],
+    plugins: { prettier: prettierPlugin },
+    rules: {
+      "prettier/prettier": "error",
     },
   },
 ];

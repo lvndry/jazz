@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  describeCronSchedule,
-  isValidCronExpression,
-  normalizeCronExpression,
-} from "./cron-utils";
+import { describeCronSchedule, isValidCronExpression, normalizeCronExpression } from "./cron-utils";
 
 describe("cron-utils", () => {
   describe("normalizeCronExpression", () => {
@@ -126,13 +122,19 @@ describe("cron-utils", () => {
 
     it("should describe every N minutes on specific day(s)", () => {
       expect(describeCronSchedule("*/15 * * * 5")).toBe("Every 15 minutes, only on Friday");
-      expect(describeCronSchedule("*/30 * * * 1-5")).toBe("Every 30 minutes, Monday through Friday");
+      expect(describeCronSchedule("*/30 * * * 1-5")).toBe(
+        "Every 30 minutes, Monday through Friday",
+      );
       expect(describeCronSchedule("0/15 * * * 5")).toBe("Every 15 minutes, only on Friday");
     });
 
     it("should describe day-of-week list", () => {
-      expect(describeCronSchedule("0 9 * * 1,3,5")).toBe("At 09:00 AM, only on Monday, Wednesday, and Friday");
-      expect(describeCronSchedule("30 14 * * 0,6")).toBe("At 02:30 PM, only on Sunday and Saturday");
+      expect(describeCronSchedule("0 9 * * 1,3,5")).toBe(
+        "At 09:00 AM, only on Monday, Wednesday, and Friday",
+      );
+      expect(describeCronSchedule("30 14 * * 0,6")).toBe(
+        "At 02:30 PM, only on Sunday and Saturday",
+      );
     });
 
     it("should describe every N hours", () => {
@@ -142,9 +144,15 @@ describe("cron-utils", () => {
     });
 
     it("should describe complex patterns (ranges, specific months)", () => {
-      expect(describeCronSchedule("0 8-10 * * *")).toBe("Every hour, between 08:00 AM and 10:00 AM");
-      expect(describeCronSchedule("0 0 1 1 *")).toBe("At 12:00 AM, on day 1 of the month, only in January");
-      expect(describeCronSchedule("5/15 * * * *")).toBe("Every 15 minutes, starting at 5 minutes past the hour");
+      expect(describeCronSchedule("0 8-10 * * *")).toBe(
+        "Every hour, between 08:00 AM and 10:00 AM",
+      );
+      expect(describeCronSchedule("0 0 1 1 *")).toBe(
+        "At 12:00 AM, on day 1 of the month, only in January",
+      );
+      expect(describeCronSchedule("5/15 * * * *")).toBe(
+        "Every 15 minutes, starting at 5 minutes past the hour",
+      );
     });
 
     it("should handle special characters like L", () => {

@@ -15,37 +15,25 @@ function event(sequence: number, accumulated: string): TextChunkEvent {
 
 describe("applyTextChunkOrdered", () => {
   test("applies chunk when sequence is greater than lastApplied", () => {
-    const result = applyTextChunkOrdered(
-      state("", -1),
-      event(0, "Hello"),
-    );
+    const result = applyTextChunkOrdered(state("", -1), event(0, "Hello"));
     expect(result.liveText).toBe("Hello");
     expect(result.lastAppliedSequence).toBe(0);
   });
 
   test("applies chunk when sequence is greater than current lastApplied", () => {
-    const result = applyTextChunkOrdered(
-      state("Hello", 0),
-      event(1, "Hello world"),
-    );
+    const result = applyTextChunkOrdered(state("Hello", 0), event(1, "Hello world"));
     expect(result.liveText).toBe("Hello world");
     expect(result.lastAppliedSequence).toBe(1);
   });
 
   test("ignores stale chunk (sequence less than lastApplied)", () => {
-    const result = applyTextChunkOrdered(
-      state("Hello world", 2),
-      event(1, "Hello"),
-    );
+    const result = applyTextChunkOrdered(state("Hello world", 2), event(1, "Hello"));
     expect(result.liveText).toBe("Hello world");
     expect(result.lastAppliedSequence).toBe(2);
   });
 
   test("ignores chunk with same sequence (idempotent / no overwrite)", () => {
-    const result = applyTextChunkOrdered(
-      state("Hello world", 1),
-      event(1, "Hello"),
-    );
+    const result = applyTextChunkOrdered(state("Hello world", 1), event(1, "Hello"));
     expect(result.liveText).toBe("Hello world");
     expect(result.lastAppliedSequence).toBe(1);
   });

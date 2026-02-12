@@ -5,7 +5,6 @@ import React from "react";
 import { THEME } from "./theme";
 import packageJson from "../../../package.json";
 
-
 export const Header = React.memo(function Header() {
   return (
     <Box
@@ -14,7 +13,10 @@ export const Header = React.memo(function Header() {
       alignItems="center"
       justifyContent="center"
     >
-      <Box flexDirection="column" alignItems="center">
+      <Box
+        flexDirection="column"
+        alignItems="center"
+      >
         <Gradient name="morning">
           <BigText
             text="Jazz"

@@ -68,7 +68,12 @@ const TIPS = [
 /**
  * WizardHome - The main interactive home screen for Jazz CLI
  */
-export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps): React.ReactElement {
+export function WizardHome({
+  options,
+  onSelect,
+  onExit,
+  title,
+}: WizardHomeProps): React.ReactElement {
   const [tipIndex, setTipIndex] = useState(0);
 
   // Rotate tips occasionally or just on mount
@@ -101,19 +106,39 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
       alignItems="center"
     >
       {/* Top Header Section */}
-      <Box flexDirection="column" alignItems="center" marginBottom={1}>
+      <Box
+        flexDirection="column"
+        alignItems="center"
+        marginBottom={1}
+      >
         <Gradient name="morning">
-          <BigText text="Jazz" font="tiny" />
+          <BigText
+            text="Jazz"
+            font="tiny"
+          />
         </Gradient>
         <Text dimColor>v{packageJson.version} • Agentic CLI 🎷</Text>
       </Box>
 
       {/* Main Content — capped width so it doesn't stretch too thin */}
-      <Box flexDirection="row" marginTop={1} width={72}>
+      <Box
+        flexDirection="row"
+        marginTop={1}
+        width={72}
+      >
         {/* Left Column: Menu */}
-        <Box flexDirection="column" flexGrow={1} paddingRight={2}>
+        <Box
+          flexDirection="column"
+          flexGrow={1}
+          paddingRight={2}
+        >
           <Box marginBottom={1}>
-            <Text bold color="white">{title || "What would you like to do?"}</Text>
+            <Text
+              bold
+              color="white"
+            >
+              {title || "What would you like to do?"}
+            </Text>
           </Box>
 
           <SelectInput
@@ -130,12 +155,23 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
         </Box>
 
         {/* Right Column: Info/Tips */}
-        <Box flexDirection="column" width={24}>
+        <Box
+          flexDirection="column"
+          width={24}
+        >
           <Box marginBottom={1}>
-            <Text bold color={THEME.primary}>💡 Pro Tip</Text>
+            <Text
+              bold
+              color={THEME.primary}
+            >
+              💡 Pro Tip
+            </Text>
           </Box>
           <Box>
-            <Text dimColor wrap="wrap">
+            <Text
+              dimColor
+              wrap="wrap"
+            >
               {TIPS[tipIndex]}
             </Text>
           </Box>
@@ -145,7 +181,21 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
       {/* Footer */}
       <Box marginTop={2}>
         <Text dimColor>
-          Use <Text bold color={THEME.primary}>↑/↓</Text> to navigate, <Text bold color={THEME.primary}>Enter</Text> to select
+          Use{" "}
+          <Text
+            bold
+            color={THEME.primary}
+          >
+            ↑/↓
+          </Text>{" "}
+          to navigate,{" "}
+          <Text
+            bold
+            color={THEME.primary}
+          >
+            Enter
+          </Text>{" "}
+          to select
         </Text>
       </Box>
     </Box>
@@ -155,16 +205,14 @@ export function WizardHome({ options, onSelect, onExit, title }: WizardHomeProps
 function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): React.ReactElement {
   return (
     <Box marginRight={1}>
-      <Text color={THEME.selected}>
-        {isSelected ? ">" : " "}
-      </Text>
+      <Text color={THEME.selected}>{isSelected ? ">" : " "}</Text>
     </Box>
   );
 }
 
 function ItemComponent({
   isSelected = false,
-  label
+  label,
 }: {
   isSelected?: boolean;
   label: string;

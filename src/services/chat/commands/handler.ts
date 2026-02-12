@@ -1,12 +1,13 @@
 import { spawn } from "node:child_process";
 import { Effect } from "effect";
+import * as fmt from "@/cli/utils/list-format";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { STATIC_PROVIDER_MODELS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
-import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -29,10 +30,11 @@ import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { sortAgents } from "@/core/utils/agent-sort";
+import { describeCronSchedule } from "@/core/utils/cron-utils";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
+import type { WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { groupWorkflows } from "@/core/workflows/workflow-utils";
-import * as fmt from "@/cli/utils/list-format";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
@@ -816,7 +818,7 @@ function handleWorkflowsCommand(
     if (local.length > 0) {
       yield* terminal.log(fmt.section("Local", local.length, "workflow"));
       for (const w of local) {
-        yield* terminal.log(fmt.itemWithDesc(w.name, w.description));
+        yield* terminal.log(fmt.itemWithDesc(w.name, formatWorkflowDesc(w)));
       }
       yield* terminal.log(fmt.blank());
     }
@@ -824,7 +826,7 @@ function handleWorkflowsCommand(
     if (global.length > 0) {
       yield* terminal.log(fmt.section("Global", global.length, "workflow"));
       for (const w of global) {
-        yield* terminal.log(fmt.itemWithDesc(w.name, w.description));
+        yield* terminal.log(fmt.itemWithDesc(w.name, formatWorkflowDesc(w)));
       }
       yield* terminal.log(fmt.blank());
     }
@@ -832,7 +834,7 @@ function handleWorkflowsCommand(
     if (builtin.length > 0) {
       yield* terminal.log(fmt.section("Built-in", builtin.length, "workflow"));
       for (const w of builtin) {
-        yield* terminal.log(fmt.itemWithDesc(w.name, w.description));
+        yield* terminal.log(fmt.itemWithDesc(w.name, formatWorkflowDesc(w)));
       }
       yield* terminal.log(fmt.blank());
     }
@@ -841,6 +843,29 @@ function handleWorkflowsCommand(
     yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
+}
+
+/**
+ * Build a description string for a workflow that includes the cron schedule
+ * and assigned agent when present.
+ *
+ * Example outputs:
+ *   "Daily email digest"
+ *   "Daily email digest (every day at 9:00 AM)"
+ *   "Daily email digest (every day at 9:00 AM, agent: email-bot)"
+ */
+function formatWorkflowDesc(w: WorkflowMetadata): string {
+  const parts: string[] = [w.description];
+
+  const scheduleDesc = w.schedule ? describeCronSchedule(w.schedule) : null;
+  if (w.schedule) {
+    parts.push(scheduleDesc ? `(${scheduleDesc})` : `[${w.schedule}]`);
+  }
+  if (w.agent) {
+    parts.push(`(agent: ${w.agent})`);
+  }
+
+  return parts.join(" ");
 }
 
 /**

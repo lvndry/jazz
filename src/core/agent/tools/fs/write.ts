@@ -27,9 +27,18 @@ const writeFileParameters = z
       .describe(
         "File path to write to, will be created if it doesn't exist (relative to cwd allowed)",
       ),
-    content: z.string().describe("The full content to write to the file. This replaces the entire file if it already exists."),
+    content: z
+      .string()
+      .describe(
+        "The full content to write to the file. This replaces the entire file if it already exists.",
+      ),
     encoding: z.string().optional().describe("Text encoding (default: utf-8)"),
-    createDirs: z.boolean().optional().describe("Automatically create parent directories if they don't exist (default: false). Set to true when writing to a new path structure."),
+    createDirs: z
+      .boolean()
+      .optional()
+      .describe(
+        "Automatically create parent directories if they don't exist (default: false). Set to true when writing to a new path structure.",
+      ),
   })
   .strict();
 
@@ -89,12 +98,10 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         message += `\n\nPress Ctrl+O to preview changes`;
 
         // Generate full diff for Ctrl+O expansion
-        const { diff } = generateDiffWithMetadata(
-          originalContent,
-          args.content,
-          target,
-          { isNewFile, maxLines: Number.POSITIVE_INFINITY },
-        );
+        const { diff } = generateDiffWithMetadata(originalContent, args.content, target, {
+          isNewFile,
+          maxLines: Number.POSITIVE_INFINITY,
+        });
 
         return { message, previewDiff: diff };
       }),
@@ -173,7 +180,6 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         }
       }),
   };
-
 
   return defineApprovalTool<WriteFileDeps, WriteFileArgs>(config);
 }

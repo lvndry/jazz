@@ -21,8 +21,6 @@ import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
 import { codeColor, CHALK_THEME } from "../ui/theme";
 
-
-
 /**
  * Get terminal width, with fallback to 80
  */
@@ -602,8 +600,6 @@ export class CLIRenderer {
   private formatText(text: string, state: StreamingState): FormattingResult {
     return applyProgressiveFormatting(text, state);
   }
-
-
 
   // ==================== Public Formatting Methods ====================
 

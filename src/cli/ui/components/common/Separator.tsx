@@ -20,4 +20,3 @@ export const Separator = React.memo(function Separator({
 }: SeparatorProps): React.ReactElement {
   return <Text dimColor={dimColor}>{char.repeat(width)}</Text>;
 });
-

@@ -56,15 +56,11 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       exclude: z
         .string()
         .optional()
-        .describe(
-          "Exclude files matching this pattern (e.g., '*.min.js', '*.log').",
-        ),
+        .describe("Exclude files matching this pattern (e.g., '*.min.js', '*.log')."),
       excludeDir: z
         .string()
         .optional()
-        .describe(
-          "Exclude directories matching this pattern (e.g., 'node_modules', '.git').",
-        ),
+        .describe("Exclude directories matching this pattern (e.g., 'node_modules', '.git')."),
       contextLines: z
         .number()
         .int()
@@ -169,7 +165,11 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           }
 
           // Context lines (only for content mode)
-          if (outputMode === "content" && typeof args.contextLines === "number" && args.contextLines > 0) {
+          if (
+            outputMode === "content" &&
+            typeof args.contextLines === "number" &&
+            args.contextLines > 0
+          ) {
             cmdArgs.push("-C", args.contextLines.toString());
           }
 
@@ -229,7 +229,11 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           }
 
           // Context lines (only for content mode)
-          if (outputMode === "content" && typeof args.contextLines === "number" && args.contextLines > 0) {
+          if (
+            outputMode === "content" &&
+            typeof args.contextLines === "number" &&
+            args.contextLines > 0
+          ) {
             cmdArgs.push("-C", args.contextLines.toString());
           }
 

@@ -1,11 +1,7 @@
 import { Effect } from "effect";
 import { useCallback, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 import type { ParsedInput } from "../../input/escape-state-machine";
-import type {
-  InputHandler,
-  InputResult,
-  InputService,
-} from "../../services/input-service";
+import type { InputHandler, InputResult, InputService } from "../../services/input-service";
 import { InputPriority, InputResults } from "../../services/input-service";
 import { InputServiceContext } from "../contexts/InputContext";
 
@@ -114,8 +110,16 @@ interface UseActionHandlerOptions {
 /**
  * Handle submit action (Enter key).
  */
-export function useSubmitHandler(options: Omit<UseActionHandlerOptions, "id"> & { id?: string }): void {
-  const { id = "submit-handler", priority = InputPriority.PROMPT, isActive = true, onAction, deps = [] } = options;
+export function useSubmitHandler(
+  options: Omit<UseActionHandlerOptions, "id"> & { id?: string },
+): void {
+  const {
+    id = "submit-handler",
+    priority = InputPriority.PROMPT,
+    isActive = true,
+    onAction,
+    deps = [],
+  } = options;
 
   useInputHandler({
     id,
@@ -135,8 +139,16 @@ export function useSubmitHandler(options: Omit<UseActionHandlerOptions, "id"> & 
 /**
  * Handle escape action.
  */
-export function useEscapeHandler(options: Omit<UseActionHandlerOptions, "id"> & { id?: string }): void {
-  const { id = "escape-handler", priority = InputPriority.MODAL, isActive = true, onAction, deps = [] } = options;
+export function useEscapeHandler(
+  options: Omit<UseActionHandlerOptions, "id"> & { id?: string },
+): void {
+  const {
+    id = "escape-handler",
+    priority = InputPriority.MODAL,
+    isActive = true,
+    onAction,
+    deps = [],
+  } = options;
 
   useInputHandler({
     id,
@@ -156,8 +168,16 @@ export function useEscapeHandler(options: Omit<UseActionHandlerOptions, "id"> & 
 /**
  * Handle tab action (for interrupt).
  */
-export function useTabHandler(options: Omit<UseActionHandlerOptions, "id"> & { id?: string }): void {
-  const { id = "tab-handler", priority = InputPriority.GLOBAL_SHORTCUT, isActive = true, onAction, deps = [] } = options;
+export function useTabHandler(
+  options: Omit<UseActionHandlerOptions, "id"> & { id?: string },
+): void {
+  const {
+    id = "tab-handler",
+    priority = InputPriority.GLOBAL_SHORTCUT,
+    isActive = true,
+    onAction,
+    deps = [],
+  } = options;
 
   useInputHandler({
     id,
@@ -220,10 +240,7 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
 
   const service = useInputService();
 
-  const getSnapshot = useCallback(
-    () => service.getTextInputState(id),
-    [service, id],
-  );
+  const getSnapshot = useCallback(() => service.getTextInputState(id), [service, id]);
   const subscribe = useCallback(
     (listener: () => void) => service.subscribeTextInputState(id, listener),
     [service, id],
@@ -258,17 +275,14 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
 
         case "char":
           nextValue =
-            currentValue.slice(0, currentCursor) +
-            action.char +
-            currentValue.slice(currentCursor);
+            currentValue.slice(0, currentCursor) + action.char + currentValue.slice(currentCursor);
           nextCursor = currentCursor + action.char.length;
           break;
 
         case "backspace":
           if (currentCursor > 0) {
             nextValue =
-              currentValue.slice(0, currentCursor - 1) +
-              currentValue.slice(currentCursor);
+              currentValue.slice(0, currentCursor - 1) + currentValue.slice(currentCursor);
             nextCursor = currentCursor - 1;
           }
           break;
@@ -276,8 +290,7 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
         case "delete-char-forward":
           if (currentCursor < currentValue.length) {
             nextValue =
-              currentValue.slice(0, currentCursor) +
-              currentValue.slice(currentCursor + 1);
+              currentValue.slice(0, currentCursor) + currentValue.slice(currentCursor + 1);
           }
           break;
 
@@ -307,16 +320,14 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
 
         case "delete-word-back": {
           const boundary = findPrevWordBoundary(currentValue, currentCursor);
-          nextValue =
-            currentValue.slice(0, boundary) + currentValue.slice(currentCursor);
+          nextValue = currentValue.slice(0, boundary) + currentValue.slice(currentCursor);
           nextCursor = boundary;
           break;
         }
 
         case "delete-word-forward": {
           const boundary = findNextWordBoundary(currentValue, currentCursor);
-          nextValue =
-            currentValue.slice(0, currentCursor) + currentValue.slice(boundary);
+          nextValue = currentValue.slice(0, currentCursor) + currentValue.slice(boundary);
           break;
         }
 

@@ -151,9 +151,12 @@ export function SearchSelect<T = unknown>({
           return (
             <Text
               key={absoluteIndex}
-              {...(isActive ? { color: THEME.selected as typeof THEME.selected, bold: true as const } : {})}
+              {...(isActive
+                ? { color: THEME.selected as typeof THEME.selected, bold: true as const }
+                : {})}
             >
-              {isActive ? "> " : "  "}{choice.label}
+              {isActive ? "> " : "  "}
+              {choice.label}
             </Text>
           );
         })

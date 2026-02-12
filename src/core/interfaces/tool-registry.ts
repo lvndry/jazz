@@ -4,10 +4,10 @@ import type z from "zod";
 import type { SkillService } from "@/core/skills/skill-service";
 import type { ToolNotFoundError } from "@/core/types/errors";
 import type {
-    ToolCategory,
-    ToolDefinition,
-    ToolExecutionContext,
-    ToolExecutionResult,
+  ToolCategory,
+  ToolDefinition,
+  ToolExecutionContext,
+  ToolExecutionResult,
 } from "../types";
 import type { AgentConfigService } from "./agent-config";
 import type { CalendarService } from "./calendar";

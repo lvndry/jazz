@@ -83,7 +83,9 @@ export function defineTool<R, Args extends Record<string, unknown>>(
   config: BaseToolConfig<R, Args>,
 ): Tool<R> {
   // Default risk level: "read-only" for regular tools, "high-risk" if it has approval
-  const defaultRiskLevel: ToolRiskLevel = config.approvalExecuteToolName ? "high-risk" : "read-only";
+  const defaultRiskLevel: ToolRiskLevel = config.approvalExecuteToolName
+    ? "high-risk"
+    : "read-only";
 
   return {
     name: config.name,
@@ -92,7 +94,9 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     parameters: config.parameters,
     hidden: config.hidden === true,
     riskLevel: config.riskLevel ?? defaultRiskLevel,
-    ...(config.approvalExecuteToolName ? { approvalExecuteToolName: config.approvalExecuteToolName } : {}),
+    ...(config.approvalExecuteToolName
+      ? { approvalExecuteToolName: config.approvalExecuteToolName }
+      : {}),
     ...(config.longRunning ? { longRunning: true } : {}),
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
     createSummary: config.createSummary,
@@ -227,14 +231,17 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
   const executeToolName = `execute_${config.name}`;
   const riskLevel = config.riskLevel ?? "high-risk";
 
-  const validator: ToolValidator<Args> = config.validate ?? ((args) => {
-    const result = config.parameters.safeParse(args);
-    return result.success
-      ? { valid: true, value: result.data as Args }
-      : { valid: false, errors: result.error.issues.map((i: z.ZodIssue) => i.message) };
-  });
+  const validator: ToolValidator<Args> =
+    config.validate ??
+    ((args) => {
+      const result = config.parameters.safeParse(args);
+      return result.success
+        ? { valid: true, value: result.data as Args }
+        : { valid: false, errors: result.error.issues.map((i: z.ZodIssue) => i.message) };
+    });
 
-  const errorMessage = config.approvalErrorMessage ?? `Approval required: ${config.name} requires user confirmation.`;
+  const errorMessage =
+    config.approvalErrorMessage ?? `Approval required: ${config.name} requires user confirmation.`;
 
   // Create the approval tool (shown to LLM)
   const approvalTool = defineTool<R, Args>({
@@ -249,8 +256,10 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
       Effect.gen(function* () {
         const approvalResult = yield* config.approvalMessage(args, context);
         // Support both string and structured { message, previewDiff } return types
-        const message = typeof approvalResult === "string" ? approvalResult : approvalResult.message;
-        const previewDiff = typeof approvalResult === "string" ? undefined : approvalResult.previewDiff;
+        const message =
+          typeof approvalResult === "string" ? approvalResult : approvalResult.message;
+        const previewDiff =
+          typeof approvalResult === "string" ? undefined : approvalResult.previewDiff;
         return {
           success: false,
           result: {

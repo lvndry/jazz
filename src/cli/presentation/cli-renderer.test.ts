@@ -201,7 +201,9 @@ describe("CLIRenderer", () => {
       // Chunk 2: " Hea"
       expect(renderer.testRenderChunk(" Hea", 0)).toBe("");
       // Chunk 3: "der\n"
-      expect(renderer.testRenderChunk("der\n", 0)).toBe(CHALK_THEME.headingUnderline("Header") + "\n");
+      expect(renderer.testRenderChunk("der\n", 0)).toBe(
+        CHALK_THEME.headingUnderline("Header") + "\n",
+      );
     });
 
     it("should handle multiple lines correctly", () => {

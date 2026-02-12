@@ -17,7 +17,10 @@ function AgentHeader({
         <Spinner type="dots" />
       </Text>
       <Text> </Text>
-      <Text bold color={THEME.agent}>
+      <Text
+        bold
+        color={THEME.agent}
+      >
         {agentName}
       </Text>
       <Text dimColor> {label}</Text>
@@ -35,10 +38,17 @@ function ReasoningSection({
   if (!reasoning && !isThinking) return null;
 
   return (
-    <Box marginTop={1} paddingLeft={1} flexDirection="column">
+    <Box
+      marginTop={1}
+      paddingLeft={1}
+      flexDirection="column"
+    >
       <Box>
         <Text dimColor>{"▸ "}</Text>
-        <Text dimColor italic>
+        <Text
+          dimColor
+          italic
+        >
           Reasoning
         </Text>
         {isThinking && (
@@ -69,18 +79,32 @@ export const ActivityView = React.memo(function ActivityView({
 
     case "thinking":
       return (
-        <Box flexDirection="column" marginTop={1} paddingX={2}>
-          <AgentHeader agentName={activity.agentName} label="is thinking…" />
+        <Box
+          flexDirection="column"
+          marginTop={1}
+          paddingX={2}
+        >
+          <AgentHeader
+            agentName={activity.agentName}
+            label="is thinking…"
+          />
           <Box marginTop={0}>
             <Text dimColor>{"─".repeat(40)}</Text>
           </Box>
-          <ReasoningSection reasoning={activity.reasoning} isThinking={true} />
+          <ReasoningSection
+            reasoning={activity.reasoning}
+            isThinking={true}
+          />
         </Box>
       );
 
     case "streaming":
       return (
-        <Box flexDirection="column" marginTop={1} paddingX={2}>
+        <Box
+          flexDirection="column"
+          marginTop={1}
+          paddingX={2}
+        >
           <AgentHeader
             agentName={activity.agentName}
             label="is responding…"
@@ -88,19 +112,34 @@ export const ActivityView = React.memo(function ActivityView({
           <Box marginTop={0}>
             <Text dimColor>{"─".repeat(40)}</Text>
           </Box>
-          <ReasoningSection reasoning={activity.reasoning} isThinking={false} />
+          <ReasoningSection
+            reasoning={activity.reasoning}
+            isThinking={false}
+          />
           {activity.text && (
             <>
               {activity.reasoning && (
-                <Box marginTop={1} paddingLeft={2} flexDirection="column">
+                <Box
+                  marginTop={1}
+                  paddingLeft={2}
+                  flexDirection="column"
+                >
                   <Text dimColor>{"─".repeat(40)}</Text>
                   <Box>
                     <Text dimColor>{"▸ "}</Text>
-                    <Text dimColor italic>Response</Text>
+                    <Text
+                      dimColor
+                      italic
+                    >
+                      Response
+                    </Text>
                   </Box>
                 </Box>
               )}
-              <Box marginTop={activity.reasoning ? 0 : 1} paddingLeft={2}>
+              <Box
+                marginTop={activity.reasoning ? 0 : 1}
+                paddingLeft={2}
+              >
                 <Text>{activity.text}</Text>
               </Box>
             </>
@@ -109,15 +148,16 @@ export const ActivityView = React.memo(function ActivityView({
       );
 
     case "tool-execution": {
-      const uniqueNames = Array.from(
-        new Set(activity.tools.map((t) => t.toolName)),
-      );
+      const uniqueNames = Array.from(new Set(activity.tools.map((t) => t.toolName)));
       const label =
         uniqueNames.length === 1
           ? `Running ${uniqueNames[0]}…`
           : `Running ${uniqueNames.length} tools… (${uniqueNames.join(", ")})`;
       return (
-        <Box paddingX={2} marginTop={1}>
+        <Box
+          paddingX={2}
+          marginTop={1}
+        >
           <Text color="yellow">
             <Spinner type="dots" />
           </Text>
@@ -128,7 +168,10 @@ export const ActivityView = React.memo(function ActivityView({
 
     case "error":
       return (
-        <Box paddingX={2} marginTop={1}>
+        <Box
+          paddingX={2}
+          marginTop={1}
+        >
           <Text color="red">{activity.message}</Text>
         </Box>
       );

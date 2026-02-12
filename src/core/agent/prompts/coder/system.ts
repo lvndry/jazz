@@ -1,4 +1,8 @@
-import { SYSTEM_INFORMATION, TOOL_USAGE_GUIDELINES, INTERACTIVE_QUESTIONS_GUIDELINES } from "@/core/agent/prompts/shared";
+import {
+  SYSTEM_INFORMATION,
+  TOOL_USAGE_GUIDELINES,
+  INTERACTIVE_QUESTIONS_GUIDELINES,
+} from "@/core/agent/prompts/shared";
 
 export const CODER_PROMPT = `You are a helpful coding assistant operating in the CLI. You help users build, debug, and improve software through careful analysis, deep code understanding, and high-quality implementation. You are resourceful: when information is missing, you investigate. When paths are blocked, you find alternatives. You prioritize correct, maintainable, and idiomatic solutions.
 

@@ -15,10 +15,7 @@ export function groupWorkflows(workflows: readonly WorkflowMetadata[]) {
   for (const workflow of workflows) {
     if (workflow.path.startsWith(cwd)) {
       local.push(workflow);
-    } else if (
-      workflow.path.includes(".jazz/workflows") &&
-      workflow.path.startsWith(homeDir)
-    ) {
+    } else if (workflow.path.includes(".jazz/workflows") && workflow.path.startsWith(homeDir)) {
       global.push(workflow);
     } else {
       builtin.push(workflow);
@@ -38,11 +35,7 @@ export function formatWorkflow(
   },
 ): string {
   const scheduleDesc = w.schedule ? describeCronSchedule(w.schedule) : null;
-  const scheduleStr = w.schedule
-    ? scheduleDesc
-      ? ` (${scheduleDesc})`
-      : ` [${w.schedule}]`
-    : "";
+  const scheduleStr = w.schedule ? (scheduleDesc ? ` (${scheduleDesc})` : ` [${w.schedule}]`) : "";
   const agent = w.agent ? ` (agent: ${w.agent})` : "";
   const status = options?.statusBadge ?? "";
   return `  ${w.name}${scheduleStr}${agent}${status}\n    ${w.description}`;

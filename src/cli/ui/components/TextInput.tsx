@@ -54,7 +54,10 @@ export function TextInput({
   }, []);
 
   // Use inputId to prevent state sharing between different simple text inputs
-  const uniqueId = useMemo(() => `simple-text-input-${inputId.replace(/\s+/g, "-").toLowerCase()}`, [inputId]);
+  const uniqueId = useMemo(
+    () => `simple-text-input-${inputId.replace(/\s+/g, "-").toLowerCase()}`,
+    [inputId],
+  );
 
   // Initialize with default value
   const { value, cursor, setValue } = useTextInput({
@@ -96,7 +99,10 @@ export function TextInput({
     return (
       <>
         {beforeCursor && <Text>{beforeCursor}</Text>}
-        <Text inverse color={THEME.primary}>
+        <Text
+          inverse
+          color={THEME.primary}
+        >
           {cursorChar}
         </Text>
         {afterCursor && <Text>{afterCursor}</Text>}

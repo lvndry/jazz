@@ -88,22 +88,32 @@ export function setConfigCommand(
     let targetKey = key;
     if (AVAILABLE_PROVIDERS.includes(key as ProviderName)) {
       targetKey = `llm.${key}.api_key`;
-    } else if (key.startsWith("llm.") && AVAILABLE_PROVIDERS.includes(key.split(".")[1] as ProviderName) && key.split(".").length === 2) {
+    } else if (
+      key.startsWith("llm.") &&
+      AVAILABLE_PROVIDERS.includes(key.split(".")[1] as ProviderName) &&
+      key.split(".").length === 2
+    ) {
       targetKey = `${key}.api_key`;
-    } else if (WEB_SEARCH_PROVIDERS.some(p => p.value === key)) {
+    } else if (WEB_SEARCH_PROVIDERS.some((p) => p.value === key)) {
       targetKey = `web_search.${key}.api_key`;
-    } else if (key.startsWith("web_search.") && WEB_SEARCH_PROVIDERS.some(p => p.value === key.split(".")[1]) && key.split(".").length === 2) {
+    } else if (
+      key.startsWith("web_search.") &&
+      WEB_SEARCH_PROVIDERS.some((p) => p.value === key.split(".")[1]) &&
+      key.split(".").length === 2
+    ) {
       targetKey = `${key}.api_key`;
     }
 
     if (value === undefined) {
       if (key === "llm" || targetKey.startsWith("llm.")) {
-        const provider = targetKey.split(".")[1] || (yield* terminal.select<ProviderName>("Select LLM provider:", {
-          choices: AVAILABLE_PROVIDERS.map((provider) => ({
-            name: provider,
-            value: provider,
-          })),
-        }));
+        const provider =
+          targetKey.split(".")[1] ||
+          (yield* terminal.select<ProviderName>("Select LLM provider:", {
+            choices: AVAILABLE_PROVIDERS.map((provider) => ({
+              name: provider,
+              value: provider,
+            })),
+          }));
 
         yield* terminal.info(`Configuring ${provider}...`);
 
@@ -124,9 +134,11 @@ export function setConfigCommand(
       }
 
       if (key === "web_search" || targetKey.startsWith("web_search.")) {
-        const provider = targetKey.split(".")[1] || (yield* terminal.select<string>("Select web search provider:", {
-          choices: WEB_SEARCH_PROVIDERS.map(p => ({ name: p.name, value: p.value as string })),
-        }));
+        const provider =
+          targetKey.split(".")[1] ||
+          (yield* terminal.select<string>("Select web search provider:", {
+            choices: WEB_SEARCH_PROVIDERS.map((p) => ({ name: p.name, value: p.value as string })),
+          }));
 
         yield* terminal.info(`Configuring ${provider}...`);
 

@@ -13,23 +13,30 @@ describe("InkStreamingRenderer", () => {
   let lastRenderer: InkStreamingRenderer | null = null;
 
   function createRenderer() {
-    const renderer = new InkStreamingRenderer("TestAgent", false, {
-      showThinking: true,
-      showToolExecution: true,
-      mode: "rendered",
-      colorProfile: "full",
-    }, 0);
+    const renderer = new InkStreamingRenderer(
+      "TestAgent",
+      false,
+      {
+        showThinking: true,
+        showToolExecution: true,
+        mode: "rendered",
+        colorProfile: "full",
+      },
+      0,
+    );
     lastRenderer = renderer;
     return renderer;
   }
 
   function emitStreamStart(renderer: InkStreamingRenderer) {
-    Effect.runSync(renderer.handleEvent({
-      type: "stream_start",
-      provider: "test",
-      model: "test",
-      timestamp: Date.now(),
-    }));
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "stream_start",
+        provider: "test",
+        model: "test",
+        timestamp: Date.now(),
+      }),
+    );
   }
 
   beforeEach(() => {
@@ -63,24 +70,30 @@ describe("InkStreamingRenderer", () => {
       Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
       // Deliver text_chunk events out of order: seq 2, then 1, then 3
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "He",
-        accumulated: "He",
-        sequence: 2,
-      }));
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "H",
-        accumulated: "H",
-        sequence: 1,
-      }));
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "llo",
-        accumulated: "Hello",
-        sequence: 3,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "He",
+          accumulated: "He",
+          sequence: 2,
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "H",
+          accumulated: "H",
+          sequence: 1,
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "llo",
+          accumulated: "Hello",
+          sequence: 3,
+        }),
+      );
 
       // Wait for pending throttled update to flush
       await new Promise((r) => setTimeout(r, 0));
@@ -99,18 +112,22 @@ describe("InkStreamingRenderer", () => {
       Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
       // Newer first, then older (stale) – should keep "Hel", not revert to "H"
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "Hel",
-        accumulated: "Hel",
-        sequence: 2,
-      }));
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "H",
-        accumulated: "H",
-        sequence: 1,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "Hel",
+          accumulated: "Hel",
+          sequence: 2,
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "H",
+          accumulated: "H",
+          sequence: 1,
+        }),
+      );
 
       await new Promise((r) => setTimeout(r, 0));
 
@@ -140,7 +157,9 @@ describe("InkStreamingRenderer", () => {
       emitStreamStart(renderer);
 
       Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
-      Effect.runSync(renderer.handleEvent({ type: "thinking_chunk", content: "let me think", sequence: 0 }));
+      Effect.runSync(
+        renderer.handleEvent({ type: "thinking_chunk", content: "let me think", sequence: 0 }),
+      );
       await new Promise((r) => setTimeout(r, 0));
 
       const thinking = setActivityCalls.filter(
@@ -157,16 +176,19 @@ describe("InkStreamingRenderer", () => {
       const renderer = createRenderer();
       emitStreamStart(renderer);
 
-      Effect.runSync(renderer.handleEvent({
-        type: "tool_execution_start",
-        toolName: "execute_bash",
-        toolCallId: "tc-1",
-        arguments: { command: "ls" },
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "tool_execution_start",
+          toolName: "execute_bash",
+          toolCallId: "tc-1",
+          arguments: { command: "ls" },
+        }),
+      );
       await new Promise((r) => setTimeout(r, 0));
 
       const toolPhases = setActivityCalls.filter(
-        (s): s is Extract<ActivityState, { phase: "tool-execution" }> => s.phase === "tool-execution",
+        (s): s is Extract<ActivityState, { phase: "tool-execution" }> =>
+          s.phase === "tool-execution",
       );
       expect(toolPhases.length).toBeGreaterThan(0);
       expect(toolPhases[0]!.tools[0]!.toolName).toBe("execute_bash");
@@ -176,17 +198,21 @@ describe("InkStreamingRenderer", () => {
       const renderer = createRenderer();
       emitStreamStart(renderer);
 
-      Effect.runSync(renderer.handleEvent({
-        type: "tool_execution_start",
-        toolName: "execute_bash",
-        toolCallId: "tc-1",
-      }));
-      Effect.runSync(renderer.handleEvent({
-        type: "tool_execution_complete",
-        toolCallId: "tc-1",
-        result: "done",
-        durationMs: 50,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "tool_execution_start",
+          toolName: "execute_bash",
+          toolCallId: "tc-1",
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "tool_execution_complete",
+          toolCallId: "tc-1",
+          result: "done",
+          durationMs: 50,
+        }),
+      );
       await new Promise((r) => setTimeout(r, 0));
 
       const last = setActivityCalls[setActivityCalls.length - 1];
@@ -200,12 +226,14 @@ describe("InkStreamingRenderer", () => {
       emitStreamStart(renderer);
 
       Effect.runSync(renderer.handleEvent({ type: "text_start" }));
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "Hello world",
-        accumulated: "Hello world",
-        sequence: 0,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "Hello world",
+          accumulated: "Hello world",
+          sequence: 0,
+        }),
+      );
       await new Promise((r) => setTimeout(r, 0));
 
       // Record the order of calls
@@ -221,11 +249,13 @@ describe("InkStreamingRenderer", () => {
         return origPrint(entry);
       };
 
-      Effect.runSync(renderer.handleEvent({
-        type: "complete",
-        response: { content: "Hello world", role: "assistant", usage: undefined, toolCalls: [] },
-        totalDurationMs: 100,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "complete",
+          response: { content: "Hello world", role: "assistant", usage: undefined, toolCalls: [] },
+          totalDurationMs: 100,
+        }),
+      );
 
       store.setActivity = origActivity;
       store.printOutput = origPrint;
@@ -244,20 +274,24 @@ describe("InkStreamingRenderer", () => {
       emitStreamStart(renderer);
 
       Effect.runSync(renderer.handleEvent({ type: "text_start" }));
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "response",
-        accumulated: "response",
-        sequence: 0,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "response",
+          accumulated: "response",
+          sequence: 0,
+        }),
+      );
 
       printOutputCalls.length = 0;
 
-      Effect.runSync(renderer.handleEvent({
-        type: "complete",
-        response: { content: "response", role: "assistant", usage: undefined, toolCalls: [] },
-        totalDurationMs: 50,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "complete",
+          response: { content: "response", role: "assistant", usage: undefined, toolCalls: [] },
+          totalDurationMs: 50,
+        }),
+      );
 
       // The response should be printed as a padded Ink element (not AgentResponseCard)
       const responseLogs = printOutputCalls.filter((e) => e.type === "log");
@@ -277,24 +311,30 @@ describe("InkStreamingRenderer", () => {
       Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
       // Fire 3 text_chunks rapidly — all within 30ms throttle window
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "A",
-        accumulated: "A",
-        sequence: 0,
-      }));
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "B",
-        accumulated: "AB",
-        sequence: 1,
-      }));
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "C",
-        accumulated: "ABC",
-        sequence: 2,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "A",
+          accumulated: "A",
+          sequence: 0,
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "B",
+          accumulated: "AB",
+          sequence: 1,
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "C",
+          accumulated: "ABC",
+          sequence: 2,
+        }),
+      );
 
       // Wait for throttle to flush
       await new Promise((r) => setTimeout(r, 0));
@@ -317,11 +357,18 @@ describe("InkStreamingRenderer", () => {
 
       printOutputCalls.length = 0;
 
-      Effect.runSync(renderer.handleEvent({
-        type: "complete",
-        response: { content: "Non-streamed answer", role: "assistant", usage: undefined, toolCalls: [] },
-        totalDurationMs: 50,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "complete",
+          response: {
+            content: "Non-streamed answer",
+            role: "assistant",
+            usage: undefined,
+            toolCalls: [],
+          },
+          totalDurationMs: 50,
+        }),
+      );
 
       // Should emit an info entry (agent name header) followed by a log entry (response card)
       const infoEntries = printOutputCalls.filter((e) => e.type === "info");
@@ -342,11 +389,13 @@ describe("InkStreamingRenderer", () => {
 
       printOutputCalls.length = 0;
 
-      Effect.runSync(renderer.handleEvent({
-        type: "complete",
-        response: { content: "", role: "assistant", usage: undefined, toolCalls: [] },
-        totalDurationMs: 50,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "complete",
+          response: { content: "", role: "assistant", usage: undefined, toolCalls: [] },
+          totalDurationMs: 50,
+        }),
+      );
 
       // No info or log entries for the response body (only activity:idle)
       const contentEntries = printOutputCalls.filter(
@@ -373,12 +422,14 @@ describe("InkStreamingRenderer", () => {
       emitStreamStart(renderer);
 
       Effect.runSync(renderer.handleEvent({ type: "text_start" }));
-      Effect.runSync(renderer.handleEvent({
-        type: "text_chunk",
-        delta: "partial",
-        accumulated: "partial",
-        sequence: 0,
-      }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "partial",
+          accumulated: "partial",
+          sequence: 0,
+        }),
+      );
 
       printOutputCalls.length = 0;
       Effect.runSync(renderer.flush());

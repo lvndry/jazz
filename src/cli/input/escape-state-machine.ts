@@ -64,7 +64,11 @@ export type EscapeState =
 export type TransitionResult =
   | { readonly _tag: "Continue"; readonly state: EscapeState }
   | { readonly _tag: "Complete"; readonly action: ParsedInput }
-  | { readonly _tag: "CompleteWithRemainder"; readonly action: ParsedInput; readonly remainder: string };
+  | {
+      readonly _tag: "CompleteWithRemainder";
+      readonly action: ParsedInput;
+      readonly remainder: string;
+    };
 
 /**
  * Escape sequence state machine interface.
@@ -121,19 +125,14 @@ const SS3 = "\x1bO";
  * @param capabilities - Terminal capabilities for sequence matching
  * @returns Effect-wrapped state machine instance
  */
-export function createEscapeStateMachine(
-  capabilities: TerminalCapabilities,
-): EscapeStateMachine {
+export function createEscapeStateMachine(capabilities: TerminalCapabilities): EscapeStateMachine {
   let state: EscapeState = { _tag: "Idle" };
   let lastInputTime = 0;
 
   /**
    * Check if a buffer matches any sequence in the profile.
    */
-  function matchSequence(
-    buffer: string,
-    action: keyof EscapeSequenceProfile,
-  ): boolean {
+  function matchSequence(buffer: string, action: keyof EscapeSequenceProfile): boolean {
     return capabilities.escapeSequences[action].includes(buffer);
   }
 
@@ -678,8 +677,7 @@ export function createEscapeStateMachine(
   }
 
   return {
-    process: (input: string, key: KeyInfo) =>
-      Effect.sync(() => transition(input, key)),
+    process: (input: string, key: KeyInfo) => Effect.sync(() => transition(input, key)),
 
     reset: Effect.sync(() => {
       state = { _tag: "Idle" };

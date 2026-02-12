@@ -131,13 +131,15 @@ describe("ToolExecutor.executeTool", () => {
     );
 
     const result = await Effect.runPromise(
-      ToolExecutor.executeTool("test_tool", { key: "value" }, {
-        agentId: "agent-1",
-        conversationId: "conv-123",
-        sessionId: "sess-1",
-      }).pipe(
-        Effect.provide(testLayer),
-      ) as Effect.Effect<ToolExecutionResult, unknown, never>,
+      ToolExecutor.executeTool(
+        "test_tool",
+        { key: "value" },
+        {
+          agentId: "agent-1",
+          conversationId: "conv-123",
+          sessionId: "sess-1",
+        },
+      ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, unknown, never>,
     );
 
     expect(result.success).toBe(true);
@@ -167,13 +169,15 @@ describe("ToolExecutor.executeTool", () => {
 
     // executeTool still works even if getTool fails for timeout lookup
     const result = await Effect.runPromise(
-      ToolExecutor.executeTool("test_tool", {}, {
-        agentId: "agent-1",
-        conversationId: "conv-123",
-        sessionId: "sess-1",
-      }).pipe(
-        Effect.provide(testLayer),
-      ) as Effect.Effect<ToolExecutionResult, unknown, never>,
+      ToolExecutor.executeTool(
+        "test_tool",
+        {},
+        {
+          agentId: "agent-1",
+          conversationId: "conv-123",
+          sessionId: "sess-1",
+        },
+      ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, unknown, never>,
     );
 
     expect(result.success).toBe(true);
@@ -224,9 +228,7 @@ describe("ToolExecutor.executeToolCall", () => {
         "agent-1",
         "conv-123",
         new Set(),
-      ).pipe(
-        Effect.provide(testLayer),
-      ) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
+      ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
     );
 
     expect(result.success).toBe(false);
@@ -266,9 +268,7 @@ describe("ToolExecutor.executeToolCall", () => {
         "agent-1",
         "conv-123",
         new Set(),
-      ).pipe(
-        Effect.provide(testLayer),
-      ) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
+      ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
     );
 
     expect(result.success).toBe(false);
@@ -286,8 +286,7 @@ describe("ToolExecutor.executeToolCalls", () => {
           longRunning: false,
           approvalExecuteToolName: undefined,
         }),
-      executeTool: (_name: string) =>
-        Effect.succeed({ success: true, result: { data: "ok" } }),
+      executeTool: (_name: string) => Effect.succeed({ success: true, result: { data: "ok" } }),
     } as unknown as ToolRegistry;
 
     const testLayer = Layer.mergeAll(
@@ -328,9 +327,11 @@ describe("ToolExecutor.executeToolCalls", () => {
         "agent-1",
         "conv-123",
         "test-agent",
-      ).pipe(
-        Effect.provide(testLayer),
-      ) as unknown as Effect.Effect<readonly ToolCallExecutionResult[], unknown, never>,
+      ).pipe(Effect.provide(testLayer)) as unknown as Effect.Effect<
+        readonly ToolCallExecutionResult[],
+        unknown,
+        never
+      >,
     );
 
     expect(results).toHaveLength(2);

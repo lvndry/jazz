@@ -166,10 +166,7 @@ export function normalizeMCPToolRegistry(registry: MCPToolRegistry): readonly MC
           ...toolDef,
           name: toolDef.name || toolName,
         });
-      } else if (
-        typeof toolDef === "object" &&
-        toolDef !== null
-      ) {
+      } else if (typeof toolDef === "object" && toolDef !== null) {
         // Handle tool definitions that may not have execute functions yet
         // (execute functions are provided by the MCP client when tools are called)
         const toolObj = toolDef as {
@@ -192,7 +189,9 @@ export function normalizeMCPToolRegistry(registry: MCPToolRegistry): readonly MC
             execute: toolExecute,
             ...(typeof toolObj.description === "string" && { description: toolObj.description }),
             ...(toolObj.inputSchema !== undefined &&
-              toolObj.inputSchema !== null && { inputSchema: toolObj.inputSchema as MCPJSONSchema }),
+              toolObj.inputSchema !== null && {
+                inputSchema: toolObj.inputSchema as MCPJSONSchema,
+              }),
           };
 
           tools.push(mcpTool);
@@ -215,14 +214,16 @@ export function normalizeMCPToolRegistry(registry: MCPToolRegistry): readonly MC
             },
             ...(typeof toolObj.description === "string" && { description: toolObj.description }),
             ...(toolObj.inputSchema !== undefined &&
-              toolObj.inputSchema !== null && { inputSchema: toolObj.inputSchema as MCPJSONSchema }),
+              toolObj.inputSchema !== null && {
+                inputSchema: toolObj.inputSchema as MCPJSONSchema,
+              }),
           };
 
           tools.push(mcpTool);
         }
       }
     }
-    return tools.length > 0 ? tools : (Object.values(registry).filter(isMCPTool));
+    return tools.length > 0 ? tools : Object.values(registry).filter(isMCPTool);
   }
 
   return [];

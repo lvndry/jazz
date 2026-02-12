@@ -16,11 +16,7 @@ import { PresentationServiceTag } from "../../interfaces/presentation";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { RecursiveRunner } from "../context/summarizer";
-import type {
-  AgentRunContext,
-  AgentRunnerOptions,
-  AgentResponse,
-} from "../types";
+import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
 // Shared mocks
 const mockLogger = {
@@ -226,7 +222,9 @@ describe("executeAgentLoop", () => {
     // Mock ToolExecutor
     const originalExecute = ToolExecutor.executeToolCalls;
     ToolExecutor.executeToolCalls = mock(() =>
-      Effect.succeed([{ toolCallId: "call_1", name: "test_tool", result: "output", success: true }]),
+      Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]),
     );
 
     const result = await Effect.runPromise(
@@ -281,7 +279,9 @@ describe("executeAgentLoop", () => {
 
     const originalExecute = ToolExecutor.executeToolCalls;
     ToolExecutor.executeToolCalls = mock(() =>
-      Effect.succeed([{ toolCallId: "call_1", name: "test_tool", result: "output", success: true }]),
+      Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]),
     );
 
     const testLayer = Layer.mergeAll(

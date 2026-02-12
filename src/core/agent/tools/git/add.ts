@@ -24,8 +24,18 @@ const gitAddParameters = z
       .describe(
         "Path to a file or directory in the Git repository (defaults to current working directory)",
       ),
-    files: z.array(z.string()).min(1).describe("Specific file paths to stage (e.g., ['src/index.ts', 'README.md']). Prefer listing explicit files over using 'all'."),
-    all: z.boolean().optional().describe("Stage ALL modified and untracked files. Use with caution — prefer listing specific files to avoid staging unrelated changes."),
+    files: z
+      .array(z.string())
+      .min(1)
+      .describe(
+        "Specific file paths to stage (e.g., ['src/index.ts', 'README.md']). Prefer listing explicit files over using 'all'.",
+      ),
+    all: z
+      .boolean()
+      .optional()
+      .describe(
+        "Stage ALL modified and untracked files. Use with caution — prefer listing specific files to avoid staging unrelated changes.",
+      ),
   })
   .strict();
 
@@ -119,7 +129,8 @@ export function createGitAddTools(): ApprovalToolPair<GitDeps> {
           return {
             success: false,
             result: null,
-            error: commandResult.stderr || `git add failed with exit code ${commandResult.exitCode}`,
+            error:
+              commandResult.stderr || `git add failed with exit code ${commandResult.exitCode}`,
           };
         }
 

@@ -71,7 +71,6 @@ interface StreamProcessorState {
   cancelled: boolean;
 }
 
-
 /**
  * Create initial processor state
  */
@@ -122,7 +121,6 @@ export class StreamProcessor {
   cancel(): void {
     this.state.cancelled = true;
   }
-
 
   /**
    * Get the completion promise
@@ -316,7 +314,8 @@ export class StreamProcessor {
           }
 
           case "tool-call": {
-            const isProviderNative = this.config.providerNativeToolNames?.has(part.toolName) ?? false;
+            const isProviderNative =
+              this.config.providerNativeToolNames?.has(part.toolName) ?? false;
 
             const toolCall: ToolCall = {
               id: part.toolCallId,

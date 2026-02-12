@@ -2,19 +2,21 @@ import { Box, Text } from "ink";
 import React from "react";
 import { THEME } from "./theme";
 
-export function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): React.ReactElement {
+export function IndicatorComponent({
+  isSelected = false,
+}: {
+  isSelected?: boolean;
+}): React.ReactElement {
   return (
     <Box marginRight={1}>
-      <Text color={THEME.selected}>
-        {isSelected ? ">" : " "}
-      </Text>
+      <Text color={THEME.selected}>{isSelected ? ">" : " "}</Text>
     </Box>
   );
 }
 
 export function ItemComponent({
   isSelected = false,
-  label
+  label,
 }: {
   isSelected?: boolean;
   label: string;

@@ -50,17 +50,19 @@ async function scanDirectory(
       // Skip hidden files/directories
       if (entry.name.startsWith(".")) continue;
       // Skip node_modules and common build directories
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "build") continue;
+      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "build")
+        continue;
 
       const fullPath = path.join(dir, entry.name);
       const relativePath = path.relative(basePath, fullPath);
 
       if (entry.isDirectory()) {
         // Include directory in results if requested and matches query (full or relative)
-        if (includeDirectories && (
-          relativePath.toLowerCase().includes(normalizedQuery) ||
-          fullPath.toLowerCase().includes(normalizedQuery)
-        )) {
+        if (
+          includeDirectories &&
+          (relativePath.toLowerCase().includes(normalizedQuery) ||
+            fullPath.toLowerCase().includes(normalizedQuery))
+        ) {
           results.push({
             name: entry.name,
             path: fullPath,
@@ -150,7 +152,9 @@ export function FilePicker({
     }
 
     void doScan();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [basePath, query, extensions, includeDirectories]);
 
   const effectivePageSize = Math.max(1, Math.min(pageSize, files.length || 1));
@@ -290,9 +294,7 @@ export function FilePicker({
 
       {/* Base path info */}
       <Box marginTop={1}>
-        <Text dimColor>
-          Base: {basePath}
-        </Text>
+        <Text dimColor>Base: {basePath}</Text>
       </Box>
 
       {/* Results count */}
@@ -321,7 +323,9 @@ export function FilePicker({
               key={file.path}
               {...(isActive ? { color: THEME.selected, bold: true as const } : {})}
             >
-              {isActive ? "> " : "  "}{icon}{relativePath}
+              {isActive ? "> " : "  "}
+              {icon}
+              {relativePath}
             </Text>
           );
         })
@@ -339,7 +343,9 @@ export function FilePicker({
 
       {/* Help text */}
       <Box marginTop={1}>
-        <Text dimColor>Type to filter · ↑/↓ navigate · Tab autocomplete · Enter select · Esc cancel</Text>
+        <Text dimColor>
+          Type to filter · ↑/↓ navigate · Tab autocomplete · Enter select · Esc cancel
+        </Text>
       </Box>
     </Box>
   );

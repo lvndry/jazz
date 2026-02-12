@@ -82,15 +82,16 @@ class DiffExpansionServiceImpl implements DiffExpansionService {
 // ============================================================================
 
 export const DiffExpansionServiceTag = Context.GenericTag<DiffExpansionService>(
-  "cli/services/DiffExpansionService"
+  "cli/services/DiffExpansionService",
 );
 
 // ============================================================================
 // Service Factory
 // ============================================================================
 
-export const makeDiffExpansionService: Effect.Effect<DiffExpansionService> =
-  Effect.sync(() => new DiffExpansionServiceImpl());
+export const makeDiffExpansionService: Effect.Effect<DiffExpansionService> = Effect.sync(
+  () => new DiffExpansionServiceImpl(),
+);
 
 // ============================================================================
 // Service Layer
@@ -102,7 +103,7 @@ export const makeDiffExpansionService: Effect.Effect<DiffExpansionService> =
  */
 export const DiffExpansionServiceLive = Layer.effect(
   DiffExpansionServiceTag,
-  makeDiffExpansionService
+  makeDiffExpansionService,
 );
 
 // ============================================================================

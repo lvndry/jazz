@@ -5,7 +5,6 @@ import { THEME } from "../theme";
 import { TextInput } from "./TextInput";
 import { useInputHandler, InputPriority, InputResults } from "../hooks/use-input-service";
 
-
 interface QuestionnaireProps {
   suggestions: readonly Suggestion[];
   allowCustom: boolean;
@@ -130,7 +129,15 @@ export function Questionnaire({
       }
       return InputResults.ignored();
     },
-    deps: [selectedIndex, selectedIndices, suggestions, effectiveAllowCustom, allowMultiple, onSubmit, onCancel],
+    deps: [
+      selectedIndex,
+      selectedIndices,
+      suggestions,
+      effectiveAllowCustom,
+      allowMultiple,
+      onSubmit,
+      onCancel,
+    ],
   });
 
   const renderIndicator = (index: number) => {
@@ -145,7 +152,10 @@ export function Questionnaire({
       );
     }
     return (
-      <Text color={index === selectedIndex ? THEME.selected : "white"} bold={index === selectedIndex}>
+      <Text
+        color={index === selectedIndex ? THEME.selected : "white"}
+        bold={index === selectedIndex}
+      >
         {index === selectedIndex ? "› " : "  "}
       </Text>
     );
@@ -160,11 +170,20 @@ export function Questionnaire({
         const isFocused = i === selectedIndex;
 
         return (
-          <Box key={i} flexDirection="column">
+          <Box
+            key={i}
+            flexDirection="column"
+          >
             <Box>
               {renderIndicator(i)}
               <Text color={isFocused ? THEME.selected : THEME.primary}> {i + 1}.</Text>
-              <Text color={isFocused ? THEME.selected : "white"} bold={isFocused}> {label}</Text>
+              <Text
+                color={isFocused ? THEME.selected : "white"}
+                bold={isFocused}
+              >
+                {" "}
+                {label}
+              </Text>
             </Box>
             {description && (
               <Box paddingLeft={5}>
@@ -179,7 +198,10 @@ export function Questionnaire({
       {effectiveAllowCustom && (
         <Box marginTop={suggestions.length > 0 ? 1 : 0}>
           <Box>
-            <Text color={selectedIndex === customOptionIndex ? THEME.selected : "gray"} bold={selectedIndex === customOptionIndex}>
+            <Text
+              color={selectedIndex === customOptionIndex ? THEME.selected : "gray"}
+              bold={selectedIndex === customOptionIndex}
+            >
               {selectedIndex === customOptionIndex ? "› " : "  "}
             </Text>
             {selectedIndex === customOptionIndex ? (
@@ -210,4 +232,3 @@ export function Questionnaire({
     </Box>
   );
 }
-

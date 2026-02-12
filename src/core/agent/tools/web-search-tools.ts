@@ -93,7 +93,9 @@ export function createWebSearchTool(): ReturnType<
           .min(1)
           .max(100)
           .optional()
-          .describe(`Maximum number of results to return (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
+          .describe(
+            `Maximum number of results to return (default: ${DEFAULT_MAX_RESULTS}, max: 100)`,
+          ),
       })
       .strict(),
     validate: (args) => {
@@ -165,7 +167,10 @@ export function createWebSearchTool(): ReturnType<
         // Map provider name to execution function
         const executorMap: Record<
           "exa" | "parallel" | "tavily" | "brave" | "perplexity",
-          (args: WebSearchArgs, apiKey: string) => Effect.Effect<WebSearchResult, Error, LoggerService>
+          (
+            args: WebSearchArgs,
+            apiKey: string,
+          ) => Effect.Effect<WebSearchResult, Error, LoggerService>
         > = {
           exa: executeExaSearch,
           parallel: executeParallelSearch,

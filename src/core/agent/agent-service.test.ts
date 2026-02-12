@@ -1,11 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import { Effect } from "effect";
-import {
-  createAgent,
-  getAgentById,
-  getAgentByIdentifier,
-  listAllAgents,
-} from "./agent-service";
+import { createAgent, getAgentById, getAgentByIdentifier, listAllAgents } from "./agent-service";
 import { AgentServiceTag, type AgentService } from "../interfaces/agent-service";
 import { StorageNotFoundError } from "../types/errors";
 import { type Agent } from "../types/index";

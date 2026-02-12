@@ -23,7 +23,7 @@ import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
-import type { CommandResult } from "./chat/commands/types";
+import type { CommandContext, CommandResult } from "./chat/commands/types";
 import {
   generateConversationId,
   generateSessionId,
@@ -193,7 +193,7 @@ export class ChatServiceImpl implements ChatService {
             // Fall through to agent run below (do not continue)
           } else {
             const latestConfig = yield* configService.appConfig;
-            const commandResult: CommandResult = yield* handleSpecialCommand(specialCommand, {
+            const context: CommandContext = {
               agent,
               conversationId,
               conversationHistory,
@@ -206,7 +206,8 @@ export class ChatServiceImpl implements ChatService {
                 ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands }
                 : {}),
               ...(autoApprovedTools.length > 0 ? { autoApprovedTools } : {}),
-            });
+            };
+            const commandResult: CommandResult = yield* handleSpecialCommand(specialCommand, context);
 
             if (commandResult.newConversationId !== undefined) {
               conversationId = commandResult.newConversationId;

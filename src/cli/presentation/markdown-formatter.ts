@@ -111,14 +111,12 @@ export function formatBold(text: string): string {
 export function formatItalic(text: string): string {
   let formatted = text;
 
-  formatted = formatted.replace(
-    ITALIC_ASTERISK_REGEX,
-    (_match: string, content: string) => chalk.italic(content),
+  formatted = formatted.replace(ITALIC_ASTERISK_REGEX, (_match: string, content: string) =>
+    chalk.italic(content),
   );
 
-  formatted = formatted.replace(
-    ITALIC_UNDERSCORE_REGEX,
-    (_match: string, content: string) => chalk.italic(content),
+  formatted = formatted.replace(ITALIC_UNDERSCORE_REGEX, (_match: string, content: string) =>
+    chalk.italic(content),
   );
 
   return formatted;
@@ -144,14 +142,10 @@ export function formatHeadings(text: string): string {
   formatted = formatted.replace(H3_REGEX, (_match, header) => CHALK_THEME.heading(header));
 
   // H2 (##)
-  formatted = formatted.replace(H2_REGEX, (_match, header) =>
-    CHALK_THEME.headingUnderline(header),
-  );
+  formatted = formatted.replace(H2_REGEX, (_match, header) => CHALK_THEME.headingUnderline(header));
 
   // H1 (#)
-  formatted = formatted.replace(H1_REGEX, (_match, header) =>
-    CHALK_THEME.headingUnderline(header),
-  );
+  formatted = formatted.replace(H1_REGEX, (_match, header) => CHALK_THEME.headingUnderline(header));
 
   return formatted;
 }
@@ -169,15 +163,12 @@ export function formatBlockquotes(text: string): string {
  * Format markdown task lists with checkboxes
  */
 export function formatTaskLists(text: string): string {
-  return text.replace(
-    TASK_LIST_REGEX,
-    (_match: string, checked: string, content: string) => {
-      const isChecked = checked.toLowerCase() === "x";
-      const checkbox = isChecked ? CHALK_THEME.success("✓") : chalk.gray("○");
-      const indent = "  ";
-      return `${TASK_LIST_MARKER}${indent}${checkbox} ${content}`;
-    },
-  );
+  return text.replace(TASK_LIST_REGEX, (_match: string, checked: string, content: string) => {
+    const isChecked = checked.toLowerCase() === "x";
+    const checkbox = isChecked ? CHALK_THEME.success("✓") : chalk.gray("○");
+    const indent = "  ";
+    return `${TASK_LIST_MARKER}${indent}${checkbox} ${content}`;
+  });
 }
 
 /**
@@ -411,8 +402,10 @@ const HYBRID_ITALIC_UNDERSCORE_REGEX = /(?<=^|[\s[(])_([^_\n]+?)_(?=[\s\],.!?)]|
  * Format bold text in hybrid mode - keeps ** markers visible
  */
 export function formatBoldHybrid(text: string): string {
-  return text.replace(BOLD_REGEX, (_match: string, delimiter: string, content: string) =>
-    `${delimiter}${chalk.bold(content)}${delimiter}`,
+  return text.replace(
+    BOLD_REGEX,
+    (_match: string, delimiter: string, content: string) =>
+      `${delimiter}${chalk.bold(content)}${delimiter}`,
   );
 }
 
@@ -442,7 +435,10 @@ export function formatItalicHybrid(text: string): string {
  * Format inline code in hybrid mode - keeps backticks visible
  */
 export function formatInlineCodeHybrid(text: string): string {
-  return text.replace(INLINE_CODE_REGEX, (_match: string, code: string) => `\`${codeColor(code)}\``);
+  return text.replace(
+    INLINE_CODE_REGEX,
+    (_match: string, code: string) => `\`${codeColor(code)}\``,
+  );
 }
 
 /**
@@ -458,13 +454,15 @@ export function formatHeadingsHybrid(text: string): string {
   formatted = formatted.replace(H3_REGEX, (_match, header) => `### ${CHALK_THEME.heading(header)}`);
 
   // H2 (##)
-  formatted = formatted.replace(H2_REGEX, (_match, header) =>
-    `## ${CHALK_THEME.headingUnderline(header)}`,
+  formatted = formatted.replace(
+    H2_REGEX,
+    (_match, header) => `## ${CHALK_THEME.headingUnderline(header)}`,
   );
 
   // H1 (#)
-  formatted = formatted.replace(H1_REGEX, (_match, header) =>
-    `# ${CHALK_THEME.headingUnderline(header)}`,
+  formatted = formatted.replace(
+    H1_REGEX,
+    (_match, header) => `# ${CHALK_THEME.headingUnderline(header)}`,
   );
 
   return formatted;
@@ -474,8 +472,9 @@ export function formatHeadingsHybrid(text: string): string {
  * Format blockquotes in hybrid mode - keeps > marker visible
  */
 export function formatBlockquotesHybrid(text: string): string {
-  return text.replace(BLOCKQUOTE_REGEX, (_match: string, content: string) =>
-    `> ${chalk.gray(content)}`,
+  return text.replace(
+    BLOCKQUOTE_REGEX,
+    (_match: string, content: string) => `> ${chalk.gray(content)}`,
   );
 }
 
@@ -483,8 +482,9 @@ export function formatBlockquotesHybrid(text: string): string {
  * Format strikethrough in hybrid mode - keeps ~~ markers visible
  */
 export function formatStrikethroughHybrid(text: string): string {
-  return text.replace(STRIKETHROUGH_REGEX, (_match: string, content: string) =>
-    `~~${chalk.strikethrough(content)}~~`,
+  return text.replace(
+    STRIKETHROUGH_REGEX,
+    (_match: string, content: string) => `~~${chalk.strikethrough(content)}~~`,
   );
 }
 

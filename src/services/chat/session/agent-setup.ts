@@ -22,11 +22,7 @@ export function setupAgent(
 ): Effect.Effect<
   void,
   never,
-  | ToolRegistry
-  | MCPServerManager
-  | AgentConfigService
-  | LoggerService
-  | TerminalService
+  ToolRegistry | MCPServerManager | AgentConfigService | LoggerService | TerminalService
 > {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -41,9 +37,7 @@ export function setupAgent(
     // Register MCP tools for this agent (connects to relevant servers)
     // This happens before the first message as part of agent setup
     // Errors are handled gracefully - failed MCPs are logged but conversation continues
-    const setupResult = yield* registerMCPToolsForAgent(agentToolNames).pipe(
-      Effect.either,
-    );
+    const setupResult = yield* registerMCPToolsForAgent(agentToolNames).pipe(Effect.either);
 
     if (setupResult._tag === "Left") {
       // MCP setup had errors, but we continue anyway

@@ -1,7 +1,5 @@
 import { Effect, Schedule } from "effect";
-import {
-  MCPServerNameParseError,
-} from "@/core/types/errors";
+import { MCPServerNameParseError } from "@/core/types/errors";
 
 /**
  * Parse server name from MCP tool name
@@ -97,11 +95,7 @@ export function retryWithBackoff<E, A, R>(
     readonly shouldRetry?: (error: E) => boolean;
   } = {},
 ): Effect.Effect<A, E, R> {
-  const {
-    maxRetries = 3,
-    initialDelayMs = 1000,
-    shouldRetry = () => true,
-  } = options;
+  const { maxRetries = 3, initialDelayMs = 1000, shouldRetry = () => true } = options;
 
   // Create a schedule with exponential backoff
   // Schedule.exponential creates delays that grow exponentially: base * 2^attempt

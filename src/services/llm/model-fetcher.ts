@@ -3,7 +3,11 @@ import { Effect } from "effect";
 import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@/core/constants/models";
 import type { ModelInfo } from "@/core/types";
 import { LLMConfigurationError } from "@/core/types/errors";
-import { getMetadataFromMap, getModelsDevMap, type ModelsDevMetadata } from "@/core/utils/models-dev-client";
+import {
+  getMetadataFromMap,
+  getModelsDevMap,
+  type ModelsDevMetadata,
+} from "@/core/utils/models-dev-client";
 
 /**
  * Model fetcher: models.dev as single source of metadata
@@ -87,7 +91,9 @@ type OllamaShowResponse = {
  * Extract context length from Ollama model_info
  * The key format is `<family>.context_length` (e.g., "gemma3.context_length")
  */
-function extractOllamaContextLength(modelInfo: Record<string, unknown> | undefined): number | undefined {
+function extractOllamaContextLength(
+  modelInfo: Record<string, unknown> | undefined,
+): number | undefined {
   if (!modelInfo) return undefined;
 
   for (const [key, value] of Object.entries(modelInfo)) {
@@ -117,7 +123,7 @@ async function fetchOllamaModelDetails(
       return undefined;
     }
 
-    const data = await response.json() as OllamaShowResponse;
+    const data = (await response.json()) as OllamaShowResponse;
     return extractOllamaContextLength(data.model_info);
   } catch {
     return undefined;
@@ -138,10 +144,7 @@ const TOOL_PARAMS = new Set([
 function ollamaToolSupportFromMetadata(model: OllamaModel): boolean {
   const metadata = model.details?.metadata;
   if (!metadata || typeof metadata !== "object") return false;
-  const flag =
-    metadata["supports_tools"] ??
-    metadata["tool_use"] ??
-    metadata["function_calling"];
+  const flag = metadata["supports_tools"] ?? metadata["tool_use"] ?? metadata["function_calling"];
   return typeof flag === "boolean" && flag;
 }
 

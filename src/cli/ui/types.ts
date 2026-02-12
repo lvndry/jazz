@@ -28,7 +28,17 @@ export interface LiveStreamState {
   isThinking?: boolean;
 }
 
-export type PromptType = "text" | "chat" | "select" | "confirm" | "password" | "checkbox" | "search" | "hidden" | "questionnaire" | "filepicker";
+export type PromptType =
+  | "text"
+  | "chat"
+  | "select"
+  | "confirm"
+  | "password"
+  | "checkbox"
+  | "search"
+  | "hidden"
+  | "questionnaire"
+  | "filepicker";
 
 export interface Choice<T = unknown> {
   label: string;

@@ -69,8 +69,7 @@ const mockLLMService: LLMService = {
   listProviders: () => Effect.succeed([]),
   createChatCompletion: () =>
     Effect.succeed({ content: "", toolCalls: undefined, usage: undefined }),
-  createStreamingChatCompletion: () =>
-    Effect.fail(new Error("Not implemented in mock")),
+  createStreamingChatCompletion: () => Effect.fail(new Error("Not implemented in mock")),
   supportsNativeWebSearch: () => Effect.succeed(false),
 };
 
@@ -87,12 +86,13 @@ const mockPresentationService: PresentationService = {
   formatToolExecutionComplete: () => Effect.succeed(""),
   formatToolExecutionError: () => Effect.succeed(""),
   formatToolsDetected: () => Effect.succeed(""),
-  createStreamingRenderer: () => Effect.succeed({
-    handleEvent: () => Effect.void,
-    setInterruptHandler: () => Effect.void,
-    reset: () => Effect.void,
-    flush: () => Effect.void,
-  }),
+  createStreamingRenderer: () =>
+    Effect.succeed({
+      handleEvent: () => Effect.void,
+      setInterruptHandler: () => Effect.void,
+      reset: () => Effect.void,
+      flush: () => Effect.void,
+    }),
   writeOutput: () => Effect.void,
   writeBlankLine: () => Effect.void,
   requestApproval: () => Effect.succeed({ approved: true }),

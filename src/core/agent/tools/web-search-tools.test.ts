@@ -110,9 +110,9 @@ describe("WebSearchTool", () => {
         verifyMock: (args: WebSearchArgs) => {
           expect(mockExaSearch).toHaveBeenCalledWith(
             args.query,
-            expect.objectContaining({ numResults: args.maxResults ?? DEFAULT_MAX_RESULTS })
+            expect.objectContaining({ numResults: args.maxResults ?? DEFAULT_MAX_RESULTS }),
           );
-        }
+        },
       },
       {
         name: "brave",
@@ -121,15 +121,21 @@ describe("WebSearchTool", () => {
           (global.fetch as any).mockResolvedValue({
             ok: true,
             json: async () => ({
-              web: { results: [{ title: "Brave Result", url: "https://brave.com", description: "Brave snippet" }] },
+              web: {
+                results: [
+                  { title: "Brave Result", url: "https://brave.com", description: "Brave snippet" },
+                ],
+              },
             }),
           });
         },
         verifyMock: (args: WebSearchArgs) => {
           const lastCall = (global.fetch as any).mock.calls[0][0];
           const url = new URL(lastCall);
-          expect(url.searchParams.get("count")).toBe((args.maxResults ?? DEFAULT_MAX_RESULTS).toString());
-        }
+          expect(url.searchParams.get("count")).toBe(
+            (args.maxResults ?? DEFAULT_MAX_RESULTS).toString(),
+          );
+        },
       },
       {
         name: "perplexity",
@@ -138,15 +144,21 @@ describe("WebSearchTool", () => {
           (global.fetch as any).mockResolvedValue({
             ok: true,
             json: async () => ({
-              results: [{ title: "Perplexity Result", url: "https://perplexity.ai", snippet: "Pplx snippet" }],
+              results: [
+                {
+                  title: "Perplexity Result",
+                  url: "https://perplexity.ai",
+                  snippet: "Pplx snippet",
+                },
+              ],
             }),
           });
         },
         verifyMock: (args: WebSearchArgs) => {
           const lastCallBody = JSON.parse((global.fetch as any).mock.calls[0][1].body);
           expect(lastCallBody.max_results).toBe(args.maxResults ?? DEFAULT_MAX_RESULTS);
-        }
-      }
+        },
+      },
     ];
 
     describe.each(providers)("Provider: $name", (provider) => {
@@ -158,12 +170,14 @@ describe("WebSearchTool", () => {
         provider.setupMock();
 
         const result = await Effect.runPromise(
-          tool.execute({ query: "test" }, { agentId: "test" }).pipe(Effect.provide(layer))
+          tool.execute({ query: "test" }, { agentId: "test" }).pipe(Effect.provide(layer)),
         );
 
         expect((result as any).success).toBe(true);
         expect((result as any).result.provider).toBe(provider.name);
-        expect((result as any).result.results[0].title).toContain(provider.name.charAt(0).toUpperCase() + provider.name.slice(1));
+        expect((result as any).result.results[0].title).toContain(
+          provider.name.charAt(0).toUpperCase() + provider.name.slice(1),
+        );
       });
 
       it(`should pass maxResults to ${provider.name}`, async () => {
@@ -175,7 +189,7 @@ describe("WebSearchTool", () => {
 
         const args = { query: "test", maxResults: 10 };
         await Effect.runPromise(
-          tool.execute(args, { agentId: "test" }).pipe(Effect.provide(layer))
+          tool.execute(args, { agentId: "test" }).pipe(Effect.provide(layer)),
         );
 
         provider.verifyMock(args);
@@ -190,7 +204,7 @@ describe("WebSearchTool", () => {
 
         const args = { query: "test" };
         await Effect.runPromise(
-          tool.execute(args, { agentId: "test" }).pipe(Effect.provide(layer))
+          tool.execute(args, { agentId: "test" }).pipe(Effect.provide(layer)),
         );
 
         provider.verifyMock(args);
@@ -214,7 +228,9 @@ describe("WebSearchTool", () => {
         success: true,
         result: { totalResults: 1, query: "fallback test", provider: "web_search" },
       };
-      expect(tool.createSummary?.(mockResult)).toBe('Found 1 results for "fallback test" using web_search');
+      expect(tool.createSummary?.(mockResult)).toBe(
+        'Found 1 results for "fallback test" using web_search',
+      );
     });
   });
 });

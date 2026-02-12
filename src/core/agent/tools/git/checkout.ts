@@ -23,9 +23,24 @@ const gitCheckoutParameters = z
       .string()
       .optional()
       .describe("Path to the Git repository (defaults to current working directory)"),
-    branch: z.string().min(1).describe("Branch name to switch to or create (e.g., 'main', 'feature/user-auth', 'fix/login-bug')"),
-    create: z.boolean().optional().describe("Create a new branch with this name (equivalent to git checkout -b). Use for starting new feature or fix branches."),
-    force: z.boolean().optional().describe("Force checkout, DISCARDING all uncommitted changes. Only use when explicitly requested by the user."),
+    branch: z
+      .string()
+      .min(1)
+      .describe(
+        "Branch name to switch to or create (e.g., 'main', 'feature/user-auth', 'fix/login-bug')",
+      ),
+    create: z
+      .boolean()
+      .optional()
+      .describe(
+        "Create a new branch with this name (equivalent to git checkout -b). Use for starting new feature or fix branches.",
+      ),
+    force: z
+      .boolean()
+      .optional()
+      .describe(
+        "Force checkout, DISCARDING all uncommitted changes. Only use when explicitly requested by the user.",
+      ),
   })
   .strict();
 

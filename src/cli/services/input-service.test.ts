@@ -98,8 +98,7 @@ describe("InputService", () => {
           handle: (event) => {
             const action = event.action;
             if (action.type === "char") {
-              value =
-                value.slice(0, cursor) + action.char + value.slice(cursor);
+              value = value.slice(0, cursor) + action.char + value.slice(cursor);
               cursor += action.char.length;
               return InputResults.consumed();
             }
@@ -137,8 +136,7 @@ describe("InputService", () => {
           handle: (event) => {
             const action = event.action;
             if (action.type === "char") {
-              value =
-                value.slice(0, cursor) + action.char + value.slice(cursor);
+              value = value.slice(0, cursor) + action.char + value.slice(cursor);
               cursor += action.char.length;
               return InputResults.consumed();
             }

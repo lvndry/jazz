@@ -55,6 +55,8 @@ describe("Agent Management Commands", () => {
     await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
 
     expect(mockAgentService.deleteAgent).toHaveBeenCalledWith("a1");
-    expect(mockTerminal.success).toHaveBeenCalledWith(expect.stringContaining("deleted successfully"));
+    expect(mockTerminal.success).toHaveBeenCalledWith(
+      expect.stringContaining("deleted successfully"),
+    );
   });
 });

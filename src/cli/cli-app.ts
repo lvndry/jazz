@@ -354,11 +354,7 @@ function registerWorkflowCommands(program: Command): void {
         const isWorkflowRunCommand =
           command.name() === "run" && command.parent?.name() === "workflow";
         runCliEffect(
-          runWorkflowCommand(name, {
-            ...(options.autoApprove === true ? { autoApprove: true } : {}),
-            ...(options.agent ? { agent: options.agent } : {}),
-            ...(options.scheduled === true ? { scheduled: true } : {}),
-          }),
+          runWorkflowCommand(name, options),
           {
             verbose: opts.verbose,
             debug: opts.debug,

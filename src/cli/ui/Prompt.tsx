@@ -1,10 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Suggestion } from "@/core/interfaces/presentation";
-import {
-  filterCommandsByPrefix,
-  type ChatCommandInfo,
-} from "@/services/chat/commands";
+import { filterCommandsByPrefix, type ChatCommandInfo } from "@/services/chat/commands";
 import { ChatInput, SHORTCUTS_HINT } from "./components/ChatInput";
 import { FilePicker } from "./components/FilePicker";
 import { Questionnaire } from "./components/Questionnaire";
@@ -29,9 +26,11 @@ function CommandSuggestionItem({
 }: CommandSuggestionItemProps): React.ReactElement {
   return (
     <Box marginLeft={1}>
-      <Text color={isSelected ? THEME.selected : "white"} bold={isSelected}>
-        {isSelected ? "> " : "  "}
-        /{command.name}
+      <Text
+        color={isSelected ? THEME.selected : "white"}
+        bold={isSelected}
+      >
+        {isSelected ? "> " : "  "}/{command.name}
       </Text>
       <Text dimColor> – {command.description}</Text>
     </Box>
@@ -77,11 +76,7 @@ function PromptComponent({
     const currentPrompt = promptRef.current;
     // Check if validation function exists
     const validate = currentPrompt.options?.["validate"];
-    if (
-      validate !== undefined &&
-      validate !== null &&
-      typeof validate === "function"
-    ) {
+    if (validate !== undefined && validate !== null && typeof validate === "function") {
       // Type guard: validate is a function that takes string and returns boolean | string
       const validationFn = validate as (input: string) => boolean | string;
       const result = validationFn(val);
@@ -102,8 +97,7 @@ function PromptComponent({
     currentPrompt.resolve(val);
   }, []);
 
-  const textInputActive =
-    prompt.type === "chat" || prompt.type === "password";
+  const textInputActive = prompt.type === "chat" || prompt.type === "password";
   const { value, cursor, setValue } = useTextInput({
     id: "text-input",
     isActive: textInputActive,
@@ -126,9 +120,7 @@ function PromptComponent({
   // Keep selected index in bounds when list changes
   useEffect(() => {
     if (filteredCommands.length > 0) {
-      setSelectedSuggestionIndex((i) =>
-        Math.min(i, filteredCommands.length - 1),
-      );
+      setSelectedSuggestionIndex((i) => Math.min(i, filteredCommands.length - 1));
     }
   }, [filteredCommands.length]);
 
@@ -152,9 +144,7 @@ function PromptComponent({
         return InputResults.consumed();
       }
       if (action.type === "down") {
-        setSelectedSuggestionIndexRef.current(
-          Math.min(commands.length - 1, idx + 1),
-        );
+        setSelectedSuggestionIndexRef.current(Math.min(commands.length - 1, idx + 1));
         return InputResults.consumed();
       }
       if (action.type === "submit" && commands[idx]) {
@@ -173,9 +163,7 @@ function PromptComponent({
     // may not unmount between prompts. Ensure the input is reset for each new prompt.
     const rawDefaultValue = prompt.options?.["defaultValue"];
     const defaultValue =
-      prompt.type === "chat" && typeof rawDefaultValue === "string"
-        ? rawDefaultValue
-        : "";
+      prompt.type === "chat" && typeof rawDefaultValue === "string" ? rawDefaultValue : "";
 
     setValue(defaultValue, defaultValue.length);
     setValidationError(null);
@@ -197,7 +185,11 @@ function PromptComponent({
   });
 
   return (
-    <Box flexDirection="column" marginTop={1} paddingX={1}>
+    <Box
+      flexDirection="column"
+      marginTop={1}
+      paddingX={1}
+    >
       {/* Prompt message with indicator */}
       <Box>
         <Text color={THEME.primary}>?</Text>
@@ -206,7 +198,11 @@ function PromptComponent({
       </Box>
 
       {/* Input area */}
-      <Box marginTop={1} paddingLeft={1} flexDirection="column">
+      <Box
+        marginTop={1}
+        paddingLeft={1}
+        flexDirection="column"
+      >
         {prompt.type === "chat" && (
           <>
             <Box
@@ -229,7 +225,10 @@ function PromptComponent({
               </Box>
               {/* Command suggestions when typing / */}
               {suggestionsVisible && (
-                <Box marginTop={1} flexDirection="column">
+                <Box
+                  marginTop={1}
+                  flexDirection="column"
+                >
                   <Text dimColor> Commands (↑/↓ select, Enter to pick):</Text>
                   {filteredCommands.map((cmd, index) => (
                     <CommandSuggestionItem
@@ -242,16 +241,28 @@ function PromptComponent({
               )}
             </Box>
             {/* Hints below box so terminal selection inside box captures only input text */}
-            <Box marginTop={1} flexDirection="column">
-              {workingDirectory && (
-                <Text dimColor>Current directory: {workingDirectory}</Text>
-              )}
+            <Box
+              marginTop={1}
+              flexDirection="column"
+            >
+              {workingDirectory && <Text dimColor>Current directory: {workingDirectory}</Text>}
               <Text dimColor>{SHORTCUTS_HINT}</Text>
             </Box>
             {/* Validation error message */}
             {validationError && (
-              <Box marginTop={1} paddingLeft={1} paddingRight={1} borderStyle="round" borderColor="red">
-                <Text color="red" bold>✗ {validationError}</Text>
+              <Box
+                marginTop={1}
+                paddingLeft={1}
+                paddingRight={1}
+                borderStyle="round"
+                borderColor="red"
+              >
+                <Text
+                  color="red"
+                  bold
+                >
+                  ✗ {validationError}
+                </Text>
               </Box>
             )}
           </>
@@ -300,21 +311,22 @@ function PromptComponent({
             onCancel={() => prompt.reject?.()}
           />
         )}
-        {prompt.type === "text" && (() => {
-          const validate = prompt.options?.["validate"] as ((input: string) => boolean | string) | undefined;
-          return (
-            <TextInput
-              inputId={prompt.message}
-              defaultValue={(prompt.options?.["defaultValue"] as string) ?? ""}
-              {...(validate ? { validate } : {})}
-              onSubmit={(value: string) => prompt.resolve(value)}
-              onCancel={() => prompt.reject?.()}
-            />
-          );
-        })()}
-        {prompt.type === "hidden" && (
-          <HiddenInput onSubmit={() => prompt.resolve("")} />
-        )}
+        {prompt.type === "text" &&
+          (() => {
+            const validate = prompt.options?.["validate"] as
+              | ((input: string) => boolean | string)
+              | undefined;
+            return (
+              <TextInput
+                inputId={prompt.message}
+                defaultValue={(prompt.options?.["defaultValue"] as string) ?? ""}
+                {...(validate ? { validate } : {})}
+                onSubmit={(value: string) => prompt.resolve(value)}
+                onCancel={() => prompt.reject?.()}
+              />
+            );
+          })()}
+        {prompt.type === "hidden" && <HiddenInput onSubmit={() => prompt.resolve("")} />}
         {prompt.type === "questionnaire" && (
           <Questionnaire
             suggestions={(prompt.options?.["suggestions"] as readonly Suggestion[]) ?? []}

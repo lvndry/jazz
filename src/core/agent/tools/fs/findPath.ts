@@ -67,7 +67,9 @@ export function createFindPathTool(): Tool<FileSystem.FileSystem | FileSystemCon
       searchPath: z
         .string()
         .optional()
-        .describe("Directory to start search from (defaults to current directory). NEVER use '/' as it's too broad and slow. Use current directory (omit this param) or a specific subdirectory."),
+        .describe(
+          "Directory to start search from (defaults to current directory). NEVER use '/' as it's too broad and slow. Use current directory (omit this param) or a specific subdirectory.",
+        ),
     })
     .strict()
     .refine((data) => data.name || data.pathPattern || data.regex, {

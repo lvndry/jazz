@@ -56,10 +56,7 @@ export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
       return true;
 
     case "thinking":
-      return (
-        a.agentName === (b as typeof a).agentName &&
-        a.reasoning === (b as typeof a).reasoning
-      );
+      return a.agentName === (b as typeof a).agentName && a.reasoning === (b as typeof a).reasoning;
 
     case "streaming":
       return (
@@ -73,9 +70,7 @@ export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
       if (a.agentName !== (b as typeof a).agentName) return false;
       if (a.tools.length !== bTools.length) return false;
       return a.tools.every(
-        (t, i) =>
-          t.toolCallId === bTools[i]!.toolCallId &&
-          t.toolName === bTools[i]!.toolName,
+        (t, i) => t.toolCallId === bTools[i]!.toolCallId && t.toolName === bTools[i]!.toolName,
       );
     }
 

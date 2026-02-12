@@ -68,19 +68,21 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
       // Default fallback UI for terminal
       return (
-        <Box flexDirection="column" padding={1}>
-          <Text color="red" bold>
+        <Box
+          flexDirection="column"
+          padding={1}
+        >
+          <Text
+            color="red"
+            bold
+          >
             ⚠️ An error occurred
           </Text>
           <Box marginTop={1}>
-            <Text color="gray">
-              {this.state.error?.message || "Unknown error"}
-            </Text>
+            <Text color="gray">{this.state.error?.message || "Unknown error"}</Text>
           </Box>
           <Box marginTop={1}>
-            <Text color="yellow">
-              Please try again or restart the application.
-            </Text>
+            <Text color="yellow">Please try again or restart the application.</Text>
           </Box>
         </Box>
       );

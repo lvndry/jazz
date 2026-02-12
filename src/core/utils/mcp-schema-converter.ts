@@ -53,11 +53,11 @@ function convertEnumSchema(enumValues: readonly unknown[]): z.ZodTypeAny {
 
   // Create union of literals
   const unionParts = validValues.map((v) => z.literal(v));
-  return z.union([
-    unionParts[0],
-    unionParts[1],
-    ...unionParts.slice(2),
-  ] as [z.ZodLiteral<string | number | boolean | null>, z.ZodLiteral<string | number | boolean | null>, ...z.ZodLiteral<string | number | boolean | null>[]]);
+  return z.union([unionParts[0], unionParts[1], ...unionParts.slice(2)] as [
+    z.ZodLiteral<string | number | boolean | null>,
+    z.ZodLiteral<string | number | boolean | null>,
+    ...z.ZodLiteral<string | number | boolean | null>[],
+  ]);
 }
 
 /**
@@ -139,11 +139,11 @@ function convertUnionSchema(
     return z.union([first, second]);
   }
 
-  return z.union([
-    first,
-    second,
-    ...zodOptions.slice(2),
-  ] as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+  return z.union([first, second, ...zodOptions.slice(2)] as [
+    z.ZodTypeAny,
+    z.ZodTypeAny,
+    ...z.ZodTypeAny[],
+  ]);
 }
 
 /**
@@ -190,10 +190,7 @@ function isArrayType(type: string | readonly string[] | undefined): boolean {
  * @param toolName - Optional tool name for error messages
  * @returns Zod schema
  */
-export function convertMCPSchemaToZod(
-  mcpSchema: unknown,
-  toolName?: string,
-): z.ZodTypeAny {
+export function convertMCPSchemaToZod(mcpSchema: unknown, toolName?: string): z.ZodTypeAny {
   // Validate input
   if (typeof mcpSchema !== "object" || mcpSchema === null) {
     // Invalid schema - default to empty object for LLM compatibility
@@ -205,7 +202,11 @@ export function convertMCPSchemaToZod(
   // We need to unwrap it to get the actual schema with type/properties/required
   const schemaObj = mcpSchema as Record<string, unknown>;
   const nestedJsonSchema = schemaObj["jsonSchema"];
-  if (nestedJsonSchema !== undefined && typeof nestedJsonSchema === "object" && nestedJsonSchema !== null) {
+  if (
+    nestedJsonSchema !== undefined &&
+    typeof nestedJsonSchema === "object" &&
+    nestedJsonSchema !== null
+  ) {
     // Unwrap the nested jsonSchema
     return convertMCPSchemaToZod(nestedJsonSchema, toolName);
   }
@@ -291,4 +292,3 @@ export function convertMCPSchemaToZod(
 
   return baseSchema;
 }
-

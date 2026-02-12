@@ -47,10 +47,17 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
   const tools = agent.config.tools ?? [];
 
   return (
-    <Box flexDirection="column" paddingX={1} width={width}>
+    <Box
+      flexDirection="column"
+      paddingX={1}
+      width={width}
+    >
       {/* Header */}
       <Box justifyContent="space-between">
-        <Text bold color={THEME.primary}>
+        <Text
+          bold
+          color={THEME.primary}
+        >
           Agent: {agent.name}
         </Text>
         <Text dimColor>jazz agent chat &lt;id|name&gt;</Text>
@@ -62,11 +69,31 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
       </Box>
 
       {/* Basic info */}
-      <Box marginTop={1} flexDirection="column" paddingLeft={1}>
-        <KeyValue label="ID" value={agent.id} innerWidth={inner} />
-        <KeyValue label="Model" value={model} innerWidth={inner} />
-        <KeyValue label="Created" value={formatIsoShort(agent.createdAt)} innerWidth={inner} />
-        <KeyValue label="Updated" value={formatIsoShort(agent.updatedAt)} innerWidth={inner} />
+      <Box
+        marginTop={1}
+        flexDirection="column"
+        paddingLeft={1}
+      >
+        <KeyValue
+          label="ID"
+          value={agent.id}
+          innerWidth={inner}
+        />
+        <KeyValue
+          label="Model"
+          value={model}
+          innerWidth={inner}
+        />
+        <KeyValue
+          label="Created"
+          value={formatIsoShort(agent.createdAt)}
+          innerWidth={inner}
+        />
+        <KeyValue
+          label="Updated"
+          value={formatIsoShort(agent.updatedAt)}
+          innerWidth={inner}
+        />
         <KeyValue
           label="Description"
           value={agent.description?.trim().length ? agent.description : "—"}
@@ -76,14 +103,35 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
       </Box>
 
       {/* Configuration section */}
-      <Box marginTop={1} flexDirection="column">
-        <Text bold color="gray">
+      <Box
+        marginTop={1}
+        flexDirection="column"
+      >
+        <Text
+          bold
+          color="gray"
+        >
           Configuration
         </Text>
-        <Box flexDirection="column" paddingLeft={1}>
-          <KeyValue label="Agent type" value={agent.config.agentType ?? "default"} innerWidth={inner - 2} />
-          <KeyValue label="Provider" value={agent.config.llmProvider} innerWidth={inner - 2} />
-          <KeyValue label="Model" value={agent.config.llmModel} innerWidth={inner - 2} />
+        <Box
+          flexDirection="column"
+          paddingLeft={1}
+        >
+          <KeyValue
+            label="Agent type"
+            value={agent.config.agentType ?? "default"}
+            innerWidth={inner - 2}
+          />
+          <KeyValue
+            label="Provider"
+            value={agent.config.llmProvider}
+            innerWidth={inner - 2}
+          />
+          <KeyValue
+            label="Model"
+            value={agent.config.llmModel}
+            innerWidth={inner - 2}
+          />
           <KeyValue
             label="Reasoning"
             value={agent.config.reasoningEffort ? String(agent.config.reasoningEffort) : "—"}
@@ -93,9 +141,15 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
       </Box>
 
       {/* Tools section */}
-      <Box marginTop={1} flexDirection="column">
+      <Box
+        marginTop={1}
+        flexDirection="column"
+      >
         <Box justifyContent="space-between">
-          <Text bold color="gray">
+          <Text
+            bold
+            color="gray"
+          >
             Tools
           </Text>
           <Text dimColor>{tools.length}</Text>
@@ -220,4 +274,3 @@ function formatIsoShort(d: Date): string {
   const iso = d.toISOString();
   return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
 }
-

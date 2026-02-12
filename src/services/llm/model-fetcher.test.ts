@@ -21,15 +21,15 @@ describe("ModelFetcher", () => {
 
   it("should fetch models from OpenRouter", async () => {
     const mockResponse = {
-      data: [
-        { id: "m1", name: "Model 1", context_length: 8192, supported_parameters: ["tools"] }
-      ]
+      data: [{ id: "m1", name: "Model 1", context_length: 8192, supported_parameters: ["tools"] }],
     };
 
-    global.fetch = mock(() => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(mockResponse)
-    })) as unknown as typeof fetch;
+    global.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockResponse),
+      }),
+    ) as unknown as typeof fetch;
 
     const program = fetcher.fetchModels("openrouter", "https://or.api", "/models", "key");
     const result = await Effect.runPromise(program);
@@ -41,16 +41,17 @@ describe("ModelFetcher", () => {
 
   it("should handle Ollama with special transformation", async () => {
     const mockTagsResponse = {
-      models: [{ name: "llama3:latest", details: { metadata: { supports_tools: true } } }]
+      models: [{ name: "llama3:latest", details: { metadata: { supports_tools: true } } }],
     };
     const mockShowResponse = {
-      model_info: { "llama.context_length": 4096 }
+      model_info: { "llama.context_length": 4096 },
     };
 
-
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/api/tags")) return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
-      if (url.endsWith("/api/show")) return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      if (url.endsWith("/api/tags"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
+      if (url.endsWith("/api/show"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -63,11 +64,13 @@ describe("ModelFetcher", () => {
   });
 
   it("should fail gracefully on 404", async () => {
-    global.fetch = mock(() => Promise.resolve({
-      ok: false,
-      status: 404,
-      statusText: "Not Found"
-    })) as unknown as typeof fetch;
+    global.fetch = mock(() =>
+      Promise.resolve({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+      }),
+    ) as unknown as typeof fetch;
 
     const program = fetcher.fetchModels("openrouter", "https://or.api", "/bad");
     const result = await Effect.runPromiseExit(program);

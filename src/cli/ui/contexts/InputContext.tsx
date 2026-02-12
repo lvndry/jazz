@@ -2,10 +2,7 @@ import { Effect } from "effect";
 import { useInput } from "ink";
 import React, { createContext, useCallback, useState } from "react";
 import type { KeyInfo } from "../../input/escape-state-machine";
-import {
-  createInputService,
-  type InputService,
-} from "../../services/input-service";
+import { createInputService, type InputService } from "../../services/input-service";
 import {
   TerminalCapabilityServiceLive,
   TerminalCapabilityServiceTag,
@@ -66,9 +63,7 @@ export function InputProvider({
       return createInputService(capabilities);
     });
 
-    return Effect.runSync(
-      Effect.provide(program, TerminalCapabilityServiceLive),
-    );
+    return Effect.runSync(Effect.provide(program, TerminalCapabilityServiceLive));
   });
 
   // Bridge Ink's useInput to our InputService
@@ -99,11 +94,7 @@ export function InputProvider({
   // Register with Ink's input system
   useInput(handleInput);
 
-  return (
-    <InputServiceContext.Provider value={service}>
-      {children}
-    </InputServiceContext.Provider>
-  );
+  return <InputServiceContext.Provider value={service}>{children}</InputServiceContext.Provider>;
 }
 
 // ============================================================================
@@ -142,7 +133,12 @@ export function withInputService<P extends { inputService: InputService }>(
           if (!service) {
             throw new Error("withInputService must be used within an InputProvider");
           }
-          return <Component {...(props as P)} inputService={service} />;
+          return (
+            <Component
+              {...(props as P)}
+              inputService={service}
+            />
+          );
         }}
       </InputServiceContext.Consumer>
     );

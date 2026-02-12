@@ -266,16 +266,18 @@ export function runCliEffect<R, E extends JazzError | Error>(
     const exit = yield* Effect.race(
       Fiber.await(fiber).pipe(Effect.map((exit) => ({ _tag: "exit" as const, exit }))),
       shutdownRequest.pipe(Effect.map((req) => ({ _tag: "signal" as const, req }))),
-    ).pipe(
-      Effect.flatMap((result) =>
-        result._tag === "signal"
-          ? Fiber.interrupt(fiber).pipe(
-              Effect.zipRight(Fiber.await(fiber)),
-              Effect.map((exit) => ({ _tag: "exit" as const, exit })),
-            )
-          : Effect.succeed(result),
-      ),
-    ).pipe(Effect.map((r) => r.exit));
+    )
+      .pipe(
+        Effect.flatMap((result) =>
+          result._tag === "signal"
+            ? Fiber.interrupt(fiber).pipe(
+                Effect.zipRight(Fiber.await(fiber)),
+                Effect.map((exit) => ({ _tag: "exit" as const, exit })),
+              )
+            : Effect.succeed(result),
+        ),
+      )
+      .pipe(Effect.map((r) => r.exit));
 
     // Register cleanup for MCP server connections
     yield* Effect.addFinalizer(() =>
@@ -288,9 +290,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
 
         const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
         if (Option.isSome(mcpManager)) {
-          yield* mcpManager.value.disconnectAllServers().pipe(
-            Effect.catchAll(() => Effect.void),
-          );
+          yield* mcpManager.value.disconnectAllServers().pipe(Effect.catchAll(() => Effect.void));
         }
       }),
     );

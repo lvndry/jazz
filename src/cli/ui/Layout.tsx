@@ -22,7 +22,12 @@ interface LayoutProps {
  * - Footer area
  *
  */
-export const Layout = React.memo(function Layout({ children, sidebar, title, footer }: LayoutProps): React.ReactElement {
+export const Layout = React.memo(function Layout({
+  children,
+  sidebar,
+  title,
+  footer,
+}: LayoutProps): React.ReactElement {
   return (
     <Box
       flexDirection="column"
@@ -34,22 +39,39 @@ export const Layout = React.memo(function Layout({ children, sidebar, title, foo
       // height="100%" // Let content drive height for now, or fixed? Ink usually manages height.
     >
       {/* Header */}
-      <Box flexDirection="row" justifyContent="space-between" alignItems="center" marginBottom={1}>
+      <Box
+        flexDirection="row"
+        justifyContent="space-between"
+        alignItems="center"
+        marginBottom={1}
+      >
         <Box flexDirection="column">
-            <Gradient name="morning">
-                <BigText text="Jazz" font="tiny" />
-            </Gradient>
-            <Text dimColor>v{packageJson.version} • {title || "Agentic CLI"}</Text>
+          <Gradient name="morning">
+            <BigText
+              text="Jazz"
+              font="tiny"
+            />
+          </Gradient>
+          <Text dimColor>
+            v{packageJson.version} • {title || "Agentic CLI"}
+          </Text>
         </Box>
         <Box>
-           <Text>🎷</Text>
+          <Text>🎷</Text>
         </Box>
       </Box>
 
       {/* Main Content Area */}
-      <Box flexDirection="row" marginTop={1}>
+      <Box
+        flexDirection="row"
+        marginTop={1}
+      >
         {/* Main Column */}
-        <Box flexDirection="column" width={sidebar ? "60%" : "100%"} paddingRight={sidebar ? 2 : 0}>
+        <Box
+          flexDirection="column"
+          width={sidebar ? "60%" : "100%"}
+          paddingRight={sidebar ? 2 : 0}
+        >
           {children}
         </Box>
 
@@ -58,11 +80,14 @@ export const Layout = React.memo(function Layout({ children, sidebar, title, foo
           <>
             {/* Vertical Separator */}
             <Box marginRight={2}>
-                <Text dimColor>│</Text>
+              <Text dimColor>│</Text>
             </Box>
 
             {/* Sidebar Column */}
-            <Box flexDirection="column" width="35%">
+            <Box
+              flexDirection="column"
+              width="35%"
+            >
               {sidebar}
             </Box>
           </>
@@ -70,7 +95,7 @@ export const Layout = React.memo(function Layout({ children, sidebar, title, foo
       </Box>
 
       {/* Footer */}
-      {(footer) && (
+      {footer && (
         <Box marginTop={2}>
           <Text dimColor>{footer}</Text>
         </Box>

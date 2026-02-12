@@ -202,14 +202,24 @@ export function runWorkflowCommand(
 
       if (workflow?.schedule) {
         const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
-        const lastRun = history
-          .filter((r) => r.workflowName === workflowName)
-          .reduce<Date | undefined>((latest, r) => {
-            const ts = r.completedAt ?? r.startedAt;
-            const parsed = new Date(ts);
-            if (Number.isNaN(parsed.getTime())) return latest;
-            return !latest || parsed.getTime() > latest.getTime() ? parsed : latest;
-          }, undefined);
+        const workflowHistory = history.filter((r) => r.workflowName === workflowName);
+
+        // If the workflow has never been run before, there is nothing to catch up on.
+        // This prevents RunAtLoad from triggering an immediate run right after the
+        // workflow is first scheduled (when there is no run history yet).
+        if (workflowHistory.length === 0) {
+          yield* logger.info("Scheduler-triggered run skipped: no prior run history", {
+            workflow: workflowName,
+          });
+          return;
+        }
+
+        const lastRun = workflowHistory.reduce<Date | undefined>((latest, r) => {
+          const ts = r.completedAt ?? r.startedAt;
+          const parsed = new Date(ts);
+          if (Number.isNaN(parsed.getTime())) return latest;
+          return !latest || parsed.getTime() > latest.getTime() ? parsed : latest;
+        }, undefined);
 
         const now = new Date();
         const decision = decideCatchUp(

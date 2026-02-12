@@ -99,7 +99,11 @@ const executeCommandParameters = z
   })
   .strict();
 
-type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService | LoggerService | TerminalService;
+type ShellCommandDeps =
+  | FileSystem.FileSystem
+  | FileSystemContextService
+  | LoggerService
+  | TerminalService;
 
 /**
  * Create shell command tools (approval + execution pair).
@@ -325,7 +329,6 @@ This command will be executed on your system. Only approve commands you trust.`;
       return "Command executed";
     },
   };
-
 
   return defineApprovalTool<ShellCommandDeps, ExecuteCommandArgs>(config);
 }
