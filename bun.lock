@@ -21,7 +21,7 @@
         "@googleapis/gmail": "^16.1.1",
         "@inkjs/ui": "^2.0.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
-        "@openrouter/ai-sdk-provider": "^2.2.1",
+        "@openrouter/ai-sdk-provider": "^2.2.3",
         "@tavily/core": "^0.5.14",
         "@toon-format/toon": "^2.1.0",
         "ai": "^6.0.78",
@@ -201,7 +201,7 @@
 
     "@nodelib/fs.walk": ["@nodelib/fs.walk@1.2.8", "", { "dependencies": { "@nodelib/fs.scandir": "2.1.5", "fastq": "^1.6.0" } }, "sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg=="],
 
-    "@openrouter/ai-sdk-provider": ["@openrouter/ai-sdk-provider@2.2.1", "", { "peerDependencies": { "ai": "^6.0.0", "zod": "^3.25.0 || ^4.0.0" } }, "sha512-VjTSNTDIymAJsyIWw4+qPCMuezCS1kJCQwrPjszaNI+ZIo8PbIHTWNc2Y5pYO+ymYbOXKEvedFZxXsEkytOJSA=="],
+    "@openrouter/ai-sdk-provider": ["@openrouter/ai-sdk-provider@2.2.3", "", { "peerDependencies": { "ai": "^6.0.0", "zod": "^3.25.0 || ^4.0.0" } }, "sha512-NovC+BaCfEeJwhToDrs8JeDYXXlJdEyz7lcxkjtyePSE4eoAKik872SyDK0MzXKcz8MRkv7XlNhPI6zz4TQp0g=="],
 
     "@opentelemetry/api": ["@opentelemetry/api@1.9.0", "", {}, "sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg=="],
 
