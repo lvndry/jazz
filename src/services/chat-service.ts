@@ -207,7 +207,10 @@ export class ChatServiceImpl implements ChatService {
                 : {}),
               ...(autoApprovedTools.length > 0 ? { autoApprovedTools } : {}),
             };
-            const commandResult: CommandResult = yield* handleSpecialCommand(specialCommand, context);
+            const commandResult: CommandResult = yield* handleSpecialCommand(
+              specialCommand,
+              context,
+            );
 
             if (commandResult.newConversationId !== undefined) {
               conversationId = commandResult.newConversationId;
