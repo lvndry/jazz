@@ -109,8 +109,13 @@ const PromptIsland = React.memo(PromptIslandComponent);
 //      entries. Only these participate in Ink's render/layout cycle, so
 //      keystroke latency stays constant even after thousands of messages.
 //
-// On `clearOutputs()` both tiers are reset (new arrays), avoiding the
-// <Static> memory-leak concern from earlier revisions.
+// On `clearOutputs()` both tiers are reset (new arrays) and the
+// `staticGeneration` counter is bumped, which changes the React `key`
+// on `<Static>`.  This forces a full remount, resetting Ink's internal
+// positional index so that post-clear items are rendered correctly.
+// Without the remount, Ink's `<Static>` would still remember the old
+// item count and silently drop newly promoted entries (see detailed
+// explanation on the `staticGeneration` field).
 // ============================================================================
 
 interface OutputIslandState {
@@ -127,6 +132,24 @@ interface OutputIslandState {
    */
   staticEntries: OutputEntryWithId[];
   outputIdCounter: number;
+  /**
+   * Monotonically increasing generation counter, bumped on every
+   * `clearOutputs()` call. Used as the React `key` on `<Static>` to
+   * force a full remount, which resets Ink's internal positional index
+   * back to 0.
+   *
+   * Why this is necessary: Ink's `<Static>` tracks how many items it
+   * has already rendered via a `useState(0)` counter (`index`). It only
+   * renders `items.slice(index)` — i.e., items appended since the last
+   * render. When we clear `staticEntries` back to `[]`, React may batch
+   * the clear with subsequent promotions, causing the *first* render
+   * after the clear to see a short array while `index` still equals the
+   * old (larger) count. `items.slice(oldIndex)` on the short array
+   * yields `[]`, silently dropping newly promoted items. Changing the
+   * `key` forces React to unmount and remount `<Static>`, resetting
+   * `index` to 0 so all post-clear items are rendered correctly.
+   */
+  staticGeneration: number;
 }
 
 function OutputIslandComponent(): React.ReactElement {
@@ -134,6 +157,7 @@ function OutputIslandComponent(): React.ReactElement {
     liveEntries: [],
     staticEntries: [],
     outputIdCounter: 0,
+    staticGeneration: 0,
   });
   const initializedRef = useRef(false);
 
@@ -168,13 +192,19 @@ function OutputIslandComponent(): React.ReactElement {
         liveEntries: trimmedLive,
         staticEntries: newStaticEntries,
         outputIdCounter: prev.outputIdCounter + 1,
+        staticGeneration: prev.staticGeneration,
       };
     });
     return newId;
   }, []);
 
   const clearOutputs = useCallback((): void => {
-    setState({ liveEntries: [], staticEntries: [], outputIdCounter: 0 });
+    setState((prev) => ({
+      liveEntries: [],
+      staticEntries: [],
+      outputIdCounter: 0,
+      staticGeneration: prev.staticGeneration + 1,
+    }));
   }, []);
 
   // Register store methods synchronously during render
@@ -202,8 +232,13 @@ function OutputIslandComponent(): React.ReactElement {
 
   return (
     <Box flexDirection="column">
-      {/* Static tier: rendered once, never re-laid-out */}
-      <Static items={state.staticEntries}>
+      {/* Static tier: rendered once, never re-laid-out.
+          The key forces a remount on clearOutputs(), resetting Ink's
+          internal positional index so post-clear items render correctly. */}
+      <Static
+        key={state.staticGeneration}
+        items={state.staticEntries}
+      >
         {(entry: OutputEntryWithId, index: number) => {
           const prevEntry = index > 0 ? state.staticEntries[index - 1] : null;
           const addSpacing =
