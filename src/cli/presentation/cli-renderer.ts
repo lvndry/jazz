@@ -746,6 +746,3 @@ export class CLIRenderer {
     return this.writer;
   }
 }
-
-// Type export for backwards compatibility
-export type { CLIRendererConfig as OutputRendererConfig };

@@ -124,6 +124,11 @@ export class InkTerminalService implements TerminalService {
 
   clear(): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      // Clear visible screen + scrollback buffer, then reset UI state.
+      // console.clear() must come BEFORE store.clearOutputs() because
+      // the store reset changes <Static>'s React key (forcing a remount),
+      // and any content Ink already wrote to stdout needs to be erased
+      // before that remount produces new output.
       console.clear();
       store.clearOutputs();
     });

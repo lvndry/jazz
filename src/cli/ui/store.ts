@@ -6,7 +6,7 @@ type PrintOutputHandler = (entry: OutputEntry) => string;
 
 const MAX_PENDING_OUTPUT_QUEUE = 2000;
 
-export interface ExpandableDiffPayload {
+interface ExpandableDiffPayload {
   readonly fullDiff: string;
   readonly timestamp: number;
 }

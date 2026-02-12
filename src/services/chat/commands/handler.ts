@@ -778,9 +778,9 @@ function handleClearCommand(
   agent: CommandContext["agent"],
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
-    // Clear visible screen, scrollback buffer, and move cursor to home position
-    // More reliable across terminals than console.clear()
-    process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
+    // Use terminal.clear() which both clears the screen and resets the
+    // Ink output island state (staticEntries + liveEntries).
+    yield* terminal.clear();
     yield* terminal.info(`Chat with ${agent.name} - Screen cleared`);
     yield* terminal.info("Type '/help' to see available commands.");
     yield* terminal.info("Type '/exit' to end the conversation.");

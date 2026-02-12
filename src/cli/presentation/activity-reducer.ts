@@ -32,7 +32,7 @@ import { Box, Text } from "ink";
 import React from "react";
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
-import { CLIRenderer } from "./cli-renderer";
+import { formatToolArguments, formatToolResult } from "./format-utils";
 import { applyTextChunkOrdered } from "./stream-text-order";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
 import { THEME } from "../ui/theme";
@@ -481,7 +481,7 @@ export function reduceEvent(
         // ignore parse errors
       }
 
-      const argsStr = CLIRenderer.formatToolArguments(toolName, parsedArgs);
+      const argsStr = formatToolArguments(toolName, parsedArgs);
       let providerLabel = "";
       if (toolName === "web_search" && acc.currentProvider) {
         providerLabel = ` [${acc.currentProvider}]`;
@@ -506,7 +506,7 @@ export function reduceEvent(
     case "tool_execution_start": {
       acc.activeTools.set(event.toolCallId, { toolName: event.toolName, startedAt: Date.now() });
 
-      const argsStr = CLIRenderer.formatToolArguments(event.toolName, event.arguments);
+      const argsStr = formatToolArguments(event.toolName, event.arguments);
       let providerSuffix = "";
       if (event.toolName === "web_search") {
         const provider = event.metadata?.["provider"];
@@ -539,7 +539,7 @@ export function reduceEvent(
 
       let summary = event.summary?.trim();
       if (!summary && toolName && event.result) {
-        summary = CLIRenderer.formatToolResult(toolName, event.result);
+        summary = formatToolResult(toolName, event.result);
       }
 
       const namePrefix = toolName ? `${toolName} ` : "";
