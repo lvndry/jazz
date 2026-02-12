@@ -6,9 +6,10 @@ import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { STATIC_PROVIDER_MODELS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
-import type { LLMService } from "@/core/interfaces/llm";
+import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import {
   MCPServerManagerTag,
@@ -30,7 +31,8 @@ import type { AutoApprovePolicy } from "@/core/types/tools";
 import { sortAgents } from "@/core/utils/agent-sort";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
-import { groupWorkflows, formatWorkflow } from "@/core/workflows/workflow-utils";
+import { groupWorkflows } from "@/core/workflows/workflow-utils";
+import * as fmt from "@/cli/utils/list-format";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
@@ -143,10 +145,10 @@ export function handleSpecialCommand(
 function handleNewCommand(terminal: TerminalService): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     yield* terminal.info("Starting new conversation...");
-    yield* terminal.log("   • Conversation context cleared");
-    yield* terminal.log("   • Fresh start with the agent");
-    yield* terminal.log("");
-    yield* terminal.log("");
+    yield* terminal.log(fmt.item("Conversation context cleared"));
+    yield* terminal.log(fmt.item("Fresh start with the agent"));
+    yield* terminal.log(fmt.blank());
+    yield* terminal.log(fmt.blank());
     return {
       shouldContinue: true,
       newConversationId: generateConversationId(),
@@ -160,32 +162,26 @@ function handleNewCommand(terminal: TerminalService): Effect.Effect<CommandResul
  */
 function handleHelpCommand(terminal: TerminalService): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
-    yield* terminal.heading("📖 Available special commands");
-    yield* terminal.log("   /new             - Start a new conversation (clear context)");
-    yield* terminal.log("   /tools           - List all agent tools by category");
-    yield* terminal.log("   /agents          - List all available agents");
-    yield* terminal.log(
-      "   /switch [agent]  - Switch to a different agent in the same conversation",
-    );
-    yield* terminal.log("   /clear           - Clear the screen");
-    yield* terminal.log("   /compact         - Summarize background history to save tokens");
-    yield* terminal.log("   /context         - Show context window usage and token breakdown");
-    yield* terminal.log("   /cost            - Show conversation token usage and estimated cost");
-    yield* terminal.log("   /copy            - Copy the last agent response to clipboard");
-    yield* terminal.log("   /model           - Show or change model and reasoning effort");
-    yield* terminal.log("   /config          - Show or modify agent configuration");
-    yield* terminal.log("   /skills          - List and view available skills");
-    yield* terminal.log(
-      "   /workflows [action] - List workflows, or send action (e.g. create) to the agent",
-    );
-    yield* terminal.log("   /stats           - Show session statistics and usage summary");
-    yield* terminal.log("   /mcp             - Show MCP server status and connections");
-    yield* terminal.log(
-      "   /mode            - Switch approval modes or allow/disallow specific commands",
-    );
-    yield* terminal.log("   /help            - Show this help message");
-    yield* terminal.log("   /exit            - Exit the chat");
-    yield* terminal.log("");
+    yield* terminal.log(fmt.heading("Available Commands"));
+    yield* terminal.log(fmt.commandRow("/new", "Start a new conversation (clear context)"));
+    yield* terminal.log(fmt.commandRow("/tools", "List all agent tools by category"));
+    yield* terminal.log(fmt.commandRow("/agents", "List all available agents"));
+    yield* terminal.log(fmt.commandRow("/switch [agent]", "Switch to a different agent"));
+    yield* terminal.log(fmt.commandRow("/clear", "Clear the screen"));
+    yield* terminal.log(fmt.commandRow("/compact", "Summarize history to save tokens"));
+    yield* terminal.log(fmt.commandRow("/context", "Show context window usage"));
+    yield* terminal.log(fmt.commandRow("/cost", "Show token usage and estimated cost"));
+    yield* terminal.log(fmt.commandRow("/copy", "Copy last agent response to clipboard"));
+    yield* terminal.log(fmt.commandRow("/model", "Show or change model and reasoning"));
+    yield* terminal.log(fmt.commandRow("/config", "Show or modify agent configuration"));
+    yield* terminal.log(fmt.commandRow("/skills", "List and view available skills"));
+    yield* terminal.log(fmt.commandRow("/workflows", "List or create workflows"));
+    yield* terminal.log(fmt.commandRow("/stats", "Show session statistics"));
+    yield* terminal.log(fmt.commandRow("/mcp", "Show MCP server status"));
+    yield* terminal.log(fmt.commandRow("/mode", "Switch approval modes"));
+    yield* terminal.log(fmt.commandRow("/help", "Show this help message"));
+    yield* terminal.log(fmt.commandRow("/exit", "Exit the chat"));
+    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }
@@ -196,7 +192,7 @@ function handleHelpCommand(terminal: TerminalService): Effect.Effect<CommandResu
 function handleToolsCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
-): Effect.Effect<CommandResult, never, ToolRegistry> {
+): Effect.Effect<CommandResult, never, ToolRegistry | AgentConfigService | LLMService> {
   return Effect.gen(function* () {
     const toolRegistry = yield* ToolRegistryTag;
     const allToolsByCategory = yield* toolRegistry.listToolsByCategory();
@@ -214,7 +210,10 @@ function handleToolsCommand(
       }
     }
 
-    yield* terminal.heading(`🔧 Tools Available to ${agent.name}`);
+    // Resolve web_search provider info for annotation
+    const webSearchProvider = yield* resolveWebSearchProviderLabel(agent);
+
+    yield* terminal.log(fmt.heading(`Tools Available to ${agent.name}`));
 
     if (Object.keys(filteredToolsByCategory).length === 0) {
       yield* terminal.warn("This agent has no tools configured.");
@@ -224,13 +223,15 @@ function handleToolsCommand(
       for (const category of sortedCategories) {
         const tools = filteredToolsByCategory[category];
         if (tools && tools.length > 0) {
-          yield* terminal.log(
-            `   📁 ${category} (${tools.length} ${tools.length === 1 ? "tool" : "tools"}):`,
-          );
+          yield* terminal.log(fmt.section(category, tools.length, "tool"));
           for (const tool of tools) {
-            yield* terminal.log(`      • ${tool}`);
+            if (tool === "web_search" && webSearchProvider) {
+              yield* terminal.log(fmt.itemWithDesc(tool, webSearchProvider));
+            } else {
+              yield* terminal.log(fmt.item(tool));
+            }
           }
-          yield* terminal.log("");
+          yield* terminal.log(fmt.blank());
         }
       }
 
@@ -240,13 +241,48 @@ function handleToolsCommand(
       );
 
       yield* terminal.log(
-        `   Total: ${totalTools} tools across ${sortedCategories.length} categories`,
+        fmt.footer(`Total: ${totalTools} tools across ${sortedCategories.length} categories`),
       );
     }
 
-    yield* terminal.log("");
+    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
+}
+
+/**
+ * Resolve a human-readable label for the active web_search provider.
+ *
+ * Returns e.g. "via Brave", "via OpenAI (native)", or null if web_search
+ * is not in use / no provider could be determined.
+ */
+function resolveWebSearchProviderLabel(
+  agent: CommandContext["agent"],
+): Effect.Effect<string | null, never, AgentConfigService | LLMService> {
+  return Effect.gen(function* () {
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+
+    // 1. Check for an explicitly configured external provider
+    const externalProvider = appConfig.web_search?.provider;
+    if (externalProvider) {
+      const display =
+        WEB_SEARCH_PROVIDERS.find((p) => p.value === externalProvider)?.name ?? externalProvider;
+      return `via ${display}`;
+    }
+
+    // 2. Check if the agent's LLM provider supports native web search
+    const llmService = yield* LLMServiceTag;
+    const supportsNative = yield* llmService.supportsNativeWebSearch(agent.config.llmProvider);
+    if (supportsNative) {
+      const providerName =
+        agent.config.llmProvider.charAt(0).toUpperCase() + agent.config.llmProvider.slice(1);
+      return `via ${providerName} (native)`;
+    }
+
+    // 3. No provider available
+    return "no provider configured";
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
 /**
@@ -265,7 +301,7 @@ function handleAgentsCommand(
     const configService = yield* AgentConfigServiceTag;
     const allAgentsUnsorted = yield* agentService.listAgents();
 
-    yield* terminal.heading("🤖 Available Agents");
+    yield* terminal.log(fmt.heading("Available Agents"));
 
     if (allAgentsUnsorted.length === 0) {
       yield* terminal.warn("No agents found.");
@@ -279,29 +315,33 @@ function handleAgentsCommand(
 
       for (const ag of allAgents) {
         const isCurrent = ag.id === currentAgent.id;
-        const prefix = isCurrent ? "  ➤ " : "    ";
-        const currentMarker = isCurrent ? " (current)" : "";
 
-        yield* terminal.log(`${prefix}${ag.name}${currentMarker}`);
-        yield* terminal.log(`${prefix}  ID: ${ag.id}`);
+        if (isCurrent) {
+          yield* terminal.log(fmt.labeledItem(ag.name, "(current)"));
+        } else {
+          yield* terminal.log(fmt.labeledItemDim(ag.name));
+        }
+        yield* terminal.log(fmt.keyValue("ID", ag.id));
         if (ag.description) {
           const truncatedDesc =
             ag.description.length > 80 ? ag.description.substring(0, 77) + "..." : ag.description;
-          yield* terminal.log(`${prefix}  Description: ${truncatedDesc}`);
+          yield* terminal.log(fmt.keyValue("Description", truncatedDesc));
         }
-        yield* terminal.log(`${prefix}  Model: ${ag.config.llmProvider}/${ag.config.llmModel}`);
+        yield* terminal.log(
+          fmt.keyValue("Model", `${ag.config.llmProvider}/${ag.config.llmModel}`),
+        );
         if (ag.config.reasoningEffort) {
-          yield* terminal.log(`${prefix}  Reasoning: ${ag.config.reasoningEffort}`);
+          yield* terminal.log(fmt.keyValue("Reasoning", ag.config.reasoningEffort));
         }
-        yield* terminal.log("");
+        yield* terminal.log(fmt.blank());
       }
 
       yield* terminal.log(
-        `   Total: ${allAgents.length} agent${allAgents.length === 1 ? "" : "s"}`,
+        fmt.footer(`Total: ${allAgents.length} agent${allAgents.length === 1 ? "" : "s"}`),
       );
     }
 
-    yield* terminal.log("");
+    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }
@@ -575,13 +615,15 @@ function handleModelCommand(
 
     // No args: show current model info
     if (args.length === 0) {
-      yield* terminal.heading("Current Model");
-      yield* terminal.log(`   Provider: ${agent.config.llmProvider}`);
-      yield* terminal.log(`   Model: ${agent.config.llmModel}`);
-      yield* terminal.log(`   Reasoning: ${agent.config.reasoningEffort ?? "default"}`);
-      yield* terminal.log("");
+      yield* terminal.log(fmt.heading("Current Model"));
+      yield* terminal.log(fmt.keyValueCompact("Provider", agent.config.llmProvider));
+      yield* terminal.log(fmt.keyValueCompact("Model", agent.config.llmModel));
+      yield* terminal.log(
+        fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort ?? "default"),
+      );
+      yield* terminal.log(fmt.blank());
       yield* terminal.info("Usage: /model <provider>/<model> or /model reasoning <level>");
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }
 
@@ -695,29 +737,33 @@ function handleConfigCommand(
     }
 
     // No args: show full config
-    yield* terminal.heading("Agent Configuration");
-    yield* terminal.log(`   Name: ${agent.name}`);
+    yield* terminal.log(fmt.heading("Agent Configuration"));
+    yield* terminal.log(fmt.keyValueCompact("Name", agent.name));
     if (agent.description) {
-      yield* terminal.log(`   Description: ${agent.description}`);
+      yield* terminal.log(fmt.keyValueCompact("Description", agent.description));
     }
-    yield* terminal.log(`   Type: ${agent.config.agentType}`);
-    yield* terminal.log(`   Model: ${agent.config.llmProvider}/${agent.config.llmModel}`);
-    yield* terminal.log(`   Reasoning: ${agent.config.reasoningEffort ?? "default"}`);
+    yield* terminal.log(fmt.keyValueCompact("Type", agent.config.agentType));
+    yield* terminal.log(
+      fmt.keyValueCompact("Model", `${agent.config.llmProvider}/${agent.config.llmModel}`),
+    );
+    yield* terminal.log(
+      fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort ?? "default"),
+    );
 
     const agentToolNames = normalizeToolConfig(agent.config.tools, { agentId: agent.id });
-    yield* terminal.log(`   Tools: ${agentToolNames.length} enabled`);
+    yield* terminal.log(fmt.keyValueCompact("Tools", `${agentToolNames.length} enabled`));
     if (agentToolNames.length > 0) {
       for (const tool of agentToolNames.slice(0, 10)) {
-        yield* terminal.log(`     • ${tool}`);
+        yield* terminal.log(fmt.item(tool));
       }
       if (agentToolNames.length > 10) {
-        yield* terminal.log(`     ... and ${agentToolNames.length - 10} more`);
+        yield* terminal.log(fmt.overflow(agentToolNames.length - 10));
       }
     }
 
-    yield* terminal.log("");
+    yield* terminal.log(fmt.blank());
     yield* terminal.info("Subcommands: /config tools");
-    yield* terminal.log("");
+    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }
@@ -730,7 +776,9 @@ function handleClearCommand(
   agent: CommandContext["agent"],
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
-    console.clear();
+    // Clear visible screen, scrollback buffer, and move cursor to home position
+    // More reliable across terminals than console.clear()
+    process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
     yield* terminal.info(`Chat with ${agent.name} - Screen cleared`);
     yield* terminal.info("Type '/help' to see available commands.");
     yield* terminal.info("Type '/exit' to end the conversation.");
@@ -748,51 +796,49 @@ function handleWorkflowsCommand(
   return Effect.gen(function* () {
     const workflowService = yield* WorkflowServiceTag;
 
-    yield* terminal.heading("📋 Available Workflows");
-    yield* terminal.log("");
+    yield* terminal.log(fmt.heading("Available Workflows"));
 
     const workflows = yield* workflowService.listWorkflows();
 
     if (workflows.length === 0) {
       yield* terminal.info("No workflows found.");
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
       yield* terminal.info("Create a workflow by adding a WORKFLOW.md file to:");
-      yield* terminal.log("  • ./workflows/<name>/WORKFLOW.md (local)");
-      yield* terminal.log("  • ~/.jazz/workflows/<name>/WORKFLOW.md (global)");
+      yield* terminal.log(fmt.item("./workflows/<name>/WORKFLOW.md (local)"));
+      yield* terminal.log(fmt.item("~/.jazz/workflows/<name>/WORKFLOW.md (global)"));
       yield* terminal.info("Or type /workflows create and the agent will guide you.");
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }
 
     const { local, global, builtin } = groupWorkflows(workflows);
 
     if (local.length > 0) {
-      yield* terminal.log("Local workflows:");
+      yield* terminal.log(fmt.section("Local", local.length, "workflow"));
       for (const w of local) {
-        yield* terminal.log(formatWorkflow(w));
+        yield* terminal.log(fmt.itemWithDesc(w.name, w.description));
       }
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
     }
 
     if (global.length > 0) {
-      yield* terminal.log("Global workflows (~/.jazz/workflows):");
+      yield* terminal.log(fmt.section("Global", global.length, "workflow"));
       for (const w of global) {
-        yield* terminal.log(formatWorkflow(w));
+        yield* terminal.log(fmt.itemWithDesc(w.name, w.description));
       }
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
     }
 
     if (builtin.length > 0) {
-      yield* terminal.log("Built-in workflows:");
+      yield* terminal.log(fmt.section("Built-in", builtin.length, "workflow"));
       for (const w of builtin) {
-        yield* terminal.log(formatWorkflow(w));
+        yield* terminal.log(fmt.itemWithDesc(w.name, w.description));
       }
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
     }
 
-    yield* terminal.info(`Total: ${workflows.length} workflow(s)`);
-    yield* terminal.log("   Tip: /workflows create — send 'create' to the agent to guide you.");
-    yield* terminal.log("");
+    yield* terminal.log(fmt.footer(`Total: ${workflows.length} workflow(s)`));
+    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }
@@ -826,72 +872,65 @@ function handleSkillsCommand(
 
     if (totalCount === 0) {
       yield* terminal.warn("No skills found.");
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
       yield* terminal.info("Create a skill by adding a SKILL.md file to:");
-      yield* terminal.log("  • ./skills/<name>/SKILL.md (local)");
-      yield* terminal.log("  • ~/.jazz/skills/<name>/SKILL.md (global)");
-      yield* terminal.log("  • ~/.agents/skills/<name>/SKILL.md (shared agents)");
-      yield* terminal.log("");
+      yield* terminal.log(fmt.item("./skills/<name>/SKILL.md (local)"));
+      yield* terminal.log(fmt.item("~/.jazz/skills/<name>/SKILL.md (global)"));
+      yield* terminal.log(fmt.item("~/.agents/skills/<name>/SKILL.md (shared agents)"));
+      yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }
 
-    yield* terminal.heading("📜 Available Skills");
-    yield* terminal.log("");
+    yield* terminal.log(fmt.heading("Available Skills"));
 
     let sourcesCount = 0;
 
     if (builtin.length > 0) {
       sourcesCount++;
       const sorted = [...builtin].sort((a, b) => a.name.localeCompare(b.name));
-      yield* terminal.log(
-        `   📦 Built-in (${builtin.length} ${builtin.length === 1 ? "skill" : "skills"}):`,
-      );
+      yield* terminal.log(fmt.section("Built-in", builtin.length, "skill"));
       for (const s of sorted) {
-        yield* terminal.log(`      • ${s.name} - ${s.description}`);
+        yield* terminal.log(fmt.itemWithDesc(s.name, s.description));
       }
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
     }
 
     if (global.length > 0) {
       sourcesCount++;
       const sorted = [...global].sort((a, b) => a.name.localeCompare(b.name));
-      yield* terminal.log(
-        `   🌐 Global (${global.length} ${global.length === 1 ? "skill" : "skills"}):`,
-      );
+      yield* terminal.log(fmt.section("Global", global.length, "skill"));
       for (const s of sorted) {
-        yield* terminal.log(`      • ${s.name} - ${s.description}`);
+        yield* terminal.log(fmt.itemWithDesc(s.name, s.description));
       }
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
     }
 
     if (agents.length > 0) {
       sourcesCount++;
       const sorted = [...agents].sort((a, b) => a.name.localeCompare(b.name));
-      yield* terminal.log(
-        `   🤖 Agents (${agents.length} ${agents.length === 1 ? "skill" : "skills"}):`,
-      );
+      yield* terminal.log(fmt.section("Agents", agents.length, "skill"));
       for (const s of sorted) {
-        yield* terminal.log(`      • ${s.name} - ${s.description}`);
+        yield* terminal.log(fmt.itemWithDesc(s.name, s.description));
       }
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
     }
 
     if (local.length > 0) {
       sourcesCount++;
       const sorted = [...local].sort((a, b) => a.name.localeCompare(b.name));
-      yield* terminal.log(
-        `   📁 Local (${local.length} ${local.length === 1 ? "skill" : "skills"}):`,
-      );
+      yield* terminal.log(fmt.section("Local", local.length, "skill"));
       for (const s of sorted) {
-        yield* terminal.log(`      • ${s.name} - ${s.description}`);
+        yield* terminal.log(fmt.itemWithDesc(s.name, s.description));
       }
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
     }
 
     yield* terminal.log(
-      `   Total: ${totalCount} ${totalCount === 1 ? "skill" : "skills"} across ${sourcesCount} ${sourcesCount === 1 ? "source" : "sources"}`,
+      fmt.footer(
+        `Total: ${totalCount} ${totalCount === 1 ? "skill" : "skills"} across ${sourcesCount} ${sourcesCount === 1 ? "source" : "sources"}`,
+      ),
     );
-    yield* terminal.log("");
+    yield* terminal.log(fmt.blank());
 
     return { shouldContinue: true };
   });
@@ -906,7 +945,7 @@ function handleStatsCommand(
   context: CommandContext,
 ): Effect.Effect<CommandResult, never, FileSystemContextService> {
   return Effect.gen(function* () {
-    yield* terminal.heading("Session Statistics");
+    yield* terminal.log(fmt.heading("Session Statistics"));
 
     // Session duration
     const now = new Date();
@@ -920,11 +959,15 @@ function handleStatsCommand(
     durationParts.push(`${seconds % 60}s`);
     const duration = durationParts.join(" ");
 
-    yield* terminal.log(`   Agent:      ${agent.name} (${agent.id})`);
-    yield* terminal.log(`   Model:      ${agent.config.llmProvider}/${agent.config.llmModel}`);
-    yield* terminal.log(`   Reasoning:  ${agent.config.reasoningEffort ?? "default"}`);
+    yield* terminal.log(fmt.keyValueCompact("Agent", `${agent.name} (${agent.id})`));
+    yield* terminal.log(
+      fmt.keyValueCompact("Model", `${agent.config.llmProvider}/${agent.config.llmModel}`),
+    );
+    yield* terminal.log(
+      fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort ?? "default"),
+    );
     const totalTools = agent.config.tools?.length ?? 0;
-    yield* terminal.log(`   Tools:      ${totalTools} available`);
+    yield* terminal.log(fmt.keyValueCompact("Tools", `${totalTools} available`));
 
     const fileSystemContext = yield* FileSystemContextServiceTag;
     const workingDirectory = yield* fileSystemContext.getCwd(
@@ -932,16 +975,19 @@ function handleStatsCommand(
         ? { agentId: agent.id, conversationId: context.conversationId }
         : { agentId: agent.id },
     );
-    yield* terminal.log(`   Directory:  ${workingDirectory}`);
+    yield* terminal.log(fmt.keyValueCompact("Directory", workingDirectory));
 
-    yield* terminal.log("");
-    yield* terminal.log(`   Duration:   ${duration}`);
-    yield* terminal.log(`   Messages:   ${context.conversationHistory.length}`);
+    yield* terminal.log(fmt.blank());
+    yield* terminal.log(fmt.keyValueCompact("Duration", duration));
+    yield* terminal.log(fmt.keyValueCompact("Messages", `${context.conversationHistory.length}`));
 
     const { promptTokens, completionTokens } = context.sessionUsage;
     const totalTokens = promptTokens + completionTokens;
     yield* terminal.log(
-      `   Tokens:     ${totalTokens.toLocaleString()} (in: ${promptTokens.toLocaleString()}, out: ${completionTokens.toLocaleString()})`,
+      fmt.keyValueCompact(
+        "Tokens",
+        `${totalTokens.toLocaleString()} (in: ${promptTokens.toLocaleString()}, out: ${completionTokens.toLocaleString()})`,
+      ),
     );
 
     // Estimated cost
@@ -953,9 +999,9 @@ function handleStatsCommand(
     const inputCost = (promptTokens / 1_000_000) * inputPricePerMillion;
     const outputCost = (completionTokens / 1_000_000) * outputPricePerMillion;
     const totalCost = inputCost + outputCost;
-    yield* terminal.log(`   Est. cost:  ${formatUsd(totalCost)}`);
+    yield* terminal.log(fmt.keyValueCompact("Est. cost", formatUsd(totalCost)));
 
-    yield* terminal.log("");
+    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }
@@ -970,12 +1016,12 @@ function handleMcpCommand(
     const mcpManager = yield* MCPServerManagerTag;
     const servers = yield* mcpManager.listServers();
 
-    yield* terminal.heading("MCP Servers");
+    yield* terminal.log(fmt.heading("MCP Servers"));
 
     if (servers.length === 0) {
       yield* terminal.info("No MCP servers configured.");
-      yield* terminal.log("   Add servers in your agent config or ~/.jazz/config.json");
-      yield* terminal.log("");
+      yield* terminal.log(fmt.keyValueCompact("Config", "~/.jazz/config.json"));
+      yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }
 
@@ -983,25 +1029,27 @@ function handleMcpCommand(
       const connected = yield* mcpManager.isConnected(server.name);
       const enabledStr = server.enabled === false ? "disabled" : "enabled";
       const connectedStr = connected ? "connected" : "disconnected";
-      const statusIcon = connected ? "●" : "○";
 
-      yield* terminal.log(`   ${statusIcon} ${server.name}`);
-      yield* terminal.log(`     Status:    ${enabledStr}, ${connectedStr}`);
-      yield* terminal.log(`     Transport: ${server.transport ?? "stdio"}`);
+      if (connected) {
+        yield* terminal.log(fmt.statusConnected(server.name));
+      } else {
+        yield* terminal.log(fmt.statusDisconnected(server.name));
+      }
+      yield* terminal.log(fmt.keyValue("Status", `${enabledStr}, ${connectedStr}`));
+      yield* terminal.log(fmt.keyValue("Transport", server.transport ?? "stdio"));
 
       if (isStdioConfig(server)) {
-        yield* terminal.log(
-          `     Command:   ${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`,
-        );
+        const cmd = `${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`;
+        yield* terminal.log(fmt.keyValue("Command", cmd));
       } else if (isHttpConfig(server)) {
-        yield* terminal.log(`     URL:       ${server.url}`);
+        yield* terminal.log(fmt.keyValue("URL", server.url));
       }
 
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
     }
 
-    yield* terminal.log(`   Total: ${servers.length} server(s)`);
-    yield* terminal.log("");
+    yield* terminal.log(fmt.footer(`Total: ${servers.length} server(s)`));
+    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }
@@ -1080,20 +1128,20 @@ function handleModeCommand(
     // Show auto-approved commands if any
     if (autoApprovedCommands?.length) {
       const persistedSet = new Set(persistedAutoApprovedCommands ?? []);
-      yield* terminal.log("");
-      yield* terminal.info("Auto-approved commands:");
+      yield* terminal.log(fmt.blank());
+      yield* terminal.log(fmt.section("Auto-approved Commands"));
       for (const cmd of autoApprovedCommands) {
-        const suffix = persistedSet.has(cmd) ? " (always)" : " (session)";
-        yield* terminal.log(`   • ${cmd}${suffix}`);
+        const suffix = persistedSet.has(cmd) ? "(always)" : "(session)";
+        yield* terminal.log(fmt.itemWithDesc(cmd, suffix));
       }
     }
 
     // Show auto-approved tools if any
     if (autoApprovedTools?.length) {
-      yield* terminal.log("");
-      yield* terminal.info("Auto-approved tools (session):");
+      yield* terminal.log(fmt.blank());
+      yield* terminal.log(fmt.section("Auto-approved Tools"));
       for (const tool of autoApprovedTools) {
-        yield* terminal.log(`   • ${tool}`);
+        yield* terminal.log(fmt.item(tool));
       }
     }
 
@@ -1325,7 +1373,7 @@ function handleContextCommand(
     const gridRows = generateContextGrid(adjustedUsage);
 
     // Display header
-    yield* terminal.heading("Context Usage");
+    yield* terminal.log(fmt.heading("Context Usage"));
 
     // Display model info and total usage on first row
     const modelDisplay = `${provider}/${modelId}`;
@@ -1378,20 +1426,22 @@ function handleCostCommand(
   sessionUsage: { promptTokens: number; completionTokens: number },
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
-    yield* terminal.heading("Conversation cost");
+    yield* terminal.log(fmt.heading("Conversation Cost"));
 
     const { promptTokens, completionTokens } = sessionUsage;
     const totalTokens = promptTokens + completionTokens;
 
-    yield* terminal.log(`   Model: ${agent.config.llmProvider}/${agent.config.llmModel}`);
-    yield* terminal.log(`   Input tokens:  ${promptTokens.toLocaleString()}`);
-    yield* terminal.log(`   Output tokens: ${completionTokens.toLocaleString()}`);
-    yield* terminal.log(`   Total tokens:  ${totalTokens.toLocaleString()}`);
+    yield* terminal.log(
+      fmt.keyValueCompact("Model", `${agent.config.llmProvider}/${agent.config.llmModel}`),
+    );
+    yield* terminal.log(fmt.keyValueCompact("Input tokens", promptTokens.toLocaleString()));
+    yield* terminal.log(fmt.keyValueCompact("Output tokens", completionTokens.toLocaleString()));
+    yield* terminal.log(fmt.keyValueCompact("Total tokens", totalTokens.toLocaleString()));
 
     if (totalTokens === 0) {
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
       yield* terminal.info("No tokens used yet in this conversation.");
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }
 
@@ -1402,29 +1452,29 @@ function handleCostCommand(
     const inputPricePerMillion = meta?.inputPricePerMillion ?? 0;
     const outputPricePerMillion = meta?.outputPricePerMillion ?? 0;
 
-    yield* terminal.log("");
-    yield* terminal.log("   Pricing (from models.dev, $ per 1M tokens):");
-    yield* terminal.log(`   Input:  $${inputPricePerMillion.toFixed(2)}/1M`);
-    yield* terminal.log(`   Output: $${outputPricePerMillion.toFixed(2)}/1M`);
+    yield* terminal.log(fmt.blank());
+    yield* terminal.log(fmt.section("Pricing", undefined, undefined));
+    yield* terminal.log(fmt.keyValue("Input", `$${inputPricePerMillion.toFixed(2)}/1M tokens`));
+    yield* terminal.log(fmt.keyValue("Output", `$${outputPricePerMillion.toFixed(2)}/1M tokens`));
 
     const inputCost = (promptTokens / 1_000_000) * inputPricePerMillion;
     const outputCost = (completionTokens / 1_000_000) * outputPricePerMillion;
     const totalCost = inputCost + outputCost;
 
-    yield* terminal.log("");
-    yield* terminal.log("   Estimated cost this conversation:");
-    yield* terminal.log(`   Input:  ${formatUsd(inputCost)}`);
-    yield* terminal.log(`   Output: ${formatUsd(outputCost)}`);
-    yield* terminal.log(`   Total:  ${formatUsd(totalCost)}`);
+    yield* terminal.log(fmt.blank());
+    yield* terminal.log(fmt.section("Estimated Cost"));
+    yield* terminal.log(fmt.keyValue("Input", formatUsd(inputCost)));
+    yield* terminal.log(fmt.keyValue("Output", formatUsd(outputCost)));
+    yield* terminal.log(fmt.keyValue("Total", formatUsd(totalCost)));
 
     if (meta?.inputPricePerMillion === undefined && meta?.outputPricePerMillion === undefined) {
-      yield* terminal.log("");
+      yield* terminal.log(fmt.blank());
       yield* terminal.warn(
         "Pricing not available for this model on models.dev; total shown as $0.00.",
       );
     }
 
-    yield* terminal.log("");
+    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }

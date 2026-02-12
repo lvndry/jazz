@@ -52,4 +52,7 @@ export const CHALK_THEME = {
   heading: chalk.bold.hex(THEME.primary),
   headingUnderline: chalk.bold.hex(THEME.primary).underline,
   link: chalk.hex(THEME.primary).underline,
+  secondary: chalk.dim,
+  bold: chalk.bold,
+  white: chalk.white,
 } as const;

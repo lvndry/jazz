@@ -23,6 +23,7 @@ export {
   SchedulerServiceLayer,
   type SchedulerService,
   type ScheduledWorkflow,
+  type ScheduleOptions,
 } from "./scheduler-service";
 
 // Run history

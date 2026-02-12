@@ -300,6 +300,10 @@ export class ChatServiceImpl implements ChatService {
           const response = yield* AgentRunner.run(runnerOptions).pipe(
             Effect.catchAll((error) =>
               Effect.gen(function* () {
+                // Stop the thinking spinner — the agent run failed before
+                // streaming started, so nothing else will reset the activity.
+                store.setActivity({ phase: "idle" });
+
                 // Log error with detailed information
                 const errorDetails: Record<string, unknown> = {
                   agentId: agent.id,
