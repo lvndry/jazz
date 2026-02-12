@@ -15,6 +15,7 @@ import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
+import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { CHALK_THEME } from "../ui/theme";
 
@@ -193,22 +194,26 @@ export class CLIPresentationService implements PresentationService {
       const approved = yield* this.confirm("Approve this action?", true);
 
       if (approved) {
-        // For execute_command tools, check if user wants to always approve this specific command
-        const command =
+        // For execute_command tools, check if user wants to always approve this command class.
+        // We extract a subcommand-level key (e.g. "git diff") so one approval covers all
+        // flag variants like "git diff --name-only", "git diff --stat", etc.
+        const rawCommand =
           request.toolName === "execute_command"
             ? typeof request.executeArgs["command"] === "string"
               ? request.executeArgs["command"]
               : null
             : null;
+        const approvalKey = rawCommand ? extractCommandApprovalKey(rawCommand) : null;
 
-        if (command) {
-          const truncatedCmd = command.length > 60 ? command.slice(0, 57) + "..." : command;
+        if (approvalKey) {
+          const truncatedKey =
+            approvalKey.length > 60 ? approvalKey.slice(0, 57) + "..." : approvalKey;
           const alwaysApproveCmd = yield* this.confirm(
-            `Always approve "${truncatedCmd}" for this session?`,
+            `Always approve "${truncatedKey}" for this session?`,
             false,
           );
           if (alwaysApproveCmd) {
-            return { approved: true, alwaysApproveCommand: command };
+            return { approved: true, alwaysApproveCommand: approvalKey };
           }
         }
 

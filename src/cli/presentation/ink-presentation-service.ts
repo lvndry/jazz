@@ -18,6 +18,7 @@ import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
+import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/models-dev-client";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
@@ -707,19 +708,23 @@ class InkPresentationService implements PresentationService {
     // Build approval choices — all tools get "always approve <tool>" option,
     // execute_command also gets "always approve <command>" option
     const toolDisplayName = request.toolName;
-    const command =
+    const rawCommand =
       request.toolName === "execute_command"
         ? typeof request.executeArgs["command"] === "string"
           ? request.executeArgs["command"]
           : null
         : null;
 
+    // Extract a subcommand-level approval key (e.g. "git diff" instead of
+    // "git diff --name-only") so one approval covers all flag variants.
+    const approvalKey = rawCommand ? extractCommandApprovalKey(rawCommand) : null;
+
     const choices: Array<{ label: string; value: string }> = [{ label: "Yes", value: "yes" }];
 
-    if (command) {
-      const truncatedCmd = command.length > 60 ? command.slice(0, 57) + "..." : command;
+    if (approvalKey) {
+      const truncatedKey = approvalKey.length > 60 ? approvalKey.slice(0, 57) + "..." : approvalKey;
       choices.push({
-        label: `Yes, and always approve "${truncatedCmd}" for this session`,
+        label: `Yes, and always approve "${truncatedKey}" for this session`,
         value: "always_command",
       });
     }
@@ -749,9 +754,9 @@ class InkPresentationService implements PresentationService {
           return;
         }
 
-        if (choice === "always_command" && command) {
+        if (choice === "always_command" && approvalKey) {
           store.setPrompt(null);
-          this.completeApproval(resume, { approved: true, alwaysApproveCommand: command });
+          this.completeApproval(resume, { approved: true, alwaysApproveCommand: approvalKey });
           return;
         }
 
