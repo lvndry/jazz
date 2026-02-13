@@ -41,6 +41,7 @@ export class NotificationServiceImpl implements NotificationService {
 
       const title = options?.title ?? "🎷 Jazz";
       const sound = options?.sound ?? notificationsConfig?.sound ?? true;
+      const soundValue = sound ? (process.platform === "darwin" ? "Blow" : true) : false;
 
       try {
         const bundleId = getTerminalBundleId();
@@ -48,7 +49,7 @@ export class NotificationServiceImpl implements NotificationService {
           title: String(title),
           message: String(message),
           subtitle: options?.subtitle ? String(options.subtitle) : undefined,
-          sound: sound && "Blow",
+          sound: soundValue,
           icon: options?.icon ? String(options.icon) : undefined,
           wait: !!(options?.wait ?? false),
           ...(bundleId && { activate: bundleId }),
