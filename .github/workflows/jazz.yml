@@ -1,0 +1,310 @@
+name: Jazz AI
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+
+      - name: Checkout PR head (safe merge)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Jazz
+        run: npm install -g jazz-ai
+
+      - name: Setup Jazz agent and workflow
+        run: |
+          mkdir -p .jazz/agents workflows/code-review
+
+          cat > .jazz/agents/ci-reviewer.json << 'AGENT'
+          {
+            "id": "ci-reviewer",
+            "name": "ci-reviewer",
+            "description": "CI code review agent",
+            "model": "openai/gpt-5.2-codex",
+            "config": {
+              "agentType": "default",
+              "llmProvider": "openai",
+              "llmModel": "gpt-5.2-codex",
+              "reasoningEffort": "medium",
+              "tools": [
+                "find", "find_path", "grep", "head", "ls", "pwd",
+                "read_file", "tail", "stat",
+                "git_blame", "git_diff", "git_log", "git_status",
+                "load_skill", "load_skill_section",
+                "context_info", "summarize_context"
+              ]
+            },
+            "createdAt": "2025-01-01T00:00:00.000Z",
+            "updatedAt": "2025-01-01T00:00:00.000Z"
+          }
+          AGENT
+
+          cat > workflows/code-review/WORKFLOW.md << 'WORKFLOW'
+          ---
+          name: code-review
+          description: Review pull request changes for quality, security, and correctness
+          autoApprove: true
+          agent: ci-reviewer
+          maxIterations: 30
+          skills:
+            - code-review
+          ---
+
+          # Pull Request Code Review
+
+          Review the changes in this pull request using `git diff origin/main...HEAD`.
+
+          Use the `code-review` skill for the full review checklist.
+
+          ## Output Format
+
+          You MUST output ONLY a JSON array as the very last thing you write, wrapped in a ```json fenced code block.
+          Do NOT output anything after the JSON block.
+
+          Each element represents one review comment tied to a specific file and line:
+
+          ```json
+          [
+            {
+              "path": "src/example.ts",
+              "line": 42,
+              "side": "RIGHT",
+              "body": "**Critical**: This can throw if `user` is null.\n\nSuggestion:\n```ts\nif (!user) return;\n```"
+            }
+          ]
+          ```
+
+          Rules:
+          - `path`: relative file path from repo root (must exist in the diff)
+          - `line`: line number in the NEW version of the file (RIGHT side of the diff)
+          - `side`: always "RIGHT" (comment on the new code)
+          - `body`: markdown comment — include severity (Critical/Suggestion/Nice-to-have), explanation, and a concrete fix when possible
+
+          If there are no issues, output an empty array: `[]`
+          WORKFLOW
+
+      - name: Run code review
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CI: "true"
+          JAZZ_DISABLE_CATCH_UP: "1"
+        run: jazz workflow run code-review --auto-approve --agent ci-reviewer 2>/dev/null | tee /tmp/jazz-review.txt
+
+      - name: Post review comments
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const output = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
+
+            // Extract the last ```json ... ``` block from the output
+            const jsonBlocks = [...output.matchAll(/```json\s*\n([\s\S]*?)```/g)];
+            if (jsonBlocks.length === 0) {
+              // No structured output — post raw output as a general PR comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: `## Jazz Code Review\n\n${output.slice(-60000) || '_No output from review._'}`
+              });
+              return;
+            }
+
+            const comments = JSON.parse(jsonBlocks[jsonBlocks.length - 1][1].trim());
+
+            if (!Array.isArray(comments) || comments.length === 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: `## Jazz Code Review\n\nNo issues found.`
+              });
+              return;
+            }
+
+            // Submit as a proper PR review with inline comments
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              commit_id: '${{ github.event.pull_request.head.sha }}',
+              event: 'COMMENT',
+              body: `## Jazz Code Review\n\nFound ${comments.length} comment(s).`,
+              comments: comments.map(c => ({
+                path: c.path,
+                line: c.line,
+                side: c.side || 'RIGHT',
+                body: c.body
+              }))
+            });
+
+  bugbot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+
+      - name: Checkout PR head (safe merge)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Jazz
+        run: npm install -g jazz-ai
+
+      - name: Setup Jazz agent and workflow
+        run: |
+          mkdir -p .jazz/agents workflows/bugbot
+
+          cat > .jazz/agents/ci-bugbot.json << 'AGENT'
+          {
+            "id": "ci-bugbot",
+            "name": "ci-bugbot",
+            "description": "CI bug detection agent",
+            "model": "openai/gpt-5.2-codex",
+            "config": {
+              "agentType": "default",
+              "llmProvider": "openai",
+              "llmModel": "gpt-5.2-codex",
+              "reasoningEffort": "high",
+              "tools": [
+                "find", "find_path", "grep", "head", "ls", "pwd",
+                "read_file", "tail", "stat",
+                "git_blame", "git_diff", "git_log", "git_status",
+                "load_skill", "load_skill_section",
+                "context_info", "summarize_context"
+              ]
+            },
+            "createdAt": "2025-01-01T00:00:00.000Z",
+            "updatedAt": "2025-01-01T00:00:00.000Z"
+          }
+          AGENT
+
+          cat > workflows/bugbot/WORKFLOW.md << 'WORKFLOW'
+          ---
+          name: bugbot
+          description: Detect bugs and potential issues in pull request changes
+          autoApprove: true
+          agent: ci-bugbot
+          maxIterations: 30
+          skills:
+            - code-review
+          ---
+
+          # Bug Detection
+
+          Analyze the changes in this pull request using `git diff origin/main...HEAD`.
+
+          Hunt specifically for:
+          1. **Bugs** - Logic errors, off-by-one, race conditions, null dereferences
+          2. **Error handling gaps** - Uncaught exceptions, missing error paths, swallowed errors
+          3. **Security vulnerabilities** - Injection, auth bypass, secrets leakage, unsafe deserialization
+          4. **Regressions** - Changes that could break existing behavior or callers
+
+          ## Output Format
+
+          You MUST output ONLY a JSON array as the very last thing you write, wrapped in a ```json fenced code block.
+          Do NOT output anything after the JSON block.
+
+          Each element represents one bug/issue tied to a specific file and line:
+
+          ```json
+          [
+            {
+              "path": "src/example.ts",
+              "line": 42,
+              "side": "RIGHT",
+              "body": "**Bug (Critical)**: Race condition — `counter` is read and written without synchronization.\n\nSuggestion:\n```ts\nawait mutex.acquire();\ntry { counter++; } finally { mutex.release(); }\n```"
+            }
+          ]
+          ```
+
+          Rules:
+          - `path`: relative file path from repo root (must exist in the diff)
+          - `line`: line number in the NEW version of the file (RIGHT side of the diff)
+          - `side`: always "RIGHT"
+          - `body`: markdown — include severity (Critical/Warning/Info), what the bug is, why it matters, and a concrete fix
+
+          If no bugs are found, output an empty array `[]` and briefly explain what was checked.
+          WORKFLOW
+
+      - name: Run bugbot
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CI: "true"
+          JAZZ_DISABLE_CATCH_UP: "1"
+        run: jazz workflow run bugbot --auto-approve --agent ci-bugbot 2>/dev/null | tee /tmp/jazz-bugbot.txt
+
+      - name: Post bug report comments
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const output = fs.readFileSync('/tmp/jazz-bugbot.txt', 'utf8');
+
+            // Extract the last ```json ... ``` block from the output
+            const jsonBlocks = [...output.matchAll(/```json\s*\n([\s\S]*?)```/g)];
+            if (jsonBlocks.length === 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: `## Jazz Bug Detection\n\n${output.slice(-60000) || '_No output from bugbot._'}`
+              });
+              return;
+            }
+
+            const comments = JSON.parse(jsonBlocks[jsonBlocks.length - 1][1].trim());
+
+            if (!Array.isArray(comments) || comments.length === 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: `## Jazz Bug Detection\n\nNo bugs found.`
+              });
+              return;
+            }
+
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              commit_id: '${{ github.event.pull_request.head.sha }}',
+              event: 'COMMENT',
+              body: `## Jazz Bug Detection\n\nFound ${comments.length} potential issue(s).`,
+              comments: comments.map(c => ({
+                path: c.path,
+                line: c.line,
+                side: c.side || 'RIGHT',
+                body: c.body
+              }))
+            });
