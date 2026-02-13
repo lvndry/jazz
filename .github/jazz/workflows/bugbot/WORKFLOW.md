@@ -10,7 +10,19 @@ skills:
 
 # Bug Detection
 
-Analyze the changes in this pull request using `git diff origin/main...HEAD`.
+Analyze the changes in this pull request.
+
+To get the diff, use the environment variables `PR_BASE_SHA` and `PR_HEAD_SHA`:
+
+```
+git diff $PR_BASE_SHA...$PR_HEAD_SHA
+```
+
+You can also scope to specific files:
+
+```
+git diff $PR_BASE_SHA...$PR_HEAD_SHA -- path/to/file.ts
+```
 
 Hunt specifically for:
 

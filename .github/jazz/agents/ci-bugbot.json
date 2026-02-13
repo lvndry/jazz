@@ -4,7 +4,7 @@
   "description": "CI bug detection agent",
   "model": "openai/gpt-5.2-codex",
   "config": {
-    "agentType": "default",
+    "agentType": "coder",
     "llmProvider": "openai",
     "llmModel": "gpt-5.2-codex",
     "reasoningEffort": "high",
