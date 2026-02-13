@@ -35,7 +35,8 @@ jobs:
         run: |
           mkdir -p .jazz/agents workflows/code-review
           cp .github/jazz/agents/ci-reviewer.json .jazz/agents/
-          cp .github/jazz/workflows/code-review/WORKFLOW.md workflows/code-review/
+          sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" \
+            .github/jazz/workflows/code-review/WORKFLOW.md > workflows/code-review/WORKFLOW.md
 
       - name: Run code review
         env:
@@ -114,7 +115,8 @@ jobs:
         run: |
           mkdir -p .jazz/agents workflows/bugbot
           cp .github/jazz/agents/ci-bugbot.json .jazz/agents/
-          cp .github/jazz/workflows/bugbot/WORKFLOW.md workflows/bugbot/
+          sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" \
+            .github/jazz/workflows/bugbot/WORKFLOW.md > workflows/bugbot/WORKFLOW.md
 
       - name: Run bugbot
         env:

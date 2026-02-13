@@ -12,17 +12,9 @@ skills:
 
 Review the changes in this pull request.
 
-To get the diff, use the environment variables `PR_BASE_SHA` and `PR_HEAD_SHA`:
+To get the diff, use the `git_diff` tool with `commit` set to `__PR_BASE_SHA__...__PR_HEAD_SHA__`.
 
-```
-git diff $PR_BASE_SHA...$PR_HEAD_SHA
-```
-
-You can also scope to specific files:
-
-```
-git diff $PR_BASE_SHA...$PR_HEAD_SHA -- path/to/file.ts
-```
+If the diff is large or truncated, re-run scoped to individual files using the `path` parameter.
 
 Use the `code-review` skill for the full review checklist.
 
