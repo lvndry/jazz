@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createFindTool } from "./find";
 import { runTool } from "./test-helpers";
@@ -220,5 +220,17 @@ describe("find tool", () => {
     const items = result.result as Array<{ path: string }>;
     // Should not contain anything from sub/
     expect(items.every((i) => !i.path.includes("/sub/"))).toBe(true);
+  });
+
+  it("should apply smart search roots for external backend (not just cwd)", async () => {
+    // When an advanced filter is used (size) and path is omitted,
+    // smart search should still search cwd — verifying the external
+    // backend receives the smart search roots, not just a single dir.
+    const result = await runTool(tool, { name: "foo.ts", size: "-10M", maxDepth: 2 }, testDir);
+    expect(result.success).toBe(true);
+
+    const items = result.result as Array<{ name: string }>;
+    // foo.ts is in cwd (testDir) — smart search should find it
+    expect(items.some((i) => i.name === "foo.ts")).toBe(true);
   });
 });

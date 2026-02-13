@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createLsTool } from "./ls";
 import { runTool } from "./test-helpers";

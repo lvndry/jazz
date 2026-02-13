@@ -508,20 +508,80 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const maxResults = Math.min(requestedMaxResults, 2000);
         const maxDepth = typeof args.maxDepth === "number" ? args.maxDepth : 25;
 
-        // Determine search roots
+        // -----------------------------------------------------------------
+        // Determine search roots (shared by both backends)
+        // -----------------------------------------------------------------
         const cwd = yield* shell.getCwd(buildKeyFromContext(context));
+        const useSmart = args.smart !== false && !args.path;
+
+        const searchPaths: string[] = [];
+
+        if (args.path) {
+          const start = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+          searchPaths.push(start);
+        } else if (useSmart) {
+          const home = process.env["HOME"] || "";
+
+          // 1. Current working directory (most likely)
+          if (cwd && cwd !== home) {
+            searchPaths.push(cwd);
+          }
+
+          // 2. Parent directories (up to 3 levels up) — before home
+          let currentPath = cwd;
+          for (let i = 0; i < 3; i++) {
+            const parent = currentPath.split("/").slice(0, -1).join("/");
+            if (parent && parent !== currentPath && parent !== "/") {
+              if (!searchPaths.includes(parent)) {
+                searchPaths.push(parent);
+              }
+              currentPath = parent;
+            } else {
+              break;
+            }
+          }
+
+          // 3. Home directory (last resort, broader scope)
+          if (home && !searchPaths.includes(home)) {
+            searchPaths.push(home);
+          }
+        } else {
+          searchPaths.push(cwd);
+        }
 
         if (needsExternalBackend(args)) {
           // ---------------------------------------------------------------
           // External backend path (fd / system find)
+          // Searches each root in the smart list; the first root with
+          // enough results short-circuits the rest (same as fast-glob path).
           // ---------------------------------------------------------------
-          const searchDir = args.path
-            ? yield* shell.resolvePath(buildKeyFromContext(context), args.path)
-            : cwd;
+          let allExtResults: {
+            path: string;
+            name: string;
+            type: "file" | "dir" | "symlink";
+            mtimeMs: number;
+          }[] = [];
 
-          const results = yield* searchWithExternal(args, searchDir, cwd, maxResults);
+          for (const searchDir of searchPaths) {
+            const batch = yield* searchWithExternal(args, searchDir, cwd, maxResults);
+            allExtResults.push(...batch);
 
-          const finalResults = results.slice(0, maxResults).map(({ path, name, type }) => ({
+            // Early termination in smart mode
+            if (useSmart && allExtResults.length >= Math.min(maxResults / 2, 10)) {
+              break;
+            }
+            if (allExtResults.length >= maxResults) break;
+          }
+
+          // De-duplicate
+          const seen = new Set<string>();
+          allExtResults = allExtResults.filter((r) => {
+            if (seen.has(r.path)) return false;
+            seen.add(r.path);
+            return true;
+          });
+
+          const finalResults = allExtResults.slice(0, maxResults).map(({ path, name, type }) => ({
             path,
             name,
             type,
@@ -536,40 +596,6 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         // -----------------------------------------------------------------
         // fast-glob path (default for basic searches)
         // -----------------------------------------------------------------
-        const searchPaths: string[] = [];
-        const useSmart = args.smart !== false && !args.path;
-
-        if (args.path) {
-          const start = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
-          searchPaths.push(start);
-        } else if (useSmart) {
-          const home = process.env["HOME"] || "";
-
-          if (cwd && cwd !== home) {
-            searchPaths.push(cwd);
-          }
-
-          // Parents before home
-          let currentPath = cwd;
-          for (let i = 0; i < 3; i++) {
-            const parent = currentPath.split("/").slice(0, -1).join("/");
-            if (parent && parent !== currentPath && parent !== "/") {
-              if (!searchPaths.includes(parent)) {
-                searchPaths.push(parent);
-              }
-              currentPath = parent;
-            } else {
-              break;
-            }
-          }
-
-          if (home && !searchPaths.includes(home)) {
-            searchPaths.push(home);
-          }
-        } else {
-          searchPaths.push(cwd);
-        }
-
         const allResults = yield* searchWithGlob(args, searchPaths, maxResults, maxDepth, fs);
 
         const finalResults = allResults.slice(0, maxResults).map(({ path, name, type }) => ({
