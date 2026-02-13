@@ -106,6 +106,7 @@
     "js-tiktoken": "^1.0.21",
     "marked": "^16.4.2",
     "marked-terminal": "^7.3.0",
+    "node-emoji": "^2.2.0",
     "node-notifier": "^10.0.1",
     "ollama-ai-provider-v2": "^2.0.0",
     "open": "^10.2.0",

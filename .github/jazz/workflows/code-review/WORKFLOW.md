@@ -10,13 +10,17 @@ skills:
 
 # Pull Request Code Review
 
-Review the changes in this pull request using `git diff origin/main...HEAD`.
+Review the changes in this pull request.
+
+To get the diff, use the `git_diff` tool with `commit` set to `__PR_BASE_SHA__...__PR_HEAD_SHA__`.
+
+If the diff is large or truncated, re-run scoped to individual files using the `path` parameter.
 
 Use the `code-review` skill for the full review checklist.
 
 ## Output Format
 
-You MUST output ONLY a JSON array as the very last thing you write, wrapped in a ```json fenced code block.
+You MUST output ONLY a JSON array as the very last thing you write, wrapped in a ````json fenced code block (use FOUR backticks so triple backticks inside the body field don't break the fence).
 Do NOT output anything after the JSON block.
 
 Each element represents one review comment tied to a specific file and line(s):
