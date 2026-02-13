@@ -1,5 +1,5 @@
-/** Maximum number of agent iteration steps per run */
-export const MAX_AGENT_STEPS = 50;
+/** Default maximum number of agent iteration steps per run */
+export const DEFAULT_MAX_ITERATIONS = 80;
 
 /** Maximum number of tools that can execute concurrently */
 export const MAX_CONCURRENT_TOOLS = 10;

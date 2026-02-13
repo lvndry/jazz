@@ -396,11 +396,149 @@ export class InkTerminalService implements TerminalService {
 }
 
 /**
- * Create the terminal service layer
+ * Headless Terminal Service for non-TTY environments (CI, piped output, cron).
+ *
+ * Writes directly to stdout without Ink, avoiding the raw mode error that
+ * occurs when Ink tries to call setRawMode on a non-TTY stdin.
+ * Interactive prompts return sensible defaults (empty string, false, first choice).
+ */
+export class HeadlessTerminalService implements TerminalService {
+  private write(message: string): void {
+    process.stdout.write(`${message}\n`);
+  }
+
+  info(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => this.write(`ℹ ${message}`));
+  }
+
+  success(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => this.write(`✓ ${message}`));
+  }
+
+  error(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => this.write(`✗ ${message}`));
+  }
+
+  warn(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => this.write(`⚠ ${message}`));
+  }
+
+  log(message: TerminalOutput): Effect.Effect<string | undefined, never> {
+    return Effect.sync(() => {
+      if (typeof message === "string") {
+        this.write(message);
+      }
+      // Ink nodes are silently ignored in headless mode
+      return undefined;
+    });
+  }
+
+  debug(message: string, _meta?: Record<string, unknown>): Effect.Effect<void, never> {
+    return Effect.sync(() => this.write(`[debug] ${message}`));
+  }
+
+  heading(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => this.write(`\n${message}\n`));
+  }
+
+  list(items: string[]): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      for (const item of items) {
+        this.write(`  • ${item}`);
+      }
+    });
+  }
+
+  clear(): Effect.Effect<void, never> {
+    return Effect.void;
+  }
+
+  // Interactive methods return defaults — headless mode cannot prompt
+  ask(
+    _message: string,
+    options?: { defaultValue?: string },
+  ): Effect.Effect<string | undefined, never> {
+    return Effect.succeed(options?.defaultValue ?? undefined);
+  }
+
+  password(_message: string): Effect.Effect<string, never> {
+    return Effect.succeed("");
+  }
+
+  select<T = string>(
+    _message: string,
+    options: {
+      choices: readonly (
+        | string
+        | { name: string; value: T; description?: string; disabled?: boolean }
+      )[];
+      default?: T;
+    },
+  ): Effect.Effect<T | undefined, never> {
+    if (options.default !== undefined) return Effect.succeed(options.default);
+    const first = options.choices[0];
+    if (!first) return Effect.succeed(undefined);
+    if (typeof first === "string") return Effect.succeed(first as unknown as T);
+    return Effect.succeed(first.value);
+  }
+
+  confirm(_message: string, defaultValue: boolean = false): Effect.Effect<boolean, never> {
+    return Effect.succeed(defaultValue);
+  }
+
+  search<T = string>(
+    _message: string,
+    options: {
+      choices: readonly (string | { name: string; value: T; description?: string })[];
+    },
+  ): Effect.Effect<T | undefined, never> {
+    const first = options.choices[0];
+    if (!first) return Effect.succeed(undefined);
+    if (typeof first === "string") return Effect.succeed(first as unknown as T);
+    return Effect.succeed(first.value);
+  }
+
+  checkbox<T = string>(
+    _message: string,
+    options: {
+      choices: readonly (string | { name: string; value: T; description?: string })[];
+      default?: readonly T[];
+    },
+  ): Effect.Effect<readonly T[], never> {
+    return Effect.succeed(options.default ?? []);
+  }
+
+  setTitle(_title: string): Effect.Effect<void, never> {
+    return Effect.void;
+  }
+}
+
+/**
+ * Create the terminal service layer.
+ *
+ * Uses the Ink-based terminal when both stdout and stdin are TTYs (interactive terminal).
+ * Falls back to a headless terminal service in non-TTY environments (CI, piped output, cron)
+ * to avoid Ink's raw mode error.
  */
 export function createTerminalServiceLayer(): Layer.Layer<TerminalService, never, never> {
+  const isTTY = process.stdout.isTTY && process.stdin.isTTY;
+
   return Layer.effect(
     TerminalServiceTag,
-    Effect.sync(() => new InkTerminalService()),
+    Effect.sync(() => (isTTY ? new InkTerminalService() : new HeadlessTerminalService())),
+  );
+}
+
+/**
+ * Create a headless terminal service layer.
+ *
+ * Always uses HeadlessTerminalService regardless of TTY status.
+ * Use this for CI, cron, and `--auto-approve` workflow runs where
+ * no interactive UI is needed.
+ */
+export function createHeadlessTerminalServiceLayer(): Layer.Layer<TerminalService, never, never> {
+  return Layer.effect(
+    TerminalServiceTag,
+    Effect.sync(() => new HeadlessTerminalService()),
   );
 }

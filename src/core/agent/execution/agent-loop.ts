@@ -1,5 +1,5 @@
 import { Effect, Fiber, Option, Ref } from "effect";
-import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -114,7 +114,8 @@ export function executeAgentLoop(
     // Use: main loop
     ({ logger, finalizeFiberRef }) =>
       Effect.gen(function* () {
-        const { agent, maxIterations = MAX_AGENT_STEPS } = options;
+        const { agent, maxIterations: maxIter } = options;
+        const maxIterations = maxIter ?? DEFAULT_MAX_ITERATIONS;
         const presentationService = yield* PresentationServiceTag;
         const { actualConversationId, context, tools, messages, runMetrics, provider, model } =
           runContext;

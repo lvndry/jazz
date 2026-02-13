@@ -134,7 +134,7 @@ export type RecursiveRunner = (options: {
   userInput: string;
   sessionId: string;
   conversationId: string;
-  maxIterations: number;
+  maxIterations?: number;
 }) => Effect.Effect<
   AgentResponse,
   Error,

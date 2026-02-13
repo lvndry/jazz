@@ -30,7 +30,10 @@ import { createLoggerLayer, setLogFormat, setLogLevel } from "./services/logger"
 import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
 import { NotificationServiceLayer } from "./services/notification";
 import { FileStorageService } from "./services/storage/file";
-import { createTerminalServiceLayer } from "./services/terminal";
+import {
+  createHeadlessTerminalServiceLayer,
+  createTerminalServiceLayer,
+} from "./services/terminal";
 
 /**
  * Configuration options for creating the application layer
@@ -50,6 +53,14 @@ export interface AppLayerConfig {
    * Optional path to configuration file
    */
   configPath?: string | undefined;
+
+  /**
+   * Run in headless mode (no Ink TUI, no interactive prompts).
+   *
+   * When true, uses HeadlessTerminalService and CLIPresentationServiceLayer
+   * regardless of TTY status. Intended for CI, cron, and `--auto-approve` workflows.
+   */
+  headless?: boolean | undefined;
 }
 
 /**
@@ -86,7 +97,9 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     }),
   ).pipe(Layer.provide(configLayer));
 
-  const terminalLayer = createTerminalServiceLayer();
+  const terminalLayer = config.headless
+    ? createHeadlessTerminalServiceLayer()
+    : createTerminalServiceLayer();
 
   const storageLayer = Layer.effect(
     StorageServiceTag,
@@ -148,11 +161,12 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(WorkflowsLive.layer),
   );
 
+  // In headless mode or non-TTY, use the CLI presentation layer which writes directly to stdout.
   // In TTY mode, keep Ink UI intact by routing all presentation output into Ink.
-  // The legacy CLI presentation writes directly to stdout, which clobbers Ink rendering.
-  const presentationLayer = process.stdout.isTTY
-    ? InkPresentationServiceLayer.pipe(Layer.provide(NotificationServiceLayer))
-    : CLIPresentationServiceLayer;
+  const presentationLayer =
+    config.headless || !process.stdout.isTTY
+      ? CLIPresentationServiceLayer
+      : InkPresentationServiceLayer.pipe(Layer.provide(NotificationServiceLayer));
 
   // Create a complete layer by providing all dependencies
   return Layer.mergeAll(

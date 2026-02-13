@@ -1,5 +1,5 @@
 /* eslint-disable import/order */
-import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -1000,7 +1000,7 @@ class AISDKService implements LLMService {
           ...(tools ? { tools } : {}),
           ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
           ...(providerOptions ? { providerOptions } : {}),
-          stopWhen: stepCountIs(MAX_AGENT_STEPS),
+          stopWhen: stepCountIs(DEFAULT_MAX_ITERATIONS),
         });
         void this.logger.debug(
           `[LLM Timing] generateText completed in ${Date.now() - generateTextStart}ms`,
@@ -1224,7 +1224,7 @@ class AISDKService implements LLMService {
                   ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
                   ...(providerOptions ? { providerOptions } : {}),
                   abortSignal: abortController.signal,
-                  stopWhen: stepCountIs(MAX_AGENT_STEPS),
+                  stopWhen: stepCountIs(DEFAULT_MAX_ITERATIONS),
                 });
 
                 void this.logger.debug(
