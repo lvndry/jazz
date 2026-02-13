@@ -58,6 +58,34 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
     { id: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite" },
   ],
+  openrouter: [],
+  xai: [
+    { id: "grok-4-1-fast-reasoning", displayName: "Grok 4.1 Fast (Reasoning)" },
+    { id: "grok-4-1-fast-non-reasoning", displayName: "Grok 4.1 Fast (Non-Reasoning)" },
+    { id: "grok-4-fast-reasoning", displayName: "Grok 4 Fast (Reasoning)" },
+    { id: "grok-4-fast-non-reasoning", displayName: "Grok 4 Fast (Non-Reasoning)" },
+    { id: "grok-code-fast-1", displayName: "Grok Code Fast" },
+    { id: "grok-4-0709", displayName: "Grok 4 (0709)" },
+    { id: "grok-3-mini", displayName: "Grok 3 Mini" },
+  ],
+  ai_gateway: [],
+  alibaba: [
+    { id: "qwen3-max", displayName: "Qwen3 Max" },
+    { id: "qwen3-plus", displayName: "Qwen3 Plus" },
+    { id: "qwen-plus", displayName: "Qwen Plus" },
+    { id: "qwen-turbo", displayName: "Qwen Turbo" },
+    { id: "qwen-max", displayName: "Qwen Max" },
+  ],
+
+  cerebras: [],
+  deepseek: [{ id: "deepseek-chat", displayName: "DeepSeek Chat" }],
+  fireworks: [],
+
+  groq: [],
+  minimax: [
+    { id: "MiniMax-M2", displayName: "MiniMax M2" },
+    { id: "MiniMax-M2-Stable", displayName: "MiniMax M2 Stable" },
+  ],
   mistral: [
     { id: "mistral-large-latest", displayName: "Mistral Large" },
     { id: "mistral-medium-latest", displayName: "Mistral Medium" },
@@ -68,20 +96,18 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "magistral-medium-latest", displayName: "Magistral Medium" },
     { id: "magistral-small-latest", displayName: "Magistral Small" },
   ],
-  xai: [
-    { id: "grok-4-1-fast-reasoning", displayName: "Grok 4.1 Fast (Reasoning)" },
-    { id: "grok-4-1-fast-non-reasoning", displayName: "Grok 4.1 Fast (Non-Reasoning)" },
-    { id: "grok-4-fast-reasoning", displayName: "Grok 4 Fast (Reasoning)" },
-    { id: "grok-4-fast-non-reasoning", displayName: "Grok 4 Fast (Non-Reasoning)" },
-    { id: "grok-code-fast-1", displayName: "Grok Code Fast" },
-    { id: "grok-4-0709", displayName: "Grok 4 (0709)" },
-    { id: "grok-3-mini", displayName: "Grok 3 Mini" },
+  moonshotai: [
+    { id: "kimi-k2.5", displayName: "Kimi K2.5" },
+    { id: "kimi-k2", displayName: "Kimi K2" },
+    { id: "kimi-k2-thinking", displayName: "Kimi K2 Thinking" },
+    { id: "kimi-k2-thinking-turbo", displayName: "Kimi K2 Thinking Turbo" },
+    { id: "kimi-k2-turbo", displayName: "Kimi K2 Turbo" },
+    { id: "moonshot-v1-128k", displayName: "Moonshot V1 128K" },
+    { id: "moonshot-v1-32k", displayName: "Moonshot V1 32K" },
+    { id: "moonshot-v1-8k", displayName: "Moonshot V1 8K" },
   ],
-  deepseek: [{ id: "deepseek-chat", displayName: "DeepSeek Chat" }],
   ollama: [],
-  openrouter: [],
-  ai_gateway: [],
-  groq: [],
+  togetherai: [],
 } as const satisfies Record<string, readonly StaticModelEntry[]>;
 
 export type ProviderName = keyof typeof STATIC_PROVIDER_MODELS;

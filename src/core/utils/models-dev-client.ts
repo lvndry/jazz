@@ -22,6 +22,10 @@ export interface ModelsDevMetadata {
   readonly contextWindow: number;
   readonly supportsTools: boolean;
   readonly isReasoningModel: boolean;
+  /** Whether the model accepts image input (vision). Derived from modalities.input containing "image". */
+  readonly supportsVision: boolean;
+  /** Whether the model accepts PDF input natively. Derived from modalities.input containing "pdf". */
+  readonly supportsPdf: boolean;
   /** Input price in USD per 1M tokens (from models.dev cost.input). */
   readonly inputPricePerMillion?: number;
   /** Output price in USD per 1M tokens (from models.dev cost.output). */
@@ -35,6 +39,7 @@ type ModelsDevProvider = {
       limit?: { context?: number; output?: number };
       tool_call?: boolean;
       reasoning?: boolean;
+      modalities?: { input?: string[]; output?: string[] };
       cost?: { input?: number; output?: number };
     }
   >;
@@ -99,10 +104,14 @@ function buildMap(api: ModelsDevApi): Map<string, ModelsDevMetadata> {
           ? spec.cost.output
           : undefined;
 
+      const inputModalities = Array.isArray(spec.modalities?.input) ? spec.modalities.input : [];
+
       const meta: ModelsDevMetadata = {
         contextWindow,
         supportsTools: Boolean(spec.tool_call),
         isReasoningModel: Boolean(spec.reasoning),
+        supportsVision: inputModalities.includes("image"),
+        supportsPdf: inputModalities.includes("pdf"),
         ...(inputPrice !== undefined && { inputPricePerMillion: inputPrice }),
         ...(outputPrice !== undefined && { outputPricePerMillion: outputPrice }),
       };

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { useInput } from "ink";
-import React, { createContext, useCallback, useState } from "react";
+import { useInput, useStdin } from "ink";
+import React, { createContext, useCallback, useEffect, useRef, useState } from "react";
 import type { KeyInfo } from "../../input/escape-state-machine";
 import { createInputService, type InputService } from "../../services/input-service";
 import {
@@ -66,9 +66,74 @@ export function InputProvider({
     return Effect.runSync(Effect.provide(program, TerminalCapabilityServiceLive));
   });
 
+  // Track whether a paste was just handled so we can suppress
+  // Ink's useInput for the same chunk (Ink strips pasted newlines).
+  // A ref is used instead of state because the raw stdin listener and
+  // Ink's useInput fire synchronously within the same event-loop tick;
+  // a state update would only be visible after a re-render, causing the
+  // suppression flag to be missed and the pasted content to be processed
+  // twice.
+  const suppressNextRef = useRef(false);
+
+  const { stdin } = useStdin();
+
+  // Intercept raw stdin to detect multi-line pastes.
+  // Ink's parseKeypress treats \r as "return" and discards the rest,
+  // so pasted multi-line text loses all content. We listen on the raw
+  // stdin 'data' event (which fires before Ink processes the chunk)
+  // and inject the text directly as a "char" action when we detect
+  // a paste containing newlines.
+  useEffect(() => {
+    if (!stdin) return;
+
+    const onData = (data: Buffer | string) => {
+      const text = typeof data === "string" ? data : data.toString("utf8");
+
+      // Detect a multi-line paste: contains \r\n or \n and has
+      // content beyond just the line endings themselves.
+      const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const hasNewlines = normalized.includes("\n");
+      const hasContent = normalized.replace(/\n/g, "").length > 0;
+
+      if (hasNewlines && hasContent) {
+        // This is a pasted multi-line string. Inject it directly
+        // as a char input, bypassing Ink's keypress parser.
+        const charKey: KeyInfo = {
+          upArrow: false,
+          downArrow: false,
+          leftArrow: false,
+          rightArrow: false,
+          return: false,
+          escape: false,
+          ctrl: false,
+          shift: false,
+          tab: false,
+          backspace: false,
+          delete: false,
+          meta: false,
+        };
+        Effect.runSync(service.processInput(normalized, charKey));
+        // Tell useInput handler to skip the next call (same chunk)
+        suppressNextRef.current = true;
+      }
+    };
+
+    // Prepend listener so we see data before Ink's handler
+    stdin.prependListener("data", onData);
+    return () => {
+      stdin.removeListener("data", onData);
+    };
+  }, [stdin, service]);
+
   // Bridge Ink's useInput to our InputService
   const handleInput = useCallback(
     (input: string, key: InkKey) => {
+      // Skip if we already handled this chunk as a multi-line paste
+      if (suppressNextRef.current) {
+        suppressNextRef.current = false;
+        return;
+      }
+
       // Convert Ink key to our KeyInfo
       const keyInfo: KeyInfo = {
         upArrow: key.upArrow ?? false,

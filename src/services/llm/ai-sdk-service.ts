@@ -18,20 +18,26 @@ import type { WebSearchConfig } from "@/core/types/config";
 import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
 import type { ToolCall } from "@/core/types/tools";
 import { safeParseJson } from "@/core/utils/json";
-import { sanitize } from "@/core/utils/string";
+import { formatProviderDisplayName, sanitize } from "@/core/utils/string";
 import {
   convertToLLMError,
   extractCleanErrorMessage,
   truncateRequestBodyValues,
 } from "@/core/utils/llm-error";
 import { createDeferred } from "@/core/utils/promise";
+import { alibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
 import { anthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
+import { cerebras } from "@ai-sdk/cerebras";
 import { deepseek } from "@ai-sdk/deepseek";
+import { fireworks, type FireworksLanguageModelOptions } from "@ai-sdk/fireworks";
 import { google, type GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
 import { groq } from "@ai-sdk/groq";
 import { mistral } from "@ai-sdk/mistral";
+import { moonshotai, type MoonshotAILanguageModelOptions } from "@ai-sdk/moonshotai";
 import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
+import { togetherai } from "@ai-sdk/togetherai";
 import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
+import { minimax } from "vercel-minimax-ai-provider";
 import {
   createOpenRouter,
   type OpenRouterProviderOptions,
@@ -348,14 +354,20 @@ function checkProviderNativeWebSearchSupport(
  * Used as a fallback when no key is configured in the config file.
  */
 const PROVIDER_ENV_VARS: Record<string, string> = {
-  openai: "OPENAI_API_KEY",
+  alibaba: "ALIBABA_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
-  google: "GOOGLE_GENERATIVE_AI_API_KEY",
-  mistral: "MISTRAL_API_KEY",
-  xai: "XAI_API_KEY",
+  cerebras: "CEREBRAS_API_KEY",
   deepseek: "DEEPSEEK_API_KEY",
+  fireworks: "FIREWORKS_API_KEY",
+  google: "GOOGLE_GENERATIVE_AI_API_KEY",
   groq: "GROQ_API_KEY",
+  minimax: "MINIMAX_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+  moonshotai: "MOONSHOT_API_KEY",
+  openai: "OPENAI_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
+  togetherai: "TOGETHER_AI_API_KEY",
+  xai: "XAI_API_KEY",
 };
 
 function getConfiguredProviders(
@@ -365,34 +377,6 @@ function getConfiguredProviders(
   const addedProviders = new Set<string>();
 
   if (llmConfig) {
-    if (llmConfig.openai?.api_key) {
-      providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
-      addedProviders.add("openai");
-    }
-    if (llmConfig.anthropic?.api_key) {
-      providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
-      addedProviders.add("anthropic");
-    }
-    if (llmConfig.google?.api_key) {
-      providers.push({ name: "google", apiKey: llmConfig.google.api_key });
-      addedProviders.add("google");
-    }
-    if (llmConfig.mistral?.api_key) {
-      providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
-      addedProviders.add("mistral");
-    }
-    if (llmConfig.xai?.api_key) {
-      providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
-      addedProviders.add("xai");
-    }
-    if (llmConfig.deepseek?.api_key) {
-      providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
-      addedProviders.add("deepseek");
-    }
-    if (llmConfig.openrouter?.api_key) {
-      providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
-      addedProviders.add("openrouter");
-    }
     if (llmConfig.ai_gateway?.api_key) {
       providers.push({
         name: "ai_gateway",
@@ -401,9 +385,61 @@ function getConfiguredProviders(
       });
       addedProviders.add("ai_gateway");
     }
+    if (llmConfig.alibaba?.api_key) {
+      providers.push({ name: "alibaba", apiKey: llmConfig.alibaba.api_key });
+      addedProviders.add("alibaba");
+    }
+    if (llmConfig.anthropic?.api_key) {
+      providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
+      addedProviders.add("anthropic");
+    }
+    if (llmConfig.cerebras?.api_key) {
+      providers.push({ name: "cerebras", apiKey: llmConfig.cerebras.api_key });
+      addedProviders.add("cerebras");
+    }
+    if (llmConfig.deepseek?.api_key) {
+      providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
+      addedProviders.add("deepseek");
+    }
+    if (llmConfig.fireworks?.api_key) {
+      providers.push({ name: "fireworks", apiKey: llmConfig.fireworks.api_key });
+      addedProviders.add("fireworks");
+    }
+    if (llmConfig.google?.api_key) {
+      providers.push({ name: "google", apiKey: llmConfig.google.api_key });
+      addedProviders.add("google");
+    }
     if (llmConfig.groq?.api_key) {
       providers.push({ name: "groq", apiKey: llmConfig.groq.api_key });
       addedProviders.add("groq");
+    }
+    if (llmConfig.minimax?.api_key) {
+      providers.push({ name: "minimax", apiKey: llmConfig.minimax.api_key });
+      addedProviders.add("minimax");
+    }
+    if (llmConfig.mistral?.api_key) {
+      providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
+      addedProviders.add("mistral");
+    }
+    if (llmConfig.moonshotai?.api_key) {
+      providers.push({ name: "moonshotai", apiKey: llmConfig.moonshotai.api_key });
+      addedProviders.add("moonshotai");
+    }
+    if (llmConfig.openai?.api_key) {
+      providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
+      addedProviders.add("openai");
+    }
+    if (llmConfig.openrouter?.api_key) {
+      providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
+      addedProviders.add("openrouter");
+    }
+    if (llmConfig.togetherai?.api_key) {
+      providers.push({ name: "togetherai", apiKey: llmConfig.togetherai.api_key });
+      addedProviders.add("togetherai");
+    }
+    if (llmConfig.xai?.api_key) {
+      providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
+      addedProviders.add("xai");
     }
   }
 
@@ -458,6 +494,24 @@ function selectModel(
       break;
     case "deepseek":
       model = (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+      break;
+    case "moonshotai":
+      model = moonshotai(modelId);
+      break;
+    case "minimax":
+      model = minimax(modelId);
+      break;
+    case "alibaba":
+      model = alibaba(modelId);
+      break;
+    case "cerebras":
+      model = cerebras(modelId);
+      break;
+    case "fireworks":
+      model = fireworks(modelId);
+      break;
+    case "togetherai":
+      model = togetherai(modelId);
       break;
     case "ollama": {
       const headers = llmConfig?.ollama?.api_key
@@ -599,6 +653,69 @@ function buildProviderOptions(
       }
       break;
     }
+    case "moonshotai": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        // Moonshot thinking models (kimi-k2-thinking) support budgeted reasoning
+        const budgetMap: Record<string, number> = {
+          low: 1024,
+          medium: 4096,
+          high: 16384,
+        };
+        return {
+          moonshotai: {
+            thinking: { type: "enabled", budgetTokens: budgetMap[reasoningEffort] ?? 4096 },
+            reasoningHistory: "interleaved",
+          } satisfies MoonshotAILanguageModelOptions,
+        };
+      }
+      break;
+    }
+    case "alibaba": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        const budgetMap: Record<string, number> = {
+          low: 1024,
+          medium: 4096,
+          high: 16384,
+        };
+        return {
+          alibaba: {
+            enableThinking: true,
+            thinkingBudget: budgetMap[reasoningEffort] ?? 4096,
+          } satisfies AlibabaLanguageModelOptions,
+        };
+      }
+      break;
+    }
+    case "cerebras": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          cerebras: {
+            reasoningEffort,
+          },
+        };
+      }
+      break;
+    }
+    case "fireworks": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        const budgetMap: Record<string, number> = {
+          low: 1024,
+          medium: 4096,
+          high: 16384,
+        };
+        return {
+          fireworks: {
+            thinking: { type: "enabled", budgetTokens: budgetMap[reasoningEffort] ?? 4096 },
+            reasoningHistory: "interleaved",
+          } satisfies FireworksLanguageModelOptions,
+        };
+      }
+      break;
+    }
     default:
       break;
   }
@@ -628,6 +745,12 @@ class AISDKService implements LLMService {
         if (name === "google") {
           // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
           process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
+        } else if (name === "moonshotai") {
+          // @ai-sdk/moonshotai expects MOONSHOT_API_KEY (not MOONSHOTAI_API_KEY)
+          process.env["MOONSHOT_API_KEY"] = apiKey;
+        } else if (name === "togetherai") {
+          // @ai-sdk/togetherai expects TOGETHER_AI_API_KEY (not TOGETHERAI_API_KEY)
+          process.env["TOGETHER_AI_API_KEY"] = apiKey;
         } else {
           process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
         }
@@ -661,6 +784,8 @@ class AISDKService implements LLMService {
               contextWindow: dev?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
               supportsTools: dev?.supportsTools ?? false,
               isReasoningModel: dev?.isReasoningModel ?? false,
+              supportsVision: dev?.supportsVision ?? false,
+              supportsPdf: dev?.supportsPdf ?? false,
             };
           });
           this.modelInfoCache.set(providerName, resolved);
@@ -751,7 +876,7 @@ class AISDKService implements LLMService {
       .filter((provider): provider is ProviderName => this.isProviderName(provider))
       .map((name) => ({
         name,
-        ...(name === "ai_gateway" ? { displayName: "ai gateway" } : {}),
+        displayName: formatProviderDisplayName(name),
         configured: configuredNames.has(name),
       }));
 

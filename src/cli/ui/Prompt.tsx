@@ -213,6 +213,8 @@ function PromptComponent({
               paddingX={2}
               paddingY={1}
               flexDirection="column"
+              overflowX="hidden"
+              overflowY="hidden"
             >
               <Box>
                 <ChatInput

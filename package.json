@@ -61,13 +61,18 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
+    "@ai-sdk/alibaba": "^1.0.3",
     "@ai-sdk/anthropic": "^3.0.40",
+    "@ai-sdk/cerebras": "^2.0.33",
     "@ai-sdk/deepseek": "^2.0.18",
+    "@ai-sdk/fireworks": "^2.0.34",
     "@ai-sdk/google": "^3.0.23",
     "@ai-sdk/groq": "^3.0.22",
     "@ai-sdk/mcp": "^1.0.19",
     "@ai-sdk/mistral": "^3.0.19",
+    "@ai-sdk/moonshotai": "^2.0.4",
     "@ai-sdk/openai": "^3.0.26",
+    "@ai-sdk/togetherai": "^2.0.33",
     "@ai-sdk/xai": "^3.0.50",
     "@effect/experimental": "^0.54.6",
     "@effect/platform": "^0.90.10",
@@ -97,8 +102,8 @@
     "ink-gradient": "^3.0.0",
     "ink-select-input": "^6.2.0",
     "ink-spinner": "^5.0.0",
-    "js-tiktoken": "^1.0.21",
     "ink-text-input": "^6.0.0",
+    "js-tiktoken": "^1.0.21",
     "marked": "^16.4.2",
     "marked-terminal": "^7.3.0",
     "node-notifier": "^10.0.1",
@@ -109,6 +114,7 @@
     "plist": "^3.1.0",
     "react": "^19.2.4",
     "short-uuid": "^5.2.0",
+    "vercel-minimax-ai-provider": "^0.0.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -5,8 +5,12 @@
  * Tools are organized by operation type:
  * - Navigation: pwd, cd, ls, stat
  * - Read: readFile, readPdf, head, tail
- * - Search: grep, find, findPath
+ * - Search: grep, find
  * - Write: writeFile, editFile, mkdir, rm (approval required)
+ *
+ * Search tools have clear, non-overlapping purposes:
+ * - **find**: Locate files/directories by name, glob, or path pattern.
+ * - **grep**: Search inside file contents for text or regex patterns.
  *
  * Write tools use defineApprovalTool to create approval + execution pairs.
  */
@@ -15,7 +19,6 @@
 import { createCdTool } from "./cd";
 import { createEditFileTools } from "./edit";
 import { createFindTool } from "./find";
-import { createFindPathTool } from "./findPath";
 import { createGrepTool } from "./grep";
 import { createHeadTool } from "./head";
 import { createLsTool } from "./ls";
@@ -89,14 +92,11 @@ export const fs = {
 
   // === Search Operations (safe - no approval needed) ===
 
-  /** Search file contents with patterns */
+  /** Search file contents with patterns (ripgrep with grep fallback) */
   grep: createGrepTool,
 
-  /** Find files and directories */
+  /** Find files and directories by name/glob/path (fast-glob with fd/find fallback) */
   find: createFindTool,
-
-  /** Find files by path pattern */
-  findPath: createFindPathTool,
 
   // === Write Operations (approval required) ===
   // These return ApprovalToolPair with .approval, .execute, and .all()
@@ -118,7 +118,6 @@ export const fs = {
 export {
   createCdTool,
   createEditFileTools,
-  createFindPathTool,
   createFindTool,
   createGrepTool,
   createHeadTool,

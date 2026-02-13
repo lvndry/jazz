@@ -37,7 +37,7 @@ import {
 import type { MCPTool } from "@/core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp-utils";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
-import { toPascalCase } from "@/core/utils/string";
+import { formatProviderDisplayName, toPascalCase } from "@/core/utils/string";
 
 /**
  * CLI commands for editing existing agents
@@ -87,7 +87,9 @@ export function editAgentCommand(
     yield* terminal.log(`   ID: ${agent.id}`);
     yield* terminal.log(`   Description: ${agent.description}`);
     yield* terminal.log(`   Type: ${agent.config.agentType || "N/A"}`);
-    yield* terminal.log(`   LLM Provider: ${agent.config.llmProvider || "N/A"}`);
+    yield* terminal.log(
+      `   LLM Provider: ${formatProviderDisplayName(agent.config.llmProvider) || "N/A"}`,
+    );
     yield* terminal.log(`   LLM Model: ${agent.config.llmModel || "N/A"}`);
     yield* terminal.log(`   Reasoning: ${agent.config.reasoningEffort || "N/A"}`);
     yield* terminal.log(`   Tools: ${agent.config.tools ? agent.config.tools.length : 0} tools`);
@@ -481,7 +483,9 @@ export function editAgentCommand(
     yield* terminal.log(`   Name: ${updatedAgent.name}`);
     yield* terminal.log(`   Description: ${updatedAgent.description}`);
     yield* terminal.log(`   Type: ${updatedConfig.agentType || "N/A"}`);
-    yield* terminal.log(`   LLM Provider: ${updatedConfig.llmProvider || "N/A"}`);
+    yield* terminal.log(
+      `   LLM Provider: ${formatProviderDisplayName(updatedConfig.llmProvider) || "N/A"}`,
+    );
     yield* terminal.log(`   LLM Model: ${updatedConfig.llmModel || "N/A"}`);
     yield* terminal.log(`   Reasoning: ${updatedConfig.reasoningEffort || "N/A"}`);
     yield* terminal.log(`   Tools: ${updatedConfig.tools ? updatedConfig.tools.length : 0} tools`);

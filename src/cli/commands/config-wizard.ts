@@ -9,6 +9,7 @@ import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { ColorProfile, OutputMode } from "@/core/types/output";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
+import { formatProviderDisplayName } from "@/core/utils/string";
 import { store } from "../ui/store";
 import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
 
@@ -106,7 +107,7 @@ function configureLLMProviders() {
         (p) => {
           const hasKey = !!config.llm?.[p]?.api_key;
           return {
-            name: `${p} ${hasKey ? "(configured)" : ""}`,
+            name: `${formatProviderDisplayName(p)} ${hasKey ? "(configured)" : ""}`,
             value: p,
           };
         },
@@ -124,14 +125,15 @@ function configureLLMProviders() {
 
       const provider = providerChoice as ProviderName;
 
-      yield* terminal.info(`Configuring ${provider}...`);
+      const providerDisplay = formatProviderDisplayName(provider);
+      yield* terminal.info(`Configuring ${providerDisplay}...`);
       const apiKey = yield* terminal.password(
-        `Enter API Key for ${provider} (leave empty to keep current):`,
+        `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
       );
 
       if (apiKey.trim()) {
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
-        yield* terminal.success(`Configuration for ${provider} updated.`);
+        yield* terminal.success(`Configuration for ${providerDisplay} updated.`);
       } else {
         yield* terminal.info("No changes made.");
       }

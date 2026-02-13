@@ -15,6 +15,7 @@ import { CLIOptionsTag, type CLIOptions } from "@/core/interfaces/cli-options";
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import { sortAgents } from "@/core/utils/agent-sort";
+import { formatProviderDisplayName } from "@/core/utils/string";
 import { AgentDetailsCard } from "../ui/AgentDetailsCard";
 import { AgentsList } from "../ui/AgentsList";
 
@@ -334,7 +335,7 @@ function formatAgentDetailsBlock(agent: {
 
   lines.push(chalk.dim(sep));
   lines.push(kv("Agent type:", agent.config.agentType ?? "default"));
-  lines.push(kv("Provider:", agent.config.llmProvider));
+  lines.push(kv("Provider:", formatProviderDisplayName(agent.config.llmProvider)));
   lines.push(kv("LLM model:", agent.config.llmModel));
   lines.push(
     kv("Reasoning:", agent.config.reasoningEffort ? String(agent.config.reasoningEffort) : "—"),

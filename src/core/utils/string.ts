@@ -101,6 +101,39 @@ export function safeStringify(value: unknown): string {
  * @param str - The string to convert
  * @returns The string in PascalCase format
  */
+/**
+ * Provider display name map. Uses official brand casing for each provider.
+ */
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  ai_gateway: "Vercel AI Gateway",
+  alibaba: "Alibaba",
+  anthropic: "Anthropic",
+  cerebras: "Cerebras",
+  deepseek: "DeepSeek",
+  fireworks: "Fireworks",
+  google: "Google",
+  groq: "Groq",
+  minimax: "MiniMax",
+  mistral: "Mistral",
+  moonshotai: "Moonshot AI",
+  ollama: "Ollama",
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+  togetherai: "Together AI",
+  xai: "xAI",
+};
+
+/**
+ * Format a provider name for display.
+ * Uses official brand casing (e.g., "openai" → "OpenAI", "ai_gateway" → "AI Gateway").
+ * Falls back to PascalCase with underscores replaced by spaces for unknown providers.
+ */
+export function formatProviderDisplayName(provider: string): string {
+  const known = PROVIDER_DISPLAY_NAMES[provider];
+  if (known) return known;
+  return provider.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export function toPascalCase(str: string): string {
   if (!str) return str;
 

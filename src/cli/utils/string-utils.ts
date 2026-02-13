@@ -103,14 +103,6 @@ export function formatIsoShort(date: Date): string {
 }
 
 /**
- * Format a provider name for display (e.g., "ai_gateway" → "ai gateway")
- */
-export function formatProviderDisplayName(provider: string): string {
-  if (provider === "ai_gateway") return "ai gateway";
-  return provider;
-}
-
-/**
  * Format a list of tools as a summary line.
  *
  * @param tools - List of tool names

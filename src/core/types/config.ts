@@ -58,16 +58,22 @@ export interface OllamaProviderConfig {
 }
 
 export interface LLMConfig {
-  readonly openai?: LLMProviderConfig;
-  readonly anthropic?: LLMProviderConfig;
-  readonly google?: LLMProviderConfig;
-  readonly mistral?: LLMProviderConfig;
-  readonly xai?: LLMProviderConfig;
-  readonly deepseek?: LLMProviderConfig;
-  readonly ollama?: OllamaProviderConfig;
-  readonly openrouter?: LLMProviderConfig;
   readonly ai_gateway?: LLMProviderConfig;
+  readonly alibaba?: LLMProviderConfig;
+  readonly anthropic?: LLMProviderConfig;
+  readonly cerebras?: LLMProviderConfig;
+  readonly deepseek?: LLMProviderConfig;
+  readonly fireworks?: LLMProviderConfig;
+  readonly google?: LLMProviderConfig;
   readonly groq?: LLMProviderConfig;
+  readonly minimax?: LLMProviderConfig;
+  readonly mistral?: LLMProviderConfig;
+  readonly moonshotai?: LLMProviderConfig;
+  readonly ollama?: OllamaProviderConfig;
+  readonly openai?: LLMProviderConfig;
+  readonly openrouter?: LLMProviderConfig;
+  readonly togetherai?: LLMProviderConfig;
+  readonly xai?: LLMProviderConfig;
 }
 
 export interface WebSearchProviderConfig {
