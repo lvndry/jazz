@@ -188,7 +188,7 @@ export function createFindContentTool(): Tool<FileSystem.FileSystem | FileSystem
           const parts = line.split(":");
           if (parts.length >= 3 && parts[0] && parts[1]) {
             const file = parts[0];
-            const lineNum = parseInt(parts[1]!, 10);
+            const lineNum = parseInt(parts[1], 10);
             const text = parts.slice(2).join(":");
             const key = `${file}:${lineNum}`;
             if (!seen.has(key)) {

@@ -203,7 +203,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       const parts = line.split(":");
       if (parts.length >= 3 && parts[0] && parts[1]) {
         const file = parts[0];
-        const lineNum = parseInt(parts[1]!, 10);
+        const lineNum = parseInt(parts[1], 10);
         const text = parts.slice(2).join(":");
         const key = `${file}:${lineNum}`;
         if (!seenMatches.has(key)) {

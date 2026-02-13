@@ -5,11 +5,11 @@ import {
   type WebSearchProviderName,
 } from "@/core/agent/tools/web-search-tools";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
-import { formatProviderDisplayName } from "@/core/utils/string";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { ColorProfile, OutputMode } from "@/core/types/output";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
+import { formatProviderDisplayName } from "@/core/utils/string";
 import { store } from "../ui/store";
 import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
 
