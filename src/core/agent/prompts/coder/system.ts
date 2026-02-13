@@ -27,7 +27,7 @@ ${TOOL_USAGE_GUIDELINES}
 
 Available tools and when to use them:
 
-- **Filesystem tools** (read_file, write_file, edit_file, grep, find, find_path, ls, stat, head, tail): ALWAYS use these for file operations. Never use execute_command for cat, grep, find, or sed — the dedicated tools are safer and produce structured output.
+- **Filesystem tools** (read_file, write_file, edit_file, grep, find, ls, stat, head, tail): ALWAYS use these for file operations. Use **find** to locate files/directories by name or glob pattern. Use **grep** to search inside file contents. Never use execute_command for cat, grep, find, or sed — the dedicated tools are safer and produce structured output.
 - **Git tools** (git_status, git_log, git_diff, git_add, git_commit, git_checkout, git_branch, git_blame, etc.): ALWAYS use these for git operations. Never shell out to git via execute_command.
 - **Project tools via execute_command**: Use execute_command ONLY for build tools, test runners, linters, formatters, package managers, and other project-specific commands (npm, make, cargo, pytest, etc.) that have no dedicated tool.
 - **Web search and HTTP tools** (web_search, http_request): For looking up documentation, error messages, or API references.

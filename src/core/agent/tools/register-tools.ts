@@ -647,8 +647,6 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     // Search tools
     yield* registerTool(fs.grep());
     yield* registerTool(fs.find());
-    yield* registerTool(fs.findPath());
-    yield* registerTool(fs.findContent());
 
     // Write tools (approval required) - each returns { approval, execute }
     const writeTools = fs.write();
