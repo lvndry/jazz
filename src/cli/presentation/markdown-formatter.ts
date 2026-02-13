@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { emojify } from "node-emoji";
 import { codeColor, CHALK_THEME } from "../ui/theme";
 
 /**
@@ -45,6 +46,7 @@ const HORIZONTAL_RULE_REGEX = /^\s*([-*_]){3,}\s*$/gm;
 const LINK_REGEX = /(?<!\u001b)\[([^\]]+)\]\(([^)]+)\)/g;
 const CODE_BLOCK_EXTRACT_REGEX = /```[\s\S]*?```/g;
 const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;
+const EMOJI_SHORTCODE_REGEX = /:([A-Za-z0-9_\-+]+?):/g;
 
 /**
  * Streaming state for progressive markdown formatting
@@ -244,6 +246,20 @@ export function formatLinks(text: string): string {
 }
 
 /**
+ * Convert emoji shortcodes (e.g. :wave:, :thumbsup:) to their unicode equivalents.
+ * Uses the node-emoji library for the shortcode-to-unicode mapping.
+ * Shortcodes that don't match a known emoji are left as-is.
+ */
+export function formatEmojiShortcodes(text: string): string {
+  if (!EMOJI_SHORTCODE_REGEX.test(text)) {
+    return text;
+  }
+  // Reset lastIndex since we used .test() above
+  EMOJI_SHORTCODE_REGEX.lastIndex = 0;
+  return emojify(text);
+}
+
+/**
  * Format code blocks with stateful tracking
  */
 export function formatCodeBlocks(text: string, state: StreamingState): FormattingResult {
@@ -319,6 +335,7 @@ export function applyProgressiveFormatting(text: string, state: StreamingState):
   }
 
   // Apply formatting in order
+  formatted = formatEmojiShortcodes(formatted);
   formatted = formatEscapedText(formatted);
   formatted = formatStrikethrough(formatted);
   formatted = formatBold(formatted);
@@ -362,6 +379,9 @@ export function formatMarkdown(text: string): string {
     inlineCodes.push(code);
     return `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
   });
+
+  // Convert emoji shortcodes (after code extraction so :code: in code blocks is preserved)
+  formatted = formatEmojiShortcodes(formatted);
 
   // Apply formatting
   formatted = formatHeadings(formatted);
@@ -545,6 +565,9 @@ export function formatMarkdownHybrid(text: string): string {
     inlineCodes.push(code);
     return `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
   });
+
+  // Convert emoji shortcodes (after code extraction so :code: in code blocks is preserved)
+  formatted = formatEmojiShortcodes(formatted);
 
   // Apply hybrid formatting (preserves syntax markers)
   formatted = formatHeadingsHybrid(formatted);

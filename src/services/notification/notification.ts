@@ -48,7 +48,7 @@ export class NotificationServiceImpl implements NotificationService {
           title: String(title),
           message: String(message),
           subtitle: options?.subtitle ? String(options.subtitle) : undefined,
-          sound: !!sound,
+          sound: sound && "Blow",
           icon: options?.icon ? String(options.icon) : undefined,
           wait: !!(options?.wait ?? false),
           ...(bundleId && { activate: bundleId }),

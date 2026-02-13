@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { formatLinks, formatMarkdown } from "./markdown-formatter";
+import {
+  formatEmojiShortcodes,
+  formatLinks,
+  formatMarkdown,
+  formatMarkdownHybrid,
+} from "./markdown-formatter";
 import { CHALK_THEME } from "../ui/theme";
 
 describe("markdown-formatter", () => {
@@ -40,6 +45,71 @@ describe("markdown-formatter", () => {
       expect(result).toBe(CHALK_THEME.headingUnderline("Release 0.6.1"));
       // Ensure no leaked ANSI codes as text
       expect(result).not.toContain("1mRelease");
+    });
+  });
+
+  describe("formatEmojiShortcodes", () => {
+    it("should convert known emoji shortcodes to unicode", () => {
+      expect(formatEmojiShortcodes(":wave:")).toBe("👋");
+      expect(formatEmojiShortcodes(":+1:")).toBe("👍");
+      expect(formatEmojiShortcodes(":rocket:")).toBe("🚀");
+      expect(formatEmojiShortcodes(":heart:")).toBe("❤️");
+      expect(formatEmojiShortcodes(":smile:")).toBe("😄");
+    });
+
+    it("should leave unknown shortcodes as-is", () => {
+      expect(formatEmojiShortcodes(":not_a_real_emoji_xyz:")).toBe(":not_a_real_emoji_xyz:");
+      // :thumbsup: is not a valid node-emoji shortcode (use :+1: instead)
+      expect(formatEmojiShortcodes(":thumbsup:")).toBe(":thumbsup:");
+    });
+
+    it("should convert shortcodes embedded in text", () => {
+      const input = ":wave: Hello! I'm ready :rocket:";
+      const result = formatEmojiShortcodes(input);
+      expect(result).toContain("👋");
+      expect(result).toContain("🚀");
+      expect(result).toContain("Hello! I'm ready");
+    });
+
+    it("should return text unchanged when no shortcodes are present", () => {
+      const input = "Hello, this is plain text.";
+      expect(formatEmojiShortcodes(input)).toBe(input);
+    });
+  });
+
+  describe("emoji shortcodes in formatMarkdown", () => {
+    it("should convert emoji shortcodes in formatted output", () => {
+      const input = ":wave: Hello **world**";
+      const result = formatMarkdown(input);
+      expect(result).toContain("👋");
+    });
+
+    it("should not convert emoji shortcodes inside inline code", () => {
+      const input = "Use `:wave:` for the wave emoji";
+      const result = formatMarkdown(input);
+      // The inline code content should still have the literal shortcode
+      expect(result).toContain(":wave:");
+    });
+
+    it("should not convert emoji shortcodes inside code blocks", () => {
+      const input = "```\n:wave:\n```";
+      const result = formatMarkdown(input);
+      // Code block content should preserve the literal shortcode
+      expect(result).toContain(":wave:");
+    });
+  });
+
+  describe("emoji shortcodes in formatMarkdownHybrid", () => {
+    it("should convert emoji shortcodes in hybrid formatted output", () => {
+      const input = ":rocket: Launch time!";
+      const result = formatMarkdownHybrid(input);
+      expect(result).toContain("🚀");
+    });
+
+    it("should not convert emoji shortcodes inside inline code in hybrid mode", () => {
+      const input = "Use `:rocket:` for the rocket emoji";
+      const result = formatMarkdownHybrid(input);
+      expect(result).toContain(":rocket:");
     });
   });
 });

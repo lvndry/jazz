@@ -137,7 +137,13 @@ export function formatToolArguments(
       }
       return formatParts(parts);
     }
-    case "write_file": {
+    case "write_file":
+    case "execute_write_file": {
+      const path = safeString(args["path"] || args["filePath"]);
+      if (!path) return "";
+      return usePlain ? `{ file: ${path} }` : formatKeyValue("file", path);
+    }
+    case "execute_edit_file": {
       const path = safeString(args["path"] || args["filePath"]);
       if (!path) return "";
       return usePlain ? `{ file: ${path} }` : formatKeyValue("file", path);
@@ -256,11 +262,15 @@ export function formatToolArguments(
       return usePlain ? `{ path: ${dirPath} }` : formatKeyValue("path", dirPath);
     }
     default: {
-      // For unknown tools, show first few arguments
+      // For unknown tools, show first few arguments (truncate long values)
+      const MAX_VALUE_LENGTH = 120;
       const keys = Object.keys(args).slice(0, usePlain ? 3 : 2);
       if (keys.length === 0) return "";
       const parts = keys.map((key) => {
-        const valueStr = safeString(args[key]);
+        let valueStr = safeString(args[key]);
+        if (valueStr.length > MAX_VALUE_LENGTH) {
+          valueStr = valueStr.slice(0, MAX_VALUE_LENGTH) + "…";
+        }
         if (usePlain) {
           return `${key}: ${valueStr}`;
         }
