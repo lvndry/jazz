@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { useInput, useStdin } from "ink";
-import React, { createContext, useCallback, useEffect, useState } from "react";
+import React, { createContext, useCallback, useEffect, useRef, useState } from "react";
 import type { KeyInfo } from "../../input/escape-state-machine";
 import { createInputService, type InputService } from "../../services/input-service";
 import {
@@ -68,7 +68,12 @@ export function InputProvider({
 
   // Track whether a paste was just handled so we can suppress
   // Ink's useInput for the same chunk (Ink strips pasted newlines).
-  const [suppressNext, setSuppressNext] = useState(false);
+  // A ref is used instead of state because the raw stdin listener and
+  // Ink's useInput fire synchronously within the same event-loop tick;
+  // a state update would only be visible after a re-render, causing the
+  // suppression flag to be missed and the pasted content to be processed
+  // twice.
+  const suppressNextRef = useRef(false);
 
   const { stdin } = useStdin();
 
@@ -109,7 +114,7 @@ export function InputProvider({
         };
         Effect.runSync(service.processInput(normalized, charKey));
         // Tell useInput handler to skip the next call (same chunk)
-        setSuppressNext(true);
+        suppressNextRef.current = true;
       }
     };
 
@@ -124,8 +129,8 @@ export function InputProvider({
   const handleInput = useCallback(
     (input: string, key: InkKey) => {
       // Skip if we already handled this chunk as a multi-line paste
-      if (suppressNext) {
-        setSuppressNext(false);
+      if (suppressNextRef.current) {
+        suppressNextRef.current = false;
         return;
       }
 
@@ -148,7 +153,7 @@ export function InputProvider({
       // Process through service (fire and forget)
       Effect.runSync(service.processInput(input, keyInfo));
     },
-    [service, suppressNext],
+    [service],
   );
 
   // Register with Ink's input system

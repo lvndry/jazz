@@ -3,12 +3,12 @@ import { Effect } from "effect";
 import React from "react";
 import {
   formatIsoShort,
-  formatProviderDisplayName,
   getTerminalWidth,
   padRight,
   truncateMiddle,
   wrapCommaList,
 } from "@/cli/utils/string-utils";
+import { formatProviderDisplayName } from "@/core/utils/string";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";

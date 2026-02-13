@@ -84,6 +84,9 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
   ): string[] {
     const cmdArgs: string[] = [];
 
+    // Always include filename in output (rg omits it for single-file searches)
+    cmdArgs.push("--with-filename");
+
     if (!recursive || isFile) {
       if (isDirectory && !recursive) {
         cmdArgs.push("--max-depth", "1");
@@ -131,6 +134,9 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     outputMode: string,
   ): string[] {
     const cmdArgs: string[] = [];
+
+    // Always include filename in output (grep omits it for single-file searches)
+    cmdArgs.push("-H");
 
     if (recursive && isDirectory) cmdArgs.push("-r");
     if (args.ignoreCase) cmdArgs.push("-i");

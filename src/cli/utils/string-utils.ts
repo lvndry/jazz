@@ -102,9 +102,6 @@ export function formatIsoShort(date: Date): string {
   return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
 }
 
-// Re-export from core for backward compatibility
-export { formatProviderDisplayName } from "@/core/utils/string";
-
 /**
  * Format a list of tools as a summary line.
  *
