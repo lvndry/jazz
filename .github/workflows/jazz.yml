@@ -1,7 +1,7 @@
 name: Jazz AI
 
 on:
-  # TODO: Switch to pull_request_target once this workflow is merged to main
+  # Switch to pull_request_target once merged to main (for fork secret access)
   pull_request:
     types: [opened, synchronize]
 
@@ -37,6 +37,8 @@ jobs:
           cp .github/jazz/agents/ci-reviewer.json .jazz/agents/
           sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" \
             .github/jazz/workflows/code-review/WORKFLOW.md > workflows/code-review/WORKFLOW.md
+          echo "--- Substituted workflow ---"
+          cat workflows/code-review/WORKFLOW.md
 
       - name: Run code review
         env:
@@ -51,52 +53,72 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-
             const output = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
 
-            // Extract the last ````json ... ```` block (4 backticks to avoid matching triple backticks inside body)
-            // Falls back to triple backtick matching if no quad backtick block found
+            // Parse JSON from agent output (quad backticks first, then triple)
             let jsonBlocks = [...output.matchAll(/````json\s*\n([\s\S]*?)````/g)];
             if (jsonBlocks.length === 0) {
               jsonBlocks = [...output.matchAll(/```json\s*\n([\s\S]*?)```/g)];
             }
-            if (jsonBlocks.length === 0) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body: `## Jazz Code Review\n\n${output.slice(-60000) || '_No output from review._'}`
-              });
-              return;
-            }
 
-            const comments = JSON.parse(jsonBlocks[jsonBlocks.length - 1][1].trim());
+            let comments = [];
+            try {
+              if (jsonBlocks.length > 0) {
+                comments = JSON.parse(jsonBlocks[jsonBlocks.length - 1][1].trim());
+              }
+            } catch (e) {
+              console.log('Failed to parse JSON:', e.message);
+            }
 
             if (!Array.isArray(comments) || comments.length === 0) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.payload.pull_request.number,
-                body: `## Jazz Code Review\n\nNo issues found.`
+                body: comments.length === 0
+                  ? `## Jazz Code Review\n\nNo issues found.`
+                  : `## Jazz Code Review\n\n${output.slice(-60000) || '_No output from review._'}`
               });
               return;
             }
 
-            await github.rest.pulls.createReview({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-              commit_id: context.payload.pull_request.head.sha,
-              event: 'COMMENT',
-              body: `## Jazz Code Review\n\nFound ${comments.length} comment(s).`,
-              comments: comments.map(c => ({
-                path: c.path,
-                line: c.line,
-                ...(c.start_line != null && { start_line: c.start_line, start_side: c.start_side || c.side || 'RIGHT' }),
-                side: c.side || 'RIGHT',
-                body: c.body
-              }))
-            });
+            // Filter to valid inline comments (path must be a real file, line must be positive)
+            const validComments = comments.filter(c =>
+              c.path && c.line > 0 && !c.path.startsWith('/') && c.path !== 'NO_DIFF'
+            );
+
+            // Any comments that couldn't be posted inline become part of the review body
+            const invalidComments = comments.filter(c => !validComments.includes(c));
+            let reviewBody = `## Jazz Code Review\n\nFound ${comments.length} comment(s).`;
+            if (invalidComments.length > 0) {
+              reviewBody += '\n\n### General Comments\n\n';
+              reviewBody += invalidComments.map(c => `- ${c.body}`).join('\n');
+            }
+
+            if (validComments.length > 0) {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                commit_id: context.payload.pull_request.head.sha,
+                event: 'COMMENT',
+                body: reviewBody,
+                comments: validComments.map(c => ({
+                  path: c.path,
+                  line: c.line,
+                  ...(c.start_line != null && c.start_line > 0 && { start_line: c.start_line, start_side: c.side || 'RIGHT' }),
+                  side: c.side || 'RIGHT',
+                  body: c.body
+                }))
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: reviewBody
+              });
+            }
 
   bugbot:
     runs-on: ubuntu-latest
@@ -121,6 +143,8 @@ jobs:
           cp .github/jazz/agents/ci-bugbot.json .jazz/agents/
           sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" \
             .github/jazz/workflows/bugbot/WORKFLOW.md > workflows/bugbot/WORKFLOW.md
+          echo "--- Substituted workflow ---"
+          cat workflows/bugbot/WORKFLOW.md
 
       - name: Run bugbot
         env:
@@ -135,49 +159,69 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-
             const output = fs.readFileSync('/tmp/jazz-bugbot.txt', 'utf8');
 
-            // Extract the last ````json ... ```` block (4 backticks to avoid matching triple backticks inside body)
-            // Falls back to triple backtick matching if no quad backtick block found
+            // Parse JSON from agent output (quad backticks first, then triple)
             let jsonBlocks = [...output.matchAll(/````json\s*\n([\s\S]*?)````/g)];
             if (jsonBlocks.length === 0) {
               jsonBlocks = [...output.matchAll(/```json\s*\n([\s\S]*?)```/g)];
             }
-            if (jsonBlocks.length === 0) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body: `## Jazz Bug Detection\n\n${output.slice(-60000) || '_No output from bugbot._'}`
-              });
-              return;
-            }
 
-            const comments = JSON.parse(jsonBlocks[jsonBlocks.length - 1][1].trim());
+            let comments = [];
+            try {
+              if (jsonBlocks.length > 0) {
+                comments = JSON.parse(jsonBlocks[jsonBlocks.length - 1][1].trim());
+              }
+            } catch (e) {
+              console.log('Failed to parse JSON:', e.message);
+            }
 
             if (!Array.isArray(comments) || comments.length === 0) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.payload.pull_request.number,
-                body: `## Jazz Bug Detection\n\nNo bugs found.`
+                body: comments.length === 0
+                  ? `## Jazz Bug Detection\n\nNo bugs found.`
+                  : `## Jazz Bug Detection\n\n${output.slice(-60000) || '_No output from bugbot._'}`
               });
               return;
             }
 
-            await github.rest.pulls.createReview({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-              commit_id: context.payload.pull_request.head.sha,
-              event: 'COMMENT',
-              body: `## Jazz Bug Detection\n\nFound ${comments.length} potential issue(s).`,
-              comments: comments.map(c => ({
-                path: c.path,
-                line: c.line,
-                ...(c.start_line != null && { start_line: c.start_line, start_side: c.start_side || c.side || 'RIGHT' }),
-                side: c.side || 'RIGHT',
-                body: c.body
-              }))
-            });
+            // Filter to valid inline comments (path must be a real file, line must be positive)
+            const validComments = comments.filter(c =>
+              c.path && c.line > 0 && !c.path.startsWith('/') && c.path !== 'NO_DIFF'
+            );
+
+            // Any comments that couldn't be posted inline become part of the review body
+            const invalidComments = comments.filter(c => !validComments.includes(c));
+            let reviewBody = `## Jazz Bug Detection\n\nFound ${comments.length} potential issue(s).`;
+            if (invalidComments.length > 0) {
+              reviewBody += '\n\n### General Issues\n\n';
+              reviewBody += invalidComments.map(c => `- ${c.body}`).join('\n');
+            }
+
+            if (validComments.length > 0) {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                commit_id: context.payload.pull_request.head.sha,
+                event: 'COMMENT',
+                body: reviewBody,
+                comments: validComments.map(c => ({
+                  path: c.path,
+                  line: c.line,
+                  ...(c.start_line != null && c.start_line > 0 && { start_line: c.start_line, start_side: c.side || 'RIGHT' }),
+                  side: c.side || 'RIGHT',
+                  body: c.body
+                }))
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: reviewBody
+              });
+            }
