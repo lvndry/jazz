@@ -3,6 +3,7 @@ name: bugbot
 description: Detect bugs and potential issues in pull request changes
 autoApprove: true
 agent: ci-bugbot
+maxIterations: 100
 skills:
   - code-review
 ---

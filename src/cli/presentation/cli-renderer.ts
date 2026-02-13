@@ -6,6 +6,7 @@ import { type LLMError } from "@/core/types/errors";
 import type { ColorProfile, DisplayConfig, OutputMode, RenderTheme } from "@/core/types/output";
 import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
 import type { ToolCall } from "@/core/types/tools";
+import { getModelsDevMetadataSync } from "@/core/utils/models-dev-client";
 import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,
@@ -80,6 +81,8 @@ export class CLIRenderer {
     completionTokens: number;
     totalTokens: number;
   } | null = null;
+  private currentProvider: string | null = null;
+  private currentModel: string | null = null;
 
   // Markdown rendering state (previously static in MarkdownRenderer)
   private markedInitialized: boolean = false;
@@ -224,6 +227,9 @@ export class CLIRenderer {
   }
 
   private renderStreamStart(event: { provider: string; model: string }): string {
+    // Track provider/model for cost calculation in renderComplete
+    this.currentProvider = event.provider;
+    this.currentModel = event.model;
     // Reset thinking state for new stream
     this.thinkingRenderer.reset();
     // Reset markdown streaming buffer for new stream
@@ -422,6 +428,34 @@ export class CLIRenderer {
 
       if (parts.length > 0) {
         output += this.theme.colors.dim(`[${parts.join(" | ")}]\n`);
+      }
+    }
+
+    // Show cost estimate if pricing data is available
+    if (
+      this.config.showMetrics &&
+      this.accumulatedUsage &&
+      this.currentModel &&
+      this.currentProvider
+    ) {
+      const meta = getModelsDevMetadataSync(this.currentModel, this.currentProvider);
+      if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
+        const inputPrice = meta.inputPricePerMillion ?? 0;
+        const outputPrice = meta.outputPricePerMillion ?? 0;
+        const inputCost = (this.accumulatedUsage.promptTokens / 1_000_000) * inputPrice;
+        const outputCost = (this.accumulatedUsage.completionTokens / 1_000_000) * outputPrice;
+        const totalCost = inputCost + outputCost;
+
+        const fmt = (cost: number): string => {
+          if (cost === 0) return "$0.00";
+          if (cost >= 0.01) return `$${cost.toFixed(2)}`;
+          if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
+          return `$${cost.toExponential(2)}`;
+        };
+
+        output += this.theme.colors.dim(
+          `[Cost: ${fmt(inputCost)} input + ${fmt(outputCost)} output = ${fmt(totalCost)} total]\n`,
+        );
       }
     }
 
