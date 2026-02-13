@@ -106,41 +106,11 @@ function initializeAgentRun(
     // Combine agent tools with skill tools (skill tools always available)
     let combinedToolNames = [...new Set([...agentToolNames, ...BUILT_IN_TOOLS])];
 
-    // Get and validate tools (after MCP tools are registered)
-    // Use listAllTools to include hidden builtin tools like ask_user
+    // Filter out any non-existent tools silently — tools may have been removed
+    // or MCP servers may be unavailable. The agent can still operate with its
+    // remaining tools.
     const allToolNames = yield* toolRegistry.listAllTools();
-    const invalidTools = combinedToolNames.filter((toolName) => !allToolNames.includes(toolName));
-    if (invalidTools.length > 0) {
-      // Separate MCP tools (from disabled/unavailable servers) from truly invalid tools
-      const unavailableMCPTools = invalidTools.filter((t) => t.startsWith("mcp_"));
-      const trulyInvalidTools = invalidTools.filter((t) => !t.startsWith("mcp_"));
-
-      // Warn about unavailable MCP tools but don't fail — the server may be
-      // disabled, not configured, or failed to connect. The agent can still
-      // operate with its remaining tools.
-      if (unavailableMCPTools.length > 0) {
-        yield* logger.warn(
-          `Agent "${agent.name}": skipping unavailable MCP tools: ${unavailableMCPTools.join(", ")}`,
-        );
-      }
-
-      // Non-MCP invalid tools are a real configuration error — fail hard
-      if (trulyInvalidTools.length > 0) {
-        const toolList = trulyInvalidTools.join(", ");
-        const errorMessage = [
-          `Agent "${agent.name}" (${agent.id}) references non-existent tools: ${toolList}`,
-          ``,
-          `Possible reasons:`,
-          `  • The app needs to be restarted after adding new tools`,
-          `  • Tool names are misspelled in the agent configuration`,
-        ].join("\n");
-
-        return yield* Effect.fail(new Error(errorMessage));
-      }
-
-      // Remove unavailable MCP tools from the combined list so execution can proceed
-      combinedToolNames = combinedToolNames.filter((t) => !unavailableMCPTools.includes(t));
-    }
+    combinedToolNames = combinedToolNames.filter((toolName) => allToolNames.includes(toolName));
 
     // Expand tool names to include approval execute tools
     const expandedToolNameSet = new Set(combinedToolNames);

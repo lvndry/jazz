@@ -1,0 +1,33 @@
+{
+  "id": "ci-reviewer",
+  "name": "ci-reviewer",
+  "description": "CI code review agent",
+  "model": "openai/gpt-5.2-codex",
+  "config": {
+    "agentType": "default",
+    "llmProvider": "openai",
+    "llmModel": "gpt-5.2-codex",
+    "reasoningEffort": "medium",
+    "tools": [
+      "find",
+      "find_path",
+      "grep",
+      "head",
+      "ls",
+      "pwd",
+      "read_file",
+      "tail",
+      "stat",
+      "git_blame",
+      "git_diff",
+      "git_log",
+      "git_status",
+      "load_skill",
+      "load_skill_section",
+      "context_info",
+      "summarize_context"
+    ]
+  },
+  "createdAt": "2025-01-01T00:00:00.000Z",
+  "updatedAt": "2025-01-01T00:00:00.000Z"
+}
