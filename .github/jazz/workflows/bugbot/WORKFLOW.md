@@ -25,7 +25,7 @@ Hunt specifically for:
 
 ## Output Format
 
-You MUST output ONLY a JSON array as the very last thing you write, wrapped in a ```json fenced code block.
+You MUST output ONLY a JSON array as the very last thing you write, wrapped in a ````json fenced code block (use FOUR backticks so triple backticks inside the body field don't break the fence).
 Do NOT output anything after the JSON block.
 
 Each element represents one bug/issue tied to a specific file and line(s):
