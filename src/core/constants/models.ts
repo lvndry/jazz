@@ -26,6 +26,7 @@ export interface StaticModelEntry {
 
 export const STATIC_PROVIDER_MODELS = {
   openai: [
+    { id: "gpt-5.3-codex-spark", displayName: "GPT-5.3 Codex Spark" },
     { id: "gpt-5.3-codex", displayName: "GPT-5.3 Codex" },
     { id: "gpt-5.2-pro", displayName: "GPT-5.2 Pro" },
     { id: "gpt-5.2", displayName: "GPT-5.2" },

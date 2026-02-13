@@ -1,0 +1,162 @@
+name: Jazz AI
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Jazz
+        run: npm install -g jazz-ai
+
+      - name: Setup Jazz agent and workflow
+        run: |
+          mkdir -p .jazz/agents workflows/code-review
+
+          cat > .jazz/agents/ci-reviewer.json << 'AGENT'
+          {
+            "id": "ci-reviewer",
+            "name": "ci-reviewer",
+            "description": "CI code review agent",
+            "model": "openai/gpt-5.2-codex",
+            "config": {
+              "agentType": "default",
+              "llmProvider": "openai",
+              "llmModel": "gpt-5.2-codex",
+              "reasoningEffort": "medium",
+              "tools": [
+                "find", "find_path", "grep", "head", "ls", "pwd",
+                "read_file", "tail", "stat",
+                "git_blame", "git_diff", "git_log", "git_status",
+                "load_skill", "load_skill_section",
+                "context_info", "summarize_context"
+              ]
+            },
+            "createdAt": "2025-01-01T00:00:00.000Z",
+            "updatedAt": "2025-01-01T00:00:00.000Z"
+          }
+          AGENT
+
+          cat > workflows/code-review/WORKFLOW.md << 'WORKFLOW'
+          ---
+          name: code-review
+          description: Review pull request changes for quality, security, and correctness
+          autoApprove: true
+          agent: ci-reviewer
+          skills:
+            - code-review
+          ---
+
+          # Pull Request Code Review
+
+          Review the changes in this pull request using `git diff origin/main...HEAD`.
+
+          Focus on:
+          1. **Correctness** - Logic errors, edge cases, null/undefined handling
+          2. **Security** - Input validation, secrets exposure, injection risks
+          3. **Performance** - Obvious inefficiencies, missing pagination/limits
+          4. **Maintainability** - Naming, duplication, dead code
+
+          Use the `code-review` skill for the full review checklist and feedback format.
+
+          Output a structured review with Critical / Suggestions / Nice-to-have sections.
+          WORKFLOW
+
+      - name: Run code review
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CI: "true"
+          JAZZ_DISABLE_CATCH_UP: "1"
+        run: jazz workflow run code-review --auto-approve --agent ci-reviewer
+
+  bugbot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Jazz
+        run: npm install -g jazz-ai
+
+      - name: Setup Jazz agent and workflow
+        run: |
+          mkdir -p .jazz/agents workflows/bugbot
+
+          cat > .jazz/agents/ci-bugbot.json << 'AGENT'
+          {
+            "id": "ci-bugbot",
+            "name": "ci-bugbot",
+            "description": "CI bug detection agent",
+            "model": "openai/gpt-5.2-codex",
+            "config": {
+              "agentType": "default",
+              "llmProvider": "openai",
+              "llmModel": "gpt-5.2-codex",
+              "reasoningEffort": "high",
+              "tools": [
+                "find", "find_path", "grep", "head", "ls", "pwd",
+                "read_file", "tail", "stat",
+                "git_blame", "git_diff", "git_log", "git_status",
+                "load_skill", "load_skill_section",
+                "context_info", "summarize_context"
+              ]
+            },
+            "createdAt": "2025-01-01T00:00:00.000Z",
+            "updatedAt": "2025-01-01T00:00:00.000Z"
+          }
+          AGENT
+
+          cat > workflows/bugbot/WORKFLOW.md << 'WORKFLOW'
+          ---
+          name: bugbot
+          description: Detect bugs and potential issues in pull request changes
+          autoApprove: true
+          agent: ci-bugbot
+          skills:
+            - code-review
+          ---
+
+          # Bug Detection
+
+          Analyze the changes in this pull request using `git diff origin/main...HEAD`.
+
+          Hunt specifically for:
+          1. **Bugs** - Logic errors, off-by-one, race conditions, null dereferences
+          2. **Error handling gaps** - Uncaught exceptions, missing error paths, swallowed errors
+          3. **Security vulnerabilities** - Injection, auth bypass, secrets leakage, unsafe deserialization
+          4. **Regressions** - Changes that could break existing behavior or callers
+
+          For each issue found, provide:
+          - **File and location** (file path + function/line)
+          - **Severity** (Critical / Warning / Info)
+          - **Description** of the bug and why it matters
+          - **Suggested fix** with a concrete code snippet
+
+          If no bugs are found, state that explicitly with a brief explanation of what was checked.
+          WORKFLOW
+
+      - name: Run bugbot
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CI: "true"
+          JAZZ_DISABLE_CATCH_UP: "1"
+        run: jazz workflow run bugbot --auto-approve --agent ci-bugbot
