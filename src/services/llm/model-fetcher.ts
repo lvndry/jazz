@@ -48,6 +48,8 @@ function resolveToModelInfo(
       contextWindow: dev.contextWindow,
       supportsTools: dev.supportsTools,
       isReasoningModel: dev.isReasoningModel,
+      supportsVision: dev.supportsVision,
+      supportsPdf: dev.supportsPdf,
     };
   }
   const fb = entry.fallback;
@@ -57,6 +59,8 @@ function resolveToModelInfo(
     contextWindow: fb?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
     supportsTools: fb?.supportsTools ?? false,
     isReasoningModel: fb?.isReasoningModel ?? false,
+    supportsVision: fb?.supportsVision ?? false,
+    supportsPdf: fb?.supportsPdf ?? false,
   };
 }
 
@@ -190,6 +194,61 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
       displayName: `${model.owned_by.toLowerCase()}/${model.id.toLowerCase()}`,
       // no fallback; models.dev or defaults
     }));
+  },
+  fireworks: (data: unknown) => {
+    const response = data as {
+      models?: {
+        name: string;
+        displayName?: string;
+        contextLength?: number;
+        supportsTools?: boolean;
+        supportsImageInput?: boolean;
+        state?: string;
+        conversationConfig?: unknown;
+        supportsServerless?: boolean;
+      }[];
+    };
+    return (response.models ?? [])
+      .filter(
+        (model) => model.state === "READY" && model.conversationConfig && model.supportsServerless,
+      )
+      .map((model) => ({
+        id: model.name,
+        displayName: model.displayName ?? model.name,
+        fallback: {
+          contextWindow: model.contextLength ?? DEFAULT_CONTEXT_WINDOW,
+          supportsTools: model.supportsTools ?? false,
+          supportsVision: model.supportsImageInput ?? false,
+        },
+      }));
+  },
+  cerebras: (data: unknown) => {
+    const response = data as {
+      data: { id: string; owned_by?: string }[];
+    };
+    return response.data.map((model) => ({
+      id: model.id,
+      displayName: model.id,
+      // no fallback; models.dev or defaults
+    }));
+  },
+  togetherai: (data: unknown) => {
+    const models = data as {
+      id: string;
+      display_name?: string;
+      type?: string;
+      context_length?: number;
+    }[];
+    // Together.ai returns a flat array (not wrapped in { data }), filter to chat models only
+    return models
+      .filter((model) => model.type === "chat")
+      .map((model) => ({
+        id: model.id,
+        displayName: model.display_name ?? model.id,
+        fallback: {
+          contextWindow: model.context_length ?? DEFAULT_CONTEXT_WINDOW,
+        },
+      }));
   },
 };
 

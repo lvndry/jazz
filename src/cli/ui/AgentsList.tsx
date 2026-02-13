@@ -2,7 +2,6 @@ import { Box, Text, useStdout } from "ink";
 import React, { useRef } from "react";
 import {
   formatIsoShort,
-  formatProviderDisplayName,
   formatToolsLine,
   padRight,
   truncateMiddle,
@@ -124,7 +123,7 @@ export function AgentsList(props: {
         marginTop={1}
       >
         {props.agents.map((agent, i) => {
-          const model = `${formatProviderDisplayName(agent.config.llmProvider)}/${agent.config.llmModel}`;
+          const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
           const type = agent.config.agentType ?? "default";
           const reasoning = agent.config.reasoningEffort ?? "—";
           const desc = agent.description ?? "";

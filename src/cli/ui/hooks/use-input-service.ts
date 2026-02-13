@@ -310,13 +310,68 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
           nextCursor = findNextWordBoundary(currentValue, currentCursor);
           break;
 
-        case "line-start":
-          nextCursor = 0;
+        case "up": {
+          // In multi-line input, move cursor to the previous line
+          // In single-line input, let other handlers (e.g. history) handle it
+          if (!currentValue.includes("\n")) {
+            return InputResults.ignored();
+          }
+          const upPrevNewline = currentValue.lastIndexOf("\n", currentCursor - 1);
+          if (upPrevNewline === -1) {
+            // Already on the first line
+            return InputResults.ignored();
+          }
+          // Find the start of the current line and the offset within it
+          const upCurrentLineStart = upPrevNewline + 1;
+          const upOffsetInCurrentLine = currentCursor - upCurrentLineStart;
+          // Find the start of the previous line
+          const upPrevLineStart = currentValue.lastIndexOf("\n", upPrevNewline - 1) + 1;
+          const upPrevLineLen = upPrevNewline - upPrevLineStart;
+          // Move to same column offset in previous line, clamped to line length
+          nextCursor = upPrevLineStart + Math.min(upOffsetInCurrentLine, upPrevLineLen);
           break;
+        }
 
-        case "line-end":
-          nextCursor = currentValue.length;
+        case "down": {
+          // In multi-line input, move cursor to the next line
+          // In single-line input, let other handlers (e.g. history) handle it
+          if (!currentValue.includes("\n")) {
+            return InputResults.ignored();
+          }
+          const downNextNewline = currentValue.indexOf("\n", currentCursor);
+          if (downNextNewline === -1) {
+            // Already on the last line
+            return InputResults.ignored();
+          }
+          // Find the start of the current line and the offset within it
+          const downCurrentLineStart = currentValue.lastIndexOf("\n", currentCursor - 1) + 1;
+          const downOffsetInCurrentLine = currentCursor - downCurrentLineStart;
+          // Next line starts after the newline
+          const downNextLineStart = downNextNewline + 1;
+          // Find the end of the next line
+          const downNextLineEnd = currentValue.indexOf("\n", downNextLineStart);
+          const downNextLineLen =
+            downNextLineEnd === -1
+              ? currentValue.length - downNextLineStart
+              : downNextLineEnd - downNextLineStart;
+          // Move to same column offset in next line, clamped to line length
+          nextCursor = downNextLineStart + Math.min(downOffsetInCurrentLine, downNextLineLen);
           break;
+        }
+
+        case "line-start": {
+          // Move to start of current line (find preceding newline)
+          const lineStartIdx = currentValue.lastIndexOf("\n", currentCursor - 1);
+          nextCursor = lineStartIdx === -1 ? 0 : lineStartIdx + 1;
+          break;
+        }
+
+        case "line-end": {
+          // Move to end of current line (find next newline)
+          const lineEndIdx = currentValue.indexOf("\n", currentCursor);
+          nextCursor = lineEndIdx === -1 ? currentValue.length : lineEndIdx;
+          break;
+        }
 
         case "delete-word-back": {
           const boundary = findPrevWordBoundary(currentValue, currentCursor);
@@ -331,14 +386,22 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
           break;
         }
 
-        case "kill-line-back":
-          nextValue = currentValue.slice(currentCursor);
-          nextCursor = 0;
+        case "kill-line-back": {
+          // Kill from cursor to start of current line
+          const killBackLineStart = currentValue.lastIndexOf("\n", currentCursor - 1);
+          const killBackTo = killBackLineStart === -1 ? 0 : killBackLineStart + 1;
+          nextValue = currentValue.slice(0, killBackTo) + currentValue.slice(currentCursor);
+          nextCursor = killBackTo;
           break;
+        }
 
-        case "kill-line-forward":
-          nextValue = currentValue.slice(0, currentCursor);
+        case "kill-line-forward": {
+          // Kill from cursor to end of current line
+          const killFwdLineEnd = currentValue.indexOf("\n", currentCursor);
+          const killFwdTo = killFwdLineEnd === -1 ? currentValue.length : killFwdLineEnd;
+          nextValue = currentValue.slice(0, currentCursor) + currentValue.slice(killFwdTo);
           break;
+        }
 
         default:
           return InputResults.ignored();

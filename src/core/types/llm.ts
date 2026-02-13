@@ -10,6 +10,10 @@ export interface ModelInfo {
   readonly displayName?: string;
   readonly isReasoningModel?: boolean;
   readonly supportsTools: boolean;
+  /** Whether the model accepts image input (vision/multimodal). */
+  readonly supportsVision?: boolean;
+  /** Whether the model accepts PDF input natively. */
+  readonly supportsPdf?: boolean;
   /** Context window size in tokens. If not specified, defaults to 128000. */
   readonly contextWindow?: number;
 }

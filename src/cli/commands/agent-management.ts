@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import React from "react";
 import {
   formatIsoShort,
+  formatProviderDisplayName,
   getTerminalWidth,
   padRight,
   truncateMiddle,
@@ -334,7 +335,7 @@ function formatAgentDetailsBlock(agent: {
 
   lines.push(chalk.dim(sep));
   lines.push(kv("Agent type:", agent.config.agentType ?? "default"));
-  lines.push(kv("Provider:", agent.config.llmProvider));
+  lines.push(kv("Provider:", formatProviderDisplayName(agent.config.llmProvider)));
   lines.push(kv("LLM model:", agent.config.llmModel));
   lines.push(
     kv("Reasoning:", agent.config.reasoningEffort ? String(agent.config.reasoningEffort) : "—"),

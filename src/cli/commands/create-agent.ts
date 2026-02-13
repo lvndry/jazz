@@ -35,7 +35,7 @@ import type { AgentConfig } from "@/core/types/index";
 import type { LLMProvider, LLMProviderListItem } from "@/core/types/llm";
 import type { MCPTool } from "@/core/types/mcp";
 import { isAuthenticationRequired } from "@/core/utils/mcp-utils";
-import { toPascalCase } from "@/core/utils/string";
+import { formatProviderDisplayName, toPascalCase } from "@/core/utils/string";
 
 /**
  * CLI commands for creating AI agents
@@ -308,7 +308,7 @@ export function createAgentCommand(): Effect.Effect<
       yield* terminal.log(`   Description: ${agent.description}`);
     }
     yield* terminal.log(`   Type: ${config.agentType}`);
-    yield* terminal.log(`   LLM Provider: ${config.llmProvider}`);
+    yield* terminal.log(`   LLM Provider: ${formatProviderDisplayName(config.llmProvider)}`);
     yield* terminal.log(`   LLM Model: ${config.llmModel}`);
     yield* terminal.log(`   Reasoning: ${config.reasoningEffort}`);
     yield* terminal.log(`   Tool Categories: ${agentAnswers.tools.join(", ") || "None"}`);

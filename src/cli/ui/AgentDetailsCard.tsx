@@ -1,5 +1,6 @@
 import { Box, Text, useStdout } from "ink";
 import React from "react";
+import { formatProviderDisplayName } from "@/core/utils/string";
 import { THEME } from "./theme";
 
 interface AgentDetailsItem {
@@ -124,7 +125,7 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
           />
           <KeyValue
             label="Provider"
-            value={agent.config.llmProvider}
+            value={formatProviderDisplayName(agent.config.llmProvider)}
             innerWidth={inner - 2}
           />
           <KeyValue

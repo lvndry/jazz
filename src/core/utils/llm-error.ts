@@ -6,6 +6,7 @@ import {
   LLMRequestError,
   type LLMError,
 } from "@/core/types/errors";
+import { formatProviderDisplayName } from "@/core/utils/string";
 
 /**
  * Core truncation logic: truncate contents array to keep first message + last N messages.
@@ -217,7 +218,7 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
       cleanMessage.toLowerCase().includes("api key")
     ) {
       // Create a more user-friendly message for API key issues
-      const providerDisplayName = providerName.charAt(0).toUpperCase() + providerName.slice(1);
+      const providerDisplayName = formatProviderDisplayName(providerName);
       const friendlyMessage = `${providerDisplayName} API key is missing or invalid.
 You can set it by running: jazz config set llm.${providerName}.api_key <your-key>
 Or update it in the interactive wizard: jazz wizard -> Update configuration`;

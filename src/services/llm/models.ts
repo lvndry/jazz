@@ -16,47 +16,74 @@ export type ModelSource =
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api";
 
 export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
-  openai: {
+  ai_gateway: {
+    type: "dynamic",
+    endpointPath: "",
+  },
+  alibaba: {
     type: "static",
-    models: STATIC_PROVIDER_MODELS.openai,
+    models: STATIC_PROVIDER_MODELS.alibaba,
   },
   anthropic: {
     type: "static",
     models: STATIC_PROVIDER_MODELS.anthropic,
   },
+  cerebras: {
+    type: "dynamic",
+    endpointPath: "/v1/models",
+    defaultBaseUrl: "https://api.cerebras.ai",
+  },
+  deepseek: {
+    type: "static",
+    models: STATIC_PROVIDER_MODELS.deepseek,
+  },
+  fireworks: {
+    type: "dynamic",
+    endpointPath: "/v1/accounts/fireworks/models?pageSize=200",
+    defaultBaseUrl: "https://api.fireworks.ai",
+  },
   google: {
     type: "static",
     models: STATIC_PROVIDER_MODELS.google,
+  },
+  groq: {
+    type: "dynamic",
+    endpointPath: "/models",
+    defaultBaseUrl: "https://api.groq.com/openai/v1",
+  },
+  minimax: {
+    type: "static",
+    models: STATIC_PROVIDER_MODELS.minimax,
   },
   mistral: {
     type: "static",
     models: STATIC_PROVIDER_MODELS.mistral,
   },
-  xai: {
+  moonshotai: {
     type: "static",
-    models: STATIC_PROVIDER_MODELS.xai,
-  },
-  deepseek: {
-    type: "static",
-    models: STATIC_PROVIDER_MODELS.deepseek,
+    models: STATIC_PROVIDER_MODELS.moonshotai,
   },
   ollama: {
     type: "dynamic",
     endpointPath: "/tags",
     defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL,
   },
+  openai: {
+    type: "static",
+    models: STATIC_PROVIDER_MODELS.openai,
+  },
   openrouter: {
     type: "dynamic",
     endpointPath: "/api/v1/models",
     defaultBaseUrl: "https://openrouter.ai",
   },
-  ai_gateway: {
+  togetherai: {
     type: "dynamic",
-    endpointPath: "",
+    endpointPath: "/v1/models",
+    defaultBaseUrl: "https://api.together.xyz",
   },
-  groq: {
-    type: "dynamic",
-    endpointPath: "/models",
-    defaultBaseUrl: "https://api.groq.com/openai/v1",
+  xai: {
+    type: "static",
+    models: STATIC_PROVIDER_MODELS.xai,
   },
 } as const;
