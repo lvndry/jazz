@@ -222,6 +222,7 @@ function generateLaunchdPlist(
     "--agent",
     agentId,
     "--auto-approve",
+    "--headless",
     "--scheduled",
   ];
 
@@ -257,6 +258,7 @@ function generateCrontabEntry(
     "--agent",
     agentId,
     "--auto-approve",
+    "--headless",
     "--scheduled",
   ]);
 

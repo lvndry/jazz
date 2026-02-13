@@ -47,8 +47,7 @@ export interface AgentRunnerOptions {
   /**
    * Maximum number of iterations (agent reasoning loops) allowed for this run.
    * Each iteration may involve tool calls and LLM responses.
-   * If not specified, defaults to `MAX_AGENT_STEPS` constant.
-   * The agent will stop when it reaches this limit or completes its task.
+   * If not specified, the agent runs with no iteration limit until it completes its task.
    */
   readonly maxIterations?: number;
   /**

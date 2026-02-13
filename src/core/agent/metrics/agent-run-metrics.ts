@@ -11,7 +11,7 @@ export interface AgentRunMetricsContext {
   readonly provider?: string;
   readonly model?: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
-  readonly maxIterations: number;
+  readonly maxIterations?: number | undefined;
 }
 
 interface AgentRunIterationSummary {
@@ -34,7 +34,7 @@ export interface AgentRunMetrics {
   readonly provider?: string;
   readonly model?: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
-  readonly maxIterations: number;
+  readonly maxIterations: number | undefined;
   readonly startedAt: Date;
   totalPromptTokens: number;
   totalCompletionTokens: number;
@@ -248,7 +248,7 @@ interface TokenUsageLogPayload {
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
   readonly iterations: number;
-  readonly maxIterations: number;
+  readonly maxIterations: number | undefined;
   readonly finished: boolean;
   readonly startedAt: Date;
   readonly endedAt: Date;

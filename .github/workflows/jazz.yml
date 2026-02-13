@@ -36,7 +36,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
-        run: jazz workflow run code-review --auto-approve --agent ci-reviewer 2>/dev/null | tee /tmp/jazz-review.txt
+        run: jazz workflow run code-review --auto-approve --headless --agent ci-reviewer --quiet 2>/dev/null | tee /tmp/jazz-review.txt
 
       - name: Post review comments
         if: always()
@@ -114,7 +114,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
-        run: jazz workflow run bugbot --auto-approve --agent ci-bugbot 2>/dev/null | tee /tmp/jazz-bugbot.txt
+        run: jazz workflow run bugbot --auto-approve --headless --agent ci-bugbot --quiet 2>/dev/null | tee /tmp/jazz-bugbot.txt
 
       - name: Post bug report comments
         if: always()

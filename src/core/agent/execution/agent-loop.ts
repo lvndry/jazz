@@ -1,5 +1,5 @@
 import { Effect, Fiber, Option, Ref } from "effect";
-import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -114,7 +114,8 @@ export function executeAgentLoop(
     // Use: main loop
     ({ logger, finalizeFiberRef }) =>
       Effect.gen(function* () {
-        const { agent, maxIterations = MAX_AGENT_STEPS } = options;
+        const { agent, maxIterations } = options;
+        const hasIterationLimit = maxIterations != null && maxIterations > 0;
         const presentationService = yield* PresentationServiceTag;
         const { actualConversationId, context, tools, messages, runMetrics, provider, model } =
           runContext;
@@ -131,7 +132,7 @@ export function executeAgentLoop(
         let interrupted = false;
         let iterationsUsed = 0;
 
-        for (let i = 0; i < maxIterations; i++) {
+        for (let i = 0; !hasIterationLimit || i < maxIterations; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
             // Show thinking indicator
@@ -365,8 +366,8 @@ export function executeAgentLoop(
         }
 
         // Post-loop cleanup
-        if (!finished) {
-          iterationsUsed = maxIterations;
+        if (!finished && hasIterationLimit) {
+          iterationsUsed = maxIterations!;
           yield* presentationService.presentWarning(
             agent.name,
             `iteration limit reached (${maxIterations}) - type 'continue' to resume`,

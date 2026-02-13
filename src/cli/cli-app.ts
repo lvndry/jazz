@@ -340,6 +340,7 @@ function registerWorkflowCommands(program: Command): void {
     .description("Run a workflow once")
     .option("--auto-approve", "Auto-approve tool executions based on workflow policy")
     .option("--agent <agentId>", "Agent ID or name to use for this workflow run")
+    .option("--headless", "Disable Ink TUI, output plain text to stdout (for CI/cron)")
     .option(
       "--scheduled",
       "Indicates this run was triggered by the system scheduler (launchd/cron)",
@@ -347,7 +348,7 @@ function registerWorkflowCommands(program: Command): void {
     .action(
       (
         name: string,
-        options: { autoApprove?: boolean; agent?: string; scheduled?: boolean },
+        options: { autoApprove?: boolean; agent?: string; headless?: boolean; scheduled?: boolean },
         command: Command,
       ) => {
         const opts = program.opts<CliOptions>();
@@ -359,6 +360,7 @@ function registerWorkflowCommands(program: Command): void {
             verbose: opts.verbose,
             debug: opts.debug,
             configPath: opts.config,
+            headless: options.headless === true,
           },
           { skipCatchUp: isWorkflowRunCommand },
         );

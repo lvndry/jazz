@@ -3,7 +3,6 @@ name: code-review
 description: Review pull request changes for quality, security, and correctness
 autoApprove: true
 agent: ci-reviewer
-maxIterations: 30
 skills:
   - code-review
 ---

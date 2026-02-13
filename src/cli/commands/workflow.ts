@@ -162,9 +162,6 @@ export function showWorkflowCommand(workflowName: string) {
   });
 }
 
-/** Default max iterations for workflows */
-const DEFAULT_MAX_ITERATIONS = 50;
-
 /**
  * Run a workflow once (manually or via system scheduler).
  *
@@ -320,16 +317,16 @@ export function runWorkflowCommand(
       triggeredBy: isHeadless ? "scheduled" : "manual",
     }).pipe(Effect.catchAll(() => Effect.void)); // Don't fail if history tracking fails
 
-    // Use configurable max iterations from workflow metadata
-    const maxIterations = workflow.metadata.maxIterations ?? DEFAULT_MAX_ITERATIONS;
-
     // Run the agent with the workflow prompt
+    // maxIterations from workflow metadata is optional — omit for no limit
     yield* AgentRunner.run({
       agent,
       userInput: workflow.prompt,
       sessionId: `workflow-${workflowName}-${Date.now()}`,
       conversationId: `workflow-${workflowName}-${Date.now()}`,
-      maxIterations,
+      ...(workflow.metadata.maxIterations != null
+        ? { maxIterations: workflow.metadata.maxIterations }
+        : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
     }).pipe(
       Effect.tap(() =>

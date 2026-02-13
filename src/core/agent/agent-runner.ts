@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { MAX_AGENT_STEPS } from "@/core/constants/agent";
+
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -61,7 +61,7 @@ function initializeAgentRun(
       provider,
       model,
       reasoningEffort: agent.config.reasoningEffort ?? "disable",
-      maxIterations: options.maxIterations ?? MAX_AGENT_STEPS,
+      maxIterations: options.maxIterations,
     });
 
     // Level 1: List all available skills (metadata only)
@@ -272,7 +272,7 @@ export class AgentRunner {
         userInput: string;
         sessionId: string;
         conversationId: string;
-        maxIterations: number;
+        maxIterations?: number;
       }) => AgentRunner.runRecursive(runOpts);
 
       if (streamDetection.shouldStream) {
@@ -323,7 +323,7 @@ export class AgentRunner {
       userInput: string;
       sessionId: string;
       conversationId: string;
-      maxIterations: number;
+      maxIterations?: number;
     }) => AgentRunner.runRecursive(runOpts);
 
     return Summarizer.summarizeHistory(
