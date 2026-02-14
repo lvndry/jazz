@@ -454,12 +454,11 @@ function emitAgentRunTelemetry(
   details: { readonly iterationsUsed: number; readonly finished: boolean },
 ): Effect.Effect<void> {
   return Effect.flatMap(Effect.context<never>(), (ctx) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const maybeTelemetry = Context.getOption(ctx as any, TelemetryServiceTag as any);
+    const maybeTelemetry = Context.getOption(ctx, TelemetryServiceTag);
 
     if (maybeTelemetry._tag === "None") return Effect.void;
 
-    const telemetry = maybeTelemetry.value as TelemetryService;
+    const telemetry = maybeTelemetry.value;
     const payload = buildTelemetryPayload(metrics, totalTokens, durationMs, details);
 
     return telemetry

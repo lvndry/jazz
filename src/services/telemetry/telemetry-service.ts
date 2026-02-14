@@ -609,8 +609,8 @@ export class TelemetryServiceImpl implements TelemetryService {
             summary.toolResultTokens += usage.toolResultTokens ?? 0;
             summary.toolDefinitionsOffered += usage.toolDefinitionsOffered ?? 0;
 
-            const model = String(data["model"] ?? "unknown");
-            const provider = String(data["provider"] ?? "unknown");
+            const model = typeof data["model"] === "string" ? data["model"] : "unknown";
+            const provider = typeof data["provider"] === "string" ? data["provider"] : "unknown";
             const modelKey = `${provider}/${model}`;
             const existing = summary.byModel[modelKey];
             if (existing) {
@@ -653,8 +653,13 @@ export class TelemetryServiceImpl implements TelemetryService {
           }
 
           // Accumulate per-agent usage
-          const agentId = String(data["agentId"] ?? event.agentId ?? "unknown");
-          const agentName = String(data["agentName"] ?? "unknown");
+          const agentId =
+            typeof data["agentId"] === "string"
+              ? data["agentId"]
+              : typeof event.agentId === "string"
+                ? event.agentId
+                : "unknown";
+          const agentName = typeof data["agentName"] === "string" ? data["agentName"] : "unknown";
           const usage = data["usage"] as TokenUsage | undefined;
 
           // Accumulate tool token usage from agent run

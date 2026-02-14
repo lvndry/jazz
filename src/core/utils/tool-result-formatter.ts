@@ -305,7 +305,7 @@ function truncateArray(arr: readonly unknown[], maxChars: number): unknown[] {
   const result: unknown[] = [];
   // 30 chars reserved for the "[N more items]" trailer
   let budget = maxChars - 30;
-  let overhead = 2; // opening [ and closing ]
+  const overhead = 2; // opening [ and closing ]
   budget -= overhead;
 
   for (const item of arr) {
@@ -417,7 +417,7 @@ export function formatToolResultForContext(toolName: string, result: unknown): s
   } else if (Array.isArray(result)) {
     const entryStripper = ARRAY_ENTRY_STRIPPERS[toolName];
     if (entryStripper) {
-      stripped = result.map((entry) => {
+      stripped = (result as readonly unknown[]).map((entry: unknown): unknown => {
         if (isRecord(entry)) {
           const entryClone = { ...entry };
           entryStripper(entryClone);
