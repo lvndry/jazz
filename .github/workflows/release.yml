@@ -54,7 +54,7 @@ jobs:
           git add package.json
           git commit -m "${NEW_VERSION}"
           git tag -a "${NEW_TAG}" -m "${NEW_TAG}"
-          git push origin main --follow-tags
+          git push "https://x-access-token:${{ secrets.RELEASE_PAT }}@github.com/${{ github.repository }}.git" main --follow-tags
           echo "new_tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
           echo "previous_tag=${{ steps.prev_tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
 
