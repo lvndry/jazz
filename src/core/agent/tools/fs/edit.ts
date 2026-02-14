@@ -87,6 +87,19 @@ export class PatternNotFoundError extends Data.TaggedError("PatternNotFoundError
 }
 
 /**
+ * Invalid pattern error - thrown when normalizeFilterPattern rejects a pattern
+ * (e.g., nested quantifiers like (a+)+, malformed regex).
+ */
+export class InvalidPatternError extends Data.TaggedError("InvalidPatternError")<{
+  readonly pattern: string;
+  readonly reason: string;
+}> {
+  override get message() {
+    return `Invalid pattern "${this.pattern}": ${this.reason}`;
+  }
+}
+
+/**
  * Regex iteration limit exceeded — pattern matched too many times,
  * likely due to a degenerate regex. Thrown instead of silently truncating.
  */
@@ -225,6 +238,7 @@ export type EditFileError =
   | OutOfBoundsError
   | InsertOutOfBoundsError
   | PatternNotFoundError
+  | InvalidPatternError
   | RegexIterationLimitError
   | FileWriteError;
 
@@ -253,6 +267,7 @@ function ensureGlobalRegex(regex: RegExp): RegExp {
  * @throws {OutOfBoundsError} When line range is out of bounds
  * @throws {InsertOutOfBoundsError} When insert position is out of bounds
  * @throws {PatternNotFoundError} When replace_pattern finds 0 matches
+ * @throws {InvalidPatternError} When pattern is malformed (e.g., nested quantifiers)
  */
 function applyEdits(
   lines: readonly string[],
@@ -292,7 +307,7 @@ function applyEdits(
         const patternInfo = normalizeFilterPattern(edit.pattern);
         // Surface regex rejection as a clear error instead of silently falling back
         if (patternInfo.error) {
-          throw new Error(patternInfo.error);
+          throw new InvalidPatternError({ pattern: edit.pattern, reason: patternInfo.error });
         }
         let content = currentLines.join("\n");
         let replacementCount = 0;
@@ -424,6 +439,7 @@ function extractErrorType(error: unknown): string {
   if (error instanceof OutOfBoundsError) return "OutOfBoundsError";
   if (error instanceof InsertOutOfBoundsError) return "InsertOutOfBoundsError";
   if (error instanceof PatternNotFoundError) return "PatternNotFoundError";
+  if (error instanceof InvalidPatternError) return "InvalidPatternError";
   if (error instanceof RegexIterationLimitError) return "RegexIterationLimitError";
   if (error instanceof FileNotFoundError) return "FileNotFoundError";
   if (error instanceof FileReadError) return "FileReadError";
