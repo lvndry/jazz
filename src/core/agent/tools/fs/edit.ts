@@ -133,9 +133,16 @@ const editOperationSchema = z.discriminatedUnion("type", [
     }),
   z.object({
     type: z.literal("replace_pattern"),
-    pattern: z.string().min(1).describe("Literal string or 're:<regex>' pattern to find"),
+    pattern: z
+      .string()
+      .min(1)
+      .describe("Literal string or 're:<regex>'. Nested quantifiers like (a+)+ are rejected."),
     replacement: z.string().describe("Replacement text"),
-    count: z.number().int().optional().describe("Occurrences to replace (default: 1, -1 for all)"),
+    count: z
+      .number()
+      .int()
+      .optional()
+      .describe("Matches to replace. Default 1 (first only). Use -1 for all occurrences."),
   }),
   z.object({
     type: z.literal("insert"),
@@ -390,7 +397,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
   const config: ApprovalToolConfig<EditFileDeps, EditFileArgs> = {
     name: "edit_file",
     description:
-      "Edit parts of a file: replace lines, replace patterns, insert, or delete. Edits applied in order.",
+      "Edit file via replace_lines, replace_pattern, insert, or delete_lines. Applied in order. replace_pattern defaults to first match only; use count:-1 for all.",
     tags: ["filesystem", "write", "edit"],
     parameters: editFileParameters,
     validate: (args) => {
