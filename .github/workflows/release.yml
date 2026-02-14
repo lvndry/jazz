@@ -19,6 +19,8 @@ jobs:
   tag:
     name: Bump version & create tag
     runs-on: ubuntu-latest
+    # Only allow releases from main branch
+    if: github.ref == 'refs/heads/main'
     outputs:
       new_tag: ${{ steps.bump.outputs.new_tag }}
       previous_tag: ${{ steps.bump.outputs.previous_tag }}
@@ -26,6 +28,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -53,7 +56,7 @@ jobs:
           git add package.json
           git commit -m "${NEW_VERSION}"
           git tag "${NEW_TAG}"
-          git push --follow-tags
+          git push origin main --follow-tags
           echo "new_tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
           echo "previous_tag=${{ steps.prev_tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
 
