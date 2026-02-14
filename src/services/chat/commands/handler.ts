@@ -1280,8 +1280,21 @@ function calculateContextUsage(
   const systemMessage = conversationHistory.find((m) => m.role === "system");
   const otherMessages = conversationHistory.filter((m) => m.role !== "system");
 
-  // Estimate system prompt tokens
-  const systemPromptTokens = systemMessage ? estimateMessageTokens(systemMessage) : 0;
+  // Estimate system prompt tokens, separating out the skills catalog
+  let systemPromptTokens = systemMessage ? estimateMessageTokens(systemMessage) : 0;
+  let skillsTokens = 0;
+
+  // Extract skill catalog tokens from system prompt
+  if (systemMessage?.content) {
+    const skillsMatch = systemMessage.content.match(
+      /\nSkills:\n[\s\S]*?<available_skills>[\s\S]*?<\/available_skills>\n/,
+    );
+    if (skillsMatch) {
+      const catalogTokens = Math.ceil(skillsMatch[0].length / 4);
+      skillsTokens += catalogTokens;
+      systemPromptTokens -= catalogTokens;
+    }
+  }
 
   // Tool tokens are estimated from tool calls in messages
   let toolsTokens = 0;
@@ -1289,16 +1302,15 @@ function calculateContextUsage(
 
   for (const msg of otherMessages) {
     const tokens = estimateMessageTokens(msg);
-    if (msg.role === "tool" || (msg.role === "assistant" && msg.tool_calls)) {
+    if (msg.role === "tool" && (msg.name === "load_skill" || msg.name === "load_skill_section")) {
+      // Loaded skill content counts as skills, not tools
+      skillsTokens += tokens;
+    } else if (msg.role === "tool" || (msg.role === "assistant" && msg.tool_calls)) {
       toolsTokens += tokens;
     } else {
       messagesTokens += tokens;
     }
   }
-
-  // Skills tokens are part of system prompt but we can't easily separate them
-  // For now, we'll estimate them as 0 (they're included in systemPromptTokens)
-  const skillsTokens = 0;
 
   const totalUsed = systemPromptTokens + toolsTokens + skillsTokens + messagesTokens;
   const freeSpace = Math.max(0, effectiveWindow - totalUsed);
