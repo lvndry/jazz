@@ -19,13 +19,11 @@ jobs:
   tag:
     name: Bump version & create tag
     runs-on: ubuntu-latest
-    # Only allow releases from main branch
-    if: github.ref == 'refs/heads/main'
     outputs:
       new_tag: ${{ steps.bump.outputs.new_tag }}
       previous_tag: ${{ steps.bump.outputs.previous_tag }}
     steps:
-      - name: Checkout repository
+      - name: Checkout main branch
         uses: actions/checkout@v4
         with:
           ref: main
