@@ -47,7 +47,7 @@ const FORBIDDEN_COMMANDS = [
   // Fork bombs and resource exhaustion
   /:\(\)\s*{/, // fork bomb pattern
   /while\s+true/, // infinite loops
-  /for\s+.*\s+in\s+.*\s+do\s+.*\s+done/, // shell loops
+  /for\s+\S+\s+in\s+\S+\s+do\s+\S+\s+done/, // shell loops (uses \S+ to avoid backtracking)
 
   // File system manipulation
   /chmod\s+777/, // overly permissive permissions

@@ -1,5 +1,5 @@
 import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
@@ -12,6 +12,83 @@ import { normalizeFilterPattern } from "./utils";
  * Edit file tool - edits specific parts of a file
  * Uses defineApprovalTool to create approval + execution pair.
  */
+
+// ============================================================================
+// Tagged Error Types
+// ============================================================================
+
+/**
+ * File not found error
+ */
+export class FileNotFoundError extends Data.TaggedError("FileNotFoundError")<{
+  readonly path: string;
+}> {
+  override get message() {
+    return `File does not exist: ${this.path}. Cannot edit a file that doesn't exist.`;
+  }
+}
+
+/**
+ * File cannot be read error
+ */
+export class FileReadError extends Data.TaggedError("FileReadError")<{
+  readonly path: string;
+  readonly cause?: unknown;
+}> {
+  override get message() {
+    return `File exists but cannot be read: ${this.path}${this.cause ? `. Cause: ${String(this.cause)}` : ""}`;
+  }
+}
+
+/**
+ * Line range out of bounds error
+ */
+export class OutOfBoundsError extends Data.TaggedError("OutOfBoundsError")<{
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly totalLines: number;
+  readonly operation: "replace_lines" | "delete_lines";
+}> {
+  override get message() {
+    return `Line range ${this.startLine}-${this.endLine} is out of bounds (file has ${this.totalLines} lines)`;
+  }
+}
+
+/**
+ * Insert position out of bounds error
+ */
+export class InsertOutOfBoundsError extends Data.TaggedError("InsertOutOfBoundsError")<{
+  readonly line: number;
+  readonly totalLines: number;
+}> {
+  override get message() {
+    return `Insert position ${this.line} is out of bounds (file has ${this.totalLines} lines)`;
+  }
+}
+
+/**
+ * Pattern not found error - thrown when replace_pattern finds 0 matches
+ */
+export class PatternNotFoundError extends Data.TaggedError("PatternNotFoundError")<{
+  readonly pattern: string;
+  readonly expectedCount?: number;
+}> {
+  override get message() {
+    return `Pattern "${this.pattern}" not found in file${this.expectedCount ? ` (expected ${this.expectedCount} match${this.expectedCount === 1 ? "" : "es"})` : ""}`;
+  }
+}
+
+/**
+ * File write error
+ */
+export class FileWriteError extends Data.TaggedError("FileWriteError")<{
+  readonly path: string;
+  readonly cause?: unknown;
+}> {
+  override get message() {
+    return `Failed to write file: ${this.path}${this.cause ? `. Cause: ${String(this.cause)}` : ""}`;
+  }
+}
 
 export type EditOperation =
   | {
@@ -100,12 +177,42 @@ interface ApplyEditResult {
 }
 
 /**
+ * Union of all edit file error types.
+ * Used for type-safe error matching and discrimination.
+ */
+export type EditFileError =
+  | FileNotFoundError
+  | FileReadError
+  | OutOfBoundsError
+  | InsertOutOfBoundsError
+  | PatternNotFoundError
+  | FileWriteError;
+
+/**
+ * Maximum number of regex match iterations to prevent infinite loops.
+ * Protects against non-global regexes or catastrophic backtracking.
+ */
+const MAX_REGEX_ITERATIONS = 100_000;
+
+/**
+ * Ensure regex has the global flag for multi-match iteration.
+ * Without the 'g' flag, `exec()` always starts at index 0, causing an infinite loop.
+ */
+function ensureGlobalRegex(regex: RegExp): RegExp {
+  if (regex.global) return regex;
+  return new RegExp(regex.source, regex.flags + "g");
+}
+
+/**
  * Apply a sequence of edit operations to file lines.
- * Pure function that throws on invalid operations (e.g., out-of-bounds).
+ * Throws tagged errors for invalid operations (e.g., out-of-bounds, pattern not found).
  *
  * @param lines - The original file lines
  * @param edits - The edit operations to apply
  * @returns Object with resultLines and array of descriptions for each applied edit
+ * @throws {OutOfBoundsError} When line range is out of bounds
+ * @throws {InsertOutOfBoundsError} When insert position is out of bounds
+ * @throws {PatternNotFoundError} When replace_pattern finds 0 matches
  */
 function applyEdits(
   lines: readonly string[],
@@ -121,9 +228,12 @@ function applyEdits(
         const endIdx = edit.endLine - 1;
 
         if (startIdx < 0 || endIdx >= currentLines.length) {
-          throw new Error(
-            `Line range ${edit.startLine}-${edit.endLine} is out of bounds (file has ${currentLines.length} lines)`,
-          );
+          throw new OutOfBoundsError({
+            startLine: edit.startLine,
+            endLine: edit.endLine,
+            totalLines: currentLines.length,
+            operation: "replace_lines",
+          });
         }
 
         const newContentLines = edit.content.split("\n");
@@ -145,15 +255,24 @@ function applyEdits(
         const maxReplacements = edit.count === -1 ? Infinity : (edit.count ?? 1);
 
         if (patternInfo.type === "regex" && patternInfo.regex) {
-          const regex = patternInfo.regex;
+          // Ensure the regex has the global flag to avoid infinite loops
+          // when iterating with exec(). Without 'g', exec() always starts
+          // at index 0 and lastIndex is never advanced by the engine.
+          const regex = ensureGlobalRegex(patternInfo.regex);
           let match;
+          let iterations = 0;
           const matches: Array<{ index: number; length: number }> = [];
 
           while ((match = regex.exec(content)) !== null && replacementCount < maxReplacements) {
             matches.push({ index: match.index, length: match[0].length });
             replacementCount++;
-            if (match.index === regex.lastIndex) {
+            // Advance past zero-length matches to prevent infinite loops
+            if (match[0].length === 0) {
               regex.lastIndex++;
+            }
+            // Safety limit: prevent runaway loops from catastrophic backtracking
+            if (++iterations > MAX_REGEX_ITERATIONS) {
+              break;
             }
           }
 
@@ -166,6 +285,11 @@ function applyEdits(
           }
         } else {
           const searchStr = patternInfo.value || edit.pattern;
+          // Guard against empty search string — indexOf("", n) always returns n,
+          // causing content.length iterations with no progress
+          if (searchStr.length === 0) {
+            throw new PatternNotFoundError({ pattern: edit.pattern });
+          }
           let searchIndex = 0;
           while (
             replacementCount < maxReplacements &&
@@ -180,6 +304,16 @@ function applyEdits(
           }
         }
 
+        // Throw when pattern finds 0 matches — this is a failure the LLM should know about
+        if (replacementCount === 0) {
+          const expectedCount = edit.count === -1 ? undefined : (edit.count ?? 1);
+          throw new PatternNotFoundError(
+            expectedCount !== undefined
+              ? { pattern: edit.pattern, expectedCount }
+              : { pattern: edit.pattern },
+          );
+        }
+
         currentLines = content.split("\n");
         appliedEdits.push({
           description: `Replaced pattern "${edit.pattern}" ${replacementCount} time(s) with "${edit.replacement}"`,
@@ -192,9 +326,10 @@ function applyEdits(
         const newContentLines = edit.content.split("\n");
 
         if (insertIdx < 0 || insertIdx > currentLines.length) {
-          throw new Error(
-            `Insert position ${edit.line} is out of bounds (file has ${currentLines.length} lines)`,
-          );
+          throw new InsertOutOfBoundsError({
+            line: edit.line,
+            totalLines: currentLines.length,
+          });
         }
 
         currentLines = [
@@ -213,9 +348,12 @@ function applyEdits(
         const endIdx = edit.endLine - 1;
 
         if (startIdx < 0 || endIdx >= currentLines.length) {
-          throw new Error(
-            `Line range ${edit.startLine}-${edit.endLine} is out of bounds (file has ${currentLines.length} lines)`,
-          );
+          throw new OutOfBoundsError({
+            startLine: edit.startLine,
+            endLine: edit.endLine,
+            totalLines: currentLines.length,
+            operation: "delete_lines",
+          });
         }
 
         const deletedCount = endIdx - startIdx + 1;
@@ -229,6 +367,20 @@ function applyEdits(
   }
 
   return { resultLines: currentLines, appliedEdits };
+}
+
+/**
+ * Extract the tagged error type name from an error instance.
+ * Returns a discriminating string the LLM can use for programmatic error handling.
+ */
+function extractErrorType(error: unknown): string {
+  if (error instanceof OutOfBoundsError) return "OutOfBoundsError";
+  if (error instanceof InsertOutOfBoundsError) return "InsertOutOfBoundsError";
+  if (error instanceof PatternNotFoundError) return "PatternNotFoundError";
+  if (error instanceof FileNotFoundError) return "FileNotFoundError";
+  if (error instanceof FileReadError) return "FileReadError";
+  if (error instanceof FileWriteError) return "FileWriteError";
+  return "UnknownError";
 }
 
 /**
@@ -262,13 +414,18 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           return `WARNING: File does not exist: ${target}\n\nCannot edit a file that doesn't exist.`;
         }
 
-        let fileContent: string;
-        try {
-          fileContent = yield* fs.readFileString(target);
-        } catch {
-          return `WARNING: File exists but cannot be read: ${target}`;
+        // Use Effect.catchAll instead of try/catch — yield* propagates Effect
+        // failures through the Effect error channel, NOT through JS exceptions.
+        const fileContentResult = yield* fs.readFileString(target).pipe(
+          Effect.map((content) => ({ ok: true as const, content })),
+          Effect.catchAll((error) => Effect.succeed({ ok: false as const, error: String(error) })),
+        );
+
+        if (!fileContentResult.ok) {
+          return `WARNING: File exists but cannot be read: ${target}. Error: ${fileContentResult.error}`;
         }
 
+        const fileContent = fileContentResult.content;
         const lines = fileContent.split("\n");
         const totalLines = lines.length;
 
@@ -293,6 +450,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           const result = applyEdits(lines, args.edits);
           resultLines = result.resultLines;
         } catch (error) {
+          // applyEdits throws JS exceptions (tagged errors), so try/catch is correct here
           simulationError = error instanceof Error ? error.message : "Error simulating edit";
         }
 
@@ -321,22 +479,56 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           .pipe(Effect.catchAll(() => Effect.succeed(false)));
 
         if (!fileExists) {
+          const err = new FileNotFoundError({ path: target });
           return {
             success: false,
-            result: null,
-            error: `File does not exist: ${target}. Cannot edit a file that doesn't exist.`,
+            result: { errorType: "FileNotFoundError", path: target },
+            error: err.message,
           };
         }
 
-        try {
-          const fileContent = yield* fs.readFileString(target);
-          const lines = fileContent.split("\n");
+        // Read file content — use Effect.catchAll to properly catch Effect failures.
+        // A JS try/catch around yield* does NOT catch Effect-level failures.
+        const fileContentResult = yield* fs.readFileString(target).pipe(
+          Effect.map((content) => ({ ok: true as const, content })),
+          Effect.catchAll((error) => Effect.succeed({ ok: false as const, error: String(error) })),
+        );
 
-          // Apply edits using the shared helper function
+        if (!fileContentResult.ok) {
+          const err = new FileReadError({ path: target, cause: fileContentResult.error });
+          return {
+            success: false,
+            result: { errorType: "FileReadError", path: target },
+            error: err.message,
+          };
+        }
+
+        const fileContent = fileContentResult.content;
+        const lines = fileContent.split("\n");
+
+        // Apply edits using the shared helper function.
+        // applyEdits throws JS exceptions (tagged errors), so try/catch is correct here.
+        try {
           const { resultLines, appliedEdits } = applyEdits(lines, args.edits);
 
           const newContent = resultLines.join("\n");
-          yield* fs.writeFileString(target, newContent);
+
+          // Write file — use Effect.catchAll to properly catch Effect failures
+          const writeResult = yield* fs.writeFileString(target, newContent).pipe(
+            Effect.map(() => ({ ok: true as const })),
+            Effect.catchAll((error) =>
+              Effect.succeed({ ok: false as const, error: String(error) }),
+            ),
+          );
+
+          if (!writeResult.ok) {
+            const err = new FileWriteError({ path: target, cause: writeResult.error });
+            return {
+              success: false,
+              result: { errorType: "FileWriteError", path: target },
+              error: err.message,
+            };
+          }
 
           const { diff, wasTruncated } = generateDiffWithMetadata(fileContent, newContent, target);
           const fullDiff = wasTruncated
@@ -359,10 +551,13 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
             },
           };
         } catch (error) {
+          // Extract structured error info from tagged errors so the LLM can
+          // programmatically distinguish between error types and take appropriate action
+          const errorType = extractErrorType(error);
           return {
             success: false,
-            result: null,
-            error: `editFile failed: ${error instanceof Error ? error.message : String(error)}`,
+            result: { errorType, path: target },
+            error: error instanceof Error ? error.message : String(error),
           };
         }
       }),

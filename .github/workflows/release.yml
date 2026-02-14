@@ -28,6 +28,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -54,7 +55,7 @@ jobs:
           git add package.json
           git commit -m "${NEW_VERSION}"
           git tag -a "${NEW_TAG}" -m "${NEW_TAG}"
-          git push "https://x-access-token:${{ secrets.RELEASE_PAT }}@github.com/${{ github.repository }}.git" main --follow-tags
+          git push origin main --follow-tags
           echo "new_tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
           echo "previous_tag=${{ steps.prev_tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
 
@@ -96,9 +97,12 @@ jobs:
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
-          set -euo pipefail
           jazz workflow run release-notes --auto-approve --headless --agent release-notes --quiet \
-            | tee /tmp/jazz-release-notes.txt || true
+            2>/tmp/jazz.err | tee /tmp/jazz-release-notes.txt || true
+          if [ -s /tmp/jazz.err ]; then
+            echo "::warning::Jazz release notes failed, using fallback body"
+            cat /tmp/jazz.err
+          fi || true
 
       - name: Create GitHub release
         uses: actions/github-script@v7
