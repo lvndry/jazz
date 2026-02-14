@@ -387,6 +387,10 @@ export const Summarizer = {
         })
         .join("\n\n---\n\n");
 
+      const userInput =
+        "Summarize the following conversation. Produce a concise, structured summary that preserves key information for continuity—goals, decisions, outcomes, key entities, current status, and open questions. Output only the summary.\n\n" +
+        historyText;
+
       // Define specialized summarizer agent on the fly with cheaper model
       const summarizerModel =
         `${summarizerModelConfig.provider}/${summarizerModelConfig.model}` as `${string}/${string}`;
@@ -400,6 +404,7 @@ export const Summarizer = {
           llmProvider: summarizerModelConfig.provider,
           llmModel: summarizerModelConfig.model,
           agentType: "summarizer",
+          tools: [], // No tools—summarizer should only produce text, not use tools
         },
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -407,7 +412,7 @@ export const Summarizer = {
 
       const summaryResponse = yield* runRecursive({
         agent: summarizer,
-        userInput: historyText,
+        userInput,
         sessionId,
         conversationId,
         maxIterations: 1,
