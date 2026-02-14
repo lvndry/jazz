@@ -18,8 +18,9 @@ Review code against structured checklists for correctness, security, performance
 1. **Understand context**: What is the change for? (issue, feature, refactor)
 2. **Read the diff**: What actually changed?
 3. **Run checklist**: Logic, security, performance, style, tests
-4. **Prioritize**: Critical → must fix; Suggestion → consider; Nice-to-have → optional
-5. **Respond**: Summary + categorized comments + concrete suggestions
+4. **Consider language & framework best practices**: Does the code follow idiomatic patterns for the stack ?
+5. **Prioritize**: Critical → must fix; Suggestion → consider; Nice-to-have → optional
+6. **Respond**: Summary + categorized comments + concrete suggestions + what was done well
 
 ## Review Checklist
 
@@ -65,6 +66,10 @@ Use a consistent severity and format:
 ### Summary
 [1-2 sentences: overall assessment and main concerns]
 
+### Well done
+- [Highlight specific things done very well—clear naming, solid error handling, idiomatic patterns, etc.]
+- [Recognize good use of language/framework features.]
+
 ### Critical (must address)
 - **[Location]** [Issue]. [Suggestion or fix.]
 - ...
@@ -90,6 +95,7 @@ Use a consistent severity and format:
 
 ## What Not to Do
 
+- Don't skip the "Well done" section—acknowledging good work motivates and reinforces best practices
 - Don't demand personal style preferences unless they're project convention
 - Don't repeat what the diff already shows ("you added a function")
 - Don't leave only "LGTM" without at least a one-line summary
