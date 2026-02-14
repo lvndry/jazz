@@ -66,9 +66,9 @@ Each element represents one review comment tied to a specific file and line(s):
 Rules:
 
 - `path`: relative file path from repo root (must exist in the diff)
-- `line`: line number in the NEW version of the file (RIGHT side of the diff); end line for multi-line blocks
+- `line`: line number; use the NEW version (RIGHT side) for added/modified files, or the OLD version (LEFT side) for deleted files
 - `start_line`: (optional) start line for multi-line block comments; omit for single-line
-- `side`: always "RIGHT" (comment on the new code)
+- `side`: "RIGHT" for added/modified files (comment on new code); use "LEFT" or omit for deleted files (the CI workflow auto-detects removed files and uses LEFT)
 - `body`: markdown comment — include severity (Critical/Suggestion/Nice-to-have), explanation, and a concrete fix when possible
 
 If there are no issues, output an empty array: `[]`

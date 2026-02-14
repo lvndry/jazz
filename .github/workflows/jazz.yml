@@ -95,6 +95,31 @@ jobs:
             }
 
             if (validComments.length > 0) {
+              // Fetch PR files to determine which are deleted (must use LEFT side for those)
+              const { data: prFiles } = await github.rest.pulls.listFiles({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number
+              });
+              const deletedPaths = new Set(
+                prFiles.filter((f) => f.status === 'removed').map((f) => f.filename)
+              );
+
+              const mapComment = (c) => {
+                const isDeleted = deletedPaths.has(c.path);
+                const side = isDeleted ? 'LEFT' : (c.side || 'RIGHT');
+                return {
+                  path: c.path,
+                  line: c.line,
+                  ...(c.start_line != null && c.start_line > 0 && {
+                    start_line: c.start_line,
+                    start_side: isDeleted ? 'LEFT' : (c.side || 'RIGHT')
+                  }),
+                  side,
+                  body: c.body
+                };
+              };
+
               await github.rest.pulls.createReview({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -102,13 +127,7 @@ jobs:
                 commit_id: context.payload.pull_request.head.sha,
                 event: 'COMMENT',
                 body: reviewBody,
-                comments: validComments.map(c => ({
-                  path: c.path,
-                  line: c.line,
-                  ...(c.start_line != null && c.start_line > 0 && { start_line: c.start_line, start_side: c.side || 'RIGHT' }),
-                  side: c.side || 'RIGHT',
-                  body: c.body
-                }))
+                comments: validComments.map(mapComment)
               });
             } else {
               await github.rest.issues.createComment({
