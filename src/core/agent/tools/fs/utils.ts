@@ -148,21 +148,119 @@ export function readGitignorePatterns(
 }
 
 /**
- * Normalize filter pattern to support both substring and regex matching
+ * Maximum allowed length for user-provided regex patterns.
+ * Longer patterns are rejected and treated as literal substrings.
  */
-export function normalizeFilterPattern(pattern?: string): {
+const MAX_REGEX_PATTERN_LENGTH = 1000;
+
+/**
+ * Detect regex patterns that are likely to cause catastrophic backtracking.
+ * Rejects patterns with nested quantifiers like (a+)+, (a*)+, (a|b+)*, etc.
+ * These patterns have exponential time complexity on non-matching inputs.
+ *
+ * @returns true if the pattern is potentially dangerous
+ */
+export function isUnsafeRegex(pattern: string): boolean {
+  // Reject patterns that are too long
+  if (pattern.length > MAX_REGEX_PATTERN_LENGTH) return true;
+
+  // Track nesting depth of groups and whether we're inside a quantified group
+  let groupDepth = 0;
+  let hasQuantifierInGroup = false;
+  let inCharClass = false;
+  let escaped = false;
+
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    // Character classes [...] are safe from backtracking concerns
+    if (ch === "[" && !inCharClass) {
+      inCharClass = true;
+      continue;
+    }
+    if (ch === "]" && inCharClass) {
+      inCharClass = false;
+      continue;
+    }
+    if (inCharClass) continue;
+
+    if (ch === "(") {
+      groupDepth++;
+      hasQuantifierInGroup = false;
+      continue;
+    }
+
+    if (ch === ")") {
+      const isQuantifiedGroup = hasQuantifierInGroup;
+      groupDepth--;
+      // Check if the group itself is followed by a quantifier
+      const next = pattern[i + 1];
+      if (next === "+" || next === "*" || next === "{") {
+        // A quantified group that contains a quantifier → catastrophic backtracking
+        if (isQuantifiedGroup) return true;
+      }
+      continue;
+    }
+
+    // Detect quantifiers inside groups — any quantifier inside a group that
+    // is itself quantified creates exponential backtracking potential
+    if (groupDepth > 0 && (ch === "+" || ch === "*" || ch === "{")) {
+      hasQuantifierInGroup = true;
+    }
+  }
+
+  return false;
+}
+
+export interface FilterPatternResult {
   type: "substring" | "regex";
   value?: string;
   regex?: RegExp;
-} {
+  /** Set when the pattern was rejected (unsafe regex, invalid syntax) */
+  error?: string;
+}
+
+/**
+ * Normalize filter pattern to support both substring and regex matching.
+ * Includes safety checks to prevent catastrophic backtracking from
+ * user/LLM-provided regex patterns.
+ *
+ * When a regex is rejected, returns `{ type: "substring", error: "..." }`
+ * so callers can surface the error to the LLM.
+ */
+export function normalizeFilterPattern(pattern?: string): FilterPatternResult {
   if (!pattern || pattern.trim() === "") return { type: "substring" };
   const trimmed = pattern.trim();
   if (trimmed.startsWith("re:")) {
     const body = trimmed.slice(3);
+
+    // Reject patterns that could cause catastrophic backtracking
+    if (isUnsafeRegex(body)) {
+      return {
+        type: "substring",
+        value: body,
+        error: `Regex "${body}" rejected: contains nested quantifiers that risk catastrophic backtracking. Use a literal string or simplify the pattern.`,
+      };
+    }
+
     try {
       return { type: "regex", regex: new RegExp(body) };
-    } catch {
-      return { type: "substring", value: body };
+    } catch (e) {
+      return {
+        type: "substring",
+        value: body,
+        error: `Invalid regex "${body}": ${e instanceof Error ? e.message : String(e)}`,
+      };
     }
   }
 

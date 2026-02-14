@@ -28,6 +28,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -96,9 +97,12 @@ jobs:
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
-          set -euo pipefail
           jazz workflow run release-notes --auto-approve --headless --agent release-notes --quiet \
-            | tee /tmp/jazz-release-notes.txt || true
+            2>/tmp/jazz.err | tee /tmp/jazz-release-notes.txt || true
+          if [ -s /tmp/jazz.err ]; then
+            echo "::warning::Jazz release notes failed, using fallback body"
+            cat /tmp/jazz.err
+          fi || true
 
       - name: Create GitHub release
         uses: actions/github-script@v7
