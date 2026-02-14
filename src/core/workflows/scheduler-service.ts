@@ -111,8 +111,8 @@ export function getLaunchdPath(): string {
   const seen = new Set<string>();
   const resultDirs: string[] = [];
 
-  const appendUnique = (value?: string) => {
-    const normalized = value?.trim();
+  const appendUnique = (value: string) => {
+    const normalized = value.trim();
     if (!normalized || seen.has(normalized)) {
       return;
     }
