@@ -108,12 +108,17 @@ jobs:
               const mapComment = (c) => {
                 const isDeleted = deletedPaths.has(c.path);
                 const side = isDeleted ? 'LEFT' : (c.side || 'RIGHT');
+                const hasValidRange =
+                  Number.isInteger(c.start_line) &&
+                  Number.isInteger(c.line) &&
+                  c.start_line > 0 &&
+                  c.start_line < c.line;
                 return {
                   path: c.path,
                   line: c.line,
-                  ...(c.start_line != null && c.start_line > 0 && {
+                  ...(hasValidRange && {
                     start_line: c.start_line,
-                    start_side: isDeleted ? 'LEFT' : (c.side || 'RIGHT')
+                    start_side: side
                   }),
                   side,
                   body: c.body
