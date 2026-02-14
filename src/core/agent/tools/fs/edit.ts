@@ -36,7 +36,15 @@ export class FileReadError extends Data.TaggedError("FileReadError")<{
   readonly cause?: unknown;
 }> {
   override get message() {
-    return `File exists but cannot be read: ${this.path}${this.cause ? `. Cause: ${String(this.cause)}` : ""}`;
+    const causeStr =
+      this.cause instanceof Error
+        ? this.cause.message
+        : typeof this.cause === "string"
+          ? this.cause
+          : typeof this.cause === "object" && this.cause !== null
+            ? JSON.stringify(this.cause)
+            : String(this.cause);
+    return `File exists but cannot be read: ${this.path}${this.cause ? `. Cause: ${causeStr}` : ""}`;
   }
 }
 
@@ -79,6 +87,19 @@ export class PatternNotFoundError extends Data.TaggedError("PatternNotFoundError
 }
 
 /**
+ * Regex iteration limit exceeded — pattern matched too many times,
+ * likely due to a degenerate regex. Thrown instead of silently truncating.
+ */
+export class RegexIterationLimitError extends Data.TaggedError("RegexIterationLimitError")<{
+  readonly pattern: string;
+  readonly iterations: number;
+}> {
+  override get message() {
+    return `Regex pattern "${this.pattern}" exceeded ${this.iterations} iterations. Simplify the pattern or use a literal string instead.`;
+  }
+}
+
+/**
  * File write error
  */
 export class FileWriteError extends Data.TaggedError("FileWriteError")<{
@@ -86,7 +107,15 @@ export class FileWriteError extends Data.TaggedError("FileWriteError")<{
   readonly cause?: unknown;
 }> {
   override get message() {
-    return `Failed to write file: ${this.path}${this.cause ? `. Cause: ${String(this.cause)}` : ""}`;
+    const causeStr =
+      this.cause instanceof Error
+        ? this.cause.message
+        : typeof this.cause === "string"
+          ? this.cause
+          : typeof this.cause === "object" && this.cause !== null
+            ? JSON.stringify(this.cause)
+            : String(this.cause);
+    return `Failed to write file: ${this.path}${this.cause ? `. Cause: ${causeStr}` : ""}`;
   }
 }
 
@@ -193,6 +222,7 @@ export type EditFileError =
   | OutOfBoundsError
   | InsertOutOfBoundsError
   | PatternNotFoundError
+  | RegexIterationLimitError
   | FileWriteError;
 
 /**
@@ -277,9 +307,12 @@ function applyEdits(
             if (match[0].length === 0) {
               regex.lastIndex++;
             }
-            // Safety limit: prevent runaway loops from catastrophic backtracking
+            // Safety limit: throw instead of silently truncating replacements
             if (++iterations > MAX_REGEX_ITERATIONS) {
-              break;
+              throw new RegexIterationLimitError({
+                pattern: edit.pattern,
+                iterations: MAX_REGEX_ITERATIONS,
+              });
             }
           }
 
@@ -384,6 +417,7 @@ function extractErrorType(error: unknown): string {
   if (error instanceof OutOfBoundsError) return "OutOfBoundsError";
   if (error instanceof InsertOutOfBoundsError) return "InsertOutOfBoundsError";
   if (error instanceof PatternNotFoundError) return "PatternNotFoundError";
+  if (error instanceof RegexIterationLimitError) return "RegexIterationLimitError";
   if (error instanceof FileNotFoundError) return "FileNotFoundError";
   if (error instanceof FileReadError) return "FileReadError";
   if (error instanceof FileWriteError) return "FileWriteError";
