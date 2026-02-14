@@ -58,18 +58,34 @@ export function listWorkflowsCommand() {
       Effect.map((list) => new Set(list.map((s) => s.workflowName))),
       Effect.catchAll(() => Effect.succeed(new Set<string>())),
     );
-    const runningNames = yield* loadRunHistory().pipe(
-      Effect.map(
-        (history) =>
-          new Set(history.filter((r) => r.status === "running").map((r) => r.workflowName)),
+    const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
+    const { runningNames, staleNames } = yield* loadRunHistory().pipe(
+      Effect.map((history) => {
+        const running = new Set<string>();
+        const stale = new Set<string>();
+        for (const r of history) {
+          if (r.status === "running") {
+            const startedAtMs = Date.parse(r.startedAt);
+            if (!Number.isFinite(startedAtMs)) continue;
+            if (Date.now() - startedAtMs > STALE_THRESHOLD_MS) {
+              stale.add(r.workflowName);
+            } else {
+              running.add(r.workflowName);
+            }
+          }
+        }
+        return { runningNames: running, staleNames: stale };
+      }),
+      Effect.catchAll(() =>
+        Effect.succeed({ runningNames: new Set<string>(), staleNames: new Set<string>() }),
       ),
-      Effect.catchAll(() => Effect.succeed(new Set<string>())),
     );
 
     const { local, global, builtin } = groupWorkflows(workflows);
 
     function statusBadge(w: WorkflowMetadata): string {
       if (runningNames.has(w.name)) return " ● running";
+      if (staleNames.has(w.name)) return " ✗ failed (stale)";
       if (scheduledNames.has(w.name)) return " ○ scheduled";
       if (w.schedule) return " — not scheduled";
       return "";
@@ -650,17 +666,27 @@ export function workflowHistoryCommand(workflowName?: string) {
       return;
     }
 
+    const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
+
     for (const run of filteredRuns) {
-      const statusIcon = run.status === "completed" ? "✓" : run.status === "failed" ? "✗" : "…";
+      const startedAtMs = Date.parse(run.startedAt);
+      const isStale =
+        run.status === "running" &&
+        Number.isFinite(startedAtMs) &&
+        Date.now() - startedAtMs > STALE_THRESHOLD_MS;
+      const displayStatus = isStale ? "failed" : run.status;
+      const statusIcon = displayStatus === "completed" ? "✓" : displayStatus === "failed" ? "✗" : "…";
 
       const duration = run.completedAt
         ? `${Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s`
-        : "in progress";
+        : isStale
+          ? "failed (stale — process exited without updating)"
+          : "in progress";
 
       const trigger = run.triggeredBy === "scheduled" ? " (scheduled)" : "";
 
       yield* terminal.log(
-        `  ${statusIcon} ${run.workflowName}${trigger} - ${run.status} (${duration})`,
+        `  ${statusIcon} ${run.workflowName}${trigger} - ${displayStatus} (${duration})`,
       );
       yield* terminal.log(`    Started: ${run.startedAt}`);
       if (run.error) {

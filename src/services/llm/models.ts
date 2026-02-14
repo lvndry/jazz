@@ -16,6 +16,27 @@ export type ModelSource =
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api";
 
 export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
+  anthropic: {
+    type: "static",
+    models: STATIC_PROVIDER_MODELS.anthropic,
+  },
+  openai: {
+    type: "static",
+    models: STATIC_PROVIDER_MODELS.openai,
+  },
+  google: {
+    type: "static",
+    models: STATIC_PROVIDER_MODELS.google,
+  },
+  xai: {
+    type: "static",
+    models: STATIC_PROVIDER_MODELS.xai,
+  },
+  openrouter: {
+    type: "dynamic",
+    endpointPath: "/api/v1/models",
+    defaultBaseUrl: "https://openrouter.ai",
+  },
   ai_gateway: {
     type: "dynamic",
     endpointPath: "",
@@ -23,10 +44,6 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   alibaba: {
     type: "static",
     models: STATIC_PROVIDER_MODELS.alibaba,
-  },
-  anthropic: {
-    type: "static",
-    models: STATIC_PROVIDER_MODELS.anthropic,
   },
   cerebras: {
     type: "dynamic",
@@ -41,10 +58,6 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     type: "dynamic",
     endpointPath: "/v1/accounts/fireworks/models?pageSize=200",
     defaultBaseUrl: "https://api.fireworks.ai",
-  },
-  google: {
-    type: "static",
-    models: STATIC_PROVIDER_MODELS.google,
   },
   groq: {
     type: "dynamic",
@@ -68,22 +81,9 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/tags",
     defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL,
   },
-  openai: {
-    type: "static",
-    models: STATIC_PROVIDER_MODELS.openai,
-  },
-  openrouter: {
-    type: "dynamic",
-    endpointPath: "/api/v1/models",
-    defaultBaseUrl: "https://openrouter.ai",
-  },
   togetherai: {
     type: "dynamic",
     endpointPath: "/v1/models",
     defaultBaseUrl: "https://api.together.xyz",
-  },
-  xai: {
-    type: "static",
-    models: STATIC_PROVIDER_MODELS.xai,
   },
 } as const;
