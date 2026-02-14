@@ -92,23 +92,15 @@ function initializeAgentRun(
       ),
     );
 
-    const DEFAULT_BUILT_IN_TOOLS = [
+    // Always include skill tools and user interaction tools so agents can use them by default
+    const BUILT_IN_TOOLS = [
       "load_skill",
       "load_skill_section",
       "ask_user_question",
       "ask_file_picker",
       "spawn_subagent",
       "summarize_context",
-    ] as const;
-
-    const BUILT_IN_TOOLS = (() => {
-      switch (agentType) {
-        case "summarizer":
-          return [];
-        default:
-          return [...DEFAULT_BUILT_IN_TOOLS];
-      }
-    })();
+    ];
 
     // Combine agent tools with skill tools (skill tools always available)
     let combinedToolNames = [...new Set([...agentToolNames, ...BUILT_IN_TOOLS])];
