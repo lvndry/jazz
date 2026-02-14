@@ -38,8 +38,8 @@ Same vibe — what changed, what problem it solves, why it's awesome.
 
 ## Commits
 
-- `abc1234` Commit message
-- `def5678` Another commit message
+- `abc1234` Commit message by @user
+- `def5678` Another commit message by @user
 
 ## Full diff
 

@@ -64,8 +64,28 @@ In addition to the code-review checklist, pay special attention to:
 
 ## Review Guidelines
 
-- ✅ **DO verify the tech stack** - Check `package.json` scripts and dependencies
-- ✅ **DO focus on real issues** - Logic errors, null safety, race conditions, security vulnerabilities, Effect-TS anti-patterns.
+### What To Do (✅)
+
+- ✅ **DO verify the tech stack** - Check `package.json` scripts and dependencies before flagging tool mismatches
+- ✅ **DO understand the environment** - CI workflows (`.github/workflows/`) may intentionally use different tooling than local dev. Check what dependencies are explicitly installed in the workflow (e.g., Node.js for `npm version`)
+- ✅ **DO focus on real bugs** - Logic errors, null/undefined dereferences, race conditions, off-by-one errors, incorrect error handling
+- ✅ **DO check security vulnerabilities** - path traversal, command injection, insecure credential storage, exposed secrets
+- ✅ **DO verify Effect-TS patterns** - Proper use of Effect.gen, Layer composition, Schema validation, tagged errors
+- ✅ **DO flag performance issues** - N+1 queries, unnecessary loops, inefficient algorithms, missing caching, memory leaks
+- ✅ **DO check error handling** - All Effect operations have proper error paths, user-facing errors are actionable, no silent failures
+- ✅ **DO verify type safety** - No `any` types, proper union/intersection types, correct discriminated unions, strict null checks
+- ✅ **DO check for regressions** - Does this change break existing functionality? Are edge cases handled? Are tests updated?
+- ✅ **DO verify user experience** - CLI output is clear and helpful, error messages are actionable, agent workflows make sense
+- ✅ **DO check resource cleanup** - File handles closed, connections released, Effect resources properly scoped, no dangling promises
+- ✅ **DO validate inputs** - User inputs validated with Schema, boundary conditions checked, sanitization applied
+- ✅ **DO check concurrency issues** - Proper use of Effect concurrency primitives, no race conditions, atomicity guaranteed where needed
+- ✅ **DO verify documentation** - Public APIs documented, complex logic explained, TODOs addressed, outdated comments removed
+
+### What NOT To Do (❌)
+
+- ❌ **DON'T bikeshed style** - Focus on correctness, not formatting preferences (that's what Prettier is for)
+- ❌ **DON'T flag intentional design** - If the code follows established patterns in the codebase, don't suggest arbitrary alternatives
+- ❌ **DON'T make assumptions** - Read surrounding code, check imports, understand context before commenting
 
 **When in doubt**: Read the surrounding code and project files to understand the context. Don't flag issues based on assumptions about the tech stack.
 

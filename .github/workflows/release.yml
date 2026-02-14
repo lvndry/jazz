@@ -53,7 +53,7 @@ jobs:
           NEW_TAG="v${NEW_VERSION}"
           git add package.json
           git commit -m "${NEW_VERSION}"
-          git tag "${NEW_TAG}"
+          git tag -a "${NEW_TAG}" -m "${NEW_TAG}"
           git push origin main --follow-tags
           echo "new_tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
           echo "previous_tag=${{ steps.prev_tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
