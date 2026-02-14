@@ -44,7 +44,10 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
-        run: jazz workflow run code-review --auto-approve --headless --agent ci-reviewer --quiet 2>/dev/null | tee /tmp/jazz-review.txt
+        run: |
+          set -euo pipefail
+          jazz workflow run code-review --auto-approve --headless --agent ci-reviewer --quiet \
+            | tee /tmp/jazz-review.txt
 
       - name: Post review comments
         if: always()

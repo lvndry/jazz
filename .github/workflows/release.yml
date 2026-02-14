@@ -40,7 +40,9 @@ jobs:
 
       - name: Get previous tag
         id: prev_tag
-        run: echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          echo "tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Bump version
         id: bump
@@ -93,7 +95,9 @@ jobs:
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
-          jazz workflow run release-notes --auto-approve --headless --agent release-notes --quiet 2>/dev/null | tee /tmp/jazz-release-notes.txt
+          set -euo pipefail
+          jazz workflow run release-notes --auto-approve --headless --agent release-notes --quiet \
+            | tee /tmp/jazz-release-notes.txt
 
       - name: Create GitHub release
         uses: actions/github-script@v7
