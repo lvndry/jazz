@@ -13,6 +13,7 @@ export interface ScanMarkdownIndexOptions<T> {
   readonly fileName: string;
   readonly depth: number;
   readonly ignore?: readonly string[];
+  readonly dot?: boolean;
   readonly parse: (data: Record<string, unknown>, definitionDir: string) => T | null;
 }
 
@@ -46,6 +47,8 @@ export function scanMarkdownIndex<T>(
           ignore: Array.from(ignore),
           absolute: true,
           caseSensitiveMatch: false,
+          suppressErrors: true,
+          dot: options.dot ?? false,
         }),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
