@@ -269,6 +269,7 @@ export class SkillsLive implements SkillService {
       dir: cwd,
       fileName: "SKILL.md",
       depth: 4,
+      dot: true,
       parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir, "local"),
     });
   }
