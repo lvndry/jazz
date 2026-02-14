@@ -1,6 +1,5 @@
-import * as os from "node:os";
 import { describe, expect, it } from "bun:test";
-import { getLaunchdPath, type ScheduledWorkflow } from "./scheduler-service";
+import type { ScheduledWorkflow } from "./scheduler-service";
 import { isValidCronExpression } from "../utils/cron-utils";
 
 // Re-implement parseCronField for testing since it's not exported
@@ -186,33 +185,6 @@ describe("SchedulerService", () => {
       };
 
       expect(workflow1.agent).not.toBe(workflow2.agent);
-    });
-  });
-
-  describe("getLaunchdPath", () => {
-    it("should include the current process PATH", () => {
-      const result = getLaunchdPath();
-      const currentPathDirs = (process.env.PATH || "").split(":").filter(Boolean);
-      for (const dir of currentPathDirs) {
-        expect(result).toContain(dir);
-      }
-    });
-
-    it("should include common tool installation directories", () => {
-      const result = getLaunchdPath();
-      const homeDir = os.homedir();
-      expect(result).toContain(`${homeDir}/.bun/bin`);
-      expect(result).toContain(`${homeDir}/.local/share/pnpm`);
-      expect(result).toContain("/usr/local/bin");
-      expect(result).toContain("/usr/bin");
-      expect(result).toContain("/bin");
-    });
-
-    it("should not duplicate directories already in PATH", () => {
-      const result = getLaunchdPath();
-      const dirs = result.split(":");
-      const unique = new Set(dirs);
-      expect(dirs.length).toBe(unique.size);
     });
   });
 });

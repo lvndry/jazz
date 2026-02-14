@@ -17,15 +17,10 @@ Review code against structured checklists for correctness, security, performance
 
 1. **Understand context**: What is the change for? (issue, feature, refactor)
 2. **Read the diff**: What actually changed?
-3. **Gather usage context**: Before judging changes in isolation, gather enough context to give complete feedback:
-   - **Surrounding code**: Read the function/module containing the change, not just the modified lines. What invariants, preconditions, or patterns exist?
-   - **Call sites & usage**: How is this code called? Search for callers, imports, or usages. Are there edge cases or misuse patterns at call sites?
-   - **Integration points**: Does this touch APIs, DBs, external services, or shared state? How does it fit into the larger flow?
-   - **Tests**: If tests exist for this area, read them to understand expected behavior and coverage gaps.
-4. **Run checklist**: Logic, security, performance, style, tests (using the gathered context)
-5. **Consider language & framework best practices**: Does the code follow idiomatic patterns for the stack?
-6. **Prioritize**: Critical → must fix; Suggestion → consider; Nice-to-have → optional
-7. **Respond**: Summary + categorized comments + concrete suggestions + what was done well
+3. **Run checklist**: Logic, security, performance, style, tests
+4. **Consider language & framework best practices**: Does the code follow idiomatic patterns for the stack ?
+5. **Prioritize**: Critical → must fix; Suggestion → consider; Nice-to-have → optional
+6. **Respond**: Summary + categorized comments + concrete suggestions + what was done well
 
 ## Review Checklist
 
@@ -123,7 +118,6 @@ For these, explicitly note: "No issues found" or list concrete concerns.
 
 ## Anti-Patterns
 
-- ❌ Reviewing the diff in isolation without checking surrounding code or call sites—context-free feedback is often incomplete or wrong
 - ❌ Vague feedback ("this could be better")
 - ❌ Only praising without actionable items when issues exist
 - ❌ Blocking on style nits that aren't in the style guide

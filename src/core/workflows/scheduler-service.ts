@@ -87,40 +87,6 @@ function escapeShellArg(arg: string): string {
 }
 
 /**
- * Build a PATH string for the launchd environment.
- *
- * launchd jobs start with a minimal environment that typically lacks the
- * user's shell PATH, so tools like `node` or `bun` are not found.
- * This function captures the current process PATH (at schedule time) and
- * appends common tool installation directories as fallbacks.
- *
- * NOTE: If PATH-related logic is added to the cron scheduler (e.g. a PATH=
- * prefix in the crontab entry), keep the fallback directory list here in sync.
- */
-export function getLaunchdPath(): string {
-  const currentPath = process.env["PATH"] || "";
-  const homeDir = os.homedir();
-  const commonDirs = [
-    path.join(homeDir, ".bun", "bin"),
-    path.join(homeDir, ".local", "share", "pnpm"),
-    "/usr/local/bin",
-    "/usr/bin",
-    "/bin",
-  ];
-
-  const pathDirs = currentPath.split(":").filter(Boolean);
-  const seen = new Set(pathDirs);
-  for (const dir of commonDirs) {
-    if (!seen.has(dir)) {
-      pathDirs.push(dir);
-      seen.add(dir);
-    }
-  }
-
-  return pathDirs.join(":");
-}
-
-/**
  * Parse a single cron field, validating it is either "*" or a simple integer.
  * Throws an error for unsupported cron features like steps, ranges, or lists.
  *
@@ -260,29 +226,13 @@ function generateLaunchdPlist(
     "--scheduled",
   ];
 
-  // Wrap in bash -c to print a timestamped header before exec'ing the real command.
-  // This ensures logs contain a timestamp even when the jazz process crashes early.
-  const commandString = programArgs.map(escapeShellArg).join(" ");
-  // Escape for double-quote context: \, ", $, and backticks are special in double quotes
-  const safeName = workflow.name.replace(/[\\"$`]/g, "\\$&");
-  // $(date ...) uses $() not ${} so JS template literals leave it for bash to expand
-  const header = `[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] launchd starting: ${safeName}`;
-  const wrappedArgs = [
-    "/bin/bash",
-    "-c",
-    `echo "${header}"; echo "${header}" >&2; exec ${commandString}`,
-  ];
-
   const plistObject = {
     Label: `com.jazz.workflow.${workflow.name}`,
-    ProgramArguments: wrappedArgs,
+    ProgramArguments: programArgs,
     StartCalendarInterval: schedule,
     StandardOutPath: `${logDir}/${workflow.name}.log`,
     StandardErrorPath: `${logDir}/${workflow.name}.error.log`,
     RunAtLoad: runAtLoad,
-    EnvironmentVariables: {
-      PATH: getLaunchdPath(),
-    },
   };
 
   return plist.build(plistObject);
