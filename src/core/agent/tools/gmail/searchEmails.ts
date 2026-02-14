@@ -12,16 +12,15 @@ import { formatEmailsForDisplay } from "./utils";
 export function createSearchEmailsTool(): Tool<GmailService> {
   const parameters = z
     .object({
-      query: z.string().min(1).describe("Gmail search query to filter emails"),
-      maxResults: z.number().int().min(1).max(100).optional().describe("Maximum emails to return"),
+      query: z.string().min(1).describe("Gmail search query"),
+      maxResults: z.number().int().min(1).max(100).optional().describe("Max emails"),
     })
     .strict();
 
   type SearchEmailsArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, SearchEmailsArgs>({
     name: "search_emails",
-    description:
-      "Search Gmail using Gmail search query syntax. Supports advanced filters like 'from:', 'subject:', 'has:attachment', 'newer_than:', etc. Returns matching emails with metadata. More powerful than list_emails for finding specific emails.",
+    description: "Search Gmail using query syntax (from:, subject:, has:attachment, etc.).",
     tags: ["gmail", "search"],
     parameters,
     validate: (args) => {

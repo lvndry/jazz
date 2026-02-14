@@ -22,21 +22,12 @@ type GitMergeArgs = {
 
 const gitMergeParameters = z
   .object({
-    path: z
-      .string()
-      .optional()
-      .describe("Path to the Git repository (defaults to current working directory)"),
-    branch: z.string().min(1).describe("Branch or commit to merge into the current branch"),
+    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    branch: z.string().min(1).describe("Branch or commit to merge"),
     message: z.string().optional().describe("Merge commit message"),
-    noFastForward: z
-      .boolean()
-      .optional()
-      .describe("Create a merge commit even if fast-forward is possible"),
-    squash: z
-      .boolean()
-      .optional()
-      .describe("Squash all commits from the branch into a single commit"),
-    abort: z.boolean().optional().describe("Abort an in-progress merge"),
+    noFastForward: z.boolean().optional().describe("Force merge commit (no fast-forward)"),
+    squash: z.boolean().optional().describe("Squash into single commit"),
+    abort: z.boolean().optional().describe("Abort in-progress merge"),
     strategy: z
       .enum(["resolve", "recursive", "octopus", "ours", "subtree"])
       .optional()
@@ -49,8 +40,7 @@ type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createGitMergeTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitMergeArgs> = {
     name: "git_merge",
-    description:
-      "Merge changes from another branch or commit into the current branch. Combines the history of two branches, creating a merge commit. Supports various merge strategies, squash merging, and fast-forward control. Can also abort an in-progress merge.",
+    description: "Merge a branch into the current branch. Supports squash, no-ff, and abort.",
     tags: ["git", "merge"],
     parameters: gitMergeParameters,
     validate: (args) => {

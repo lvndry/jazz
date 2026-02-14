@@ -140,12 +140,6 @@ export interface ToolRegistry {
    * @param category - The category to scope tool registrations to.
    * @returns A function that registers tools under the specified category.
    *
-   * @example
-   * ```typescript
-   * const registerTool = yield* registry.registerForCategory({ id: "email", displayName: "Email" });
-   * yield* registerTool(createListEmailsTool());
-   * yield* registerTool(createSendEmailTool());
-   * ```
    */
   readonly registerForCategory: (
     category: ToolCategory,

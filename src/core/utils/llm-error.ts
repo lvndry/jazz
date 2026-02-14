@@ -167,15 +167,6 @@ export function extractCleanErrorMessage(error: unknown): string {
  * @param providerName - The LLM provider name for context
  * @returns An appropriate LLMError instance
  *
- * @example
- * ```ts
- * try {
- *   await llmCall();
- * } catch (error) {
- *   const llmError = convertToLLMError(error, "openai");
- *   // Handle llmError appropriately
- * }
- * ```
  */
 export function convertToLLMError(error: unknown, providerName: ProviderName): LLMError {
   // Use clean message for user-facing error (keeps terminal output readable)

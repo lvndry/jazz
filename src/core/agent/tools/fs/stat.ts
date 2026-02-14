@@ -14,7 +14,7 @@ import { normalizeStatSize } from "./utils";
 export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).describe("File or directory path to check"),
+      path: z.string().min(1).describe("Path to check"),
     })
     .strict();
 
@@ -22,8 +22,7 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, StatArgs>({
     name: "stat",
-    description:
-      "Check if a file or directory exists and retrieve its metadata (type, size, modification time, access time). Use this to verify existence before operations or to get file information without reading contents.",
+    description: "Check file/directory existence and get metadata (type, size, times).",
     tags: ["filesystem", "info"],
     parameters,
     validate: (args) => {

@@ -12,23 +12,16 @@ import { ALLOWED_LABEL_COLORS, formatLabelForDisplay } from "./utils";
 export function createCreateLabelTool(): Tool<GmailService> {
   const parameters = z
     .object({
-      name: z.string().min(1).describe("Name of the label to create"),
+      name: z.string().min(1).describe("Label name"),
       labelListVisibility: z
         .enum(["labelShow", "labelHide"])
         .optional()
-        .describe("Whether to show the label in the label list"),
-      messageListVisibility: z
-        .enum(["show", "hide"])
-        .optional()
-        .describe("Whether to show the label in the message list"),
+        .describe("Show in label list"),
+      messageListVisibility: z.enum(["show", "hide"]).optional().describe("Show in message list"),
       color: z
         .object({
-          textColor: z
-            .enum(ALLOWED_LABEL_COLORS)
-            .describe("Text color (must be one of the allowed Gmail label colors)"),
-          backgroundColor: z
-            .enum(ALLOWED_LABEL_COLORS)
-            .describe("Background color (must be one of the allowed Gmail label colors)"),
+          textColor: z.enum(ALLOWED_LABEL_COLORS).describe("Text color"),
+          backgroundColor: z.enum(ALLOWED_LABEL_COLORS).describe("Background color"),
         })
         .partial()
         .optional()
@@ -37,15 +30,14 @@ export function createCreateLabelTool(): Tool<GmailService> {
             !val || (typeof val.textColor === "string" && typeof val.backgroundColor === "string"),
           { message: "Both textColor and backgroundColor must be provided when color is set" },
         )
-        .describe("Color settings for the label"),
+        .describe("Label colors"),
     })
     .strict();
 
   type CreateLabelArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, CreateLabelArgs>({
     name: "create_label",
-    description:
-      "Create a new custom Gmail label with optional visibility settings and color customization. Labels help organize emails. Supports controlling whether the label appears in the label list and message list. Returns the created label with its ID.",
+    description: "Create a Gmail label with optional color and visibility settings.",
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {

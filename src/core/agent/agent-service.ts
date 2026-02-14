@@ -33,13 +33,6 @@ import type { Agent, AgentConfig } from "@/core/types/index";
  * @throws {AgentConfigurationError} When the configuration is invalid
  * @throws {StorageError} When the agent cannot be saved to storage
  *
- * @example
- * ```typescript
- * const agent = yield* createAgent(
- *   "email-processor",
- *   "Processes incoming emails and categorizes them",
- * );
- * ```
  */
 export function createAgent(
   name: string,
@@ -68,11 +61,6 @@ export function createAgent(
  * @throws {StorageError} When there's an error accessing storage
  * @throws {StorageNotFoundError} When the agent with the given ID doesn't exist
  *
- * @example
- * ```typescript
- * const agent = yield* getAgentById("agent-123");
- * console.log(`Found agent: ${agent.name}`);
- * ```
  */
 export function getAgentById(
   id: string,
@@ -97,12 +85,6 @@ export function getAgentById(
  * @throws {StorageError} When there's an error accessing storage
  * @throws {StorageNotFoundError} When no agent matches the provided identifier
  *
- * @example
- * ```typescript
- * // Can use either ID or name
- * const agent1 = yield* getAgentByIdentifier("abc123");
- * const agent2 = yield* getAgentByIdentifier("my-agent");
- * ```
  */
 export function getAgentByIdentifier(
   identifier: string,
@@ -143,12 +125,6 @@ export function getAgentByIdentifier(
  *
  * @throws {StorageError} When there's an error accessing storage
  *
- * @example
- * ```typescript
- * const agents = yield* listAllAgents();
- * console.log(`Found ${agents.length} agents`);
- * agents.forEach(agent => console.log(`- ${agent.name}`));
- * ```
  */
 export function listAllAgents(): Effect.Effect<readonly Agent[], StorageError, AgentService> {
   return Effect.gen(function* () {

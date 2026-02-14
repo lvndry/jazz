@@ -19,9 +19,9 @@ type RmArgs = {
 
 const rmParameters = z
   .object({
-    path: z.string().min(1).describe("File or directory to remove"),
+    path: z.string().min(1).describe("Path to remove"),
     recursive: z.boolean().optional().describe("Recursively remove directories"),
-    force: z.boolean().optional().describe("Ignore non-existent files and errors"),
+    force: z.boolean().optional().describe("Ignore errors"),
   })
   .strict();
 
@@ -33,8 +33,7 @@ type RmDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createRmTools(): ApprovalToolPair<RmDeps> {
   const config: ApprovalToolConfig<RmDeps, RmArgs> = {
     name: "rm",
-    description:
-      "Remove a file or directory. Use recursive: true for directories. This action may be irreversible.",
+    description: "Remove a file or directory. May be irreversible.",
     tags: ["filesystem", "destructive"],
     parameters: rmParameters,
     validate: (args) => {

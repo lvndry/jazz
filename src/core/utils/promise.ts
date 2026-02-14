@@ -5,12 +5,6 @@
 /**
  * Creates a deferred promise with external resolve/reject controls.
  *
- * @example
- * ```ts
- * const deferred = createDeferred<string>();
- * deferred.resolve("success");
- * const result = await deferred.promise; // "success"
- * ```
  */
 export function createDeferred<T>(): {
   promise: Promise<T>;

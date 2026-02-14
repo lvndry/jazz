@@ -18,12 +18,7 @@ type QuickAddCalendarEventArgs = {
 const quickAddParameters = z
   .object({
     calendarId: z.string().optional().default("primary"),
-    text: z
-      .string()
-      .min(1)
-      .describe(
-        "Natural language description of the event (e.g., 'Meeting with John tomorrow at 3pm')",
-      ),
+    text: z.string().min(1).describe("Natural language event description"),
     sendNotifications: z.boolean().optional().default(true),
   })
   .strict();
@@ -31,8 +26,7 @@ const quickAddParameters = z
 export function createQuickAddCalendarEventTools(): ApprovalToolPair<CalendarService> {
   const config: ApprovalToolConfig<CalendarService, QuickAddCalendarEventArgs> = {
     name: "quick_add_calendar_event",
-    description:
-      "Create a calendar event from natural language text using Google's quick add feature. Automatically parses date, time, and title from text like 'Lunch with Sarah tomorrow at noon' or 'Team meeting Friday 2pm-3pm'. Convenient for simple events without detailed parameters.",
+    description: "Create an event from natural language (Google quick add).",
     tags: ["calendar", "create", "quick"],
     parameters: quickAddParameters,
     validate: (args) => {

@@ -55,8 +55,7 @@ export function createWebSearchTool(): ReturnType<
 > {
   return defineTool<AgentConfigService | LoggerService, WebSearchArgs>({
     name: "web_search",
-    description:
-      "Search the web for current, real-time information using Parallel, Exa, Tavily, Brave, or Perplexity search engine. Returns high-quality search results with snippets and sources that you can use to synthesize answers. Supports different search depths (standard/deep). Use to find current events, recent information, or facts that may have changed since training data.",
+    description: "Search the web for real-time information. Supports standard/deep depth.",
     tags: ["web", "search"],
     parameters: z
       .object({
@@ -64,38 +63,28 @@ export function createWebSearchTool(): ReturnType<
           .string()
           .min(1, "query cannot be empty")
           .max(5000, "query cannot be longer than 5000 characters")
-          .describe(
-            "The search query to execute. You should refine and improve the user's original query to be as specific as possible. Add context or constraints to narrow down results. Examples: 1. Bad: 'Total' -> Good: 'French energy company Total website'. 2. Bad: 'Python error' -> Good: 'Python TypeError: int object is not iterable solution'. 3. Bad: 'best restaurants' -> Good: 'best Italian restaurants in downtown Chicago 2024'.",
-          ),
+          .describe("Search query. Be specific — add context/constraints to narrow results."),
         depth: z
           .enum(["standard", "deep"])
           .optional()
-          .describe(
-            "Search depth - 'standard' for quick results, 'deep' for comprehensive search (default: 'standard')",
-          ),
+          .describe("'standard' (default) or 'deep' for comprehensive search"),
         fromDate: z
           .string()
           .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
           .optional()
-          .describe(
-            "The date from which the search results should be considered, in ISO 8601 format (YYYY-MM-DD)",
-          ),
+          .describe("Start date filter (YYYY-MM-DD)"),
         toDate: z
           .string()
           .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
           .optional()
-          .describe(
-            "The date until which the search results should be considered, in ISO 8601 format (YYYY-MM-DD)",
-          ),
+          .describe("End date filter (YYYY-MM-DD)"),
         maxResults: z
           .number()
           .int()
           .min(1)
           .max(100)
           .optional()
-          .describe(
-            `Maximum number of results to return (default: ${DEFAULT_MAX_RESULTS}, max: 100)`,
-          ),
+          .describe(`Max results (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
       })
       .strict(),
     validate: (args) => {

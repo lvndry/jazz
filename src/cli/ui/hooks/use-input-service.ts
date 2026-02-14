@@ -44,22 +44,6 @@ interface UseInputHandlerOptions {
  * The handler will be automatically unregistered when the component unmounts
  * or when dependencies change.
  *
- * @example
- * ```tsx
- * useInputHandler({
- *   id: "my-component",
- *   priority: InputPriority.PROMPT,
- *   isActive: isFocused,
- *   onInput: (action) => {
- *     if (action.type === "submit") {
- *       handleSubmit();
- *       return InputResults.consumed();
- *     }
- *     return InputResults.ignored();
- *   },
- *   deps: [handleSubmit],
- * });
- * ```
  */
 export function useInputHandler(options: UseInputHandlerOptions): void {
   const service = useInputService();

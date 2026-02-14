@@ -11,6 +11,7 @@ import { CLIOptionsTag } from "./core/interfaces/cli-options";
 import { LoggerServiceTag } from "./core/interfaces/logger";
 import { MCPServerManagerTag } from "./core/interfaces/mcp-server";
 import { StorageServiceTag } from "./core/interfaces/storage";
+import { TelemetryServiceTag } from "./core/interfaces/telemetry";
 import { TerminalServiceTag } from "./core/interfaces/terminal";
 import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
@@ -30,6 +31,7 @@ import { createLoggerLayer, setLogFormat, setLogLevel } from "./services/logger"
 import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
 import { NotificationServiceLayer } from "./services/notification";
 import { FileStorageService } from "./services/storage/file";
+import { createTelemetryServiceLayer } from "./services/telemetry/telemetry-service";
 import {
   createHeadlessTerminalServiceLayer,
   createTerminalServiceLayer,
@@ -73,11 +75,6 @@ export interface AppLayerConfig {
  * @param config - Configuration options for the application layer
  * @returns A complete Effect layer containing all application services
  *
- * @example
- * ```typescript
- * const appLayer = createAppLayer({ debug: true, configPath: "./config.json" });
- * yield* someCommand().pipe(Effect.provide(appLayer));
- * ```
  */
 
 export function createAppLayer(config: AppLayerConfig = {}) {
@@ -147,6 +144,11 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(SkillsLive.layer),
   );
 
+  const telemetryLayer = createTelemetryServiceLayer().pipe(
+    Layer.provide(configLayer),
+    Layer.provide(loggerLayer),
+  );
+
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
 
   const chatLayer = createChatServiceLayer().pipe(
@@ -185,6 +187,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     toolRegistrationLayer,
     agentLayer,
     chatLayer,
+    telemetryLayer,
     presentationLayer,
     NotificationServiceLayer,
     SkillsLive.layer,
@@ -293,13 +296,19 @@ export function runCliEffect<R, E extends JazzError | Error>(
       )
       .pipe(Effect.map((r) => r.exit));
 
-    // Register cleanup for MCP server connections
+    // Register cleanup for MCP server connections and telemetry flush
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* () {
         // Clear session id so shutdown logs go to the default log, not a workflow/catch-up session log
         const logger = yield* Effect.serviceOption(LoggerServiceTag);
         if (Option.isSome(logger)) {
           yield* logger.value.clearSessionId();
+        }
+
+        // Flush any buffered telemetry events before shutdown
+        const telemetry = yield* Effect.serviceOption(TelemetryServiceTag);
+        if (Option.isSome(telemetry)) {
+          yield* telemetry.value.flush().pipe(Effect.catchAll(() => Effect.void));
         }
 
         const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);

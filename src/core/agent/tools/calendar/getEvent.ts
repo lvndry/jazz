@@ -16,16 +16,15 @@ export function createGetCalendarEventTool(): Tool<CalendarService> {
         .string()
         .optional()
         .default("primary")
-        .describe("Calendar ID ('primary' for user's primary calendar)"),
-      eventId: z.string().min(1).describe("ID of the event to retrieve"),
+        .describe("Calendar ID (default: 'primary')"),
+      eventId: z.string().min(1).describe("Event ID"),
     })
     .strict();
 
   type GetCalendarEventArgs = z.infer<typeof parameters>;
   return defineTool<CalendarService, GetCalendarEventArgs>({
     name: "get_calendar_event",
-    description:
-      "Retrieve the complete details of a specific calendar event by its ID. Returns full event information including title, description, time, location, attendees, recurrence, reminders, and conference data. Use after list_calendar_events to get full details of a specific event.",
+    description: "Get full details of a calendar event by ID.",
     tags: ["calendar", "read"],
     parameters,
     validate: (args) => {

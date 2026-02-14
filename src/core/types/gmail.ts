@@ -1,3 +1,10 @@
+/**
+ * Represents an email message from Gmail API
+ *
+ * Complete representation of a Gmail message with all metadata including
+ * sender information, recipients, subject, body content, labels, and attachments.
+ * This interface mirrors the Gmail API response structure for email messages.
+ */
 export interface GmailEmail {
   readonly id: string;
   readonly threadId: string;
@@ -17,6 +24,12 @@ export interface GmailEmail {
   }>;
 }
 
+/**
+ * Gmail label for organizing and categorizing emails
+ *
+ * Represents a Gmail label which can be applied to messages for organization.
+ * Labels can be user-created or system labels (like INBOX, SENT).
+ */
 export interface GmailLabel {
   readonly id: string;
   readonly name: string;

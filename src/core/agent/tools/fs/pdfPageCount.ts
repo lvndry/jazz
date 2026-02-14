@@ -20,7 +20,7 @@ import { normalizeStatSize } from "./utils";
 export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).describe("PDF file path to get page count from"),
+      path: z.string().min(1).describe("PDF file path"),
     })
     .strict();
 
@@ -28,8 +28,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, PdfPageCountParams>({
     name: "pdf_page_count",
-    description:
-      "Get the total number of pages in a PDF file without reading its content. Use this to plan efficient PDF reading strategies and avoid context window bloat. Useful for determining optimal page ranges or chunk sizes before reading.",
+    description: "Get total page count of a PDF without reading content.",
     tags: ["filesystem", "pdf", "info"],
     parameters,
     validate: (args) => {

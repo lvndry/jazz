@@ -315,12 +315,6 @@ export function registerTool(
  * @param category - The category object with id and displayName
  * @returns A function that registers tools under the specified category
  *
- * @example
- * ```typescript
- * const registerTool = yield* registerForCategory({ id: "email", displayName: "Email" });
- * yield* registerTool(createListEmailsTool());
- * yield* registerTool(createSendEmailTool());
- * ```
  */
 export function registerForCategory(
   category: ToolCategory,

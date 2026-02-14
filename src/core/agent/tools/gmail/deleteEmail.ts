@@ -15,15 +15,14 @@ type DeleteEmailArgs = {
 
 const deleteEmailParameters = z
   .object({
-    emailId: z.string().min(1).describe("ID of the email to delete permanently"),
+    emailId: z.string().min(1).describe("Email ID to delete permanently"),
   })
   .strict();
 
 export function createDeleteEmailTools(): ApprovalToolPair<GmailService> {
   const config: ApprovalToolConfig<GmailService, DeleteEmailArgs> = {
     name: "delete_email",
-    description:
-      "Permanently delete an email. This action cannot be undone. Consider using trash_email for safer removal.",
+    description: "Permanently delete an email. Irreversible.",
     tags: ["gmail", "delete"],
     parameters: deleteEmailParameters,
     validate: (args) => {

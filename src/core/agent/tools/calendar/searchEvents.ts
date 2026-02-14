@@ -12,18 +12,17 @@ import { formatEventsForDisplay } from "./utils";
 export function createSearchCalendarEventsTool(): Tool<CalendarService> {
   const parameters = z
     .object({
-      query: z.string().min(1).describe("Search query to find events"),
-      maxResults: z.number().int().min(1).max(100).optional().describe("Maximum events to return"),
-      timeMin: z.string().optional().describe("Start of time range (RFC3339)"),
-      timeMax: z.string().optional().describe("End of time range (RFC3339)"),
+      query: z.string().min(1).describe("Search query"),
+      maxResults: z.number().int().min(1).max(100).optional().describe("Max events"),
+      timeMin: z.string().optional().describe("Start time (RFC3339)"),
+      timeMax: z.string().optional().describe("End time (RFC3339)"),
     })
     .strict();
 
   type SearchCalendarEventsArgs = z.infer<typeof parameters>;
   return defineTool<CalendarService, SearchCalendarEventsArgs>({
     name: "search_calendar_events",
-    description:
-      "Search for events across the primary calendar using free text search. Searches event titles, descriptions, locations, and attendee names. Optionally filter by time range. Returns matching events with full details.",
+    description: "Search events by text across titles, descriptions, and locations.",
     tags: ["calendar", "search"],
     parameters,
     validate: (args) => {

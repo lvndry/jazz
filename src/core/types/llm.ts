@@ -3,7 +3,19 @@ import type { ProviderName } from "@/core/constants/models";
 import type { LLMAuthenticationError } from "./errors";
 
 /**
- * Model Information
+ * @fileoverview LLM provider and model types
+ *
+ * Defines service contracts and data structures for interacting with various LLM
+ * providers (OpenAI, Anthropic, Google, etc.), including model capabilities,
+ * authentication, and provider listings.
+ */
+
+/**
+ * Information about an LLM model's capabilities and characteristics
+ *
+ * Contains metadata about a specific LLM model including its ID, display name,
+ * multimodal capabilities, tool usage support, and context window size.
+ *
  */
 export interface ModelInfo {
   readonly id: string;
@@ -19,8 +31,11 @@ export interface ModelInfo {
 }
 
 /**
- * LLM Provider
- * Represents a configured LLM provider with its capabilities
+ * Service contract for an LLM provider
+ *
+ * An LLM provider represents a configured connection to an LLM service (OpenAI,
+ * Anthropic, Google, etc.) with capabilities and authentication logic. Providers
+ * are implemented in the services layer and satisfy Core layer contracts.
  */
 export interface LLMProvider {
   readonly name: ProviderName;
@@ -30,8 +45,11 @@ export interface LLMProvider {
 }
 
 /**
- * LLM Provider Listing
- * Used for presenting providers in CLI/UI.
+ * Listed item representing an LLM provider in CLI/UI
+ *
+ * Used when displaying available providers to users, includes configuration
+ * status to show which providers are ready to use.
+ *
  */
 export interface LLMProviderListItem {
   readonly name: ProviderName;

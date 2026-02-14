@@ -15,8 +15,7 @@ export function createListLabelsTool(): Tool<GmailService> {
   type ListLabelsArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, ListLabelsArgs>({
     name: "list_labels",
-    description:
-      "List all available Gmail labels including system labels (INBOX, SENT, TRASH, etc.) and user-created labels. Returns label IDs, names, types, message counts, and color settings. Use to discover available labels before applying them to emails.",
+    description: "List all Gmail labels (system and user-created) with IDs and metadata.",
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {

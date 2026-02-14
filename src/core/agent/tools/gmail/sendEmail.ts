@@ -11,9 +11,9 @@ import { defineTool } from "../base-tool";
 export function createSendEmailTool(): Tool<GmailService> {
   const parameters = z
     .object({
-      to: z.array(z.string()).min(1).describe("Primary recipients (email addresses)"),
+      to: z.array(z.string()).min(1).describe("Recipient email addresses"),
       subject: z.string().min(1).describe("Email subject"),
-      body: z.string().min(1).describe("Email body (plain text)"),
+      body: z.string().min(1).describe("Body (plain text)"),
       cc: z.array(z.string()).optional().describe("CC recipients"),
       bcc: z.array(z.string()).optional().describe("BCC recipients"),
     })
@@ -22,8 +22,7 @@ export function createSendEmailTool(): Tool<GmailService> {
   type SendEmailArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, SendEmailArgs>({
     name: "send_email",
-    description:
-      "Compose an email and create a draft in Gmail. The email is saved as a draft (not sent immediately) with specified recipients (to, cc, bcc), subject, and body. The user can review and send the draft from their Gmail interface. Use to prepare emails for the user to review and send.",
+    description: "Compose a Gmail draft for user review. Not sent immediately.",
     tags: ["gmail", "compose"],
     parameters,
     validate: (args) => {

@@ -34,39 +34,30 @@ const createEventParameters = z
       .string()
       .optional()
       .default("primary")
-      .describe("Calendar ID ('primary' for user's primary calendar)"),
+      .describe("Calendar ID (default: 'primary')"),
     summary: z.string().min(1).describe("Event title/summary"),
     description: z.string().optional().describe("Event description"),
     location: z.string().optional().describe("Event location"),
-    startDateTime: z
-      .string()
-      .optional()
-      .describe("Start date-time (RFC3339, e.g., '2024-01-15T14:00:00-08:00')"),
-    startDate: z.string().optional().describe("Start date for all-day events (YYYY-MM-DD)"),
-    endDateTime: z
-      .string()
-      .optional()
-      .describe("End date-time (RFC3339, e.g., '2024-01-15T15:00:00-08:00')"),
-    endDate: z.string().optional().describe("End date for all-day events (YYYY-MM-DD)"),
-    timeZone: z
-      .string()
-      .optional()
-      .describe("Timezone for the event (e.g., 'America/Los_Angeles')"),
+    startDateTime: z.string().optional().describe("Start date-time (RFC3339)"),
+    startDate: z.string().optional().describe("All-day start date (YYYY-MM-DD)"),
+    endDateTime: z.string().optional().describe("End date-time (RFC3339)"),
+    endDate: z.string().optional().describe("All-day end date (YYYY-MM-DD)"),
+    timeZone: z.string().optional().describe("Timezone (e.g. 'America/Los_Angeles')"),
     attendees: z
       .array(
         z.object({
-          email: z.string().email().describe("Attendee email address"),
-          displayName: z.string().optional().describe("Attendee display name"),
-          optional: z.boolean().optional().describe("Whether attendance is optional"),
+          email: z.string().email().describe("Email address"),
+          displayName: z.string().optional().describe("Display name"),
+          optional: z.boolean().optional().describe("Optional attendance"),
         }),
       )
       .optional()
-      .describe("List of event attendees"),
+      .describe("Attendees"),
     sendNotifications: z
       .boolean()
       .optional()
       .default(true)
-      .describe("Whether to send notifications to attendees"),
+      .describe("Send notifications (default: true)"),
   })
   .strict()
   .refine((data) => (data.startDateTime && data.endDateTime) || (data.startDate && data.endDate), {
@@ -76,8 +67,7 @@ const createEventParameters = z
 export function createCalendarEventTools(): ApprovalToolPair<CalendarService> {
   const config: ApprovalToolConfig<CalendarService, CreateCalendarEventArgs> = {
     name: "create_calendar_event",
-    description:
-      "Create a new event in Google Calendar with specified details. Supports both timed events (using startDateTime/endDateTime) and all-day events (using startDate/endDate). Can specify title, description, location, attendees, and notifications.",
+    description: "Create a calendar event. Supports timed and all-day events.",
     tags: ["calendar", "create"],
     parameters: createEventParameters,
     validate: (args) => {

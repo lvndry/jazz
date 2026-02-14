@@ -14,13 +14,10 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
+      path: z.string().optional().describe("Repository path (defaults to cwd)"),
       list: z.boolean().optional().describe("List branches"),
-      all: z.boolean().optional().describe("List both local and remote branches"),
-      remote: z.boolean().optional().describe("List only remote branches"),
+      all: z.boolean().optional().describe("Include remote branches"),
+      remote: z.boolean().optional().describe("Remote branches only"),
     })
     .strict();
 
@@ -28,8 +25,7 @@ export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitBranchArgs>({
     name: "git_branch",
-    description:
-      "List Git branches (local, remote, or both). Shows all available branches and identifies the current branch. Use to see what branches exist, check which branch you're on, or discover remote branches. Note: This tool only lists branches; use git_checkout to switch branches.",
+    description: "List branches (local, remote, or both) and show current branch.",
     tags: ["git", "branch"],
     parameters,
     validate: (args) => {

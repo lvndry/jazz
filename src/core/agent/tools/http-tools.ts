@@ -78,67 +78,57 @@ const HttpBodySchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("json"),
-      value: z.unknown().describe("JSON-compatible value to serialize as the request body."),
+      value: z.unknown().describe("JSON body value"),
     })
     .strict(),
   z
     .object({
       type: z.literal("text"),
-      value: z.string().min(1, "Text body cannot be empty").describe("Plain text body content."),
+      value: z.string().min(1, "Text body cannot be empty").describe("Text body"),
     })
     .strict(),
   z
     .object({
       type: z.literal("form"),
-      value: z
-        .record(z.string(), z.string())
-        .describe("Form data fields to encode as application/x-www-form-urlencoded."),
+      value: z.record(z.string(), z.string()).describe("Form fields (URL-encoded)"),
     })
     .strict(),
 ]);
 
 const HttpRequestSchema = z
   .object({
-    method: z.enum(HTTP_METHODS).describe("HTTP method to use (e.g., GET, POST, PUT)."),
+    method: z.enum(HTTP_METHODS).describe("HTTP method"),
     url: z
       .url("URL must be absolute and include the protocol (http or https).")
-      .describe("Absolute URL to request (must include protocol)."),
-    headers: z
-      .record(z.string(), z.string())
-      .optional()
-      .describe("Optional HTTP headers (e.g., Authorization, Content-Type)."),
+      .describe("Absolute URL (http/https)"),
+    headers: z.record(z.string(), z.string()).optional().describe("Request headers"),
     query: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean()]) as z.ZodType<QueryValue>)
       .optional()
-      .describe("Optional query parameters to merge into the URL."),
-    body: HttpBodySchema.optional().describe("Optional request body payload."),
+      .describe("Query parameters"),
+    body: HttpBodySchema.optional().describe("Request body"),
     timeoutMs: z
       .number()
       .int("Timeout must be an integer number of milliseconds.")
       .positive("Timeout must be greater than zero.")
       .max(120_000, "Timeout cannot exceed two minutes.")
       .optional()
-      .describe("Abort the request after this many milliseconds (default: 15000)."),
-    followRedirects: z
-      .boolean()
-      .optional()
-      .describe("Follow HTTP redirects automatically (default: true)."),
+      .describe("Timeout in ms (default: 15000)"),
+    followRedirects: z.boolean().optional().describe("Follow redirects (default: true)"),
     maxResponseBytes: z
       .number()
       .int("maxResponseBytes must be an integer number of bytes.")
       .positive("maxResponseBytes must be greater than zero.")
       .max(5_000_000, "maxResponseBytes cannot exceed 5MB.")
       .optional()
-      .describe("Maximum response size in bytes before truncation (default: 1MB)."),
+      .describe("Max response bytes (default: 1MB)"),
     cacheTtlSeconds: z
       .number()
       .int("Cache TTL must be an integer number of seconds.")
       .positive("Cache TTL must be greater than zero.")
       .max(3600, "Cache TTL cannot exceed one hour.")
       .optional()
-      .describe(
-        "Optional cache duration in seconds. Adds a Cache-Control: max-age header to hint caching to proxies/CDNs.",
-      ),
+      .describe("Cache duration in seconds (adds Cache-Control: max-age header)"),
   })
   .strict();
 
@@ -339,7 +329,7 @@ export function createHttpRequestTool(): Tool<never> {
   return defineTool<never, HttpRequestArgs>({
     name: "http_request",
     description:
-      "Send HTTP/HTTPS requests to any URL. Supports all HTTP methods, custom headers, query parameters, and request bodies (JSON, text, or form data). Returns response status, headers, body, and timing information. Use to interact with REST APIs, fetch web content, or make API calls.",
+      "Send HTTP requests. Supports all methods, headers, query params, and body formats.",
     tags: ["http", "network", "api"],
     parameters: HttpRequestSchema,
     validate: (args) => {

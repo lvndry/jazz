@@ -20,16 +20,11 @@ type GitRmArgs = {
 
 const gitRmParameters = z
   .object({
-    path: z
-      .string()
-      .optional()
-      .describe(
-        "Path to a file or directory in the Git repository (defaults to current working directory)",
-      ),
-    files: z.array(z.string()).min(1).describe("Files to remove from Git tracking"),
-    cached: z.boolean().optional().describe("Remove from index only (keep in working directory)"),
+    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    files: z.array(z.string()).min(1).describe("Files to remove"),
+    cached: z.boolean().optional().describe("Remove from index only (keep on disk)"),
     recursive: z.boolean().optional().describe("Remove directories recursively"),
-    force: z.boolean().optional().describe("Force removal (overrides safety checks)"),
+    force: z.boolean().optional().describe("Force removal"),
   })
   .strict();
 
@@ -39,7 +34,7 @@ export function createGitRmTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitRmArgs> = {
     name: "git_rm",
     description:
-      "Remove files from Git tracking and optionally from the working directory. Removes files from the index (staging area) and can also delete them from the filesystem. Supports removing from index only (cached), recursive directory removal, and force removal.",
+      "Remove files from Git tracking. Supports cached (index only), recursive, and force.",
     tags: ["git", "remove"],
     parameters: gitRmParameters,
     validate: (args) => {

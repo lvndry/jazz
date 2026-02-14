@@ -41,12 +41,6 @@ interface TerminalProviderProps {
  *
  * Detects terminal capabilities on mount and provides them to all children.
  *
- * @example
- * ```tsx
- * <TerminalProvider>
- *   <App />
- * </TerminalProvider>
- * ```
  */
 export function TerminalProvider({
   children,

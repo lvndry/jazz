@@ -78,24 +78,9 @@ type ExecuteCommandArgs = {
 
 const executeCommandParameters = z
   .object({
-    command: z
-      .string()
-      .min(1, "command cannot be empty")
-      .describe("The shell command to execute (e.g., 'npm install', 'ls -la', 'git status')"),
-    workingDirectory: z
-      .string()
-      .optional()
-      .describe(
-        "Optional working directory to execute the command in. If not provided, uses the current working directory.",
-      ),
-    timeout: z
-      .number()
-      .int()
-      .positive()
-      .optional()
-      .describe(
-        "Optional timeout in milliseconds (default: 30000). Commands that take longer will be terminated.",
-      ),
+    command: z.string().min(1, "command cannot be empty").describe("Shell command to execute"),
+    workingDirectory: z.string().optional().describe("Working directory (defaults to cwd)"),
+    timeout: z.number().int().positive().optional().describe("Timeout in ms (default: 30000)"),
   })
   .strict();
 
@@ -118,8 +103,7 @@ type ShellCommandDeps =
 export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
   const config: ApprovalToolConfig<ShellCommandDeps, ExecuteCommandArgs> = {
     name: "execute_command",
-    description:
-      "Execute a shell command on the system. IMPORTANT: Only use this when no dedicated tool can accomplish the task. Prefer git_* tools for git operations, filesystem tools (read_file, write_file, edit_file, grep, find, ls) for file operations, and web_search for web queries. Use execute_command for: running build/test commands (npm, make, cargo), starting/stopping services, package management, or any shell operation not covered by dedicated tools. Includes security checks to block dangerous operations.",
+    description: "Execute a shell command. Use only when no dedicated tool exists.",
     tags: ["shell", "execution"],
     parameters: executeCommandParameters,
     validate: (args) => {

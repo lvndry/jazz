@@ -475,13 +475,6 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
  * @param error - The error to format
  * @returns A formatted string ready for console output
  *
- * @example
- * ```typescript
- * const error = new AgentNotFoundError({ agentId: "test-agent" });
- * const formatted = formatError(error);
- * console.error(formatted);
- * // Output: "❌ Agent Not Found\n   No agent found with ID: test-agent\n..."
- * ```
  */
 export function formatError(error: JazzError): string {
   const display = generateSuggestions(error);
@@ -524,16 +517,6 @@ export function formatError(error: JazzError): string {
  * @param error - The error to handle (JazzError or generic Error)
  * @returns An Effect that logs the formatted error to the console
  *
- * @example
- * ```typescript
- * // Handle a structured error
- * const JazzError = new AgentNotFoundError({ agentId: "test" });
- * yield* handleError(JazzError);
- *
- * // Handle a generic error
- * const genericError = new Error("Something went wrong");
- * yield* handleError(genericError);
- * ```
  */
 export function handleError(error: JazzError | Error): Effect.Effect<void, never, TerminalService> {
   return Effect.gen(function* () {
@@ -587,13 +570,6 @@ export function handleError(error: JazzError | Error): Effect.Effect<void, never
  * Provides reusable suggestion templates that can be used across different error types
  * to maintain consistency in error messaging and reduce duplication.
  *
- * @example
- * ```typescript
- * const error = new AgentNotFoundError({
- *   agentId: "test",
- *   suggestion: CommonSuggestions.checkAgentExists("test")
- * });
- * ```
  */
 export const CommonSuggestions = {
   /**

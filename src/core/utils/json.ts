@@ -8,13 +8,6 @@ import { Effect, Option } from "effect";
  * Safely parse JSON string, returning an Option.
  * Returns Option.some(parsed) on success, Option.none() on parse error.
  *
- * @example
- * ```ts
- * const result = safeParseJson<MyType>(jsonString);
- * if (Option.isSome(result)) {
- *   // Use result.value
- * }
- * ```
  */
 export function safeParseJson<T>(text: string): Option.Option<T> {
   try {
@@ -28,10 +21,6 @@ export function safeParseJson<T>(text: string): Option.Option<T> {
  * Parse JSON string as an Effect, failing with a descriptive error on parse failure.
  * Useful for Effect-based workflows where parse errors should be propagated.
  *
- * @example
- * ```ts
- * const parsed = yield* parseJson<MyType>(jsonString);
- * ```
  */
 export function parseJson<T>(text: string): Effect.Effect<T, Error> {
   return Effect.try({

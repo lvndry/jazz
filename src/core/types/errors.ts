@@ -311,6 +311,21 @@ export class MCPServerNameParseError extends Data.TaggedError("MCPServerNamePars
   readonly suggestion?: string;
 }> {}
 
+// Telemetry Errors
+export class TelemetryError extends Data.TaggedError("TelemetryError")<{
+  readonly operation: string;
+  readonly message: string;
+  readonly cause?: unknown;
+  readonly suggestion?: string;
+}> {}
+
+export class TelemetryWriteError extends Data.TaggedError("TelemetryWriteError")<{
+  readonly path: string;
+  readonly message: string;
+  readonly cause?: unknown;
+  readonly suggestion?: string;
+}> {}
+
 export type LLMError =
   | LLMAuthenticationError
   | LLMRequestError
@@ -371,4 +386,6 @@ export type JazzError =
   | MCPToolExecutionError
   | MCPToolDiscoveryError
   | MCPSchemaConversionError
-  | MCPServerNameParseError;
+  | MCPServerNameParseError
+  | TelemetryError
+  | TelemetryWriteError;

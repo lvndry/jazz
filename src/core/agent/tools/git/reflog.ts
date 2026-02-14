@@ -14,25 +14,11 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 export function createGitReflogTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .optional()
-        .describe(
-          "Path to a file or directory in the Git repository (defaults to current working directory)",
-        ),
-      limit: z
-        .number()
-        .int()
-        .min(1)
-        .max(1000)
-        .optional()
-        .describe("Limit the number of reflog entries to show"),
-      branch: z
-        .string()
-        .optional()
-        .describe("Show reflog for a specific branch (defaults to HEAD)"),
-      all: z.boolean().optional().describe("Show reflog for all branches"),
-      oneline: z.boolean().optional().describe("Show entries in one-line format"),
+      path: z.string().optional().describe("Repository path (defaults to cwd)"),
+      limit: z.number().int().min(1).max(1000).optional().describe("Max entries to show"),
+      branch: z.string().optional().describe("Branch (default: HEAD)"),
+      all: z.boolean().optional().describe("All branches"),
+      oneline: z.boolean().optional().describe("One-line format"),
     })
     .strict();
 
@@ -40,8 +26,7 @@ export function createGitReflogTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitReflogArgs>({
     name: "git_reflog",
-    description:
-      "Display the reference log showing where HEAD and branch references have been. Shows commit hashes, actions (checkout, commit, merge, etc.), and timestamps. Useful for recovering lost commits, understanding branch history, or tracking reference movements. Supports filtering by branch and limiting results.",
+    description: "Show reference log for HEAD or a branch. Useful for recovering lost commits.",
     tags: ["git", "reflog", "history"],
     parameters,
     validate: (args) => {

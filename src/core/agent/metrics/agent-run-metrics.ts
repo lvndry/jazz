@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
+import type { TelemetryService } from "@/core/interfaces/telemetry";
+import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
 import { type Agent } from "@/core/types";
 
 export interface AgentRunMetricsContext {
@@ -21,6 +23,9 @@ interface AgentRunIterationSummary {
   readonly toolCallCounts: Record<string, number>;
   readonly errors: string[];
   readonly toolSequence: string[];
+  toolDefinitionTokens: number;
+  toolResultTokens: number;
+  readonly toolResultSizes: Record<string, number>;
 }
 
 export interface AgentRunMetrics {
@@ -52,6 +57,9 @@ export interface AgentRunMetrics {
   readonly iterationSummaries: AgentRunIterationSummary[];
   currentIteration: AgentRunIterationSummary | undefined;
   firstTokenLatencyMs?: number | undefined;
+  totalToolDefinitionTokens: number;
+  totalToolResultTokens: number;
+  toolDefinitionsOffered: number;
 }
 
 export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRunMetrics {
@@ -86,6 +94,9 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     iterationSummaries: [],
     currentIteration: undefined,
     firstTokenLatencyMs: undefined,
+    totalToolDefinitionTokens: 0,
+    totalToolResultTokens: 0,
+    toolDefinitionsOffered: 0,
   };
 }
 
@@ -125,6 +136,9 @@ export function beginIteration(metrics: AgentRunMetrics, iterationNumber: number
     toolCallCounts: {},
     errors: [],
     toolSequence: [],
+    toolDefinitionTokens: 0,
+    toolResultTokens: 0,
+    toolResultSizes: {},
   };
   metrics.currentIteration = summary;
   metrics.iterationSummaries.push(summary);
@@ -152,6 +166,46 @@ export function recordToolInvocation(metrics: AgentRunMetrics, toolName: string)
 export function recordToolError(metrics: AgentRunMetrics, toolName: string, error: unknown): void {
   metrics.toolErrors += 1;
   metrics.lastError = pushError(metrics, error, `tool:${toolName}`);
+}
+
+/**
+ * Estimate token count from a character count.
+ * Uses the rough approximation of 1 token ≈ 4 characters for English text / JSON.
+ */
+export function estimateTokens(charCount: number): number {
+  return Math.ceil(charCount / 4);
+}
+
+/**
+ * Record the token cost of tool definitions sent to the LLM for this iteration.
+ */
+export function recordToolDefinitionTokens(
+  metrics: AgentRunMetrics,
+  tokenEstimate: number,
+  toolCount: number,
+): void {
+  metrics.totalToolDefinitionTokens += tokenEstimate;
+  metrics.toolDefinitionsOffered += toolCount;
+  if (metrics.currentIteration) {
+    metrics.currentIteration.toolDefinitionTokens = tokenEstimate;
+  }
+}
+
+/**
+ * Record the token cost of a single tool result added to the conversation context.
+ */
+export function recordToolResultTokens(
+  metrics: AgentRunMetrics,
+  toolName: string,
+  resultChars: number,
+): void {
+  const tokenEstimate = estimateTokens(resultChars);
+  metrics.totalToolResultTokens += tokenEstimate;
+  if (metrics.currentIteration) {
+    metrics.currentIteration.toolResultTokens += tokenEstimate;
+    metrics.currentIteration.toolResultSizes[toolName] =
+      (metrics.currentIteration.toolResultSizes[toolName] ?? 0) + tokenEstimate;
+  }
 }
 
 export function recordFirstTokenLatency(metrics: AgentRunMetrics, latencyMs: number): void {
@@ -190,43 +244,58 @@ export function finalizeAgentRun(
     ),
     errors: summary.errors,
     toolSequence: summary.toolSequence,
+    toolDefinitionTokens: summary.toolDefinitionTokens,
+    toolResultTokens: summary.toolResultTokens,
+    toolResultSizes: summary.toolResultSizes,
   }));
 
-  return writeTokenUsageLog({
-    runId: metrics.runId,
-    agentId: metrics.agentId,
-    agentName: metrics.agentName,
-    agentType: metrics.agentType,
-    agentUpdatedAt: metrics.agentUpdatedAt,
-    conversationId: metrics.conversationId,
-    ...(metrics.userId ? { userId: metrics.userId } : {}),
-    ...(metrics.provider ? { provider: metrics.provider } : {}),
-    ...(metrics.model ? { model: metrics.model } : {}),
-    ...(metrics.reasoningEffort ? { reasoningEffort: metrics.reasoningEffort } : {}),
-    promptTokens: metrics.totalPromptTokens,
-    completionTokens: metrics.totalCompletionTokens,
-    totalTokens,
-    ...(metrics.totalReasoningTokens > 0 && { reasoningTokens: metrics.totalReasoningTokens }),
-    ...(metrics.totalCacheReadTokens > 0 && { cacheReadTokens: metrics.totalCacheReadTokens }),
-    ...(metrics.totalCacheWriteTokens > 0 && { cacheWriteTokens: metrics.totalCacheWriteTokens }),
-    iterations: details.iterationsUsed,
-    maxIterations: metrics.maxIterations,
-    finished: details.finished,
-    startedAt: metrics.startedAt,
-    endedAt,
-    durationMs,
-    retryCount: metrics.llmRetryCount,
-    ...(sanitizedLastError ? { lastError: sanitizedLastError } : {}),
-    toolCalls: metrics.toolCalls,
-    toolsUsed: toolsUsedList,
-    toolErrors: metrics.toolErrors,
-    toolCallCounts: sortedToolCallCounts,
-    toolInvocationSequence: metrics.toolInvocationSequence,
-    errors: metrics.errors,
-    iterationSummaries,
-    ...(metrics.firstTokenLatencyMs !== undefined
-      ? { firstTokenLatencyMs: metrics.firstTokenLatencyMs }
-      : {}),
+  return Effect.gen(function* () {
+    // Write the standard token usage log
+    yield* writeTokenUsageLog({
+      runId: metrics.runId,
+      agentId: metrics.agentId,
+      agentName: metrics.agentName,
+      agentType: metrics.agentType,
+      agentUpdatedAt: metrics.agentUpdatedAt,
+      conversationId: metrics.conversationId,
+      ...(metrics.userId ? { userId: metrics.userId } : {}),
+      ...(metrics.provider ? { provider: metrics.provider } : {}),
+      ...(metrics.model ? { model: metrics.model } : {}),
+      ...(metrics.reasoningEffort ? { reasoningEffort: metrics.reasoningEffort } : {}),
+      promptTokens: metrics.totalPromptTokens,
+      completionTokens: metrics.totalCompletionTokens,
+      totalTokens,
+      ...(metrics.totalReasoningTokens > 0 && { reasoningTokens: metrics.totalReasoningTokens }),
+      ...(metrics.totalCacheReadTokens > 0 && { cacheReadTokens: metrics.totalCacheReadTokens }),
+      ...(metrics.totalCacheWriteTokens > 0 && {
+        cacheWriteTokens: metrics.totalCacheWriteTokens,
+      }),
+      iterations: details.iterationsUsed,
+      maxIterations: metrics.maxIterations,
+      finished: details.finished,
+      startedAt: metrics.startedAt,
+      endedAt,
+      durationMs,
+      retryCount: metrics.llmRetryCount,
+      ...(sanitizedLastError ? { lastError: sanitizedLastError } : {}),
+      toolCalls: metrics.toolCalls,
+      toolsUsed: toolsUsedList,
+      toolErrors: metrics.toolErrors,
+      toolCallCounts: sortedToolCallCounts,
+      toolInvocationSequence: metrics.toolInvocationSequence,
+      errors: metrics.errors,
+      iterationSummaries,
+      ...(metrics.firstTokenLatencyMs !== undefined
+        ? { firstTokenLatencyMs: metrics.firstTokenLatencyMs }
+        : {}),
+      toolDefinitionTokens: metrics.totalToolDefinitionTokens,
+      toolResultTokens: metrics.totalToolResultTokens,
+      toolDefinitionsOffered: metrics.toolDefinitionsOffered,
+    });
+
+    // Emit telemetry event (best-effort, never fails the run).
+    // Uses Context.getOption to look up the service without adding TelemetryService to R.
+    yield* emitAgentRunTelemetry(metrics, totalTokens, durationMs, details);
   });
 }
 
@@ -268,8 +337,14 @@ interface TokenUsageLogPayload {
     readonly toolCallCounts: Readonly<Record<string, number>>;
     readonly errors: readonly string[];
     readonly toolSequence: readonly string[];
+    readonly toolDefinitionTokens: number;
+    readonly toolResultTokens: number;
+    readonly toolResultSizes: Readonly<Record<string, number>>;
   }[];
   readonly firstTokenLatencyMs?: number;
+  readonly toolDefinitionTokens: number;
+  readonly toolResultTokens: number;
+  readonly toolDefinitionsOffered: number;
 }
 
 function writeTokenUsageLog(
@@ -313,10 +388,86 @@ function writeTokenUsageLog(
       startedAt: payload.startedAt.toISOString(),
       endedAt: payload.endedAt.toISOString(),
       durationMs: payload.durationMs,
+      toolDefinitionTokens: payload.toolDefinitionTokens,
+      toolResultTokens: payload.toolResultTokens,
+      toolDefinitionsOffered: payload.toolDefinitionsOffered,
     };
 
     yield* logger.info("Agent token usage", logMeta);
   });
+}
+
+/**
+ * Build the telemetry data payload from agent run metrics.
+ */
+function buildTelemetryPayload(
+  metrics: AgentRunMetrics,
+  totalTokens: number,
+  durationMs: number,
+  details: { readonly iterationsUsed: number; readonly finished: boolean },
+): Record<string, unknown> {
+  const usage: Record<string, unknown> = {
+    promptTokens: metrics.totalPromptTokens,
+    completionTokens: metrics.totalCompletionTokens,
+    totalTokens,
+  };
+  if (metrics.totalReasoningTokens > 0) usage["reasoningTokens"] = metrics.totalReasoningTokens;
+  if (metrics.totalCacheReadTokens > 0) usage["cacheReadTokens"] = metrics.totalCacheReadTokens;
+  if (metrics.totalCacheWriteTokens > 0) usage["cacheWriteTokens"] = metrics.totalCacheWriteTokens;
+  if (metrics.totalToolDefinitionTokens > 0)
+    usage["toolDefinitionTokens"] = metrics.totalToolDefinitionTokens;
+  if (metrics.totalToolResultTokens > 0) usage["toolResultTokens"] = metrics.totalToolResultTokens;
+  if (metrics.toolDefinitionsOffered > 0)
+    usage["toolDefinitionsOffered"] = metrics.toolDefinitionsOffered;
+
+  const data: Record<string, unknown> = {
+    runId: metrics.runId,
+    agentId: metrics.agentId,
+    agentName: metrics.agentName,
+    conversationId: metrics.conversationId,
+    durationMs,
+    iterationsUsed: details.iterationsUsed,
+    finished: details.finished,
+    usage,
+    toolCalls: metrics.toolCalls,
+    toolErrors: metrics.toolErrors,
+  };
+  if (metrics.provider) data["provider"] = metrics.provider;
+  if (metrics.model) data["model"] = metrics.model;
+
+  return data;
+}
+
+/**
+ * Emit telemetry for a completed agent run.
+ *
+ * Uses a raw context lookup via `Context.getOption` cast through `any`
+ * so that `TelemetryService` is NOT added to the `R` type parameter –
+ * callers are completely unaffected.
+ *
+ * Failures are silently swallowed (telemetry is best-effort).
+ */
+function emitAgentRunTelemetry(
+  metrics: AgentRunMetrics,
+  totalTokens: number,
+  durationMs: number,
+  details: { readonly iterationsUsed: number; readonly finished: boolean },
+): Effect.Effect<void> {
+  return Effect.flatMap(Effect.context<never>(), (ctx) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const maybeTelemetry = Context.getOption(ctx as any, TelemetryServiceTag as any);
+
+    if (maybeTelemetry._tag === "None") return Effect.void;
+
+    const telemetry = maybeTelemetry.value as TelemetryService;
+    const payload = buildTelemetryPayload(metrics, totalTokens, durationMs, details);
+
+    return telemetry
+      .recordAgentRunCompleted(
+        payload as Parameters<TelemetryService["recordAgentRunCompleted"]>[0],
+      )
+      .pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.catchAll(() => Effect.void));
 }
 
 function normalizeError(error: unknown): string {

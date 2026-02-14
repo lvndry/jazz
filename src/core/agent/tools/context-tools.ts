@@ -10,8 +10,7 @@ import type { ToolExecutionResult } from "@/core/types/tools";
 export function createContextInfoTool(): Tool<never> {
   return {
     name: "context_info",
-    description:
-      "Get current context window usage statistics. Use this to check remaining token budget before starting complex multi-step operations, or to decide whether to summarize previous context.",
+    description: "Get current context window token usage statistics.",
     parameters: z.object({}),
     riskLevel: "read-only",
     hidden: false,

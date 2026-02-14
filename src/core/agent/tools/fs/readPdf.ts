@@ -61,17 +61,13 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
       pages: z
         .array(z.number().int().positive())
         .optional()
-        .describe(
-          "Specific page numbers to extract (1-based, e.g., [1, 3, 5]). For large PDFs, read in chunks to avoid context window overload. Use pdf_page_count first to see total pages, then read 10-20 pages at a time. If not provided, extracts all pages (⚠️ may overload context for large PDFs).",
-        ),
+        .describe("Page numbers to extract (1-based). Omit for all pages."),
       maxChars: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe(
-          "Maximum number of characters to return (content is truncated if exceeded, default: 500KB). Consider lower limits (50-100KB) for chunked reading to stay within context windows and allow follow-up questions.",
-        ),
+        .describe("Max characters to return (default: 500KB). Truncated if exceeded."),
     })
     .strict();
 
@@ -80,7 +76,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadPdfParams>({
     name: "read_pdf",
     description:
-      "Read and extract text and tables from a PDF file. ⚠️ For efficient processing: Use pdf_page_count first to check total pages and plan your reading strategy. Large PDFs can overload context windows consider reading in chunks (e.g., pages 1-10, then 11-20) rather than all at once. Returns body text (with tables as markdown), plus metadata: path, content, truncated, totalLines, pageCount, pagesExtracted, fileType, and tables (array of { pageNumber: 1-based, rows } for structured use). Supports specific pages or all pages. Use for PDF files; use read_file for text files.",
+      "Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.",
     tags: ["filesystem", "read", "pdf"],
     parameters,
     validate: (args) => {

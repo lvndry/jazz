@@ -886,7 +886,9 @@ class AISDKService implements LLMService {
   private prepareTools(
     providerName: ProviderName,
     requestedTools: ChatCompletionOptions["tools"],
-  ): { tools: ToolSet; providerNativeToolNames: Set<string> } | undefined {
+  ):
+    | { tools: ToolSet; providerNativeToolNames: Set<string>; toolDefinitionChars: number }
+    | undefined {
     if (!requestedTools || requestedTools.length === 0) {
       return undefined;
     }
@@ -937,11 +939,23 @@ class AISDKService implements LLMService {
       }
     }
 
+    // Estimate tool definition token cost for telemetry
+    let toolDefinitionChars = 0;
+    for (const toolDef of requestedTools) {
+      toolDefinitionChars +=
+        toolDef.function.name.length +
+        toolDef.function.description.length +
+        JSON.stringify(toolDef.function.parameters).length;
+    }
+
+    void this.logger.debug(
+      `[Tool Telemetry] ${Object.keys(tools).length} tools, ~${toolDefinitionChars} chars (~${Math.ceil(toolDefinitionChars / 4)} tokens est.) sent to ${providerName}`,
+    );
     void this.logger.debug(
       `[LLM Timing] Tool conversion (${Object.keys(tools).length} tools) took ${Date.now() - toolConversionStart}ms`,
     );
 
-    return { tools, providerNativeToolNames };
+    return { tools, providerNativeToolNames, toolDefinitionChars };
   }
 
   createChatCompletion(
@@ -1091,6 +1105,12 @@ class AISDKService implements LLMService {
           ...(toolCalls ? { toolCalls } : {}),
           ...(usage ? { usage } : {}),
           ...(toolsDisabled ? { toolsDisabled } : {}),
+          ...(prepared
+            ? {
+                toolDefinitionChars: prepared.toolDefinitionChars,
+                toolDefinitionCount: Object.keys(prepared.tools).length,
+              }
+            : {}),
         };
         return resultObj;
       },
@@ -1243,6 +1263,12 @@ class AISDKService implements LLMService {
                     startTime: Date.now(),
                     toolsDisabled,
                     ...(providerNativeToolNames && { providerNativeToolNames }),
+                    ...(prepared
+                      ? {
+                          toolDefinitionChars: prepared.toolDefinitionChars,
+                          toolDefinitionCount: Object.keys(prepared.tools).length,
+                        }
+                      : {}),
                   },
                   emit,
                   this.logger,

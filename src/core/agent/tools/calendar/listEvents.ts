@@ -16,25 +16,18 @@ export function createListCalendarEventsTool(): Tool<CalendarService> {
         .string()
         .optional()
         .default("primary")
-        .describe("Calendar ID ('primary' for user's primary calendar)"),
-      maxResults: z.number().int().min(1).max(100).optional().describe("Maximum events to return"),
-      timeMin: z
-        .string()
-        .optional()
-        .describe("RFC3339 timestamp for start range (e.g., '2024-01-01T00:00:00Z')"),
-      timeMax: z
-        .string()
-        .optional()
-        .describe("RFC3339 timestamp for end range (e.g., '2024-12-31T23:59:59Z')"),
-      query: z.string().optional().describe("Free text search query to filter events"),
+        .describe("Calendar ID (default: 'primary')"),
+      maxResults: z.number().int().min(1).max(100).optional().describe("Max events"),
+      timeMin: z.string().optional().describe("Start of time range (RFC3339)"),
+      timeMax: z.string().optional().describe("End of time range (RFC3339)"),
+      query: z.string().optional().describe("Text search query"),
     })
     .strict();
 
   type ListCalendarEventsArgs = z.infer<typeof parameters>;
   return defineTool<CalendarService, ListCalendarEventsArgs>({
     name: "list_calendar_events",
-    description:
-      "List events from a Google Calendar with optional time range and search filters. Returns event details including title, time, location, attendees. Use 'primary' as calendarId for the user's main calendar. Supports filtering by time range (timeMin/timeMax) and text search.",
+    description: "List events from a calendar with optional time range and search.",
     tags: ["calendar", "list"],
     parameters,
     validate: (args) => {

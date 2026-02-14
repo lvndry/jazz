@@ -12,16 +12,13 @@ import { ALLOWED_LABEL_COLORS, formatLabelForDisplay } from "./utils";
 export function createUpdateLabelTool(): Tool<GmailService> {
   const parameters = z
     .object({
-      labelId: z.string().min(1).describe("ID of the label to update"),
-      name: z.string().min(1).optional().describe("New name for the label"),
+      labelId: z.string().min(1).describe("Label ID"),
+      name: z.string().min(1).optional().describe("Label name"),
       labelListVisibility: z
         .enum(["labelShow", "labelHide"])
         .optional()
-        .describe("Whether to show the label in the label list"),
-      messageListVisibility: z
-        .enum(["show", "hide"])
-        .optional()
-        .describe("Whether to show the label in the message list"),
+        .describe("Show in label list"),
+      messageListVisibility: z.enum(["show", "hide"]).optional().describe("Show in message list"),
       color: z
         .object({
           textColor: z.enum(ALLOWED_LABEL_COLORS),
@@ -34,15 +31,14 @@ export function createUpdateLabelTool(): Tool<GmailService> {
             !val || (typeof val.textColor === "string" && typeof val.backgroundColor === "string"),
           { message: "Both textColor and backgroundColor must be provided when color is set" },
         )
-        .describe("Color settings for the label"),
+        .describe("Label colors"),
     })
     .strict();
 
   type UpdateLabelArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, UpdateLabelArgs>({
     name: "update_label",
-    description:
-      "Modify an existing Gmail label's properties including name, visibility settings, and colors. Use to rename labels, change their appearance, or adjust visibility. Only works on user-created labels (system labels cannot be modified).",
+    description: "Update a Gmail label's name, visibility, or color.",
     tags: ["gmail", "labels"],
     parameters,
     validate: (args) => {

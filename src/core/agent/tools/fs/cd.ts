@@ -13,12 +13,7 @@ import { buildKeyFromContext } from "../context-utils";
 export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .min(1)
-        .describe(
-          "Absolute or relative path to change to (e.g., './src', '..', '/home/user/project')",
-        ),
+      path: z.string().min(1).describe("Absolute or relative path to change to"),
     })
     .strict();
 
@@ -27,7 +22,7 @@ export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
   return defineTool<FileSystem.FileSystem | FileSystemContextService, CdParams>({
     name: "cd",
     description:
-      "Change the current working directory for this agent session. The new directory persists across all subsequent tool calls (file operations, grep, find, git, etc.). Use this before running commands or file operations in a different directory.",
+      "Change the working directory for this session. Persists across subsequent tool calls.",
     tags: ["filesystem", "navigation"],
     parameters,
     validate: (args) => {

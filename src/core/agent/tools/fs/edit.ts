@@ -47,42 +47,29 @@ const editOperationSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("replace_lines"),
-      startLine: z.number().int().positive().describe("Starting line number (1-based, inclusive)"),
-      endLine: z.number().int().positive().describe("Ending line number (1-based, inclusive)"),
-      content: z.string().describe("New content to replace the specified lines"),
+      startLine: z.number().int().positive().describe("Start line (1-based)"),
+      endLine: z.number().int().positive().describe("End line (1-based)"),
+      content: z.string().describe("Replacement content"),
     })
     .refine((data) => data.startLine <= data.endLine, {
       message: "startLine must be less than or equal to endLine",
     }),
   z.object({
     type: z.literal("replace_pattern"),
-    pattern: z
-      .string()
-      .min(1)
-      .describe(
-        "Pattern to find (literal string or 're:<regex>' for regex patterns, e.g., 're:function\\s+\\w+')",
-      ),
+    pattern: z.string().min(1).describe("Literal string or 're:<regex>' pattern to find"),
     replacement: z.string().describe("Replacement text"),
-    count: z
-      .number()
-      .int()
-      .optional()
-      .describe("Number of occurrences to replace (default: 1, use -1 for all occurrences)"),
+    count: z.number().int().optional().describe("Occurrences to replace (default: 1, -1 for all)"),
   }),
   z.object({
     type: z.literal("insert"),
-    line: z
-      .number()
-      .int()
-      .nonnegative()
-      .describe("Line number to insert after (0 = before first line, 1 = after line 1)"),
+    line: z.number().int().nonnegative().describe("Insert after this line (0 = before first line)"),
     content: z.string().describe("Content to insert"),
   }),
   z
     .object({
       type: z.literal("delete_lines"),
-      startLine: z.number().int().positive().describe("Starting line number (1-based, inclusive)"),
-      endLine: z.number().int().positive().describe("Ending line number (1-based, inclusive)"),
+      startLine: z.number().int().positive().describe("Start line (1-based)"),
+      endLine: z.number().int().positive().describe("End line (1-based)"),
     })
     .refine((data) => data.startLine <= data.endLine, {
       message: "startLine must be less than or equal to endLine",
@@ -91,15 +78,12 @@ const editOperationSchema = z.discriminatedUnion("type", [
 
 const editFileParameters = z
   .object({
-    path: z
-      .string()
-      .min(1)
-      .describe("File path to edit (relative to cwd allowed, file must exist)"),
+    path: z.string().min(1).describe("File path to edit (must exist)"),
     edits: z
       .array(editOperationSchema)
       .min(1)
       .describe(
-        "Array of edit operations to perform. Operations are applied in order. Use replace_lines when you know exact line numbers (from read_file, head, tail, grep). Use replace_pattern to find and replace text patterns. Use insert to add new content. Use delete_lines to remove lines.",
+        "Edit operations to apply in order: replace_lines, replace_pattern, insert, delete_lines.",
       ),
     encoding: z.string().optional().describe("Text encoding (default: utf-8)"),
   })
@@ -254,7 +238,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
   const config: ApprovalToolConfig<EditFileDeps, EditFileArgs> = {
     name: "edit_file",
     description:
-      "Edit specific parts of a file without rewriting the entire file. Supports multiple edit operations: replace lines by line numbers, replace patterns (regex or literal), insert content, or delete lines. All edits are applied in order.",
+      "Edit parts of a file: replace lines, replace patterns, insert, or delete. Edits applied in order.",
     tags: ["filesystem", "write", "edit"],
     parameters: editFileParameters,
     validate: (args) => {

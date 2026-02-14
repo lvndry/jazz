@@ -21,24 +21,13 @@ export type WriteFileArgs = {
 
 const writeFileParameters = z
   .object({
-    path: z
-      .string()
-      .min(1)
-      .describe(
-        "File path to write to, will be created if it doesn't exist (relative to cwd allowed)",
-      ),
-    content: z
-      .string()
-      .describe(
-        "The full content to write to the file. This replaces the entire file if it already exists.",
-      ),
+    path: z.string().min(1).describe("File path (created if it doesn't exist)"),
+    content: z.string().describe("Full file content (replaces existing content)"),
     encoding: z.string().optional().describe("Text encoding (default: utf-8)"),
     createDirs: z
       .boolean()
       .optional()
-      .describe(
-        "Automatically create parent directories if they don't exist (default: false). Set to true when writing to a new path structure.",
-      ),
+      .describe("Create parent directories if missing (default: false)"),
   })
   .strict();
 
@@ -51,8 +40,7 @@ type WriteFileDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
   const config: ApprovalToolConfig<WriteFileDeps, WriteFileArgs> = {
     name: "write_file",
-    description:
-      "Write complete content to a file, creating it if it doesn't exist. Use this for creating NEW files or when you need to REPLACE the entire file content. For modifying specific parts of an existing file (replacing lines, inserting, deleting, or pattern-based edits), use edit_file instead — it's safer and more precise. Supports creating parent directories automatically.",
+    description: "Write content to a file, creating it if needed. Replaces entire file content.",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
     validate: (args) => {

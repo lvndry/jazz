@@ -4,7 +4,9 @@
  */
 
 /**
- * Calendar event attendee
+ * Attendee of a calendar event
+ *
+ * Represents a person or resource invited to a calendar event with their RSVP status and details.
  */
 export interface CalendarEventAttendee {
   readonly email: string;
@@ -19,7 +21,9 @@ export interface CalendarEventAttendee {
 }
 
 /**
- * Event date/time information
+ * Date/time specification for a calendar event
+ *
+ * Can represent either a specific point in time (dateTime) or an all-day event (date).
  */
 export interface CalendarEventDateTime {
   readonly dateTime?: string; // RFC3339 timestamp
@@ -28,12 +32,16 @@ export interface CalendarEventDateTime {
 }
 
 /**
- * Calendar event recurrence rule
+ * Recurring event rule definitions in RRULE format
+ *
+ * Array of recurrence rules following RFC5545 specification, including RRULE, EXRULE, RDATE, and EXDATE.
  */
 export type CalendarEventRecurrence = ReadonlyArray<string>; // RRULE, EXRULE, RDATE, EXDATE
 
 /**
- * Calendar event reminder
+ * Reminder configuration for calendar events
+ *
+ * Defines when and how to notify attendees about an upcoming event.
  */
 export interface CalendarEventReminder {
   readonly method: "email" | "popup";
@@ -41,7 +49,10 @@ export interface CalendarEventReminder {
 }
 
 /**
- * Calendar event
+ * Core calendar event entity
+ *
+ * Represents a single event on a calendar with all associated metadata, attendees,
+ * timing, and recurrence information.
  */
 export interface CalendarEvent {
   readonly id: string;

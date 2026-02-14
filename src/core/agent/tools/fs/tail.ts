@@ -13,19 +13,14 @@ import { buildKeyFromContext } from "../context-utils";
 export function createTailTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).describe("File path to read (relative to cwd allowed)"),
-      lines: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Number of lines to return from the end (default: 10)"),
+      path: z.string().min(1).describe("File path to read"),
+      lines: z.number().int().positive().optional().describe("Lines from end (default: 10)"),
       maxBytes: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Maximum number of bytes to read (content is truncated if exceeded)"),
+        .describe("Max bytes (truncated if exceeded)"),
     })
     .strict();
 
@@ -33,8 +28,7 @@ export function createTailTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, TailParams>({
     name: "tail",
-    description:
-      "Read the last N lines of a file (default: 10). Useful for quickly viewing the end of a file, such as log files or recent entries. Returns file content, line counts, and metadata.",
+    description: "Read the last N lines of a file (default 10).",
     tags: ["filesystem", "read"],
     parameters,
     validate: (args) => {
