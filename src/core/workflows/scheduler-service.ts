@@ -98,9 +98,9 @@ function escapeShellArg(arg: string): string {
  * prefix in the crontab entry), keep the fallback directory list here in sync.
  */
 export function getLaunchdPath(): string {
-  const currentPath = process.env["PATH"] || "";
+  const currentPath = process.env["PATH"] ?? "";
   const homeDir = os.homedir();
-  const commonDirs = [
+  const fallbackDirs = [
     path.join(homeDir, ".bun", "bin"),
     path.join(homeDir, ".local", "share", "pnpm"),
     "/usr/local/bin",
@@ -108,16 +108,23 @@ export function getLaunchdPath(): string {
     "/bin",
   ];
 
-  const pathDirs = currentPath.split(":").filter(Boolean);
-  const seen = new Set(pathDirs);
-  for (const dir of commonDirs) {
-    if (!seen.has(dir)) {
-      pathDirs.push(dir);
-      seen.add(dir);
-    }
-  }
+  const seen = new Set<string>();
+  const resultDirs: string[] = [];
 
-  return pathDirs.join(":");
+  const appendUnique = (value?: string) => {
+    const normalized = value?.trim();
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+
+    seen.add(normalized);
+    resultDirs.push(normalized);
+  };
+
+  currentPath.split(":").forEach(appendUnique);
+  fallbackDirs.forEach(appendUnique);
+
+  return resultDirs.join(":");
 }
 
 /**
