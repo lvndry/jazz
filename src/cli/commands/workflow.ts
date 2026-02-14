@@ -675,7 +675,8 @@ export function workflowHistoryCommand(workflowName?: string) {
         Number.isFinite(startedAtMs) &&
         Date.now() - startedAtMs > STALE_THRESHOLD_MS;
       const displayStatus = isStale ? "failed" : run.status;
-      const statusIcon = displayStatus === "completed" ? "✓" : displayStatus === "failed" ? "✗" : "…";
+      const statusIcon =
+        displayStatus === "completed" ? "✓" : displayStatus === "failed" ? "✗" : "…";
 
       const duration = run.completedAt
         ? `${Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s`
