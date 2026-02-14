@@ -97,6 +97,9 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         const maxResults = Math.min(requestedMaxResults, 2000);
         const maxDepth = recursive ? (args.maxDepth ?? 10) : 1;
         const filter = normalizeFilterPattern(args.pattern);
+        if (filter.error) {
+          return { success: false, result: null, error: filter.error };
+        }
 
         // Read .gitignore patterns for the target directory
         const ignorePatterns = includeHidden ? [] : yield* readGitignorePatterns(fs, resolvedPath);

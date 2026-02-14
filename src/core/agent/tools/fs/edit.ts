@@ -165,12 +165,15 @@ const editOperationSchema = z.discriminatedUnion("type", [
     pattern: z
       .string()
       .min(1)
-      .describe("Literal string or 're:<regex>'. Nested quantifiers like (a+)+ are rejected."),
+      .describe("Literal string or 're:<regex>'. Nested quantifiers like (a+)+ cause an error."),
     replacement: z.string().describe("Replacement text"),
     count: z
       .number()
       .int()
       .optional()
+      .refine((v) => v === undefined || v === -1 || v >= 1, {
+        message: "count must be a positive integer or -1 (all). Got 0 or invalid negative value.",
+      })
       .describe("Matches to replace. Default 1 (first only). Use -1 for all occurrences."),
   }),
   z.object({
@@ -287,6 +290,10 @@ function applyEdits(
 
       case "replace_pattern": {
         const patternInfo = normalizeFilterPattern(edit.pattern);
+        // Surface regex rejection as a clear error instead of silently falling back
+        if (patternInfo.error) {
+          throw new Error(patternInfo.error);
+        }
         let content = currentLines.join("\n");
         let replacementCount = 0;
         const maxReplacements = edit.count === -1 ? Infinity : (edit.count ?? 1);

@@ -222,16 +222,23 @@ export function isUnsafeRegex(pattern: string): boolean {
   return false;
 }
 
+export interface FilterPatternResult {
+  type: "substring" | "regex";
+  value?: string;
+  regex?: RegExp;
+  /** Set when the pattern was rejected (unsafe regex, invalid syntax) */
+  error?: string;
+}
+
 /**
  * Normalize filter pattern to support both substring and regex matching.
  * Includes safety checks to prevent catastrophic backtracking from
  * user/LLM-provided regex patterns.
+ *
+ * When a regex is rejected, returns `{ type: "substring", error: "..." }`
+ * so callers can surface the error to the LLM.
  */
-export function normalizeFilterPattern(pattern?: string): {
-  type: "substring" | "regex";
-  value?: string;
-  regex?: RegExp;
-} {
+export function normalizeFilterPattern(pattern?: string): FilterPatternResult {
   if (!pattern || pattern.trim() === "") return { type: "substring" };
   const trimmed = pattern.trim();
   if (trimmed.startsWith("re:")) {
@@ -239,13 +246,21 @@ export function normalizeFilterPattern(pattern?: string): {
 
     // Reject patterns that could cause catastrophic backtracking
     if (isUnsafeRegex(body)) {
-      return { type: "substring", value: body };
+      return {
+        type: "substring",
+        value: body,
+        error: `Regex "${body}" rejected: contains nested quantifiers that risk catastrophic backtracking. Use a literal string or simplify the pattern.`,
+      };
     }
 
     try {
       return { type: "regex", regex: new RegExp(body) };
-    } catch {
-      return { type: "substring", value: body };
+    } catch (e) {
+      return {
+        type: "substring",
+        value: body,
+        error: `Invalid regex "${body}": ${e instanceof Error ? e.message : String(e)}`,
+      };
     }
   }
 

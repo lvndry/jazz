@@ -120,6 +120,10 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       let globPattern = "**";
       const filter = args.name ? normalizeFilterPattern(args.name) : null;
 
+      if (filter?.error) {
+        return yield* Effect.fail(new Error(filter.error));
+      }
+
       if (filter && filter.type === "substring" && filter.value) {
         // Check if the name looks like a glob pattern
         const val = filter.value;
@@ -280,6 +284,9 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     // Name pattern
     if (args.name) {
       const filter = normalizeFilterPattern(args.name);
+      if (filter.error) {
+        throw new Error(filter.error);
+      }
       if (filter.type === "regex" && filter.regex) {
         fdArgs.push(filter.regex.source);
       } else if (filter.value) {
@@ -334,6 +341,9 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     // Name
     if (args.name) {
       const filter = normalizeFilterPattern(args.name);
+      if (filter.error) {
+        throw new Error(filter.error);
+      }
       if (filter.type === "regex" && filter.regex) {
         expr.push("-regex", filter.regex.source);
       } else if (filter.value) {

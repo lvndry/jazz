@@ -57,6 +57,13 @@ jobs:
             const fs = require('fs');
             const output = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
 
+            // Read model from agent config for display in review comment
+            let modelLabel = '';
+            try {
+              const agent = JSON.parse(fs.readFileSync('.github/jazz/agents/ci-reviewer.json', 'utf8'));
+              if (agent.model) modelLabel = `\n\n*Model: ${agent.model}*`;
+            } catch (_) {}
+
             // Parse JSON from agent output (quad backticks first, then triple)
             let jsonBlocks = [...output.matchAll(/````json\s*\n([\s\S]*?)````/g)];
             if (jsonBlocks.length === 0) {
@@ -78,7 +85,7 @@ jobs:
                 repo: context.repo.repo,
                 issue_number: context.payload.pull_request.number,
                 body: comments.length === 0
-                  ? `## Jazz Code Review\n\nNo issues found.`
+                  ? `## Jazz Code Review\n\nNo issues found.${modelLabel}`
                   : `## Jazz Code Review\n\n${output.slice(-60000) || '_No output from review._'}`
               });
               return;
@@ -91,7 +98,7 @@ jobs:
 
             // Any comments that couldn't be posted inline become part of the review body
             const invalidComments = comments.filter(c => !validComments.includes(c));
-            let reviewBody = `## Jazz Code Review\n\nFound ${comments.length} comment(s).`;
+            let reviewBody = `## Jazz Code Review\n\nFound ${comments.length} comment(s).${modelLabel}`;
             if (invalidComments.length > 0) {
               reviewBody += '\n\n### General Comments\n\n';
               reviewBody += invalidComments.map(c => `- ${c.body}`).join('\n');
