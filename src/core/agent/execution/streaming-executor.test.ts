@@ -6,9 +6,7 @@ import { executeWithStreaming } from "./streaming-executor";
 import { ToolExecutor } from "./tool-executor";
 import { SkillServiceTag } from "../../../core/skills/skill-service";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
-import { CalendarServiceTag } from "../../interfaces/calendar";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
-import { GmailServiceTag } from "../../interfaces/gmail";
 import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
 import { LoggerServiceTag } from "../../interfaces/logger";
@@ -81,8 +79,6 @@ const mockTerminalService = {
   confirm: () => Effect.succeed(true),
   log: () => Effect.void,
 } as any;
-const mockGmailService = {} as any;
-const mockCalendarService = {} as any;
 const mockFileSystemContext = {} as any;
 const mockSkillService = {
   listSkills: () => Effect.succeed([]),
@@ -193,8 +189,6 @@ describe("executeWithStreaming", () => {
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(FileSystem.FileSystem, mockFileSystem),
       Layer.succeed(TerminalServiceTag, mockTerminalService),
-      Layer.succeed(GmailServiceTag, mockGmailService),
-      Layer.succeed(CalendarServiceTag, mockCalendarService),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
     );
@@ -362,8 +356,6 @@ describe("executeWithStreaming", () => {
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(FileSystem.FileSystem, mockFileSystem),
       Layer.succeed(TerminalServiceTag, mockTerminalService),
-      Layer.succeed(GmailServiceTag, mockGmailService),
-      Layer.succeed(CalendarServiceTag, mockCalendarService),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
     );

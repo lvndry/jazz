@@ -21,7 +21,7 @@ export interface TextInputProps {
  *
  * Single-line only: Enter submits, newlines are not inserted.
  */
-export function TextInput({
+export const TextInput = React.memo(function TextInput({
   inputId,
   defaultValue = "",
   mask,
@@ -126,4 +126,4 @@ export function TextInput({
       )}
     </Box>
   );
-}
+});

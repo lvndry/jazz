@@ -5,12 +5,8 @@ import { ToolExecutor } from "./tool-executor";
 import { type SkillService, SkillServiceTag } from "../../../core/skills/skill-service";
 import type { AgentConfigService } from "../../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
-import type { CalendarService } from "../../interfaces/calendar";
-import { CalendarServiceTag } from "../../interfaces/calendar";
 import type { FileSystemContextService } from "../../interfaces/fs";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
-import type { GmailService } from "../../interfaces/gmail";
-import { GmailServiceTag } from "../../interfaces/gmail";
 import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
 import type { LoggerService } from "../../interfaces/logger";
@@ -70,8 +66,6 @@ const mockSkillService = {
 // Minimal stubs for services not exercised in these tests
 const emptyFs = {} as unknown as FileSystem.FileSystem;
 const emptyTerminal = {} as unknown as TerminalService;
-const emptyGmail = {} as unknown as GmailService;
-const emptyCalendar = {} as unknown as CalendarService;
 const emptyFsContext = {} as unknown as FileSystemContextService;
 const emptyLlm = {} as unknown as LLMService;
 const emptyMcp = {} as unknown as MCPServerManager;
@@ -122,8 +116,6 @@ describe("ToolExecutor.executeTool", () => {
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(FileSystem.FileSystem, emptyFs),
       Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(GmailServiceTag, emptyGmail),
-      Layer.succeed(CalendarServiceTag, emptyCalendar),
       Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
@@ -159,8 +151,6 @@ describe("ToolExecutor.executeTool", () => {
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(FileSystem.FileSystem, emptyFs),
       Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(GmailServiceTag, emptyGmail),
-      Layer.succeed(CalendarServiceTag, emptyCalendar),
       Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
@@ -204,8 +194,6 @@ describe("ToolExecutor.executeToolCall", () => {
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(FileSystem.FileSystem, emptyFs),
       Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(GmailServiceTag, emptyGmail),
-      Layer.succeed(CalendarServiceTag, emptyCalendar),
       Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
@@ -244,8 +232,6 @@ describe("ToolExecutor.executeToolCall", () => {
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(FileSystem.FileSystem, emptyFs),
       Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(GmailServiceTag, emptyGmail),
-      Layer.succeed(CalendarServiceTag, emptyCalendar),
       Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
@@ -296,8 +282,6 @@ describe("ToolExecutor.executeToolCalls", () => {
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(FileSystem.FileSystem, emptyFs),
       Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(GmailServiceTag, emptyGmail),
-      Layer.succeed(CalendarServiceTag, emptyCalendar),
       Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),

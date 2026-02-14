@@ -124,15 +124,6 @@ export function setConfigCommand(
         return;
       }
 
-      if (key === "google" || targetKey.startsWith("google.")) {
-        const clientId = yield* terminal.ask("Enter Client ID:");
-        const clientSecret = yield* terminal.password("Enter Client Secret:");
-        yield* configService.set("google.clientId", clientId);
-        yield* configService.set("google.clientSecret", clientSecret);
-        yield* terminal.success("Google configuration updated.");
-        return;
-      }
-
       if (key === "web_search" || targetKey.startsWith("web_search.")) {
         const provider =
           targetKey.split(".")[1] ||

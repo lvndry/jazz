@@ -1,5 +1,6 @@
 import { Effect, Fiber, Option, Ref } from "effect";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
+import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -10,6 +11,7 @@ import type { ChatMessage, ConversationMessages } from "@/core/types";
 import type { ChatCompletionResponse } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
+import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "../context/context-window-manager";
@@ -123,8 +125,20 @@ export function executeAgentLoop(
         const { actualConversationId, context, tools, messages, runMetrics, provider, model } =
           runContext;
 
-        const contextWindowMaxTokens =
-          DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens ?? 50_000;
+        // Fetch model's actual context window from models.dev
+        const modelMetadata = yield* Effect.tryPromise({
+          try: () => getModelsDevMetadata(model, provider),
+          catch: () => new Error("Failed to fetch model metadata"),
+        }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
+        const contextWindowMaxTokens = modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+
+        yield* logger.debug("Using model context window", {
+          model,
+          provider,
+          contextWindow: contextWindowMaxTokens,
+          source: modelMetadata ? "models.dev" : "default",
+        });
 
         let currentMessages: ConversationMessages = [messages[0], ...messages.slice(1)];
         let response: AgentResponse = {
@@ -150,6 +164,7 @@ export function executeAgentLoop(
               options.sessionId,
               actualConversationId,
               runRecursive,
+              contextWindowMaxTokens,
             );
 
             // Log LLM request details

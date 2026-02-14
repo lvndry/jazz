@@ -21,11 +21,9 @@ import { promptInteractiveCatchUp } from "./core/workflows/catch-up";
 import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
 import { WorkflowsLive } from "./core/workflows/workflow-service";
 import { createAgentServiceLayer } from "./services/agent-service";
-import { createCalendarServiceLayer } from "./services/calendar";
 import { createChatServiceLayer } from "./services/chat-service";
 import { createConfigLayer } from "./services/config";
 import { createFileSystemContextServiceLayer } from "./services/fs";
-import { createGmailServiceLayer } from "./services/gmail";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer, setLogFormat, setLogLevel } from "./services/logger";
 import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
@@ -69,7 +67,7 @@ export interface AppLayerConfig {
  * Create the application layer with all required services
  *
  * Composes all service layers including file system, configuration, logging,
- * storage, Gmail, LLM, tool registry, and agent services. This layer provides
+ * storage, LLM, tool registry, and agent services. This layer provides
  * all dependencies needed by the CLI commands.
  *
  * @param config - Configuration options for the application layer
@@ -108,20 +106,6 @@ export function createAppLayer(config: AppLayerConfig = {}) {
       return new FileStorageService(basePath, fs);
     }),
   ).pipe(Layer.provide(fileSystemLayer), Layer.provide(configLayer));
-
-  const gmailLayer = createGmailServiceLayer().pipe(
-    Layer.provide(fileSystemLayer),
-    Layer.provide(configLayer),
-    Layer.provide(loggerLayer),
-    Layer.provide(terminalLayer),
-  );
-
-  const calendarLayer = createCalendarServiceLayer().pipe(
-    Layer.provide(fileSystemLayer),
-    Layer.provide(configLayer),
-    Layer.provide(loggerLayer),
-    Layer.provide(terminalLayer),
-  );
 
   const llmLayer = createAISDKServiceLayer().pipe(
     Layer.provide(configLayer),
@@ -178,8 +162,6 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     logFormatLayer,
     terminalLayer,
     storageLayer,
-    gmailLayer,
-    calendarLayer,
     llmLayer,
     toolRegistryLayer,
     shellLayer,

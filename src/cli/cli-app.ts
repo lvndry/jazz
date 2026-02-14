@@ -7,11 +7,6 @@ import {
   getAgentCommand,
   listAgentsCommand,
 } from "./commands/agent-management";
-import {
-  googleLoginCommand,
-  googleLogoutCommand,
-  googleStatusCommand,
-} from "./commands/auth/google";
 import { chatWithAIAgentCommand } from "./commands/chat-agent";
 import { getConfigCommand, listConfigCommand, setConfigCommand } from "./commands/config";
 import { createAgentCommand } from "./commands/create-agent";
@@ -185,54 +180,6 @@ function registerConfigCommands(program: Command): void {
     .action(() => {
       const opts = program.opts<CliOptions>();
       runCliEffect(listConfigCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
-}
-
-/**
- * Register authentication-related commands
- */
-function registerAuthCommands(program: Command): void {
-  const authCommand = program.command("auth").description("Manage authentication");
-
-  // Google authentication commands
-  const googleAuthCommand = authCommand
-    .command("google")
-    .description("Google authentication commands (Gmail & Calendar)");
-
-  googleAuthCommand
-    .command("login")
-    .description("Authenticate with Google (Gmail & Calendar)")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(googleLoginCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
-
-  googleAuthCommand
-    .command("logout")
-    .description("Logout from Google (Gmail & Calendar)")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(googleLogoutCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
-
-  googleAuthCommand
-    .command("status")
-    .description("Check Google authentication status (Gmail & Calendar)")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(googleStatusCommand(), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,
@@ -434,7 +381,7 @@ function registerWorkflowCommands(program: Command): void {
  * Sets up the Commander.js program with all available commands including:
  * - Agent management (create, list, get, edit, delete, chat)
  * - Configuration management (get, set, show)
- * - Authentication (Google login, logout, status)
+ * - MCP server management
  * - Update command
  *
  * @returns An Effect that creates the configured Commander program
@@ -460,7 +407,6 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     // Register all commands
     registerAgentCommands(program);
     registerConfigCommands(program);
-    registerAuthCommands(program);
     registerMCPCommands(program);
     registerUpdateCommand(program);
     registerWorkflowCommands(program);

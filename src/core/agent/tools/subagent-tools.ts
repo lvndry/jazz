@@ -1,10 +1,12 @@
 import { Effect } from "effect";
 import { z } from "zod";
+import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { ConversationMessages } from "@/core/types/message";
+import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { AgentRunner } from "../agent-runner";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
@@ -211,6 +213,15 @@ ${args.task}`;
 
           const runRecursive: RecursiveRunner = (runOpts) => AgentRunner.runRecursive(runOpts);
 
+          // Fetch model's actual context window from models.dev
+          const modelMetadata = yield* Effect.tryPromise({
+            try: () =>
+              getModelsDevMetadata(parentAgent.config.llmModel, parentAgent.config.llmProvider),
+            catch: () => new Error("Failed to fetch model metadata"),
+          }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
+          const contextWindowMaxTokens = modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+
           // Use compactIfNeeded which handles system message preservation and recent message retention
           const compacted = yield* Summarizer.compactIfNeeded(
             [...conversationMessages] as unknown as ConversationMessages,
@@ -218,6 +229,7 @@ ${args.task}`;
             context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
             context.conversationId ?? `conv-${Date.now()}`,
             runRecursive,
+            contextWindowMaxTokens,
           );
 
           // Check if compaction actually happened (messages changed)

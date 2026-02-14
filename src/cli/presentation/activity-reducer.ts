@@ -133,11 +133,12 @@ const MAX_REASONING_LENGTH = 8000;
 const MAX_LIVE_TEXT_LENGTH = 200_000;
 /**
  * Maximum characters kept in the live area before flushing older paragraphs
- * to Static. ~8000 chars ≈ ~100 terminal lines, generous enough to read
- * comfortably while streaming. The tiered flush strategy in findSafeFlushPoint
+ * to Static. Reduced from 8000 to 4000 chars to improve streaming performance.
+ * 4000 chars ≈ ~50 terminal lines, still plenty for reading while reducing
+ * markdown formatting overhead. The tiered flush strategy in findSafeFlushPoint
  * guarantees content is always promoted to Static before Ink clips the viewport.
  */
-const MAX_LIVE_DISPLAY_CHARS = 8000;
+const MAX_LIVE_DISPLAY_CHARS = 4000;
 
 /**
  * Find the best point to flush text up to, using a tiered strategy:
@@ -326,7 +327,7 @@ export function reduceEvent(
               React.createElement(
                 Box,
                 { marginTop: 0, paddingLeft: 1 },
-                React.createElement(Text, { dimColor: true }, formattedReasoning),
+                React.createElement(Text, { dimColor: true, wrap: "wrap" }, formattedReasoning),
               ),
             ),
           ),
@@ -432,7 +433,7 @@ export function reduceEvent(
               React.createElement(
                 Box,
                 { paddingLeft: 2 },
-                React.createElement(Text, {}, formatted),
+                React.createElement(Text, { wrap: "wrap" }, formatted),
               ),
             ),
             timestamp: new Date(),
@@ -566,7 +567,7 @@ export function reduceEvent(
             React.createElement(
               Box,
               { paddingLeft: 4 },
-              React.createElement(Text, {}, displayText),
+              React.createElement(Text, { wrap: "wrap" }, displayText),
             ),
           ),
           timestamp: new Date(),
@@ -579,7 +580,7 @@ export function reduceEvent(
               Box,
               { paddingLeft: 2 },
               React.createElement(Text, { color: THEME.success }, "✔ "),
-              React.createElement(Text, {}, displayText),
+              React.createElement(Text, { wrap: "wrap" }, displayText),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
             ),
           ),

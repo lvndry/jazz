@@ -2,50 +2,17 @@
 
 ## CLI & User Experience
 
-- [x] Make reasoning tokens visible.
-- [x] Stream content in terminal — swap to `streamText` to present incremental LLM output and reduce
-      perceived latency.
-- [x] Update system prompt to discorourage usage of tables. They don't render well in terminal
-- [x] Better colors and theme.
-- [x] Finish implementation `jazz config` command similar to `git config` where we can inline change jazz config
-- [x] Being able to switch agents while in the same conversation using `/switch` command. This would allow to switch to a
-      more capable or less costly model while keeping the same context
-- [x] Easy update - `jazz update`
-
 ## Agent Runtime & Automation
 
-- [x] Being able to always approve low stake tools during a session
-- [x] Summarize context near window limits — add automatic context compression that preserves action history when tokens spike.
-- [x] Trigger system (schedule, file, webhook, manual) — hooks/cronjobs with workflows and system schedulers (launchd/cron)
-- [x] Skills - Similar to Claude Skills, but for Jazz
-- [x] When editing a file, part of the output should be the diff of the file
-- [x] Workflow catch-up on startup — track last run time and optionally execute missed workflows when system starts (configurable per workflow with `catchUpOnStartup: true` and `maxCatchUpAge`)
-- [x] Explore sub-agent triggers — PoC orchestration primitives.
 - [ ] **Conversation-end refinement**: At session end, agent extracts and
       stores useful context revealed during the conversation (e.g. user's
       Obsidian vault path, preferred tools/configs, workflow preferences).
       Injected into future sessions when relevant.
+- [ ] Being able to queue user messages
 
 ## CLI Feature Depth & Docs
 
-- [x] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox
-      triage, reporting)
-
-## Integrations
-
-- [x] Google Calendar tools
-  - [x] Events for the day
-  - [x] Create/Delete event
-  - [x] Edit event
-- [ ] Gmail enhancements
-  - [ ] Attachment support — wire interface implementation for upload/download streams.
-  - [ ] `createReplyToEmailTool` — reply within thread while preserving references and history.
-  - [ ] `createForwardEmailTool` — forward with original metadata and optional redaction.
-  - [ ] Advanced search with date ranges — accept structured filters and map to Gmail query
-        language.
-- [x] Ollama - Being able to pass custom baseURL in config
-- [x] Ollama - Fetch available models from baseURL instead of keeping a list of static model
-- [x] Notion tools (Available via MCP)
+- [x] Cookbooks with concrete agent workflows — publish scenario-driven recipes (deployments, inbox triage, reporting)
 
 ## Quality, Safety & Testing
 

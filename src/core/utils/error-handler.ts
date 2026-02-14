@@ -397,51 +397,6 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
       };
     }
 
-    case "GmailAuthenticationError": {
-      return {
-        title: "Gmail Authentication Error",
-        message: `Gmail authentication failed: ${error.message}`,
-        suggestion: error.suggestion || "Re-authenticate with Gmail",
-        recovery: [
-          "Re-authenticate: `jazz auth gmail login`",
-          "Check authentication status: `jazz auth gmail status`",
-          "Clear stored tokens: `jazz auth gmail logout`",
-          "Verify Google OAuth configuration",
-        ],
-        relatedCommands: ["jazz auth gmail login", "jazz auth gmail status"],
-      };
-    }
-
-    case "GmailOperationError": {
-      return {
-        title: "Gmail Operation Error",
-        message: `Gmail operation "${error.operation}" failed: ${error.message}`,
-        suggestion: error.suggestion || "Check Gmail API permissions and operation parameters",
-        recovery: [
-          "Check Gmail API permissions",
-          "Verify operation parameters",
-          "Check Gmail service status",
-          "Retry the operation",
-        ],
-        relatedCommands: ["jazz auth gmail status", "jazz agent run --verbose"],
-      };
-    }
-
-    case "GmailTaskError": {
-      return {
-        title: "Gmail Task Error",
-        message: `Gmail task "${error.taskId}" operation "${error.operation}" failed: ${error.message}`,
-        suggestion: error.suggestion || "Check task configuration and Gmail authentication",
-        recovery: [
-          "Check task configuration: `jazz agent get <agent-id>`",
-          "Verify Gmail authentication: `jazz auth gmail status`",
-          "Check Gmail API permissions",
-          "Review task parameters",
-        ],
-        relatedCommands: ["jazz agent get", "jazz auth gmail status"],
-      };
-    }
-
     default: {
       // Surface actual error type and message for unhandled tagged errors (e.g. new error types)
       const tag = error._tag;

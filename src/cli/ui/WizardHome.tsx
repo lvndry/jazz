@@ -32,8 +32,8 @@ const TIPS = [
   "Delete unused agents to keep your workspace clean",
 
   // Integrations & Tools
-  "Connect Gmail to let agents draft and prioritize your emails",
-  "Agents can manage your schedule if you enable the Calendar tool",
+  "Use the email skill (Himalaya) to let agents read, send, and manage your inbox",
+  "Use the calendar skill (khal) to let agents view and manage your schedule",
   "The 'fs' tools allow agents to read and write files in your project",
   "Enable Web Search to give your agent up-to-date knowledge",
   "Agents can use 'grep' to search your codebase instantly",

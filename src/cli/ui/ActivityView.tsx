@@ -140,7 +140,7 @@ export const ActivityView = React.memo(function ActivityView({
                 marginTop={activity.reasoning ? 0 : 1}
                 paddingLeft={2}
               >
-                <Text>{activity.text}</Text>
+                <Text wrap="wrap">{activity.text}</Text>
               </Box>
             </>
           )}

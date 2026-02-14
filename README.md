@@ -14,7 +14,7 @@
 
 **Why people love Jazz:**
 
-- ✅ **60+ builtin tools** — Git, Gmail, filesystem, shell, HTTP, PDF, and more
+- ✅ **50+ builtin tools** — Git, filesystem, shell, HTTP, PDF, and more
 - ✅ **MCP support** — Connect to Notion, Slack, MongoDB, GitHub, PostgreSQL, and hundreds more
 - ✅ **Scheduled workflows** — Automate recurring tasks with cron-based scheduling
 - ✅ **Agent Skills** — Teach agents complex, multi-step procedures

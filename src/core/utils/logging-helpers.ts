@@ -22,21 +22,13 @@ export function jsonBigIntReplacer(_key: string, value: unknown): unknown {
  */
 export function getToolEmoji(toolName: string): string {
   const toolEmojis: Record<string, string> = {
-    // Gmail tools
-    list_emails: "📧",
-    get_email: "📨",
-    send_email: "📤",
-    reply_to_email: "↩️",
-    forward_email: "↗️",
-    mark_as_read: "👁️",
-    mark_as_unread: "👁️‍🗨️",
-    delete_email: "🗑️",
-    create_label: "🏷️",
-    add_label: "🏷️",
-    remove_label: "🏷️",
-    search_emails: "🔍",
-    // Default
-    default: "🔧",
+    load_skill: "📚",
+    execute_command: "⌨️",
+    read_file: "📄",
+    write_file: "✏️",
+    edit_file: "✏️",
+    web_search: "🔍",
+    http_request: "🌐",
   };
 
   const emoji = toolEmojis[toolName];
