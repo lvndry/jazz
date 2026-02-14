@@ -267,13 +267,29 @@ function generateLaunchdPlist(
     "--scheduled",
   ];
 
+  // Wrap in bash -c to print a timestamped header before exec'ing the real command.
+  // This ensures logs contain a timestamp even when the jazz process crashes early.
+  const commandString = programArgs.map(escapeShellArg).join(" ");
+  // Escape for double-quote context: \, ", $, and backticks are special in double quotes
+  const safeName = workflow.name.replace(/[\\"$`]/g, "\\$&");
+  // $(date ...) uses $() not ${} so JS template literals leave it for bash to expand
+  const header = `[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] launchd starting: ${safeName}`;
+  const wrappedArgs = [
+    "/bin/bash",
+    "-c",
+    `echo "${header}"; echo "${header}" >&2; exec ${commandString}`,
+  ];
+
   const plistObject = {
     Label: `com.jazz.workflow.${workflow.name}`,
-    ProgramArguments: programArgs,
+    ProgramArguments: wrappedArgs,
     StartCalendarInterval: schedule,
     StandardOutPath: `${logDir}/${workflow.name}.log`,
     StandardErrorPath: `${logDir}/${workflow.name}.error.log`,
     RunAtLoad: runAtLoad,
+    EnvironmentVariables: {
+      PATH: getLaunchdPath(),
+    },
   };
 
   return plist.build(plistObject);
