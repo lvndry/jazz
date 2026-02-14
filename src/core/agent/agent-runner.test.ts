@@ -5,12 +5,8 @@ import { AgentRunner } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
-import type { CalendarService } from "../interfaces/calendar";
-import { CalendarServiceTag } from "../interfaces/calendar";
 import type { FileSystemContextService } from "../interfaces/fs";
 import { FileSystemContextServiceTag } from "../interfaces/fs";
-import type { GmailService } from "../interfaces/gmail";
-import { GmailServiceTag } from "../interfaces/gmail";
 import type { LLMService } from "../interfaces/llm";
 import { LLMServiceTag } from "../interfaces/llm";
 import type { LoggerService } from "../interfaces/logger";
@@ -65,8 +61,6 @@ const mockPresentationService = {
 } as unknown as PresentationService;
 
 const mockTerminalService = {} as unknown as TerminalService;
-const mockGmailService = {} as unknown as GmailService;
-const mockCalendarService = {} as unknown as CalendarService;
 const mockFileSystem = {} as unknown as FileSystem.FileSystem;
 const mockFileSystemContext = {} as unknown as FileSystemContextService;
 
@@ -200,8 +194,6 @@ describe("AgentRunner", () => {
       Layer.succeed(MCPServerManagerTag, mockMcpServerManager),
       Layer.succeed(LLMServiceTag, mockLlmService),
       Layer.succeed(TerminalServiceTag, mockTerminalService),
-      Layer.succeed(GmailServiceTag, mockGmailService),
-      Layer.succeed(CalendarServiceTag, mockCalendarService),
       Layer.succeed(FileSystem.FileSystem, mockFileSystem),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
     );

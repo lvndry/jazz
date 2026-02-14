@@ -113,7 +113,7 @@ function PromptComponent({
       commandSuggestionsEnabled && value.startsWith("/")
         ? filterCommandsByPrefix(suggestionPrefix)
         : [],
-    [commandSuggestionsEnabled, suggestionPrefix, value],
+    [commandSuggestionsEnabled, suggestionPrefix],
   );
   const suggestionsVisible = filteredCommands.length > 0;
 

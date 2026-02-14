@@ -5,7 +5,7 @@ Jazz supports various third-party integrations to enhance your agents' capabilit
 ## Table of Contents
 
 - [LLM Providers](#llm-providers)
-- [Gmail Integration](#gmail-integration)
+- [Email & Calendar (Skills)](#email--calendar-skills)
 - [Web Search](#web-search)
 - [MCP Servers](#mcp-servers)
 - [Configuration Examples](#configuration-examples)
@@ -155,156 +155,25 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 
 ---
 
-## Google Services (Gmail & Calendar)
+## Email & Calendar (Skills)
 
-Enable your agents to manage Gmail (read, search, send emails, manage labels) and Google Calendar (manage events, check availability, schedule meetings).
+Jazz uses **skills** for email and calendar—agents run Himalaya and khal via `execute_command`. This is provider-agnostic and works with Gmail, Outlook, iCloud, Fastmail, and more.
 
-### Prerequisites
+### Email (Himalaya Skill)
 
-- A Google account
-- Access to [Google Cloud Console](https://console.cloud.google.com/)
+Use the **email** skill with [Himalaya CLI](https://github.com/pimalaya/himalaya) for inbox management. Himalaya works with Gmail, Outlook, iCloud, Proton Mail, and more via IMAP/SMTP.
 
-### Setup Steps
+- **Setup**: Install Himalaya (`brew install himalaya`), run `himalaya account configure` for your provider
+- **Agents**: Load the `email` skill—it teaches agents to use Himalaya for list, read, send, reply, search, and organize
+- **Provider-agnostic**: One setup works across Gmail, Outlook, iCloud, Fastmail, etc.
 
-#### 1. Create Google Cloud Project
+### Calendar (khal Skill)
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Click **Select a project** → **New Project**
-3. Name your project (e.g., "Jazz Agent")
-4. Click **Create**
+Use the **calendar** skill with [khal](https://github.com/pimutils/khal) and [vdirsyncer](https://github.com/pimutils/vdirsyncer) for event management. Works with Google Calendar, iCloud, Nextcloud, Fastmail, and any CalDAV server.
 
-#### 2. Enable APIs
-
-1. In your project, go to **APIs & Services** → **Library**
-2. Search for and enable:
-   - **Gmail API** - Click **Enable**
-   - **Google Calendar API** - Click **Enable**
-
-#### 3. Configure OAuth Consent Screen
-
-1. Go to **APIs & Services** → **OAuth consent screen**
-2. Choose **External** (unless you have Google Workspace)
-3. Click **Create**
-4. Fill in required fields:
-   - **App name**: "Jazz Agent" (or your choice)
-   - **User support email**: Your email
-   - **Developer contact**: Your email
-5. Click **Save and Continue**
-6. On **Scopes** page:
-   - Click **Add or Remove Scopes**
-   - Add these scopes:
-     - `https://mail.google.com/` (Full Gmail access)
-     - `https://www.googleapis.com/auth/calendar` (Calendar access)
-     - `https://www.googleapis.com/auth/calendar.events` (Calendar events)
-   - Click **Update** → **Save and Continue**
-7. On **Audience** → **Test users** page:
-   - Click **Add Users**
-   - Add your Gmail address
-   - Click **Save and Continue**
-
-> **Note**: Both Gmail and Calendar share the same OAuth credentials and authentication tokens. You only need to set up OAuth once for both services.
-
-#### 4. Create OAuth Credentials
-
-1. Go to **APIs & Services** → **Credentials**
-2. Click **Create Credentials** → **OAuth client ID**
-3. Choose **Desktop app** as application type
-4. Name it "Jazz CLI"
-5. Click **Create**
-6. Click **Save**
-7. Copy/Download the credentials JSON or copy the Client ID and Client Secret
-
-#### 5. Add to Jazz Configuration
-
-To setup the configuration, run:
-
-```bash
-jazz config set google
-```
-
-And paste your client id and client secret when prompted.
-
-#### 6. Authenticate
-
-```bash
-# Authenticate with Gmail (also enables Calendar)
-jazz auth gmail login
-
-# OR authenticate with Calendar (also enables Gmail)
-jazz auth calendar login
-
-# This will:
-# 1. Open your browser
-# 2. Ask you to sign in to Google
-# 3. Request permissions for Gmail and Calendar access
-# 4. Redirect back to Jazz (localhost)
-# 5. Store authentication tokens securely
-
-# Verify  authentication
-jazz auth gmail status
-jazz auth calendar status
-```
-
-> **Note**: Gmail and Calendar share authentication tokens. Authenticating with either service grants access to both.
-
-#### 7. Create an Agent with Google Tools
-
-```bash
-jazz agent create
-
-# During creation:
-# - Choose tools → Select "Gmail" and/or "Calendar" categories
-# - This gives your agent access to Gmail and Calendar operations
-```
-
-### Gmail Tool Capabilities
-
-Your agents can now:
-
-- **Read Emails**: List, search, get full content
-- **Send & Draft**: Compose and send emails on your behalf
-- **Label Management**: Create, update, delete, apply labels
-- **Email Actions**: Trash, delete, archive with approval
-- **Batch Operations**: Modify multiple emails at once
-- **Smart Search**: Use Gmail's powerful query syntax
-
-### Calendar Tool Capabilities
-
-Your agents can now:
-
-- **Read Events**: List, search, get event details
-- **Create Events**: Schedule meetings with title, time, attendees, location
-- **Update Events**: Modify existing events (reschedule, change details)
-- **Delete Events**: Remove cancelled events
-- **Quick Add**: Create events from natural language ("meeting tomorrow at 2pm")
-- **List Calendars**: Access all subscribed calendars
-- **Search**: Find events by text across titles, descriptions, and locations
-- **Upcoming Events**: Quickly check what's coming up
-
-### Security & Privacy
-
-- **Token Storage**: Tokens are stored locally in `~/.jazz/google/gmail-token.json`
-- **User Approval**: Destructive operations (delete, trash) require explicit approval
-- **Read-Only by Default**: Agents can read freely but must ask before modifying
-- **Revoke Access**: Run `jazz auth gmail logout` or revoke in [Google Account Settings](https://myaccount.google.com/permissions)
-
-### Troubleshooting Gmail
-
-**"Invalid Client" Error**:
-
-- Verify redirect URI is exactly `http://localhost:53682/oauth2callback`
-- Check Client ID and Secret are correct
-- Ensure Gmail API is enabled
-
-**"Access Blocked" Error**:
-
-- Add your email as a test user in OAuth consent screen
-- Verify scopes are configured correctly
-
-**"Token Expired" Error**:
-
-- Refresh tokens expire if unused for 6 months
-- Re-authenticate: `jazz auth gmail login`
+- **Setup**: Install khal and vdirsyncer, configure CalDAV in vdirsyncer, point khal at the synced calendars
+- **Agents**: Load the `calendar` skill—it teaches agents to use khal for listing, creating, editing, and searching events
+- **Sync**: Run `vdirsyncer sync` before reads to ensure up-to-date data
 
 ---
 

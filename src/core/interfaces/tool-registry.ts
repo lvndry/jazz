@@ -10,9 +10,7 @@ import type {
   ToolExecutionResult,
 } from "../types";
 import type { AgentConfigService } from "./agent-config";
-import type { CalendarService } from "./calendar";
 import type { FileSystemContextService } from "./fs";
-import type { GmailService } from "./gmail";
 import type { LLMService } from "./llm";
 import type { LoggerService } from "./logger";
 import type { MCPServerManager } from "./mcp-server";
@@ -39,8 +37,6 @@ export type ToolRiskLevel = "read-only" | "low-risk" | "high-risk";
 export type ToolRequirements =
   | FileSystemContextService
   | FileSystem.FileSystem
-  | GmailService
-  | CalendarService
   | AgentConfigService
   | LLMService
   | LoggerService
@@ -94,7 +90,7 @@ export interface Tool<R = never> {
    * @returns An Effect that resolves to a ToolExecutionResult, which indicates
    *          success or failure along with any result data or error messages.
    *          The Effect's requirements type `R` represents the services this
-   *          tool depends on (e.g., GmailService, FileSystem, LoggerService).
+   *          tool depends on (e.g., FileSystem, LoggerService).
    */
   readonly execute: (
     args: Record<string, unknown>,

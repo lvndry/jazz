@@ -14,11 +14,9 @@ import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import type { ToolCategory } from "@/core/types";
 import type { MCPTool } from "@/core/types/mcp";
 import { toPascalCase } from "@/core/utils/string";
-import { calendar } from "./calendar";
 import { createContextInfoTool } from "./context-tools";
 import { fs } from "./fs";
 import { git } from "./git";
-import { gmail } from "./gmail";
 import { createHttpRequestTool } from "./http-tools";
 import { registerMCPServerTools } from "./mcp-tools";
 import { createShellCommandTools } from "./shell-tools";
@@ -52,8 +50,6 @@ type MCPRegistrationDependencies =
  */
 export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDependencies> {
   return Effect.gen(function* () {
-    yield* registerGmailTools();
-    yield* registerCalendarTools();
     yield* registerFileTools();
     yield* registerShellTools();
     yield* registerGitTools();
@@ -438,8 +434,6 @@ export function registerMCPToolsForSelection(): Effect.Effect<
   });
 }
 
-export const GMAIL_CATEGORY: ToolCategory = { id: "gmail", displayName: "Gmail" };
-export const CALENDAR_CATEGORY: ToolCategory = { id: "calendar", displayName: "Calendar" };
 export const HTTP_CATEGORY: ToolCategory = { id: "http", displayName: "HTTP" };
 export const FILE_MANAGEMENT_CATEGORY: ToolCategory = {
   id: "file_management",
@@ -510,8 +504,6 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   GIT_CATEGORY,
   HTTP_CATEGORY,
   WEB_SEARCH_CATEGORY,
-  GMAIL_CATEGORY,
-  CALENDAR_CATEGORY,
   SKILLS_CATEGORY,
   CONTEXT_CATEGORY,
   SUBAGENT_CATEGORY,
@@ -547,71 +539,6 @@ export function createCategoryMappings(): {
     displayNameToId,
     idToDisplayName,
   };
-}
-
-// Register Gmail tools
-export function registerGmailTools(): Effect.Effect<void, Error, ToolRegistry> {
-  return Effect.gen(function* () {
-    const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory(GMAIL_CATEGORY);
-
-    // Read-only tools (no approval needed)
-    yield* registerTool(gmail.listEmails());
-    yield* registerTool(gmail.getEmail());
-    yield* registerTool(gmail.searchEmails());
-    yield* registerTool(gmail.sendEmail());
-    yield* registerTool(gmail.listLabels());
-    yield* registerTool(gmail.createLabel());
-    yield* registerTool(gmail.updateLabel());
-    yield* registerTool(gmail.addLabels());
-    yield* registerTool(gmail.removeLabels());
-    yield* registerTool(gmail.batchModify());
-
-    // Approval-required tools - each returns { approval, execute }
-    const trashTools = gmail.trashEmail();
-    yield* registerTool(trashTools.approval);
-    yield* registerTool(trashTools.execute);
-
-    const deleteEmailTools = gmail.deleteEmail();
-    yield* registerTool(deleteEmailTools.approval);
-    yield* registerTool(deleteEmailTools.execute);
-
-    const deleteLabelTools = gmail.deleteLabel();
-    yield* registerTool(deleteLabelTools.approval);
-    yield* registerTool(deleteLabelTools.execute);
-  });
-}
-
-// Register Calendar tools
-export function registerCalendarTools(): Effect.Effect<void, Error, ToolRegistry> {
-  return Effect.gen(function* () {
-    const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory(CALENDAR_CATEGORY);
-
-    // Read-only tools (no approval needed)
-    yield* registerTool(calendar.listEvents());
-    yield* registerTool(calendar.getEvent());
-    yield* registerTool(calendar.searchEvents());
-    yield* registerTool(calendar.listCalendars());
-    yield* registerTool(calendar.getUpcoming());
-
-    // Write tools (approval required) - each returns { approval, execute }
-    const createTools = calendar.createEvent();
-    yield* registerTool(createTools.approval);
-    yield* registerTool(createTools.execute);
-
-    const updateTools = calendar.updateEvent();
-    yield* registerTool(updateTools.approval);
-    yield* registerTool(updateTools.execute);
-
-    const deleteTools = calendar.deleteEvent();
-    yield* registerTool(deleteTools.approval);
-    yield* registerTool(deleteTools.execute);
-
-    const quickAddTools = calendar.quickAdd();
-    yield* registerTool(quickAddTools.approval);
-    yield* registerTool(quickAddTools.execute);
-  });
 }
 
 // Register HTTP tools

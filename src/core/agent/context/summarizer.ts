@@ -158,6 +158,7 @@ export const Summarizer = {
    * This prevents hitting the model's context window limit by summarizing old messages.
    *
    * @param runRecursive - Injected runner function to execute the summarizer sub-agent
+   * @param modelContextWindow - Optional model-specific context window size (defaults to 50K)
    */
   compactIfNeeded(
     currentMessages: ConversationMessages,
@@ -165,6 +166,7 @@ export const Summarizer = {
     sessionId: string,
     conversationId: string,
     runRecursive: RecursiveRunner,
+    modelContextWindow?: number,
   ): Effect.Effect<
     ConversationMessages,
     Error,
@@ -179,20 +181,23 @@ export const Summarizer = {
       const logger = yield* LoggerServiceTag;
       const presentationService = yield* PresentationServiceTag;
 
+      // Use model-specific context window or fall back to default
+      const maxTokens = modelContextWindow ?? DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
+      const currentTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages);
+      const threshold = maxTokens * 0.8; // 80% threshold
+
       // Check if summarization is needed
-      if (!DEFAULT_CONTEXT_WINDOW_MANAGER.shouldSummarize(currentMessages)) {
+      if (currentTokens <= threshold) {
         return currentMessages;
       }
-
-      const currentTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages);
-      const maxTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens || 50_000;
 
       yield* logger.info("Conversation context approaching limit", {
         currentTokens,
         maxTokens,
-        threshold: Math.floor(maxTokens * 0.8),
+        threshold: Math.floor(threshold),
         agentId: agent.id,
         conversationId,
+        modelContextWindow,
       });
 
       yield* presentationService.presentWarning(
@@ -202,6 +207,7 @@ export const Summarizer = {
 
       yield* logger.info("Compacting history to preserve context...", {
         messageCount: currentMessages.length,
+        maxTokens,
       });
 
       // Keep system message [0] and recent messages that fit in token budget

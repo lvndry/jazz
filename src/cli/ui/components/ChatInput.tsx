@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import React from "react";
+import React, { useMemo } from "react";
 
 export interface ChatInputProps {
   /** Current value */
@@ -39,7 +39,7 @@ function normalizeLineEndings(text: string): string {
  * Input handling and state live in the InputService; this component is
  * purely presentational to avoid reordering under heavy render pressure.
  */
-export function ChatInput({
+export const ChatInput = React.memo(function ChatInput({
   value,
   cursor,
   mask,
@@ -115,20 +115,26 @@ export function ChatInput({
   // Multi-line value - render each line separately, truncated
   const lines = displayValue.split("\n");
 
-  // Find which line the cursor is on
-  let charCount = 0;
-  let cursorLine = 0;
-  let cursorOffsetInLine = 0;
+  // Find which line the cursor is on (memoized to avoid recalculation on every render)
+  const cursorPosition = useMemo(() => {
+    let charCount = 0;
+    let cursorLine = 0;
+    let cursorOffsetInLine = 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    const lineLen = lines[i]!.length;
-    if (safeCursor <= charCount + lineLen) {
-      cursorLine = i;
-      cursorOffsetInLine = safeCursor - charCount;
-      break;
+    for (let i = 0; i < lines.length; i++) {
+      const lineLen = lines[i]!.length;
+      if (safeCursor <= charCount + lineLen) {
+        cursorLine = i;
+        cursorOffsetInLine = safeCursor - charCount;
+        break;
+      }
+      charCount += lineLen + 1; // +1 for the \n
     }
-    charCount += lineLen + 1; // +1 for the \n
-  }
+
+    return { cursorLine, cursorOffsetInLine };
+  }, [lines, safeCursor]);
+
+  const { cursorLine, cursorOffsetInLine } = cursorPosition;
 
   // Cap visible lines to avoid flooding the terminal
   const MAX_VISIBLE_LINES = 15;
@@ -185,7 +191,7 @@ export function ChatInput({
       )}
     </Box>
   );
-}
+});
 
 /**
  * Render text content with an inverse-video cursor at the given offset.

@@ -76,7 +76,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     private readonly displayConfig: DisplayConfig,
     throttleMs?: number,
   ) {
-    this.updateThrottleMs = throttleMs ?? 50;
+    // Increased from 50ms to 100ms to reduce render pressure during long streaming responses
+    // 100ms = 10 updates/sec is still very smooth for humans while significantly reducing CPU load
+    this.updateThrottleMs = throttleMs ?? 100;
     this.acc = createAccumulator(agentName);
   }
 

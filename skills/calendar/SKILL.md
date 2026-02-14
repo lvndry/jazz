@@ -7,6 +7,27 @@ description: Manage calendars using khal CLI and vdirsyncer. Use when the user w
 
 Manage calendars using [khal](https://github.com/pimutils/khal) - a standards-based CLI calendar application, and [vdirsyncer](https://github.com/pimutils/vdirsyncer) - a tool for synchronizing calendars with CalDAV servers.
 
+## Agent Usage (Power User Patterns)
+
+**When using this skill as an agent**, run commands via `execute_command`. Prefer these patterns:
+
+1. **Sync before read**: Run `vdirsyncer sync` first to ensure local data is up to date, especially for remote calendars.
+
+2. **Use `khal list`** for human-readable output, or `khal list --format "{start} {end} {title}" <date range>` for parsing. For machine parsing, `khal printcalendars -p` exports ICS.
+
+3. **Natural language quick add** works well: `khal new "Team meeting tomorrow 3pm-4pm"` or `khal new "Lunch with John next Tuesday at noon"`
+
+4. **Structured create** when you have exact details:
+   ```bash
+   khal new -a work 2026-02-15 14:00 1h "Sprint Planning" --location "Room A"
+   ```
+
+5. **Find UID before edit/delete**: `khal search "meeting"` or `khal search --days 7 "project"` returns UIDs. Use the UID with `khal edit <uid>` or `khal delete <uid>`.
+
+6. **List calendars** first: `khal printcalendars` shows available calendars. Use `-a <calendar>` to target a specific one.
+
+7. **Date ranges**: `khal list today`, `khal list week`, `khal list 2026-02-01 2026-02-28`, or `khal list tomorrow`
+
 ## Prerequisites Check
 
 Before any calendar operation, verify tools are installed and configured:

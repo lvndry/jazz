@@ -1,5 +1,9 @@
 # Jazz LLM Layer Enhancement Roadmap
 
+
+> Note: This roadmap focuses on the LLM layer (tool selection, context, chains). For product positioning and long-term differentiation, see:
+> - [Jazz Differentiation Thesis: Capability OS + Terminal Workstation](./jazz-capability-os-terminal-workstation.md)
+
 ## 🎯 Vision Statement
 Transform Jazz from "agent that uses tools" to "intelligent agent that *intelligently* uses tools" - making tool selection context-aware, optimizing context usage by 3-5x, and dramatically improving response quality while reducing costs.
 

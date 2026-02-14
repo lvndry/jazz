@@ -195,37 +195,6 @@ export class ResourceExhaustedError extends Data.TaggedError("ResourceExhaustedE
   readonly suggestion?: string;
 }> {}
 
-export class GmailAuthenticationError extends Data.TaggedError("GmailAuthenticationError")<{
-  readonly message: string;
-  readonly suggestion?: string;
-}> {}
-
-export class GmailOperationError extends Data.TaggedError("GmailOperationError")<{
-  readonly operation?: string;
-  readonly message: string;
-  readonly status?: number;
-  readonly suggestion?: string;
-}> {}
-
-export class GmailTaskError extends Data.TaggedError("GmailTaskError")<{
-  readonly taskId: string;
-  readonly operation: string;
-  readonly message: string;
-  readonly suggestion?: string;
-}> {}
-
-export class CalendarAuthenticationError extends Data.TaggedError("CalendarAuthenticationError")<{
-  readonly message: string;
-  readonly suggestion?: string;
-}> {}
-
-export class CalendarOperationError extends Data.TaggedError("CalendarOperationError")<{
-  readonly operation?: string;
-  readonly message: string;
-  readonly status?: number;
-  readonly suggestion?: string;
-}> {}
-
 // Update Errors
 export class UpdateCheckError extends Data.TaggedError("UpdateCheckError")<{
   readonly message: string;
@@ -373,11 +342,6 @@ export type JazzError =
   | ResourceExhaustedError
   | LLMConfigurationError
   | LLMAuthenticationError
-  | GmailAuthenticationError
-  | GmailOperationError
-  | GmailTaskError
-  | CalendarAuthenticationError
-  | CalendarOperationError
   | UpdateCheckError
   | UpdateInstallError
   | MCPConnectionError

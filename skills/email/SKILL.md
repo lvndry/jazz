@@ -7,6 +7,29 @@ description: Manage emails via Himalaya CLI. Use when the user wants to read, se
 
 Manage emails using [Himalaya CLI](https://github.com/pimalaya/himalaya) - a powerful command-line email client supporting IMAP, SMTP, Maildir, and Notmuch backends.
 
+## Agent Usage (Power User Patterns)
+
+**When using this skill as an agent**, run commands via `execute_command`. Prefer these patterns:
+
+1. **Always use `--output json`** when you need to parse results (subject, from, id). Example:
+   ```bash
+   himalaya envelope list --folder INBOX --page-size 20 --output json | jq '.[] | {id, subject, from, date}'
+   ```
+
+2. **Non-interactive send**: `message write` opens `$EDITOR`. For automation, pipe a full RFC-style message to `himalaya template send` (if available), or use a temp file:
+   ```bash
+   echo -e "To: recipient@example.com\nSubject: Subject\n\nBody text" | himalaya template send
+   ```
+   If `template send` is not available, use `himalaya message write --to "recipient" --subject "Subject"` and note that it may open an editor—check `himalaya --help` for your version.
+
+3. **Extract message IDs** for follow-up actions: `himalaya envelope list --output json | jq -r '.[].id'`
+
+4. **Batch operations**: Pass multiple IDs to move/delete: `himalaya message move <id1> <id2> <id3> --folder "Archives"`
+
+5. **Check before acting**: Run `himalaya account list` and `himalaya folder list` first if the user has multiple accounts or folders.
+
+6. **Use `--account <name>`** when the user has multiple accounts (e.g., `himalaya --account work envelope list`).
+
 ## Prerequisites Check
 
 Before any email operation, verify Himalaya is installed and configured:

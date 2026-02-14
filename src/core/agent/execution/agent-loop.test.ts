@@ -5,9 +5,7 @@ import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { ToolExecutor } from "./tool-executor";
 import { SkillServiceTag } from "../../../core/skills/skill-service";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
-import { CalendarServiceTag } from "../../interfaces/calendar";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
-import { GmailServiceTag } from "../../interfaces/gmail";
 import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
 import { LoggerServiceTag } from "../../interfaces/logger";
@@ -91,8 +89,6 @@ const TestLayer = Layer.mergeAll(
   Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
   Layer.succeed(FileSystem.FileSystem, {} as any),
   Layer.succeed(TerminalServiceTag, {} as any),
-  Layer.succeed(GmailServiceTag, {} as any),
-  Layer.succeed(CalendarServiceTag, {} as any),
   Layer.succeed(FileSystemContextServiceTag, {} as any),
   Layer.succeed(SkillServiceTag, mockSkillService),
 );
@@ -293,8 +289,6 @@ describe("executeAgentLoop", () => {
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(FileSystem.FileSystem, {} as any),
       Layer.succeed(TerminalServiceTag, {} as any),
-      Layer.succeed(GmailServiceTag, {} as any),
-      Layer.succeed(CalendarServiceTag, {} as any),
       Layer.succeed(FileSystemContextServiceTag, {} as any),
       Layer.succeed(SkillServiceTag, mockSkillService),
     );
@@ -367,8 +361,6 @@ describe("executeAgentLoop", () => {
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(FileSystem.FileSystem, {} as any),
       Layer.succeed(TerminalServiceTag, {} as any),
-      Layer.succeed(GmailServiceTag, {} as any),
-      Layer.succeed(CalendarServiceTag, {} as any),
       Layer.succeed(FileSystemContextServiceTag, {} as any),
       Layer.succeed(SkillServiceTag, mockSkillService),
     );
