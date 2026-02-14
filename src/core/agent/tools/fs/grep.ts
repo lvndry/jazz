@@ -26,44 +26,29 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
   const parameters = z
     .object({
       pattern: z.string().min(1).describe("Search pattern (literal or 're:<regex>')"),
-      path: z.string().optional().describe("File or directory to search (defaults to cwd)"),
+      path: z.string().optional().describe("Path to search (defaults to cwd)"),
       recursive: z.boolean().optional().describe("Recurse into directories"),
-      regex: z.boolean().optional().describe("Treat pattern as regex (overrides re:<...>)"),
+      regex: z.boolean().optional().describe("Treat pattern as regex"),
       ignoreCase: z.boolean().optional().describe("Case-insensitive match"),
       maxResults: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe(
-          "Max matches to return (default: 200, hard cap: 2000). Use smaller values and narrow paths first.",
-        ),
-      filePattern: z
-        .string()
-        .optional()
-        .describe("File pattern to search in (e.g., '*.js', '*.ts'). Uses glob filter."),
-      exclude: z
-        .string()
-        .optional()
-        .describe("Exclude files matching this pattern (e.g., '*.min.js', '*.log')."),
-      excludeDir: z
-        .string()
-        .optional()
-        .describe("Exclude directories matching this pattern (e.g., 'node_modules', '.git')."),
+        .describe("Max matches (default: 200, cap: 2000)"),
+      filePattern: z.string().optional().describe("File glob filter (e.g. '*.js', '*.ts')"),
+      exclude: z.string().optional().describe("Exclude files matching pattern"),
+      excludeDir: z.string().optional().describe("Exclude directories matching pattern"),
       contextLines: z
         .number()
         .int()
         .nonnegative()
         .optional()
-        .describe(
-          "Number of context lines to show above and below each match. Use this to see surrounding content when searching for patterns.",
-        ),
+        .describe("Context lines above/below each match"),
       outputMode: z
         .enum(["content", "files", "count"])
         .optional()
-        .describe(
-          "Output mode: 'content' returns matching lines (default), 'files' returns only file paths, 'count' returns match counts per file.",
-        ),
+        .describe("'content' (default), 'files', or 'count'"),
     })
     .strict();
 
@@ -224,7 +209,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GrepArgs>({
     name: "grep",
     description:
-      "Search for text patterns within file contents using ripgrep (rg) when available, with automatic fallback to system grep. Multi-threaded (with rg), respects .gitignore, and supports literal strings and regex patterns. Use to find specific code, text, or patterns across files. Returns matching lines with file paths and line numbers by default. Use outputMode 'files' for file paths only (minimal tokens) or 'count' for match counts per file. Defaults to 200 results (hard cap 2000). **Tip: Start with narrow paths or filePattern, then read specific files if needed.**",
+      "Search file contents for text patterns (ripgrep with grep fallback). Supports regex, file filters, context lines. outputMode: content/files/count. Default 200 results, cap 2000.",
     tags: ["search", "text"],
     parameters,
     validate: (args) => {

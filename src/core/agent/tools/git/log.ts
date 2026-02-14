@@ -14,20 +14,15 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .optional()
-        .describe(
-          "Path to a file or directory in the Git repository (defaults to current working directory)",
-        ),
+      path: z.string().optional().describe("Repository path (defaults to cwd)"),
       limit: z
         .number()
         .int()
         .min(1)
         .max(50)
         .optional()
-        .describe("Limit the number of commits to show (default: 20, hard cap: 50)"),
-      oneline: z.boolean().optional().describe("Show commits in one-line format"),
+        .describe("Max commits (default: 20, cap: 50)"),
+      oneline: z.boolean().optional().describe("One-line format"),
     })
     .strict();
 
@@ -35,8 +30,7 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitLogArgs>({
     name: "git_log",
-    description:
-      "Display commit history of a Git repository. Shows commit hashes, authors, dates, and messages. Supports limiting results and one-line format for quick overview. Defaults to 20 commits (hard cap 50). Use to review recent changes, find specific commits, or understand repository evolution.",
+    description: "Show commit history. Default 20 commits, cap 50.",
     tags: ["git", "history"],
     parameters,
     validate: (args) => {

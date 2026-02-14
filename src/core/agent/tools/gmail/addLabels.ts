@@ -12,16 +12,15 @@ import { formatEmailDetail } from "./utils";
 export function createAddLabelsToEmailTool(): Tool<GmailService> {
   const parameters = z
     .object({
-      emailId: z.string().min(1).describe("ID of the email to add labels to"),
-      labelIds: z.array(z.string()).min(1).describe("Array of label IDs to add to the email"),
+      emailId: z.string().min(1).describe("Email ID"),
+      labelIds: z.array(z.string()).min(1).describe("Label IDs to add"),
     })
     .strict();
 
   type AddLabelsToEmailArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, AddLabelsToEmailArgs>({
     name: "add_labels_to_email",
-    description:
-      "Apply one or more labels to a specific email. Labels help organize and categorize emails. Use list_labels to find available label IDs. Multiple labels can be added in a single operation.",
+    description: "Add labels to an email. Use list_labels for available IDs.",
     parameters,
     validate: (args) => {
       const params = parameters.safeParse(args);

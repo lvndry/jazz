@@ -20,22 +20,6 @@ interface ErrorBoundaryState {
  * Catches JavaScript errors anywhere in the child component tree,
  * logs those errors, and displays a fallback UI instead of crashing.
  *
- * @example
- * ```tsx
- * <ErrorBoundary>
- *   <MyComponent />
- * </ErrorBoundary>
- *
- * // With custom fallback
- * <ErrorBoundary fallback={<Text color="red">Something went wrong</Text>}>
- *   <MyComponent />
- * </ErrorBoundary>
- *
- * // With error callback
- * <ErrorBoundary onError={(error) => logToService(error)}>
- *   <MyComponent />
- * </ErrorBoundary>
- * ```
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {

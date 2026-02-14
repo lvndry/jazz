@@ -19,28 +19,10 @@ type GitCheckoutArgs = {
 
 const gitCheckoutParameters = z
   .object({
-    path: z
-      .string()
-      .optional()
-      .describe("Path to the Git repository (defaults to current working directory)"),
-    branch: z
-      .string()
-      .min(1)
-      .describe(
-        "Branch name to switch to or create (e.g., 'main', 'feature/user-auth', 'fix/login-bug')",
-      ),
-    create: z
-      .boolean()
-      .optional()
-      .describe(
-        "Create a new branch with this name (equivalent to git checkout -b). Use for starting new feature or fix branches.",
-      ),
-    force: z
-      .boolean()
-      .optional()
-      .describe(
-        "Force checkout, DISCARDING all uncommitted changes. Only use when explicitly requested by the user.",
-      ),
+    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    branch: z.string().min(1).describe("Branch name to switch to or create"),
+    create: z.boolean().optional().describe("Create new branch (-b)"),
+    force: z.boolean().optional().describe("Force checkout, DISCARDING uncommitted changes"),
   })
   .strict();
 
@@ -50,7 +32,7 @@ export function createGitCheckoutTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitCheckoutArgs> = {
     name: "git_checkout",
     description:
-      "Switch to a different branch or create a new branch. Changes the working tree to match the target branch. Use create: true to start a new feature branch. WARNING: force: true will DISCARD all uncommitted local changes — only use when explicitly asked. Check git_status first to ensure no unsaved work will be lost.",
+      "Switch branches or create a new branch (create:true). force discards uncommitted changes.",
     tags: ["git", "checkout"],
     parameters: gitCheckoutParameters,
     validate: (args) => {

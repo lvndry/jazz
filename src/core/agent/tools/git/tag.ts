@@ -26,10 +26,7 @@ type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createGitTagListTool(): Tool<GitDeps> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .optional()
-        .describe("Path to the Git repository (defaults to current working directory)"),
+      path: z.string().optional().describe("Repository path (defaults to cwd)"),
     })
     .strict();
 
@@ -37,8 +34,7 @@ export function createGitTagListTool(): Tool<GitDeps> {
 
   return defineTool<GitDeps, GitTagListArgs>({
     name: "git_tag_list",
-    description:
-      "List all Git tags. Tags are references to specific points in Git history, commonly used to mark release points (e.g., v1.0.0, v2.1.3). Tags are sorted by creation date (newest first).",
+    description: "List all Git tags, newest first.",
     tags: ["git", "tag", "list"],
     parameters,
     validate: (args) => {
@@ -138,29 +134,19 @@ type GitTagArgs = {
 
 const gitTagParameters = z
   .object({
-    path: z
-      .string()
-      .optional()
-      .describe("Path to the Git repository (defaults to current working directory)"),
-    create: z.string().optional().describe("Create a new tag with the specified name"),
-    message: z
-      .string()
-      .optional()
-      .describe("Annotated tag message (required if creating an annotated tag)"),
-    commit: z.string().optional().describe("Create tag at specific commit (defaults to HEAD)"),
-    delete: z.string().optional().describe("Delete a tag with the specified name"),
-    force: z
-      .boolean()
-      .optional()
-      .describe("Force tag creation/deletion (overwrites existing tags)"),
+    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    create: z.string().optional().describe("Tag name to create"),
+    message: z.string().optional().describe("Annotated tag message"),
+    commit: z.string().optional().describe("Commit to tag (default: HEAD)"),
+    delete: z.string().optional().describe("Tag name to delete"),
+    force: z.boolean().optional().describe("Force (overwrite existing)"),
   })
   .strict();
 
 export function createGitTagTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitTagArgs> = {
     name: "git_tag",
-    description:
-      "Create or delete Git tags. Tags are references to specific points in Git history, commonly used to mark release points. Supports lightweight and annotated tags. Use git_tag_list to list existing tags without approval.",
+    description: "Create or delete Git tags. Supports lightweight and annotated.",
     tags: ["git", "tag"],
     parameters: gitTagParameters,
     validate: (args) => {

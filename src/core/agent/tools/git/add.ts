@@ -18,24 +18,9 @@ type GitAddArgs = {
 
 const gitAddParameters = z
   .object({
-    path: z
-      .string()
-      .optional()
-      .describe(
-        "Path to a file or directory in the Git repository (defaults to current working directory)",
-      ),
-    files: z
-      .array(z.string())
-      .min(1)
-      .describe(
-        "Specific file paths to stage (e.g., ['src/index.ts', 'README.md']). Prefer listing explicit files over using 'all'.",
-      ),
-    all: z
-      .boolean()
-      .optional()
-      .describe(
-        "Stage ALL modified and untracked files. Use with caution — prefer listing specific files to avoid staging unrelated changes.",
-      ),
+    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    files: z.array(z.string()).min(1).describe("File paths to stage"),
+    all: z.boolean().optional().describe("Stage all modified and untracked files"),
   })
   .strict();
 
@@ -44,8 +29,7 @@ type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createGitAddTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitAddArgs> = {
     name: "git_add",
-    description:
-      "Stage files for the next git commit. Always run git_status first to see what's changed, then stage specific files by path. Prefer staging specific files over using 'all: true' to avoid accidentally committing unrelated changes. Use git_diff with staged: true to review what you're about to commit.",
+    description: "Stage files for the next commit. Specify files or use all:true.",
     tags: ["git", "index"],
     parameters: gitAddParameters,
     validate: (args) => {

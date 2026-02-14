@@ -12,15 +12,14 @@ import { formatEmailDetail } from "./utils";
 export function createGetEmailTool(): Tool<GmailService> {
   const parameters = z
     .object({
-      emailId: z.string().min(1).describe("ID of the email to retrieve"),
+      emailId: z.string().min(1).describe("Email ID"),
     })
     .strict();
 
   type GetEmailArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, GetEmailArgs>({
     name: "get_email",
-    description:
-      "Retrieve the complete content of a specific email by its ID. Returns full email body, headers, recipients, attachments metadata, and labels. Use after list_emails or search_emails to read the full content of a specific message.",
+    description: "Get the full content of an email by ID.",
     tags: ["gmail", "read"],
     parameters,
     validate: (args) => {

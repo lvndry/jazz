@@ -27,15 +27,15 @@ type UpdateCalendarEventArgs = {
 const updateEventParameters = z
   .object({
     calendarId: z.string().optional().default("primary"),
-    eventId: z.string().min(1).describe("ID of the event to update"),
-    summary: z.string().optional().describe("New event title"),
-    description: z.string().optional().describe("New event description"),
-    location: z.string().optional().describe("New event location"),
-    startDateTime: z.string().optional().describe("New start date-time (RFC3339)"),
-    startDate: z.string().optional().describe("New start date for all-day events (YYYY-MM-DD)"),
-    endDateTime: z.string().optional().describe("New end date-time (RFC3339)"),
-    endDate: z.string().optional().describe("New end date for all-day events (YYYY-MM-DD)"),
-    timeZone: z.string().optional().describe("New timezone"),
+    eventId: z.string().min(1).describe("Event ID"),
+    summary: z.string().optional().describe("Event title"),
+    description: z.string().optional().describe("Event description"),
+    location: z.string().optional().describe("Event location"),
+    startDateTime: z.string().optional().describe("Start date-time (RFC3339)"),
+    startDate: z.string().optional().describe("All-day start date (YYYY-MM-DD)"),
+    endDateTime: z.string().optional().describe("End date-time (RFC3339)"),
+    endDate: z.string().optional().describe("All-day end date (YYYY-MM-DD)"),
+    timeZone: z.string().optional().describe("Timezone"),
     sendNotifications: z.boolean().optional().default(true),
   })
   .strict();
@@ -43,8 +43,7 @@ const updateEventParameters = z
 export function createUpdateCalendarEventTools(): ApprovalToolPair<CalendarService> {
   const config: ApprovalToolConfig<CalendarService, UpdateCalendarEventArgs> = {
     name: "update_calendar_event",
-    description:
-      "Update an existing calendar event's properties. Can modify title, description, location, time, or timezone. Only provided fields will be updated; others remain unchanged. Use to reschedule events or update event details.",
+    description: "Update an existing event's properties. Only provided fields change.",
     tags: ["calendar", "update"],
     parameters: updateEventParameters,
     validate: (args) => {

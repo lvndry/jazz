@@ -18,24 +18,12 @@ type GitCommitArgs = {
 
 const gitCommitParameters = z
   .object({
-    path: z
-      .string()
-      .optional()
-      .describe(
-        "Path to a file or directory in the Git repository (defaults to current working directory)",
-      ),
+    path: z.string().optional().describe("Repository path (defaults to cwd)"),
     message: z
       .string()
       .min(1)
-      .describe(
-        "Commit message describing the changes. Use imperative mood (e.g., 'Add user authentication', 'Fix login redirect bug'). Keep the first line under 72 characters.",
-      ),
-    all: z
-      .boolean()
-      .optional()
-      .describe(
-        "Commit all modified tracked files (skips staging). Prefer using git_add + git_commit separately for more control over what's included.",
-      ),
+      .describe("Commit message. Imperative mood, first line under 72 chars."),
+    all: z.boolean().optional().describe("Commit all modified tracked files, skipping staging."),
   })
   .strict();
 
@@ -44,8 +32,7 @@ type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createGitCommitTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitCommitArgs> = {
     name: "git_commit",
-    description:
-      "Create a git commit from staged changes. Always use git_add first to stage specific files, then commit. Write clear, descriptive commit messages that explain WHY the change was made (not just what changed). If a commit-message skill is available, use it for generating conventional commit messages.",
+    description: "Create a commit from staged changes. Use git_add first to stage files.",
     tags: ["git", "commit"],
     parameters: gitCommitParameters,
     validate: (args) => {

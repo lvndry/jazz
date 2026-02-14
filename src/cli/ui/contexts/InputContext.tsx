@@ -38,12 +38,6 @@ interface InputProviderProps {
  * Creates the InputService and sets up the Ink useInput bridge
  * to route all terminal input through the centralized service.
  *
- * @example
- * ```tsx
- * <InputProvider>
- *   <App />
- * </InputProvider>
- * ```
  */
 export function InputProvider({
   children,

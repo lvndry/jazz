@@ -12,16 +12,15 @@ import { formatEmailsForDisplay } from "./utils";
 export function createListEmailsTool(): Tool<GmailService> {
   const parameters = z
     .object({
-      maxResults: z.number().int().min(1).max(100).optional().describe("Maximum emails to return"),
-      query: z.string().optional().describe("Gmail search query, e.g. 'in:inbox newer_than:7d'"),
+      maxResults: z.number().int().min(1).max(100).optional().describe("Max emails"),
+      query: z.string().optional().describe("Gmail search query"),
     })
     .strict();
 
   type ListEmailsArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, ListEmailsArgs>({
     name: "list_emails",
-    description:
-      "List emails from the user's Gmail inbox with optional search query filtering. Returns email metadata (subject, sender, date, snippet, labels). Supports Gmail search syntax (e.g., 'in:inbox newer_than:7d'). Use to browse emails or find specific messages.",
+    description: "List emails with optional Gmail search query. Returns metadata.",
     tags: ["gmail", "list"],
     parameters,
     validate: (args) => {

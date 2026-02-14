@@ -14,21 +14,16 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .optional()
-        .describe(
-          "Path to a file or directory in the Git repository (defaults to current working directory)",
-        ),
-      staged: z.boolean().optional().describe("Show staged changes (cached)"),
-      branch: z.string().optional().describe("Compare with a specific branch"),
-      commit: z.string().optional().describe("Compare with a specific commit"),
+      path: z.string().optional().describe("Repository path (defaults to cwd)"),
+      staged: z.boolean().optional().describe("Show staged changes"),
+      branch: z.string().optional().describe("Compare with branch"),
+      commit: z.string().optional().describe("Compare with commit"),
       maxLines: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Maximum number of diff lines to return (default: 500, hard cap: 2000)"),
+        .describe("Max diff lines (default: 500, cap: 2000)"),
     })
     .strict();
 
@@ -37,7 +32,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
     name: "git_diff",
     description:
-      "Display differences between commits, branches, or working tree. Shows what has changed in files (additions, deletions, modifications). Supports staged changes and branch comparisons. Defaults to 500 lines (hard cap 2000) to avoid oversized diffs.",
+      "Show differences between commits, branches, or working tree. Default 500 lines, cap 2000.",
     tags: ["git", "diff"],
     parameters,
     validate: (args) => {

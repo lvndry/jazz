@@ -14,15 +14,17 @@
 
 ## Agent Runtime & Automation
 
-- [ ] Being able to always approve low stake tools during a session
+- [x] Being able to always approve low stake tools during a session
 - [x] Summarize context near window limits — add automatic context compression that preserves action history when tokens spike.
 - [x] Trigger system (schedule, file, webhook, manual) — hooks/cronjobs with workflows and system schedulers (launchd/cron)
 - [x] Skills - Similar to Claude Skills, but for Jazz
 - [x] When editing a file, part of the output should be the diff of the file
 - [x] Workflow catch-up on startup — track last run time and optionally execute missed workflows when system starts (configurable per workflow with `catchUpOnStartup: true` and `maxCatchUpAge`)
-- [ ] Explore sub-agent triggers — PoC orchestration primitives.
-- [ ] Memory architecture — define long-term memory (storage, schema, retrieval) for
-      agent personalization.
+- [x] Explore sub-agent triggers — PoC orchestration primitives.
+- [ ] **Conversation-end refinement**: At session end, agent extracts and
+      stores useful context revealed during the conversation (e.g. user's
+      Obsidian vault path, preferred tools/configs, workflow preferences).
+      Injected into future sessions when relevant.
 
 ## CLI Feature Depth & Docs
 

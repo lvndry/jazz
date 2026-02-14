@@ -24,12 +24,6 @@ export function isWordChar(char: string): boolean {
  * @param cursor - Current cursor position
  * @returns New cursor position at the start of the previous word
  *
- * @example
- * ```ts
- * findPrevWordBoundary("hello world", 11) // Returns 6 (start of "world")
- * findPrevWordBoundary("hello world", 6)  // Returns 0 (start of "hello")
- * findPrevWordBoundary("hello   world", 8) // Returns 0 (skips spaces to "hello")
- * ```
  */
 export function findPrevWordBoundary(value: string, cursor: number): number {
   if (cursor === 0) return 0;
@@ -72,12 +66,6 @@ export function findPrevWordBoundary(value: string, cursor: number): number {
  * @param cursor - Current cursor position
  * @returns New cursor position at the end of the next word
  *
- * @example
- * ```ts
- * findNextWordBoundary("hello world", 0)  // Returns 5 (end of "hello")
- * findNextWordBoundary("hello world", 5)  // Returns 11 (end of "world")
- * findNextWordBoundary("hello   world", 5) // Returns 13 (skips spaces to end of "world")
- * ```
  */
 export function findNextWordBoundary(value: string, cursor: number): number {
   if (cursor >= value.length) return value.length;

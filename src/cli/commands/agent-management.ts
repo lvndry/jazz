@@ -147,11 +147,6 @@ function formatAgentsListBlock(
  *
  * @throws {StorageError} When there's an error accessing storage
  *
- * @example
- * ```typescript
- * yield* listAgentsCommand();
- * // Output: Table showing all agents with basic info
- * ```
  */
 export function listAgentsCommand(): Effect.Effect<
   void,
@@ -206,11 +201,6 @@ export function listAgentsCommand(): Effect.Effect<
  * @throws {StorageError} When there's an error accessing storage
  * @throws {StorageNotFoundError} When the agent with the given ID doesn't exist
  *
- * @example
- * ```typescript
- * yield* deleteAgentCommand("agent-123");
- * // Output: Confirmation message and deletion success
- * ```
  */
 export function deleteAgentCommand(
   agentIdentifier: string,
@@ -243,12 +233,6 @@ export function deleteAgentCommand(
  * @throws {StorageError} When there's an error accessing storage
  * @throws {StorageNotFoundError} When no agent matches the provided identifier
  *
- * @example
- * ```typescript
- * yield* getAgentCommand("agent-123");
- * yield* getAgentCommand("email-helper");
- * // Output: Detailed agent information including configuration
- * ```
  */
 export function getAgentCommand(
   agentIdentifier: string,

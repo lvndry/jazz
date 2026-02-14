@@ -15,15 +15,14 @@ type TrashEmailArgs = {
 
 const trashEmailParameters = z
   .object({
-    emailId: z.string().min(1).describe("ID of the email to move to trash"),
+    emailId: z.string().min(1).describe("Email ID"),
   })
   .strict();
 
 export function createTrashEmailTools(): ApprovalToolPair<GmailService> {
   const config: ApprovalToolConfig<GmailService, TrashEmailArgs> = {
     name: "trash_email",
-    description:
-      "Move an email to trash (recoverable). Use this for safer email removal. Email can be recovered from trash later.",
+    description: "Move an email to trash (recoverable).",
     tags: ["gmail", "trash"],
     parameters: trashEmailParameters,
     validate: (args) => {

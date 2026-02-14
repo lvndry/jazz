@@ -13,19 +13,20 @@ import { buildKeyFromContext } from "../context-utils";
 export function createHeadTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).describe("File path to read (relative to cwd allowed)"),
+      path: z.string().min(1).describe("File path to read"),
       lines: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Number of lines to return from the beginning (default: 10)"),
+        .default(10)
+        .describe("Lines from beginning (default: 10)"),
       maxBytes: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Maximum number of bytes to read (content is truncated if exceeded)"),
+        .describe("Max bytes (truncated if exceeded)"),
     })
     .strict();
 
@@ -33,8 +34,7 @@ export function createHeadTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, HeadParams>({
     name: "head",
-    description:
-      "Read the first N lines of a file (default: 10). Useful for quickly viewing the beginning of a file without reading the entire contents. Returns file content, line counts, and metadata.",
+    description: "Read the first N lines of a file (default 10).",
     tags: ["filesystem", "read"],
     parameters,
     validate: (args) => {
@@ -78,7 +78,7 @@ export function createHeadTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
           const lines = content.split(/\r?\n/);
           const totalLines = lines.length;
-          const requestedLines = args.lines ?? 10;
+          const requestedLines = args.lines;
           const returnedLines = Math.min(requestedLines, totalLines);
 
           // Enforce maxBytes safeguard (approximate by string length)

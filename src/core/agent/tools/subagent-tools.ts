@@ -22,15 +22,13 @@ let subagentCounter = 0;
 const spawnSubagentSchema = z.object({
   task: z
     .string()
-    .describe(
-      "Clear, specific task description for the sub-agent. Be precise about what it should accomplish and what output you expect.",
-    ),
+    .describe("Specific task description for the sub-agent, including expected output."),
   persona: z
     .enum(["default", "coder", "researcher"])
     .optional()
     .default("default")
     .describe(
-      "Persona determines the sub-agent's system prompt and tool preferences. 'coder': optimized for code search, file editing, git operations, and software engineering tasks. 'researcher': optimized for web search, information gathering, and synthesizing findings. 'default': balanced general-purpose assistant. Default: 'default'.",
+      "'coder' for code/git tasks, 'researcher' for deep research tasks, 'default' for general (default: 'default')",
     ),
 });
 
@@ -68,7 +66,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
-        "Spawn a specialised sub-agent to accomplish a specific task in a fresh context window. The sub-agent runs independently and returns a result. Use this for: (1) extensive codebase exploration that would bloat your context, (2) deep research requiring many web searches, (3) complex analysis across many files. Choose the right persona: 'coder' for software engineering tasks (code search, architecture analysis, debugging), 'researcher' for web research and information synthesis, 'default' for general-purpose tasks.",
+        "Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",
@@ -179,8 +177,7 @@ ${args.task}`;
     defineTool({
       name: "summarize_context",
       longRunning: true,
-      description:
-        "Compact the current conversation context by summarising older messages. Use this when the context window is getting large and you want to preserve important information while freeing up space. This is equivalent to the /compact command. Returns the summary text so you know what was preserved.",
+      description: "Compact conversation by summarizing older messages to free token budget.",
       parameters: summarizeContextSchema,
       hidden: false,
       riskLevel: "read-only",

@@ -36,15 +36,11 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       path: z
         .string()
         .optional()
-        .describe(
-          "Start directory (defaults to smart search from cwd→parents→home). NEVER use '/'. Omit to use smart search.",
-        ),
+        .describe("Start directory (omit for smart search from cwd→parents→home). Never use '/'."),
       name: z
         .string()
         .optional()
-        .describe(
-          "Filter by name: substring match, glob pattern (e.g. '*.ts', 'test_*', '*.{js,jsx}'), or regex with 're:' prefix (e.g. 're:test.*\\.ts$')",
-        ),
+        .describe("Name filter: substring, glob ('*.ts'), or regex ('re:test.*\\.ts$')"),
       type: z
         .enum(["file", "dir", "all", "symlink"])
         .optional()
@@ -54,45 +50,39 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         .int()
         .nonnegative()
         .optional()
-        .describe("Maximum depth to traverse (default: 25, use 0 for current dir only)"),
+        .describe("Max depth (default: 25, 0=current dir only)"),
       minDepth: z
         .number()
         .int()
         .nonnegative()
         .optional()
-        .describe("Minimum depth (default: 0). Triggers fd/find backend."),
+        .describe("Min depth (default: 0). Triggers fd/find."),
       maxResults: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Maximum results to return (default: 200, hard cap: 2000)"),
-      includeHidden: z.boolean().optional().describe("Include dotfiles and dot-directories"),
+        .describe("Max results (default: 200, cap: 2000)"),
+      includeHidden: z.boolean().optional().describe("Include hidden files/dirs"),
       smart: z
         .boolean()
         .default(true)
         .describe(
-          "Use smart hierarchical search (cwd→parents→home). Keep enabled unless you provide a specific path.",
+          "Smart hierarchical search (default: true). Disable if providing a specific path.",
         ),
       // --- Advanced filters (trigger fd/find backend automatically) ---
       pathPattern: z
         .string()
         .optional()
-        .describe("Full-path pattern to match (e.g. '**/test/**'). Triggers fd/find backend."),
-      excludePaths: z
-        .array(z.string())
-        .optional()
-        .describe("Paths to exclude (e.g. ['node_modules', '.git']). Triggers fd/find backend."),
-      caseSensitive: z.boolean().optional().describe("Case-sensitive matching (default: false)"),
-      size: z
-        .string()
-        .optional()
-        .describe("File size filter (e.g. '+100M', '-1k'). Triggers fd/find backend."),
+        .describe("Full-path pattern (e.g. '**/test/**'). Triggers fd/find."),
+      excludePaths: z.array(z.string()).optional().describe("Paths to exclude. Triggers fd/find."),
+      caseSensitive: z.boolean().optional().describe("Case-sensitive (default: false)"),
+      size: z.string().optional().describe("Size filter ('+100M', '-1k'). Triggers fd/find."),
       mtime: z
         .string()
         .optional()
         .describe(
-          "Modification time filter (e.g. '-7' for last 7 days, '+30' for older than 30 days). Triggers fd/find backend.",
+          "Modification time filter ('-7'=last 7 days, '+30'=older than 30 days). Triggers fd/find.",
         ),
     })
     .strict();
@@ -489,7 +479,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, FindArgs>({
     name: "find",
     description:
-      "Find files and directories by name, glob pattern, or regex. Searches file/directory NAMES and PATHS — does NOT search file contents (use grep for that). Smart search by default: searches cwd → parent dirs → home. Supports glob patterns (e.g. '*.ts', '*.{js,jsx}'), regex ('re:test.*'), type filters, hidden files. Advanced filters (size, mtime, minDepth, pathPattern, excludePaths) automatically use fd/find backend. Results sorted by most recently modified. Default 200 results, hard cap 2000.",
+      "Find files/directories by name, glob, or regex. Searches names/paths, NOT file contents (use grep for that). Supports type, size, mtime filters. Default 200 results, cap 2000.",
     tags: ["filesystem", "search"],
     parameters,
     validate: (args) => {

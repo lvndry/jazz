@@ -19,13 +19,10 @@ type GitPushArgs = {
 
 const gitPushParameters = z
   .object({
-    path: z
-      .string()
-      .optional()
-      .describe("Path to the Git repository (defaults to current working directory)"),
-    remote: z.string().optional().describe("Remote repository name (defaults to 'origin')"),
-    branch: z.string().optional().describe("Branch to push (defaults to current branch)"),
-    force: z.boolean().optional().describe("Force push (overwrites remote history)"),
+    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    remote: z.string().optional().describe("Remote name (default: 'origin')"),
+    branch: z.string().optional().describe("Branch to push (default: current)"),
+    force: z.boolean().optional().describe("Force push (overwrites remote)"),
   })
   .strict();
 
@@ -34,8 +31,7 @@ type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createGitPushTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitPushArgs> = {
     name: "git_push",
-    description:
-      "Upload local commits to a remote repository. Pushes the current branch (or specified branch) to the remote (default: origin). Supports force push to overwrite remote history (use with caution).",
+    description: "Push commits to a remote. Supports force push.",
     tags: ["git", "push"],
     parameters: gitPushParameters,
     validate: (args) => {

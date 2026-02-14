@@ -19,13 +19,10 @@ type GitPullArgs = {
 
 const gitPullParameters = z
   .object({
-    path: z
-      .string()
-      .optional()
-      .describe("Path to the Git repository (defaults to current working directory)"),
-    remote: z.string().optional().describe("Remote repository name (defaults to 'origin')"),
-    branch: z.string().optional().describe("Branch to pull (defaults to current branch)"),
-    rebase: z.boolean().optional().describe("Use rebase instead of merge"),
+    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    remote: z.string().optional().describe("Remote name (default: 'origin')"),
+    branch: z.string().optional().describe("Branch to pull (default: current)"),
+    rebase: z.boolean().optional().describe("Rebase instead of merge"),
   })
   .strict();
 
@@ -34,8 +31,7 @@ type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createGitPullTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitPullArgs> = {
     name: "git_pull",
-    description:
-      "Download and merge changes from a remote repository into the current branch. Combines git fetch and git merge. Supports rebase mode to maintain linear history. Use to update your local branch with remote changes.",
+    description: "Pull changes from a remote. Supports rebase mode.",
     tags: ["git", "pull"],
     parameters: gitPullParameters,
     validate: (args) => {

@@ -15,6 +15,10 @@ export interface ChatCompletionResponse {
     cacheWriteTokens?: number;
   };
   toolsDisabled?: boolean;
+  /** Estimated character count of tool definitions sent in this request (for telemetry). */
+  toolDefinitionChars?: number;
+  /** Number of tool definitions sent in this request (for telemetry). */
+  toolDefinitionCount?: number;
 }
 
 export interface ChatCompletionOptions {

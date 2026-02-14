@@ -95,6 +95,36 @@ jobs:
             }
 
             if (validComments.length > 0) {
+              // Fetch PR files to determine which are deleted (must use LEFT side for those)
+              const { data: prFiles } = await github.rest.pulls.listFiles({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number
+              });
+              const deletedPaths = new Set(
+                prFiles.filter((f) => f.status === 'removed').map((f) => f.filename)
+              );
+
+              const mapComment = (c) => {
+                const isDeleted = deletedPaths.has(c.path);
+                const side = isDeleted ? 'LEFT' : (c.side || 'RIGHT');
+                const hasValidRange =
+                  Number.isInteger(c.start_line) &&
+                  Number.isInteger(c.line) &&
+                  c.start_line > 0 &&
+                  c.start_line < c.line;
+                return {
+                  path: c.path,
+                  line: c.line,
+                  ...(hasValidRange && {
+                    start_line: c.start_line,
+                    start_side: side
+                  }),
+                  side,
+                  body: c.body
+                };
+              };
+
               await github.rest.pulls.createReview({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -102,119 +132,7 @@ jobs:
                 commit_id: context.payload.pull_request.head.sha,
                 event: 'COMMENT',
                 body: reviewBody,
-                comments: validComments.map(c => ({
-                  path: c.path,
-                  line: c.line,
-                  ...(c.start_line != null && c.start_line > 0 && { start_line: c.start_line, start_side: c.side || 'RIGHT' }),
-                  side: c.side || 'RIGHT',
-                  body: c.body
-                }))
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body: reviewBody
-              });
-            }
-
-  bugbot:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout PR head
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install Jazz
-        run: npm install -g jazz-ai
-
-      - name: Setup Jazz agent and workflow
-        run: |
-          mkdir -p .jazz/agents workflows/bugbot
-          cp .github/jazz/agents/ci-bugbot.json .jazz/agents/
-          sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" \
-            .github/jazz/workflows/bugbot/WORKFLOW.md > workflows/bugbot/WORKFLOW.md
-          echo "--- Substituted workflow ---"
-          cat workflows/bugbot/WORKFLOW.md
-
-      - name: Run bugbot
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CI: "true"
-          JAZZ_DISABLE_CATCH_UP: "1"
-        run: jazz workflow run bugbot --auto-approve --headless --agent ci-bugbot --quiet 2>/dev/null | tee /tmp/jazz-bugbot.txt
-
-      - name: Post bug report comments
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const output = fs.readFileSync('/tmp/jazz-bugbot.txt', 'utf8');
-
-            // Parse JSON from agent output (quad backticks first, then triple)
-            let jsonBlocks = [...output.matchAll(/````json\s*\n([\s\S]*?)````/g)];
-            if (jsonBlocks.length === 0) {
-              jsonBlocks = [...output.matchAll(/```json\s*\n([\s\S]*?)```/g)];
-            }
-
-            let comments = [];
-            try {
-              if (jsonBlocks.length > 0) {
-                comments = JSON.parse(jsonBlocks[jsonBlocks.length - 1][1].trim());
-              }
-            } catch (e) {
-              console.log('Failed to parse JSON:', e.message);
-            }
-
-            if (!Array.isArray(comments) || comments.length === 0) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body: comments.length === 0
-                  ? `## Jazz Bug Detection\n\nNo bugs found.`
-                  : `## Jazz Bug Detection\n\n${output.slice(-60000) || '_No output from bugbot._'}`
-              });
-              return;
-            }
-
-            // Filter to valid inline comments (path must be a real file, line must be positive)
-            const validComments = comments.filter(c =>
-              c.path && c.line > 0 && !c.path.startsWith('/') && c.path !== 'NO_DIFF'
-            );
-
-            // Any comments that couldn't be posted inline become part of the review body
-            const invalidComments = comments.filter(c => !validComments.includes(c));
-            let reviewBody = `## Jazz Bug Detection\n\nFound ${comments.length} potential issue(s).`;
-            if (invalidComments.length > 0) {
-              reviewBody += '\n\n### General Issues\n\n';
-              reviewBody += invalidComments.map(c => `- ${c.body}`).join('\n');
-            }
-
-            if (validComments.length > 0) {
-              await github.rest.pulls.createReview({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.payload.pull_request.number,
-                commit_id: context.payload.pull_request.head.sha,
-                event: 'COMMENT',
-                body: reviewBody,
-                comments: validComments.map(c => ({
-                  path: c.path,
-                  line: c.line,
-                  ...(c.start_line != null && c.start_line > 0 && { start_line: c.start_line, start_side: c.side || 'RIGHT' }),
-                  side: c.side || 'RIGHT',
-                  body: c.body
-                }))
+                comments: validComments.map(mapComment)
               });
             } else {
               await github.rest.issues.createComment({

@@ -121,14 +121,6 @@ export interface AgentResponse {
    * Present when the agent decided to use tools to accomplish the task.
    * Each tool call includes the tool name, arguments, and call ID.
    *
-   * @example
-   * ```typescript
-   * if (response.toolCalls) {
-   *   response.toolCalls.forEach(call => {
-   *     console.log(`Agent called: ${call.function.name}`);
-   *   });
-   * }
-   * ```
    */
   readonly toolCalls?: ToolCall[];
   /**
@@ -136,13 +128,6 @@ export interface AgentResponse {
    * Present when tools were executed during this turn.
    * Contains the results returned by each tool, which may include data, errors, or status information.
    *
-   * @example
-   * ```typescript
-   * if (response.toolResults) {
-   *   const emailResults = response.toolResults["gmail_list_emails"];
-   *   console.log("Emails retrieved:", emailResults);
-   * }
-   * ```
    */
   readonly toolResults?: Record<string, unknown>;
   /**

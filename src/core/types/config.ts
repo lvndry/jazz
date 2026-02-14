@@ -14,11 +14,25 @@ export interface AppConfig {
   readonly mcpServers?: Record<string, MCPServerConfig>;
   readonly notifications?: NotificationsConfig;
   readonly autoApprovedCommands?: readonly string[];
+  readonly telemetry?: TelemetryConfig;
 }
 
 export interface NotificationsConfig {
   readonly enabled?: boolean;
   readonly sound?: boolean;
+}
+
+export interface TelemetryConfig {
+  /** Whether telemetry collection is enabled. Defaults to true. */
+  readonly enabled?: boolean;
+  /** Directory path for telemetry data storage. Defaults to .jazz/telemetry. */
+  readonly storagePath?: string;
+  /** Maximum number of events to buffer in memory before flushing. Defaults to 100. */
+  readonly bufferSize?: number;
+  /** Interval in milliseconds between automatic flushes. Defaults to 30000 (30s). */
+  readonly flushIntervalMs?: number;
+  /** Maximum number of days to retain telemetry data. Defaults to 90. */
+  readonly retentionDays?: number;
 }
 
 export interface MCPServerConfig {

@@ -13,7 +13,7 @@ export function createPwdTool(): Tool<FileSystemContextService> {
   const parameters = z.object({}).strict();
   return defineTool<FileSystemContextService, Record<string, never>>({
     name: "pwd",
-    description: "Print the current working directory for this agent session",
+    description: "Print the current working directory.",
     tags: ["filesystem", "navigation"],
     parameters,
     validate: (args) => {

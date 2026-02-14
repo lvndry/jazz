@@ -15,8 +15,7 @@ export function createListCalendarsTool(): Tool<CalendarService> {
   type ListCalendarsArgs = z.infer<typeof parameters>;
   return defineTool<CalendarService, ListCalendarsArgs>({
     name: "list_calendars",
-    description:
-      "List all calendars accessible to the user including the primary calendar and any subscribed calendars. Returns calendar details including ID, name, timezone, and access permissions. Use to discover available calendars before accessing events.",
+    description: "List all accessible calendars with IDs and metadata.",
     tags: ["calendar", "list"],
     parameters,
     validate: (args) => {

@@ -11,23 +11,16 @@ import { defineTool } from "../base-tool";
 export function createBatchModifyEmailsTool(): Tool<GmailService> {
   const parameters = z
     .object({
-      emailIds: z.array(z.string()).min(1).max(1000).describe("Array of email IDs to modify"),
-      addLabelIds: z
-        .array(z.string())
-        .optional()
-        .describe("Array of label IDs to add to all emails"),
-      removeLabelIds: z
-        .array(z.string())
-        .optional()
-        .describe("Array of label IDs to remove from all emails"),
+      emailIds: z.array(z.string()).min(1).max(1000).describe("Email IDs to modify"),
+      addLabelIds: z.array(z.string()).optional().describe("Label IDs to add"),
+      removeLabelIds: z.array(z.string()).optional().describe("Label IDs to remove"),
     })
     .strict();
 
   type BatchModifyEmailsArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, BatchModifyEmailsArgs>({
     name: "batch_modify_emails",
-    description:
-      "Apply label operations to multiple emails simultaneously (up to 1000 emails). Efficiently add or remove labels across many emails in a single operation. Use for bulk email organization tasks.",
+    description: "Add or remove labels on multiple emails at once (up to 1000).",
     parameters,
     validate: (args) => {
       const params = parameters.safeParse(args);

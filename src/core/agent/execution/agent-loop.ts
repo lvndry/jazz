@@ -10,15 +10,18 @@ import type { ChatMessage, ConversationMessages } from "@/core/types";
 import type { ChatCompletionResponse } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
-import { formatToolResultForContext } from "@/core/utils/tool-result-summarizer";
+import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "../context/context-window-manager";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import {
   beginIteration,
   completeIteration,
+  estimateTokens,
   finalizeAgentRun,
   recordLLMUsage,
+  recordToolDefinitionTokens,
+  recordToolResultTokens,
 } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
@@ -212,6 +215,15 @@ export function executeAgentLoop(
               recordLLMUsage(runMetrics, completion.usage);
             }
 
+            // Record tool definition telemetry
+            if (completion.toolDefinitionChars != null) {
+              recordToolDefinitionTokens(
+                runMetrics,
+                estimateTokens(completion.toolDefinitionChars),
+                completion.toolDefinitionCount ?? 0,
+              );
+            }
+
             if (completion.toolsDisabled) {
               response = { ...response, toolsDisabled: true };
             }
@@ -323,12 +335,21 @@ export function executeAgentLoop(
                       tool_call_id: toolCall.id,
                     });
                   } else {
+                    const formattedResult = formatToolResultForContext(
+                      toolCall.function.name,
+                      result,
+                    );
                     currentMessages.push({
                       role: "tool",
                       name: toolCall.function.name,
-                      content: formatToolResultForContext(toolCall.function.name, result),
+                      content: formattedResult,
                       tool_call_id: toolCall.id,
                     });
+                    recordToolResultTokens(
+                      runMetrics,
+                      toolCall.function.name,
+                      formattedResult.length,
+                    );
                   }
                 }
               }

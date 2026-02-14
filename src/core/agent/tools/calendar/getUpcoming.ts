@@ -20,15 +20,14 @@ export function createGetUpcomingEventsTool(): Tool<CalendarService> {
         .max(50)
         .optional()
         .default(10)
-        .describe("Number of upcoming events to return"),
+        .describe("Max events to return"),
     })
     .strict();
 
   type GetUpcomingEventsArgs = z.infer<typeof parameters>;
   return defineTool<CalendarService, GetUpcomingEventsArgs>({
     name: "get_upcoming_events",
-    description:
-      "Get the next N upcoming events from the calendar, starting from now. Convenient shortcut for seeing what's coming up without specifying time ranges. Returns events in chronological order.",
+    description: "Get the next N upcoming events from now.",
     tags: ["calendar", "list", "upcoming"],
     parameters,
     validate: (args) => {

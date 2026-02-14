@@ -14,12 +14,7 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .optional()
-        .describe(
-          "Path to a file or directory in the Git repository (defaults to current working directory)",
-        ),
+      path: z.string().optional().describe("Repository path (defaults to cwd)"),
     })
     .strict();
 
@@ -27,8 +22,7 @@ export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitStatusArgs>({
     name: "git_status",
-    description:
-      "Display the current Git repository status: current branch, modified files, untracked files, and staged changes. Use this BEFORE git_add or git_commit to see what's changed. Also use after file edits to verify changes were applied correctly. This is a read-only operation with no side effects.",
+    description: "Show current branch, modified files, staged changes, and untracked files.",
     tags: ["git", "status"],
     parameters,
     validate: (args) => {

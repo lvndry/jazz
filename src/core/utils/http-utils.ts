@@ -6,17 +6,6 @@
  * @param error - The unknown error to extract status from
  * @returns The HTTP status code if available, undefined otherwise
  *
- * @example
- * ```ts
- * try {
- *   await googleApiCall();
- * } catch (error) {
- *   const status = getHttpStatusFromError(error);
- *   if (status === 401) {
- *     // Handle authentication error
- *   }
- * }
- * ```
  */
 export function getHttpStatusFromError(error: unknown): number | undefined {
   if (!isRecord(error)) return undefined;

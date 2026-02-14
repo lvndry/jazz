@@ -37,6 +37,10 @@ interface StreamProcessorConfig {
   readonly startTime: number;
   readonly toolsDisabled?: boolean;
   readonly providerNativeToolNames?: Set<string>;
+  /** Estimated character count of tool definitions for telemetry. */
+  readonly toolDefinitionChars?: number;
+  /** Number of tool definitions sent to the LLM. */
+  readonly toolDefinitionCount?: number;
 }
 
 /**
@@ -490,6 +494,12 @@ export class StreamProcessor {
       ...(toolCalls && { toolCalls }),
       ...(usage && { usage }),
       ...(this.config.toolsDisabled ? { toolsDisabled: true } : {}),
+      ...(this.config.toolDefinitionChars != null
+        ? { toolDefinitionChars: this.config.toolDefinitionChars }
+        : {}),
+      ...(this.config.toolDefinitionCount != null
+        ? { toolDefinitionCount: this.config.toolDefinitionCount }
+        : {}),
     };
   }
 

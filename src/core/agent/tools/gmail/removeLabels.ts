@@ -12,16 +12,15 @@ import { formatEmailDetail } from "./utils";
 export function createRemoveLabelsFromEmailTool(): Tool<GmailService> {
   const parameters = z
     .object({
-      emailId: z.string().min(1).describe("ID of the email to remove labels from"),
-      labelIds: z.array(z.string()).min(1).describe("Array of label IDs to remove from the email"),
+      emailId: z.string().min(1).describe("Email ID"),
+      labelIds: z.array(z.string()).min(1).describe("Label IDs to remove"),
     })
     .strict();
 
   type RemoveLabelsFromEmailArgs = z.infer<typeof parameters>;
   return defineTool<GmailService, RemoveLabelsFromEmailArgs>({
     name: "remove_labels_from_email",
-    description:
-      "Remove one or more labels from a specific email. Use to un-categorize emails or clean up label assignments. Multiple labels can be removed in a single operation.",
+    description: "Remove labels from an email.",
     parameters,
     validate: (args) => {
       const params = parameters.safeParse(args);

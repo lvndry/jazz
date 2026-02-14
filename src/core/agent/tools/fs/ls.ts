@@ -10,43 +10,27 @@ import { normalizeFilterPattern, readGitignorePatterns } from "./utils";
 
 /**
  * List directory contents tool.
- *
- * Optimisations over previous implementation:
- * - **fast-glob** instead of sequential `readDirectory` + `stat` per entry.
- *   fast-glob streams entries with native libuv, batches stat calls, and
- *   returns in a single pass — typically 5-10x faster for large trees.
- * - **.gitignore-aware**: honours project .gitignore patterns (node_modules,
- *   .git, build artefacts) so recursive listings stay clean.
- * - **Depth limit**: recursive listings default to depth 10 (configurable)
- *   to prevent accidentally scanning an entire home directory.
- * - Non-recursive mode still uses fast-glob with depth 1 for consistency
- *   and automatic broken-symlink handling.
  */
 
 export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .optional()
-        .describe("Directory path to list (defaults to current directory)"),
-      showHidden: z.boolean().optional().describe("Include hidden files (dotfiles)"),
-      recursive: z.boolean().optional().describe("Recurse into sub-directories"),
-      pattern: z.string().optional().describe("Filter by substring or use 're:<regex>'"),
+      path: z.string().optional().describe("Directory path (defaults to cwd)"),
+      showHidden: z.boolean().optional().describe("Include hidden files"),
+      recursive: z.boolean().optional().describe("Recurse into subdirectories"),
+      pattern: z.string().optional().describe("Name filter (substring or 're:<regex>')"),
       maxResults: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Maximum number of results to return (default: 200, hard cap: 2000)"),
+        .describe("Max results (default: 200, cap: 2000)"),
       maxDepth: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe(
-          "Maximum depth for recursive listing (default: 10). Only meaningful when recursive=true.",
-        ),
+        .describe("Max depth for recursive listing (default: 10)"),
     })
     .strict();
 
@@ -55,7 +39,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
   return defineTool<FileSystem.FileSystem | FileSystemContextService, LsParams>({
     name: "ls",
     description:
-      "List files and directories within a specified path. Uses fast-glob for high performance and respects .gitignore patterns. Supports recursive traversal with configurable depth (default 10), filtering by name patterns (substring or regex), showing hidden files, and limiting results. Defaults to 200 results (hard cap 2000). Returns file/directory names, paths, and types.",
+      "List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, cap 2000.",
     tags: ["filesystem", "listing"],
     parameters,
     validate: (args) => {

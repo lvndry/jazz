@@ -18,7 +18,7 @@ type DeleteCalendarEventArgs = {
 const deleteEventParameters = z
   .object({
     calendarId: z.string().optional().default("primary"),
-    eventId: z.string().min(1).describe("ID of the event to delete"),
+    eventId: z.string().min(1).describe("Event ID"),
     sendNotifications: z.boolean().optional().default(true),
   })
   .strict();
@@ -26,8 +26,7 @@ const deleteEventParameters = z
 export function createDeleteCalendarEventTools(): ApprovalToolPair<CalendarService> {
   const config: ApprovalToolConfig<CalendarService, DeleteCalendarEventArgs> = {
     name: "delete_calendar_event",
-    description:
-      "Permanently delete a calendar event. This action cannot be undone. Use to remove cancelled or incorrect events from the calendar.",
+    description: "Permanently delete a calendar event.",
     tags: ["calendar", "delete"],
     parameters: deleteEventParameters,
     validate: (args) => {

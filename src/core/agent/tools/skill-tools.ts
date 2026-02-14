@@ -13,12 +13,9 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
   return [
     {
       name: "load_skill",
-      description:
-        "Load the full instructions for a specific skill by name. ALWAYS use this tool when the user's request matches a skill's domain (e.g., email, calendar, notes, documentation, commit messages). Loading a skill gives you the complete workflow, best practices, and tool-chaining instructions for that domain. Prefer skills over ad-hoc tool usage whenever a matching skill exists.",
+      description: "Load a skill's full instructions by name.",
       parameters: z.object({
-        skill_name: skillNameSchema.describe(
-          "The exact name of the skill to load, as shown in the available skills list (e.g., 'commit-message', 'email', 'calendar', 'deep-research')",
-        ),
+        skill_name: skillNameSchema.describe("Skill name to load"),
       }),
       hidden: false,
       riskLevel: "read-only",
@@ -45,13 +42,10 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
     },
     {
       name: "load_skill_section",
-      description:
-        "Load a specific section or supplementary file referenced within a skill's instructions. Use this after loading a skill with load_skill when the skill's instructions reference additional files (e.g., reference.md, examples.md, or template files) that you need to complete the task.",
+      description: "Load a supplementary file referenced in a skill's instructions.",
       parameters: z.object({
-        skill_name: skillNameSchema.describe("The name of the skill"),
-        section_name: z
-          .string()
-          .describe("The name/path of the section to load (as referenced in SKILL.md)"),
+        skill_name: skillNameSchema.describe("Skill name"),
+        section_name: z.string().describe("Section name/path to load"),
       }),
       hidden: false,
       riskLevel: "read-only",

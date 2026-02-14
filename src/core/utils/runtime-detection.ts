@@ -48,12 +48,6 @@ import { Effect } from "effect";
  *
  * This separation prevents development from overwriting production data.
  *
- * @example
- * ```typescript
- * const dataDir = getUserDataDirectory();
- * // Global: "/Users/alice/.jazz"
- * // Dev:    "/Users/alice/projects/jazz/.jazz"
- * ```
  */
 export function getUserDataDirectory(): string {
   if (isRunningFromGlobalInstall()) {
@@ -76,12 +70,6 @@ export function getUserDataDirectory(): string {
  *
  * @returns Package root directory, or null if not found
  *
- * @example
- * ```typescript
- * const pkgDir = getPackageRootDirectory();
- * // Global: "/usr/local/lib/node_modules/jazz-ai"
- * // Dev:    "/Users/alice/projects/jazz"
- * ```
  */
 export function getPackageRootDirectory(): string | null {
   try {
@@ -118,12 +106,6 @@ export function getPackageRootDirectory(): string | null {
  *
  * @returns Skills directory path, or null if not found
  *
- * @example
- * ```typescript
- * const skillsDir = getBuiltinSkillsDirectory();
- * // "/usr/local/lib/node_modules/jazz-ai/skills"
- * // or "/Users/alice/projects/jazz/skills"
- * ```
  */
 export function getBuiltinSkillsDirectory(): string | null {
   const packageDir = getPackageRootDirectory();
@@ -147,11 +129,6 @@ export function getBuiltinSkillsDirectory(): string | null {
  *
  * @returns Global skills directory path
  *
- * @example
- * ```typescript
- * const skillsDir = getGlobalSkillsDirectory();
- * // "/Users/alice/.jazz/skills"
- * ```
  */
 export function getGlobalSkillsDirectory(): string {
   const homeDir = os.homedir();
@@ -166,11 +143,6 @@ export function getGlobalSkillsDirectory(): string {
  *
  * @returns Agents skills directory path
  *
- * @example
- * ```typescript
- * const skillsDir = getAgentsSkillsDirectory();
- * // "/Users/alice/.agents/skills"
- * ```
  */
 export function getAgentsSkillsDirectory(): string {
   const homeDir = os.homedir();

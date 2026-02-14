@@ -14,15 +14,14 @@ type DeleteLabelArgs = {
 
 const deleteLabelParameters = z
   .object({
-    labelId: z.string().min(1).describe("ID of the label to delete"),
+    labelId: z.string().min(1).describe("Label ID"),
   })
   .strict();
 
 export function createDeleteLabelTools(): ApprovalToolPair<GmailService> {
   const config: ApprovalToolConfig<GmailService, DeleteLabelArgs> = {
     name: "delete_label",
-    description:
-      "Delete a Gmail label (only user-created labels can be deleted). This action cannot be undone.",
+    description: "Delete a user-created Gmail label. Irreversible.",
     tags: ["gmail", "labels"],
     parameters: deleteLabelParameters,
     validate: (args) => {

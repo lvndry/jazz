@@ -13,7 +13,7 @@ import { buildKeyFromContext } from "../context-utils";
 export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).describe("File path to read (relative to cwd allowed)"),
+      path: z.string().min(1).describe("File path to read"),
       startLine: z.number().int().positive().optional().describe("1-based start line (inclusive)"),
       endLine: z.number().int().positive().optional().describe("1-based end line (inclusive)"),
       maxBytes: z
@@ -21,9 +21,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         .int()
         .positive()
         .optional()
-        .describe(
-          "Maximum number of bytes to return (default: 128KB, hard cap: 512KB). Content is truncated if exceeded.",
-        ),
+        .describe("Max bytes to return (default: 128KB, cap: 512KB)"),
       encoding: z.string().optional().describe("Text encoding (currently utf-8)"),
     })
     .strict();
@@ -33,7 +31,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadFileParams>({
     name: "read_file",
     description:
-      "Read the contents of a text file with optional line range selection (startLine/endLine). Automatically handles UTF-8 BOM, enforces size limits to prevent memory issues (default 128KB, hard cap 512KB), and reports truncation. Returns file content, encoding, line counts, and range information.",
+      "Read a text file with optional line range (startLine/endLine). Handles BOM, enforces size limits.",
     tags: ["filesystem", "read"],
     parameters,
     validate: (args) => {

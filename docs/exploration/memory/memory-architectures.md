@@ -63,6 +63,12 @@ export interface UserPreferences {
   readonly customSettings: Record<string, unknown>;
 }
 
+/**
+ * Facts — declarative knowledge learned from conversations.
+ * Populated by conversation-end refinement: the agent extracts useful context
+ * the user revealed (e.g. "Obsidian vault path is ~/Documents/Obsidian/MyVault",
+ * preferred tools, workflow preferences) and stores as Facts for future sessions.
+ */
 export interface Fact {
   readonly id: string;
   readonly content: string;
@@ -969,17 +975,17 @@ export interface RelevantMemory {
 
 ## Comparison Matrix
 
-| Feature              | File Storage | SQLite   | Vector DB  | Graph DB   | Hybrid     |
-| -------------------- | ------------ | -------- | ---------- | ---------- | ---------- |
-| **Simplicity**       | ⭐⭐⭐⭐⭐   | ⭐⭐⭐⭐ | ⭐⭐       | ⭐         | ⭐⭐       |
-| **Query Speed**      | ⭐           | ⭐⭐⭐⭐ | ⭐⭐⭐     | ⭐⭐⭐     | ⭐⭐⭐⭐   |
-| **Semantic Search**  | ❌           | ❌       | ⭐⭐⭐⭐⭐ | ⭐⭐       | ⭐⭐⭐⭐⭐ |
-| **Relationships**    | ❌           | ⭐⭐     | ❌         | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| **Scalability**      | ⭐⭐         | ⭐⭐⭐   | ⭐⭐⭐⭐   | ⭐⭐⭐     | ⭐⭐⭐⭐   |
-| **Setup Complexity** | ⭐⭐⭐⭐⭐   | ⭐⭐⭐⭐ | ⭐⭐       | ⭐         | ⭐⭐       |
-| **External Deps**    | None         | None     | Optional   | Yes        | Optional   |
-| **Human Readable**   | ✅           | ❌       | ❌         | ❌         | ⭐⭐       |
-| **Cost**             | Free         | Free     | $$         | $$$        | $$         |
+| Feature              | File Storage | SQLite | Vector DB | Graph DB | Hybrid   |
+| -------------------- | ------------ | ------ | --------- | -------- | -------- |
+| **Simplicity**       | ⭐⭐⭐⭐⭐        | ⭐⭐⭐⭐   | ⭐⭐        | ⭐        | ⭐⭐       |
+| **Query Speed**      | ⭐            | ⭐⭐⭐⭐   | ⭐⭐⭐       | ⭐⭐⭐      | ⭐⭐⭐⭐     |
+| **Semantic Search**  | ❌            | ❌      | ⭐⭐⭐⭐⭐     | ⭐⭐       | ⭐⭐⭐⭐⭐    |
+| **Relationships**    | ❌            | ⭐⭐     | ❌         | ⭐⭐⭐⭐⭐    | ⭐⭐⭐⭐⭐    |
+| **Scalability**      | ⭐⭐           | ⭐⭐⭐    | ⭐⭐⭐⭐      | ⭐⭐⭐      | ⭐⭐⭐⭐     |
+| **Setup Complexity** | ⭐⭐⭐⭐⭐        | ⭐⭐⭐⭐   | ⭐⭐        | ⭐        | ⭐⭐       |
+| **External Deps**    | None         | None   | Optional  | Yes      | Optional |
+| **Human Readable**   | ✅            | ❌      | ❌         | ❌        | ⭐⭐       |
+| **Cost**             | Free         | Free   | $$        | $$$      | $$       |
 
 ## Recommended Architecture for Jazz
 

@@ -208,22 +208,6 @@ export interface ApprovalToolPair<R> {
  * - `approval`: Shown to LLM, returns `approvalRequired: true` with the approval message
  * - `execute`: Hidden, contains the actual handler, called by system after user approves
  *
- * @example
- * ```typescript
- * const writeFileTools = defineApprovalTool({
- *   name: "write_file",
- *   description: "Write content to a file",
- *   parameters: writeFileSchema,
- *   approvalMessage: (args) => Effect.succeed(`About to write to ${args.path}`),
- *   handler: (args, context) => Effect.gen(function* () {
- *     return { success: true, result: { path: args.path } };
- *   }),
- * });
- *
- * // Register both tools
- * yield* registerTool(writeFileTools.approval);
- * yield* registerTool(writeFileTools.execute);
- * ```
  */
 export function defineApprovalTool<R, Args extends Record<string, unknown>>(
   config: ApprovalToolConfig<R, Args>,
