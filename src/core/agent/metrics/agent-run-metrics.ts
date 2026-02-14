@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Context, Effect } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
-import type { TelemetryService } from "@/core/interfaces/telemetry";
+import type { TelemetryService, TokenUsage } from "@/core/interfaces/telemetry";
 import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
 import { type Agent } from "@/core/types";
 
@@ -397,6 +397,9 @@ function writeTokenUsageLog(
   });
 }
 
+/** Payload type expected by TelemetryService.recordAgentRunCompleted */
+type AgentRunCompletedPayload = Parameters<TelemetryService["recordAgentRunCompleted"]>[0];
+
 /**
  * Build the telemetry data payload from agent run metrics.
  */
@@ -405,26 +408,34 @@ function buildTelemetryPayload(
   totalTokens: number,
   durationMs: number,
   details: { readonly iterationsUsed: number; readonly finished: boolean },
-): Record<string, unknown> {
-  const usage: Record<string, unknown> = {
+): AgentRunCompletedPayload {
+  const usage: TokenUsage = {
     promptTokens: metrics.totalPromptTokens,
     completionTokens: metrics.totalCompletionTokens,
     totalTokens,
+    ...(metrics.totalReasoningTokens > 0 && { reasoningTokens: metrics.totalReasoningTokens }),
+    ...(metrics.totalCacheReadTokens > 0 && { cacheReadTokens: metrics.totalCacheReadTokens }),
+    ...(metrics.totalCacheWriteTokens > 0 && {
+      cacheWriteTokens: metrics.totalCacheWriteTokens,
+    }),
+    ...(metrics.totalToolDefinitionTokens > 0 && {
+      toolDefinitionTokens: metrics.totalToolDefinitionTokens,
+    }),
+    ...(metrics.totalToolResultTokens > 0 && {
+      toolResultTokens: metrics.totalToolResultTokens,
+    }),
+    ...(metrics.toolDefinitionsOffered > 0 && {
+      toolDefinitionsOffered: metrics.toolDefinitionsOffered,
+    }),
   };
-  if (metrics.totalReasoningTokens > 0) usage["reasoningTokens"] = metrics.totalReasoningTokens;
-  if (metrics.totalCacheReadTokens > 0) usage["cacheReadTokens"] = metrics.totalCacheReadTokens;
-  if (metrics.totalCacheWriteTokens > 0) usage["cacheWriteTokens"] = metrics.totalCacheWriteTokens;
-  if (metrics.totalToolDefinitionTokens > 0)
-    usage["toolDefinitionTokens"] = metrics.totalToolDefinitionTokens;
-  if (metrics.totalToolResultTokens > 0) usage["toolResultTokens"] = metrics.totalToolResultTokens;
-  if (metrics.toolDefinitionsOffered > 0)
-    usage["toolDefinitionsOffered"] = metrics.toolDefinitionsOffered;
 
-  const data: Record<string, unknown> = {
+  return {
     runId: metrics.runId,
     agentId: metrics.agentId,
     agentName: metrics.agentName,
     conversationId: metrics.conversationId,
+    ...(metrics.provider && { provider: metrics.provider }),
+    ...(metrics.model && { model: metrics.model }),
     durationMs,
     iterationsUsed: details.iterationsUsed,
     finished: details.finished,
@@ -432,10 +443,6 @@ function buildTelemetryPayload(
     toolCalls: metrics.toolCalls,
     toolErrors: metrics.toolErrors,
   };
-  if (metrics.provider) data["provider"] = metrics.provider;
-  if (metrics.model) data["model"] = metrics.model;
-
-  return data;
 }
 
 /**
@@ -461,11 +468,7 @@ function emitAgentRunTelemetry(
     const telemetry = maybeTelemetry.value;
     const payload = buildTelemetryPayload(metrics, totalTokens, durationMs, details);
 
-    return telemetry
-      .recordAgentRunCompleted(
-        payload as Parameters<TelemetryService["recordAgentRunCompleted"]>[0],
-      )
-      .pipe(Effect.catchAll(() => Effect.void));
+    return telemetry.recordAgentRunCompleted(payload).pipe(Effect.catchAll(() => Effect.void));
   }).pipe(Effect.catchAll(() => Effect.void));
 }
 
