@@ -18,24 +18,76 @@ If the diff is large or truncated, re-run scoped to individual files using the `
 
 Use the `code-review` skill for the full review checklist. This review is the single gate for PR quality—catch bugs (logic errors, null dereferences, race conditions, regressions), error-handling gaps, and security issues as part of your review.
 
+## Project Context
+
+**Jazz** is an agentic automation CLI that empowers users to create, manage, and orchestrate autonomous AI agents for complex workflows. Think of it as your personal army of AI assistants that can handle everything from email management to code deployment.
+
+### Tech Stack
+
+- **Runtime**: Bun (NOT Node.js/npm) - all scripts use `bun` commands
+- **Language**: 100% TypeScript with strict mode
+- **Framework**: Effect-TS for functional programming, error handling, and dependency injection
+- **Package Manager**: Bun
+- **Testing**: Bun's built-in test runner
+- **Build**: Custom build scripts using Bun
+
+### Key Architecture Patterns
+
+- Effect-TS Layers for dependency injection
+- Schema for runtime validation
+- Functional, immutable, composable code
+- CLI-first design with Commander.js
+- Rendering using Ink
+- Multi-LLM support (OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama)
+
 ## Jazz-Specific Review Focus
 
 In addition to the code-review checklist, pay special attention to:
 
 ### TypeScript & Effect-TS
+
 - Follow TypeScript and Effect-TS best practices. Avoid `any`.
 
 ### Jazz UX Impact
+
 - **CLI-first**: Changes affect the CLI experience—clear output, sensible defaults, helpful errors?
 - **Agent workflow**: How does this fit into agent workflows? Could it confuse or frustrate users running agents headlessly?
 - **Graceful failure**: When things go wrong, does the user get actionable feedback? No cryptic stack traces or silent failures?
 - **User intent**: Does the change align with "automation should be intelligent, not just mechanical"?
 
 ### Long-Term Maintainability
+
 - **Extensibility**: Is this easy to extend or will it require large refactors later?
 - **Documentation**: Public APIs and non-obvious logic documented? Outdated docs removed?
 - **Coupling**: Dependencies clear and minimal? Effect layers used properly?
 - **Testing**: New behavior covered? Error paths and edge cases tested?
+
+## Review Guidelines
+
+### What To Do (✅)
+
+- ✅ **DO verify the tech stack** - Check `package.json` scripts and dependencies before flagging tool mismatches
+- ✅ **DO understand the environment** - CI workflows (`.github/workflows/`) may intentionally use different tooling than local dev. Check what dependencies are explicitly installed in the workflow (e.g., Node.js for `npm version`)
+- ✅ **DO focus on real bugs** - Logic errors, null/undefined dereferences, race conditions, off-by-one errors, incorrect error handling
+- ✅ **DO check security vulnerabilities** - path traversal, command injection, insecure credential storage, exposed secrets
+- ✅ **DO verify Effect-TS patterns** - Proper use of Effect.gen, Layer composition, Schema validation, tagged errors
+- ✅ **DO flag performance issues** - N+1 queries, unnecessary loops, inefficient algorithms, missing caching, memory leaks
+- ✅ **DO check error handling** - All Effect operations have proper error paths, user-facing errors are actionable, no silent failures
+- ✅ **DO verify type safety** - No `any` types, proper union/intersection types, correct discriminated unions, strict null checks
+- ✅ **DO check for regressions** - Does this change break existing functionality? Are edge cases handled? Are tests updated?
+- ✅ **DO verify user experience** - CLI output is clear and helpful, error messages are actionable, agent workflows make sense
+- ✅ **DO check resource cleanup** - File handles closed, connections released, Effect resources properly scoped, no dangling promises
+- ✅ **DO validate inputs** - User inputs validated with Schema, boundary conditions checked, sanitization applied
+- ✅ **DO check concurrency issues** - Proper use of Effect concurrency primitives, no race conditions, atomicity guaranteed where needed
+- ✅ **DO verify documentation** - Public APIs documented, complex logic explained, TODOs addressed, outdated comments removed
+
+### What NOT To Do (❌)
+
+- ❌ **DON'T bikeshed style** - Focus on correctness, not formatting preferences (that's what Prettier is for)
+- ❌ **DON'T flag intentional design** - If the code follows established patterns in the codebase, don't suggest arbitrary alternatives
+- ❌ **DON'T make assumptions** - Read surrounding code, check imports, understand context before commenting
+
+**When in doubt**: Read the surrounding code and project files to understand the context. Don't flag issues based on assumptions about the tech stack.
 
 ## Output Format
 

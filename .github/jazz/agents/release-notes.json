@@ -1,7 +1,7 @@
 {
-  "id": "ci-reviewer",
-  "name": "ci-reviewer",
-  "description": "CI code review agent",
+  "id": "release-notes",
+  "name": "release-notes",
+  "description": "Release notes generator agent",
   "model": "openai/gpt-5.2-codex",
   "config": {
     "agentType": "coder",
@@ -16,8 +16,8 @@
       "read_file",
       "git_diff",
       "git_log",
+      "git_tag_list",
       "http_request",
-      "web_search",
       "load_skill",
       "load_skill_section",
       "context_info",

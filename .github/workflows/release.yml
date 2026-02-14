@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Bump version & create tag
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.bump.outputs.new_tag }}
+      previous_tag: ${{ steps.bump.outputs.previous_tag }}
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          echo "tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version
+        id: bump
+        run: |
+          npm version ${{ inputs.version_type }} --no-git-tag-version
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          NEW_TAG="v${NEW_VERSION}"
+          git add package.json
+          git commit -m "${NEW_VERSION}"
+          git tag -a "${NEW_TAG}" -m "${NEW_TAG}"
+          git push origin main --follow-tags
+          echo "new_tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=${{ steps.prev_tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Generate release notes & create release
+    needs: tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.tag.outputs.new_tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Jazz
+        run: npm install -g jazz-ai
+
+      - name: Setup Jazz agent and workflow
+        env:
+          NEW_TAG: ${{ needs.tag.outputs.new_tag }}
+          PREVIOUS_TAG: ${{ needs.tag.outputs.previous_tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p .jazz/agents workflows/release-notes
+          cp .github/jazz/agents/release-notes.json .jazz/agents/
+          sed -e "s/__NEW_TAG__/$NEW_TAG/g" -e "s/__PREVIOUS_TAG__/$PREVIOUS_TAG/g" -e "s|__REPO__|$REPO|g" \
+            .github/jazz/workflows/release-notes/WORKFLOW.md > workflows/release-notes/WORKFLOW.md
+          echo "--- Substituted workflow ---"
+          cat workflows/release-notes/WORKFLOW.md
+
+      - name: Generate release notes
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CI: "true"
+          JAZZ_DISABLE_CATCH_UP: "1"
+        run: |
+          set -euo pipefail
+          jazz workflow run release-notes --auto-approve --headless --agent release-notes --quiet \
+            | tee /tmp/jazz-release-notes.txt || true
+
+      - name: Create GitHub release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/jazz-release-notes.txt', 'utf8');
+
+            // Extract markdown from fenced code blocks (quad backticks first, then triple)
+            let mdBlocks = [...output.matchAll(/````markdown\s*\n([\s\S]*?)````/g)];
+            if (mdBlocks.length === 0) {
+              mdBlocks = [...output.matchAll(/```markdown\s*\n([\s\S]*?)```/g)];
+            }
+
+            let releaseBody;
+            if (mdBlocks.length > 0) {
+              releaseBody = mdBlocks[mdBlocks.length - 1][1].trim();
+            } else {
+              // Fallback: use everything after the last "---" separator or the raw output
+              const parts = output.split(/^---+$/m);
+              releaseBody = (parts[parts.length - 1] || output).trim().slice(-60000);
+            }
+
+            if (!releaseBody) {
+              releaseBody = '_Release notes could not be generated. See commit history for changes._';
+            }
+
+            const tag = '${{ needs.tag.outputs.new_tag }}';
+
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: tag,
+              body: releaseBody,
+              draft: false,
+              prerelease: false
+            });
+
+            console.log(`Release ${tag} created successfully.`);
