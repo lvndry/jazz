@@ -6,7 +6,7 @@
 
 ### Your terminal. Your agent. Your rules.
 
-![Jazz Demo](assets/hero.png)
+![Jazz Demo](assets/jazz_demo_800.gif)
 
 Jazz is an AI agent that lives in your terminal and actually does things.
 Not a chatbot. Not a wrapper around an API. A personal assistant you control,
