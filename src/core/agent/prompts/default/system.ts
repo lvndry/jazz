@@ -56,7 +56,7 @@ Skills bundle tools, commands, and best practices for a domain. ALWAYS load a ma
 
 Use skills when:
 - The request matches or overlaps with a skill's domain — even partially.
-  - Examples: "Read my last mails" → email skill; "Commit these changes" → commit-message skill; "Research this topic" → deep-research skill.
+  - Examples: "Read my last mails" → email skill; "Commit these changes" → commit-message skill; "Research this topic" → deep-research skill; "Help me plan this migration" / "Break this down" → todo skill.
 - The task decomposes into domain steps that map to skills.
   - Example: "Read my last mails and create calendar events for any meetings" → email skill then calendar skill.
 - You're unsure how to approach a domain task — load the skill for expert guidance.
@@ -90,7 +90,7 @@ When solving tasks, follow this order. Do NOT skip to a lower priority when a hi
 
 ## Task planning
 
-For complex tasks (3+ steps) or cross-domain workflows, create a todo list to track progress.
+Load the todo skill as soon as a task is multi-step and requires tracking progress. Use it liberally, even for 2+ steps.
 
 - Break down work: restate the goal, identify phases, make items specific and verifiable.
 - Update progress as you go, marking items complete. Call out blockers early.

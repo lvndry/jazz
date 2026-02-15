@@ -6,7 +6,7 @@
  * - Navigation: pwd, cd, ls, stat
  * - Read: readFile, readPdf, head, tail
  * - Search: grep, find
- * - Write: writeFile, editFile, mkdir, rm (approval required)
+ * - Write: writeFile, editFile, mkdir, rm, mv, cp (approval required)
  *
  * Search tools have clear, non-overlapping purposes:
  * - **find**: Locate files/directories by name, glob, or path pattern.
@@ -17,12 +17,14 @@
 
 // Re-export from individual tool modules
 import { createCdTool } from "./cd";
+import { createCpTools } from "./cp";
 import { createEditFileTools } from "./edit";
 import { createFindTool } from "./find";
 import { createGrepTool } from "./grep";
 import { createHeadTool } from "./head";
 import { createLsTool } from "./ls";
 import { createMkdirTools } from "./mkdir";
+import { createMvTools } from "./mv";
 import { createPdfPageCountTool } from "./pdfPageCount";
 import { createPwdTool } from "./pwd";
 import { createReadFileTool } from "./read";
@@ -37,6 +39,8 @@ const writeFileTools = createWriteFileTools();
 const editFileTools = createEditFileTools();
 const mkdirTools = createMkdirTools();
 const rmTools = createRmTools();
+const mvTools = createMvTools();
+const cpTools = createCpTools();
 
 /**
  * Filesystem tools namespace
@@ -112,17 +116,25 @@ export const fs = {
 
   /** Remove files or directories - returns { approval, execute, all() } */
   rm: () => rmTools,
+
+  /** Move or rename a file or directory - returns { approval, execute, all() } */
+  mv: () => mvTools,
+
+  /** Copy a file or directory - returns { approval, execute, all() } */
+  cp: () => cpTools,
 } as const;
 
 // Export tool creators for direct access
 export {
   createCdTool,
+  createCpTools,
   createEditFileTools,
   createFindTool,
   createGrepTool,
   createHeadTool,
   createLsTool,
   createMkdirTools,
+  createMvTools,
   createPwdTool,
   createReadFileTool,
   createReadPdfTool,

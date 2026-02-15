@@ -3,6 +3,52 @@ import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
 
+const DAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+/**
+ * Create the get_time tool for current date/time awareness.
+ * Returns ISO timestamp, local date, day of week, and timezone for scheduling and relative time reasoning.
+ */
+export function createGetTimeTool(): Tool<never> {
+  return {
+    name: "get_time",
+    description:
+      "Get current date and time. Use for scheduling, relative times (yesterday, next Monday), and timestamps.",
+    parameters: z.object({}).strict(),
+    riskLevel: "read-only",
+    hidden: false,
+    createSummary: undefined,
+    execute: () => {
+      const now = new Date();
+      const iso = now.toISOString();
+      const dayOfWeek = DAYS[now.getDay()];
+      const localDate = now.toLocaleDateString();
+      const localTime = now.toLocaleTimeString();
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+      return Effect.succeed({
+        success: true,
+        result: {
+          iso,
+          timestamp: now.getTime(),
+          dayOfWeek,
+          localDate,
+          localTime,
+          timezone,
+        },
+      } satisfies ToolExecutionResult);
+    },
+  };
+}
+
 /**
  * Create the context_info tool for token budget awareness.
  * Allows agents to query current context window usage statistics.

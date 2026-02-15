@@ -26,6 +26,18 @@ When multiple approaches exist, follow this strict priority:
 
 ## Tool-specific notes
 
+### Skills: when to load todo vs deep-research (users rarely say "use todo" or "use deep research")
+
+Load the todo skill as soon as the task is multi-step and requires tracking progress. Prefer over-use over under-use — use it liberally.
+- Any multi-step work (2+ steps), planning, breakdown, or tracking — even if the user doesn't say "todo" or "plan"
+- Examples: "help me plan this", "break this down", "deploy this", "refactor that", "investigate the bug", "setup X", "migrate from A to B"
+- When in doubt, load it — a small todo list is harmless; forgetting steps is worse
+
+Load the deep-research skill when the user needs comprehensive, multi-source investigation — even if they don't say "research":
+- Complex questions: "what's the current state of X", "compare A vs B", "why does X happen", "how does Y work in practice"
+- Conflicting or nuanced topics: fact-checking, expert-level analysis, cross-domain synthesis
+- Report-style requests: "comprehensive analysis", "investigate thoroughly", "deep dive into"
+
 - web_search: Refine queries to be specific. Bad: "Total" → Good: "French energy company Total website". Use fromDate/toDate for time-sensitive topics.
 - write_file vs edit_file: write_file for new files or full rewrites. edit_file for surgical changes to existing files.
 - edit_file: Supports 4 operation types: replace_lines (use line numbers from read_file/grep), replace_pattern (literal or regex find-replace, set count=-1 for all occurrences), insert (afterLine=0 inserts before first line), and delete_lines. Operations apply in order.
@@ -34,7 +46,7 @@ When multiple approaches exist, follow this strict priority:
 - git workflow: Run git_status before git_add/git_commit. Use git_diff with staged:true to review before committing. The path param on all git tools defaults to cwd.
 - git_checkout force / git_push force: Destructive — discards uncommitted changes or overwrites remote history. Only use when explicitly requested.
 - PDFs: Use pdf_page_count first, then read_pdf in 10-20 page chunks (via pages param) to avoid context overload.
-- execute_command: Timeout defaults to 30s. Dangerous commands (rm -rf, sudo, fork bombs, etc.) are blocked. Use only for build tools, test runners, package managers, and project-specific scripts.
+- execute_command: Timeout defaults to 30s. Dangerous commands (rm -rf, sudo, fork bombs, etc.) are blocked. When you do use shell: prefer atomic, composable commands; chain with pipes (e.g. cat file | grep pattern | head -n 5, or jq for JSON).
 - http_request: Body supports 3 types: json (serialized automatically), text (plain text), form (URL-encoded). Content-Type is set automatically based on body type.
 - spawn_subagent: Use persona 'coder' for code search/editing/git tasks, 'researcher' for web search/information gathering, 'default' for general tasks. Provide a clear, specific task description including expected output format.
 

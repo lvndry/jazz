@@ -14,7 +14,7 @@ import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import type { ToolCategory } from "@/core/types";
 import type { MCPTool } from "@/core/types/mcp";
 import { toPascalCase } from "@/core/utils/string";
-import { createContextInfoTool } from "./context-tools";
+import { createContextInfoTool, createGetTimeTool } from "./context-tools";
 import { fs } from "./fs";
 import { git } from "./git";
 import { createHttpRequestTool } from "./http-tools";
@@ -591,6 +591,14 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     const rmTools = fs.rm();
     yield* registerTool(rmTools.approval);
     yield* registerTool(rmTools.execute);
+
+    const mvTools = fs.mv();
+    yield* registerTool(mvTools.approval);
+    yield* registerTool(mvTools.execute);
+
+    const cpTools = fs.cp();
+    yield* registerTool(cpTools.approval);
+    yield* registerTool(cpTools.execute);
   });
 }
 
@@ -688,6 +696,7 @@ export function registerContextTools(): Effect.Effect<void, Error, ToolRegistry>
     const registerTool = registry.registerForCategory(CONTEXT_CATEGORY);
 
     yield* registerTool(createContextInfoTool());
+    yield* registerTool(createGetTimeTool());
   });
 }
 
