@@ -12,12 +12,6 @@ import { buildKeyFromContext } from "../context-utils";
  * Uses defineApprovalTool to create approval + execution pair.
  */
 
-type MvArgs = {
-  source: string;
-  destination: string;
-  force?: boolean;
-};
-
 const mvParameters = z
   .object({
     source: z.string().min(1).describe("Path to move (file or directory)"),
@@ -25,6 +19,8 @@ const mvParameters = z
     force: z.boolean().optional().describe("Overwrite destination if it exists (default: false)"),
   })
   .strict();
+
+type MvArgs = z.infer<typeof mvParameters>;
 
 type MvDeps = FileSystem.FileSystem | FileSystemContextService;
 
@@ -39,9 +35,10 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
     parameters: mvParameters,
     validate: (args) => {
       const result = mvParameters.safeParse(args);
-      return result.success
-        ? { valid: true, value: result.data as MvArgs }
-        : { valid: false, errors: result.error.issues.map((i) => i.message) };
+      if (result.success) {
+        return { valid: true, value: result.data };
+      }
+      return { valid: false, errors: result.error.issues.map((i) => i.message) };
     },
 
     approvalMessage: (args: MvArgs, context: ToolExecutionContext) =>
@@ -68,39 +65,43 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
           { skipExistenceCheck: true },
         );
 
-        try {
-          // Safeguards: refuse moving root or home
-          if (source === "/" || source === process.env["HOME"]) {
-            return {
-              success: false,
-              result: null,
-              error: `Refusing to move critical path: ${source}`,
-            };
-          }
-
-          // If destination exists and force is false, fail
-          if (args.force !== true) {
-            const destExists = yield* fs
-              .exists(destination)
-              .pipe(Effect.catchAll(() => Effect.succeed(false)));
-            if (destExists) {
-              return {
-                success: false,
-                result: null,
-                error: `Destination exists: ${destination}. Use force: true to overwrite.`,
-              };
-            }
-          }
-
-          yield* fs.rename(source, destination);
-          return { success: true, result: `Moved: ${source} → ${destination}` };
-        } catch (error) {
+        // Safeguards: refuse moving root or home
+        if (source === "/" || source === process.env["HOME"]) {
           return {
             success: false,
             result: null,
-            error: `mv failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `Refusing to move critical path: ${source}`,
           };
         }
+
+        // If destination exists and force is false, fail
+        const destExists = yield* fs
+          .exists(destination)
+          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+        if (destExists && args.force !== true) {
+          return {
+            success: false,
+            result: null,
+            error: `Destination exists: ${destination}. Use force: true to overwrite.`,
+          };
+        }
+
+        // When force is true and destination exists, remove it first — rename() does not overwrite on Unix
+        if (destExists && args.force === true) {
+          yield* fs.remove(destination, { recursive: true });
+        }
+
+        return yield* fs.rename(source, destination).pipe(
+          Effect.map(() => ({ success: true, result: `Moved: ${source} → ${destination}` })),
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: `mv failed: ${error instanceof Error ? error.message : String(error)}`,
+            }),
+          ),
+        );
       }),
   };
 
