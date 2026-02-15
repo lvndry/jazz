@@ -66,14 +66,14 @@ export function getUserDataDirectory(): string {
  * This is used to locate built-in assets (skills, templates, etc.) that ship
  * with the Jazz package. Works for both global installs and development mode.
  *
- * Detection: Walks up from __dirname looking for package.json with name "jazz-ai"
+ * Detection: Walks up from import.meta.dirname looking for package.json with name "jazz-ai"
  *
  * @returns Package root directory, or null if not found
  *
  */
 export function getPackageRootDirectory(): string | null {
   try {
-    let currentDir = path.resolve(__dirname);
+    let currentDir = path.resolve(import.meta.dirname);
     const root = path.parse(currentDir).root;
 
     while (currentDir !== root) {
@@ -209,9 +209,10 @@ export function getGlobalWorkflowsDirectory(): string {
  *
  */
 export function isRunningFromGlobalInstall(): boolean {
-  const pathsToCheck = [process.argv[1] ? path.resolve(process.argv[1]) : null, __dirname].filter(
-    (p): p is string => p !== null,
-  );
+  const pathsToCheck = [
+    process.argv[1] ? path.resolve(process.argv[1]) : null,
+    import.meta.dirname,
+  ].filter((p): p is string => p !== null && p !== undefined);
 
   for (const checkPath of pathsToCheck) {
     try {
