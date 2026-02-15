@@ -65,6 +65,17 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
           { skipExistenceCheck: true },
         );
 
+        // Guard: destination must not be inside source (prevents moving dir into itself)
+        const normalizedSource = source.endsWith("/") ? source : `${source}/`;
+        const normalizedDest = destination.endsWith("/") ? destination : `${destination}/`;
+        if (normalizedDest.startsWith(normalizedSource)) {
+          return {
+            success: false,
+            result: null,
+            error: `Destination must not be within source: ${destination}`,
+          };
+        }
+
         // Safeguards: refuse moving root or home
         if (source === "/" || source === process.env["HOME"]) {
           return {

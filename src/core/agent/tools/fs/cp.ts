@@ -66,18 +66,32 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
           { skipExistenceCheck: true },
         );
 
-        // If destination exists and force is false, fail
-        if (args.force !== true) {
-          const destExists = yield* fs
-            .exists(destination)
-            .pipe(Effect.catchAll(() => Effect.succeed(false)));
-          if (destExists) {
-            return {
-              success: false,
-              result: null,
-              error: `Destination exists: ${destination}. Use force: true to overwrite.`,
-            };
-          }
+        // Guard: destination must not be inside source (prevents endless recursion)
+        const normalizedSource = source.endsWith("/") ? source : `${source}/`;
+        const normalizedDest = destination.endsWith("/") ? destination : `${destination}/`;
+        if (normalizedDest.startsWith(normalizedSource)) {
+          return {
+            success: false,
+            result: null,
+            error: `Destination must not be within source: ${destination}`,
+          };
+        }
+
+        // Destination exists: fail unless force; when force, remove first for true overwrite (not merge)
+        const destExists = yield* fs
+          .exists(destination)
+          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+        if (destExists && args.force !== true) {
+          return {
+            success: false,
+            result: null,
+            error: `Destination exists: ${destination}. Use force: true to overwrite.`,
+          };
+        }
+
+        if (destExists && args.force === true) {
+          yield* fs.remove(destination, { recursive: true });
         }
 
         // copy() handles both files and dirs (equivalent to cp -r)
