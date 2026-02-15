@@ -3,6 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
+  getBuiltinSkillsDirectory,
+  getBuiltinWorkflowsDirectory,
+  getPackageRootDirectory,
   getUserDataDirectory,
   isRunningFromGlobalInstall,
   isRunningInDevelopmentMode,
@@ -379,6 +382,99 @@ describe("Runtime Detection", () => {
 
       expect(isRunningFromGlobalInstall()).toBe(true);
       expect(getUserDataDirectory()).toBe(path.join(homeDir, ".jazz"));
+    });
+  });
+
+  describe("getPackageRootDirectory", () => {
+    it("should find the jazz-ai package root from the source tree", () => {
+      const result = getPackageRootDirectory();
+
+      expect(result).not.toBeNull();
+      // The returned directory should contain a package.json with name "jazz-ai"
+      const pkgPath = path.join(result!, "package.json");
+      expect(fs.existsSync(pkgPath)).toBe(true);
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      expect(pkg.name).toBe("jazz-ai");
+    });
+
+    it("should return a directory that actually exists", () => {
+      const result = getPackageRootDirectory();
+
+      expect(result).not.toBeNull();
+      expect(fs.statSync(result!).isDirectory()).toBe(true);
+    });
+
+    it("should return a stable result across multiple calls", () => {
+      const first = getPackageRootDirectory();
+      const second = getPackageRootDirectory();
+
+      expect(first).toBe(second);
+    });
+  });
+
+  describe("getBuiltinSkillsDirectory", () => {
+    it("should find the builtin skills directory", () => {
+      const result = getBuiltinSkillsDirectory();
+
+      expect(result).not.toBeNull();
+      expect(fs.statSync(result!).isDirectory()).toBe(true);
+    });
+
+    it("should be a 'skills' subdirectory of the package root", () => {
+      const packageRoot = getPackageRootDirectory();
+      const skillsDir = getBuiltinSkillsDirectory();
+
+      expect(packageRoot).not.toBeNull();
+      expect(skillsDir).not.toBeNull();
+      expect(skillsDir).toBe(path.join(packageRoot!, "skills"));
+    });
+
+    it("should contain SKILL.md files", () => {
+      const skillsDir = getBuiltinSkillsDirectory();
+
+      expect(skillsDir).not.toBeNull();
+      const entries = fs.readdirSync(skillsDir!);
+      // There should be at least one skill directory
+      expect(entries.length).toBeGreaterThan(0);
+
+      // At least one entry should contain a SKILL.md file
+      const hasSkillMd = entries.some((entry) => {
+        const skillMdPath = path.join(skillsDir!, entry, "SKILL.md");
+        return fs.existsSync(skillMdPath);
+      });
+      expect(hasSkillMd).toBe(true);
+    });
+  });
+
+  describe("getBuiltinWorkflowsDirectory", () => {
+    it("should find the builtin workflows directory", () => {
+      const result = getBuiltinWorkflowsDirectory();
+
+      expect(result).not.toBeNull();
+      expect(fs.statSync(result!).isDirectory()).toBe(true);
+    });
+
+    it("should be a 'workflows' subdirectory of the package root", () => {
+      const packageRoot = getPackageRootDirectory();
+      const workflowsDir = getBuiltinWorkflowsDirectory();
+
+      expect(packageRoot).not.toBeNull();
+      expect(workflowsDir).not.toBeNull();
+      expect(workflowsDir).toBe(path.join(packageRoot!, "workflows"));
+    });
+
+    it("should contain WORKFLOW.md files", () => {
+      const workflowsDir = getBuiltinWorkflowsDirectory();
+
+      expect(workflowsDir).not.toBeNull();
+      const entries = fs.readdirSync(workflowsDir!);
+      expect(entries.length).toBeGreaterThan(0);
+
+      const hasWorkflowMd = entries.some((entry) => {
+        const workflowMdPath = path.join(workflowsDir!, entry, "WORKFLOW.md");
+        return fs.existsSync(workflowMdPath);
+      });
+      expect(hasWorkflowMd).toBe(true);
     });
   });
 });
