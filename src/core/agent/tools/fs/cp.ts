@@ -81,18 +81,20 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
         }
 
         // copy() handles both files and dirs (equivalent to cp -r)
-        return yield* fs.copy(source, destination, {
-          overwrite: args.force === true,
-        }).pipe(
-          Effect.map(() => ({ success: true, result: `Copied: ${source} → ${destination}` })),
-          Effect.catchAll((error) =>
-            Effect.succeed({
-              success: false,
-              result: null,
-              error: `cp failed: ${error instanceof Error ? error.message : String(error)}`,
-            }),
-          ),
-        );
+        return yield* fs
+          .copy(source, destination, {
+            overwrite: args.force === true,
+          })
+          .pipe(
+            Effect.map(() => ({ success: true, result: `Copied: ${source} → ${destination}` })),
+            Effect.catchAll((error) =>
+              Effect.succeed({
+                success: false,
+                result: null,
+                error: `cp failed: ${error instanceof Error ? error.message : String(error)}`,
+              }),
+            ),
+          );
       }),
   };
 
