@@ -10,6 +10,8 @@ Jazz comes with a suite of strict, type-safe tools that agents can use.
 - `write_file`: Create or overwrite a file.
 - `list_dir`: List files in a directory.
 - `grep_search`: Search for patterns in files.
+- `mv`: Move or rename a file or directory.
+- `cp`: Copy a file or directory.
 
 ### Git
 

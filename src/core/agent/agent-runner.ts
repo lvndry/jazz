@@ -99,6 +99,7 @@ function initializeAgentRun(
       "ask_file_picker",
       "spawn_subagent",
       "summarize_context",
+      "get_time",
     ] as const;
 
     const BUILT_IN_TOOLS = (() => {

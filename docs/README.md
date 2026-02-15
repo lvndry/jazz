@@ -13,8 +13,6 @@ Complete documentation for Jazz - Your AI agent that actually does things.
 
 ## 📚 Documentation Overview
 
-
-
 1. **[Getting Started](getting-started.md)** - Install Jazz, create your first agent, and start chatting
    - Installation instructions
    - Configuration setup

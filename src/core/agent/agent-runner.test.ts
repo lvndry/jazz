@@ -78,6 +78,7 @@ const mockToolRegistry = {
       "ask_file_picker",
       "spawn_subagent",
       "summarize_context",
+      "get_time",
     ]),
   ),
   getTool: mock((name: string) =>
