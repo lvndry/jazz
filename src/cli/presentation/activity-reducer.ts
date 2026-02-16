@@ -90,6 +90,15 @@ export interface ReducerAccumulator {
   _cachedReasoningInput: string;
   /** Cached formatted result for reasoning */
   _cachedReasoningOutput: string;
+
+  /**
+   * Whether we've already printed the streaming response header ("X is responding…")
+   * into Static output for the current response.
+   *
+   * This keeps the header visually attached to the response content even when
+   * earlier paragraphs are flushed into <Static> during long streaming.
+   */
+  responseHeaderPrinted: boolean;
 }
 
 export function createAccumulator(agentName: string): ReducerAccumulator {
@@ -105,14 +114,19 @@ export function createAccumulator(agentName: string): ReducerAccumulator {
     currentProvider: null,
     currentModel: null,
     flushedTextOffset: 0,
+
+    // ── Markdown formatting cache ──────────────────────────────────────
     _cachedDisplayTextInput: "",
     _cachedDisplayTextOutput: "",
     _cachedReasoningInput: "",
     _cachedReasoningOutput: "",
+
+    responseHeaderPrinted: false,
   };
 }
 
 // ---------------------------------------------------------------------------
+
 // Reducer result
 // ---------------------------------------------------------------------------
 
@@ -187,6 +201,22 @@ function findSafeFlushPoint(text: string, startOffset: number, maxLiveChars: num
   if (lastNewline > startOffset) return lastNewline;
   // Tier 3: hard boundary — just flush everything beyond maxLiveChars
   return searchEnd;
+}
+
+function renderStreamingResponseHeader(agentName: string): React.ReactElement {
+  return React.createElement(
+    Box,
+    { flexDirection: "column", paddingLeft: 2, marginTop: 1 },
+    React.createElement(
+      Box,
+      {},
+      React.createElement(Text, { color: THEME.agent }, "…"),
+      React.createElement(Text, {}, " "),
+      React.createElement(Text, { bold: true, color: THEME.agent }, agentName),
+      React.createElement(Text, { dimColor: true }, " is responding…"),
+    ),
+    React.createElement(Text, { dimColor: true }, "─".repeat(40)),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +314,7 @@ export function reduceEvent(
       });
       outputs.push({
         type: "log",
-        message: chalk.dim("(Tip: Press Ctrl+I to stop generation)"),
+        message: chalk.dim("(Tip: Double-Press Esc to stop generation)"),
         timestamp: new Date(),
       });
 
@@ -326,8 +356,8 @@ export function reduceEvent(
               React.createElement(Text, { dimColor: true, italic: true }, "▸ Reasoning"),
               React.createElement(
                 Box,
-                { marginTop: 0, paddingLeft: 1 },
-                React.createElement(Text, { dimColor: true, wrap: "wrap" }, formattedReasoning),
+                { marginTop: 0, paddingLeft: 1, flexDirection: "column" },
+                React.createElement(Text, { dimColor: true, wrap: "truncate" }, formattedReasoning),
               ),
             ),
           ),
@@ -367,6 +397,9 @@ export function reduceEvent(
     // ---- Text content ---------------------------------------------------
 
     case "text_start": {
+      // Reset for a new response stream
+      acc.responseHeaderPrinted = false;
+
       // If reasoning was produced, log a separator before the response
       if (acc.completedReasoning.trim().length > 0) {
         outputs.push({
@@ -382,11 +415,32 @@ export function reduceEvent(
           timestamp: new Date(),
         });
       }
+
+      // Print the "is responding…" header into Static once per response.
+      // This keeps it visually above all flushed paragraphs.
+      if (!acc.responseHeaderPrinted) {
+        outputs.push({
+          type: "log",
+          message: inkRender(renderStreamingResponseHeader(acc.agentName)),
+          timestamp: new Date(),
+        });
+        acc.responseHeaderPrinted = true;
+      }
+
       acc.liveText = "";
       acc.flushedTextOffset = 0;
       acc.lastAppliedTextSequence = -1;
+
+      // `text_start` happens before the first chunk; we still want the UI to
+      // enter the streaming phase immediately so the live area is ready.
       return {
-        activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
+        activity: {
+          phase: "streaming",
+          agentName: acc.agentName,
+          reasoning:
+            acc.completedReasoning.trim().length > 0 ? formatMarkdown(acc.completedReasoning) : "",
+          text: "",
+        },
         outputs,
       };
     }
@@ -432,8 +486,8 @@ export function reduceEvent(
             message: inkRender(
               React.createElement(
                 Box,
-                { paddingLeft: 2 },
-                React.createElement(Text, { wrap: "wrap" }, formatted),
+                { paddingLeft: 2, flexDirection: "column" },
+                React.createElement(Text, { wrap: "truncate" }, formatted),
               ),
             ),
             timestamp: new Date(),
@@ -566,8 +620,8 @@ export function reduceEvent(
           message: inkRender(
             React.createElement(
               Box,
-              { paddingLeft: 4 },
-              React.createElement(Text, { wrap: "wrap" }, displayText),
+              { paddingLeft: 4, flexDirection: "column" },
+              React.createElement(Text, { wrap: "truncate" }, displayText),
             ),
           ),
           timestamp: new Date(),
@@ -580,7 +634,7 @@ export function reduceEvent(
               Box,
               { paddingLeft: 2 },
               React.createElement(Text, { color: THEME.success }, "✔ "),
-              React.createElement(Text, { wrap: "wrap" }, displayText),
+              React.createElement(Text, { wrap: "truncate" }, displayText),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
             ),
           ),

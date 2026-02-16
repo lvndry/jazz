@@ -31,7 +31,12 @@ import {
   formatToolExecutionErrorEffect,
   formatToolsDetectedEffect,
 } from "./format-utils";
-import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
+import {
+  formatMarkdown,
+  formatMarkdownHybrid,
+  wrapToWidth,
+  getTerminalWidth,
+} from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/store";
 import { CHALK_THEME, THEME } from "../ui/theme";
@@ -262,8 +267,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
         message: ink(
           React.createElement(
             Box,
-            { paddingLeft: 2 },
-            React.createElement(Text, {}, formattedFinalText),
+            { paddingLeft: 2, flexDirection: "column" },
+            // `formattedFinalText` is already hard-wrapped upstream (wrapToWidth).
+            // Avoid Ink/Yoga re-wrapping on completion.
+            React.createElement(Text, { wrap: "truncate" }, formattedFinalText),
           ),
         ),
         timestamp: new Date(),
@@ -455,14 +462,29 @@ export class InkStreamingRenderer implements StreamingRenderer {
     store.setActivity(activity);
   }
 
+  /**
+   * Format markdown and pre-wrap at terminal width.
+   *
+   * Pre-wrapping bypasses Ink's Yoga layout engine which intermittently computes
+   * incorrect (very narrow) widths for `<Text wrap="wrap">` nodes during live
+   * area re-renders, causing text to wrap almost character-by-character.
+   *
+   * The conservative padding (12 chars) accounts for the deepest nesting:
+   * App paddingX=3 (6) + ActivityView paddingX=2 (4) + container paddingLeft=2 (2).
+   */
   private formatMarkdown(text: string): string {
+    let formatted: string;
     if (this.displayConfig.mode === "rendered") {
-      return formatMarkdown(text);
+      formatted = formatMarkdown(text);
+    } else if (this.displayConfig.mode === "hybrid") {
+      formatted = formatMarkdownHybrid(text);
+    } else {
+      formatted = text;
     }
-    if (this.displayConfig.mode === "hybrid") {
-      return formatMarkdownHybrid(text);
-    }
-    return text;
+    // Pre-wrap to bypass Ink/Yoga layout bugs with live area text wrapping.
+    // 12 = max horizontal padding in the deepest component nesting.
+    const available = getTerminalWidth() - 12;
+    return wrapToWidth(formatted, available);
   }
 }
 
@@ -505,11 +527,18 @@ class InkPresentationService implements PresentationService {
     private readonly notificationService: NotificationService | null,
   ) {}
 
-  /** Format markdown using the display mode from config. */
+  /** Format markdown using the display mode from config, pre-wrapped to terminal width. */
   private formatMarkdownText(text: string): string {
-    if (this.displayConfig.mode === "rendered") return formatMarkdown(text);
-    if (this.displayConfig.mode === "hybrid") return formatMarkdownHybrid(text);
-    return text;
+    let formatted: string;
+    if (this.displayConfig.mode === "rendered") {
+      formatted = formatMarkdown(text);
+    } else if (this.displayConfig.mode === "hybrid") {
+      formatted = formatMarkdownHybrid(text);
+    } else {
+      formatted = text;
+    }
+    const available = getTerminalWidth() - 12;
+    return wrapToWidth(formatted, available);
   }
 
   presentThinking(agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {

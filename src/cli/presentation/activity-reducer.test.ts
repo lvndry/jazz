@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import React from "react";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import type { ReducerAccumulator } from "./activity-reducer";
 
@@ -7,6 +8,47 @@ const identity = (s: string) => s;
 
 /** Stub ink renderer — returns the string tag for assertions. */
 const stubInk = (node: unknown) => `[ink:${typeof node}]`;
+
+/**
+ * Capturing ink renderer — stores React elements for structural assertions.
+ * Returns the captured nodes array alongside the stub function.
+ */
+function createCapturingInk() {
+  const nodes: React.ReactElement[] = [];
+  const render = (node: unknown) => {
+    if (React.isValidElement(node)) {
+      nodes.push(node);
+    }
+    return `[ink:${typeof node}]`;
+  };
+  return { nodes, render };
+}
+
+/**
+ * Recursively find the first React element in the tree whose props match the predicate.
+ */
+function findElement(
+  el: React.ReactElement,
+  predicate: (props: Record<string, unknown>) => boolean,
+): React.ReactElement | null {
+  const props = el.props as Record<string, unknown>;
+  if (predicate(props)) return el;
+
+  const children = props["children"];
+  if (React.isValidElement(children)) {
+    const found = findElement(children, predicate);
+    if (found) return found;
+  }
+  if (Array.isArray(children)) {
+    for (const child of children) {
+      if (React.isValidElement(child)) {
+        const found = findElement(child, predicate);
+        if (found) return found;
+      }
+    }
+  }
+  return null;
+}
 
 function acc(overrides?: Partial<ReducerAccumulator>): ReducerAccumulator {
   return { ...createAccumulator("TestAgent"), ...overrides };
@@ -153,12 +195,13 @@ describe("activity-reducer", () => {
       expect(a.lastAppliedTextSequence).toBe(-1);
     });
 
-    test("text_start transitions to streaming when completedReasoning exists", () => {
+    test("text_start enters streaming phase and emits a response header", () => {
       const a = acc({ completedReasoning: "thought" });
       const result = reduceEvent(a, { type: "text_start" }, identity, stubInk);
 
-      // No liveText yet, so should be thinking phase
-      expect(result.activity!.phase).toBe("thinking");
+      expect(result.activity).not.toBeNull();
+      expect(result.activity!.phase).toBe("streaming");
+      expect(result.outputs.length).toBeGreaterThan(0);
     });
 
     test("text_chunk updates liveText and returns streaming activity", () => {
@@ -434,10 +477,9 @@ describe("activity-reducer", () => {
       // thinking_complete
       reduceEvent(a, { type: "thinking_complete" }, identity, stubInk);
 
-      // text_start — still thinking (no liveText yet)
+      // text_start — now enters streaming immediately (even before first chunk)
       const r5 = reduceEvent(a, { type: "text_start" }, identity, stubInk);
-      expect(r5.activity!.phase).toBe("thinking");
-
+      expect(r5.activity!.phase).toBe("streaming");
       // text_chunk → streaming
       const r6 = reduceEvent(
         a,
@@ -463,6 +505,102 @@ describe("activity-reducer", () => {
         stubInk,
       );
       expect(r7.activity!.phase).toBe("complete");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  describe("text container layout (flexDirection column)", () => {
+    test("flushed paragraphs use flexDirection column on wrapping Box", () => {
+      const { nodes, render } = createCapturingInk();
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, render);
+
+      // Accumulate enough text to trigger a flush (>4000 chars)
+      const longText = "A".repeat(5000) + "\n\n" + "B".repeat(100);
+      reduceEvent(
+        a,
+        { type: "text_chunk", delta: longText, accumulated: longText, sequence: 0 },
+        identity,
+        render,
+      );
+
+      // Find the flushed output node — should have paddingLeft and flexDirection column
+      const flushNode = nodes.find((el) => {
+        const props = el.props as Record<string, unknown>;
+        return props["paddingLeft"] === 2 && props["flexDirection"] === "column";
+      });
+      expect(flushNode).toBeDefined();
+
+      // Ensure we rendered a Text child
+      const textEl = findElement(flushNode!, (p) => typeof p["children"] === "string");
+      expect(textEl).not.toBeNull();
+    });
+
+    test("reasoning text container uses flexDirection column on inner Box", () => {
+      const { nodes, render } = createCapturingInk();
+      const a = acc({ isThinking: true, reasoningBuffer: "some deep thought" });
+      reduceEvent(a, { type: "thinking_complete" }, identity, render);
+
+      // The reasoning output should have an inner Box with flexDirection column
+      // wrapping the reasoning Text with wrap="truncate"
+      expect(nodes.length).toBeGreaterThan(0);
+      const reasoningRoot = nodes[0]!;
+
+      const innerBox = findElement(reasoningRoot, (p) => {
+        return p["paddingLeft"] === 1 && p["flexDirection"] === "column";
+      });
+      expect(innerBox).toBeDefined();
+
+      // The Text inside should have wrap="truncate" and dimColor
+      const textEl = findElement(innerBox!, (p) => p["wrap"] === "truncate" && p["dimColor"] === true);
+      expect(textEl).not.toBeNull();
+    });
+
+    test("multi-line tool result uses flexDirection column on wrapping Box", () => {
+      const { nodes, render } = createCapturingInk();
+      const a = acc();
+      a.activeTools.set("tc-1", { toolName: "diff_tool", startedAt: Date.now() });
+
+      reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "tc-1",
+          result: "ok",
+          durationMs: 10,
+          summary: "line1\nline2\nline3",
+        },
+        identity,
+        render,
+      );
+
+      // Find the Box with paddingLeft=4 and flexDirection column (multi-line result container)
+      const resultBox = nodes.find((el) => {
+        const props = el.props as Record<string, unknown>;
+        return props["paddingLeft"] === 4 && props["flexDirection"] === "column";
+      });
+      expect(resultBox).toBeDefined();
+
+      // The child Text should have wrap="truncate"
+      const textEl = findElement(resultBox!, (p) => p["wrap"] === "truncate");
+      expect(textEl).not.toBeNull();
+    });
+
+    test("streaming activity text is displayed with correct formatting", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      const result = reduceEvent(
+        a,
+        { type: "text_chunk", delta: "Hello world", accumulated: "Hello world", sequence: 0 },
+        identity,
+        stubInk,
+      );
+
+      // Verify the activity has the formatted text
+      expect(result.activity!.phase).toBe("streaming");
+      if (result.activity!.phase === "streaming") {
+        expect(result.activity!.text).toBe("Hello world");
+      }
     });
   });
 });

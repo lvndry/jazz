@@ -113,6 +113,19 @@ export class RegexIterationLimitError extends Data.TaggedError("RegexIterationLi
 }
 
 /**
+ * Pattern too complex error — thrown when replace_pattern is used for structural
+ * edits (multi-line patterns, very long patterns) instead of simple find-and-replace.
+ */
+export class PatternTooComplexError extends Data.TaggedError("PatternTooComplexError")<{
+  readonly pattern: string;
+  readonly reason: string;
+}> {
+  override get message() {
+    return `Pattern too complex for replace_pattern: ${this.reason}. Use replace_lines for structural edits instead.`;
+  }
+}
+
+/**
  * File write error
  */
 export class FileWriteError extends Data.TaggedError("FileWriteError")<{
@@ -178,7 +191,11 @@ const editOperationSchema = z.discriminatedUnion("type", [
     pattern: z
       .string()
       .min(1)
-      .describe("Literal string or 're:<regex>'. Nested quantifiers like (a+)+ cause an error."),
+      .describe(
+        "Short literal string or 're:<regex>' for simple bulk find-and-replace only (e.g., renaming a variable, changing quotes). " +
+          "Do NOT use for multi-line or structural edits — use replace_lines instead. " +
+          "Nested quantifiers like (a+)+ cause an error.",
+      ),
     replacement: z.string().describe("Replacement text"),
     count: z
       .number()
@@ -240,6 +257,7 @@ export type EditFileError =
   | PatternNotFoundError
   | InvalidPatternError
   | RegexIterationLimitError
+  | PatternTooComplexError
   | FileWriteError;
 
 /**
@@ -304,6 +322,28 @@ function applyEdits(
       }
 
       case "replace_pattern": {
+        // Reject patterns that suggest structural edits — these should use replace_lines
+        if (edit.pattern.includes("\n") || edit.pattern.includes("\\n")) {
+          throw new PatternTooComplexError({
+            pattern: edit.pattern,
+            reason: "Pattern contains newlines — this is a structural edit",
+          });
+        }
+        if (edit.pattern.length > 200) {
+          throw new PatternTooComplexError({
+            pattern: edit.pattern.slice(0, 50) + "...",
+            reason: `Pattern is ${edit.pattern.length} characters long — too long for find-and-replace`,
+          });
+        }
+        // Reject multi-line regex wildcards (e.g., [\s\S]*, .* with s flag) that match across lines
+        const multiLineRegexIndicators = /\[\\s\\S\]|\[\\S\\s\]|\(\?s\)|\\n/;
+        if (multiLineRegexIndicators.test(edit.pattern)) {
+          throw new PatternTooComplexError({
+            pattern: edit.pattern,
+            reason: "Pattern uses multi-line matching — this is a structural edit",
+          });
+        }
+
         const patternInfo = normalizeFilterPattern(edit.pattern);
         // Surface regex rejection as a clear error instead of silently falling back
         if (patternInfo.error) {
@@ -441,6 +481,7 @@ function extractErrorType(error: unknown): string {
   if (error instanceof PatternNotFoundError) return "PatternNotFoundError";
   if (error instanceof InvalidPatternError) return "InvalidPatternError";
   if (error instanceof RegexIterationLimitError) return "RegexIterationLimitError";
+  if (error instanceof PatternTooComplexError) return "PatternTooComplexError";
   if (error instanceof FileNotFoundError) return "FileNotFoundError";
   if (error instanceof FileReadError) return "FileReadError";
   if (error instanceof FileWriteError) return "FileWriteError";
@@ -454,7 +495,10 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
   const config: ApprovalToolConfig<EditFileDeps, EditFileArgs> = {
     name: "edit_file",
     description:
-      "Edit file via replace_lines, replace_pattern, insert, or delete_lines. Applied in order. replace_pattern defaults to first match only; use count:-1 for all.",
+      "Edit file via replace_lines, replace_pattern, insert, or delete_lines. Applied in order. " +
+      "IMPORTANT: Use replace_lines for structural edits (replacing sections, blocks, or multi-line content) — you already know the line numbers from reading the file. " +
+      "Only use replace_pattern for simple bulk find-and-replace across the file (e.g., replacing all ' with \", renaming a variable, changing all [[x]] to [x]). " +
+      "replace_pattern defaults to first match only; use count:-1 for all.",
     tags: ["filesystem", "write", "edit"],
     parameters: editFileParameters,
     validate: (args) => {
@@ -497,8 +541,40 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           switch (edit.type) {
             case "replace_lines":
               return `  ${idx + 1}. Replace lines ${edit.startLine}-${edit.endLine} with new content (${edit.content.split("\n").length} lines)`;
-            case "replace_pattern":
-              return `  ${idx + 1}. Replace pattern "${edit.pattern}" with "${edit.replacement}"${edit.count ? ` (${edit.count} occurrence${edit.count === 1 ? "" : "s"})` : " (first occurrence)"}`;
+            case "replace_pattern": {
+              // Find affected line numbers for a clearer approval message
+              const patternInfo = normalizeFilterPattern(edit.pattern);
+              const content = lines.join("\n");
+              const matchLineNumbers: number[] = [];
+
+              if (patternInfo.type === "regex" && patternInfo.regex && !patternInfo.error) {
+                const regex = ensureGlobalRegex(patternInfo.regex);
+                let match;
+                while ((match = regex.exec(content)) !== null && matchLineNumbers.length < 20) {
+                  const lineNum = content.slice(0, match.index).split("\n").length;
+                  matchLineNumbers.push(lineNum);
+                  if (match[0].length === 0) regex.lastIndex++;
+                }
+              } else if (!patternInfo.error) {
+                const searchStr = patternInfo.value || edit.pattern;
+                let searchIndex = 0;
+                while (
+                  (searchIndex = content.indexOf(searchStr, searchIndex)) !== -1 &&
+                  matchLineNumbers.length < 20
+                ) {
+                  const lineNum = content.slice(0, searchIndex).split("\n").length;
+                  matchLineNumbers.push(lineNum);
+                  searchIndex += searchStr.length;
+                }
+              }
+
+              const countDesc = edit.count === -1 ? "all" : (edit.count ?? 1);
+              const linesDesc =
+                matchLineNumbers.length > 0
+                  ? ` on line${matchLineNumbers.length === 1 ? "" : "s"} ${matchLineNumbers.join(", ")}${matchLineNumbers.length >= 20 ? "..." : ""}`
+                  : "";
+              return `  ${idx + 1}. Replace "${edit.pattern}" with "${edit.replacement}" (${countDesc} occurrence${countDesc === 1 ? "" : "s"}${linesDesc})`;
+            }
             case "insert":
               return `  ${idx + 1}. Insert content after line ${edit.line} (${edit.content.split("\n").length} lines)`;
             case "delete_lines":
@@ -506,30 +582,34 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           }
         });
 
-        // Simulate edits to generate preview diff using shared helper
-        let simulationError: string | null = null;
-        let resultLines: string[] = lines;
+        // Simulate edits — if they fail, skip approval and return error directly to the LLM
+        let resultLines: string[];
 
         try {
           const result = applyEdits(lines, args.edits);
           resultLines = result.resultLines;
         } catch (error) {
           // applyEdits throws JS exceptions (tagged errors), so try/catch is correct here
-          simulationError = error instanceof Error ? error.message : "Error simulating edit";
+          const errorType = extractErrorType(error);
+          const errorMessage = error instanceof Error ? error.message : "Error simulating edit";
+          return {
+            skipApproval: true,
+            toolResult: {
+              success: false,
+              result: { errorType, path: target },
+              error: errorMessage,
+            },
+          };
         }
 
-        const message = `About to edit file: ${target} (${totalLines} lines total)\n\nEdits to perform:\n${editDescriptions.join("\n")}\n\n${simulationError ? `⚠️ ${simulationError}` : "Press Ctrl+O to preview changes"}`;
+        const message = `About to edit file: ${target} (${totalLines} lines total)\n\nEdits to perform:\n${editDescriptions.join("\n")}\n\nPress Ctrl+O to preview changes`;
 
         // Generate full diff for Ctrl+O expansion
-        if (!simulationError) {
-          const newContent = resultLines.join("\n");
-          const { diff } = generateDiffWithMetadata(fileContent, newContent, target, {
-            maxLines: Number.POSITIVE_INFINITY,
-          });
-          return { message, previewDiff: diff };
-        }
-
-        return message;
+        const newContent = resultLines.join("\n");
+        const { diff } = generateDiffWithMetadata(fileContent, newContent, target, {
+          maxLines: Number.POSITIVE_INFINITY,
+        });
+        return { message, previewDiff: diff };
       }),
 
     handler: (args: EditFileArgs, context: ToolExecutionContext) =>

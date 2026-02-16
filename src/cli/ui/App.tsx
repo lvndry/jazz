@@ -1,3 +1,4 @@
+import chalk from "chalk";
 import { Box, Static, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
@@ -313,11 +314,31 @@ export function App(): React.ReactElement {
     }
   });
 
-  // Handle interrupt (Ctrl+I / Tab)
+  // Handle interrupt (double-tap Escape)
+  const lastEscapeRef = useRef<number>(0);
+  const DOUBLE_ESCAPE_WINDOW_MS = 1000;
+
   useInput((input, key) => {
-    const isTabOrCtrlI = key.tab || input === "\t" || input.charCodeAt(0) === 9;
-    if (isTabOrCtrlI && interruptHandlerRef.current) {
+    const isEscape = key.escape || input === "\x1b";
+    if (!isEscape || !interruptHandlerRef.current) {
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastEscapeRef.current;
+    lastEscapeRef.current = now;
+
+    if (elapsed <= DOUBLE_ESCAPE_WINDOW_MS) {
+      // Second press — interrupt generation
+      lastEscapeRef.current = 0;
       interruptHandlerRef.current();
+    } else {
+      // First press — show hint
+      store.printOutput({
+        type: "log",
+        message: chalk.red("Press Esc again to interrupt generation"),
+        timestamp: new Date(),
+      });
     }
   });
 

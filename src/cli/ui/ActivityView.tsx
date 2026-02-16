@@ -1,5 +1,7 @@
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
+import { PreWrappedText } from "./components/PreWrappedText";
+
 import React from "react";
 import type { ActivityState } from "./activity-state";
 import { THEME } from "./theme";
@@ -58,9 +60,14 @@ function ReasoningSection({
           </Text>
         )}
       </Box>
-      {reasoning && <Text dimColor>{reasoning}</Text>}
+      {reasoning && (
+        <PreWrappedText dimColor>
+          {reasoning}
+        </PreWrappedText>
+      )}
     </Box>
   );
+
 }
 
 /**
@@ -105,45 +112,53 @@ export const ActivityView = React.memo(function ActivityView({
           marginTop={1}
           paddingX={2}
         >
-          <AgentHeader
-            agentName={activity.agentName}
-            label="is responding…"
-          />
-          <Box marginTop={0}>
-            <Text dimColor>{"─".repeat(40)}</Text>
-          </Box>
-          <ReasoningSection
-            reasoning={activity.reasoning}
-            isThinking={false}
-          />
-          {activity.text && (
+          {/*
+            Intentionally no live "Agent is responding…" header here.
+
+            Long responses are progressively flushed into Ink's <Static> region
+            (via OutputIsland). If we keep the header in the live area, flushed
+            static chunks appear *above* it, splitting the message and creating
+            a bad UX. We instead print the response header to Static at `text_start`.
+          */}
+
+          {activity.reasoning && (
             <>
-              {activity.reasoning && (
-                <Box
-                  marginTop={1}
-                  paddingLeft={2}
-                  flexDirection="column"
-                >
-                  <Text dimColor>{"─".repeat(40)}</Text>
-                  <Box>
-                    <Text dimColor>{"▸ "}</Text>
-                    <Text
-                      dimColor
-                      italic
-                    >
-                      Response
-                    </Text>
-                  </Box>
-                </Box>
-              )}
+              <Box marginTop={0}>
+                <Text dimColor>{"─".repeat(40)}</Text>
+              </Box>
+              <ReasoningSection
+                reasoning={activity.reasoning}
+                isThinking={false}
+              />
               <Box
-                marginTop={activity.reasoning ? 0 : 1}
+                marginTop={1}
                 paddingLeft={2}
+                flexDirection="column"
               >
-                <Text wrap="wrap">{activity.text}</Text>
+                <Text dimColor>{"─".repeat(40)}</Text>
+                <Box>
+                  <Text dimColor>{"▸ "}</Text>
+                  <Text
+                    dimColor
+                    italic
+                  >
+                    Response
+                  </Text>
+                </Box>
               </Box>
             </>
           )}
+
+          {activity.text && (
+            <Box
+              marginTop={activity.reasoning ? 0 : 1}
+              paddingLeft={2}
+              flexDirection="column"
+              width="100%"
+            >
+              {/*
+                `activity.text` is already hard-wrapped upstream (wrapToWidth).
+              <PreWrappedText>{activity.text}</PreWrappedText>
         </Box>
       );
 

@@ -26,12 +26,16 @@ When multiple approaches exist, follow this strict priority:
 
 ## Tool-specific notes
 
-### Skills: when to load todo vs deep-research (users rarely say "use todo" or "use deep research")
+### Todo tracking (manage_todos / list_todos)
 
-Load the todo skill as soon as the task is multi-step and requires tracking progress. Prefer over-use over under-use — use it liberally.
-- Any multi-step work (2+ steps), planning, breakdown, or tracking — even if the user doesn't say "todo" or "plan"
-- Examples: "help me plan this", "break this down", "deploy this", "refactor that", "investigate the bug", "setup X", "migrate from A to B"
-- When in doubt, load it — a small todo list is harmless; forgetting steps is worse
+Use manage_todos to plan and track any multi-step work (2+ steps). Prefer over-use over under-use.
+- Call manage_todos with the full list of items at task start, and update it as you complete steps.
+- Call list_todos to check current progress.
+- Triggers: "help me plan this", "break this down", "deploy this", "refactor that", "investigate the bug", "setup X", "migrate from A to B" — or any task with 2+ steps, even if the user doesn't say "todo".
+- When in doubt, create a todo list — a small list is harmless; forgetting steps is worse.
+- For complex planning methodology, load the todo skill for templates and patterns.
+
+### Deep research skill
 
 Load the deep-research skill when the user needs comprehensive, multi-source investigation — even if they don't say "research":
 - Complex questions: "what's the current state of X", "compare A vs B", "why does X happen", "how does Y work in practice"

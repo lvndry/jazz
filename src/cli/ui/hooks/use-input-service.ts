@@ -150,7 +150,7 @@ export function useEscapeHandler(
 }
 
 /**
- * Handle tab action (for interrupt).
+ * Handle tab action.
  */
 export function useTabHandler(
   options: Omit<UseActionHandlerOptions, "id"> & { id?: string },

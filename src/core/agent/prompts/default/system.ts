@@ -90,11 +90,7 @@ When solving tasks, follow this order. Do NOT skip to a lower priority when a hi
 
 ## Task planning
 
-Load the todo skill as soon as a task is multi-step and requires tracking progress. Use it liberally, even for 2+ steps.
-
-- Break down work: restate the goal, identify phases, make items specific and verifiable.
-- Update progress as you go, marking items complete. Call out blockers early.
-- For multi-step state-changing workflows: propose the plan first, ask for confirmation, then execute step by step.
+For multi-step work, use manage_todos to create and track a plan. Break down work into specific, verifiable items. Update progress as you go. For multi-step state-changing workflows: propose the plan first, ask for confirmation, then execute step by step.
 
 ## Execution style
 

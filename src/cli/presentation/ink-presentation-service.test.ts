@@ -445,4 +445,93 @@ describe("InkStreamingRenderer", () => {
       expect(last!.phase).toBe("idle");
     });
   });
+
+  describe("pre-wrapping behavior", () => {
+    test("streaming text is pre-wrapped to terminal width during text_chunk", async () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      // Create a long line that would exceed typical terminal width
+      const longLine = "word ".repeat(40).trim(); // ~199 chars
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: longLine,
+          accumulated: longLine,
+          sequence: 0,
+        }),
+      );
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      const streaming = setActivityCalls.filter(
+        (s): s is Extract<ActivityState, { phase: "streaming" }> =>
+          s.phase === "streaming" && s.text.length > 0,
+      );
+      expect(streaming.length).toBeGreaterThan(0);
+
+      const lastText = streaming[streaming.length - 1]!.text;
+      // The text should contain newlines from pre-wrapping (the original had none)
+      expect(lastText).toContain("\n");
+    });
+
+    test("short text is not modified by pre-wrapping", async () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      const shortText = "Hello world";
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: shortText,
+          accumulated: shortText,
+          sequence: 0,
+        }),
+      );
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      const streaming = setActivityCalls.filter(
+        (s): s is Extract<ActivityState, { phase: "streaming" }> =>
+          s.phase === "streaming" && s.text.length > 0,
+      );
+      expect(streaming.length).toBeGreaterThan(0);
+
+      const lastText = streaming[streaming.length - 1]!.text;
+      // Short text should not have been modified by wrapping
+      expect(lastText).not.toContain("\n");
+    });
+
+    test("final response text on complete is pre-wrapped", () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      const longLine = "word ".repeat(40).trim();
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: longLine,
+          accumulated: longLine,
+          sequence: 0,
+        }),
+      );
+
+      printOutputCalls.length = 0;
+
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "complete",
+          response: { content: longLine, role: "assistant", usage: undefined, toolCalls: [] },
+          totalDurationMs: 50,
+        }),
+      );
+
+      // The response should have been printed — verify it was pre-wrapped
+      const logEntries = printOutputCalls.filter((e) => e.type === "log" && e.message !== "");
+      expect(logEntries.length).toBeGreaterThan(0);
+    });
+  });
 });

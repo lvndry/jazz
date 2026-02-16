@@ -22,6 +22,7 @@ import { registerMCPServerTools } from "./mcp-tools";
 import { createShellCommandTools } from "./shell-tools";
 import { createSkillTools } from "./skill-tools";
 import { createSubagentTools } from "./subagent-tools";
+import { createListTodosTool, createManageTodosTool } from "./todo-tools";
 import { userInteractionTools } from "./user-interaction-tools";
 import { createWebSearchTool } from "./web-search-tools";
 
@@ -55,6 +56,7 @@ export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDe
     yield* registerGitTools();
     yield* registerSearchTools();
     yield* registerHttpTools();
+    yield* registerTodoTools();
     yield* registerContextTools();
     yield* registerSubagentTools();
     yield* registerUserInteractionTools();
@@ -448,6 +450,7 @@ export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "W
 export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
 export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Context" };
 export const SUBAGENT_CATEGORY: ToolCategory = { id: "subagent", displayName: "Sub Agents" };
+export const TODO_CATEGORY: ToolCategory = { id: "todo", displayName: "Todo" };
 export const USER_INTERACTION_CATEGORY: ToolCategory = {
   id: "user_interaction",
   displayName: "User Interaction",
@@ -505,6 +508,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   HTTP_CATEGORY,
   WEB_SEARCH_CATEGORY,
   SKILLS_CATEGORY,
+  TODO_CATEGORY,
   CONTEXT_CATEGORY,
   SUBAGENT_CATEGORY,
   USER_INTERACTION_CATEGORY,
@@ -515,6 +519,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
  */
 export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
   SKILLS_CATEGORY,
+  TODO_CATEGORY,
   SUBAGENT_CATEGORY,
   USER_INTERACTION_CATEGORY,
   CONTEXT_CATEGORY,
@@ -686,6 +691,17 @@ export function registerSkillSystemTools(
     for (const tool of createSkillTools(skillNames)) {
       yield* registerTool(tool);
     }
+  });
+}
+
+// Register todo management tools
+export function registerTodoTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(TODO_CATEGORY);
+
+    yield* registerTool(createManageTodosTool());
+    yield* registerTool(createListTodosTool());
   });
 }
 
