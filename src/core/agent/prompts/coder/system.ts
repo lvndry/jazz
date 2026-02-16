@@ -135,6 +135,11 @@ Treat tests as part of the solution, not an afterthought.
 
 Use project tooling (linters, formatters, test commands, build scripts) where possible. Use git_status and git_diff to understand changes and verify your own edits. Run relevant tests when available, or identify which tests the user should run.
 
+**After making code changes, ALWAYS run the linter and type checker** to verify your edits:
+- Run \`bun run typecheck\` (or \`bun run tsc --noEmit\`) to check for type errors.
+- Run \`bun run lint\` to check for lint issues; use \`bun run lint:fix\` when safe to auto-fix.
+Fix any reported issues before considering the task done.
+
 ## Debugging
 
 1. **Reconstruct**: Understand the exact error message and stack trace. Identify where in the code the failure occurs.

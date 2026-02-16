@@ -1,9 +1,8 @@
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
-import { PreWrappedText } from "./components/PreWrappedText";
-
 import React from "react";
 import type { ActivityState } from "./activity-state";
+import { PreWrappedText } from "./components/PreWrappedText";
 import { THEME } from "./theme";
 
 function AgentHeader({
@@ -60,14 +59,9 @@ function ReasoningSection({
           </Text>
         )}
       </Box>
-      {reasoning && (
-        <PreWrappedText dimColor>
-          {reasoning}
-        </PreWrappedText>
-      )}
+      {reasoning && <PreWrappedText dimColor>{reasoning}</PreWrappedText>}
     </Box>
   );
-
 }
 
 /**
@@ -156,9 +150,9 @@ export const ActivityView = React.memo(function ActivityView({
               flexDirection="column"
               width="100%"
             >
-              {/*
-                `activity.text` is already hard-wrapped upstream (wrapToWidth).
               <PreWrappedText>{activity.text}</PreWrappedText>
+            </Box>
+          )}
         </Box>
       );
 
@@ -190,5 +184,8 @@ export const ActivityView = React.memo(function ActivityView({
           <Text color="red">{activity.message}</Text>
         </Box>
       );
+
+    default:
+      return null;
   }
 });

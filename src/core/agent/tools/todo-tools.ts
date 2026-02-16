@@ -34,7 +34,7 @@ function readTodos(sessionId: string): TodoItem[] {
   const filePath = getTodoFilePath(sessionId);
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as TodoItem[];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];

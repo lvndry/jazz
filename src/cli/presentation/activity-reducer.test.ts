@@ -552,7 +552,10 @@ describe("activity-reducer", () => {
       expect(innerBox).toBeDefined();
 
       // The Text inside should have wrap="truncate" and dimColor
-      const textEl = findElement(innerBox!, (p) => p["wrap"] === "truncate" && p["dimColor"] === true);
+      const textEl = findElement(
+        innerBox!,
+        (p) => p["wrap"] === "truncate" && p["dimColor"] === true,
+      );
       expect(textEl).not.toBeNull();
     });
 
