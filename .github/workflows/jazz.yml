@@ -3,23 +3,66 @@ name: Jazz AI
 on:
   pull_request:
     types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: "PR number to review (required when run from Actions tab)"
+        required: true
+        type: number
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
   pull-requests: write
 
-env:
-  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-  PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-
 jobs:
   code-review:
     runs-on: ubuntu-latest
+    # Auto-run for same-repo PRs (contributors); for fork PRs only when manual or /jazz-review
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz-review'))
     steps:
+      - name: Resolve PR context
+        id: resolve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let prNumber, baseSha, headSha;
+            if (context.payload.pull_request) {
+              const pr = context.payload.pull_request;
+              prNumber = pr.number;
+              baseSha = pr.base.sha;
+              headSha = pr.head.sha;
+            } else if (context.eventName === 'workflow_dispatch') {
+              prNumber = Number(context.payload.inputs.pull_request_number);
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              baseSha = pr.base.sha;
+              headSha = pr.head.sha;
+            } else {
+              prNumber = context.payload.issue.number;
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              baseSha = pr.base.sha;
+              headSha = pr.head.sha;
+            }
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('base_sha', baseSha);
+            core.setOutput('head_sha', headSha);
+
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ steps.resolve.outputs.head_sha }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -31,6 +74,9 @@ jobs:
         run: npm install -g jazz-ai
 
       - name: Setup Jazz agent and workflow
+        env:
+          PR_BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
         run: |
           mkdir -p .jazz/agents workflows/code-review
           cp .github/jazz/agents/ci-reviewer.json .jazz/agents/
@@ -51,11 +97,16 @@ jobs:
 
       - name: Post review comments
         if: always()
+        env:
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+          PR_HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const output = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const headSha = process.env.PR_HEAD_SHA;
 
             // Read model from agent config for display in review comment
             let modelLabel = '';
@@ -83,7 +134,7 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
+                issue_number: prNumber,
                 body: comments.length === 0
                   ? `## Jazz Code Review\n\nNo issues found.${modelLabel}`
                   : `## Jazz Code Review\n\n${output.slice(-60000) || '_No output from review._'}`
@@ -91,13 +142,24 @@ jobs:
               return;
             }
 
-            // Filter to valid inline comments (path must be a real file, line must be positive)
-            const validComments = comments.filter(c =>
+            // Sanitize and filter to valid inline comments
+            // Normalize each comment: strip invalid start_line values early so they
+            // never reach the API (start_line must be a positive int strictly less than line)
+            const sanitized = comments.map(c => {
+              const copy = { ...c };
+              const validStartLine =
+                Number.isInteger(copy.start_line) &&
+                copy.start_line > 0 &&
+                copy.start_line < copy.line;
+              if (!validStartLine) delete copy.start_line;
+              return copy;
+            });
+            const validComments = sanitized.filter(c =>
               c.path && c.line > 0 && !c.path.startsWith('/') && c.path !== 'NO_DIFF'
             );
 
             // Any comments that couldn't be posted inline become part of the review body
-            const invalidComments = comments.filter(c => !validComments.includes(c));
+            const invalidComments = sanitized.filter(c => !validComments.includes(c));
             let reviewBody = `## Jazz Code Review\n\nFound ${comments.length} comment(s).${modelLabel}`;
             if (invalidComments.length > 0) {
               reviewBody += '\n\n### General Comments\n\n';
@@ -109,7 +171,7 @@ jobs:
               const { data: prFiles } = await github.rest.pulls.listFiles({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: context.payload.pull_request.number
+                pull_number: prNumber
               });
               const deletedPaths = new Set(
                 prFiles.filter((f) => f.status === 'removed').map((f) => f.filename)
@@ -199,8 +261,8 @@ jobs:
                 await github.rest.pulls.createReview({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  pull_number: context.payload.pull_request.number,
-                  commit_id: context.payload.pull_request.head.sha,
+                  pull_number: prNumber,
+                  commit_id: headSha,
                   event: 'COMMENT',
                   body: reviewBody,
                   comments: inlineComments.map(mapComment)
@@ -210,7 +272,7 @@ jobs:
                 await github.rest.issues.createComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  issue_number: context.payload.pull_request.number,
+                  issue_number: prNumber,
                   body: reviewBody
                 });
               }
@@ -218,7 +280,7 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
+                issue_number: prNumber,
                 body: reviewBody
               });
             }
