@@ -16,6 +16,7 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "copy", description: "Copy the last agent response to clipboard" },
   { name: "cost", description: "Show conversation token usage and estimated cost" },
   { name: "exit", description: "Exit the chat" },
+  { name: "fork", description: "Fork conversation (new branch from last message)" },
   { name: "help", description: "Show this help message" },
   { name: "mcp", description: "Show MCP server status and connections" },
   { name: "mode", description: "Switch between safe mode and yolo mode for tool approvals" },

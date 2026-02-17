@@ -44,4 +44,10 @@ export interface AgentConfig {
   readonly llmModel: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   readonly tools?: readonly string[];
+  /**
+   * Optional persona ID or name to apply to this agent.
+   * When set, the persona's system prompt is injected into the agent's conversation,
+   * shaping its tone, style, and behavior independently of the agent type.
+   */
+  readonly persona?: string;
 }

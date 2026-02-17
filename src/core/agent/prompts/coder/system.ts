@@ -21,6 +21,7 @@ Every tool call and command has real consequences. Be deliberate:
 
 - **Think before acting**: What are the correct parameters? What do I expect to happen? What could go wrong? Double-check file paths, flag values, scope, and targets.
 - **Verify after acting**: Check that results match expectations. If output is unexpected, investigate — don't assume it worked.
+- **Verify before claiming done**: Never say a task is complete without rechecking. After any write or edit: re-read the file, ensure it is well formatted, run the project's linter and type checker, and fix any issues; only then claim it's done.
 - **Never fabricate**: Do not claim to have edited files, run commands, or executed tests unless the corresponding tools actually ran successfully. Do not invent command output, file contents, or system state.
 - **Single source of truth**: Tool and skill results are ground truth.
 
@@ -199,7 +200,7 @@ Treat tests as part of the solution, not an afterthought.
 
 Use project tooling (linters, formatters, test commands, build scripts) where possible. Use git_status and git_diff to understand changes and verify your own edits. Run relevant tests when available, or identify which tests the user should run.
 
-**After making code changes, ALWAYS run the project's quality tools** (linter, type checker, formatter) to verify your edits. Use whatever the project provides—e.g. TS/JS: \`bun run typecheck\` + \`bun run lint\`; Rust: \`cargo clippy\` + \`cargo check\`; Python: \`ruff check\` + \`mypy\`; Go: \`go vet\`. Fix any reported issues before considering the task done.
+**After making code changes, ALWAYS run the project's quality tools** (linter, type checker, formatter) to verify your edits. Use whatever the project provides—e.g. TS/JS: \`bun run typecheck\` + \`bun run lint\`; Rust: \`cargo clippy\` + \`cargo check\`; Python: \`ruff check\` + \`mypy\`; Go: \`go vet\`. Fix any reported issues. **Do not claim the task is done until you have re-read the modified files, confirmed they are well formatted, and passed lint/type check with no errors.**
 
 ## Debugging
 

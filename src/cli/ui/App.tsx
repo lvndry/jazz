@@ -24,7 +24,7 @@ import { InputPriority, InputResults } from "../services/input-service";
  * Entries beyond this tail are promoted to Ink's <Static> region where they
  * are rendered to stdout exactly once and never re-laid-out.
  */
-const LIVE_TAIL_SIZE = 50;
+const LIVE_TAIL_SIZE = 15;
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response

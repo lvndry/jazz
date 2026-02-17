@@ -6,6 +6,7 @@ import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { store } from "@/cli/ui/store";
 import type { OutputEntry } from "@/cli/ui/types";
+import { wrapToWidth, getTerminalWidth } from "@/cli/presentation/markdown-formatter";
 import {
   TerminalServiceTag,
   type TerminalOutput,
@@ -40,6 +41,7 @@ export class InkTerminalService implements TerminalService {
     this.inkInstance = render(React.createElement(InputProvider, null, React.createElement(App)), {
       patchConsole: false,
       exitOnCtrlC: false,
+      incrementalRendering: true,
     });
     instanceExists = true;
   }
@@ -183,9 +185,14 @@ export class InkTerminalService implements TerminalService {
           // The Prompt component validates before calling resolve, so we can trust the input
           const inputValue = String(val);
           store.setPrompt(null);
+          // Pre-wrap user message to fit terminal width, consistent with how
+          // agent responses are pre-wrapped. The offset accounts for App paddingX=3
+          // (6 chars) + the "›" icon + space (2 chars) = 8 chars total.
+          const rawMessage = `${message} ${chalk.green(inputValue)}`;
+          const available = getTerminalWidth() - 8;
           store.printOutput({
             type: "user",
-            message: `${message} ${chalk.green(inputValue)}`,
+            message: wrapToWidth(rawMessage, available),
             timestamp: new Date(),
           });
           resume(Effect.succeed(inputValue));

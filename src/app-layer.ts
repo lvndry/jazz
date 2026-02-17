@@ -23,6 +23,7 @@ import { resolveStorageDirectory } from "./core/utils/storage-utils";
 import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
 import { WorkflowsLive } from "./core/workflows/workflow-service";
 import { createAgentServiceLayer } from "./services/agent-service";
+import { createPersonaServiceLayer } from "./services/persona-service";
 import { createChatServiceLayer } from "./services/chat-service";
 import { createConfigLayer } from "./services/config";
 import { createFileSystemContextServiceLayer } from "./services/fs";
@@ -128,6 +129,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
   );
 
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
+  const personaLayer = createPersonaServiceLayer();
 
   const chatLayer = createChatServiceLayer().pipe(
     Layer.provide(terminalLayer),
@@ -164,6 +166,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     mcpServerManagerLayer,
     toolRegistrationLayer,
     agentLayer,
+    personaLayer,
     chatLayer,
     telemetryLayer,
     presentationLayer,

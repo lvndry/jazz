@@ -71,6 +71,9 @@ export function handleSpecialCommand(
       case "new":
         return yield* handleNewCommand(terminal);
 
+      case "fork":
+        return yield* handleForkCommand(terminal, conversationHistory);
+
       case "help":
         return yield* handleHelpCommand(terminal);
 
@@ -160,12 +163,57 @@ function handleNewCommand(terminal: TerminalService): Effect.Effect<CommandResul
 }
 
 /**
+ * Handle /fork command - Fork the conversation into a new branch
+ *
+ * Creates a new conversation ID, keeping only the system prompt and the
+ * last user message from the current history. This gives the user a clean
+ * branch to explore a different approach to their most recent question
+ * without carrying over the entire conversation context.
+ */
+function handleForkCommand(
+  terminal: TerminalService,
+  conversationHistory: CommandContext["conversationHistory"],
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    // Keep the system message (first message) and the last user message
+    const systemMessage = conversationHistory.find((m) => m.role === "system");
+    const lastUserMessage = [...conversationHistory].reverse().find((m) => m.role === "user");
+
+    if (!lastUserMessage) {
+      yield* terminal.warn("No user message found to fork from.");
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true };
+    }
+
+    const newHistory: ChatMessage[] = [];
+    if (systemMessage) {
+      newHistory.push(systemMessage);
+    }
+    newHistory.push(lastUserMessage);
+
+    yield* terminal.info("Forking conversation...");
+    yield* terminal.log(fmt.item("New conversation branch created"));
+    yield* terminal.log(fmt.item("Kept last user message as starting point"));
+    yield* terminal.log(fmt.blank());
+    yield* terminal.log(fmt.blank());
+    return {
+      shouldContinue: true,
+      newConversationId: generateConversationId(),
+      newHistory,
+    };
+  });
+}
+
+/**
  * Handle /help command - Show available commands
  */
 function handleHelpCommand(terminal: TerminalService): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     yield* terminal.log(fmt.heading("Available Commands"));
     yield* terminal.log(fmt.commandRow("/new", "Start a new conversation (clear context)"));
+    yield* terminal.log(
+      fmt.commandRow("/fork", "Fork conversation (new branch from last message)"),
+    );
     yield* terminal.log(fmt.commandRow("/tools", "List all agent tools by category"));
     yield* terminal.log(fmt.commandRow("/agents", "List all available agents"));
     yield* terminal.log(fmt.commandRow("/switch [agent]", "Switch to a different agent"));

@@ -121,14 +121,17 @@ jobs:
             let releaseBody;
             if (mdBlocks.length > 0) {
               releaseBody = mdBlocks[mdBlocks.length - 1][1].trim();
-            } else {
-              // Fallback: use everything after the last "---" separator or the raw output
-              const parts = output.split(/^---+$/m);
-              releaseBody = (parts[parts.length - 1] || output).trim().slice(-60000);
             }
 
             if (!releaseBody) {
-              releaseBody = '_Release notes could not be generated. See commit history for changes._';
+              console.log('Jazz release notes unavailable — falling back to GitHub auto-generated notes.');
+              const generated = await github.rest.repos.generateReleaseNotes({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: '${{ needs.tag.outputs.new_tag }}',
+                previous_tag_name: '${{ needs.tag.outputs.previous_tag }}',
+              });
+              releaseBody = generated.data.body || '_Release notes could not be generated. See commit history for changes._';
             }
 
             const tag = '${{ needs.tag.outputs.new_tag }}';

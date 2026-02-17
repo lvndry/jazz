@@ -391,7 +391,13 @@ export function createHttpRequestTool(): Tool<never> {
           } satisfies ToolExecutionResult;
         }
 
-        ensureHeader(headerMap, "User-Agent", "Jazz/1.0");
+        ensureHeader(headerMap, "User-Agent", "Jazz/1.0 (https://github.com/lvndry/jazz)");
+        ensureHeader(
+          headerMap,
+          "Accept",
+          "application/json, text/markdown, text/plain, application/xml, text/xml, text/html, */*",
+        );
+        ensureHeader(headerMap, "Accept-Charset", "utf-8");
 
         if (args.cacheTtlSeconds) {
           ensureHeader(headerMap, "Cache-Control", `max-age=${args.cacheTtlSeconds}`);

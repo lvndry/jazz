@@ -578,16 +578,30 @@ describe("activity-reducer", () => {
         render,
       );
 
-      // Find the Box with paddingLeft=4 and flexDirection column (multi-line result container)
-      const resultBox = nodes.find((el) => {
-        const props = el.props as Record<string, unknown>;
-        return props["paddingLeft"] === 4 && props["flexDirection"] === "column";
-      });
-      expect(resultBox).toBeDefined();
+      // Multi-line tool results are now emitted as plain padded strings
+      // (bypassing Ink layout) to avoid Yoga width-miscalculation with
+      // wrap="truncate" on nested ANSI content.
+      const a2 = acc();
+      a2.activeTools.set("tc-1", { toolName: "diff_tool", startedAt: Date.now() });
+      const result = reduceEvent(
+        a2,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "tc-1",
+          result: "ok",
+          durationMs: 10,
+          summary: "line1\nline2\nline3",
+        },
+        identity,
+        render,
+      );
 
-      // The child Text should have wrap="truncate"
-      const textEl = findElement(resultBox!, (p) => p["wrap"] === "truncate");
-      expect(textEl).not.toBeNull();
+      // The diff entry should be a plain string with manual 4-space padding
+      const diffEntry = result.outputs.find(
+        (o) => typeof o.message === "string" && o.message.includes("line1"),
+      );
+      expect(diffEntry).toBeDefined();
+      expect(diffEntry!.message).toBe("    line1\n    line2\n    line3");
     });
 
     test("short streaming text stays in activity.text for live area display", () => {
