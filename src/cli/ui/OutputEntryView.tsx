@@ -50,7 +50,10 @@ export const OutputEntryView = React.memo(function OutputEntryView({
 
   if (entry.type === "streamContent") {
     return (
-      <Box marginTop={0} marginBottom={0}>
+      <Box
+        marginTop={0}
+        marginBottom={0}
+      >
         <Text wrap="truncate">{entry.message as string}</Text>
       </Box>
     );

@@ -408,9 +408,9 @@ export function createCLIApp(): Effect.Effect<Command, never> {
 
     // Apply global options before any command runs
     program.hook("preAction", (thisCommand) => {
-      const opts = thisCommand.optsWithGlobals() as CliOptions;
-      if (opts.output) {
-        process.env["JAZZ_OUTPUT_MODE"] = opts.output;
+      const opts = thisCommand.optsWithGlobals();
+      if (opts["output"]) {
+        process.env["JAZZ_OUTPUT_MODE"] = opts["output"] as string;
       }
     });
 

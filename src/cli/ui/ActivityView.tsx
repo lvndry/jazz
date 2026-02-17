@@ -111,9 +111,7 @@ export const ActivityView = React.memo(function ActivityView({
               label="is responding…"
             />
           </Box>
-          {activity.text ? (
-            <PreWrappedText>{activity.text}</PreWrappedText>
-          ) : null}
+          {activity.text ? <PreWrappedText>{activity.text}</PreWrappedText> : null}
         </Box>
       );
 
