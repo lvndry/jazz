@@ -1,7 +1,4 @@
 import { Effect } from "effect";
-import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
-import React from "react";
 import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -9,8 +6,10 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { MCPServerConfig, MCPServerManager } from "@/core/interfaces/mcp-server";
 import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
+import type { PresentationService } from "@/core/interfaces/presentation";
+import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
-import { ink, TerminalServiceTag } from "@/core/interfaces/terminal";
+import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { MCPToolExecutionError } from "@/core/types/errors";
@@ -21,12 +20,16 @@ import { defineTool } from "./base-tool";
 
 /**
  * MCP Tool Dependencies - all services needed for MCP tool operations
+ *
+ * TerminalService is kept because connectServer requires it for template variable resolution.
+ * PresentationService is used for status display (connection progress, success/failure).
  */
 export type MCPToolDependencies =
   | AgentConfigService
   | LoggerService
   | MCPServerManager
-  | TerminalService;
+  | TerminalService
+  | PresentationService;
 
 /**
  * Adapt an MCP tool to a Jazz tool with lazy connection support
@@ -95,6 +98,7 @@ function executeMCPToolWithLazyConnection(
     const logger = yield* LoggerServiceTag;
     const configService = yield* AgentConfigServiceTag;
     const terminal = yield* TerminalServiceTag;
+    const presentation = yield* PresentationServiceTag;
 
     const serverName = serverConfig.name;
 
@@ -103,22 +107,10 @@ function executeMCPToolWithLazyConnection(
     // Check if server is connected, if not, reconnect (lazy connection)
     const isConnected = yield* mcpManager.isConnected(serverName);
     if (!isConnected) {
-      // Show connecting message with spinner
-      yield* terminal.log(
-        ink(
-          React.createElement(
-            Box,
-            {},
-            React.createElement(Text, { color: "cyan" }, [
-              React.createElement(Spinner, { key: "spinner", type: "dots" }),
-            ]),
-            React.createElement(
-              Text,
-              {},
-              ` Connecting to ${toPascalCase(serverName)} MCP server...`,
-            ),
-          ),
-        ),
+      // Show connecting message
+      yield* presentation.presentStatus(
+        `Connecting to ${toPascalCase(serverName)} MCP server...`,
+        "progress",
       );
 
       yield* logger.debug(
@@ -135,14 +127,9 @@ function executeMCPToolWithLazyConnection(
         );
 
       // Show success
-      yield* terminal.log(
-        ink(
-          React.createElement(
-            Text,
-            { color: "green" },
-            `✓ Connected to ${toPascalCase(serverName)} MCP server`,
-          ),
-        ),
+      yield* presentation.presentStatus(
+        `Connected to ${toPascalCase(serverName)} MCP server`,
+        "success",
       );
       yield* logger.info(`Lazy connection established to MCP server: ${serverName}`);
     }

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "bun:test";
 import { Effect, Layer } from "effect";
 import { formatError, handleError } from "./error-handler";
-import { TerminalServiceTag, type TerminalService } from "../interfaces/terminal";
+import { PresentationServiceTag, type PresentationService } from "../interfaces/presentation";
 import {
   AgentAlreadyExistsError,
   AgentNotFoundError,
@@ -78,28 +78,34 @@ describe("Error Handler", () => {
       agentId: "test-agent",
     });
 
-    const mockTerminalService: TerminalService = {
-      info: vi.fn().mockReturnValue(Effect.void),
-      success: vi.fn().mockReturnValue(Effect.void),
-      error: vi.fn().mockReturnValue(Effect.void),
-      warn: vi.fn().mockReturnValue(Effect.void),
-      log: vi.fn().mockReturnValue(Effect.void),
-      debug: vi.fn().mockReturnValue(Effect.void),
-      heading: vi.fn().mockReturnValue(Effect.void),
-      list: vi.fn().mockReturnValue(Effect.void),
-      ask: vi.fn().mockReturnValue(Effect.succeed("")),
-      password: vi.fn().mockReturnValue(Effect.succeed("")),
-      select: vi.fn().mockReturnValue(Effect.succeed("")),
-      confirm: vi.fn().mockReturnValue(Effect.succeed(true)),
-      search: vi.fn().mockReturnValue(Effect.succeed("")),
-      checkbox: vi.fn().mockReturnValue(Effect.succeed([])),
-      clear: vi.fn().mockReturnValue(Effect.void),
-    };
+    const mockPresentationService = {
+      presentThinking: vi.fn().mockReturnValue(Effect.void),
+      presentCompletion: vi.fn().mockReturnValue(Effect.void),
+      presentWarning: vi.fn().mockReturnValue(Effect.void),
+      presentAgentResponse: vi.fn().mockReturnValue(Effect.void),
+      renderMarkdown: vi.fn().mockImplementation((s: string) => Effect.succeed(s)),
+      formatToolArguments: vi.fn().mockReturnValue(""),
+      formatToolResult: vi.fn().mockReturnValue(""),
+      formatToolExecutionStart: vi.fn().mockReturnValue(Effect.succeed("")),
+      formatToolExecutionComplete: vi.fn().mockReturnValue(Effect.succeed("")),
+      formatToolExecutionError: vi.fn().mockReturnValue(Effect.succeed("")),
+      formatToolsDetected: vi.fn().mockReturnValue(Effect.succeed("")),
+      createStreamingRenderer: vi.fn().mockReturnValue(Effect.succeed({})),
+      writeOutput: vi.fn().mockReturnValue(Effect.void),
+      writeBlankLine: vi.fn().mockReturnValue(Effect.void),
+      presentStatus: vi.fn().mockReturnValue(Effect.void),
+      requestApproval: vi.fn().mockReturnValue(Effect.succeed({ approved: true })),
+      signalToolExecutionStarted: vi.fn().mockReturnValue(Effect.void),
+      requestUserInput: vi.fn().mockReturnValue(Effect.succeed("")),
+      requestFilePicker: vi.fn().mockReturnValue(Effect.succeed("")),
+    } satisfies PresentationService;
 
-    const terminalLayer = Layer.succeed(TerminalServiceTag, mockTerminalService);
+    const presentationLayer = Layer.succeed(PresentationServiceTag, mockPresentationService);
 
     // This should not throw
-    await Effect.runPromise(handleError(error).pipe(Effect.provide(terminalLayer)));
+    await Effect.runPromise(
+      handleError(error).pipe(Effect.provide(presentationLayer)) as Effect.Effect<void>,
+    );
   });
 
   it("should provide related commands for different error types", () => {

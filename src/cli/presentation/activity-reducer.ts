@@ -6,25 +6,15 @@
  * output). Side-effects (printing output) are returned as OutputEntry descriptors
  * so the caller can flush them through the store.
  *
- * ## Live-area flush strategy (anti-blink)
+ * ## Streaming text rendering strategy
  *
- * Ink's terminal rendering has two regions:
- *   - **Static**: content written once via `<Static>`, never re-rendered.
- *   - **Live area**: the non-Static portion, cleared and redrawn every render cycle.
+ * During streaming, ALL response text lives in the live area (`activity.text`).
+ * The reducer returns the raw accumulated text; the renderer is responsible for
+ * formatting (markdown + wrapping) and only does so when actually pushing to
+ * the store (~10/sec via throttle), not on every token (~80/sec).
  *
- * During LLM streaming the response text grows continuously. If the entire
- * accumulated response lives in the live area, each throttled re-render clears
- * and redraws hundreds of lines, causing visible terminal flicker/blink.
- *
- * To fix this, once the unflushed tail of `liveText` exceeds
- * `MAX_LIVE_DISPLAY_CHARS` (~20 lines), we find a safe paragraph boundary
- * (`\n\n` outside fenced code blocks) and move everything before it into Static
- * as an output entry. The live area then only contains the recent tail,
- * keeping redraws small and flicker-free regardless of response length.
- *
- * The `flushedTextOffset` field in the accumulator tracks how much of
- * `liveText` has already been promoted to Static. The full `liveText` string
- * is still kept for the `handleComplete` path which needs the complete response.
+ * On completion, the renderer prints the full response as a single Static
+ * output entry and clears the live area.
  */
 
 import chalk from "chalk";
@@ -52,11 +42,7 @@ function renderToolBadge(label: string): React.ReactElement {
 
 export interface ReducerAccumulator {
   agentName: string;
-  /**
-   * Full accumulated response text for the current LLM turn. Only the portion
-   * after `flushedTextOffset` is shown in the live area — the rest has already
-   * been promoted to Ink's Static region.
-   */
+  /** Full accumulated response text for the current LLM turn. */
   liveText: string;
   /** In-progress reasoning content (cleared on thinking_complete). */
   reasoningBuffer: string;
@@ -71,25 +57,18 @@ export interface ReducerAccumulator {
   currentProvider: string | null;
   /** Model id captured from stream_start for cost calculation. */
   currentModel: string | null;
-  /**
-   * Character offset into `liveText` up to which content has been flushed to
-   * Ink's Static region. `liveText.slice(flushedTextOffset)` is the portion
-   * still rendered in the live area. Reset to 0 on text_start and completion.
-   */
-  flushedTextOffset: number;
 
   // ── Markdown formatting cache ──────────────────────────────────────
-  // Avoids re-running ~15 regex passes over potentially 8KB of text on
-  // every throttled update (20×/s) when the underlying source hasn't changed.
-
-  /** Cached display text input (liveText.slice(flushedTextOffset)) */
-  _cachedDisplayTextInput: string;
-  /** Cached formatted result for display text */
-  _cachedDisplayTextOutput: string;
   /** Cached reasoning input */
   _cachedReasoningInput: string;
   /** Cached formatted result for reasoning */
   _cachedReasoningOutput: string;
+
+  /**
+   * Whether we've already printed the streaming response header ("X is responding…")
+   * into Static output for the current response.
+   */
+  responseHeaderPrinted: boolean;
 }
 
 export function createAccumulator(agentName: string): ReducerAccumulator {
@@ -104,11 +83,11 @@ export function createAccumulator(agentName: string): ReducerAccumulator {
     activeTools: new Map(),
     currentProvider: null,
     currentModel: null,
-    flushedTextOffset: 0,
-    _cachedDisplayTextInput: "",
-    _cachedDisplayTextOutput: "",
+
     _cachedReasoningInput: "",
     _cachedReasoningOutput: "",
+
+    responseHeaderPrinted: false,
   };
 }
 
@@ -131,62 +110,21 @@ export interface ReducerResult {
 const MAX_REASONING_LENGTH = 8000;
 /** Hard cap for total `liveText` length to prevent unbounded memory growth. */
 const MAX_LIVE_TEXT_LENGTH = 200_000;
-/**
- * Maximum characters kept in the live area before flushing older paragraphs
- * to Static. Reduced from 8000 to 4000 chars to improve streaming performance.
- * 4000 chars ≈ ~50 terminal lines, still plenty for reading while reducing
- * markdown formatting overhead. The tiered flush strategy in findSafeFlushPoint
- * guarantees content is always promoted to Static before Ink clips the viewport.
- */
-const MAX_LIVE_DISPLAY_CHARS = 4000;
 
-/**
- * Find the best point to flush text up to, using a tiered strategy:
- * 1. Paragraph break (`\n\n`) outside fenced code blocks (ideal — clean split)
- * 2. Any single newline (`\n`) as fallback (may split inside a code block, but
- *    prevents Ink's live area from exceeding the terminal viewport)
- * 3. Hard character boundary as last resort (splits mid-line, but guarantees
- *    the live area never grows unbounded)
- *
- * Scans from `startOffset` to `text.length - maxLiveChars`.
- * Returns the position just after the chosen break, or -1 if
- * `text.length - maxLiveChars <= startOffset` (i.e. not enough text yet).
- */
-function findSafeFlushPoint(text: string, startOffset: number, maxLiveChars: number): number {
-  const searchEnd = text.length - maxLiveChars;
-  if (searchEnd <= startOffset) return -1;
-
-  let insideCodeBlock = false;
-  let lastParagraphBreak = -1;
-  let lastNewline = -1;
-
-  for (let i = startOffset; i < searchEnd; i++) {
-    // Detect fenced code block toggles (``` at start of line)
-    if (
-      text[i] === "`" &&
-      i + 2 < text.length &&
-      text[i + 1] === "`" &&
-      text[i + 2] === "`" &&
-      (i === 0 || text[i - 1] === "\n")
-    ) {
-      insideCodeBlock = !insideCodeBlock;
-    }
-
-    if (text[i] === "\n") {
-      // Tier 1: paragraph break (\n\n) outside code blocks
-      if (!insideCodeBlock && i + 1 < searchEnd && text[i + 1] === "\n") {
-        lastParagraphBreak = i + 2;
-      }
-      // Tier 2: any single newline
-      lastNewline = i + 1;
-    }
-  }
-
-  // Prefer paragraph break > single newline > hard boundary
-  if (lastParagraphBreak > startOffset) return lastParagraphBreak;
-  if (lastNewline > startOffset) return lastNewline;
-  // Tier 3: hard boundary — just flush everything beyond maxLiveChars
-  return searchEnd;
+function renderStreamingResponseHeader(agentName: string): React.ReactElement {
+  return React.createElement(
+    Box,
+    { flexDirection: "column", paddingLeft: 2, marginTop: 1 },
+    React.createElement(
+      Box,
+      {},
+      React.createElement(Text, { color: THEME.agent }, "…"),
+      React.createElement(Text, {}, " "),
+      React.createElement(Text, { bold: true, color: THEME.agent }, agentName),
+      React.createElement(Text, { dimColor: true }, " is responding…"),
+    ),
+    React.createElement(Text, { dimColor: true }, "─".repeat(40)),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -216,26 +154,13 @@ function buildThinkingOrStreamingActivity(
     acc._cachedReasoningOutput = formattedReasoning;
   }
 
-  // Only show the unflushed tail in the live area — earlier text is already in Static.
-  const displayText = acc.liveText.slice(acc.flushedTextOffset);
-  if (displayText.length > 0) {
-    // Use cached formatted display text to avoid redundant regex work.
-    // During streaming, text changes on every chunk so the cache won't hit often,
-    // but it prevents duplicate work when the throttle fires without new text.
-    let formattedText: string;
-    if (displayText === acc._cachedDisplayTextInput) {
-      formattedText = acc._cachedDisplayTextOutput;
-    } else {
-      formattedText = formatMarkdown(displayText);
-      acc._cachedDisplayTextInput = displayText;
-      acc._cachedDisplayTextOutput = formattedText;
-    }
-
+  if (acc.liveText.length > 0) {
     return {
       phase: "streaming",
       agentName: acc.agentName,
       reasoning: formattedReasoning,
-      text: formattedText,
+      // Raw text — the renderer formats it only when pushing to the store.
+      text: acc.liveText,
     };
   }
 
@@ -284,7 +209,7 @@ export function reduceEvent(
       });
       outputs.push({
         type: "log",
-        message: chalk.dim("(Tip: Press Ctrl+I to stop generation)"),
+        message: chalk.dim("(Tip: Press Esc twice to stop generation)"),
         timestamp: new Date(),
       });
 
@@ -326,8 +251,8 @@ export function reduceEvent(
               React.createElement(Text, { dimColor: true, italic: true }, "▸ Reasoning"),
               React.createElement(
                 Box,
-                { marginTop: 0, paddingLeft: 1 },
-                React.createElement(Text, { dimColor: true, wrap: "wrap" }, formattedReasoning),
+                { marginTop: 0, paddingLeft: 1, flexDirection: "column" },
+                React.createElement(Text, { dimColor: true, wrap: "truncate" }, formattedReasoning),
               ),
             ),
           ),
@@ -367,6 +292,8 @@ export function reduceEvent(
     // ---- Text content ---------------------------------------------------
 
     case "text_start": {
+      acc.responseHeaderPrinted = false;
+
       // If reasoning was produced, log a separator before the response
       if (acc.completedReasoning.trim().length > 0) {
         outputs.push({
@@ -382,11 +309,28 @@ export function reduceEvent(
           timestamp: new Date(),
         });
       }
+
+      // Print the "is responding…" header into Static once per response.
+      if (!acc.responseHeaderPrinted) {
+        outputs.push({
+          type: "log",
+          message: inkRender(renderStreamingResponseHeader(acc.agentName)),
+          timestamp: new Date(),
+        });
+        acc.responseHeaderPrinted = true;
+      }
+
       acc.liveText = "";
-      acc.flushedTextOffset = 0;
       acc.lastAppliedTextSequence = -1;
+
       return {
-        activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
+        activity: {
+          phase: "streaming",
+          agentName: acc.agentName,
+          reasoning:
+            acc.completedReasoning.trim().length > 0 ? formatMarkdown(acc.completedReasoning) : "",
+          text: "",
+        },
         outputs,
       };
     }
@@ -399,49 +343,15 @@ export function reduceEvent(
         },
         { sequence: event.sequence, accumulated: event.accumulated },
       );
-      // Cap live text to prevent unbounded memory growth during long responses.
-      // When trimming, shift flushedTextOffset down by the same amount so it
-      // still points at the correct position within the shortened string.
+      // Cap live text to prevent unbounded memory growth.
       if (next.liveText.length > MAX_LIVE_TEXT_LENGTH) {
-        const trimAmount = next.liveText.length - MAX_LIVE_TEXT_LENGTH;
         acc.liveText = next.liveText.slice(-MAX_LIVE_TEXT_LENGTH);
-        acc.flushedTextOffset = Math.max(0, acc.flushedTextOffset - trimAmount);
       } else {
         acc.liveText = next.liveText;
       }
       acc.lastAppliedTextSequence = next.lastAppliedSequence;
 
-      // --- Live-area flush ---
-      // When the unflushed tail exceeds the display threshold, find a flush
-      // point and promote everything before it to Static output. This keeps
-      // the live area small (≤ MAX_LIVE_DISPLAY_CHARS) so Ink redraws don't
-      // cause terminal flicker or viewport clipping. The flush uses a tiered
-      // strategy: paragraph break > single newline > hard boundary, so it
-      // always finds a split point even inside long code blocks.
-      if (acc.liveText.length - acc.flushedTextOffset > MAX_LIVE_DISPLAY_CHARS) {
-        const flushPoint = findSafeFlushPoint(
-          acc.liveText,
-          acc.flushedTextOffset,
-          MAX_LIVE_DISPLAY_CHARS,
-        );
-        if (flushPoint > acc.flushedTextOffset) {
-          const flushableText = acc.liveText.slice(acc.flushedTextOffset, flushPoint);
-          const formatted = formatMarkdown(flushableText);
-          outputs.push({
-            type: "log",
-            message: inkRender(
-              React.createElement(
-                Box,
-                { paddingLeft: 2 },
-                React.createElement(Text, { wrap: "wrap" }, formatted),
-              ),
-            ),
-            timestamp: new Date(),
-          });
-          acc.flushedTextOffset = flushPoint;
-        }
-      }
-
+      // All text stays in the live area — no flushing to Static during streaming.
       return {
         activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
         outputs,
@@ -464,9 +374,6 @@ export function reduceEvent(
     }
 
     case "tool_call": {
-      // Provider-native tools (e.g. web_search via OpenAI) never get a
-      // tool_execution_start event, so this is the only place to log them.
-      // Non-native tools will be logged by tool_execution_start instead.
       if (!event.providerNative) {
         return { activity: null, outputs };
       }
@@ -566,8 +473,8 @@ export function reduceEvent(
           message: inkRender(
             React.createElement(
               Box,
-              { paddingLeft: 4 },
-              React.createElement(Text, { wrap: "wrap" }, displayText),
+              { paddingLeft: 4, flexDirection: "column" },
+              React.createElement(Text, { wrap: "truncate" }, displayText),
             ),
           ),
           timestamp: new Date(),
@@ -580,7 +487,7 @@ export function reduceEvent(
               Box,
               { paddingLeft: 2 },
               React.createElement(Text, { color: THEME.success }, "✔ "),
-              React.createElement(Text, { wrap: "wrap" }, displayText),
+              React.createElement(Text, { wrap: "truncate" }, displayText),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
             ),
           ),
@@ -620,9 +527,6 @@ export function reduceEvent(
     // ---- Complete -------------------------------------------------------
 
     case "complete": {
-      // Note: completion card rendering + cost calc stay in the renderer
-      // because they need async work and Ink/React rendering.
-      // The reducer only signals the phase transition.
       return { activity: { phase: "complete" }, outputs: [] };
     }
   }

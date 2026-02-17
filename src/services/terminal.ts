@@ -396,13 +396,13 @@ export class InkTerminalService implements TerminalService {
 }
 
 /**
- * Headless Terminal Service for non-TTY environments (CI, piped output, cron).
+ * Plain Terminal Service for non-TTY environments (CI, piped output, cron).
  *
  * Writes directly to stdout without Ink, avoiding the raw mode error that
  * occurs when Ink tries to call setRawMode on a non-TTY stdin.
  * Interactive prompts return sensible defaults (empty string, false, first choice).
  */
-export class HeadlessTerminalService implements TerminalService {
+export class PlainTerminalService implements TerminalService {
   private write(message: string): void {
     process.stdout.write(`${message}\n`);
   }
@@ -428,7 +428,7 @@ export class HeadlessTerminalService implements TerminalService {
       if (typeof message === "string") {
         this.write(message);
       }
-      // Ink nodes are silently ignored in headless mode
+      // Ink nodes are silently ignored in plain terminal mode
       return undefined;
     });
   }
@@ -453,7 +453,7 @@ export class HeadlessTerminalService implements TerminalService {
     return Effect.void;
   }
 
-  // Interactive methods return defaults — headless mode cannot prompt
+  // Interactive methods return defaults — non-interactive mode cannot prompt
   ask(
     _message: string,
     options?: { defaultValue?: string },
@@ -517,7 +517,7 @@ export class HeadlessTerminalService implements TerminalService {
  * Create the terminal service layer.
  *
  * Uses the Ink-based terminal when both stdout and stdin are TTYs (interactive terminal).
- * Falls back to a headless terminal service in non-TTY environments (CI, piped output, cron)
+ * Falls back to a plain terminal service in non-TTY environments (CI, piped output, cron)
  * to avoid Ink's raw mode error.
  */
 export function createTerminalServiceLayer(): Layer.Layer<TerminalService, never, never> {
@@ -525,20 +525,20 @@ export function createTerminalServiceLayer(): Layer.Layer<TerminalService, never
 
   return Layer.effect(
     TerminalServiceTag,
-    Effect.sync(() => (isTTY ? new InkTerminalService() : new HeadlessTerminalService())),
+    Effect.sync(() => (isTTY ? new InkTerminalService() : new PlainTerminalService())),
   );
 }
 
 /**
- * Create a headless terminal service layer.
+ * Create a plain terminal service layer.
  *
- * Always uses HeadlessTerminalService regardless of TTY status.
- * Use this for CI, cron, and `--auto-approve` workflow runs where
+ * Always uses PlainTerminalService regardless of TTY status.
+ * Use this for `--output quiet` mode and scheduled workflow runs where
  * no interactive UI is needed.
  */
-export function createHeadlessTerminalServiceLayer(): Layer.Layer<TerminalService, never, never> {
+export function createPlainTerminalServiceLayer(): Layer.Layer<TerminalService, never, never> {
   return Layer.effect(
     TerminalServiceTag,
-    Effect.sync(() => new HeadlessTerminalService()),
+    Effect.sync(() => new PlainTerminalService()),
   );
 }

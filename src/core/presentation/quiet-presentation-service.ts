@@ -12,12 +12,14 @@ import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 
 /**
- * Headless presentation service for background workflow runs (e.g. catch-up).
- * Does not update the shared UI (store.setStatus / setStream), so the main
- * command's terminal is not overwritten by "pilot is thinking" or tool output.
+ * Quiet presentation service — suppresses all output.
+ *
+ * Used for background workflow runs (e.g. catch-up) and `--output quiet` mode.
+ * Does not update the shared UI, so the main command's terminal is not
+ * overwritten by agent thinking or tool output.
  * All presentation methods no-op; approval requests are auto-approved.
  */
-class HeadlessPresentationService implements PresentationService {
+class QuietPresentationService implements PresentationService {
   constructor(_displayConfig = DEFAULT_DISPLAY_CONFIG) {}
 
   presentThinking(_agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {
@@ -98,6 +100,13 @@ class HeadlessPresentationService implements PresentationService {
     return Effect.void;
   }
 
+  presentStatus(
+    _message: string,
+    _level: "info" | "success" | "warning" | "error" | "progress",
+  ): Effect.Effect<void, never> {
+    return Effect.void;
+  }
+
   requestApproval(_request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
     return Effect.succeed({ approved: true });
   }
@@ -106,28 +115,28 @@ class HeadlessPresentationService implements PresentationService {
     return Effect.void;
   }
 
-  // Headless mode cannot ask user - return empty string
+  // Quiet mode cannot ask user — return empty string
   requestUserInput(): Effect.Effect<string, never> {
     return Effect.succeed("");
   }
 
-  // Headless mode cannot show file picker - return empty string
+  // Quiet mode cannot show file picker — return empty string
   requestFilePicker(): Effect.Effect<string, never> {
     return Effect.succeed("");
   }
 }
 
 /**
- * Layer that provides a headless presentation service for background runs.
- * Use with Effect.provide when forking workflow catch-up so the main UI is not updated.
+ * Layer that provides a quiet presentation service.
+ * Suppresses all output — used for background catch-up runs and `--output quiet` mode.
  */
-export const HeadlessPresentationServiceLayer = Layer.effect(
+export const QuietPresentationServiceLayer = Layer.effect(
   PresentationServiceTag,
   Effect.gen(function* () {
     const configServiceOption = yield* Effect.serviceOption(AgentConfigServiceTag);
     const displayConfig = Option.isSome(configServiceOption)
       ? resolveDisplayConfig(yield* configServiceOption.value.appConfig)
       : DEFAULT_DISPLAY_CONFIG;
-    return new HeadlessPresentationService(displayConfig);
+    return new QuietPresentationService(displayConfig);
   }),
 );

@@ -124,4 +124,16 @@ Rules:
 - `side`: "RIGHT" for added/modified files (comment on new code); use "LEFT" or omit for deleted files (the CI workflow auto-detects removed files and uses LEFT)
 - `body`: markdown comment — include severity (Critical/Suggestion/Nice-to-have), explanation, and a concrete fix when possible
 
+**CRITICAL — Line number accuracy:**
+
+The `line` field MUST reference a line that actually appears in the diff output. The GitHub API will reject comments on lines that are outside the diff hunks (changed lines + context lines). Before emitting a comment:
+
+1. **Verify the line is in the diff** — only comment on lines you can see in the `git_diff` output. If a line number does not appear in the diff hunks, do NOT use it.
+2. **Do NOT guess or extrapolate line numbers** — if the relevant code is not visible in the diff, either find the nearest diff line that provides enough context, or omit the comment entirely.
+3. **Prefer changed lines** — comment on added/modified lines (prefixed with `+` in the diff) whenever possible, as these are always valid targets.
+4. **Context lines are also valid** — unchanged lines shown in the diff hunk (no `+` or `-` prefix) can also be commented on.
+5. **Lines outside the diff are NOT valid** — even if the file is in the PR, lines that fall outside any hunk range will cause a "Line could not be resolved" API error.
+
+If you want to comment on code that is not in the diff (e.g., a pre-existing issue near the changed code), mention it in the `body` of a comment attached to the nearest valid diff line instead.
+
 If there are no issues, output an empty array: `[]`

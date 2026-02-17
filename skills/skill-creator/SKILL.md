@@ -14,7 +14,7 @@ Create effective Jazz skills for automating workflows and specialized tasks.
 **You have enough info when you know:**
 
 1. **Purpose**: What specific task or workflow should this skill automate?
-2. **Location**: Global (`~/.jazz/skills/`) or project-specific (`./skills/`)?
+2. **Location**: Global (`~/.jazz/skills/`, `~/.agents/skills`) or project-specific (`./skills/`)?
 3. **Triggers**: When should Jazz automatically apply this skill? (Trigger phrases or scenarios.)
 4. **Domain knowledge**: What specialized information is needed?
 5. **Output format**: Are there specific templates or formats required?

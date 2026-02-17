@@ -12,6 +12,7 @@ const ICONS: Record<OutputType, React.ReactElement> = {
   debug: <Text dimColor>•</Text>,
   user: <Text color={THEME.primary}>›</Text>,
   log: <></>,
+  streamContent: <></>,
 };
 
 const COLORS: Record<OutputType, string> = {
@@ -22,6 +23,7 @@ const COLORS: Record<OutputType, string> = {
   user: THEME.primary,
   info: THEME.info,
   log: "white",
+  streamContent: "white",
 };
 
 /**
@@ -46,6 +48,17 @@ export const OutputEntryView = React.memo(function OutputEntryView({
   const icon = ICONS[entry.type];
   const color = COLORS[entry.type];
 
+  if (entry.type === "streamContent") {
+    return (
+      <Box
+        marginTop={0}
+        marginBottom={0}
+      >
+        <Text wrap="truncate">{entry.message as string}</Text>
+      </Box>
+    );
+  }
+
   if (typeof entry.message === "string") {
     if (entry.type === "user") {
       return (
@@ -58,9 +71,25 @@ export const OutputEntryView = React.memo(function OutputEntryView({
           <Text
             color={THEME.primary}
             bold
+            wrap="truncate"
           >
             {entry.message}
           </Text>
+        </Box>
+      );
+    }
+
+    // Log entries: render just the text with no icon/space siblings.
+    // This keeps Yoga layout minimal — a single Text child in a Box.
+    // The caller is responsible for baking any left padding into the string
+    // (via padLines) so Yoga doesn't need to compute nested padding.
+    if (entry.type === "log") {
+      return (
+        <Box
+          marginTop={addSpacing ? 1 : 0}
+          marginBottom={1}
+        >
+          <Text wrap="truncate">{entry.message}</Text>
         </Box>
       );
     }
@@ -72,18 +101,13 @@ export const OutputEntryView = React.memo(function OutputEntryView({
       >
         {icon}
         <Text> </Text>
-        {entry.type === "log" ? (
-          // Important: don't force a color for plain logs so ANSI styling (chalk/marked)
-          // can render correctly and not get overwritten by Ink's `color` prop.
-          <Text>{entry.message}</Text>
-        ) : (
-          <Text
-            dimColor={entry.type === "debug"}
-            color={color}
-          >
-            {entry.message}
-          </Text>
-        )}
+        <Text
+          dimColor={entry.type === "debug"}
+          color={color}
+          wrap="truncate"
+        >
+          {entry.message}
+        </Text>
       </Box>
     );
   }

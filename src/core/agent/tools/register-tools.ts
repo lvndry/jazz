@@ -1,14 +1,12 @@
 import { Effect, Layer } from "effect";
-import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
-import React from "react";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { MCPServerManager } from "@/core/interfaces/mcp-server";
 import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
+import type { PresentationService } from "@/core/interfaces/presentation";
+import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
-import { ink, TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import type { ToolCategory } from "@/core/types";
@@ -22,6 +20,7 @@ import { registerMCPServerTools } from "./mcp-tools";
 import { createShellCommandTools } from "./shell-tools";
 import { createSkillTools } from "./skill-tools";
 import { createSubagentTools } from "./subagent-tools";
+import { createListTodosTool, createManageTodosTool } from "./todo-tools";
 import { userInteractionTools } from "./user-interaction-tools";
 import { createWebSearchTool } from "./web-search-tools";
 
@@ -32,8 +31,7 @@ type MCPRegistrationDependencies =
   | ToolRegistry
   | MCPServerManager
   | AgentConfigService
-  | LoggerService
-  | TerminalService;
+  | LoggerService;
 
 /**
  * Tool registration module
@@ -55,6 +53,7 @@ export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDe
     yield* registerGitTools();
     yield* registerSearchTools();
     yield* registerHttpTools();
+    yield* registerTodoTools();
     yield* registerContextTools();
     yield* registerSubagentTools();
     yield* registerUserInteractionTools();
@@ -94,7 +93,12 @@ export function registerMCPToolsForAgent(
 ): Effect.Effect<
   readonly string[],
   Error,
-  ToolRegistry | MCPServerManager | AgentConfigService | LoggerService | TerminalService
+  | ToolRegistry
+  | MCPServerManager
+  | AgentConfigService
+  | LoggerService
+  | TerminalService
+  | PresentationService
 > {
   return Effect.gen(function* () {
     const mcpManager = yield* MCPServerManagerTag;
@@ -163,7 +167,7 @@ export function registerMCPToolsForAgent(
       }
 
       yield* Effect.gen(function* () {
-        const terminal = yield* TerminalServiceTag;
+        const presentation = yield* PresentationServiceTag;
         const serverName = serverConfig.name;
 
         // Check if server is already connected to avoid showing duplicate connection messages
@@ -174,21 +178,9 @@ export function registerMCPToolsForAgent(
           showedConnectionUI = true;
 
           // Show connecting message only if not already connected
-          yield* terminal.log(
-            ink(
-              React.createElement(
-                Box,
-                {},
-                React.createElement(Text, { color: "cyan" }, [
-                  React.createElement(Spinner, { key: "spinner", type: "dots" }),
-                ]),
-                React.createElement(
-                  Text,
-                  {},
-                  ` Connecting to ${toPascalCase(serverName)} MCP server...`,
-                ),
-              ),
-            ),
+          yield* presentation.presentStatus(
+            `Connecting to ${toPascalCase(serverName)} MCP server...`,
+            "progress",
           );
 
           yield* logger.debug(`Connecting to MCP server ${serverName}...`);
@@ -217,20 +209,15 @@ export function registerMCPToolsForAgent(
           // Show error with helpful context (only if we showed connection UI)
           if (showedConnectionUI) {
             const errorPrefix = isAuthError
-              ? `✗ ${toPascalCase(serverName)} MCP unavailable (invalid credentials)`
-              : `✗ Failed to connect to ${toPascalCase(serverName)} MCP server`;
+              ? `${toPascalCase(serverName)} MCP unavailable (invalid credentials)`
+              : `Failed to connect to ${toPascalCase(serverName)} MCP server`;
 
-            yield* terminal.log(ink(React.createElement(Text, { color: "yellow" }, errorPrefix)));
+            yield* presentation.presentStatus(errorPrefix, "warning");
 
             if (isAuthError) {
-              yield* terminal.log(
-                ink(
-                  React.createElement(
-                    Text,
-                    { color: "gray" },
-                    `  The agent will continue without ${toPascalCase(serverName)} tools.`,
-                  ),
-                ),
+              yield* presentation.presentStatus(
+                `The agent will continue without ${toPascalCase(serverName)} tools.`,
+                "info",
               );
             }
           }
@@ -256,23 +243,13 @@ export function registerMCPToolsForAgent(
           const error = mcpToolsResult.left;
           const errorMessage = String(error);
           if (showedConnectionUI) {
-            yield* terminal.log(
-              ink(
-                React.createElement(
-                  Text,
-                  { color: "yellow" },
-                  `✗ Failed to discover tools from ${toPascalCase(serverName)} MCP server`,
-                ),
-              ),
+            yield* presentation.presentStatus(
+              `Failed to discover tools from ${toPascalCase(serverName)} MCP server`,
+              "warning",
             );
-            yield* terminal.log(
-              ink(
-                React.createElement(
-                  Text,
-                  { color: "gray" },
-                  `  The agent will continue without ${toPascalCase(serverName)} tools.`,
-                ),
-              ),
+            yield* presentation.presentStatus(
+              `The agent will continue without ${toPascalCase(serverName)} tools.`,
+              "info",
             );
           }
           yield* logger.warn(
@@ -286,14 +263,9 @@ export function registerMCPToolsForAgent(
 
         // Show success - only if we showed connection UI
         if (showedConnectionUI) {
-          yield* terminal.log(
-            ink(
-              React.createElement(
-                Text,
-                { color: "green" },
-                `✓ Connected to ${toPascalCase(serverName)} MCP server`,
-              ),
-            ),
+          yield* presentation.presentStatus(
+            `Connected to ${toPascalCase(serverName)} MCP server`,
+            "success",
           );
         }
 
@@ -361,6 +333,7 @@ export function registerMCPToolsForSelection(): Effect.Effect<
   void,
   Error,
   ToolRegistry | MCPServerManager | AgentConfigService | LoggerService | TerminalService
+  // TerminalService kept because connectServer requires it for template variable resolution
 > {
   return Effect.gen(function* () {
     const mcpManager = yield* MCPServerManagerTag;
@@ -448,6 +421,7 @@ export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "W
 export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
 export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Context" };
 export const SUBAGENT_CATEGORY: ToolCategory = { id: "subagent", displayName: "Sub Agents" };
+export const TODO_CATEGORY: ToolCategory = { id: "todo", displayName: "Todo" };
 export const USER_INTERACTION_CATEGORY: ToolCategory = {
   id: "user_interaction",
   displayName: "User Interaction",
@@ -505,6 +479,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   HTTP_CATEGORY,
   WEB_SEARCH_CATEGORY,
   SKILLS_CATEGORY,
+  TODO_CATEGORY,
   CONTEXT_CATEGORY,
   SUBAGENT_CATEGORY,
   USER_INTERACTION_CATEGORY,
@@ -515,6 +490,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
  */
 export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
   SKILLS_CATEGORY,
+  TODO_CATEGORY,
   SUBAGENT_CATEGORY,
   USER_INTERACTION_CATEGORY,
   CONTEXT_CATEGORY,
@@ -689,6 +665,17 @@ export function registerSkillSystemTools(
   });
 }
 
+// Register todo management tools
+export function registerTodoTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(TODO_CATEGORY);
+
+    yield* registerTool(createManageTodosTool());
+    yield* registerTool(createListTodosTool());
+  });
+}
+
 // Register context awareness tools
 export function registerContextTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
@@ -732,7 +719,6 @@ export function registerUserInteractionTools(): Effect.Effect<void, Error, ToolR
  * - MCPServerManager: For MCP server connections
  * - AgentConfigService: For configuration access
  * - LoggerService: For logging
- * - TerminalService: For user prompts during MCP setup
  */
 export function createToolRegistrationLayer(): Layer.Layer<
   never,

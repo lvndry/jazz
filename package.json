@@ -113,6 +113,7 @@
     "react": "^19.2.4",
     "short-uuid": "^5.2.0",
     "vercel-minimax-ai-provider": "^0.0.2",
+    "wrap-ansi": "^9.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

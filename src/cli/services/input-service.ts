@@ -128,7 +128,7 @@ export const InputPriority = {
   MODAL: 10,
   /** Prompt handlers (text input, select, etc.) */
   PROMPT: 20,
-  /** Global shortcuts (Tab interrupt, etc.) */
+  /** Global shortcuts (expand-diff, etc.) */
   GLOBAL_SHORTCUT: 30,
   /** Default priority for text input */
   TEXT_INPUT: 100,

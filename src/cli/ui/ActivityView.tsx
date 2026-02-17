@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
 import type { ActivityState } from "./activity-state";
+import { PreWrappedText } from "./components/PreWrappedText";
 import { THEME } from "./theme";
 
 function AgentHeader({
@@ -58,7 +59,7 @@ function ReasoningSection({
           </Text>
         )}
       </Box>
-      {reasoning && <Text dimColor>{reasoning}</Text>}
+      {reasoning && <PreWrappedText dimColor>{reasoning}</PreWrappedText>}
     </Box>
   );
 }
@@ -103,47 +104,14 @@ export const ActivityView = React.memo(function ActivityView({
         <Box
           flexDirection="column"
           marginTop={1}
-          paddingX={2}
         >
-          <AgentHeader
-            agentName={activity.agentName}
-            label="is responding…"
-          />
-          <Box marginTop={0}>
-            <Text dimColor>{"─".repeat(40)}</Text>
+          <Box paddingX={2}>
+            <AgentHeader
+              agentName={activity.agentName}
+              label="is responding…"
+            />
           </Box>
-          <ReasoningSection
-            reasoning={activity.reasoning}
-            isThinking={false}
-          />
-          {activity.text && (
-            <>
-              {activity.reasoning && (
-                <Box
-                  marginTop={1}
-                  paddingLeft={2}
-                  flexDirection="column"
-                >
-                  <Text dimColor>{"─".repeat(40)}</Text>
-                  <Box>
-                    <Text dimColor>{"▸ "}</Text>
-                    <Text
-                      dimColor
-                      italic
-                    >
-                      Response
-                    </Text>
-                  </Box>
-                </Box>
-              )}
-              <Box
-                marginTop={activity.reasoning ? 0 : 1}
-                paddingLeft={2}
-              >
-                <Text wrap="wrap">{activity.text}</Text>
-              </Box>
-            </>
-          )}
+          {activity.text ? <PreWrappedText>{activity.text}</PreWrappedText> : null}
         </Box>
       );
 
@@ -175,5 +143,8 @@ export const ActivityView = React.memo(function ActivityView({
           <Text color="red">{activity.message}</Text>
         </Box>
       );
+
+    default:
+      return null;
   }
 });

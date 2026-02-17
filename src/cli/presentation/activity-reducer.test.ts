@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import React from "react";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import type { ReducerAccumulator } from "./activity-reducer";
 
@@ -7,6 +8,47 @@ const identity = (s: string) => s;
 
 /** Stub ink renderer — returns the string tag for assertions. */
 const stubInk = (node: unknown) => `[ink:${typeof node}]`;
+
+/**
+ * Capturing ink renderer — stores React elements for structural assertions.
+ * Returns the captured nodes array alongside the stub function.
+ */
+function createCapturingInk() {
+  const nodes: React.ReactElement[] = [];
+  const render = (node: unknown) => {
+    if (React.isValidElement(node)) {
+      nodes.push(node);
+    }
+    return `[ink:${typeof node}]`;
+  };
+  return { nodes, render };
+}
+
+/**
+ * Recursively find the first React element in the tree whose props match the predicate.
+ */
+function findElement(
+  el: React.ReactElement,
+  predicate: (props: Record<string, unknown>) => boolean,
+): React.ReactElement | null {
+  const props = el.props as Record<string, unknown>;
+  if (predicate(props)) return el;
+
+  const children = props["children"];
+  if (React.isValidElement(children)) {
+    const found = findElement(children, predicate);
+    if (found) return found;
+  }
+  if (Array.isArray(children)) {
+    for (const child of children) {
+      if (React.isValidElement(child)) {
+        const found = findElement(child, predicate);
+        if (found) return found;
+      }
+    }
+  }
+  return null;
+}
 
 function acc(overrides?: Partial<ReducerAccumulator>): ReducerAccumulator {
   return { ...createAccumulator("TestAgent"), ...overrides };
@@ -153,15 +195,16 @@ describe("activity-reducer", () => {
       expect(a.lastAppliedTextSequence).toBe(-1);
     });
 
-    test("text_start transitions to streaming when completedReasoning exists", () => {
+    test("text_start enters streaming phase and emits a response header", () => {
       const a = acc({ completedReasoning: "thought" });
       const result = reduceEvent(a, { type: "text_start" }, identity, stubInk);
 
-      // No liveText yet, so should be thinking phase
-      expect(result.activity!.phase).toBe("thinking");
+      expect(result.activity).not.toBeNull();
+      expect(result.activity!.phase).toBe("streaming");
+      expect(result.outputs.length).toBeGreaterThan(0);
     });
 
-    test("text_chunk updates liveText and returns streaming activity", () => {
+    test("text_chunk updates liveText and returns streaming activity with text in live area", () => {
       const a = acc();
       reduceEvent(a, { type: "text_start" }, identity, stubInk);
       const result = reduceEvent(
@@ -173,8 +216,9 @@ describe("activity-reducer", () => {
 
       expect(a.liveText).toBe("Hi");
       expect(result.activity!.phase).toBe("streaming");
+      // Short text stays in the live area (activity.text), not flushed to Static
       if (result.activity!.phase === "streaming") {
-        expect(result.activity!.text).toBe("Hi");
+        expect(result.activity!.text).toContain("Hi");
       }
     });
 
@@ -434,11 +478,10 @@ describe("activity-reducer", () => {
       // thinking_complete
       reduceEvent(a, { type: "thinking_complete" }, identity, stubInk);
 
-      // text_start — still thinking (no liveText yet)
+      // text_start — now enters streaming immediately (even before first chunk)
       const r5 = reduceEvent(a, { type: "text_start" }, identity, stubInk);
-      expect(r5.activity!.phase).toBe("thinking");
-
-      // text_chunk → streaming
+      expect(r5.activity!.phase).toBe("streaming");
+      // text_chunk → streaming (text flushed to Static, not in activity.text)
       const r6 = reduceEvent(
         a,
         { type: "text_chunk", delta: "Hi", accumulated: "Hi", sequence: 0 },
@@ -447,7 +490,7 @@ describe("activity-reducer", () => {
       );
       expect(r6.activity!.phase).toBe("streaming");
       if (r6.activity!.phase === "streaming") {
-        expect(r6.activity!.text).toBe("Hi");
+        expect(r6.activity!.text).toContain("Hi"); // short text stays in live area
         expect(r6.activity!.reasoning).toBe("hmm");
       }
 
@@ -463,6 +506,213 @@ describe("activity-reducer", () => {
         stubInk,
       );
       expect(r7.activity!.phase).toBe("complete");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  describe("text container layout (flexDirection column)", () => {
+    test("long text stays in live area (no flush to Static during streaming)", () => {
+      const { render } = createCapturingInk();
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, render);
+
+      // Even very long text should NOT be flushed during streaming
+      const longText = "A".repeat(5000) + "\n\n" + "B".repeat(100);
+      const r2 = reduceEvent(
+        a,
+        { type: "text_chunk", delta: longText, accumulated: longText, sequence: 0 },
+        identity,
+        render,
+      );
+
+      // No streamContent outputs — all text stays in activity.text
+      const flushedEntry = r2.outputs.find((e) => e.type === "streamContent");
+      expect(flushedEntry).toBeUndefined();
+
+      // Text should be in the activity state instead
+      expect(r2.activity).not.toBeNull();
+      expect(r2.activity!.phase).toBe("streaming");
+      if (r2.activity!.phase === "streaming") {
+        expect(r2.activity!.text).toContain("AAAAA");
+      }
+    });
+
+    test("reasoning text container uses flexDirection column on inner Box", () => {
+      const { nodes, render } = createCapturingInk();
+      const a = acc({ isThinking: true, reasoningBuffer: "some deep thought" });
+      reduceEvent(a, { type: "thinking_complete" }, identity, render);
+
+      // The reasoning output should have an inner Box with flexDirection column
+      // wrapping the reasoning Text with wrap="truncate"
+      expect(nodes.length).toBeGreaterThan(0);
+      const reasoningRoot = nodes[0]!;
+
+      const innerBox = findElement(reasoningRoot, (p) => {
+        return p["paddingLeft"] === 1 && p["flexDirection"] === "column";
+      });
+      expect(innerBox).toBeDefined();
+
+      // The Text inside should have wrap="truncate" and dimColor
+      const textEl = findElement(
+        innerBox!,
+        (p) => p["wrap"] === "truncate" && p["dimColor"] === true,
+      );
+      expect(textEl).not.toBeNull();
+    });
+
+    test("multi-line tool result uses flexDirection column on wrapping Box", () => {
+      const { nodes, render } = createCapturingInk();
+      const a = acc();
+      a.activeTools.set("tc-1", { toolName: "diff_tool", startedAt: Date.now() });
+
+      reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "tc-1",
+          result: "ok",
+          durationMs: 10,
+          summary: "line1\nline2\nline3",
+        },
+        identity,
+        render,
+      );
+
+      // Find the Box with paddingLeft=4 and flexDirection column (multi-line result container)
+      const resultBox = nodes.find((el) => {
+        const props = el.props as Record<string, unknown>;
+        return props["paddingLeft"] === 4 && props["flexDirection"] === "column";
+      });
+      expect(resultBox).toBeDefined();
+
+      // The child Text should have wrap="truncate"
+      const textEl = findElement(resultBox!, (p) => p["wrap"] === "truncate");
+      expect(textEl).not.toBeNull();
+    });
+
+    test("short streaming text stays in activity.text for live area display", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      const result = reduceEvent(
+        a,
+        { type: "text_chunk", delta: "Hello world", accumulated: "Hello world", sequence: 0 },
+        identity,
+        stubInk,
+      );
+
+      // Short text stays in the live area (activity.text), not flushed to Static
+      expect(result.activity!.phase).toBe("streaming");
+      if (result.activity!.phase === "streaming") {
+        expect(result.activity!.text).toContain("Hello world");
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // CRITICAL REGRESSION TESTS: streaming text never leaks to Static
+  // -------------------------------------------------------------------------
+  // These tests guard the core invariant: during streaming, ALL text stays in
+  // activity.text (the live area). If text_chunk ever produces output entries
+  // (streamContent, log, etc.) each token becomes a separate <Box> element
+  // in Ink's Static region, causing one-word-per-line rendering.
+  // -------------------------------------------------------------------------
+
+  describe("streaming text never produces output entries", () => {
+    test("text_chunk produces zero output entries (short text)", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      const result = reduceEvent(
+        a,
+        { type: "text_chunk", delta: "Hello", accumulated: "Hello", sequence: 0 },
+        identity,
+        stubInk,
+      );
+
+      expect(result.outputs).toHaveLength(0);
+    });
+
+    test("text_chunk produces zero output entries (long text)", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      const longText = "word ".repeat(1000).trim();
+      const result = reduceEvent(
+        a,
+        { type: "text_chunk", delta: longText, accumulated: longText, sequence: 0 },
+        identity,
+        stubInk,
+      );
+
+      expect(result.outputs).toHaveLength(0);
+    });
+
+    test("many sequential text_chunks all produce zero output entries", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+
+      // Simulate 50 tokens arriving one at a time (real streaming)
+      let accumulated = "";
+      for (let i = 0; i < 50; i++) {
+        const token = `token${i} `;
+        accumulated += token;
+        const result = reduceEvent(
+          a,
+          { type: "text_chunk", delta: token, accumulated, sequence: i },
+          identity,
+          stubInk,
+        );
+
+        // EVERY text_chunk must produce zero outputs
+        expect(result.outputs).toHaveLength(0);
+        // And must always return a streaming activity with text
+        expect(result.activity).not.toBeNull();
+        expect(result.activity!.phase).toBe("streaming");
+      }
+
+      // Final accumulated text should be in liveText
+      expect(a.liveText).toBe(accumulated);
+    });
+
+    test("text_chunk never produces streamContent output entries regardless of text size", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+
+      // Try various sizes that might previously have triggered flush thresholds
+      const sizes = [100, 500, 2000, 4000, 5000, 10000, 50000];
+      for (const size of sizes) {
+        const text = "x".repeat(size);
+        const result = reduceEvent(
+          a,
+          { type: "text_chunk", delta: text, accumulated: text, sequence: size },
+          identity,
+          stubInk,
+        );
+
+        const streamContentEntries = result.outputs.filter((e) => e.type === "streamContent");
+        expect(streamContentEntries).toHaveLength(0);
+      }
+    });
+  });
+
+  describe("reducer returns raw (unformatted) text", () => {
+    test("activity.text contains raw text, not formatted text", () => {
+      // Use a formatter that wraps text in markers so we can detect if it was applied
+      const markerFormatter = (s: string) => `<<FORMATTED>>${s}<<END>>`;
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, markerFormatter, stubInk);
+
+      const result = reduceEvent(
+        a,
+        { type: "text_chunk", delta: "hello world", accumulated: "hello world", sequence: 0 },
+        markerFormatter,
+        stubInk,
+      );
+
+      expect(result.activity!.phase).toBe("streaming");
+      if (result.activity!.phase === "streaming") {
+        // The text should be RAW — no formatting markers
+        expect(result.activity!.text).toBe("hello world");
+        expect(result.activity!.text).not.toContain("<<FORMATTED>>");
+      }
     });
   });
 });

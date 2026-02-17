@@ -178,6 +178,22 @@ export class CLIPresentationService implements PresentationService {
     });
   }
 
+  presentStatus(
+    message: string,
+    level: "info" | "success" | "warning" | "error" | "progress",
+  ): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      const prefixes: Record<typeof level, string> = {
+        info: "ℹ",
+        success: "✓",
+        warning: "⚠",
+        error: "✗",
+        progress: "⏳",
+      };
+      process.stdout.write(`${prefixes[level]} ${message}\n`);
+    });
+  }
+
   requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
     return Effect.gen(this, function* () {
       // Format the approval message with details about the action

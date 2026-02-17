@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { emojify } from "node-emoji";
+import wrapAnsi from "wrap-ansi";
 import { codeColor, CHALK_THEME } from "../ui/theme";
 
 /**
@@ -124,8 +125,62 @@ export function formatItalic(text: string): string {
   return formatted;
 }
 
+// ============================================================================
+// Terminal-width-aware text wrapping
+// ============================================================================
+
 /**
- * Format markdown inline code
+ * Minimum width to prevent degenerate wrapping.
+ */
+const MIN_WRAP_WIDTH = 20;
+
+/**
+ * Pre-wrap ANSI-formatted text to fit the terminal width.
+ *
+ * This is necessary because Ink's Yoga layout engine intermittently computes
+ * incorrect (very narrow) widths for `<Text wrap="wrap">` nodes during live
+ * area re-renders, causing text to wrap almost character-by-character.
+ *
+ * By pre-wrapping the text before passing it to Ink, we ensure correct line
+ * breaks regardless of Yoga's width calculations. Ink's own `wrap="wrap"` is
+ * still set as a safety net but becomes a no-op since lines are already short
+ * enough to fit.
+ *
+ * @param text - ANSI-formatted text to wrap (handles escape codes correctly)
+ * @param availableWidth - number of visible character columns available
+ */
+export function wrapToWidth(text: string, availableWidth: number): string {
+  if (!text || text.length === 0) return text;
+  const width = Math.max(availableWidth, MIN_WRAP_WIDTH);
+  return wrapAnsi(text, width, { trim: false, hard: true });
+}
+
+/**
+ * Get the current terminal width, with a sensible default for non-TTY.
+ */
+export function getTerminalWidth(): number {
+  return process.stdout.columns || 80;
+}
+
+/**
+ * Bake left padding into a pre-wrapped string as literal spaces.
+ *
+ * This avoids passing long text through Ink's Yoga layout engine (which can
+ * intermittently compute incorrect narrow widths). Non-empty lines get the
+ * specified number of leading spaces; empty lines are left untouched so
+ * paragraph breaks render correctly.
+ */
+export function padLines(text: string, spaces: number): string {
+  if (!text || spaces <= 0) return text;
+  const pad = " ".repeat(spaces);
+  return text
+    .split("\n")
+    .map((line) => (line.length > 0 ? pad + line : line))
+    .join("\n");
+}
+
+/**
+ * Format inline code (rendered mode) — replaces backticks with styled code.
  */
 export function formatInlineCode(text: string): string {
   return text.replace(INLINE_CODE_REGEX, (_match: string, code: string) => codeColor(code));

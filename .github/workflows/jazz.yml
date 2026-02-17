@@ -1,25 +1,93 @@
 name: Jazz AI
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: "PR number to review (required when run from Actions tab)"
+        required: true
+        type: number
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
   pull-requests: write
 
-env:
-  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-  PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-
 jobs:
-  code-review:
+  # Resolve PR metadata first so that code-review can gate on pr_head_repo_full_name.
+  # This job runs unconditionally; the security gate lives in code-review's `if`.
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      base_sha: ${{ steps.resolve.outputs.base_sha }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      pr_head_repo_full_name: ${{ steps.resolve.outputs.pr_head_repo_full_name }}
+    steps:
+      - name: Resolve PR context
+        id: resolve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let prNumber, baseSha, headSha, prHeadRepoFullName;
+            if (context.payload.pull_request) {
+              const pr = context.payload.pull_request;
+              prNumber = pr.number;
+              baseSha = pr.base.sha;
+              headSha = pr.head.sha;
+              prHeadRepoFullName = pr.head.repo.full_name;
+            } else if (context.eventName === 'workflow_dispatch') {
+              prNumber = Number(context.payload.inputs.pull_request_number);
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              baseSha = pr.base.sha;
+              headSha = pr.head.sha;
+              prHeadRepoFullName = pr.head.repo.full_name;
+            } else {
+              prNumber = context.payload.issue.number;
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              baseSha = pr.base.sha;
+              headSha = pr.head.sha;
+              prHeadRepoFullName = pr.head.repo.full_name;
+            }
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('base_sha', baseSha);
+            core.setOutput('head_sha', headSha);
+            core.setOutput('pr_head_repo_full_name', prHeadRepoFullName);
+
+  code-review:
+    needs: resolve
+    runs-on: ubuntu-latest
+    # Security gate — only run when the PR head is from this repository.
+    # - pull_request: head repo is already available in the event payload (no API needed).
+    # - workflow_dispatch / issue_comment: gated on pr_head_repo_full_name resolved above
+    #   so a collaborator manually dispatching against, or commenting on, a fork PR cannot
+    #   trigger execution with repo secrets.
+    # issue_comment additionally requires a trusted author association so that arbitrary
+    # contributors cannot invoke /jazz-review at all.
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz-review') && (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -31,6 +99,9 @@ jobs:
         run: npm install -g jazz-ai
 
       - name: Setup Jazz agent and workflow
+        env:
+          PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         run: |
           mkdir -p .jazz/agents workflows/code-review
           cp .github/jazz/agents/ci-reviewer.json .jazz/agents/
@@ -46,16 +117,21 @@ jobs:
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set -euo pipefail
-          jazz workflow run code-review --auto-approve --headless --agent ci-reviewer --quiet \
+          jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer \
             | tee /tmp/jazz-review.txt
 
       - name: Post review comments
         if: always()
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const output = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const headSha = process.env.PR_HEAD_SHA;
 
             // Read model from agent config for display in review comment
             let modelLabel = '';
@@ -83,7 +159,7 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
+                issue_number: prNumber,
                 body: comments.length === 0
                   ? `## Jazz Code Review\n\nNo issues found.${modelLabel}`
                   : `## Jazz Code Review\n\n${output.slice(-60000) || '_No output from review._'}`
@@ -91,13 +167,24 @@ jobs:
               return;
             }
 
-            // Filter to valid inline comments (path must be a real file, line must be positive)
-            const validComments = comments.filter(c =>
+            // Sanitize and filter to valid inline comments
+            // Normalize each comment: strip invalid start_line values early so they
+            // never reach the API (start_line must be a positive int strictly less than line)
+            const sanitized = comments.map(c => {
+              const copy = { ...c };
+              const validStartLine =
+                Number.isInteger(copy.start_line) &&
+                copy.start_line > 0 &&
+                copy.start_line < copy.line;
+              if (!validStartLine) delete copy.start_line;
+              return copy;
+            });
+            const validComments = sanitized.filter(c =>
               c.path && c.line > 0 && !c.path.startsWith('/') && c.path !== 'NO_DIFF'
             );
 
             // Any comments that couldn't be posted inline become part of the review body
-            const invalidComments = comments.filter(c => !validComments.includes(c));
+            const invalidComments = sanitized.filter(c => !validComments.includes(c));
             let reviewBody = `## Jazz Code Review\n\nFound ${comments.length} comment(s).${modelLabel}`;
             if (invalidComments.length > 0) {
               reviewBody += '\n\n### General Comments\n\n';
@@ -105,15 +192,75 @@ jobs:
             }
 
             if (validComments.length > 0) {
-              // Fetch PR files to determine which are deleted (must use LEFT side for those)
+              // Fetch PR files to determine which are deleted and which lines are in the diff
               const { data: prFiles } = await github.rest.pulls.listFiles({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: context.payload.pull_request.number
+                pull_number: prNumber
               });
               const deletedPaths = new Set(
                 prFiles.filter((f) => f.status === 'removed').map((f) => f.filename)
               );
+
+              // Build a map of valid diff lines per file (both LEFT and RIGHT sides)
+              // by parsing the unified diff hunk headers from the patch field
+              const diffLines = new Map(); // Map<path, { left: Set<number>, right: Set<number> }>
+              for (const file of prFiles) {
+                if (!file.patch) continue;
+                const left = new Set();
+                const right = new Set();
+                const lines = file.patch.split('\n');
+                let oldLine = 0;
+                let newLine = 0;
+                for (const line of lines) {
+                  const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                  if (hunkMatch) {
+                    oldLine = parseInt(hunkMatch[1], 10);
+                    newLine = parseInt(hunkMatch[2], 10);
+                    continue;
+                  }
+                  // Skip diff metadata lines that are not actual file content
+                  if (line.startsWith('\\ ')) continue;
+                  if (line.startsWith('-')) {
+                    left.add(oldLine);
+                    oldLine++;
+                  } else if (line.startsWith('+')) {
+                    right.add(newLine);
+                    newLine++;
+                  } else {
+                    // Context line — valid on both sides
+                    left.add(oldLine);
+                    right.add(newLine);
+                    oldLine++;
+                    newLine++;
+                  }
+                }
+                diffLines.set(file.filename, { left, right });
+              }
+
+              // Check whether a comment's line (and start_line if present) is resolvable in the diff
+              const isLineInDiff = (c) => {
+                const fileDiff = diffLines.get(c.path);
+                if (!fileDiff) return false;
+                const side = deletedPaths.has(c.path) ? 'LEFT' : (c.side || 'RIGHT');
+                const validSet = side === 'LEFT' ? fileDiff.left : fileDiff.right;
+                if (!validSet.has(c.line)) return false;
+                // Multi-line comments also send start_line which must be valid
+                const hasStartLine =
+                  Number.isInteger(c.start_line) && c.start_line > 0 && c.start_line < c.line;
+                if (hasStartLine && !validSet.has(c.start_line)) return false;
+                return true;
+              };
+
+              // Split comments into those that can be posted inline and those that cannot
+              const inlineComments = validComments.filter(isLineInDiff);
+              const unresolvedComments = validComments.filter(c => !isLineInDiff(c));
+
+              if (unresolvedComments.length > 0) {
+                console.log(`${unresolvedComments.length} comment(s) reference lines outside the diff and will be posted as general comments`);
+                reviewBody += '\n\n### Comments on lines outside the diff\n\n';
+                reviewBody += unresolvedComments.map(c => `- **${c.path}:${c.line}** — ${c.body}`).join('\n');
+              }
 
               const mapComment = (c) => {
                 const isDeleted = deletedPaths.has(c.path);
@@ -135,20 +282,30 @@ jobs:
                 };
               };
 
-              await github.rest.pulls.createReview({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.payload.pull_request.number,
-                commit_id: context.payload.pull_request.head.sha,
-                event: 'COMMENT',
-                body: reviewBody,
-                comments: validComments.map(mapComment)
-              });
+              if (inlineComments.length > 0) {
+                await github.rest.pulls.createReview({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                  commit_id: headSha,
+                  event: 'COMMENT',
+                  body: reviewBody,
+                  comments: inlineComments.map(mapComment)
+                });
+              } else {
+                // All comments were outside the diff — post as a general comment instead
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body: reviewBody
+                });
+              }
             } else {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
+                issue_number: prNumber,
                 body: reviewBody
               });
             }

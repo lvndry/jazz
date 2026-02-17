@@ -75,7 +75,12 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
     id: "researcher",
     displayName: "Researcher",
     emoji: "🔬",
-    toolCategoryIds: [WEB_SEARCH_CATEGORY.id, HTTP_CATEGORY.id, FILE_MANAGEMENT_CATEGORY.id],
+    toolCategoryIds: [
+      WEB_SEARCH_CATEGORY.id,
+      HTTP_CATEGORY.id,
+      FILE_MANAGEMENT_CATEGORY.id,
+      SHELL_COMMANDS_CATEGORY.id,
+    ],
   },
 } as const;
 

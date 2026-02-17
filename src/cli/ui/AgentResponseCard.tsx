@@ -43,7 +43,7 @@ export function AgentResponseCard({
         paddingLeft={2}
       >
         {/* Do NOT force a color here; allow ANSI styling (chalk/marked-terminal) to render. */}
-        <Text>{content}</Text>
+        <Text wrap="truncate">{content}</Text>
       </Box>
 
       {/* Bottom spacing */}

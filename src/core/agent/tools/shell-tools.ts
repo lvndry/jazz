@@ -5,8 +5,6 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
-import type { TerminalService } from "@/core/interfaces/terminal";
-import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { createSanitizedEnv } from "@/core/utils/env-utils";
 import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "./base-tool";
@@ -84,11 +82,7 @@ const executeCommandParameters = z
   })
   .strict();
 
-type ShellCommandDeps =
-  | FileSystem.FileSystem
-  | FileSystemContextService
-  | LoggerService
-  | TerminalService;
+type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService | LoggerService;
 
 /**
  * Create shell command tools (approval + execution pair).
@@ -137,7 +131,6 @@ This command will be executed on your system. Only approve commands you trust.`;
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const logger = yield* LoggerServiceTag;
-        const terminal = yield* TerminalServiceTag;
 
         // Resolve and validate working directory (prevents path traversal attacks)
         const key = buildKeyFromContext(context);
@@ -269,12 +262,9 @@ This command will be executed on your system. Only approve commands you trust.`;
           }
 
           const exitMsg = `Command executed. Exit code: ${result.exitCode}`;
-          yield* terminal.log(exitMsg);
           yield* logger.info(exitMsg);
           const output = (result.stdout + (result.stderr ? `\nERR: ${result.stderr}` : "")).trim();
           if (output) {
-            const preview = output.length > 200 ? output.substring(0, 200) + "..." : output;
-            yield* terminal.log(`Output: ${preview}`);
             yield* logger.info(`Output: ${output}`);
           }
 

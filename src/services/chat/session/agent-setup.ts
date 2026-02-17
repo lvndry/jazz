@@ -4,7 +4,8 @@ import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { MCPServerManager } from "@/core/interfaces/mcp-server";
-import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
+import type { TerminalService } from "@/core/interfaces/terminal";
 import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 
@@ -22,11 +23,16 @@ export function setupAgent(
 ): Effect.Effect<
   void,
   never,
-  ToolRegistry | MCPServerManager | AgentConfigService | LoggerService | TerminalService
+  | ToolRegistry
+  | MCPServerManager
+  | AgentConfigService
+  | LoggerService
+  | TerminalService
+  | PresentationService
 > {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const terminal = yield* TerminalServiceTag;
+    const presentation = yield* PresentationServiceTag;
     yield* logger.setSessionId(sessionId);
 
     // Get agent's tool names
@@ -47,14 +53,14 @@ export function setupAgent(
           ? String((error as { message: unknown }).message)
           : String(error);
       yield* logger.warn(`Some MCP connections failed during agent setup: ${errorMessage}`);
-      yield* terminal.log("");
-      yield* terminal.warn(
-        "⚠️  Some MCP servers could not be connected. The agent will continue with available tools.",
+      yield* presentation.presentStatus(
+        "Some MCP servers could not be connected. The agent will continue with available tools.",
+        "warning",
       );
-      yield* terminal.log(
-        "   You can still chat with the agent, but tools from failed MCP servers won't be available.",
+      yield* presentation.presentStatus(
+        "You can still chat with the agent, but tools from failed MCP servers won't be available.",
+        "info",
       );
-      yield* terminal.log("");
     } else {
       yield* logger.debug("Agent setup completed - MCP tools registered");
     }

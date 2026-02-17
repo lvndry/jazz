@@ -97,7 +97,7 @@ jobs:
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
-          jazz workflow run release-notes --auto-approve --headless --agent release-notes --quiet \
+          jazz --output raw workflow run release-notes --auto-approve --agent release-notes \
             2>/tmp/jazz.err | tee /tmp/jazz-release-notes.txt || true
           if [ -s /tmp/jazz.err ]; then
             echo "::warning::Jazz release notes failed, using fallback body"

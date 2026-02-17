@@ -42,6 +42,7 @@ function initializeAgentRun(
   | MCPServerManager
   | TerminalService
   | SkillService
+  | PresentationService
 > {
   return Effect.gen(function* () {
     const { agent, userInput, conversationId } = options;

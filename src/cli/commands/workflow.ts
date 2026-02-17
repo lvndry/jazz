@@ -200,7 +200,7 @@ export function runWorkflowCommand(
     const workflowService = yield* WorkflowServiceTag;
     const logger = yield* LoggerServiceTag;
 
-    const isHeadless = options?.autoApprove === true;
+    const isNonInteractive = options?.autoApprove === true;
     const isSchedulerTriggered = options?.scheduled === true;
 
     // When triggered by the system scheduler (--scheduled), guard against RunAtLoad
@@ -264,14 +264,14 @@ export function runWorkflowCommand(
       agent = agentResult.right;
       yield* terminal.info(`Using agent: ${agent.name}`);
     } else {
-      // In headless mode (--auto-approve), fail immediately if agent not found
-      if (isHeadless) {
+      // In non-interactive mode (--auto-approve), fail immediately if agent not found
+      if (isNonInteractive) {
         yield* terminal.error(`Agent '${agentIdentifier}' not found.`);
         yield* terminal.info(
           "Scheduled workflows require a valid agent. Update the workflow or create the agent.",
         );
         return yield* Effect.fail(
-          new Error(`Agent '${agentIdentifier}' not found for headless workflow execution`),
+          new Error(`Agent '${agentIdentifier}' not found for non-interactive workflow execution`),
         );
       }
 
@@ -330,7 +330,7 @@ export function runWorkflowCommand(
       workflowName,
       startedAt,
       status: "running",
-      triggeredBy: isHeadless ? "scheduled" : "manual",
+      triggeredBy: isSchedulerTriggered ? "scheduled" : "manual",
     }).pipe(Effect.catchAll(() => Effect.void)); // Don't fail if history tracking fails
 
     // Run the agent with the workflow prompt
