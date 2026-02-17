@@ -476,7 +476,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
       formatted = text;
     }
     // Pre-wrap to bypass Ink/Yoga layout bugs with live area text wrapping.
-    // 12 = max horizontal padding in the deepest component nesting.
+    // 12 = App paddingX=3 (6) + ActivityView paddingX=2 (4) + padLines(2) baked in downstream.
+    // Static output path has more margin (App paddingX=3 only = 6 chars Yoga).
     const available = getTerminalWidth() - 12;
     return wrapToWidth(formatted, available);
   }

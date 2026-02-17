@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { padLines } from "../presentation/markdown-formatter";
 import type { ActivityState } from "./activity-state";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { THEME } from "./theme";
@@ -146,11 +147,13 @@ export const ActivityView = React.memo(function ActivityView({
           {activity.text && (
             <Box
               marginTop={activity.reasoning ? 0 : 1}
-              paddingLeft={2}
               flexDirection="column"
-              width="100%"
             >
-              <PreWrappedText>{activity.text}</PreWrappedText>
+              {/* Left padding is baked into the string via padLines() upstream
+                  (in buildThinkingOrStreamingActivity). This avoids a nested
+                  Box with paddingLeft that Yoga can intermittently miscalculate
+                  during frequent live-area re-renders. */}
+              <PreWrappedText>{padLines(activity.text, 2)}</PreWrappedText>
             </Box>
           )}
         </Box>
