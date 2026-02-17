@@ -13,6 +13,7 @@ Every agent has a unique identity and configuration:
 - **Name**: A human-readable name (e.g., "Senior Developer", "Researcher").
 - **Model**: The underlying LLM brain (e.g., `anthropic/claude-4-5-sonnet`, `openai/gpt-5.2`).
 - **System Prompt**: Instructions that define its personality, constraints, and base capabilities.
+- **Persona** (optional): A custom [persona](./personas.md) that overrides or augments the agent type—shaping tone, style, and behavior.
 
 ### 2. Skills
 

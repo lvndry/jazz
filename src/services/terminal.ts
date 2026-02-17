@@ -17,6 +17,21 @@ import {
 let instanceExists = false;
 
 /**
+ * Ink render options for the terminal UI.
+ *
+ * IMPORTANT: Do NOT enable `incrementalRendering`. It causes Ink's Yoga
+ * layout engine to miscompute available widths, which:
+ *   1. Breaks interactive select/wizard prompts (arrow keys emit newlines)
+ *   2. Aggressively truncates multi-line ANSI content (diffs disappear)
+ *
+ * Exported for testability — see terminal.test.ts regression tests.
+ */
+export const INK_RENDER_OPTIONS = {
+  patchConsole: false,
+  exitOnCtrlC: false,
+} as const;
+
+/**
  * Ink-based Terminal Service Implementation
  *
  * This service is a singleton - only one instance should exist at a time.
@@ -38,11 +53,10 @@ export class InkTerminalService implements TerminalService {
     // patchConsole: false prevents Ink from intercepting console.* methods,
     // which can cause flickering when external code writes to console during renders
     // Wrap App with InputProvider to provide the input service context
-    this.inkInstance = render(React.createElement(InputProvider, null, React.createElement(App)), {
-      patchConsole: false,
-      exitOnCtrlC: false,
-      incrementalRendering: true,
-    });
+    this.inkInstance = render(
+      React.createElement(InputProvider, null, React.createElement(App)),
+      INK_RENDER_OPTIONS,
+    );
     instanceExists = true;
   }
 

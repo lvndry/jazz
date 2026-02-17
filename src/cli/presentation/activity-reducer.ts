@@ -468,19 +468,15 @@ export function reduceEvent(
           ),
           timestamp: new Date(),
         });
-        // Output diff as a plain string with padding baked in, bypassing
-        // Ink's Yoga layout entirely.  Nested <Box paddingLeft> + <Text
-        // wrap="truncate"> triggers a known Yoga width-miscalculation that
-        // aggressively truncates ANSI-colored diff output.  Plain strings
-        // avoid this (same pattern as streaming markdown in the renderer).
-        const diffText = displayText
-          .split("\n")
-          .filter((l) => l.length > 0)
-          .map((l) => `    ${l}`)
-          .join("\n");
         outputs.push({
           type: "log",
-          message: diffText,
+          message: inkRender(
+            React.createElement(
+              Box,
+              { paddingLeft: 4, flexDirection: "column" },
+              React.createElement(Text, { wrap: "truncate" }, displayText),
+            ),
+          ),
           timestamp: new Date(),
         });
       } else {

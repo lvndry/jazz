@@ -22,6 +22,7 @@ Step-by-step guides to help you get started and master Jazz.
 Understand the core building blocks of Jazz.
 
 - [Agents](./concepts/agents.md)
+- [Personas](./concepts/personas.md)
 - [Skills](./concepts/skills.md)
 - [Workflows](./concepts/workflows.md)
 - [Scheduling](./concepts/scheduling.md)
