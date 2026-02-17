@@ -132,6 +132,8 @@ jobs:
                     newLine = parseInt(hunkMatch[2], 10);
                     continue;
                   }
+                  // Skip diff metadata lines that are not actual file content
+                  if (line.startsWith('\\ ')) continue;
                   if (line.startsWith('-')) {
                     left.add(oldLine);
                     oldLine++;
@@ -149,13 +151,18 @@ jobs:
                 diffLines.set(file.filename, { left, right });
               }
 
-              // Check whether a comment's line is resolvable in the diff
+              // Check whether a comment's line (and start_line if present) is resolvable in the diff
               const isLineInDiff = (c) => {
                 const fileDiff = diffLines.get(c.path);
                 if (!fileDiff) return false;
                 const side = deletedPaths.has(c.path) ? 'LEFT' : (c.side || 'RIGHT');
                 const validSet = side === 'LEFT' ? fileDiff.left : fileDiff.right;
-                return validSet.has(c.line);
+                if (!validSet.has(c.line)) return false;
+                // Multi-line comments also send start_line which must be valid
+                const hasStartLine =
+                  Number.isInteger(c.start_line) && c.start_line > 0 && c.start_line < c.line;
+                if (hasStartLine && !validSet.has(c.start_line)) return false;
+                return true;
               };
 
               // Split comments into those that can be posted inline and those that cannot
