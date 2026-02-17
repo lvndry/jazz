@@ -105,7 +105,7 @@ jobs:
             }
 
             if (validComments.length > 0) {
-              // Fetch PR files to determine which are deleted (must use LEFT side for those)
+              // Fetch PR files to determine which are deleted and which lines are in the diff
               const { data: prFiles } = await github.rest.pulls.listFiles({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -114,6 +114,59 @@ jobs:
               const deletedPaths = new Set(
                 prFiles.filter((f) => f.status === 'removed').map((f) => f.filename)
               );
+
+              // Build a map of valid diff lines per file (both LEFT and RIGHT sides)
+              // by parsing the unified diff hunk headers from the patch field
+              const diffLines = new Map(); // Map<path, { left: Set<number>, right: Set<number> }>
+              for (const file of prFiles) {
+                if (!file.patch) continue;
+                const left = new Set();
+                const right = new Set();
+                const lines = file.patch.split('\n');
+                let oldLine = 0;
+                let newLine = 0;
+                for (const line of lines) {
+                  const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                  if (hunkMatch) {
+                    oldLine = parseInt(hunkMatch[1], 10);
+                    newLine = parseInt(hunkMatch[2], 10);
+                    continue;
+                  }
+                  if (line.startsWith('-')) {
+                    left.add(oldLine);
+                    oldLine++;
+                  } else if (line.startsWith('+')) {
+                    right.add(newLine);
+                    newLine++;
+                  } else {
+                    // Context line — valid on both sides
+                    left.add(oldLine);
+                    right.add(newLine);
+                    oldLine++;
+                    newLine++;
+                  }
+                }
+                diffLines.set(file.filename, { left, right });
+              }
+
+              // Check whether a comment's line is resolvable in the diff
+              const isLineInDiff = (c) => {
+                const fileDiff = diffLines.get(c.path);
+                if (!fileDiff) return false;
+                const side = deletedPaths.has(c.path) ? 'LEFT' : (c.side || 'RIGHT');
+                const validSet = side === 'LEFT' ? fileDiff.left : fileDiff.right;
+                return validSet.has(c.line);
+              };
+
+              // Split comments into those that can be posted inline and those that cannot
+              const inlineComments = validComments.filter(isLineInDiff);
+              const unresolvedComments = validComments.filter(c => !isLineInDiff(c));
+
+              if (unresolvedComments.length > 0) {
+                console.log(`${unresolvedComments.length} comment(s) reference lines outside the diff and will be posted as general comments`);
+                reviewBody += '\n\n### Comments on lines outside the diff\n\n';
+                reviewBody += unresolvedComments.map(c => `- **${c.path}:${c.line}** — ${c.body}`).join('\n');
+              }
 
               const mapComment = (c) => {
                 const isDeleted = deletedPaths.has(c.path);
@@ -135,15 +188,25 @@ jobs:
                 };
               };
 
-              await github.rest.pulls.createReview({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.payload.pull_request.number,
-                commit_id: context.payload.pull_request.head.sha,
-                event: 'COMMENT',
-                body: reviewBody,
-                comments: validComments.map(mapComment)
-              });
+              if (inlineComments.length > 0) {
+                await github.rest.pulls.createReview({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.pull_request.number,
+                  commit_id: context.payload.pull_request.head.sha,
+                  event: 'COMMENT',
+                  body: reviewBody,
+                  comments: inlineComments.map(mapComment)
+                });
+              } else {
+                // All comments were outside the diff — post as a general comment instead
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  body: reviewBody
+                });
+              }
             } else {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
