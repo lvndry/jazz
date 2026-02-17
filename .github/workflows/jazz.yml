@@ -178,11 +178,12 @@ jobs:
             }
 
             if (validComments.length > 0) {
-              // Fetch PR files to determine which are deleted and which lines are in the diff
-              const { data: prFiles } = await github.rest.pulls.listFiles({
+              // Fetch all PR files (paginated — default is 30, max 100 per page)
+              const prFiles = await github.paginate(github.rest.pulls.listFiles, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: prNumber
+                pull_number: prNumber,
+                per_page: 100
               });
               const deletedPaths = new Set(
                 prFiles.filter((f) => f.status === 'removed').map((f) => f.filename)

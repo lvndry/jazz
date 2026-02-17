@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { defineTool, makeZodValidator } from "./base-tool";
 
 /**
  * Todo item schema — matches the shape persisted to the temp file.
@@ -86,37 +87,29 @@ function computeStats(todos: TodoItem[]) {
  * This avoids partial-update ambiguity and keeps the state trivially mergeable.
  */
 export function createManageTodosTool(): Tool<never> {
-  return {
+  const parameters = z.object({
+    todos: z
+      .array(TodoItemSchema)
+      .describe("The complete, updated todo list — replaces the current list"),
+  });
+
+  return defineTool<never, z.infer<typeof parameters>>({
     name: "manage_todos",
     description:
       "Create or update the todo list. Send the FULL list of items each time (replaces the previous list). " +
       "Use this to plan multi-step work, track progress, and mark items complete as you go.",
-    parameters: z.object({
-      todos: z
-        .array(TodoItemSchema)
-        .describe("The complete, updated todo list — replaces the current list"),
-    }),
+    parameters,
     riskLevel: "low-risk",
     hidden: false,
+    validate: makeZodValidator(parameters),
     createSummary: (result: ToolExecutionResult) => {
       if (!result.success) return undefined;
       const data = result.result as ReturnType<typeof computeStats>;
       return `Todos updated: ${data.completed}/${data.totalItems} done, ${data.inProgress} in progress, ${data.pending} pending`;
     },
-    execute: (args: Record<string, unknown>, context) =>
+    handler: (args, context) =>
       Effect.gen(function* () {
-        const parsed = z.object({ todos: z.array(TodoItemSchema) }).safeParse(args);
-
-        if (!parsed.success) {
-          const errors = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
-          return {
-            success: false,
-            result: null,
-            error: errors.join("; "),
-          } satisfies ToolExecutionResult;
-        }
-
-        const { todos } = parsed.data;
+        const { todos } = args;
         const sessionId = context?.sessionId ?? "default";
 
         yield* writeTodos(sessionId, todos);
@@ -138,14 +131,14 @@ export function createManageTodosTool(): Tool<never> {
           } satisfies ToolExecutionResult),
         ),
       ),
-  };
+  });
 }
 
 /**
  * `list_todos` — reads the current todo list from the temp file.
  */
 export function createListTodosTool(): Tool<never> {
-  return {
+  return defineTool({
     name: "list_todos",
     description: "Read the current todo list. Returns all items with their status and priority.",
     parameters: z.object({}),
@@ -156,7 +149,7 @@ export function createListTodosTool(): Tool<never> {
       const data = result.result as { totalItems: number };
       return data.totalItems === 0 ? "No todos" : `${data.totalItems} todo(s)`;
     },
-    execute: (_args: Record<string, unknown>, context) =>
+    handler: (_args, context) =>
       Effect.gen(function* () {
         const sessionId = context?.sessionId ?? "default";
         const todos = yield* readTodos(sessionId);
@@ -188,5 +181,5 @@ export function createListTodosTool(): Tool<never> {
           } satisfies ToolExecutionResult),
         ),
       ),
-  };
+  });
 }
