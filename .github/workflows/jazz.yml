@@ -17,38 +17,30 @@ permissions:
   pull-requests: write
 
 jobs:
-  code-review:
+  # Resolve PR metadata first so that code-review can gate on pr_head_repo_full_name.
+  # This job runs unconditionally; the security gate lives in code-review's `if`.
+  resolve:
     runs-on: ubuntu-latest
-    # Auto-run for same-repo PRs; manual dispatch and /jazz-review restricted to trusted users
-    # (OWNER, MEMBER, COLLABORATOR) to prevent untrusted fork authors from triggering
-    # workflows that run with repo secrets via issue_comment
-    if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz-review') && (
-        github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'COLLABORATOR'
-      ))
+    outputs:
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      base_sha: ${{ steps.resolve.outputs.base_sha }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      pr_head_repo_full_name: ${{ steps.resolve.outputs.pr_head_repo_full_name }}
     steps:
       - name: Resolve PR context
         id: resolve
         uses: actions/github-script@v7
         with:
           script: |
-            let prNumber, baseSha, headSha;
+            let prNumber, baseSha, headSha, prHeadRepoFullName;
             if (context.payload.pull_request) {
               const pr = context.payload.pull_request;
               prNumber = pr.number;
               baseSha = pr.base.sha;
               headSha = pr.head.sha;
+              prHeadRepoFullName = pr.head.repo.full_name;
             } else if (context.eventName === 'workflow_dispatch') {
-              const input = context.payload.inputs.pull_request_number;
-              prNumber = Number(input);
-              if (!Number.isInteger(prNumber) || prNumber <= 0) {
-                core.setFailed(`Invalid pull_request_number: "${input}"`);
-                return;
-              }
+              prNumber = Number(context.payload.inputs.pull_request_number);
               const { data: pr } = await github.rest.pulls.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -56,6 +48,7 @@ jobs:
               });
               baseSha = pr.base.sha;
               headSha = pr.head.sha;
+              prHeadRepoFullName = pr.head.repo.full_name;
             } else {
               prNumber = context.payload.issue.number;
               const { data: pr } = await github.rest.pulls.get({
@@ -65,15 +58,36 @@ jobs:
               });
               baseSha = pr.base.sha;
               headSha = pr.head.sha;
+              prHeadRepoFullName = pr.head.repo.full_name;
             }
             core.setOutput('pr_number', prNumber);
             core.setOutput('base_sha', baseSha);
             core.setOutput('head_sha', headSha);
+            core.setOutput('pr_head_repo_full_name', prHeadRepoFullName);
 
+  code-review:
+    needs: resolve
+    runs-on: ubuntu-latest
+    # Security gate — only run when the PR head is from this repository.
+    # - pull_request: head repo is already available in the event payload (no API needed).
+    # - workflow_dispatch / issue_comment: gated on pr_head_repo_full_name resolved above
+    #   so a collaborator manually dispatching against, or commenting on, a fork PR cannot
+    #   trigger execution with repo secrets.
+    # issue_comment additionally requires a trusted author association so that arbitrary
+    # contributors cannot invoke /jazz-review at all.
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz-review') && (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
+    steps:
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.resolve.outputs.head_sha }}
+          ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -86,8 +100,8 @@ jobs:
 
       - name: Setup Jazz agent and workflow
         env:
-          PR_BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
-          PR_HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         run: |
           mkdir -p .jazz/agents workflows/code-review
           cp .github/jazz/agents/ci-reviewer.json .jazz/agents/
@@ -109,8 +123,8 @@ jobs:
       - name: Post review comments
         if: always()
         env:
-          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
-          PR_HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -178,12 +192,11 @@ jobs:
             }
 
             if (validComments.length > 0) {
-              // Fetch all PR files (paginated — default is 30, max 100 per page)
-              const prFiles = await github.paginate(github.rest.pulls.listFiles, {
+              // Fetch PR files to determine which are deleted and which lines are in the diff
+              const { data: prFiles } = await github.rest.pulls.listFiles({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: prNumber,
-                per_page: 100
+                pull_number: prNumber
               });
               const deletedPaths = new Set(
                 prFiles.filter((f) => f.status === 'removed').map((f) => f.filename)
