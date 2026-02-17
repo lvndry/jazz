@@ -1,10 +1,10 @@
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
-import { padLines } from "../presentation/markdown-formatter";
 import type { ActivityState } from "./activity-state";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { THEME } from "./theme";
+import { padLines } from "../presentation/markdown-formatter";
 
 function AgentHeader({
   agentName,
