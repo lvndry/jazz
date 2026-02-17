@@ -2,11 +2,11 @@ import chalk from "chalk";
 import { Effect, Layer } from "effect";
 import { render } from "ink";
 import React from "react";
+import { wrapToWidth, getTerminalWidth } from "@/cli/presentation/markdown-formatter";
 import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { store } from "@/cli/ui/store";
 import type { OutputEntry } from "@/cli/ui/types";
-import { wrapToWidth, getTerminalWidth } from "@/cli/presentation/markdown-formatter";
 import {
   TerminalServiceTag,
   type TerminalOutput,

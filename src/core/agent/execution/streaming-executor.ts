@@ -25,8 +25,8 @@ import {
   LLMRateLimitError,
   LLMRequestError,
 } from "@/core/types/errors";
-import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { DisplayConfig } from "@/core/types/output";
+import { isRetryableLLMError } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import type { RecursiveRunner } from "../context/summarizer";
 import { recordFirstTokenLatency, recordLLMRetry } from "../metrics/agent-run-metrics";

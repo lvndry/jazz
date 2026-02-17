@@ -175,6 +175,12 @@ function handleForkCommand(
   conversationHistory: CommandContext["conversationHistory"],
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
+    if (conversationHistory.length === 0) {
+      yield* terminal.warn("Cannot fork: no messages in history.");
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true };
+    }
+
     // Keep the system message (first message) and the last user message
     const systemMessage = conversationHistory.find((m) => m.role === "system");
     const lastUserMessage = [...conversationHistory].reverse().find((m) => m.role === "user");
@@ -792,13 +798,11 @@ function handleConfigCommand(
     if (agent.description) {
       yield* terminal.log(fmt.keyValueCompact("Description", agent.description));
     }
-    yield* terminal.log(fmt.keyValueCompact("Type", agent.config.agentType));
+    yield* terminal.log(fmt.keyValueCompact("Persona", agent.config.persona));
     yield* terminal.log(
       fmt.keyValueCompact("Model", `${agent.config.llmProvider}/${agent.config.llmModel}`),
     );
-    yield* terminal.log(
-      fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort ?? "default"),
-    );
+    yield* terminal.log(fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort ?? "—"));
 
     const agentToolNames = normalizeToolConfig(agent.config.tools, { agentId: agent.id });
     yield* terminal.log(fmt.keyValueCompact("Tools", `${agentToolNames.length} enabled`));

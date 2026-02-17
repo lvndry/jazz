@@ -1,7 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import shortuuid from "short-uuid";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import {
   PersonaAlreadyExistsError,
@@ -14,13 +15,93 @@ import type { CreatePersonaInput, Persona } from "@/core/types/persona";
 import { getUserDataDirectory } from "@/core/utils/runtime-detection";
 
 /**
+ * Names reserved for built-in personas.
+ * Users cannot create custom personas with these names.
+ */
+export const BUILTIN_PERSONA_NAMES = ["default", "coder", "researcher"] as const;
+
+/**
+ * The summarizer persona is internal-only (used by the context summarization system).
+ * It is never listed or selectable by users but can be resolved by name.
+ */
+const INTERNAL_PERSONA_NAMES = ["summarizer"] as const;
+
+/**
+ * Built-in persona metadata. System prompts are NOT stored here -- they live in
+ * the prompt files (prompts/default/system.ts etc.) and are resolved by
+ * AgentPromptBuilder. The PersonaService only needs metadata for listing/display.
+ */
+const BUILTIN_PERSONAS: readonly Persona[] = [
+  {
+    id: "builtin-default",
+    name: "default",
+    description: "A general-purpose assistant that can help with various tasks.",
+    systemPrompt: "", // Resolved at runtime by AgentPromptBuilder
+    tone: "helpful",
+    style: "balanced",
+    createdAt: new Date("2024-01-01T00:00:00Z"),
+    updatedAt: new Date("2024-01-01T00:00:00Z"),
+  },
+  {
+    id: "builtin-coder",
+    name: "coder",
+    description:
+      "An expert software engineer specialized in code analysis, debugging, and implementation.",
+    systemPrompt: "", // Resolved at runtime by AgentPromptBuilder
+    tone: "technical",
+    style: "precise",
+    createdAt: new Date("2024-01-01T00:00:00Z"),
+    updatedAt: new Date("2024-01-01T00:00:00Z"),
+  },
+  {
+    id: "builtin-researcher",
+    name: "researcher",
+    description:
+      "A meticulous researcher specialized in deep exploration, source synthesis, and evidence-backed conclusions.",
+    systemPrompt: "", // Resolved at runtime by AgentPromptBuilder
+    tone: "analytical",
+    style: "thorough",
+    createdAt: new Date("2024-01-01T00:00:00Z"),
+    updatedAt: new Date("2024-01-01T00:00:00Z"),
+  },
+];
+
+/**
+ * Check if a persona name is a built-in or internal persona.
+ */
+export function isBuiltinPersona(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    (BUILTIN_PERSONA_NAMES as readonly string[]).includes(lower) ||
+    (INTERNAL_PERSONA_NAMES as readonly string[]).includes(lower)
+  );
+}
+
+/**
+ * Options for PersonaServiceImpl construction.
+ * @internal Used for testing; production uses default from getUserDataDirectory().
+ */
+export interface PersonaServiceImplOptions {
+  /** Override base data directory (for tests). Default: getUserDataDirectory(). */
+  readonly baseDataPath?: string;
+}
+
+/**
  * File-based PersonaService implementation
  *
- * Stores personas as JSON files in .jazz/personas/<id>.json
+ * Stores custom personas as JSON files in .jazz/personas/<id>.json.
+ * Also surfaces built-in personas (default, coder, researcher) for listing.
+ * Built-in personas cannot be edited or deleted.
  */
 export class PersonaServiceImpl implements PersonaService {
+  private readonly basePath: string;
+
+  constructor(options?: PersonaServiceImplOptions) {
+    this.basePath = options?.baseDataPath ?? getUserDataDirectory();
+  }
+
   private getPersonasDir(): string {
-    return path.join(getUserDataDirectory(), "personas");
+    return path.join(this.basePath, "personas");
   }
 
   private getPersonaPath(id: string): string {
@@ -40,8 +121,18 @@ export class PersonaServiceImpl implements PersonaService {
         yield* validatePersonaDescription(input.description);
         yield* validatePersonaSystemPrompt(input.systemPrompt);
 
-        // Check for duplicate name
-        const existing = yield* this.listPersonas();
+        // Prevent overriding built-in persona names
+        if (isBuiltinPersona(input.name)) {
+          return yield* Effect.fail(
+            new PersonaAlreadyExistsError({
+              personaName: input.name,
+              suggestion: `"${input.name}" is a built-in persona and cannot be overridden. Choose a different name.`,
+            }),
+          );
+        }
+
+        // Check for duplicate name among custom personas
+        const existing = yield* this.listCustomPersonas();
         const nameExists = existing.some((p) => p.name.toLowerCase() === input.name.toLowerCase());
         if (nameExists) {
           return yield* Effect.fail(
@@ -87,6 +178,10 @@ export class PersonaServiceImpl implements PersonaService {
   getPersona(id: string): Effect.Effect<Persona, StorageError | StorageNotFoundError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
+        // Check built-in personas by ID
+        const builtin = BUILTIN_PERSONAS.find((p) => p.id === id);
+        if (builtin) return builtin;
+
         const filePath = this.getPersonaPath(id);
 
         const content = yield* Effect.tryPromise({
@@ -111,7 +206,11 @@ export class PersonaServiceImpl implements PersonaService {
         });
 
         const raw = yield* Effect.try({
-          try: () => JSON.parse(content) as Persona & { createdAt: string; updatedAt: string },
+          try: () =>
+            JSON.parse(content) as Persona & {
+              createdAt: string;
+              updatedAt: string;
+            },
           catch: (error) =>
             new StorageError({
               operation: "read",
@@ -147,7 +246,10 @@ export class PersonaServiceImpl implements PersonaService {
     );
   }
 
-  listPersonas(): Effect.Effect<readonly Persona[], StorageError> {
+  /**
+   * List only custom (user-created) personas from .jazz/personas/
+   */
+  private listCustomPersonas(): Effect.Effect<readonly Persona[], StorageError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
         yield* Effect.tryPromise({
@@ -175,8 +277,28 @@ export class PersonaServiceImpl implements PersonaService {
 
         for (const file of jsonFiles) {
           const id = file.replace(".json", "");
+          const fullPath = this.getPersonaPath(id);
           const persona = yield* this.getPersona(id).pipe(
-            Effect.catchAll(() => Effect.succeed(null)),
+            Effect.catchAll((err) =>
+              Effect.gen(function* () {
+                const loggerOpt = yield* Effect.serviceOption(LoggerServiceTag);
+                if (Option.isSome(loggerOpt)) {
+                  const errorMsg =
+                    "reason" in err && typeof (err as { reason?: string }).reason === "string"
+                      ? (err as { reason: string }).reason
+                      : "message" in err &&
+                          typeof (err as { message?: string }).message === "string"
+                        ? (err as { message: string }).message
+                        : String(err);
+                  yield* loggerOpt.value.warn(`Persona file failed to parse, skipping: ${file}`, {
+                    filename: file,
+                    path: fullPath,
+                    error: errorMsg,
+                  });
+                }
+                return null;
+              }),
+            ),
           );
           if (persona) {
             personas.push(persona);
@@ -184,6 +306,18 @@ export class PersonaServiceImpl implements PersonaService {
         }
 
         return personas;
+      }.bind(this),
+    );
+  }
+
+  /**
+   * List all personas: built-in first, then custom.
+   */
+  listPersonas(): Effect.Effect<readonly Persona[], StorageError> {
+    return Effect.gen(
+      function* (this: PersonaServiceImpl) {
+        const custom = yield* this.listCustomPersonas();
+        return [...BUILTIN_PERSONAS, ...custom];
       }.bind(this),
     );
   }
@@ -197,11 +331,32 @@ export class PersonaServiceImpl implements PersonaService {
   > {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
+        // Prevent editing built-in personas
+        if (BUILTIN_PERSONAS.some((p) => p.id === id)) {
+          return yield* Effect.fail(
+            new StorageError({
+              operation: "update",
+              path: id,
+              reason: "Built-in personas cannot be edited. Create a custom persona instead.",
+            }),
+          );
+        }
+
         const existing = yield* this.getPersona(id);
 
         if (updates.name && updates.name !== existing.name) {
           yield* validatePersonaName(updates.name);
-          const all = yield* this.listPersonas();
+
+          if (isBuiltinPersona(updates.name)) {
+            return yield* Effect.fail(
+              new PersonaAlreadyExistsError({
+                personaName: updates.name,
+                suggestion: `"${updates.name}" is a built-in persona name. Choose a different name.`,
+              }),
+            );
+          }
+
+          const all = yield* this.listCustomPersonas();
           const duplicateExists = all.some(
             (p) => p.name.toLowerCase() === updates.name!.toLowerCase() && p.id !== id,
           );
@@ -250,6 +405,17 @@ export class PersonaServiceImpl implements PersonaService {
   deletePersona(id: string): Effect.Effect<void, StorageError | StorageNotFoundError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
+        // Prevent deleting built-in personas
+        if (BUILTIN_PERSONAS.some((p) => p.id === id)) {
+          return yield* Effect.fail(
+            new StorageError({
+              operation: "delete",
+              path: id,
+              reason: "Built-in personas cannot be deleted.",
+            }),
+          );
+        }
+
         // Verify it exists first
         yield* this.getPersona(id);
 
@@ -271,13 +437,19 @@ export class PersonaServiceImpl implements PersonaService {
   ): Effect.Effect<Persona, StorageError | PersonaNotFoundError | StorageNotFoundError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
-        // Try by ID first
+        // Check built-in personas by name first (most common lookup)
+        const builtinByName = BUILTIN_PERSONAS.find(
+          (p) => p.name.toLowerCase() === identifier.toLowerCase(),
+        );
+        if (builtinByName) return builtinByName;
+
+        // Try by ID (custom persona file)
         const byId = yield* this.getPersona(identifier).pipe(
           Effect.catchTag("StorageNotFoundError", () => Effect.succeed(null)),
         );
         if (byId) return byId;
 
-        // Fall back to name lookup
+        // Fall back to name lookup among custom personas
         return yield* this.getPersonaByName(identifier);
       }.bind(this),
     );

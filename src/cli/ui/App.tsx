@@ -23,6 +23,10 @@ import { InputPriority, InputResults } from "../services/input-service";
  *
  * Entries beyond this tail are promoted to Ink's <Static> region where they
  * are rendered to stdout exactly once and never re-laid-out.
+ *
+ * Chosen as 15 for performance: fewer live nodes means
+ * faster layout recompute on each keystroke/stream tick. Trade-off: less
+ * recent context visible in the scrollback before it promotes to Static.
  */
 const LIVE_TAIL_SIZE = 15;
 

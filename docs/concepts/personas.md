@@ -8,18 +8,20 @@ A **Persona** is a reusable character or identity that shapes how an agent commu
 
 Jazz ships with built-in **agent types** that double as personas:
 
-| Type        | Description                                                                 |
-| ----------- | --------------------------------------------------------------------------- |
-| `default`   | General-purpose agent for various tasks.                                    |
-| `coder`     | Expert software engineer: code analysis, debugging, implementation.         |
-| `researcher`| Meticulous researcher: deep exploration, source synthesis, evidence-backed conclusions. |
-| `summarizer`| Specialized in compressing conversation history (used internally).          |
+| Type         | Description                                                                             |
+| ------------ | --------------------------------------------------------------------------------------- |
+| `default`    | General-purpose agent for various tasks.                                                |
+| `coder`      | Expert software engineer: code analysis, debugging, implementation.                     |
+| `researcher` | Meticulous researcher: deep exploration, source synthesis, evidence-backed conclusions. |
+| `summarizer` | Specialized in compressing conversation history (used internally).                      |
 
 **Custom personas** extend this with your own characters. You define the system prompt, and Jazz injects it into the agent's conversation—so you can have a sarcastic hacker, a formal tutor, a pirate, or any personality you want.
 
 ## How Personas Work
 
-1. **Storage**: Custom personas are stored as JSON files in `~/.jazz/personas/` (or `./.jazz/personas/` when running from source).
+1. **Storage**: Custom personas are stored as JSON files under Jazz's data directory:
+   - **Production** (global install, e.g. `npm i -g jazz-ai`): `~/.jazz/personas/`
+   - **Development** (running from source, e.g. `bun run cli`): `{cwd}/.jazz/personas/` where `{cwd}` is the directory from which you invoke Jazz
 2. **System prompt**: The persona's `systemPrompt` is the core. It is injected into the agent's system message and shapes how the model responds.
 3. **Agent config**: You assign a persona to an agent via the `persona` field in the agent's configuration. When set, the persona's system prompt overrides or augments the agent type's behavior.
 4. **Model-agnostic**: Personas work with any LLM—OpenAI, Anthropic, Google, Ollama, etc. The same persona behaves consistently across providers.
@@ -28,7 +30,7 @@ Jazz ships with built-in **agent types** that double as personas:
 
 ### Option 1: Create a JSON File Manually
 
-Create a file at `.jazz/personas/<id>.json`. The filename (without `.json`) becomes the persona ID. Use a short UUID or a memorable slug.
+Create a file at `<jazz-data-dir>/personas/<id>.json` (see Storage above for the actual path: `~/.jazz` in production, `{cwd}/.jazz` in development). The filename (without `.json`) becomes the persona ID. Use a short UUID or a memorable slug.
 
 **Schema:**
 
@@ -47,16 +49,16 @@ Create a file at `.jazz/personas/<id>.json`. The filename (without `.json`) beco
 
 **Fields:**
 
-| Field         | Required | Description                                                                 |
-| ------------- | -------- | --------------------------------------------------------------------------- |
-| `id`          | Yes      | Unique identifier. Match the filename (without `.json`).                    |
-| `name`        | Yes      | Alphanumeric, underscores, hyphens. Used for CLI references.               |
-| `description` | Yes      | Brief human-readable description (max 500 chars).                           |
-| `systemPrompt`| Yes      | Instructions that define how the persona behaves (max 10,000 chars).        |
-| `tone`        | No       | Descriptor for display (e.g., "sarcastic", "formal", "friendly").          |
-| `style`       | No       | Descriptor for display (e.g., "concise", "verbose", "technical").          |
-| `createdAt`   | Yes      | ISO 8601 timestamp.                                                         |
-| `updatedAt`   | Yes      | ISO 8601 timestamp.                                                         |
+| Field          | Required | Description                                                          |
+| -------------- | -------- | -------------------------------------------------------------------- |
+| `id`           | Yes      | Unique identifier. Match the filename (without `.json`).             |
+| `name`         | Yes      | Alphanumeric, underscores, hyphens. Used for CLI references.         |
+| `description`  | Yes      | Brief human-readable description (max 500 chars).                    |
+| `systemPrompt` | Yes      | Instructions that define how the persona behaves (max 10,000 chars). |
+| `tone`         | No       | Descriptor for display (e.g., "sarcastic", "formal", "friendly").    |
+| `style`        | No       | Descriptor for display (e.g., "concise", "verbose", "technical").    |
+| `createdAt`    | Yes      | ISO 8601 timestamp.                                                  |
+| `updatedAt`    | Yes      | ISO 8601 timestamp.                                                  |
 
 **Name rules**: Only letters, numbers, underscores, and hyphens. Examples: `cyber-punk`, `therapist`, `pirate`.
 
@@ -119,16 +121,16 @@ When `persona` is set, the persona's system prompt is used to shape the agent's 
 
 When building the system prompt, Jazz replaces these placeholders if present in your persona's `systemPrompt`:
 
-| Placeholder       | Description                    |
-| ----------------- | ------------------------------ |
-| `{agentName}`     | The agent's name               |
-| `{agentDescription}` | The agent's description     |
-| `{currentDate}`   | Current date                   |
-| `{osInfo}`        | OS platform and version        |
-| `{shell}`         | User's shell                   |
-| `{hostname}`      | Machine hostname               |
-| `{username}`      | Current username               |
-| `{homeDirectory}` | User's home directory           |
+| Placeholder          | Description             |
+| -------------------- | ----------------------- |
+| `{agentName}`        | The agent's name        |
+| `{agentDescription}` | The agent's description |
+| `{currentDate}`      | Current date            |
+| `{osInfo}`           | OS platform and version |
+| `{shell}`            | User's shell            |
+| `{hostname}`         | Machine hostname        |
+| `{username}`         | Current username        |
+| `{homeDirectory}`    | User's home directory   |
 
 Example:
 
@@ -138,9 +140,9 @@ You are {agentName}, a pirate assistant. Today is {currentDate}. You help {usern
 
 ## Managing Personas
 
-- **List**: Persona files in `.jazz/personas/` are discovered automatically. Each `.json` file is one persona.
+- **List**: Persona files under the Jazz data directory's `personas/` subfolder are discovered automatically (see Storage above). Each `.json` file is one persona.
 - **Update**: Edit the JSON file directly. Ensure `updatedAt` reflects the change.
-- **Delete**: Remove the `.json` file from `.jazz/personas/`. Any agents referencing that persona will need to be updated.
+- **Delete**: Remove the `.json` file from `personas/`. Any agents referencing that persona will need to be updated.
 
 ## See Also
 

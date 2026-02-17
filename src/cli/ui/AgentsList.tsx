@@ -18,7 +18,7 @@ interface AgentListItem {
     readonly llmProvider: string;
     readonly llmModel: string;
     readonly reasoningEffort?: string | undefined;
-    readonly agentType?: string | undefined;
+    readonly persona?: string | undefined;
     readonly tools?: readonly string[] | undefined;
   };
 }
@@ -109,7 +109,7 @@ export function AgentsList(props: {
           {sp}
           {padRight("MODEL", modelW)}
           {sp}
-          {padRight("TYPE", typeW)}
+          {padRight("PERSONA", typeW)}
           {sp}
           {padRight("REASONING", reasoningW)}
           {sp}
@@ -124,7 +124,7 @@ export function AgentsList(props: {
       >
         {props.agents.map((agent, i) => {
           const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
-          const type = agent.config.agentType ?? "default";
+          const type = agent.config.persona ?? "default";
           const reasoning = agent.config.reasoningEffort ?? "—";
           const desc = agent.description ?? "";
 

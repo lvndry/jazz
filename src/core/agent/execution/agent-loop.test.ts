@@ -100,7 +100,7 @@ function makeOptions(overrides?: Partial<AgentRunnerOptions>): AgentRunnerOption
       id: "agent-1",
       name: "test-agent",
       config: {
-        agentType: "default",
+        persona: "default",
         llmModel: "gpt-4",
         llmProvider: "openai",
         reasoningEffort: "medium",
@@ -141,7 +141,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
       id: "agent-1",
       name: "test-agent",
       config: {
-        agentType: "default",
+        persona: "default",
         llmModel: "gpt-4",
         llmProvider: "openai",
         reasoningEffort: "medium",

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import * as os from "os";
 import { Effect } from "effect";
+import type { PersonaService } from "@/core/interfaces/persona-service";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { CODER_PROMPT } from "./prompts/coder/system";
 import { DEFAULT_PROMPT } from "./prompts/default/system";
@@ -29,41 +30,42 @@ export interface AgentPromptOptions {
   }[];
 }
 
-export class AgentPromptBuilder {
-  private personas: Record<string, AgentPersona>;
-  private systemPromptCache = new Map<string, string>();
+/**
+ * Built-in personas with hardcoded system prompts.
+ * Custom personas are resolved via PersonaService at runtime.
+ */
+const BUILTIN_PERSONAS: Record<string, AgentPersona> = {
+  default: {
+    name: "Default Agent",
+    description: "A general-purpose agent that can assist with various tasks.",
+    systemPrompt: DEFAULT_PROMPT,
+    userPromptTemplate: "{userInput}",
+  },
+  coder: {
+    name: "Coder Agent",
+    description:
+      "An expert software engineer and architect specialized in code analysis, debugging, and implementation with deep context awareness.",
+    systemPrompt: CODER_PROMPT,
+    userPromptTemplate: "{userInput}",
+  },
+  researcher: {
+    name: "Researcher Agent",
+    description:
+      "A meticulous researcher and scientist specialized in deep exploration, source synthesis, and evidence-backed conclusions.",
+    systemPrompt: RESEARCHER_PROMPT,
+    userPromptTemplate: "{userInput}",
+  },
+  summarizer: {
+    name: "Summarizer Agent",
+    description:
+      "An agent specialized in compressing conversation history while maintaining semantic fidelity.",
+    systemPrompt: SUMMARIZER_PROMPT,
+    userPromptTemplate: "{userInput}",
+  },
+};
 
-  constructor() {
-    this.personas = {
-      default: {
-        name: "Default Agent",
-        description: "A general-purpose agent that can assist with various tasks.",
-        systemPrompt: DEFAULT_PROMPT,
-        userPromptTemplate: "{userInput}",
-      },
-      coder: {
-        name: "Coder Agent",
-        description:
-          "An expert software engineer and architect specialized in code analysis, debugging, and implementation with deep context awareness.",
-        systemPrompt: CODER_PROMPT,
-        userPromptTemplate: "{userInput}",
-      },
-      researcher: {
-        name: "Researcher Agent",
-        description:
-          "A meticulous researcher and scientist specialized in deep exploration, source synthesis, and evidence-backed conclusions.",
-        systemPrompt: RESEARCHER_PROMPT,
-        userPromptTemplate: "{userInput}",
-      },
-      summarizer: {
-        name: "Summarizer Agent",
-        description:
-          "An agent specialized in compressing conversation history while maintaining semantic fidelity.",
-        systemPrompt: SUMMARIZER_PROMPT,
-        userPromptTemplate: "{userInput}",
-      },
-    };
-  }
+export class AgentPromptBuilder {
+  private systemPromptCache = new Map<string, string>();
 
   /**
    * Get current system information including date and OS details
@@ -119,26 +121,58 @@ export class AgentPromptBuilder {
   }
 
   /**
-   * Get a persona by name
+   * Resolve a persona by name. Checks built-in personas first, then falls back
+   * to loading a custom persona from PersonaService (if provided).
+   *
+   * For custom personas, a wrapper AgentPersona is created using the stored
+   * system prompt from .jazz/personas/.
    */
-  getPersona(name: string): Effect.Effect<AgentPersona, Error> {
-    return Effect.try({
-      try: () => {
-        const persona = this.personas[name];
-        if (!persona) {
-          throw new Error(`Persona not found: ${name}`);
+  resolvePersona(
+    name: string,
+    personaService?: PersonaService,
+  ): Effect.Effect<AgentPersona, Error> {
+    return Effect.gen(
+      function* (this: AgentPromptBuilder) {
+        // Check built-in personas first
+        const builtin = BUILTIN_PERSONAS[name];
+        if (builtin) return builtin;
+
+        // Try to load custom persona from PersonaService
+        if (personaService) {
+          const customPersona = yield* personaService
+            .getPersonaByIdentifier(name)
+            .pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+          if (customPersona && customPersona.systemPrompt) {
+            return {
+              name: customPersona.name,
+              description: customPersona.description,
+              systemPrompt: customPersona.systemPrompt,
+              userPromptTemplate: "{userInput}",
+            } satisfies AgentPersona;
+          }
         }
-        return persona;
-      },
-      catch: (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
-    });
+
+        // Fall back to default persona
+        return BUILTIN_PERSONAS["default"]!;
+      }.bind(this),
+    );
   }
 
   /**
-   * List available personas
+   * Get a persona by name (built-in only, for backward compatibility).
+   * For full resolution including custom personas, use resolvePersona().
    */
-  listPersonas(): Effect.Effect<readonly string[], never> {
-    return Effect.succeed(Object.keys(this.personas));
+  getPersona(name: string): Effect.Effect<AgentPersona, Error> {
+    return this.resolvePersona(name);
+  }
+
+  /**
+   * List available built-in persona names.
+   * Does NOT include custom personas or the internal "summarizer".
+   */
+  listBuiltinPersonas(): Effect.Effect<readonly string[], never> {
+    return Effect.succeed(Object.keys(BUILTIN_PERSONAS).filter((name) => name !== "summarizer"));
   }
 
   /**
@@ -147,6 +181,7 @@ export class AgentPromptBuilder {
   buildSystemPrompt(
     personaName: string,
     options: AgentPromptOptions,
+    personaService?: PersonaService,
   ): Effect.Effect<string, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
@@ -155,7 +190,7 @@ export class AgentPromptBuilder {
         const cached = this.systemPromptCache.get(cacheKey);
         if (cached) return cached;
 
-        const persona = yield* this.getPersona(personaName);
+        const persona = yield* this.resolvePersona(personaName, personaService);
         const { currentDate, osInfo, shell, hostname, username, homeDirectory } =
           yield* this.getSystemInfo();
 
@@ -178,15 +213,6 @@ export class AgentPromptBuilder {
             )
             .join("\n");
 
-          // Append available skills to system prompt
-          /*
-          <available_skills>
-            <skill>
-              <name>pdf-processing</name>
-              <description>Extracts text and tables from PDF files, fills forms, merges documents.</description>
-            </skill>
-          </available_skills>
-           */
           const skillsSection = `
 ${SKILLS_INSTRUCTIONS}
 <available_skills>
@@ -206,11 +232,14 @@ ${skillsXml}
   /**
    * Build a user prompt from a persona and options
    */
-  buildUserPrompt(personaName: string, options: AgentPromptOptions): Effect.Effect<string, Error> {
+  buildUserPrompt(
+    personaName: string,
+    options: AgentPromptOptions,
+    personaService?: PersonaService,
+  ): Effect.Effect<string, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
-        const persona = yield* this.getPersona(personaName);
-
+        const persona = yield* this.resolvePersona(personaName, personaService);
         return persona.userPromptTemplate.replace("{userInput}", options.userInput);
       }.bind(this),
     );
@@ -222,11 +251,12 @@ ${skillsXml}
   buildAgentMessages(
     personaName: string,
     options: AgentPromptOptions,
+    personaService?: PersonaService,
   ): Effect.Effect<ConversationMessages, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
-        const systemPrompt = yield* this.buildSystemPrompt(personaName, options);
-        const userPrompt = yield* this.buildUserPrompt(personaName, options);
+        const systemPrompt = yield* this.buildSystemPrompt(personaName, options, personaService);
+        const userPrompt = yield* this.buildUserPrompt(personaName, options, personaService);
 
         const messages: ConversationMessages = [{ role: "system", content: systemPrompt }];
 
@@ -241,9 +271,6 @@ ${skillsXml}
         }
 
         // Add the current user input if not already in history.
-        // We check both role AND content to avoid skipping the new message when
-        // the previous turn was interrupted before the assistant produced any
-        // output (which leaves the old user message as the last entry).
         const lastHistoryMsg =
           options.conversationHistory?.[options.conversationHistory.length - 1];
         const effectiveUserContent =

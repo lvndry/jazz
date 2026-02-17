@@ -18,10 +18,10 @@ import {
 } from "@/core/interfaces/tool-registry";
 import type { SkillService } from "@/core/skills/skill-service";
 import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
-import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
 import type { CommandContext, CommandResult } from "./chat/commands/types";

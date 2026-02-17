@@ -432,7 +432,7 @@ export const Summarizer = {
           ...agent.config,
           llmProvider: summarizerModelConfig.provider,
           llmModel: summarizerModelConfig.model,
-          agentType: "summarizer",
+          persona: "summarizer",
           tools: [], // No tools—summarizer should only produce text, not use tools
         },
         createdAt: new Date(),

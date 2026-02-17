@@ -10,7 +10,7 @@ import {
 const MINIMAL_AGENT = {
   id: "test-agent-id",
   name: "test-agent",
-  config: { agentType: "default", llmProvider: "openai" as const, llmModel: "gpt-4" },
+  config: { persona: "default", llmProvider: "openai" as const, llmModel: "gpt-4" },
   model: "openai/gpt-4" as const,
   createdAt: new Date(),
   updatedAt: new Date(),

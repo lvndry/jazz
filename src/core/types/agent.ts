@@ -15,7 +15,7 @@ import type { ProviderName } from "@/core/constants/models";
 /**
  * Core Agent entity representing an AI agent configuration
  *
- * An Agent in Jazz is a configured entity with a specific model provider, agent type,
+ * An Agent in Jazz is a configured entity with a specific model provider, persona,
  * and optional toolset. Agents are immutable after creation and stored in the storage layer.
  *
  */
@@ -33,21 +33,24 @@ export interface Agent {
  * Agent configuration specifying LLM provider, model, and runtime behavior
  *
  * The agent configuration defines how an agent operates, including which LLM provider
- * and model to use, the agent's type for specialized behavior, available tools, and
- * reasoning effort level for supported models (OpenAI o1 series).
+ * and model to use, the persona for behavioral specialization, available tools, and
+ * reasoning effort level for supported models.
  *
  * @see {@link ProviderName} for available LLM providers
  */
 export interface AgentConfig {
-  readonly agentType: string;
+  /**
+   * The persona applied to this agent. Determines the agent's communication style,
+   * tone, and behavioral rules via a system prompt.
+   *
+   * Built-in personas: "default", "coder", "researcher"
+   * Custom personas: stored in .jazz/personas/ and referenced by name or ID.
+   *
+   * Defaults to "default" when not specified.
+   */
+  readonly persona: string;
   readonly llmProvider: ProviderName;
   readonly llmModel: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   readonly tools?: readonly string[];
-  /**
-   * Optional persona ID or name to apply to this agent.
-   * When set, the persona's system prompt is injected into the agent's conversation,
-   * shaping its tone, style, and behavior independently of the agent type.
-   */
-  readonly persona?: string;
 }

@@ -32,7 +32,7 @@ describe("AgentService", () => {
 
       expect(result.name).toBe("test-agent");
       expect(result.description).toBe("A test agent");
-      expect(result.config.agentType).toBe("default");
+      expect(result.config.persona).toBe("default");
       expect(result.config.llmProvider).toBe("openai");
       expect(mockStorage.saveAgent).toHaveBeenCalled();
     });
@@ -72,7 +72,7 @@ describe("AgentService", () => {
       const existingAgent: Agent = {
         id: "id-1",
         name: "old-name",
-        config: { agentType: "default", llmProvider: "openai", llmModel: "gpt-4" },
+        config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
         createdAt: new Date(),
         updatedAt: new Date(),
         model: "openai/gpt-4",

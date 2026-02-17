@@ -30,7 +30,7 @@ function formatAgentsListBlock(
       readonly llmProvider: string;
       readonly llmModel: string;
       readonly reasoningEffort?: string | undefined;
-      readonly agentType?: string | undefined;
+      readonly persona?: string | undefined;
       readonly tools?: readonly string[] | undefined;
     };
   }[],
@@ -70,7 +70,7 @@ function formatAgentsListBlock(
     " ".repeat(gap) +
     padRight("Model", modelW) +
     " ".repeat(gap) +
-    padRight("Type", typeW) +
+    padRight("Persona", typeW) +
     " ".repeat(gap) +
     padRight("Reasoning", reasoningW) +
     " ".repeat(gap) +
@@ -83,7 +83,7 @@ function formatAgentsListBlock(
   for (const [index, agent] of agents.entries()) {
     const idx = String(index + 1);
     const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
-    const agentType = agent.config.agentType ?? "default";
+    const persona = agent.config.persona ?? "default";
     const reasoning = agent.config.reasoningEffort ?? "—";
 
     const row =
@@ -93,7 +93,7 @@ function formatAgentsListBlock(
       " ".repeat(gap) +
       padRight(truncateMiddle(model, modelW), modelW) +
       " ".repeat(gap) +
-      padRight(truncateMiddle(agentType, typeW), typeW) +
+      padRight(truncateMiddle(persona, typeW), typeW) +
       " ".repeat(gap) +
       padRight(truncateMiddle(reasoning, reasoningW), reasoningW) +
       " ".repeat(gap) +
@@ -254,7 +254,7 @@ export function getAgentCommand(
               createdAt: agent.createdAt,
               updatedAt: agent.updatedAt,
               config: {
-                agentType: agent.config.agentType,
+                persona: agent.config.persona,
                 llmProvider: agent.config.llmProvider,
                 llmModel: agent.config.llmModel,
                 reasoningEffort: agent.config.reasoningEffort,
@@ -280,7 +280,7 @@ function formatAgentDetailsBlock(agent: {
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly config: {
-    readonly agentType?: string | undefined;
+    readonly persona?: string | undefined;
     readonly llmProvider: string;
     readonly llmModel: string;
     readonly reasoningEffort?: string | undefined;
@@ -318,7 +318,7 @@ function formatAgentDetailsBlock(agent: {
   lines.push(kv("Description:", agent.description?.trim().length ? agent.description : "—"));
 
   lines.push(chalk.dim(sep));
-  lines.push(kv("Agent type:", agent.config.agentType ?? "default"));
+  lines.push(kv("Persona:", agent.config.persona ?? "default"));
   lines.push(kv("Provider:", formatProviderDisplayName(agent.config.llmProvider)));
   lines.push(kv("LLM model:", agent.config.llmModel));
   lines.push(
