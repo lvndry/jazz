@@ -142,6 +142,25 @@ export interface PresentationService {
   readonly writeBlankLine: () => Effect.Effect<void, never>;
 
   /**
+   * Present a status message to the user.
+   *
+   * Used for operational status updates like service connections, setup progress, etc.
+   * Unlike writeOutput (which is for agent content), this is for system-level status.
+   *
+   * Implementations:
+   * - Ink (interactive): renders with colors/icons via the Ink store
+   * - CLI (non-TTY): writes plain text with prefix to stdout
+   * - Quiet (background): no-op (silent)
+   *
+   * @param message - The status message to display
+   * @param level - The type of status: info, success, warning, error, or progress
+   */
+  readonly presentStatus: (
+    message: string,
+    level: "info" | "success" | "warning" | "error" | "progress",
+  ) => Effect.Effect<void, never>;
+
+  /**
    * Request user approval for a tool action.
    *
    * Shows a confirmation prompt with details about what action will be performed.

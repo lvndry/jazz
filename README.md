@@ -37,7 +37,7 @@ You describe what you want. Jazz figures out how to do it.
 # Install
 npm install -g jazz-ai
 bun add -g jazz-ai
-pnpm add -g jazz-ai 
+pnpm add -g jazz-ai
 yarn global add jazz-ai
 
 # Start chatting
@@ -188,7 +188,7 @@ Control how much autonomy each workflow gets:
 
 ## 🔁 We use Jazz to build Jazz.
 
-Jazz isn't just a local tool. It runs headless in CI/CD pipelines with `--headless` and `--auto-approve` flags, purpose-built for automation.
+Jazz isn't just a local tool. It runs in CI/CD pipelines with `--output raw` and `--auto-approve` flags, purpose-built for automation.
 
 ### Automated Code Review
 
@@ -201,7 +201,7 @@ Every pull request to Jazz gets reviewed by a Jazz agent. The [`jazz.yml`](.gith
 ```yaml
 # .github/workflows/jazz.yml (simplified)
 - name: Run Jazz code review
-  run: jazz workflow run code-review --auto-approve --headless --agent ci-reviewer --quiet
+  run: jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer
   env:
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 ```
@@ -237,7 +237,7 @@ jobs:
       - run: npm install -g jazz-ai
 
       - name: Run review
-        run: jazz workflow run my-review --auto-approve --headless
+        run: jazz --output raw workflow run my-review --auto-approve
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 ```

@@ -257,13 +257,14 @@ function generateLaunchdPlist(
 
   const programArgs = [
     ...jazzInvocation,
+    "--output",
+    "quiet",
     "workflow",
     "run",
     workflow.name,
     "--agent",
     agentId,
     "--auto-approve",
-    "--headless",
     "--scheduled",
   ];
 
@@ -309,13 +310,14 @@ function generateCrontabEntry(
   const escapedLogPath = escapeShellArg(`${logDir}/${workflow.name}.log`);
 
   const commandTokens = jazzInvocation.concat([
+    "--output",
+    "quiet",
     "workflow",
     "run",
     workflow.name,
     "--agent",
     agentId,
     "--auto-approve",
-    "--headless",
     "--scheduled",
   ]);
 

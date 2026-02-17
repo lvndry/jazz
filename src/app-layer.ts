@@ -2,6 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Cause, Duration, Effect, Exit, Fiber, Layer, Option } from "effect";
 import { autoCheckForUpdate } from "./cli/auto-update";
+import { promptInteractiveCatchUp } from "./cli/catch-up-prompt";
 import { CLIPresentationServiceLayer } from "./cli/presentation/cli-presentation-service";
 import { InkPresentationServiceLayer } from "./cli/presentation/ink-presentation-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
@@ -13,11 +14,12 @@ import { MCPServerManagerTag } from "./core/interfaces/mcp-server";
 import { StorageServiceTag } from "./core/interfaces/storage";
 import { TelemetryServiceTag } from "./core/interfaces/telemetry";
 import { TerminalServiceTag } from "./core/interfaces/terminal";
+import { QuietPresentationServiceLayer } from "./core/presentation/quiet-presentation-service";
 import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
+import type { OutputMode } from "./core/types/output";
 import { handleError } from "./core/utils/error-handler";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
-import { promptInteractiveCatchUp } from "./core/workflows/catch-up";
 import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
 import { WorkflowsLive } from "./core/workflows/workflow-service";
 import { createAgentServiceLayer } from "./services/agent-service";
@@ -30,10 +32,7 @@ import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
 import { NotificationServiceLayer } from "./services/notification";
 import { FileStorageService } from "./services/storage/file";
 import { createTelemetryServiceLayer } from "./services/telemetry/telemetry-service";
-import {
-  createHeadlessTerminalServiceLayer,
-  createTerminalServiceLayer,
-} from "./services/terminal";
+import { createPlainTerminalServiceLayer, createTerminalServiceLayer } from "./services/terminal";
 
 /**
  * Configuration options for creating the application layer
@@ -53,14 +52,6 @@ export interface AppLayerConfig {
    * Optional path to configuration file
    */
   configPath?: string | undefined;
-
-  /**
-   * Run in headless mode (no Ink TUI, no interactive prompts).
-   *
-   * When true, uses HeadlessTerminalService and CLIPresentationServiceLayer
-   * regardless of TTY status. Intended for CI, cron, and `--auto-approve` workflows.
-   */
-  headless?: boolean | undefined;
 }
 
 /**
@@ -92,9 +83,13 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     }),
   ).pipe(Layer.provide(configLayer));
 
-  const terminalLayer = config.headless
-    ? createHeadlessTerminalServiceLayer()
-    : createTerminalServiceLayer();
+  // Determine output mode from JAZZ_OUTPUT_MODE env var (set by --output CLI flag or externally).
+  // "quiet" mode forces plain terminal (no interactive prompts, no output).
+  // Otherwise, auto-detect based on TTY status.
+  const outputMode = process.env["JAZZ_OUTPUT_MODE"] as OutputMode | undefined;
+  const isQuiet = outputMode === "quiet";
+
+  const terminalLayer = isQuiet ? createPlainTerminalServiceLayer() : createTerminalServiceLayer();
 
   const storageLayer = Layer.effect(
     StorageServiceTag,
@@ -124,7 +119,6 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(mcpServerManagerLayer),
     Layer.provide(configLayer),
     Layer.provide(loggerLayer),
-    Layer.provide(terminalLayer),
     Layer.provide(SkillsLive.layer),
   );
 
@@ -147,10 +141,12 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(WorkflowsLive.layer),
   );
 
-  // In headless mode or non-TTY, use the CLI presentation layer which writes directly to stdout.
-  // In TTY mode, keep Ink UI intact by routing all presentation output into Ink.
-  const presentationLayer =
-    config.headless || !process.stdout.isTTY
+  // "quiet" mode: suppress all presentation output (QuietPresentationService no-ops everything).
+  // Non-TTY (CI, pipes): use CLI presentation layer which writes directly to stdout.
+  // TTY (interactive): use Ink UI for rich rendering.
+  const presentationLayer = isQuiet
+    ? QuietPresentationServiceLayer
+    : !process.stdout.isTTY
       ? CLIPresentationServiceLayer
       : InkPresentationServiceLayer.pipe(Layer.provide(NotificationServiceLayer));
 

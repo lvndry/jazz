@@ -6,8 +6,13 @@ import type { StreamingConfig } from "./streaming";
 
 /**
  * Output mode controls what content is displayed and how it is formatted
+ *
+ * - "rendered" — Full ANSI styling; markdown syntax transformed into styled text
+ * - "hybrid"  — ANSI styling with markdown syntax preserved for copy-paste (default)
+ * - "raw"     — Plain text, no styling or transformation; all output visible
+ * - "quiet"   — Suppress all presentation output (for cron/scheduled/background runs)
  */
-export type OutputMode = "rendered" | "hybrid" | "raw";
+export type OutputMode = "rendered" | "hybrid" | "raw" | "quiet";
 
 /**
  * Color profile for terminal output

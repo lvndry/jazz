@@ -4,7 +4,6 @@ import React from "react";
 import type { ActivityState } from "./activity-state";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { THEME } from "./theme";
-import { padLines } from "../presentation/markdown-formatter";
 
 function AgentHeader({
   agentName,
@@ -105,57 +104,16 @@ export const ActivityView = React.memo(function ActivityView({
         <Box
           flexDirection="column"
           marginTop={1}
-          paddingX={2}
         >
-          {/*
-            Intentionally no live "Agent is responding…" header here.
-
-            Long responses are progressively flushed into Ink's <Static> region
-            (via OutputIsland). If we keep the header in the live area, flushed
-            static chunks appear *above* it, splitting the message and creating
-            a bad UX. We instead print the response header to Static at `text_start`.
-          */}
-
-          {activity.reasoning && (
-            <>
-              <Box marginTop={0}>
-                <Text dimColor>{"─".repeat(40)}</Text>
-              </Box>
-              <ReasoningSection
-                reasoning={activity.reasoning}
-                isThinking={false}
-              />
-              <Box
-                marginTop={1}
-                paddingLeft={2}
-                flexDirection="column"
-              >
-                <Text dimColor>{"─".repeat(40)}</Text>
-                <Box>
-                  <Text dimColor>{"▸ "}</Text>
-                  <Text
-                    dimColor
-                    italic
-                  >
-                    Response
-                  </Text>
-                </Box>
-              </Box>
-            </>
-          )}
-
-          {activity.text && (
-            <Box
-              marginTop={activity.reasoning ? 0 : 1}
-              flexDirection="column"
-            >
-              {/* Left padding is baked into the string via padLines() upstream
-                  (in buildThinkingOrStreamingActivity). This avoids a nested
-                  Box with paddingLeft that Yoga can intermittently miscalculate
-                  during frequent live-area re-renders. */}
-              <PreWrappedText>{padLines(activity.text, 2)}</PreWrappedText>
-            </Box>
-          )}
+          <Box paddingX={2}>
+            <AgentHeader
+              agentName={activity.agentName}
+              label="is responding…"
+            />
+          </Box>
+          {activity.text ? (
+            <PreWrappedText>{activity.text}</PreWrappedText>
+          ) : null}
         </Box>
       );
 

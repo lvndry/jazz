@@ -206,7 +206,7 @@ The CLI uses a sophisticated output rendering system (`src/cli/presentation/`) t
 
 The application bootstrap process (`src/main.ts`) handles:
 
-1. **Global Flags**: Parses `--debug`, `--config`, `--verbose`, `--quiet`
+1. **Global Flags**: Parses `--debug`, `--config`, `--verbose`, `--output <mode>`
 2. **Configuration Loading**: Loads from files, environment variables, or CLI args
 3. **Dependency Layers**: Creates Effect Layers for all services
 4. **Error Handling**: Wraps commands with graceful error handling and user-friendly messages

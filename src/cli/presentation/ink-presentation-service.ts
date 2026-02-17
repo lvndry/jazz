@@ -97,9 +97,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.acc.isThinking = false;
       this.acc.lastAgentHeaderWritten = false;
       this.acc.lastAppliedTextSequence = -1;
-      this.acc.flushedTextOffset = 0;
-      this.acc._cachedDisplayTextInput = "";
-      this.acc._cachedDisplayTextOutput = "";
       this.acc._cachedReasoningInput = "";
       this.acc._cachedReasoningOutput = "";
       this.lastUpdateTime = 0;
@@ -124,15 +121,16 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.pendingActivity = null;
       this.clearAllToolTimeouts();
 
-      // Only print the portion not yet promoted to Static by the reducer's
-      // paragraph flushing. Earlier content is already visible in Static.
-      const unflushedText = this.acc.liveText.slice(this.acc.flushedTextOffset);
-      if (unflushedText.trim().length > 0) {
-        const formatted = this.formatMarkdown(unflushedText);
-        store.printOutput({ type: "log", message: padLines(formatted, 2), timestamp: new Date() });
+      // Print accumulated text as a single Static entry
+      if (this.acc.liveText.trim().length > 0) {
+        const formatted = this.formatMarkdown(this.acc.liveText);
+        store.printOutput({
+          type: "streamContent",
+          message: padLines(formatted, 2),
+          timestamp: new Date(),
+        });
       }
       this.acc.liveText = "";
-      this.acc.flushedTextOffset = 0;
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
     });
@@ -180,20 +178,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (result.activity) {
         const phase = result.activity.phase;
         if (phase === "thinking" || phase === "streaming") {
-          // When text was flushed to Static (outputs produced during text_chunk),
-          // bypass the throttle so the live area shrinks immediately, avoiding
-          // brief duplication of the flushed content.
-          if (event.type === "text_chunk" && result.outputs.length > 0) {
-            this.lastUpdateTime = Date.now();
-            this.pendingActivity = null;
-            if (this.updateTimeoutId) {
-              clearTimeout(this.updateTimeoutId);
-              this.updateTimeoutId = null;
-            }
-            store.setActivity(result.activity);
-          } else {
-            this.throttledSetActivity(result.activity);
-          }
+          this.throttledSetActivity(result.activity);
         } else {
           this.lastUpdateTime = Date.now();
           this.pendingActivity = null;
@@ -235,22 +220,20 @@ export class InkStreamingRenderer implements StreamingRenderer {
     store.setInterruptHandler(null);
 
     this.acc.liveText = "";
-    this.acc.flushedTextOffset = 0;
     this.acc.reasoningBuffer = "";
     this.acc.completedReasoning = "";
   }
 
   /**
-   * Print the final response text to Static. Earlier paragraphs were already
-   * promoted during streaming via the reducer's flush logic, so only the
-   * unflushed tail needs to go here.
+   * Print the full response text to Static as a single entry.
+   * All text was in the live area during streaming; now it moves to Static
+   * so it persists after the live area clears.
    */
   private printFinalResponse(event: Extract<StreamEvent, { type: "complete" }>): void {
     const wasStreaming = this.acc.lastAgentHeaderWritten;
-    const unflushedTail = this.acc.liveText.slice(this.acc.flushedTextOffset);
     const finalText =
-      unflushedTail.trim().length > 0
-        ? unflushedTail
+      this.acc.liveText.trim().length > 0
+        ? this.acc.liveText
         : event.response.content.trim().length > 0
           ? event.response.content
           : "";
@@ -265,7 +248,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       // Bake left padding as literal spaces instead of using Ink's Yoga layout.
       // This avoids Yoga intermittently computing incorrect narrow widths.
       store.printOutput({
-        type: "log",
+        type: "streamContent",
         message: padLines(formattedFinalText, 2),
         timestamp: new Date(),
       });
@@ -429,6 +412,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
   /**
    * Throttled activity state update. Limits React re-renders to once per
    * UPDATE_THROTTLE_MS while always flushing the latest pending state.
+   *
+   * Streaming response text is stored RAW by the reducer and only formatted
+   * (markdown + wrapping + padding) here, right before pushing to the store.
+   * This avoids expensive formatting on every token (~80/sec) — it only
+   * happens at the throttle rate (~10/sec).
    */
   private throttledSetActivity(activity: import("../ui/activity-state").ActivityState): void {
     const now = Date.now();
@@ -443,7 +431,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
           this.updateTimeoutId = null;
           this.lastUpdateTime = Date.now();
           if (this.pendingActivity) {
-            store.setActivity(this.pendingActivity);
+            store.setActivity(this.formatActivityText(this.pendingActivity));
             this.pendingActivity = null;
           }
         }, delay);
@@ -453,18 +441,31 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     this.lastUpdateTime = now;
     this.pendingActivity = null;
-    store.setActivity(activity);
+    store.setActivity(this.formatActivityText(activity));
+  }
+
+  /**
+   * Format streaming response text in an activity state for display.
+   * Only called when actually pushing to the store (~10/sec), not on every token.
+   */
+  private formatActivityText(
+    activity: import("../ui/activity-state").ActivityState,
+  ): import("../ui/activity-state").ActivityState {
+    if (activity.phase === "streaming" && activity.text.length > 0) {
+      return {
+        ...activity,
+        text: padLines(this.formatMarkdown(activity.text), 2),
+      };
+    }
+    return activity;
   }
 
   /**
    * Format markdown and pre-wrap at terminal width.
    *
-   * Pre-wrapping bypasses Ink's Yoga layout engine which intermittently computes
-   * incorrect (very narrow) widths for `<Text wrap="wrap">` nodes during live
-   * area re-renders, causing text to wrap almost character-by-character.
-   *
-   * The conservative padding (12 chars) accounts for the deepest nesting:
-   * App paddingX=3 (6) + ActivityView paddingX=2 (4) + container paddingLeft=2 (2).
+   * Pre-wrapping ensures correct line breaks regardless of Ink/Yoga's width.
+   * Both the live area and Static entries render inside App paddingX=3 (6 chars)
+   * with padLines(2) applied downstream = 8 chars total horizontal padding.
    */
   private formatMarkdown(text: string): string {
     let formatted: string;
@@ -476,9 +477,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
       formatted = text;
     }
     // Pre-wrap to bypass Ink/Yoga layout bugs with live area text wrapping.
-    // 12 = App paddingX=3 (6) + ActivityView paddingX=2 (4) + padLines(2) baked in downstream.
-    // Static output path has more margin (App paddingX=3 only = 6 chars Yoga).
-    const available = getTerminalWidth() - 12;
+    // 8 = App paddingX=3 (6) + padLines(2) baked in downstream.
+    const available = getTerminalWidth() - 8;
     return wrapToWidth(formatted, available);
   }
 }
@@ -633,6 +633,26 @@ class InkPresentationService implements PresentationService {
   writeBlankLine(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       store.printOutput({ type: "log", message: "", timestamp: new Date() });
+    });
+  }
+
+  presentStatus(
+    message: string,
+    level: "info" | "success" | "warning" | "error" | "progress",
+  ): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      const icons: Record<typeof level, { icon: string; color: string }> = {
+        info: { icon: "ℹ", color: "blue" },
+        success: { icon: "✓", color: "green" },
+        warning: { icon: "⚠", color: "yellow" },
+        error: { icon: "✗", color: "red" },
+        progress: { icon: "⏳", color: "cyan" },
+      };
+      const { icon, color } = icons[level];
+      const colorFn = chalk[color as keyof typeof chalk] as (s: string) => string;
+      const formatted = `${colorFn(icon)} ${message}`;
+      const type = level === "error" ? "error" : level === "warning" ? "warn" : "info";
+      store.printOutput({ type, message: formatted, timestamp: new Date() });
     });
   }
 

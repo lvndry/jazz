@@ -12,6 +12,7 @@ const ICONS: Record<OutputType, React.ReactElement> = {
   debug: <Text dimColor>•</Text>,
   user: <Text color={THEME.primary}>›</Text>,
   log: <></>,
+  streamContent: <></>,
 };
 
 const COLORS: Record<OutputType, string> = {
@@ -22,6 +23,7 @@ const COLORS: Record<OutputType, string> = {
   user: THEME.primary,
   info: THEME.info,
   log: "white",
+  streamContent: "white",
 };
 
 /**
@@ -45,6 +47,14 @@ export const OutputEntryView = React.memo(function OutputEntryView({
 }): React.ReactElement {
   const icon = ICONS[entry.type];
   const color = COLORS[entry.type];
+
+  if (entry.type === "streamContent") {
+    return (
+      <Box marginTop={0} marginBottom={0}>
+        <Text wrap="truncate">{entry.message as string}</Text>
+      </Box>
+    );
+  }
 
   if (typeof entry.message === "string") {
     if (entry.type === "user") {

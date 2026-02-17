@@ -204,7 +204,7 @@ describe("activity-reducer", () => {
       expect(result.outputs.length).toBeGreaterThan(0);
     });
 
-    test("text_chunk updates liveText and returns streaming activity", () => {
+    test("text_chunk updates liveText and returns streaming activity with text in live area", () => {
       const a = acc();
       reduceEvent(a, { type: "text_start" }, identity, stubInk);
       const result = reduceEvent(
@@ -216,8 +216,9 @@ describe("activity-reducer", () => {
 
       expect(a.liveText).toBe("Hi");
       expect(result.activity!.phase).toBe("streaming");
+      // Short text stays in the live area (activity.text), not flushed to Static
       if (result.activity!.phase === "streaming") {
-        expect(result.activity!.text).toBe("Hi");
+        expect(result.activity!.text).toContain("Hi");
       }
     });
 
@@ -480,7 +481,7 @@ describe("activity-reducer", () => {
       // text_start — now enters streaming immediately (even before first chunk)
       const r5 = reduceEvent(a, { type: "text_start" }, identity, stubInk);
       expect(r5.activity!.phase).toBe("streaming");
-      // text_chunk → streaming
+      // text_chunk → streaming (text flushed to Static, not in activity.text)
       const r6 = reduceEvent(
         a,
         { type: "text_chunk", delta: "Hi", accumulated: "Hi", sequence: 0 },
@@ -489,7 +490,7 @@ describe("activity-reducer", () => {
       );
       expect(r6.activity!.phase).toBe("streaming");
       if (r6.activity!.phase === "streaming") {
-        expect(r6.activity!.text).toBe("Hi");
+        expect(r6.activity!.text).toContain("Hi"); // short text stays in live area
         expect(r6.activity!.reasoning).toBe("hmm");
       }
 
@@ -510,12 +511,12 @@ describe("activity-reducer", () => {
 
   // -------------------------------------------------------------------------
   describe("text container layout (flexDirection column)", () => {
-    test("flushed paragraphs are plain strings with left padding", () => {
+    test("long text stays in live area (no flush to Static during streaming)", () => {
       const { render } = createCapturingInk();
       const a = acc();
-      const r1 = reduceEvent(a, { type: "text_start" }, identity, render);
+      reduceEvent(a, { type: "text_start" }, identity, render);
 
-      // Accumulate enough text to trigger a flush (>4000 chars)
+      // Even very long text should NOT be flushed during streaming
       const longText = "A".repeat(5000) + "\n\n" + "B".repeat(100);
       const r2 = reduceEvent(
         a,
@@ -524,13 +525,16 @@ describe("activity-reducer", () => {
         render,
       );
 
-      // Flushed output should be a plain string (not an Ink node), padded with 2 spaces
-      const allOutputs = [...r1.outputs, ...r2.outputs];
-      const flushedEntry = allOutputs.find(
-        (e) => e.type === "log" && typeof e.message === "string" && e.message.startsWith("  "),
-      );
-      expect(flushedEntry).toBeDefined();
-      expect(typeof flushedEntry!.message).toBe("string");
+      // No streamContent outputs — all text stays in activity.text
+      const flushedEntry = r2.outputs.find((e) => e.type === "streamContent");
+      expect(flushedEntry).toBeUndefined();
+
+      // Text should be in the activity state instead
+      expect(r2.activity).not.toBeNull();
+      expect(r2.activity!.phase).toBe("streaming");
+      if (r2.activity!.phase === "streaming") {
+        expect(r2.activity!.text).toContain("AAAAA");
+      }
     });
 
     test("reasoning text container uses flexDirection column on inner Box", () => {
@@ -586,7 +590,7 @@ describe("activity-reducer", () => {
       expect(textEl).not.toBeNull();
     });
 
-    test("streaming activity text is displayed with correct formatting", () => {
+    test("short streaming text stays in activity.text for live area display", () => {
       const a = acc();
       reduceEvent(a, { type: "text_start" }, identity, stubInk);
       const result = reduceEvent(
@@ -596,10 +600,118 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      // Verify the activity has the formatted text
+      // Short text stays in the live area (activity.text), not flushed to Static
       expect(result.activity!.phase).toBe("streaming");
       if (result.activity!.phase === "streaming") {
-        expect(result.activity!.text).toBe("Hello world");
+        expect(result.activity!.text).toContain("Hello world");
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // CRITICAL REGRESSION TESTS: streaming text never leaks to Static
+  // -------------------------------------------------------------------------
+  // These tests guard the core invariant: during streaming, ALL text stays in
+  // activity.text (the live area). If text_chunk ever produces output entries
+  // (streamContent, log, etc.) each token becomes a separate <Box> element
+  // in Ink's Static region, causing one-word-per-line rendering.
+  // -------------------------------------------------------------------------
+
+  describe("streaming text never produces output entries", () => {
+    test("text_chunk produces zero output entries (short text)", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      const result = reduceEvent(
+        a,
+        { type: "text_chunk", delta: "Hello", accumulated: "Hello", sequence: 0 },
+        identity,
+        stubInk,
+      );
+
+      expect(result.outputs).toHaveLength(0);
+    });
+
+    test("text_chunk produces zero output entries (long text)", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      const longText = "word ".repeat(1000).trim();
+      const result = reduceEvent(
+        a,
+        { type: "text_chunk", delta: longText, accumulated: longText, sequence: 0 },
+        identity,
+        stubInk,
+      );
+
+      expect(result.outputs).toHaveLength(0);
+    });
+
+    test("many sequential text_chunks all produce zero output entries", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+
+      // Simulate 50 tokens arriving one at a time (real streaming)
+      let accumulated = "";
+      for (let i = 0; i < 50; i++) {
+        const token = `token${i} `;
+        accumulated += token;
+        const result = reduceEvent(
+          a,
+          { type: "text_chunk", delta: token, accumulated, sequence: i },
+          identity,
+          stubInk,
+        );
+
+        // EVERY text_chunk must produce zero outputs
+        expect(result.outputs).toHaveLength(0);
+        // And must always return a streaming activity with text
+        expect(result.activity).not.toBeNull();
+        expect(result.activity!.phase).toBe("streaming");
+      }
+
+      // Final accumulated text should be in liveText
+      expect(a.liveText).toBe(accumulated);
+    });
+
+    test("text_chunk never produces streamContent output entries regardless of text size", () => {
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+
+      // Try various sizes that might previously have triggered flush thresholds
+      const sizes = [100, 500, 2000, 4000, 5000, 10000, 50000];
+      for (const size of sizes) {
+        const text = "x".repeat(size);
+        const result = reduceEvent(
+          a,
+          { type: "text_chunk", delta: text, accumulated: text, sequence: size },
+          identity,
+          stubInk,
+        );
+
+        const streamContentEntries = result.outputs.filter((e) => e.type === "streamContent");
+        expect(streamContentEntries).toHaveLength(0);
+      }
+    });
+  });
+
+  describe("reducer returns raw (unformatted) text", () => {
+    test("activity.text contains raw text, not formatted text", () => {
+      // Use a formatter that wraps text in markers so we can detect if it was applied
+      const markerFormatter = (s: string) => `<<FORMATTED>>${s}<<END>>`;
+      const a = acc();
+      reduceEvent(a, { type: "text_start" }, markerFormatter, stubInk);
+
+      const result = reduceEvent(
+        a,
+        { type: "text_chunk", delta: "hello world", accumulated: "hello world", sequence: 0 },
+        markerFormatter,
+        stubInk,
+      );
+
+      expect(result.activity!.phase).toBe("streaming");
+      if (result.activity!.phase === "streaming") {
+        // The text should be RAW — no formatting markers
+        expect(result.activity!.text).toBe("hello world");
+        expect(result.activity!.text).not.toContain("<<FORMATTED>>");
       }
     });
   });

@@ -42,6 +42,7 @@ interface CliOptions {
   verbose?: boolean;
   debug?: boolean;
   config?: string;
+  output?: string;
 }
 
 /**
@@ -287,7 +288,6 @@ function registerWorkflowCommands(program: Command): void {
     .description("Run a workflow once")
     .option("--auto-approve", "Auto-approve tool executions based on workflow policy")
     .option("--agent <agentId>", "Agent ID or name to use for this workflow run")
-    .option("--headless", "Disable Ink TUI, output plain text to stdout (for CI/cron)")
     .option(
       "--scheduled",
       "Indicates this run was triggered by the system scheduler (launchd/cron)",
@@ -295,7 +295,7 @@ function registerWorkflowCommands(program: Command): void {
     .action(
       (
         name: string,
-        options: { autoApprove?: boolean; agent?: string; headless?: boolean; scheduled?: boolean },
+        options: { autoApprove?: boolean; agent?: string; scheduled?: boolean },
         command: Command,
       ) => {
         const opts = program.opts<CliOptions>();
@@ -307,7 +307,6 @@ function registerWorkflowCommands(program: Command): void {
             verbose: opts.verbose,
             debug: opts.debug,
             configPath: opts.config,
-            headless: options.headless === true,
           },
           { skipCatchUp: isWorkflowRunCommand },
         );
@@ -400,9 +399,20 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     // Global options
     program
       .option("-v, --verbose", "Enable verbose logging")
-      .option("-q, --quiet", "Suppress output")
       .option("--debug", "Enable debug level logging")
-      .option("--config <path>", "Path to configuration file");
+      .option("--config <path>", "Path to configuration file")
+      .option(
+        "--output <mode>",
+        "Output mode: rendered, hybrid (default), raw (no formatting), or quiet (suppress output)",
+      );
+
+    // Apply global options before any command runs
+    program.hook("preAction", (thisCommand) => {
+      const opts = thisCommand.optsWithGlobals() as CliOptions;
+      if (opts.output) {
+        process.env["JAZZ_OUTPUT_MODE"] = opts.output;
+      }
+    });
 
     // Register all commands
     registerAgentCommands(program);

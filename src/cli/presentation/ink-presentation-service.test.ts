@@ -98,12 +98,15 @@ describe("InkStreamingRenderer", () => {
       // Wait for pending throttled update to flush
       await new Promise((r) => setTimeout(r, 0));
 
-      const withText = setActivityCalls.filter(
-        (s): s is Extract<ActivityState, { phase: "streaming" }> =>
-          s.phase === "streaming" && s.text.length > 0,
+      // Short text stays in the live area (activity.text), not flushed to Static.
+      // The final activity should contain the correctly assembled "Hello".
+      const streaming = setActivityCalls.filter(
+        (s): s is Extract<(typeof setActivityCalls)[number], { phase: "streaming" }> =>
+          s.phase === "streaming",
       );
-      expect(withText.length).toBeGreaterThan(0);
-      expect(withText[withText.length - 1]!.text).toBe("Hello");
+      expect(streaming.length).toBeGreaterThan(0);
+      const lastText = streaming[streaming.length - 1]!.text;
+      expect(lastText).toContain("Hello");
     });
 
     test("never overwrites with older sequence when chunks arrive out of order", async () => {
@@ -131,12 +134,14 @@ describe("InkStreamingRenderer", () => {
 
       await new Promise((r) => setTimeout(r, 0));
 
-      const withText = setActivityCalls.filter(
-        (s): s is Extract<ActivityState, { phase: "streaming" }> =>
-          s.phase === "streaming" && s.text.length > 0,
+      // Live area text should contain "Hel" (the newer sequence),
+      // and should NOT have been reverted to "H".
+      const streaming = setActivityCalls.filter(
+        (s): s is Extract<(typeof setActivityCalls)[number], { phase: "streaming" }> =>
+          s.phase === "streaming",
       );
-      expect(withText.length).toBeGreaterThan(0);
-      expect(withText[withText.length - 1]!.text).toBe("Hel");
+      expect(streaming.length).toBeGreaterThan(0);
+      expect(streaming[streaming.length - 1]!.text).toContain("Hel");
     });
   });
 
@@ -260,10 +265,10 @@ describe("InkStreamingRenderer", () => {
       store.setActivity = origActivity;
       store.printOutput = origPrint;
 
-      // print:log (the response text) should come BEFORE activity:idle
+      // print:streamContent (the response text) should come BEFORE activity:idle
       // to prevent a blank flash where streamed content vanishes for one frame
       const idleIdx = callOrder.indexOf("activity:idle");
-      const printIdx = callOrder.indexOf("print:log");
+      const printIdx = callOrder.indexOf("print:streamContent");
       expect(idleIdx).toBeGreaterThanOrEqual(0);
       expect(printIdx).toBeGreaterThanOrEqual(0);
       expect(printIdx).toBeLessThan(idleIdx);
@@ -294,7 +299,7 @@ describe("InkStreamingRenderer", () => {
       );
 
       // The response should be printed as a pre-padded plain string (not AgentResponseCard/Ink node)
-      const responseLogs = printOutputCalls.filter((e) => e.type === "log");
+      const responseLogs = printOutputCalls.filter((e) => e.type === "streamContent");
       expect(responseLogs.length).toBeGreaterThan(0);
       const msg = responseLogs[0]!.message;
       expect(typeof msg).toBe("string");
@@ -336,14 +341,15 @@ describe("InkStreamingRenderer", () => {
       // Wait for throttle to flush
       await new Promise((r) => setTimeout(r, 0));
 
+      // Short text stays in the live area (activity.text).
+      // The latest activity should contain all accumulated text.
       const streaming = setActivityCalls.filter(
-        (s): s is Extract<ActivityState, { phase: "streaming" }> =>
-          s.phase === "streaming" && s.text.length > 0,
+        (s): s is Extract<(typeof setActivityCalls)[number], { phase: "streaming" }> =>
+          s.phase === "streaming",
       );
       expect(streaming.length).toBeGreaterThan(0);
-      // The final flushed state must reflect the latest chunk, not an intermediate one
-      const last = streaming[streaming.length - 1]!;
-      expect(last.text).toBe("ABC");
+      const lastText = streaming[streaming.length - 1]!.text;
+      expect(lastText).toContain("ABC");
     });
   });
 
@@ -414,7 +420,7 @@ describe("InkStreamingRenderer", () => {
   });
 
   describe("flush", () => {
-    test("flushes live text to log and clears activity", () => {
+    test("flush() promotes unflushed text to Static and clears activity", () => {
       const renderer = createRenderer();
       emitStreamStart(renderer);
 
@@ -428,32 +434,37 @@ describe("InkStreamingRenderer", () => {
         }),
       );
 
-      printOutputCalls.length = 0;
-      Effect.runSync(renderer.flush());
-
-      // Should have flushed the formatted + padded text to a log entry
-      const textLogs = printOutputCalls.filter(
-        (e) => e.type === "log" && typeof e.message === "string" && e.message.includes("partial"),
+      // Short text stays in live area during streaming (no streamContent yet)
+      const beforeFlush = printOutputCalls.filter(
+        (e) =>
+          e.type === "streamContent" &&
+          typeof e.message === "string" &&
+          e.message.includes("partial"),
       );
-      expect(textLogs.length).toBeGreaterThan(0);
-      // Verify the output is a padded plain string (2 leading spaces from padLines)
-      const flushed = textLogs[0]!.message as string;
-      expect(flushed.startsWith("  ")).toBe(true);
+      expect(beforeFlush.length).toBe(0);
 
-      // Should have set activity to idle
+      // flush() promotes the text to Static and sets activity to idle
+      Effect.runSync(renderer.flush());
+      const afterFlush = printOutputCalls.filter(
+        (e) =>
+          e.type === "streamContent" &&
+          typeof e.message === "string" &&
+          e.message.includes("partial"),
+      );
+      expect(afterFlush.length).toBeGreaterThan(0);
+
       const last = setActivityCalls[setActivityCalls.length - 1];
       expect(last!.phase).toBe("idle");
     });
   });
 
-  describe("pre-wrapping behavior", () => {
-    test("streaming text is pre-wrapped to terminal width during text_chunk", async () => {
+  describe("Static flush behavior", () => {
+    test("short text stays in live area during streaming", async () => {
       const renderer = createRenderer();
       emitStreamStart(renderer);
       Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
-      // Create a long line that would exceed typical terminal width
-      const longLine = "word ".repeat(40).trim(); // ~199 chars
+      const longLine = "word ".repeat(40).trim();
       Effect.runSync(
         renderer.handleEvent({
           type: "text_chunk",
@@ -465,18 +476,15 @@ describe("InkStreamingRenderer", () => {
 
       await new Promise((r) => setTimeout(r, 0));
 
+      // Short text stays in the live area (activity.text)
       const streaming = setActivityCalls.filter(
-        (s): s is Extract<ActivityState, { phase: "streaming" }> =>
-          s.phase === "streaming" && s.text.length > 0,
+        (s): s is Extract<ActivityState, { phase: "streaming" }> => s.phase === "streaming",
       );
       expect(streaming.length).toBeGreaterThan(0);
-
-      const lastText = streaming[streaming.length - 1]!.text;
-      // The text should contain newlines from pre-wrapping (the original had none)
-      expect(lastText).toContain("\n");
+      expect(streaming[streaming.length - 1]!.text).toContain("word");
     });
 
-    test("short text is not modified by pre-wrapping", async () => {
+    test("short text appears in activity.text for live area display", async () => {
       const renderer = createRenderer();
       emitStreamStart(renderer);
       Effect.runSync(renderer.handleEvent({ type: "text_start" }));
@@ -493,18 +501,15 @@ describe("InkStreamingRenderer", () => {
 
       await new Promise((r) => setTimeout(r, 0));
 
+      // Short text stays in live area, not flushed to Static
       const streaming = setActivityCalls.filter(
-        (s): s is Extract<ActivityState, { phase: "streaming" }> =>
-          s.phase === "streaming" && s.text.length > 0,
+        (s): s is Extract<ActivityState, { phase: "streaming" }> => s.phase === "streaming",
       );
       expect(streaming.length).toBeGreaterThan(0);
-
-      const lastText = streaming[streaming.length - 1]!.text;
-      // Short text should not have been modified by wrapping
-      expect(lastText).not.toContain("\n");
+      expect(streaming[streaming.length - 1]!.text).toContain("Hello");
     });
 
-    test("final response text on complete is pre-wrapped", () => {
+    test("final response on complete transitions to idle", () => {
       const renderer = createRenderer();
       emitStreamStart(renderer);
       Effect.runSync(renderer.handleEvent({ type: "text_start" }));
@@ -529,9 +534,174 @@ describe("InkStreamingRenderer", () => {
         }),
       );
 
-      // The response should have been printed — verify it was pre-wrapped
-      const logEntries = printOutputCalls.filter((e) => e.type === "log" && e.message !== "");
-      expect(logEntries.length).toBeGreaterThan(0);
+      // Complete should transition to idle
+      const last = setActivityCalls[setActivityCalls.length - 1];
+      expect(last!.phase).toBe("idle");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // CRITICAL REGRESSION TESTS: no streamContent during streaming
+  // -------------------------------------------------------------------------
+  // These tests guard the invariant at the renderer level: during streaming,
+  // text_chunk events must NEVER trigger printOutput with streamContent entries.
+  // If they do, each token becomes a separate <Box> in Ink's Static region,
+  // causing one-word-per-line rendering.
+  // -------------------------------------------------------------------------
+
+  describe("no streamContent output during streaming (regression)", () => {
+    test("text_chunk events never trigger printOutput with streamContent", async () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      // Clear any outputs from text_start
+      printOutputCalls.length = 0;
+
+      // Simulate 20 tokens arriving rapidly
+      let accumulated = "";
+      for (let i = 0; i < 20; i++) {
+        const token = `word${i} `;
+        accumulated += token;
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: token,
+            accumulated,
+            sequence: i,
+          }),
+        );
+      }
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      // ZERO streamContent entries during streaming
+      const streamContentDuringStreaming = printOutputCalls.filter(
+        (e) => e.type === "streamContent",
+      );
+      expect(streamContentDuringStreaming).toHaveLength(0);
+
+      // But text SHOULD be in the activity (live area)
+      const streaming = setActivityCalls.filter(
+        (s): s is Extract<ActivityState, { phase: "streaming" }> => s.phase === "streaming",
+      );
+      expect(streaming.length).toBeGreaterThan(0);
+      expect(streaming[streaming.length - 1]!.text).toContain("word19");
+    });
+
+    test("long text never triggers streamContent during streaming", async () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      printOutputCalls.length = 0;
+
+      // Send a very large text chunk (would previously trigger flush)
+      const bigText = "paragraph ".repeat(500).trim();
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: bigText,
+          accumulated: bigText,
+          sequence: 0,
+        }),
+      );
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      const streamContentEntries = printOutputCalls.filter((e) => e.type === "streamContent");
+      expect(streamContentEntries).toHaveLength(0);
+    });
+
+    test("on complete, exactly one streamContent entry is printed for the full response", () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      // Stream multiple chunks
+      let accumulated = "";
+      for (let i = 0; i < 10; i++) {
+        const token = `sentence${i}. `;
+        accumulated += token;
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: token,
+            accumulated,
+            sequence: i,
+          }),
+        );
+      }
+
+      // Clear all outputs from streaming phase
+      printOutputCalls.length = 0;
+
+      // Complete the stream
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "complete",
+          response: {
+            content: accumulated,
+            role: "assistant",
+            usage: undefined,
+            toolCalls: [],
+          },
+          totalDurationMs: 100,
+        }),
+      );
+
+      // Exactly ONE streamContent entry for the full response
+      const streamContentEntries = printOutputCalls.filter((e) => e.type === "streamContent");
+      expect(streamContentEntries).toHaveLength(1);
+
+      // And it should contain the full text
+      const msg = streamContentEntries[0]!.message;
+      expect(typeof msg).toBe("string");
+      expect(msg as string).toContain("sentence0");
+      expect(msg as string).toContain("sentence9");
+    });
+
+    test("only setActivity is called during streaming, never printOutput for text", async () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      // Record call order after text_start
+      const callOrder: ("setActivity" | "printOutput:streamContent")[] = [];
+      const origActivity = store.setActivity;
+      const origPrint = store.printOutput;
+      store.setActivity = (next: ActivityState) => {
+        if (next.phase === "streaming") callOrder.push("setActivity");
+        origActivity(next);
+      };
+      store.printOutput = (entry: OutputEntry) => {
+        if (entry.type === "streamContent") callOrder.push("printOutput:streamContent");
+        return origPrint(entry);
+      };
+
+      // Stream 15 tokens
+      let accumulated = "";
+      for (let i = 0; i < 15; i++) {
+        const token = `t${i} `;
+        accumulated += token;
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: token,
+            accumulated,
+            sequence: i,
+          }),
+        );
+      }
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      store.setActivity = origActivity;
+      store.printOutput = origPrint;
+
+      // During streaming: setActivity should be called, printOutput:streamContent should NOT
+      expect(callOrder.filter((c) => c === "setActivity").length).toBeGreaterThan(0);
+      expect(callOrder.filter((c) => c === "printOutput:streamContent").length).toBe(0);
     });
   });
 });

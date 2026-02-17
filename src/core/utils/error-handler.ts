@@ -1,5 +1,6 @@
 import { Effect } from "effect";
-import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import type { PresentationService } from "@/core/interfaces/presentation";
+import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { JazzError } from "@/core/types/errors";
 
 /**
@@ -473,16 +474,18 @@ export function formatError(error: JazzError): string {
  * @returns An Effect that logs the formatted error to the console
  *
  */
-export function handleError(error: JazzError | Error): Effect.Effect<void, never, TerminalService> {
+export function handleError(
+  error: JazzError | Error,
+): Effect.Effect<void, never, PresentationService> {
   return Effect.gen(function* () {
-    const terminal = yield* TerminalServiceTag;
+    const presentation = yield* PresentationServiceTag;
 
     // Handle ExitPromptError from inquirer (Ctrl+C during prompts)
     if (
       error instanceof Error &&
       (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
     ) {
-      yield* terminal.log("\n👋 Goodbye!");
+      yield* presentation.writeOutput("\n👋 Goodbye!\n");
       return;
     }
 
@@ -499,8 +502,8 @@ export function handleError(error: JazzError | Error): Effect.Effect<void, never
       const cause = unknownException.error;
       const message =
         cause instanceof Error ? cause.message : typeof cause === "string" ? cause : String(cause);
-      yield* terminal.log(
-        `❌ Error\n   ${message}\n\n💡 Suggestion: Check the error details and try again.\n\n📚 Related Commands:\n   • jazz logs\n   • jazz --help`,
+      yield* presentation.writeOutput(
+        `❌ Error\n   ${message}\n\n💡 Suggestion: Check the error details and try again.\n\n📚 Related Commands:\n   • jazz logs\n   • jazz --help\n`,
       );
       return;
     }
@@ -508,12 +511,12 @@ export function handleError(error: JazzError | Error): Effect.Effect<void, never
     // Check if it's a JazzError (has _tag property)
     if ("_tag" in error && typeof error._tag === "string") {
       const formattedError = formatError(error);
-      yield* terminal.log(formattedError);
+      yield* presentation.writeOutput(formattedError);
     } else {
       // Handle generic Error objects
       const genericError = error;
-      yield* terminal.log(
-        `❌ Error\n   ${genericError.message}\n\n💡 Suggestion: Check the error details and try again\n\n📚 Related Commands:\n   • jazz --help\n   • jazz logs`,
+      yield* presentation.writeOutput(
+        `❌ Error\n   ${genericError.message}\n\n💡 Suggestion: Check the error details and try again\n\n📚 Related Commands:\n   • jazz --help\n   • jazz logs\n`,
       );
     }
   });

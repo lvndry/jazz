@@ -268,6 +268,7 @@ function configureOutputDisplay() {
               { name: "Hybrid (styled, copy-paste friendly)", value: "hybrid" },
               { name: "Raw (plain text)", value: "raw" },
               { name: "Rendered (styled)", value: "rendered" },
+              { name: "Quiet (suppress output, for cron/background)", value: "quiet" },
             ],
           });
           if (mode) {

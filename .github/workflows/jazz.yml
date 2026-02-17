@@ -46,7 +46,7 @@ jobs:
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set -euo pipefail
-          jazz workflow run code-review --auto-approve --headless --agent ci-reviewer --quiet \
+          jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer \
             | tee /tmp/jazz-review.txt
 
       - name: Post review comments
