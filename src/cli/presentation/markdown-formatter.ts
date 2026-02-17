@@ -163,6 +163,23 @@ export function getTerminalWidth(): number {
 }
 
 /**
+ * Bake left padding into a pre-wrapped string as literal spaces.
+ *
+ * This avoids passing long text through Ink's Yoga layout engine (which can
+ * intermittently compute incorrect narrow widths). Non-empty lines get the
+ * specified number of leading spaces; empty lines are left untouched so
+ * paragraph breaks render correctly.
+ */
+export function padLines(text: string, spaces: number): string {
+  if (!text || spaces <= 0) return text;
+  const pad = " ".repeat(spaces);
+  return text
+    .split("\n")
+    .map((line) => (line.length > 0 ? pad + line : line))
+    .join("\n");
+}
+
+/**
  * Format inline code (rendered mode) — replaces backticks with styled code.
  */
 export function formatInlineCode(text: string): string {

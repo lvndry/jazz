@@ -1,4 +1,4 @@
-import * as fs from "node:fs";
+import * as nodeFs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Effect } from "effect";
@@ -23,27 +23,56 @@ const TodoItemSchema = z.object({
 type TodoItem = z.infer<typeof TodoItemSchema>;
 
 // ---------------------------------------------------------------------------
-// Temp-file helpers
+// Temp-file helpers (Effect-based, async)
 // ---------------------------------------------------------------------------
 
 function getTodoFilePath(sessionId: string): string {
   return path.join(os.tmpdir(), `jazz-todos-${sessionId}.json`);
 }
 
-function readTodos(sessionId: string): TodoItem[] {
+function readTodos(sessionId: string): Effect.Effect<TodoItem[], Error> {
   const filePath = getTodoFilePath(sessionId);
-  try {
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const parsed = JSON.parse(raw) as TodoItem[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return Effect.tryPromise({
+    try: () => nodeFs.readFile(filePath, "utf-8"),
+    catch: () => new Error(`Failed to read todo file: ${filePath}`),
+  }).pipe(
+    Effect.flatMap((raw) =>
+      Effect.try({
+        try: () => {
+          const parsed: unknown = JSON.parse(raw);
+          return Array.isArray(parsed) ? (parsed as TodoItem[]) : [];
+        },
+        catch: () => new Error(`Corrupted todo file: ${filePath}`),
+      }),
+    ),
+    // File not found or unreadable → empty list (not an error)
+    Effect.catchAll(() => Effect.succeed([] as TodoItem[])),
+  );
 }
 
-function writeTodos(sessionId: string, todos: TodoItem[]): void {
+function writeTodos(sessionId: string, todos: TodoItem[]): Effect.Effect<void, Error> {
   const filePath = getTodoFilePath(sessionId);
-  fs.writeFileSync(filePath, JSON.stringify(todos, null, 2), "utf-8");
+  return Effect.tryPromise({
+    try: () => nodeFs.writeFile(filePath, JSON.stringify(todos, null, 2), "utf-8"),
+    catch: (error) =>
+      new Error(
+        `Failed to write todo file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stat helpers
+// ---------------------------------------------------------------------------
+
+function computeStats(todos: TodoItem[]) {
+  return {
+    totalItems: todos.length,
+    pending: todos.filter((t) => t.status === "pending").length,
+    inProgress: todos.filter((t) => t.status === "in_progress").length,
+    completed: todos.filter((t) => t.status === "completed").length,
+    cancelled: todos.filter((t) => t.status === "cancelled").length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -71,52 +100,44 @@ export function createManageTodosTool(): Tool<never> {
     hidden: false,
     createSummary: (result: ToolExecutionResult) => {
       if (!result.success) return undefined;
-      const data = result.result as {
-        totalItems: number;
-        pending: number;
-        inProgress: number;
-        completed: number;
-      };
+      const data = result.result as ReturnType<typeof computeStats>;
       return `Todos updated: ${data.completed}/${data.totalItems} done, ${data.inProgress} in progress, ${data.pending} pending`;
     },
-    execute: (args: Record<string, unknown>, context) => {
-      const parsed = z
-        .object({
-          todos: z.array(TodoItemSchema),
-        })
-        .safeParse(args);
+    execute: (args: Record<string, unknown>, context) =>
+      Effect.gen(function* () {
+        const parsed = z.object({ todos: z.array(TodoItemSchema) }).safeParse(args);
 
-      if (!parsed.success) {
-        const errors = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
-        return Effect.succeed({
-          success: false,
-          result: null,
-          error: errors.join("; "),
-        } satisfies ToolExecutionResult);
-      }
+        if (!parsed.success) {
+          const errors = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
+          return {
+            success: false,
+            result: null,
+            error: errors.join("; "),
+          } satisfies ToolExecutionResult;
+        }
 
-      const { todos } = parsed.data;
-      const sessionId = context?.sessionId ?? "default";
+        const { todos } = parsed.data;
+        const sessionId = context?.sessionId ?? "default";
 
-      writeTodos(sessionId, todos);
+        yield* writeTodos(sessionId, todos);
 
-      const pending = todos.filter((t) => t.status === "pending").length;
-      const inProgress = todos.filter((t) => t.status === "in_progress").length;
-      const completed = todos.filter((t) => t.status === "completed").length;
-      const cancelled = todos.filter((t) => t.status === "cancelled").length;
-
-      return Effect.succeed({
-        success: true,
-        result: {
-          totalItems: todos.length,
-          pending,
-          inProgress,
-          completed,
-          cancelled,
-          message: `Todo list saved (${todos.length} items: ${completed} done, ${inProgress} in progress, ${pending} pending, ${cancelled} cancelled)`,
-        },
-      } satisfies ToolExecutionResult);
-    },
+        const stats = computeStats(todos);
+        return {
+          success: true,
+          result: {
+            ...stats,
+            message: `Todo list saved (${stats.totalItems} items: ${stats.completed} done, ${stats.inProgress} in progress, ${stats.pending} pending, ${stats.cancelled} cancelled)`,
+          },
+        } satisfies ToolExecutionResult;
+      }).pipe(
+        Effect.catchAll((error) =>
+          Effect.succeed({
+            success: false,
+            result: null,
+            error: error instanceof Error ? error.message : String(error),
+          } satisfies ToolExecutionResult),
+        ),
+      ),
   };
 }
 
@@ -135,37 +156,37 @@ export function createListTodosTool(): Tool<never> {
       const data = result.result as { totalItems: number };
       return data.totalItems === 0 ? "No todos" : `${data.totalItems} todo(s)`;
     },
-    execute: (_args: Record<string, unknown>, context) => {
-      const sessionId = context?.sessionId ?? "default";
-      const todos = readTodos(sessionId);
+    execute: (_args: Record<string, unknown>, context) =>
+      Effect.gen(function* () {
+        const sessionId = context?.sessionId ?? "default";
+        const todos = yield* readTodos(sessionId);
 
-      if (todos.length === 0) {
-        return Effect.succeed({
+        if (todos.length === 0) {
+          return {
+            success: true,
+            result: {
+              totalItems: 0,
+              todos: [],
+              message: "No todos found. Use manage_todos to create a todo list.",
+            },
+          } satisfies ToolExecutionResult;
+        }
+
+        return {
           success: true,
           result: {
-            totalItems: 0,
-            todos: [],
-            message: "No todos found. Use manage_todos to create a todo list.",
+            ...computeStats(todos),
+            todos,
           },
-        } satisfies ToolExecutionResult);
-      }
-
-      const pending = todos.filter((t) => t.status === "pending").length;
-      const inProgress = todos.filter((t) => t.status === "in_progress").length;
-      const completed = todos.filter((t) => t.status === "completed").length;
-      const cancelled = todos.filter((t) => t.status === "cancelled").length;
-
-      return Effect.succeed({
-        success: true,
-        result: {
-          totalItems: todos.length,
-          pending,
-          inProgress,
-          completed,
-          cancelled,
-          todos,
-        },
-      } satisfies ToolExecutionResult);
-    },
+        } satisfies ToolExecutionResult;
+      }).pipe(
+        Effect.catchAll((error) =>
+          Effect.succeed({
+            success: false,
+            result: null,
+            error: error instanceof Error ? error.message : String(error),
+          } satisfies ToolExecutionResult),
+        ),
+      ),
   };
 }

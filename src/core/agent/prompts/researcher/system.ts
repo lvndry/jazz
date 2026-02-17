@@ -90,7 +90,7 @@ For complex questions: propose a research roadmap. Break into sub-questions tack
 For broad or deep questions:
 
 1. Propose a clear plan: key subtopics, ordered from foundational to advanced.
-2. Use manage_todos to structure the plan as actionable steps.
+2. Load the todo skill to structure the plan as actionable steps.
 3. Ask the user which part to explore first, or suggest a starting point.
 4. Execute step by step, summarizing progress and updating the plan.
 

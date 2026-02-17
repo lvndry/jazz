@@ -510,30 +510,27 @@ describe("activity-reducer", () => {
 
   // -------------------------------------------------------------------------
   describe("text container layout (flexDirection column)", () => {
-    test("flushed paragraphs use flexDirection column on wrapping Box", () => {
-      const { nodes, render } = createCapturingInk();
+    test("flushed paragraphs are plain strings with left padding", () => {
+      const { render } = createCapturingInk();
       const a = acc();
-      reduceEvent(a, { type: "text_start" }, identity, render);
+      const r1 = reduceEvent(a, { type: "text_start" }, identity, render);
 
       // Accumulate enough text to trigger a flush (>4000 chars)
       const longText = "A".repeat(5000) + "\n\n" + "B".repeat(100);
-      reduceEvent(
+      const r2 = reduceEvent(
         a,
         { type: "text_chunk", delta: longText, accumulated: longText, sequence: 0 },
         identity,
         render,
       );
 
-      // Find the flushed output node — should have paddingLeft and flexDirection column
-      const flushNode = nodes.find((el) => {
-        const props = el.props as Record<string, unknown>;
-        return props["paddingLeft"] === 2 && props["flexDirection"] === "column";
-      });
-      expect(flushNode).toBeDefined();
-
-      // Ensure we rendered a Text child
-      const textEl = findElement(flushNode!, (p) => typeof p["children"] === "string");
-      expect(textEl).not.toBeNull();
+      // Flushed output should be a plain string (not an Ink node), padded with 2 spaces
+      const allOutputs = [...r1.outputs, ...r2.outputs];
+      const flushedEntry = allOutputs.find(
+        (e) => e.type === "log" && typeof e.message === "string" && e.message.startsWith("  "),
+      );
+      expect(flushedEntry).toBeDefined();
+      expect(typeof flushedEntry!.message).toBe("string");
     });
 
     test("reasoning text container uses flexDirection column on inner Box", () => {

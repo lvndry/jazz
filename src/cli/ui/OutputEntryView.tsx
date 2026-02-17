@@ -58,6 +58,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
           <Text
             color={THEME.primary}
             bold
+            wrap="truncate"
           >
             {entry.message}
           </Text>
@@ -75,11 +76,12 @@ export const OutputEntryView = React.memo(function OutputEntryView({
         {entry.type === "log" ? (
           // Important: don't force a color for plain logs so ANSI styling (chalk/marked)
           // can render correctly and not get overwritten by Ink's `color` prop.
-          <Text>{entry.message}</Text>
+          <Text wrap="truncate">{entry.message}</Text>
         ) : (
           <Text
             dimColor={entry.type === "debug"}
             color={color}
+            wrap="truncate"
           >
             {entry.message}
           </Text>

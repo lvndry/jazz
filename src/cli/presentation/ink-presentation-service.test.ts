@@ -293,14 +293,11 @@ describe("InkStreamingRenderer", () => {
         }),
       );
 
-      // The response should be printed as a padded Ink element (not AgentResponseCard)
+      // The response should be printed as a pre-padded plain string (not AgentResponseCard/Ink node)
       const responseLogs = printOutputCalls.filter((e) => e.type === "log");
       expect(responseLogs.length).toBeGreaterThan(0);
-      // Verify it's an Ink node (TerminalInkNode with _tag "ink"), not a raw AgentResponseCard
       const msg = responseLogs[0]!.message;
-      if (typeof msg === "object" && msg !== null && "_tag" in msg) {
-        expect(msg._tag).toBe("ink");
-      }
+      expect(typeof msg).toBe("string");
     });
   });
 
@@ -434,11 +431,14 @@ describe("InkStreamingRenderer", () => {
       printOutputCalls.length = 0;
       Effect.runSync(renderer.flush());
 
-      // Should have flushed the text to a log entry
+      // Should have flushed the formatted + padded text to a log entry
       const textLogs = printOutputCalls.filter(
         (e) => e.type === "log" && typeof e.message === "string" && e.message.includes("partial"),
       );
       expect(textLogs.length).toBeGreaterThan(0);
+      // Verify the output is a padded plain string (2 leading spaces from padLines)
+      const flushed = textLogs[0]!.message as string;
+      expect(flushed.startsWith("  ")).toBe(true);
 
       // Should have set activity to idle
       const last = setActivityCalls[setActivityCalls.length - 1];

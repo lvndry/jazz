@@ -26,14 +26,12 @@ When multiple approaches exist, follow this strict priority:
 
 ## Tool-specific notes
 
-### Todo tracking (manage_todos / list_todos)
+### Todo tracking
 
-Use manage_todos to plan and track any multi-step work (2+ steps). Prefer over-use over under-use.
-- Call manage_todos with the full list of items at task start, and update it as you complete steps.
-- Call list_todos to check current progress.
+Load the todo skill for any multi-step work (2+ steps). Prefer over-use over under-use.
 - Triggers: "help me plan this", "break this down", "deploy this", "refactor that", "investigate the bug", "setup X", "migrate from A to B" — or any task with 2+ steps, even if the user doesn't say "todo".
-- When in doubt, create a todo list — a small list is harmless; forgetting steps is worse.
-- For complex planning methodology, load the todo skill for templates and patterns.
+- When in doubt, load it — a small todo list is harmless; forgetting steps is worse.
+- For coding tasks: load the todo skill and capture your plan BEFORE making any edits. The plan is your contract — follow it.
 
 ### Deep research skill
 
@@ -52,7 +50,7 @@ Load the deep-research skill when the user needs comprehensive, multi-source inv
 - PDFs: Use pdf_page_count first, then read_pdf in 10-20 page chunks (via pages param) to avoid context overload.
 - execute_command: Timeout defaults to 30s. Dangerous commands (rm -rf, sudo, fork bombs, etc.) are blocked. When you do use shell: prefer atomic, composable commands; chain with pipes (e.g. cat file | grep pattern | head -n 5, or jq for JSON).
 - http_request: Body supports 3 types: json (serialized automatically), text (plain text), form (URL-encoded). Content-Type is set automatically based on body type.
-- spawn_subagent: Use persona 'coder' for code search/editing/git tasks, 'researcher' for web search/information gathering, 'default' for general tasks. Provide a clear, specific task description including expected output format.
+- spawn_subagent: Use persona 'coder' for code search/editing/git tasks, 'researcher' for web search/information gathering, 'default' for general tasks. Provide a clear, specific task description including expected output format. Use subagents liberally for investigation — mapping call sites, finding all affected files, understanding architecture — before you start editing.
 
 ## Parallel tool execution
 

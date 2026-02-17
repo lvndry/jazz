@@ -160,6 +160,101 @@ export const Summarizer = {
    * @param runRecursive - Injected runner function to execute the summarizer sub-agent
    * @param modelContextWindow - Optional model-specific context window size (defaults to 50K)
    */
+  /**
+   * Split conversation messages into parts for summarization.
+   *
+   * Separates messages into: system message, messages to summarize (older), and
+   * recent messages to keep verbatim. Also sanitizes orphaned tool call/result
+   * references from the recent portion to prevent API errors.
+   *
+   * @param maxTokens - Context window size used to calculate the recent message budget (20%)
+   */
+  splitMessages(
+    currentMessages: ConversationMessages,
+    maxTokens: number,
+  ): {
+    systemMessage: ChatMessage;
+    messagesToSummarize: ChatMessage[];
+    sanitizedRecentMessages: ChatMessage[];
+  } {
+    // Keep system message [0] and recent messages that fit in token budget
+    const systemMessage = currentMessages[0];
+
+    // Reserve 20% of max tokens for recent context
+    // This ensures we keep recent context while preventing it from eating the entire window
+    const recentTokenBudget = Math.floor(maxTokens * 0.2);
+    let accumulatedTokens = 0;
+    let recentCount = 0;
+
+    // Scan backwards to fill budget
+    for (let i = currentMessages.length - 1; i > 0; i--) {
+      const msg = currentMessages[i];
+      if (!msg) continue;
+      // Calculate tokens for this single message
+      const tokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens([msg]);
+
+      // Stop if adding this message exceeds budget, unless it's the very first one we're checking
+      // (we always want to keep at least 1 recent message even if it's large, though extremely large messages are risky)
+      if (accumulatedTokens + tokens > recentTokenBudget && recentCount > 0) {
+        break;
+      }
+
+      accumulatedTokens += tokens;
+      recentCount++;
+    }
+
+    // Always keep at least the last message
+    recentCount = Math.max(1, recentCount);
+    // But don't exceed total messages available to separate
+    recentCount = Math.min(recentCount, currentMessages.length - 1);
+
+    const recentMessages = currentMessages.slice(-recentCount);
+    const messagesToSummarize = currentMessages.slice(1, -recentCount);
+
+    // Sanitize recent messages to avoid orphaned tool call/result references.
+    // The split may land in the middle of a tool call group, leaving:
+    // 1. Tool result messages whose parent assistant tool_call was summarized away
+    // 2. Assistant tool_calls whose corresponding tool results were summarized away
+    // Either case causes API errors (e.g. OpenAI "No tool call found for function call output").
+    const recentToolCallIds = new Set<string>();
+    const recentToolResultIds = new Set<string>();
+    for (const msg of recentMessages) {
+      if (msg.role === "assistant" && msg.tool_calls) {
+        for (const tc of msg.tool_calls) {
+          recentToolCallIds.add(tc.id);
+        }
+      }
+      if (msg.role === "tool" && msg.tool_call_id) {
+        recentToolResultIds.add(msg.tool_call_id);
+      }
+    }
+
+    const sanitizedRecentMessages = recentMessages.reduce<ChatMessage[]>((acc, msg) => {
+      // Drop tool results whose parent assistant tool_call was summarized
+      if (msg.role === "tool" && msg.tool_call_id && !recentToolCallIds.has(msg.tool_call_id)) {
+        return acc;
+      }
+      // Strip tool_calls whose results were summarized
+      if (msg.role === "assistant" && msg.tool_calls) {
+        const keptToolCalls = msg.tool_calls.filter((tc) => recentToolResultIds.has(tc.id));
+        if (keptToolCalls.length < msg.tool_calls.length) {
+          const { tool_calls: _, ...rest } = msg;
+          if (keptToolCalls.length > 0) {
+            acc.push({ ...rest, tool_calls: keptToolCalls });
+          } else if (rest.content) {
+            // Only keep the assistant message if it has text content
+            acc.push(rest);
+          }
+          return acc;
+        }
+      }
+      acc.push(msg);
+      return acc;
+    }, []);
+
+    return { systemMessage, messagesToSummarize, sanitizedRecentMessages };
+  },
+
   compactIfNeeded(
     currentMessages: ConversationMessages,
     agent: Agent,
@@ -210,80 +305,8 @@ export const Summarizer = {
         maxTokens,
       });
 
-      // Keep system message [0] and recent messages that fit in token budget
-      const systemMessage = currentMessages[0];
-
-      // Reserve 20% of max tokens for recent context
-      // This ensures we keep recent context while preventing it from eating the entire window
-      const recentTokenBudget = Math.floor(maxTokens * 0.2);
-      let accumulatedTokens = 0;
-      let recentCount = 0;
-
-      // Scan backwards to fill budget
-      for (let i = currentMessages.length - 1; i > 0; i--) {
-        const msg = currentMessages[i];
-        if (!msg) continue;
-        // Calculate tokens for this single message
-        const tokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens([msg]);
-
-        // Stop if adding this message exceeds budget, unless it's the very first one we're checking
-        // (we always want to keep at least 1 recent message even if it's large, though extremely large messages are risky)
-        if (accumulatedTokens + tokens > recentTokenBudget && recentCount > 0) {
-          break;
-        }
-
-        accumulatedTokens += tokens;
-        recentCount++;
-      }
-
-      // Always keep at least the last message
-      recentCount = Math.max(1, recentCount);
-      // But don't exceed total messages available to separate
-      recentCount = Math.min(recentCount, currentMessages.length - 1);
-
-      const recentMessages = currentMessages.slice(-recentCount);
-      const messagesToSummarize = currentMessages.slice(1, -recentCount);
-
-      // Sanitize recent messages to avoid orphaned tool call/result references.
-      // The split may land in the middle of a tool call group, leaving:
-      // 1. Tool result messages whose parent assistant tool_call was summarized away
-      // 2. Assistant tool_calls whose corresponding tool results were summarized away
-      // Either case causes API errors (e.g. OpenAI "No tool call found for function call output").
-      const recentToolCallIds = new Set<string>();
-      const recentToolResultIds = new Set<string>();
-      for (const msg of recentMessages) {
-        if (msg.role === "assistant" && msg.tool_calls) {
-          for (const tc of msg.tool_calls) {
-            recentToolCallIds.add(tc.id);
-          }
-        }
-        if (msg.role === "tool" && msg.tool_call_id) {
-          recentToolResultIds.add(msg.tool_call_id);
-        }
-      }
-
-      const sanitizedRecentMessages = recentMessages.reduce<ChatMessage[]>((acc, msg) => {
-        // Drop tool results whose parent assistant tool_call was summarized
-        if (msg.role === "tool" && msg.tool_call_id && !recentToolCallIds.has(msg.tool_call_id)) {
-          return acc;
-        }
-        // Strip tool_calls whose results were summarized
-        if (msg.role === "assistant" && msg.tool_calls) {
-          const keptToolCalls = msg.tool_calls.filter((tc) => recentToolResultIds.has(tc.id));
-          if (keptToolCalls.length < msg.tool_calls.length) {
-            const { tool_calls: _, ...rest } = msg;
-            if (keptToolCalls.length > 0) {
-              acc.push({ ...rest, tool_calls: keptToolCalls });
-            } else if (rest.content) {
-              // Only keep the assistant message if it has text content
-              acc.push(rest);
-            }
-            return acc;
-          }
-        }
-        acc.push(msg);
-        return acc;
-      }, []);
+      const { systemMessage, messagesToSummarize, sanitizedRecentMessages } =
+        Summarizer.splitMessages(currentMessages, maxTokens);
 
       if (messagesToSummarize.length === 0) {
         // Not enough to summarize, just return as-is
@@ -293,7 +316,7 @@ export const Summarizer = {
       yield* logger.debug("Summarizing messages from conversation", {
         totalMessages: currentMessages.length,
         messagesToSummarize: messagesToSummarize.length,
-        recentKept: recentCount,
+        recentKept: sanitizedRecentMessages.length,
       });
 
       // Summarize the middle portion

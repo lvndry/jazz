@@ -1,5 +1,4 @@
-import chalk from "chalk";
-import { Box, Static, useInput } from "ink";
+import { Box, Static, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import { ActivityView } from "./ActivityView";
@@ -316,6 +315,8 @@ export function App(): React.ReactElement {
 
   // Handle interrupt (double-tap Escape)
   const lastEscapeRef = useRef<number>(0);
+  const escapeHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showEscapeHint, setShowEscapeHint] = useState(false);
   const DOUBLE_ESCAPE_WINDOW_MS = 1000;
 
   useInput((input, key) => {
@@ -328,17 +329,25 @@ export function App(): React.ReactElement {
     const elapsed = now - lastEscapeRef.current;
     lastEscapeRef.current = now;
 
-    if (elapsed <= DOUBLE_ESCAPE_WINDOW_MS) {
+    if (elapsed <= DOUBLE_ESCAPE_WINDOW_MS && showEscapeHint) {
       // Second press — interrupt generation
       lastEscapeRef.current = 0;
+      setShowEscapeHint(false);
+      if (escapeHintTimerRef.current) {
+        clearTimeout(escapeHintTimerRef.current);
+        escapeHintTimerRef.current = null;
+      }
       interruptHandlerRef.current();
     } else {
-      // First press — show hint
-      store.printOutput({
-        type: "log",
-        message: chalk.red("Press Esc again to interrupt generation"),
-        timestamp: new Date(),
-      });
+      // First press — show hint, auto-dismiss after timeout
+      setShowEscapeHint(true);
+      if (escapeHintTimerRef.current) {
+        clearTimeout(escapeHintTimerRef.current);
+      }
+      escapeHintTimerRef.current = setTimeout(() => {
+        setShowEscapeHint(false);
+        escapeHintTimerRef.current = null;
+      }, DOUBLE_ESCAPE_WINDOW_MS);
     }
   });
 
@@ -390,6 +399,13 @@ export function App(): React.ReactElement {
 
           {/* Activity - Unified status + streaming response */}
           <ActivityIsland />
+
+          {/* Escape interrupt hint - shown after first Esc during generation */}
+          {showEscapeHint && (
+            <Box paddingX={2}>
+              <Text color="red">Press Esc again to interrupt generation</Text>
+            </Box>
+          )}
 
           {/* User input prompt - Isolated state */}
           <PromptIsland />

@@ -542,17 +542,44 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
             case "replace_lines":
               return `  ${idx + 1}. Replace lines ${edit.startLine}-${edit.endLine} with new content (${edit.content.split("\n").length} lines)`;
             case "replace_pattern": {
-              // Find affected line numbers for a clearer approval message
+              // Find affected line numbers for a clearer approval message.
+              // Build a newline offset index once (O(N) over file size), then
+              // binary-search it per match (O(log N) per match) instead of
+              // slicing + splitting inside the loop (O(N²)).
               const patternInfo = normalizeFilterPattern(edit.pattern);
               const content = lines.join("\n");
               const matchLineNumbers: number[] = [];
+
+              // Build sorted array of byte offsets where each line starts.
+              // lineOffsets[i] = offset of line i+1 (0-based index → 1-based line).
+              // lineOffsets[0] is always 0 (line 1 starts at offset 0).
+              const lineOffsets: number[] = [0];
+              for (let i = 0; i < content.length; i++) {
+                if (content[i] === "\n") {
+                  lineOffsets.push(i + 1);
+                }
+              }
+
+              // Binary search: find the 1-based line number for a byte offset
+              const offsetToLine = (offset: number): number => {
+                let lo = 0;
+                let hi = lineOffsets.length - 1;
+                while (lo < hi) {
+                  const mid = (lo + hi + 1) >>> 1;
+                  if ((lineOffsets[mid] as number) <= offset) {
+                    lo = mid;
+                  } else {
+                    hi = mid - 1;
+                  }
+                }
+                return lo + 1; // 1-based
+              };
 
               if (patternInfo.type === "regex" && patternInfo.regex && !patternInfo.error) {
                 const regex = ensureGlobalRegex(patternInfo.regex);
                 let match;
                 while ((match = regex.exec(content)) !== null && matchLineNumbers.length < 20) {
-                  const lineNum = content.slice(0, match.index).split("\n").length;
-                  matchLineNumbers.push(lineNum);
+                  matchLineNumbers.push(offsetToLine(match.index));
                   if (match[0].length === 0) regex.lastIndex++;
                 }
               } else if (!patternInfo.error) {
@@ -562,8 +589,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
                   (searchIndex = content.indexOf(searchStr, searchIndex)) !== -1 &&
                   matchLineNumbers.length < 20
                 ) {
-                  const lineNum = content.slice(0, searchIndex).split("\n").length;
-                  matchLineNumbers.push(lineNum);
+                  matchLineNumbers.push(offsetToLine(searchIndex));
                   searchIndex += searchStr.length;
                 }
               }

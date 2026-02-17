@@ -179,7 +179,10 @@ ${args.task}`;
     defineTool({
       name: "summarize_context",
       longRunning: true,
-      description: "Compact conversation by summarizing older messages to free token budget.",
+      description:
+        "Compact conversation by summarizing older messages to free token budget. " +
+        "Always performs summarization when called — use proactively before complex tasks " +
+        "to reduce context size, save costs, and prevent context rot.",
       parameters: summarizeContextSchema,
       hidden: false,
       riskLevel: "read-only",
@@ -211,9 +214,7 @@ ${args.task}`;
             parentAgentId: parentAgent.id,
           });
 
-          const runRecursive: RecursiveRunner = (runOpts) => AgentRunner.runRecursive(runOpts);
-
-          // Fetch model's actual context window from models.dev
+          // Fetch model's actual context window from models.dev (used for splitting budget)
           const modelMetadata = yield* Effect.tryPromise({
             try: () =>
               getModelsDevMetadata(parentAgent.config.llmModel, parentAgent.config.llmProvider),
@@ -222,25 +223,42 @@ ${args.task}`;
 
           const contextWindowMaxTokens = modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
 
-          // Use compactIfNeeded which handles system message preservation and recent message retention
-          const compacted = yield* Summarizer.compactIfNeeded(
-            [...conversationMessages] as unknown as ConversationMessages,
+          // Split messages into system, older (to summarize), and recent (to keep verbatim).
+          // Unlike compactIfNeeded (which checks a threshold first), the tool always
+          // compacts when explicitly called — the agent knows best when to clear context.
+          const { systemMessage, messagesToSummarize, sanitizedRecentMessages } =
+            Summarizer.splitMessages(
+              [...conversationMessages] as unknown as ConversationMessages,
+              contextWindowMaxTokens,
+            );
+
+          if (messagesToSummarize.length === 0) {
+            return {
+              success: true,
+              result:
+                "Not enough conversation history to summarize — need at least a few messages beyond the system prompt.",
+            };
+          }
+
+          const runRecursive: RecursiveRunner = (runOpts) => AgentRunner.runRecursive(runOpts);
+
+          // Summarize older messages into a single condensed message
+          const summaryMessage = yield* Summarizer.summarizeHistory(
+            messagesToSummarize,
             parentAgent,
             context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
             context.conversationId ?? `conv-${Date.now()}`,
             runRecursive,
-            contextWindowMaxTokens,
           );
 
-          // Check if compaction actually happened (messages changed)
-          if (compacted.length === conversationMessages.length) {
-            return {
-              success: true,
-              result: "Context is within limits — no compaction needed.",
-            };
-          }
+          // Rebuild: [system, summary, ...recent]
+          const compacted = [
+            systemMessage,
+            summaryMessage,
+            ...sanitizedRecentMessages,
+          ] as ConversationMessages;
 
-          // Actually replace messages in the executor loop via callback
+          // Replace messages in the executor loop via callback
           if (context.compactConversation) {
             context.compactConversation(compacted);
           }
@@ -248,11 +266,12 @@ ${args.task}`;
           yield* logger.info("Context summarization completed", {
             originalMessageCount: conversationMessages.length,
             compactedMessageCount: compacted.length,
+            summarizedMessageCount: messagesToSummarize.length,
           });
 
           return {
             success: true,
-            result: `Context compacted from ${conversationMessages.length} to ${compacted.length} messages.`,
+            result: `Context compacted from ${conversationMessages.length} to ${compacted.length} messages (summarized ${messagesToSummarize.length} older messages).`,
           };
         }),
       createSummary: (result) => {

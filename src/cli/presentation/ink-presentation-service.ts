@@ -36,6 +36,7 @@ import {
   formatMarkdownHybrid,
   wrapToWidth,
   getTerminalWidth,
+  padLines,
 } from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/store";
@@ -127,7 +128,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
       // paragraph flushing. Earlier content is already visible in Static.
       const unflushedText = this.acc.liveText.slice(this.acc.flushedTextOffset);
       if (unflushedText.trim().length > 0) {
-        store.printOutput({ type: "log", message: unflushedText, timestamp: new Date() });
+        const formatted = this.formatMarkdown(unflushedText);
+        store.printOutput({ type: "log", message: padLines(formatted, 2), timestamp: new Date() });
       }
       this.acc.liveText = "";
       this.acc.flushedTextOffset = 0;
@@ -260,19 +262,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
     // Ink's render cycle erases the live area, writes new static output, then
     // re-renders the live area — so brief duplication is invisible to the user.
     if (wasStreaming) {
-      // Wrap in a padded Ink element to match the streaming layout (paddingLeft=2)
-      // so text doesn't jump to full width on completion.
+      // Bake left padding as literal spaces instead of using Ink's Yoga layout.
+      // This avoids Yoga intermittently computing incorrect narrow widths.
       store.printOutput({
         type: "log",
-        message: ink(
-          React.createElement(
-            Box,
-            { paddingLeft: 2, flexDirection: "column" },
-            // `formattedFinalText` is already hard-wrapped upstream (wrapToWidth).
-            // Avoid Ink/Yoga re-wrapping on completion.
-            React.createElement(Text, { wrap: "truncate" }, formattedFinalText),
-          ),
-        ),
+        message: padLines(formattedFinalText, 2),
         timestamp: new Date(),
       });
     } else {

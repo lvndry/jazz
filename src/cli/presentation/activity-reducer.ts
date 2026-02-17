@@ -33,6 +33,7 @@ import React from "react";
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
 import { formatToolArguments, formatToolResult } from "./format-utils";
+import { padLines } from "./markdown-formatter";
 import { applyTextChunkOrdered } from "./stream-text-order";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
 import { THEME } from "../ui/theme";
@@ -314,7 +315,7 @@ export function reduceEvent(
       });
       outputs.push({
         type: "log",
-        message: chalk.dim("(Tip: Double-Press Esc to stop generation)"),
+        message: chalk.dim("(Tip: Press Esc twice to stop generation)"),
         timestamp: new Date(),
       });
 
@@ -483,13 +484,7 @@ export function reduceEvent(
           const formatted = formatMarkdown(flushableText);
           outputs.push({
             type: "log",
-            message: inkRender(
-              React.createElement(
-                Box,
-                { paddingLeft: 2, flexDirection: "column" },
-                React.createElement(Text, { wrap: "truncate" }, formatted),
-              ),
-            ),
+            message: padLines(formatted, 2),
             timestamp: new Date(),
           });
           acc.flushedTextOffset = flushPoint;
