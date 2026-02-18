@@ -98,11 +98,7 @@ jobs:
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           jazz --output raw workflow run release-notes --auto-approve --agent release-notes \
-            2>/tmp/jazz.err | tee /tmp/jazz-release-notes.txt || true
-          if [ -s /tmp/jazz.err ]; then
-            echo "::warning::Jazz release notes failed, using fallback body"
-            cat /tmp/jazz.err
-          fi || true
+            2>&1 | tee /tmp/jazz-release-notes.txt
 
       - name: Create GitHub release
         uses: actions/github-script@v7
