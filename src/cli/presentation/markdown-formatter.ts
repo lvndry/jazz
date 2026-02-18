@@ -430,6 +430,9 @@ export function applyProgressiveFormatting(text: string, state: StreamingState):
   }
 
   // Apply formatting in order
+  // Order matters: formatBareUrls/formatFilePaths MUST run before formatLinks.
+  // Otherwise they can pre-wrap URLs inside markdown links like [docs](https://example.com),
+  // so formatLinks receives an OSC8-wrapped URL and may generate broken or double hyperlinks.
   formatted = formatEmojiShortcodes(formatted);
   formatted = formatEscapedText(formatted);
   formatted = formatStrikethrough(formatted);
@@ -489,6 +492,9 @@ export function formatMarkdown(text: string): string {
   formatted = formatStrikethrough(formatted);
   formatted = formatBold(formatted);
   formatted = formatItalic(formatted);
+  // Order matters: formatBareUrls/formatFilePaths MUST run before formatLinks.
+  // Otherwise they can pre-wrap URLs inside markdown links like [docs](https://example.com),
+  // so formatLinks receives an OSC8-wrapped URL and may generate broken or double hyperlinks.
   formatted = formatBareUrls(formatted);
   formatted = formatFilePaths(formatted);
   formatted = formatLinks(formatted);
@@ -628,7 +634,7 @@ function pathToFileUrl(pathStr: string): string | null {
 function pathWithLineToFileUrl(match: string): string | null {
   const lineColMatch = match.match(/:(\d+)(?::(\d+))?$/);
   if (!lineColMatch) return pathToFileUrl(match);
-  const pathPart = match.slice(0, match.indexOf(":" + lineColMatch[1]!));
+  const pathPart = match.slice(0, match.lastIndexOf(":" + lineColMatch[1]!));
   const line = lineColMatch[1]!;
   const col = lineColMatch[2];
   const url = pathToFileUrl(pathPart);
@@ -742,6 +748,9 @@ export function formatMarkdownHybrid(text: string): string {
   formatted = formatStrikethroughHybrid(formatted);
   formatted = formatBoldHybrid(formatted);
   formatted = formatItalicHybrid(formatted);
+  // Order matters: formatBareUrls/formatFilePaths MUST run before formatLinks.
+  // Otherwise they can pre-wrap URLs inside markdown links like [docs](https://example.com),
+  // so formatLinks receives an OSC8-wrapped URL and may generate broken or double hyperlinks.
   formatted = formatBareUrlsHybrid(formatted);
   formatted = formatFilePathsHybrid(formatted);
   formatted = formatLinksHybrid(formatted);

@@ -8,7 +8,7 @@ Jazz searches for config files in this order (first found wins):
 
 1. `$JAZZ_CONFIG_PATH` — Path from environment variable
 2. `./jazz.config.json` — Project-level
-3. . `~/.jazz/config.json` — User-level (global)
+3. `~/.jazz/config.json` — User-level (global)
 
 ## MCP Servers: `.agents/mcp.json`
 
