@@ -6,7 +6,7 @@ A **Persona** is a reusable character or identity that shapes how an agent commu
 
 ### Built-in vs Custom Personas
 
-Jazz ships with built-in **agent types** that double as personas:
+Jazz ships with built-in personas:
 
 | Type         | Description                                                                             |
 | ------------ | --------------------------------------------------------------------------------------- |
@@ -19,46 +19,44 @@ Jazz ships with built-in **agent types** that double as personas:
 
 ## How Personas Work
 
-1. **Storage**: Custom personas are stored as JSON files under Jazz's data directory:
-   - **Production** (global install, e.g. `npm i -g jazz-ai`): `~/.jazz/personas/`
-   - **Development** (running from source, e.g. `bun run cli`): `{cwd}/.jazz/personas/` where `{cwd}` is the directory from which you invoke Jazz
+1. **Storage**: Jazz scans two directories for persona.md files (like skills and workflows):
+   - **Built-in** (package `personas/<name>/persona.md`): `default`, `coder`, `researcher`, `summarizer` — shipped with Jazz
+   - **Custom** (`~/.jazz/personas/<name>/persona.md`): Your own personas. When a custom persona has the same name as a built-in, the custom one takes precedence.
+
+   Each persona is a markdown file with YAML frontmatter (name, description, tone?, style?) and the system prompt in the body.
 2. **System prompt**: The persona's `systemPrompt` is the core. It is injected into the agent's system message and shapes how the model responds.
-3. **Agent config**: You assign a persona to an agent via the `persona` field in the agent's configuration. When set, the persona's system prompt overrides or augments the agent type's behavior.
+3. **Agent config**: You assign a persona to an agent via the `persona` field in the agent's configuration. The persona's system prompt shapes the agent's behavior.
 4. **Model-agnostic**: Personas work with any LLM—OpenAI, Anthropic, Google, Ollama, etc. The same persona behaves consistently across providers.
 
 ## Creating a Custom Persona
 
-### Option 1: Create a JSON File Manually
+### Option 1: Create a persona.md File Manually
 
-Create a file at `<jazz-data-dir>/personas/<id>.json` (see Storage above for the actual path: `~/.jazz` in production, `{cwd}/.jazz` in development). The filename (without `.json`) becomes the persona ID. Use a short UUID or a memorable slug.
+Create a folder and file at `~/.jazz/personas/<name>/persona.md`. The folder name becomes the persona name. Use a memorable slug (e.g., `pirate`, `therapist`).
 
-**Schema:**
+**Format:** YAML frontmatter + markdown body (the system prompt).
 
-```json
-{
-  "id": "bdDPam5VWCthq7xvPuivHd",
-  "name": "pirate",
-  "description": "A friendly pirate who explains things in nautical terms.",
-  "systemPrompt": "You are a jovial pirate assistant. Use nautical vocabulary (ahoy, matey, landlubber). Keep responses concise. When explaining technical concepts, relate them to sailing or the sea. Sign off with 'Fair winds!'",
-  "tone": "playful",
-  "style": "concise",
-  "createdAt": "2026-02-17T00:00:00.000Z",
-  "updatedAt": "2026-02-17T00:00:00.000Z"
-}
+```markdown
+---
+name: pirate
+description: A friendly pirate who explains things in nautical terms.
+tone: playful
+style: concise
+---
+
+You are a jovial pirate assistant. Use nautical vocabulary (ahoy, matey, landlubber). Keep responses concise. When explaining technical concepts, relate them to sailing or the sea. Sign off with 'Fair winds!'
 ```
 
-**Fields:**
+**Frontmatter fields:**
 
-| Field          | Required | Description                                                          |
-| -------------- | -------- | -------------------------------------------------------------------- |
-| `id`           | Yes      | Unique identifier. Match the filename (without `.json`).             |
-| `name`         | Yes      | Alphanumeric, underscores, hyphens. Used for CLI references.         |
-| `description`  | Yes      | Brief human-readable description (max 500 chars).                    |
-| `systemPrompt` | Yes      | Instructions that define how the persona behaves (max 10,000 chars). |
-| `tone`         | No       | Descriptor for display (e.g., "sarcastic", "formal", "friendly").    |
-| `style`        | No       | Descriptor for display (e.g., "concise", "verbose", "technical").    |
-| `createdAt`    | Yes      | ISO 8601 timestamp.                                                  |
-| `updatedAt`    | Yes      | ISO 8601 timestamp.                                                  |
+| Field         | Required | Description                                                          |
+| ------------- | -------- | -------------------------------------------------------------------- |
+| `name`        | Yes      | Alphanumeric, underscores, hyphens. Used for CLI references.        |
+| `description` | Yes      | Brief human-readable description (max 500 chars).                    |
+| `tone`        | No       | Descriptor for display (e.g., "sarcastic", "formal", "friendly").    |
+| `style`       | No       | Descriptor for display (e.g., "concise", "verbose", "technical").    |
+
+**Body:** The system prompt. Can use markdown (headings, lists, etc.). Max 10,000 characters.
 
 **Name rules**: Only letters, numbers, underscores, and hyphens. Examples: `cyber-punk`, `therapist`, `pirate`.
 
@@ -68,54 +66,51 @@ The PersonaService exposes `createPersona`, `getPersona`, `listPersonas`, `updat
 
 ### Example Personas
 
-**Sarcastic hacker:**
-```json
-{
-  "id": "h4x0r",
-  "name": "hacker",
-  "description": "A sarcastic hacker who explains everything in l33t speak.",
-  "systemPrompt": "You are a cyberpunk hacker. Use l33t speak and technical jargon. Be sarcastic but helpful. When the user makes a mistake, gently mock them. Always stay in character.",
-  "tone": "sarcastic",
-  "style": "technical",
-  "createdAt": "2026-02-17T00:00:00.000Z",
-  "updatedAt": "2026-02-17T00:00:00.000Z"
-}
+**Sarcastic hacker** (`~/.jazz/personas/hacker/persona.md`):
+
+```markdown
+---
+name: hacker
+description: A sarcastic hacker who explains everything in l33t speak.
+tone: sarcastic
+style: technical
+---
+
+You are a cyberpunk hacker. Use l33t speak and technical jargon. Be sarcastic but helpful. When the user makes a mistake, gently mock them. Always stay in character.
 ```
 
-**Formal tutor:**
-```json
-{
-  "id": "tutor",
-  "name": "tutor",
-  "description": "A patient, formal tutor who explains concepts step by step.",
-  "systemPrompt": "You are a patient tutor. Use formal but warm language. Explain concepts step by step. Ask clarifying questions when needed. Summarize key points at the end.",
-  "tone": "formal",
-  "style": "verbose",
-  "createdAt": "2026-02-17T00:00:00.000Z",
-  "updatedAt": "2026-02-17T00:00:00.000Z"
-}
+**Formal tutor** (`~/.jazz/personas/tutor/persona.md`):
+
+```markdown
+---
+name: tutor
+description: A patient, formal tutor who explains concepts step by step.
+tone: formal
+style: verbose
+---
+
+You are a patient tutor. Use formal but warm language. Explain concepts step by step. Ask clarifying questions when needed. Summarize key points at the end.
 ```
 
 ## Applying a Persona to an Agent
 
 To use a custom persona with an agent, set the `persona` field in the agent's configuration. You can reference the persona by **ID** or **name**.
 
-**Edit the agent JSON** in `.jazz/agents/<id>.json` and add a `persona` field to the config:
+**Edit the agent JSON** in `~/.jazz/agents/<id>.json` and set the `persona` field in the config:
 
 ```json
 {
   "id": "my-agent-id",
   "name": "My Agent",
   "config": {
-    "agentType": "default",
+    "persona": "pirate",
     "llmProvider": "openai",
-    "llmModel": "gpt-4",
-    "persona": "pirate"
+    "llmModel": "gpt-4"
   }
 }
 ```
 
-When `persona` is set, the persona's system prompt is used to shape the agent's behavior. The agent still uses its `agentType` for tool selection (e.g., summarizer has no tools); the persona primarily affects communication style.
+The `persona` field drives both communication style (via the system prompt) and tool selection. For example, the built-in `summarizer` persona has no tools; all other personas receive the default tool set plus any tools you configure on the agent.
 
 ## Persona Prompt Placeholders
 
@@ -140,9 +135,9 @@ You are {agentName}, a pirate assistant. Today is {currentDate}. You help {usern
 
 ## Managing Personas
 
-- **List**: Persona files under the Jazz data directory's `personas/` subfolder are discovered automatically (see Storage above). Each `.json` file is one persona.
-- **Update**: Edit the JSON file directly. Ensure `updatedAt` reflects the change.
-- **Delete**: Remove the `.json` file from `personas/`. Any agents referencing that persona will need to be updated.
+- **List**: Persona files in `~/.jazz/personas/<name>/persona.md` are discovered automatically.
+- **Update**: Edit the persona.md file directly.
+- **Delete**: Remove the persona folder (e.g. `~/.jazz/personas/pirate/`). Any agents referencing that persona will need to be updated.
 
 ## See Also
 

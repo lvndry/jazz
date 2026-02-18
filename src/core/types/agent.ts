@@ -44,7 +44,7 @@ export interface AgentConfig {
    * tone, and behavioral rules via a system prompt.
    *
    * Built-in personas: "default", "coder", "researcher"
-   * Custom personas: stored in .jazz/personas/ and referenced by name or ID.
+   * Custom personas: stored in ~/.jazz/personas/ and referenced by name or ID.
    *
    * Defaults to "default" when not specified.
    */

@@ -143,6 +143,7 @@
   },
   "files": [
     "dist/",
+    "personas/",
     "skills/",
     "workflows/",
     "README.md",

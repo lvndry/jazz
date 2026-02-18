@@ -12,7 +12,7 @@ import type { CreatePersonaInput, Persona } from "@/core/types/persona";
  * Persona service interface for managing reusable agent identities
  *
  * Provides methods for creating, retrieving, updating, deleting, and listing personas.
- * Personas are stored as JSON files in .jazz/personas/ and can be applied to any agent.
+ * Personas are stored as persona.md files in ~/.jazz/personas/<name>/ and can be applied to any agent.
  */
 export interface PersonaService {
   /**

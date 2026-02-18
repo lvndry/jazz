@@ -4,7 +4,7 @@
  * Defines the core data structures for custom personas in Jazz.
  * A Persona is a reusable character/identity that can be applied to any agent,
  * controlling how the agent communicates (tone, style, vocabulary, behavior).
- * Personas are model-agnostic and stored as JSON in .jazz/personas/.
+ * Personas are model-agnostic and stored as persona.md files in ~/.jazz/personas/<name>/.
  */
 
 /**

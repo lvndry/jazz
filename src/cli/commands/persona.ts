@@ -15,7 +15,7 @@ import { isBuiltinPersona, isBuiltinPersonaId } from "@/services/persona-service
  * CLI commands for managing custom personas
  *
  * Personas define reusable communication styles, tones, and behavioral rules
- * that can be applied to any agent. They are stored in .jazz/personas/.
+ * that can be applied to any agent. They are stored in ~/.jazz/personas/.
  */
 
 // ─── Create ──────────────────────────────────────────────────────────────────

@@ -125,7 +125,7 @@ export class FileStorageService implements StorageService {
 
         const rawConfig = configWithoutTools as Record<string, unknown>;
         if (!rawConfig["persona"]) {
-          rawConfig["persona"] = "default";
+          rawConfig["persona"] = rawConfig["agentType"] || "default";
         }
 
         const baseConfig: AgentConfig = rawConfig as unknown as AgentConfig;

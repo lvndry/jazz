@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Effect, Layer, Option } from "effect";
-import shortuuid from "short-uuid";
+import matter from "gray-matter";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import {
@@ -13,7 +13,10 @@ import {
   ValidationError,
 } from "@/core/types/errors";
 import type { CreatePersonaInput, Persona } from "@/core/types/persona";
-import { getUserDataDirectory } from "@/core/utils/runtime-detection";
+import { scanMarkdownIndex } from "@/core/utils/markdown-index";
+import { getBuiltinPersonasDirectory } from "@/core/utils/runtime-detection";
+
+const PERSONA_DEFINITION_FILENAME = "persona.md" as const;
 
 /**
  * Names reserved for built-in personas.
@@ -26,46 +29,6 @@ export const BUILTIN_PERSONA_NAMES = ["default", "coder", "researcher"] as const
  * It is never listed or selectable by users but can be resolved by name.
  */
 const INTERNAL_PERSONA_NAMES = ["summarizer"] as const;
-
-/**
- * Built-in persona metadata. System prompts are NOT stored here -- they live in
- * the prompt files (prompts/default/system.ts etc.) and are resolved by
- * AgentPromptBuilder. The PersonaService only needs metadata for listing/display.
- */
-const BUILTIN_PERSONAS: readonly Persona[] = [
-  {
-    id: "builtin-default",
-    name: "default",
-    description: "A general-purpose assistant that can help with various tasks.",
-    systemPrompt: "", // Resolved at runtime by AgentPromptBuilder
-    tone: "helpful",
-    style: "balanced",
-    createdAt: new Date("2024-01-01T00:00:00Z"),
-    updatedAt: new Date("2024-01-01T00:00:00Z"),
-  },
-  {
-    id: "builtin-coder",
-    name: "coder",
-    description:
-      "An expert software engineer specialized in code analysis, debugging, and implementation.",
-    systemPrompt: "", // Resolved at runtime by AgentPromptBuilder
-    tone: "technical",
-    style: "precise",
-    createdAt: new Date("2024-01-01T00:00:00Z"),
-    updatedAt: new Date("2024-01-01T00:00:00Z"),
-  },
-  {
-    id: "builtin-researcher",
-    name: "researcher",
-    description:
-      "A meticulous researcher specialized in deep exploration, source synthesis, and evidence-backed conclusions.",
-    systemPrompt: "", // Resolved at runtime by AgentPromptBuilder
-    tone: "analytical",
-    style: "thorough",
-    createdAt: new Date("2024-01-01T00:00:00Z"),
-    updatedAt: new Date("2024-01-01T00:00:00Z"),
-  },
-];
 
 /**
  * Check if a persona name is a built-in or internal persona.
@@ -87,60 +50,111 @@ export function isBuiltinPersonaId(id: string): boolean {
 
 /**
  * Options for PersonaServiceImpl construction.
- * @internal Used for testing; production uses default from getUserDataDirectory().
+ * @internal Used for testing; production uses ~/.jazz for personas.
  */
 export interface PersonaServiceImplOptions {
-  /** Override base data directory (for tests). Default: getUserDataDirectory(). */
+  /** Override base data directory (for tests). Default: ~/.jazz. Personas live in {base}/personas/. */
   readonly baseDataPath?: string;
+}
+
+/** Metadata from persona.md frontmatter (used for scanning). */
+interface PersonaMetadata {
+  readonly path: string;
+  readonly name: string;
+  readonly source: "builtin" | "custom";
+}
+
+function parsePersonaFrontmatter(
+  data: Record<string, unknown>,
+  definitionDir: string,
+  source: PersonaMetadata["source"],
+): PersonaMetadata | null {
+  const name = data["name"];
+  const description = data["description"];
+  if (typeof name !== "string" || typeof description !== "string") {
+    return null;
+  }
+  return { path: definitionDir, name, source };
 }
 
 /**
  * File-based PersonaService implementation
  *
- * Stores custom personas as JSON files in .jazz/personas/<id>.json.
- * Also surfaces built-in personas (default, coder, researcher) for listing.
- * Built-in personas cannot be edited or deleted.
+ * Scans two directories for persona.md files (like skills and workflows):
+ * 1. Built-in: package personas/<name>/persona.md
+ * 2. Custom: ~/.jazz/personas/<name>/persona.md
+ *
+ * Frontmatter: name, description, tone?, style?
+ * Body: the system prompt (raw markdown).
  */
 export class PersonaServiceImpl implements PersonaService {
   private readonly basePath: string;
 
   constructor(options?: PersonaServiceImplOptions) {
-    this.basePath = options?.baseDataPath ?? getUserDataDirectory();
+    this.basePath = options?.baseDataPath ?? path.join(os.homedir(), ".jazz");
   }
 
-  private getPersonasDir(): string {
+  /** Returns the custom personas directory (~/.jazz/personas/). */
+  private getCustomPersonasDir(): string {
     return path.join(this.basePath, "personas");
   }
 
-  /**
-   * Returns the global personas directory (~/.jazz/personas/).
-   * In dev mode, this differs from getPersonasDir() which returns {cwd}/.jazz/personas/.
-   * In production they are the same directory.
-   */
-  private getGlobalPersonasDir(): string {
-    return path.join(os.homedir(), ".jazz", "personas");
+  private getPersonaDir(name: string): string {
+    return path.join(this.getCustomPersonasDir(), name);
+  }
+
+  private async ensurePersonasDir(): Promise<void> {
+    await fs.mkdir(this.getCustomPersonasDir(), { recursive: true });
   }
 
   /**
-   * Returns all persona directories to scan (deduplicated).
-   * In production: just ~/.jazz/personas/
-   * In dev mode: both {cwd}/.jazz/personas/ AND ~/.jazz/personas/
+   * Load a Persona from a persona.md file.
    */
-  private getAllPersonasDirs(): string[] {
-    const dirs = [this.getPersonasDir()];
-    const globalDir = this.getGlobalPersonasDir();
-    if (path.resolve(globalDir) !== path.resolve(this.getPersonasDir())) {
-      dirs.push(globalDir);
-    }
-    return dirs;
-  }
+  private loadPersonaFromFile(
+    personaDir: string,
+    id: string,
+  ): Effect.Effect<Persona, StorageError | StorageNotFoundError> {
+    return Effect.gen(function* () {
+      const filePath = path.join(personaDir, PERSONA_DEFINITION_FILENAME);
+      const content = yield* Effect.tryPromise({
+        try: () => fs.readFile(filePath, "utf-8"),
+        catch: (error) => {
+          if (
+            error instanceof Error &&
+            "code" in error &&
+            (error as NodeJS.ErrnoException).code === "ENOENT"
+          ) {
+            return new StorageNotFoundError({
+              path: filePath,
+              suggestion: `Persona file "${filePath}" not found. Use 'jazz persona list' to see available personas.`,
+            });
+          }
+          return new StorageError({
+            operation: "read",
+            path: filePath,
+            reason: `Failed to read persona: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        },
+      });
 
-  private getPersonaPath(id: string): string {
-    return path.join(this.getPersonasDir(), `${id}.json`);
-  }
+      const parsed = matter(content);
+      const data = parsed.data as Record<string, unknown>;
+      const now = new Date();
+      const createdAt = typeof data["createdAt"] === "string" ? new Date(data["createdAt"]) : now;
+      const updatedAt = typeof data["updatedAt"] === "string" ? new Date(data["updatedAt"]) : now;
 
-  private async ensureDir(): Promise<void> {
-    await fs.mkdir(this.getPersonasDir(), { recursive: true });
+      return {
+        id,
+        name: typeof data["name"] === "string" ? data["name"] : path.basename(personaDir),
+        description: typeof data["description"] === "string" ? data["description"] : "",
+        systemPrompt: parsed.content.trim(),
+        ...(typeof data["tone"] === "string" && data["tone"].length > 0 && { tone: data["tone"] }),
+        ...(typeof data["style"] === "string" &&
+          data["style"].length > 0 && { style: data["style"] }),
+        createdAt: isNaN(createdAt.getTime()) ? now : createdAt,
+        updatedAt: isNaN(updatedAt.getTime()) ? now : updatedAt,
+      } as Persona;
+    });
   }
 
   createPersona(
@@ -174,11 +188,44 @@ export class PersonaServiceImpl implements PersonaService {
           );
         }
 
-        const id = shortuuid.generate();
         const now = new Date();
+        const personaDir = this.getPersonaDir(input.name);
+        const escapeYaml = (s: string) =>
+          s.includes("\n") || s.includes('"') || s.includes(":")
+            ? `"${s.replace(/"/g, '\\"')}"`
+            : s;
+        const frontmatter = `---
+name: ${escapeYaml(input.name)}
+description: ${escapeYaml(input.description)}
+${input.tone ? `tone: ${escapeYaml(input.tone)}` : ""}
+${input.style ? `style: ${escapeYaml(input.style)}` : ""}
+createdAt: "${now.toISOString()}"
+updatedAt: "${now.toISOString()}"
+---
 
-        const persona: Persona = {
-          id,
+`;
+        const content = frontmatter + input.systemPrompt;
+
+        yield* Effect.tryPromise({
+          try: async () => {
+            await this.ensurePersonasDir();
+            await fs.mkdir(personaDir, { recursive: true });
+            await fs.writeFile(
+              path.join(personaDir, PERSONA_DEFINITION_FILENAME),
+              content,
+              "utf-8",
+            );
+          },
+          catch: (error) =>
+            new StorageError({
+              operation: "write",
+              path: personaDir,
+              reason: `Failed to save persona: ${error instanceof Error ? error.message : String(error)}`,
+            }),
+        });
+
+        return {
+          id: input.name,
           name: input.name,
           description: input.description,
           systemPrompt: input.systemPrompt,
@@ -187,108 +234,58 @@ export class PersonaServiceImpl implements PersonaService {
           createdAt: now,
           updatedAt: now,
         };
-
-        yield* Effect.tryPromise({
-          try: async () => {
-            await this.ensureDir();
-            await fs.writeFile(this.getPersonaPath(id), JSON.stringify(persona, null, 2), "utf-8");
-          },
-          catch: (error) =>
-            new StorageError({
-              operation: "write",
-              path: this.getPersonaPath(id),
-              reason: `Failed to save persona: ${error instanceof Error ? error.message : String(error)}`,
-            }),
-        });
-
-        return persona;
       }.bind(this),
     );
-  }
-
-  /**
-   * Read and parse a persona JSON file, handling missing fields gracefully.
-   * Manually created files may omit id, createdAt, updatedAt -- these are
-   * derived from the filename and current time.
-   */
-  private readPersonaFile(
-    filePath: string,
-    fallbackId: string,
-  ): Effect.Effect<Persona, StorageError | StorageNotFoundError> {
-    return Effect.gen(function* () {
-      const content = yield* Effect.tryPromise({
-        try: () => fs.readFile(filePath, "utf-8"),
-        catch: (error) => {
-          if (
-            error instanceof Error &&
-            "code" in error &&
-            (error as NodeJS.ErrnoException).code === "ENOENT"
-          ) {
-            return new StorageNotFoundError({
-              path: filePath,
-              suggestion: `Persona file "${filePath}" not found. Use 'jazz persona list' to see available personas.`,
-            });
-          }
-          return new StorageError({
-            operation: "read",
-            path: filePath,
-            reason: `Failed to read persona: ${error instanceof Error ? error.message : String(error)}`,
-          });
-        },
-      });
-
-      const raw = yield* Effect.try({
-        try: () => JSON.parse(content) as Record<string, unknown>,
-        catch: (error) =>
-          new StorageError({
-            operation: "read",
-            path: filePath,
-            reason: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
-          }),
-      });
-
-      // Derive missing fields from filename and defaults
-      const now = new Date();
-      const id = typeof raw["id"] === "string" && raw["id"].length > 0 ? raw["id"] : fallbackId;
-      const createdAt = typeof raw["createdAt"] === "string" ? new Date(raw["createdAt"]) : now;
-      const updatedAt = typeof raw["updatedAt"] === "string" ? new Date(raw["updatedAt"]) : now;
-
-      return {
-        id,
-        name: typeof raw["name"] === "string" ? raw["name"] : fallbackId,
-        description: typeof raw["description"] === "string" ? raw["description"] : "",
-        systemPrompt: typeof raw["systemPrompt"] === "string" ? raw["systemPrompt"] : "",
-        ...(typeof raw["tone"] === "string" && raw["tone"].length > 0 ? { tone: raw["tone"] } : {}),
-        ...(typeof raw["style"] === "string" && raw["style"].length > 0
-          ? { style: raw["style"] }
-          : {}),
-        createdAt: isNaN(createdAt.getTime()) ? now : createdAt,
-        updatedAt: isNaN(updatedAt.getTime()) ? now : updatedAt,
-      } as Persona;
-    });
   }
 
   getPersona(id: string): Effect.Effect<Persona, StorageError | StorageNotFoundError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
-        // Check built-in personas by ID
-        const builtin = BUILTIN_PERSONAS.find((p) => p.id === id);
-        if (builtin) return builtin;
+        const builtinName = id.startsWith("builtin-") ? id.slice("builtin-".length) : id;
+        const builtinDir = getBuiltinPersonasDirectory();
 
-        // Try all persona directories in order
-        const dirs = this.getAllPersonasDirs();
-        for (const dir of dirs) {
-          const filePath = path.join(dir, `${id}.json`);
-          const result = yield* this.readPersonaFile(filePath, id).pipe(
-            Effect.catchTag("StorageNotFoundError", () => Effect.succeed(null)),
+        // 1. Try built-in: personas/<name>/persona.md
+        if (builtinDir) {
+          const builtinPath = path.join(builtinDir, builtinName);
+          const builtinResult = yield* this.loadPersonaFromFile(
+            builtinPath,
+            `builtin-${builtinName}`,
+          ).pipe(Effect.catchTag("StorageNotFoundError", () => Effect.succeed(null)));
+          if (builtinResult) return builtinResult;
+
+          // Scan and match by name (handles id "default" -> builtin-default)
+          const builtinMeta = yield* scanMarkdownIndex({
+            dir: builtinDir,
+            fileName: PERSONA_DEFINITION_FILENAME,
+            depth: 2,
+            parse: (data, defDir) => parsePersonaFrontmatter(data, defDir, "builtin"),
+          }).pipe(
+            Effect.mapError(
+              (e) =>
+                new StorageError({
+                  operation: "list",
+                  path: builtinDir,
+                  reason: e instanceof Error ? e.message : String(e),
+                }),
+            ),
           );
-          if (result) return result;
+          for (const meta of builtinMeta) {
+            if (meta.name.toLowerCase() === id.toLowerCase()) {
+              return yield* this.loadPersonaFromFile(meta.path, `builtin-${meta.name}`);
+            }
+          }
         }
 
-        // Not found in any directory
+        // 2. Try custom: ~/.jazz/personas/<id>/persona.md
+        const customDir = this.getPersonaDir(id);
+        const customResult = yield* this.loadPersonaFromFile(customDir, id).pipe(
+          Effect.catchTag("StorageNotFoundError", () => Effect.succeed(null)),
+        );
+        if (customResult) return customResult;
+
         return yield* Effect.fail(
           new StorageNotFoundError({
-            path: this.getPersonaPath(id),
+            path: this.getPersonaDir(id),
             suggestion: `Persona with ID "${id}" not found. Use 'jazz persona list' to see available personas.`,
           }),
         );
@@ -315,156 +312,118 @@ export class PersonaServiceImpl implements PersonaService {
   }
 
   /**
-   * Read all .json persona files from a single directory.
-   * Returns an empty array if the directory does not exist.
+   * List personas from a directory (persona.md files).
    */
-  private readPersonasFromDir(dir: string): Effect.Effect<Persona[], StorageError> {
+  private listPersonasFromDir(
+    dir: string,
+    source: PersonaMetadata["source"],
+    excludeSummarizer: boolean,
+  ): Effect.Effect<readonly Persona[], StorageError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
-        // Check if dir exists; if not, return empty (don't create it)
-        const dirExists = yield* Effect.tryPromise({
-          try: async () => {
-            try {
-              await fs.access(dir);
-              return true;
-            } catch {
-              return false;
-            }
-          },
-          catch: () =>
-            new StorageError({
-              operation: "list",
-              path: dir,
-              reason: "Failed to check persona directory",
-            }),
-        });
-
-        if (!dirExists) return [];
-
-        const files = yield* Effect.tryPromise({
-          try: () => fs.readdir(dir),
-          catch: (error) => {
-            // Treat permission errors as non-fatal for secondary directories
-            // (e.g. global ~/.jazz/personas/ may have restrictive permissions)
-            if (
-              error instanceof Error &&
-              "code" in error &&
-              ((error as NodeJS.ErrnoException).code === "EACCES" ||
-                (error as NodeJS.ErrnoException).code === "EPERM")
-            ) {
-              return new StorageError({
-                operation: "list",
-                path: dir,
-                reason: `Permission denied reading personas directory: ${dir}`,
-              });
-            }
-            return new StorageError({
-              operation: "list",
-              path: dir,
-              reason: `Failed to list personas: ${error instanceof Error ? error.message : String(error)}`,
-            });
-          },
+        const meta = yield* scanMarkdownIndex({
+          dir,
+          fileName: PERSONA_DEFINITION_FILENAME,
+          depth: 2,
+          parse: (data, defDir) => parsePersonaFrontmatter(data, defDir, source),
         }).pipe(
-          Effect.catchAll((err) =>
+          Effect.catchAll((err: Error) =>
             Effect.gen(function* () {
-              // If it's a permission error, log and return empty instead of failing
-              if (err.reason.startsWith("Permission denied")) {
-                const loggerOpt = yield* Effect.serviceOption(LoggerServiceTag);
-                if (Option.isSome(loggerOpt)) {
-                  yield* loggerOpt.value.warn(err.reason);
-                }
-                return [] as string[];
+              const loggerOpt = yield* Effect.serviceOption(LoggerServiceTag);
+              if (Option.isSome(loggerOpt)) {
+                yield* loggerOpt.value.warn(`Failed to scan personas in ${dir}: ${err.message}`);
               }
-              return yield* Effect.fail(err);
+              return [] as PersonaMetadata[];
             }),
           ),
         );
 
-        const jsonFiles = files.filter((f) => f.endsWith(".json"));
         const personas: Persona[] = [];
-
-        for (const file of jsonFiles) {
-          const id = file.replace(".json", "");
-          const filePath = path.join(dir, file);
-          const persona = yield* this.readPersonaFile(filePath, id).pipe(
-            Effect.catchAll((err) =>
+        for (const m of meta) {
+          if (excludeSummarizer && m.name === "summarizer") continue;
+          const persona = yield* this.loadPersonaFromFile(
+            m.path,
+            source === "builtin" ? `builtin-${m.name}` : m.name,
+          ).pipe(
+            Effect.catchAll((err: StorageError | StorageNotFoundError) =>
               Effect.gen(function* () {
                 const loggerOpt = yield* Effect.serviceOption(LoggerServiceTag);
                 if (Option.isSome(loggerOpt)) {
-                  const errorMsg =
+                  const msg =
                     "reason" in err && typeof (err as { reason?: string }).reason === "string"
                       ? (err as { reason: string }).reason
-                      : "message" in err &&
-                          typeof (err as { message?: string }).message === "string"
-                        ? (err as { message: string }).message
-                        : String(err);
-                  yield* loggerOpt.value.warn(`Persona file failed to parse, skipping: ${file}`, {
-                    filename: file,
-                    path: filePath,
-                    error: errorMsg,
+                      : String(err);
+                  yield* loggerOpt.value.warn(`Persona file failed to load, skipping: ${m.path}`, {
+                    path: m.path,
+                    error: msg,
                   });
                 }
                 return null;
               }),
             ),
           );
-          if (persona) {
-            personas.push(persona);
-          }
+          if (persona) personas.push(persona);
         }
-
         return personas;
       }.bind(this),
     );
   }
 
-  /**
-   * List only custom (user-created) personas from all persona directories.
-   * In dev mode this scans both {cwd}/.jazz/personas/ and ~/.jazz/personas/,
-   * deduplicating by name (local takes precedence over global).
-   */
   private listCustomPersonas(): Effect.Effect<readonly Persona[], StorageError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
-        // Ensure the primary (local) dir exists
         yield* Effect.tryPromise({
-          try: () => this.ensureDir(),
+          try: () => this.ensurePersonasDir(),
           catch: (error) =>
             new StorageError({
               operation: "mkdir",
-              path: this.getPersonasDir(),
+              path: this.getCustomPersonasDir(),
               reason: `Failed to create personas directory: ${error instanceof Error ? error.message : String(error)}`,
             }),
         });
 
-        const dirs = this.getAllPersonasDirs();
-        const seenNames = new Set<string>();
-        const personas: Persona[] = [];
+        const customDir = this.getCustomPersonasDir();
+        const dirExists = yield* Effect.tryPromise({
+          try: () => fs.access(customDir).then(() => true),
+          catch: () => new Error("access failed"),
+        }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+        if (!dirExists) return [];
 
-        for (const dir of dirs) {
-          const dirPersonas = yield* this.readPersonasFromDir(dir);
-          for (const persona of dirPersonas) {
-            const key = persona.name.toLowerCase();
-            if (!seenNames.has(key)) {
-              seenNames.add(key);
-              personas.push(persona);
-            }
-          }
-        }
-
-        return personas;
+        return yield* this.listPersonasFromDir(customDir, "custom", false);
       }.bind(this),
     );
   }
 
-  /**
-   * List all personas: built-in first, then custom.
-   */
   listPersonas(): Effect.Effect<readonly Persona[], StorageError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
+        const seenNames = new Set<string>();
+        const result: Persona[] = [];
+
+        // 1. Built-in personas (excluding summarizer)
+        const builtinDir = getBuiltinPersonasDirectory();
+        if (builtinDir) {
+          const builtinPersonas = yield* this.listPersonasFromDir(builtinDir, "builtin", true);
+          for (const p of builtinPersonas) {
+            seenNames.add(p.name.toLowerCase());
+            result.push(p);
+          }
+        }
+
+        // 2. Custom personas (override built-in by name)
         const custom = yield* this.listCustomPersonas();
-        return [...BUILTIN_PERSONAS, ...custom];
+        for (const p of custom) {
+          const key = p.name.toLowerCase();
+          if (seenNames.has(key)) {
+            const idx = result.findIndex((r) => r.name.toLowerCase() === key);
+            if (idx >= 0) result[idx] = p;
+          } else {
+            seenNames.add(key);
+            result.push(p);
+          }
+        }
+
+        return result;
       }.bind(this),
     );
   }
@@ -479,7 +438,7 @@ export class PersonaServiceImpl implements PersonaService {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
         // Prevent editing built-in personas
-        if (BUILTIN_PERSONAS.some((p) => p.id === id)) {
+        if (isBuiltinPersonaId(id)) {
           return yield* Effect.fail(
             new StorageError({
               operation: "update",
@@ -490,6 +449,7 @@ export class PersonaServiceImpl implements PersonaService {
         }
 
         const existing = yield* this.getPersona(id);
+        const currentDir = this.getPersonaDir(existing.name);
 
         if (updates.name !== undefined && updates.name !== existing.name) {
           yield* validatePersonaName(updates.name);
@@ -525,7 +485,7 @@ export class PersonaServiceImpl implements PersonaService {
 
         const updated: Persona = {
           ...existing,
-          ...(updates.name !== undefined && { name: updates.name }),
+          ...(updates.name !== undefined && { name: updates.name, id: updates.name }),
           ...(updates.description !== undefined && { description: updates.description }),
           ...(updates.systemPrompt !== undefined && { systemPrompt: updates.systemPrompt }),
           ...(updates.tone !== undefined && { tone: updates.tone }),
@@ -533,13 +493,37 @@ export class PersonaServiceImpl implements PersonaService {
           updatedAt: new Date(),
         };
 
+        const newDir = this.getPersonaDir(updated.name);
+        const escapeYaml = (s: string) =>
+          s.includes("\n") || s.includes('"') || s.includes(":")
+            ? `"${s.replace(/"/g, '\\"')}"`
+            : s;
+        const frontmatter = `---
+name: ${escapeYaml(updated.name)}
+description: ${escapeYaml(updated.description)}
+${updated.tone ? `tone: ${escapeYaml(updated.tone)}` : ""}
+${updated.style ? `style: ${escapeYaml(updated.style)}` : ""}
+createdAt: "${updated.createdAt.toISOString()}"
+updatedAt: "${updated.updatedAt.toISOString()}"
+---
+
+`;
+        const content = frontmatter + updated.systemPrompt;
+
         yield* Effect.tryPromise({
-          try: () =>
-            fs.writeFile(this.getPersonaPath(id), JSON.stringify(updated, null, 2), "utf-8"),
+          try: async () => {
+            if (newDir !== currentDir) {
+              await fs.mkdir(newDir, { recursive: true });
+              await fs.writeFile(path.join(newDir, PERSONA_DEFINITION_FILENAME), content, "utf-8");
+              await fs.rm(currentDir, { recursive: true });
+            } else {
+              await fs.writeFile(path.join(newDir, PERSONA_DEFINITION_FILENAME), content, "utf-8");
+            }
+          },
           catch: (error) =>
             new StorageError({
               operation: "write",
-              path: this.getPersonaPath(id),
+              path: newDir,
               reason: `Failed to update persona: ${error instanceof Error ? error.message : String(error)}`,
             }),
         });
@@ -553,7 +537,7 @@ export class PersonaServiceImpl implements PersonaService {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
         // Prevent deleting built-in personas
-        if (BUILTIN_PERSONAS.some((p) => p.id === id)) {
+        if (isBuiltinPersonaId(id)) {
           return yield* Effect.fail(
             new StorageError({
               operation: "delete",
@@ -563,15 +547,15 @@ export class PersonaServiceImpl implements PersonaService {
           );
         }
 
-        // Verify it exists first
-        yield* this.getPersona(id);
+        const existing = yield* this.getPersona(id);
+        const personaDir = this.getPersonaDir(existing.name);
 
         yield* Effect.tryPromise({
-          try: () => fs.unlink(this.getPersonaPath(id)),
+          try: () => fs.rm(personaDir, { recursive: true }),
           catch: (error) =>
             new StorageError({
               operation: "delete",
-              path: this.getPersonaPath(id),
+              path: personaDir,
               reason: `Failed to delete persona: ${error instanceof Error ? error.message : String(error)}`,
             }),
         });
@@ -584,19 +568,11 @@ export class PersonaServiceImpl implements PersonaService {
   ): Effect.Effect<Persona, StorageError | PersonaNotFoundError | StorageNotFoundError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
-        // Check built-in personas by name first (most common lookup)
-        const builtinByName = BUILTIN_PERSONAS.find(
-          (p) => p.name.toLowerCase() === identifier.toLowerCase(),
-        );
-        if (builtinByName) return builtinByName;
-
-        // Try by ID (custom persona file)
         const byId = yield* this.getPersona(identifier).pipe(
           Effect.catchTag("StorageNotFoundError", () => Effect.succeed(null)),
         );
         if (byId) return byId;
 
-        // Fall back to name lookup among custom personas
         return yield* this.getPersonaByName(identifier);
       }.bind(this),
     );

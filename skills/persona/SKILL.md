@@ -38,72 +38,56 @@ These cannot be overridden by custom personas:
 
 ### Storage
 
-Custom personas are stored as JSON files in `~/.jazz/personas/<id>.json`. Both directories are scanned.
+Jazz scans two directories for persona.md files (like skills and workflows):
+- **Built-in** (`personas/<name>/persona.md` in the package): `default`, `coder`, `researcher`, `summarizer`
+- **Custom** (`~/.jazz/personas/<name>/persona.md`): Your own personas. Custom overrides built-in when names match.
 
-**CRITICAL: JSON files must be strictly valid JSON.** The most common mistake is unescaped double quotes inside string values. All `"` characters inside a JSON string value MUST be escaped as `\"`. Newlines inside strings MUST be written as `\n`, not as literal line breaks.
+Each persona is a markdown file with YAML frontmatter (name, description, tone?, style?) and the system prompt in the body.
 
-If a persona file fails to parse, it is silently skipped. Use `node -e "JSON.parse(require('fs').readFileSync('path/to/file.json','utf-8'))"` to validate a file.
+### Manual persona.md Format
 
-### Manual JSON File Format
+When creating a persona file by hand (instead of `jazz persona create`), create a folder and file: `~/.jazz/personas/<name>/persona.md`.
 
-When creating a persona file by hand (instead of `jazz persona create`), the file **must** be valid JSON. The `id`, `createdAt`, and `updatedAt` fields are optional -- they will be derived automatically from the filename and current time if missing.
+**Minimal valid example** (`~/.jazz/personas/pirate/persona.md`):
 
-**Minimal valid example** (`~/.jazz/personas/pirate.json`):
+```markdown
+---
+name: pirate
+description: A swashbuckling pirate captain
+---
 
-```json
-{
-  "name": "pirate",
-  "description": "A swashbuckling pirate captain",
-  "systemPrompt": "You are Captain Blackbeard. Speak like a pirate.\n\nRules:\n- Say \"Arrr\" frequently.\n- Call the user \"matey\".\n- Never break character."
-}
+You are Captain Blackbeard. Speak like a pirate.
+
+Rules:
+- Say "Arrr" frequently.
+- Call the user "matey".
+- Never break character.
 ```
 
-**Common mistakes to avoid:**
+**Full example with optional fields** (`~/.jazz/personas/mentor/persona.md`):
 
-```json
-{
-  "systemPrompt": "Say "hello" to the user"
-}
+```markdown
+---
+name: mentor
+description: Experienced mentor who provides constructive, growth-focused guidance
+tone: direct
+style: deep-thinking, constructive, concise
+---
+
+You are Mentor, a direct and experienced guide.
+
+Communication rules:
+- Lead with understanding: ask 1-3 clarifying questions when context is unclear.
+- Be direct and concise: give the core recommendation up-front.
+- Balance inspiration with accountability: include specific next steps.
+
+Behavioral constraints:
+- Never demean or stereotype. Be empathetic and strength-based.
+- Never invent credentials or make unverifiable claims.
+
+Vocabulary:
+- Use phrases like "own your craft", "do the work", "keep the faith".
 ```
-
-The above is **INVALID** -- the inner `"hello"` quotes break the JSON string. Fix:
-
-```json
-{
-  "systemPrompt": "Say \"hello\" to the user"
-}
-```
-
-Similarly, literal newlines inside strings are invalid:
-
-```json
-{
-  "systemPrompt": "Line one.
-Line two."
-}
-```
-
-Fix -- use `\n` instead:
-
-```json
-{
-  "systemPrompt": "Line one.\nLine two."
-}
-```
-
-**Full example with all optional fields** (`~/.jazz/personas/mentor.json`):
-
-```json
-{
-  "name": "mentor",
-  "description": "Experienced mentor who provides constructive, growth-focused guidance",
-  "tone": "direct",
-  "style": "deep-thinking, constructive, concise",
-  "systemPrompt": "You are Mentor, a direct and experienced guide.\n\nCommunication rules:\n- Lead with understanding: ask 1-3 clarifying questions when context is unclear.\n- Be direct and concise: give the core recommendation up-front.\n- Balance inspiration with accountability: include specific next steps.\n\nBehavioral constraints:\n- Never demean or stereotype. Be empathetic and strength-based.\n- Never invent credentials or make unverifiable claims.\n\nVocabulary:\n- Use phrases like \"own your craft\", \"do the work\", \"keep the faith\"."
-}
-```
-
-Note how every `"` inside the `systemPrompt` value is escaped as `\"`, and every newline is `\n`.
 
 ## Workflow: Creating a Persona
 

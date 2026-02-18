@@ -3,11 +3,8 @@ import * as os from "os";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
-import { CODER_PROMPT } from "./prompts/coder/system";
 import { DEFAULT_PROMPT } from "./prompts/default/system";
-import { RESEARCHER_PROMPT } from "./prompts/researcher/system";
 import { SKILLS_INSTRUCTIONS } from "./prompts/shared";
-import { SUMMARIZER_PROMPT } from "./prompts/summarizer/system";
 
 export interface AgentPersona {
   readonly name: string;
@@ -30,38 +27,12 @@ export interface AgentPromptOptions {
   }[];
 }
 
-/**
- * Built-in personas with hardcoded system prompts.
- * Custom personas are resolved via PersonaService at runtime.
- */
-const BUILTIN_PERSONAS: Record<string, AgentPersona> = {
-  default: {
-    name: "Default Agent",
-    description: "A general-purpose agent that can assist with various tasks.",
-    systemPrompt: DEFAULT_PROMPT,
-    userPromptTemplate: "{userInput}",
-  },
-  coder: {
-    name: "Coder Agent",
-    description:
-      "An expert software engineer and architect specialized in code analysis, debugging, and implementation with deep context awareness.",
-    systemPrompt: CODER_PROMPT,
-    userPromptTemplate: "{userInput}",
-  },
-  researcher: {
-    name: "Researcher Agent",
-    description:
-      "A meticulous researcher and scientist specialized in deep exploration, source synthesis, and evidence-backed conclusions.",
-    systemPrompt: RESEARCHER_PROMPT,
-    userPromptTemplate: "{userInput}",
-  },
-  summarizer: {
-    name: "Summarizer Agent",
-    description:
-      "An agent specialized in compressing conversation history while maintaining semantic fidelity.",
-    systemPrompt: SUMMARIZER_PROMPT,
-    userPromptTemplate: "{userInput}",
-  },
+/** Fallback when PersonaService is unavailable or persona cannot be resolved. */
+const FALLBACK_DEFAULT: AgentPersona = {
+  name: "Default Agent",
+  description: "A general-purpose agent that can assist with various tasks.",
+  systemPrompt: DEFAULT_PROMPT,
+  userPromptTemplate: "{userInput}",
 };
 
 export class AgentPromptBuilder {
@@ -128,11 +99,8 @@ export class AgentPromptBuilder {
   }
 
   /**
-   * Resolve a persona by name. Checks built-in personas first, then falls back
-   * to loading a custom persona from PersonaService (if provided).
-   *
-   * For custom personas, a wrapper AgentPersona is created using the stored
-   * system prompt from .jazz/personas/.
+   * Resolve a persona by name. Loads from PersonaService (both built-in and custom).
+   * Built-in personas live in package personas/; custom in ~/.jazz/personas/.
    */
   resolvePersona(
     name: string,
@@ -140,35 +108,29 @@ export class AgentPromptBuilder {
   ): Effect.Effect<AgentPersona, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
-        // Check built-in personas first
-        const builtin = BUILTIN_PERSONAS[name];
-        if (builtin) return builtin;
-
-        // Try to load custom persona from PersonaService
         if (personaService) {
-          const customPersona = yield* personaService
+          const persona = yield* personaService
             .getPersonaByIdentifier(name)
             .pipe(Effect.catchAll(() => Effect.succeed(null)));
 
-          if (customPersona && customPersona.systemPrompt) {
+          if (persona && persona.systemPrompt) {
             return {
-              name: customPersona.name,
-              description: customPersona.description,
-              systemPrompt: customPersona.systemPrompt,
+              name: persona.name,
+              description: persona.description,
+              systemPrompt: persona.systemPrompt,
               userPromptTemplate: "{userInput}",
             } satisfies AgentPersona;
           }
         }
 
-        // Fall back to default persona
-        return BUILTIN_PERSONAS["default"]!;
+        // Fall back to default when PersonaService unavailable or persona not found
+        return FALLBACK_DEFAULT;
       }.bind(this),
     );
   }
 
   /**
-   * Get a persona by name (built-in only, for backward compatibility).
-   * For full resolution including custom personas, use resolvePersona().
+   * Get a persona by name. For full resolution including custom personas, use resolvePersona().
    */
   getPersona(name: string): Effect.Effect<AgentPersona, Error> {
     return this.resolvePersona(name);
@@ -179,7 +141,7 @@ export class AgentPromptBuilder {
    * Does NOT include custom personas or the internal "summarizer".
    */
   listBuiltinPersonas(): Effect.Effect<readonly string[], never> {
-    return Effect.succeed(Object.keys(BUILTIN_PERSONAS).filter((name) => name !== "summarizer"));
+    return Effect.succeed(["default", "coder", "researcher"]);
   }
 
   /**

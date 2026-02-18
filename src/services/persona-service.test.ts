@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, unlinkSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
@@ -29,7 +29,7 @@ describe("PersonaService", () => {
     const personasDir = join(tempDir, "personas");
     try {
       for (const f of readdirSync(personasDir)) {
-        if (f.endsWith(".json")) unlinkSync(join(personasDir, f));
+        rmSync(join(personasDir, f), { recursive: true, force: true });
       }
     } catch {
       // Dir may not exist yet
