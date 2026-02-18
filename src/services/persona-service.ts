@@ -19,6 +19,17 @@ import { getBuiltinPersonasDirectory } from "@/core/utils/runtime-detection";
 const PERSONA_DEFINITION_FILENAME = "persona.md" as const;
 
 /**
+ * Escapes a string for use as a YAML double-quoted scalar.
+ * Only quotes strings that contain newlines, double quotes, or colons.
+ * When quoting: escapes backslashes first (\\), then double quotes (").
+ */
+function escapeYaml(s: string): string {
+  return s.includes("\n") || s.includes('"') || s.includes(":")
+    ? `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+    : s;
+}
+
+/**
  * Names reserved for built-in personas.
  * Users cannot create custom personas with these names.
  */
@@ -190,10 +201,6 @@ export class PersonaServiceImpl implements PersonaService {
 
         const now = new Date();
         const personaDir = this.getPersonaDir(input.name);
-        const escapeYaml = (s: string) =>
-          s.includes("\n") || s.includes('"') || s.includes(":")
-            ? `"${s.replace(/"/g, '\\"')}"`
-            : s;
         const frontmatter = `---
 name: ${escapeYaml(input.name)}
 description: ${escapeYaml(input.description)}
@@ -494,10 +501,6 @@ updatedAt: "${now.toISOString()}"
         };
 
         const newDir = this.getPersonaDir(updated.name);
-        const escapeYaml = (s: string) =>
-          s.includes("\n") || s.includes('"') || s.includes(":")
-            ? `"${s.replace(/"/g, '\\"')}"`
-            : s;
         const frontmatter = `---
 name: ${escapeYaml(updated.name)}
 description: ${escapeYaml(updated.description)}
