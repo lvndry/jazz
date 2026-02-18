@@ -54,8 +54,7 @@ const FILE_PATH_REGEX =
 /** Matches absolute paths with optional :line or :line:col. Excludes URLs (no // or ://). */
 const FILE_PATH_LINE_REGEX =
   /(?<![:\w/])(\/(?!\/)(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+:\d+(?::\d+)?|~(?:[/a-zA-Z0-9._-]+)+:\d+(?::\d+)?)/g;
-/** Matches bare URLs: https?:// or www. (common in agent output) */
-const BARE_URL_REGEX = /(https?:\/\/[^\s<>"{}|\\^`[\]]+|www\.[^\s<>"{}|\\^`[\]]+)/g;
+const BARE_URL_REGEX = /(?<!\]\()(https?:\/\/[^\s<>"{}|\\^`[\]]+|www\.[^\s<>"{}|\\^`[\]]+)/g;
 const CODE_BLOCK_EXTRACT_REGEX = /```[\s\S]*?```/g;
 const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;
 const EMOJI_SHORTCODE_REGEX = /:([A-Za-z0-9_\-+]+?):/g;
