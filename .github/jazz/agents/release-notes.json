@@ -4,7 +4,7 @@
   "description": "Release notes generator agent",
   "model": "openai/gpt-5.2-codex",
   "config": {
-    "agentType": "coder",
+    "persona": "coder",
     "llmProvider": "openai",
     "llmModel": "gpt-5.2-codex",
     "reasoningEffort": "medium",

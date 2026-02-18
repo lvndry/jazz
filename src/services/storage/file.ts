@@ -123,13 +123,7 @@ export class FileStorageService implements StorageService {
         const { tools: _existingTools, ...configWithoutTools } = rawData.config;
         void _existingTools;
 
-        // Migration: map legacy "agentType" field to "persona"
         const rawConfig = configWithoutTools as Record<string, unknown>;
-        if ("agentType" in rawConfig && !("persona" in rawConfig)) {
-          rawConfig["persona"] = rawConfig["agentType"];
-        }
-        delete rawConfig["agentType"];
-        // Ensure persona has a value
         if (!rawConfig["persona"]) {
           rawConfig["persona"] = "default";
         }
