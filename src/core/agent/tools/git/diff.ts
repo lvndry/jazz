@@ -18,6 +18,16 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
       staged: z.boolean().optional().describe("Show staged changes"),
       branch: z.string().optional().describe("Compare with branch"),
       commit: z.string().optional().describe("Compare with commit"),
+      paths: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Scope diff to specific files (e.g. ['src/foo.ts', 'docs/bar.md']). Omit for full repo diff.",
+        ),
+      nameOnly: z
+        .boolean()
+        .optional()
+        .describe("If true, return only the list of changed file paths (git diff --name-only)."),
       maxLines: z
         .number()
         .int()
@@ -64,6 +74,9 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
         }
 
         const diffArgs: string[] = ["diff", "--no-color"];
+        if (args?.nameOnly) {
+          diffArgs.push("--name-only");
+        }
         if (args?.staged) {
           diffArgs.push("--staged");
         }
@@ -71,6 +84,9 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
           diffArgs.push(args.branch);
         } else if (args?.commit) {
           diffArgs.push(args.commit);
+        }
+        if (args?.paths && args.paths.length > 0) {
+          diffArgs.push("--", ...args.paths);
         }
 
         // Catch spawn errors (e.g., git not found, invalid cwd)
@@ -106,17 +122,31 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
           };
         }
 
-        const trimmedDiff = gitResult.stdout.trimEnd();
-        const hasChanges = trimmedDiff.length > 0;
+        const trimmedOutput = gitResult.stdout.trimEnd();
+
+        if (args?.nameOnly) {
+          const paths = trimmedOutput ? trimmedOutput.split("\n").filter((p) => p.length > 0) : [];
+          return {
+            success: true,
+            result: {
+              workingDirectory: workingDir,
+              paths,
+              nameOnly: true,
+              count: paths.length,
+            },
+          };
+        }
+
+        const hasChanges = trimmedOutput.length > 0;
         const requestedMaxLines = args.maxLines ?? 500;
         const maxLines = Math.min(requestedMaxLines, 2000);
-        let diff = trimmedDiff;
+        let diff = trimmedOutput;
         let truncated = false;
         let totalLines = 0;
         let returnedLines = 0;
 
         if (hasChanges) {
-          const lines = trimmedDiff.split("\n");
+          const lines = trimmedOutput.split("\n");
           totalLines = lines.length;
           if (lines.length > maxLines) {
             diff = lines.slice(0, maxLines).join("\n");
@@ -131,6 +161,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
           success: true,
           result: {
             workingDirectory: workingDir,
+            paths: args?.paths ?? null,
             diff: diff || "No differences",
             hasChanges,
             truncated,
@@ -140,6 +171,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
               staged: args.staged ?? false,
               branch: args.branch,
               commit: args.commit,
+              paths: args?.paths ?? undefined,
               maxLines,
             },
           },

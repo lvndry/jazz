@@ -203,8 +203,32 @@ export function formatToolArguments(
       if (!limitStr) return "";
       return usePlain ? `{ limit: ${limitStr} }` : formatKeyValue("limit", limitStr);
     }
-    case "git_diff":
-      return "";
+    case "git_diff": {
+      const parts: string[] = [];
+      if (args["nameOnly"] === true) {
+        parts.push(usePlain ? "nameOnly: true" : formatKeyValue("nameOnly", "true"));
+      }
+      const commit = safeString(args["commit"]);
+      if (commit) {
+        parts.push(usePlain ? `commit: ${commit}` : formatKeyValue("commit", commit));
+      }
+      const paths = args["paths"];
+      if (Array.isArray(paths) && paths.length > 0) {
+        const pathsStr = paths.map((p) => (typeof p === "string" ? p : String(p))).join(", ");
+        const display =
+          paths.length <= 3
+            ? pathsStr
+            : `${paths.slice(0, 3).join(", ")} +${paths.length - 3} more`;
+        parts.push(usePlain ? `paths: [${display}]` : formatKeyValue("paths", `[${display}]`));
+      }
+      const maxLines = args["maxLines"];
+      if (typeof maxLines === "number") {
+        parts.push(
+          usePlain ? `maxLines: ${maxLines}` : formatKeyValue("maxLines", String(maxLines)),
+        );
+      }
+      return formatParts(parts);
+    }
     case "git_commit": {
       const message = safeString(args["message"]);
       if (!message) return "";
@@ -321,6 +345,28 @@ export function formatToolResult(toolName: string, result: string): string {
         const commits = obj["commits"] || obj;
         const count = Array.isArray(commits) ? commits.length : 0;
         return count > 0 ? ` ${chalk.dim(`(${count} commit${count !== 1 ? "s" : ""})`)}` : "";
+      }
+      case "git_diff": {
+        const parts: string[] = [];
+        const paths = obj["paths"];
+        const nameOnly = obj["nameOnly"] === true;
+        if (Array.isArray(paths) && paths.length > 0) {
+          parts.push(chalk.cyan(`${paths.length} file${paths.length !== 1 ? "s" : ""}`));
+          if (nameOnly) {
+            parts.push(chalk.dim("(names only)"));
+          }
+        }
+        const truncated = obj["truncated"];
+        if (truncated === true) {
+          parts.push(chalk.yellow("truncated"));
+        }
+        const hasChanges = obj["hasChanges"];
+        if (hasChanges === false && !nameOnly) {
+          parts.push(chalk.dim("no diff"));
+        }
+        return parts.length > 0
+          ? ` ${chalk.dim("(")}${parts.join(chalk.dim(", "))}${chalk.dim(")")}`
+          : "";
       }
       case "grep": {
         const matches = obj["matches"] || obj;

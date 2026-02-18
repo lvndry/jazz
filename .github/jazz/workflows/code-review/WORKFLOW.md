@@ -14,7 +14,9 @@ Review the changes in this pull request.
 
 To get the diff, use the `git_diff` tool with `commit` set to `__PR_BASE_SHA__...__PR_HEAD_SHA__`.
 
-If the diff is large or truncated, re-run scoped to individual files using the `path` parameter.
+**Workflow for all PRs**:
+1. **Get the file list first**: Call `git_diff` with `commit` and `nameOnly: true`. This returns `paths` — the full list of changed files in the PR.
+2. **Get the diff content**: If the PR is small (few files, <~500 lines total), call `git_diff` with just `commit` to get the full diff. If large, call `git_diff` with `commit` and `paths` set to batches of 5–10 files at a time. Review each batch and aggregate your feedback.
 
 Use the `code-review` skill for the full review checklist. This review is the single gate for PR quality—catch bugs (logic errors, null dereferences, race conditions, regressions), error-handling gaps, and security issues as part of your review.
 
