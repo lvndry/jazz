@@ -856,9 +856,10 @@ class InkPresentationService implements PresentationService {
         store.setPrompt(null);
         const userMessage = typeof input === "string" ? input.trim() : "";
         if (userMessage) {
+          const rawMsg = `${followUpMessage} ${CHALK_THEME.success(userMessage)}`;
           store.printOutput({
             type: "log",
-            message: `${followUpMessage} ${CHALK_THEME.success(userMessage)}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
         }
@@ -927,7 +928,10 @@ class InkPresentationService implements PresentationService {
     });
     store.printOutput({
       type: "log",
-      message: `${CHALK_THEME.primary("❓")} ${chalk.bold(request.question)}`,
+      message: wrapToWidth(
+        `${CHALK_THEME.primary("❓")} ${chalk.bold(request.question)}`,
+        getTerminalWidth() - 8,
+      ),
       timestamp: new Date(),
     });
     store.printOutput({
@@ -947,9 +951,11 @@ class InkPresentationService implements PresentationService {
       },
       resolve: (value: unknown) => {
         const response = String(value);
+        const rawMessage = `${chalk.dim("Your response:")} ${CHALK_THEME.success(response)}`;
+        const available = getTerminalWidth() - 8;
         store.printOutput({
           type: "log",
-          message: `${chalk.dim("Your response:")} ${CHALK_THEME.success(response)}`,
+          message: wrapToWidth(rawMessage, available),
           timestamp: new Date(),
         });
         store.setPrompt(null);
@@ -997,9 +1003,10 @@ class InkPresentationService implements PresentationService {
         },
         resolve: (value: unknown) => {
           const selectedPath = String(value);
+          const rawMsg = `${chalk.dim("Selected:")} ${CHALK_THEME.success(selectedPath)}`;
           store.printOutput({
             type: "log",
-            message: `${chalk.dim("Selected:")} ${CHALK_THEME.success(selectedPath)}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
           store.setPrompt(null);

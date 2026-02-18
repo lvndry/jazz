@@ -284,9 +284,10 @@ export class InkTerminalService implements TerminalService {
           store.setPrompt(null);
           // find label for log
           const choice = choices.find((c) => c.value === val);
+          const rawMsg = `${message} ${chalk.green(choice?.label ?? "")}`;
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.green(choice?.label ?? "")}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as T));
@@ -312,9 +313,10 @@ export class InkTerminalService implements TerminalService {
         options: { defaultValue },
         resolve: (val: unknown) => {
           store.setPrompt(null);
+          const rawMsg = `${message} ${chalk.green(val ? "Yes" : "No")}`;
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.green(val ? "Yes" : "No")}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as boolean));
@@ -344,9 +346,10 @@ export class InkTerminalService implements TerminalService {
           store.setPrompt(null);
           // Find label for log
           const choice = choices.find((c) => c.value === val);
+          const rawMsg = `${message} ${chalk.green(choice?.label ?? "")}`;
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.green(choice?.label ?? "")}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as T));
@@ -394,9 +397,10 @@ export class InkTerminalService implements TerminalService {
             .filter(Boolean)
             .join(", ");
 
+          const rawMsg = `${message} ${chalk.green(`[${selectedLabels}]`)}`;
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.green(`[${selectedLabels}]`)}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as readonly T[]));
