@@ -105,11 +105,18 @@ export class AgentPromptBuilder {
 
   /**
    * Compute a cache key for system prompt based on inputs that affect the output.
+   * Includes the persona's system prompt content so edits to custom personas
+   * are reflected immediately without waiting for a process restart.
    * Includes date string to invalidate daily (since prompts include current date).
    */
-  private computeSystemPromptCacheKey(personaName: string, options: AgentPromptOptions): string {
+  private computeSystemPromptCacheKey(
+    personaName: string,
+    options: AgentPromptOptions,
+    personaSystemPrompt: string,
+  ): string {
     const hash = createHash("md5");
     hash.update(personaName);
+    hash.update(personaSystemPrompt);
     hash.update(options.agentName);
     hash.update(options.agentDescription);
     if (options.knownSkills && options.knownSkills.length > 0) {
@@ -185,12 +192,17 @@ export class AgentPromptBuilder {
   ): Effect.Effect<string, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
-        // Check cache first
-        const cacheKey = this.computeSystemPromptCacheKey(personaName, options);
+        // Resolve persona first so its content is included in the cache key.
+        // This ensures edits to custom personas invalidate the cache immediately.
+        const persona = yield* this.resolvePersona(personaName, personaService);
+
+        const cacheKey = this.computeSystemPromptCacheKey(
+          personaName,
+          options,
+          persona.systemPrompt,
+        );
         const cached = this.systemPromptCache.get(cacheKey);
         if (cached) return cached;
-
-        const persona = yield* this.resolvePersona(personaName, personaService);
         const { currentDate, osInfo, shell, hostname, username, homeDirectory } =
           yield* this.getSystemInfo();
 

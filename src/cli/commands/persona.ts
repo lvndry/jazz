@@ -9,7 +9,7 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "@/core/types/errors";
-import { isBuiltinPersona } from "@/services/persona-service";
+import { isBuiltinPersona, isBuiltinPersonaId } from "@/services/persona-service";
 
 /**
  * CLI commands for managing custom personas
@@ -53,7 +53,10 @@ export function createPersonaCommand(): Effect.Effect<
       simple: true,
     });
 
-    if (!name || name.trim().length === 0) return;
+    if (!name || name.trim().length === 0) {
+      yield* terminal.info("Persona creation cancelled.");
+      return;
+    }
 
     // Step 2: Description
     const description = yield* terminal.ask(
@@ -68,7 +71,10 @@ export function createPersonaCommand(): Effect.Effect<
       },
     );
 
-    if (!description || description.trim().length === 0) return;
+    if (!description || description.trim().length === 0) {
+      yield* terminal.info("Persona creation cancelled.");
+      return;
+    }
 
     // Step 3: System prompt
     yield* terminal.log("");
@@ -89,7 +95,10 @@ export function createPersonaCommand(): Effect.Effect<
       simple: true,
     });
 
-    if (!systemPrompt || systemPrompt.trim().length === 0) return;
+    if (!systemPrompt || systemPrompt.trim().length === 0) {
+      yield* terminal.info("Persona creation cancelled.");
+      return;
+    }
 
     // Step 4: Optional tone
     const tone = yield* terminal.ask("Tone (optional, e.g., sarcastic, formal, friendly):", {
@@ -148,7 +157,7 @@ export function listPersonasCommand(): Effect.Effect<
     yield* terminal.log("");
 
     for (const persona of personas) {
-      const isBuiltin = persona.id.startsWith("builtin-");
+      const isBuiltin = isBuiltinPersonaId(persona.id);
       const tag = isBuiltin ? chalk.dim(" (built-in)") : chalk.green(" (custom)");
       const nameDisplay = chalk.bold(persona.name) + tag;
 
@@ -191,7 +200,7 @@ export function showPersonaCommand(
 
     const persona = yield* personaService.getPersonaByIdentifier(identifier);
 
-    const isBuiltin = persona.id.startsWith("builtin-");
+    const isBuiltin = isBuiltinPersonaId(persona.id);
 
     yield* terminal.heading(`Persona: ${persona.name}`);
     yield* terminal.log("");
@@ -241,7 +250,7 @@ export function editPersonaCommand(
 
     const persona = yield* personaService.getPersonaByIdentifier(identifier);
 
-    if (persona.id.startsWith("builtin-")) {
+    if (isBuiltinPersonaId(persona.id)) {
       yield* terminal.error("Built-in personas cannot be edited. Create a custom persona instead.");
       return;
     }
@@ -315,15 +324,21 @@ export function editPersonaCommand(
         defaultValue: persona.tone || "",
         simple: true,
       });
-      updatedTone = newTone?.trim() || undefined;
-      hasChanges = true;
+      const trimmedTone = newTone?.trim() || undefined;
+      if (trimmedTone !== (persona.tone || undefined)) {
+        updatedTone = trimmedTone;
+        hasChanges = true;
+      }
     } else if (field === "style") {
       const newStyle = yield* terminal.ask(`New style (current: ${persona.style || "none"}):`, {
         defaultValue: persona.style || "",
         simple: true,
       });
-      updatedStyle = newStyle?.trim() || undefined;
-      hasChanges = true;
+      const trimmedStyle = newStyle?.trim() || undefined;
+      if (trimmedStyle !== (persona.style || undefined)) {
+        updatedStyle = trimmedStyle;
+        hasChanges = true;
+      }
     }
 
     if (!hasChanges) {
@@ -360,7 +375,7 @@ export function deletePersonaCommand(
 
     const persona = yield* personaService.getPersonaByIdentifier(identifier);
 
-    if (persona.id.startsWith("builtin-")) {
+    if (isBuiltinPersonaId(persona.id)) {
       yield* terminal.error("Built-in personas cannot be deleted.");
       return;
     }

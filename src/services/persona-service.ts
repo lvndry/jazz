@@ -79,6 +79,13 @@ export function isBuiltinPersona(name: string): boolean {
 }
 
 /**
+ * Check if a persona ID belongs to a built-in persona.
+ */
+export function isBuiltinPersonaId(id: string): boolean {
+  return id.startsWith("builtin-");
+}
+
+/**
  * Options for PersonaServiceImpl construction.
  * @internal Used for testing; production uses default from getUserDataDirectory().
  */
@@ -336,13 +343,42 @@ export class PersonaServiceImpl implements PersonaService {
 
         const files = yield* Effect.tryPromise({
           try: () => fs.readdir(dir),
-          catch: (error) =>
-            new StorageError({
+          catch: (error) => {
+            // Treat permission errors as non-fatal for secondary directories
+            // (e.g. global ~/.jazz/personas/ may have restrictive permissions)
+            if (
+              error instanceof Error &&
+              "code" in error &&
+              ((error as NodeJS.ErrnoException).code === "EACCES" ||
+                (error as NodeJS.ErrnoException).code === "EPERM")
+            ) {
+              return new StorageError({
+                operation: "list",
+                path: dir,
+                reason: `Permission denied reading personas directory: ${dir}`,
+              });
+            }
+            return new StorageError({
               operation: "list",
               path: dir,
               reason: `Failed to list personas: ${error instanceof Error ? error.message : String(error)}`,
+            });
+          },
+        }).pipe(
+          Effect.catchAll((err) =>
+            Effect.gen(function* () {
+              // If it's a permission error, log and return empty instead of failing
+              if (err.reason.startsWith("Permission denied")) {
+                const loggerOpt = yield* Effect.serviceOption(LoggerServiceTag);
+                if (Option.isSome(loggerOpt)) {
+                  yield* loggerOpt.value.warn(err.reason);
+                }
+                return [] as string[];
+              }
+              return yield* Effect.fail(err);
             }),
-        });
+          ),
+        );
 
         const jsonFiles = files.filter((f) => f.endsWith(".json"));
         const personas: Persona[] = [];
@@ -455,7 +491,7 @@ export class PersonaServiceImpl implements PersonaService {
 
         const existing = yield* this.getPersona(id);
 
-        if (updates.name && updates.name !== existing.name) {
+        if (updates.name !== undefined && updates.name !== existing.name) {
           yield* validatePersonaName(updates.name);
 
           if (isBuiltinPersona(updates.name)) {
@@ -480,18 +516,18 @@ export class PersonaServiceImpl implements PersonaService {
             );
           }
         }
-        if (updates.description) {
+        if (updates.description !== undefined) {
           yield* validatePersonaDescription(updates.description);
         }
-        if (updates.systemPrompt) {
+        if (updates.systemPrompt !== undefined) {
           yield* validatePersonaSystemPrompt(updates.systemPrompt);
         }
 
         const updated: Persona = {
           ...existing,
-          ...(updates.name && { name: updates.name }),
-          ...(updates.description && { description: updates.description }),
-          ...(updates.systemPrompt && { systemPrompt: updates.systemPrompt }),
+          ...(updates.name !== undefined && { name: updates.name }),
+          ...(updates.description !== undefined && { description: updates.description }),
+          ...(updates.systemPrompt !== undefined && { systemPrompt: updates.systemPrompt }),
           ...(updates.tone !== undefined && { tone: updates.tone }),
           ...(updates.style !== undefined && { style: updates.style }),
           updatedAt: new Date(),
