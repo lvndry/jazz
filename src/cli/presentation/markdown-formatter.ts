@@ -1,3 +1,6 @@
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import chalk from "chalk";
 import { emojify } from "node-emoji";
 import wrapAnsi from "wrap-ansi";
@@ -45,6 +48,14 @@ const TASK_LIST_REGEX = /^\s*-\s+\[([ xX])\]\s+(.+)$/gm;
 const HORIZONTAL_RULE_REGEX = /^\s*([-*_]){3,}\s*$/gm;
 // eslint-disable-next-line no-control-regex
 const LINK_REGEX = /(?<!\u001b)\[([^\]]+)\]\(([^)]+)\)/g;
+/** Matches bare file/folder paths: absolute, ~/home, or word/word. Excludes URLs (no // or ://). */
+const FILE_PATH_REGEX =
+  /(?<![:\w/])(\/(?!\/)(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]*|~(?:[/a-zA-Z0-9._-]+)+|(?:\.\.?\/)?(?:[a-zA-Z0-9._-]+\/)+[a-zA-Z0-9._-]*)/g;
+/** Matches absolute paths with optional :line or :line:col. Excludes URLs (no // or ://). */
+const FILE_PATH_LINE_REGEX =
+  /(?<![:\w/])(\/(?!\/)(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+:\d+(?::\d+)?|~(?:[/a-zA-Z0-9._-]+)+:\d+(?::\d+)?)/g;
+/** Matches bare URLs: https?:// or www. (common in agent output) */
+const BARE_URL_REGEX = /(https?:\/\/[^\s<>"{}|\\^`[\]]+|www\.[^\s<>"{}|\\^`[\]]+)/g;
 const CODE_BLOCK_EXTRACT_REGEX = /```[\s\S]*?```/g;
 const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;
 const EMOJI_SHORTCODE_REGEX = /:([A-Za-z0-9_\-+]+?):/g;
@@ -291,6 +302,35 @@ export function formatHorizontalRules(text: string, terminalWidth: number = 80):
 }
 
 /**
+ * Format bare URLs as clickable OSC 8 terminal hyperlinks (rendered mode).
+ */
+export function formatBareUrls(text: string): string {
+  return text.replace(BARE_URL_REGEX, (match: string) => {
+    const url = match.startsWith("www.") ? `https://${match}` : match;
+    return terminalHyperlink(CHALK_THEME.link(match), url);
+  });
+}
+
+/**
+ * Format bare file/folder paths as links (rendered mode).
+ * Only adds OSC 8 hyperlink for absolute or ~/ paths.
+ */
+export function formatFilePaths(text: string): string {
+  let result = text;
+  result = result.replace(FILE_PATH_LINE_REGEX, (match: string) => {
+    const url = pathWithLineToFileUrl(match);
+    const styled = CHALK_THEME.link(match);
+    return url ? terminalHyperlink(styled, url) : styled;
+  });
+  result = result.replace(FILE_PATH_REGEX, (match: string) => {
+    const url = pathToFileUrl(match);
+    const styled = CHALK_THEME.link(match);
+    return url ? terminalHyperlink(styled, url) : styled;
+  });
+  return result;
+}
+
+/**
  * Format markdown links as clickable OSC 8 terminal hyperlinks.
  * The URL is embedded as metadata so the link stays clickable even when text wraps.
  */
@@ -401,6 +441,8 @@ export function applyProgressiveFormatting(text: string, state: StreamingState):
   formatted = formatTaskLists(formatted);
   formatted = formatLists(formatted);
   formatted = formatHorizontalRules(formatted);
+  formatted = formatBareUrls(formatted);
+  formatted = formatFilePaths(formatted);
   formatted = formatLinks(formatted);
 
   return { formatted, state: currentState };
@@ -447,6 +489,8 @@ export function formatMarkdown(text: string): string {
   formatted = formatStrikethrough(formatted);
   formatted = formatBold(formatted);
   formatted = formatItalic(formatted);
+  formatted = formatBareUrls(formatted);
+  formatted = formatFilePaths(formatted);
   formatted = formatLinks(formatted);
 
   // Restore inline code - use simple string replace since placeholders are unique
@@ -564,12 +608,77 @@ export function formatStrikethroughHybrid(text: string): string {
 }
 
 /**
- * Format links in hybrid mode — shows [text](url) with both parts styled,
- * wrapped in an OSC 8 hyperlink so the entire thing is clickable.
+ * Convert a path string to a file:// URL for terminal hyperlinks.
+ * Returns null for relative paths (not clickable — impossible to resolve at click time).
+ */
+function pathToFileUrl(pathStr: string): string | null {
+  if (pathStr.startsWith("~/") || pathStr === "~") {
+    const resolved = path.join(os.homedir(), pathStr.slice(1));
+    return pathToFileURL(resolved).href;
+  }
+  if (path.isAbsolute(pathStr)) {
+    return pathToFileURL(pathStr).href;
+  }
+  return null;
+}
+
+/**
+ * Parse file:line or file:line:col and return file URL with line/col if present.
+ */
+function pathWithLineToFileUrl(match: string): string | null {
+  const lineColMatch = match.match(/:(\d+)(?::(\d+))?$/);
+  if (!lineColMatch) return pathToFileUrl(match);
+  const pathPart = match.slice(0, match.indexOf(":" + lineColMatch[1]!));
+  const line = lineColMatch[1]!;
+  const col = lineColMatch[2];
+  const url = pathToFileUrl(pathPart);
+  if (!url) return null;
+  return col ? `${url}:${line}:${col}` : `${url}:${line}`;
+}
+
+function styleAsLink(text: string): string {
+  return chalk.italic(CHALK_THEME.link(text));
+}
+
+/**
+ * Format bare file/folder paths in hybrid mode — styled as links.
+ * Only adds OSC 8 hyperlink for absolute or ~/ paths (relative are impossible to click).
+ */
+function formatFilePathsHybrid(text: string): string {
+  let result = text;
+  // File:line first (absolute only) — more specific
+  result = result.replace(FILE_PATH_LINE_REGEX, (match: string) => {
+    const url = pathWithLineToFileUrl(match);
+    const styled = styleAsLink(match);
+    return url ? terminalHyperlink(styled, url) : styled;
+  });
+  // Plain paths
+  result = result.replace(FILE_PATH_REGEX, (match: string) => {
+    const url = pathToFileUrl(match);
+    const styled = styleAsLink(match);
+    return url ? terminalHyperlink(styled, url) : styled;
+  });
+  return result;
+}
+
+/**
+ * Format bare URLs in hybrid mode — styled as links and wrapped in OSC 8 hyperlinks.
+ */
+function formatBareUrlsHybrid(text: string): string {
+  return text.replace(BARE_URL_REGEX, (match: string) => {
+    const url = match.startsWith("www.") ? `https://${match}` : match;
+    return terminalHyperlink(styleAsLink(match), url);
+  });
+}
+
+/**
+ * Format links in hybrid mode — shows [text](url) with both parts styled
+ * (link text: underline + italic), wrapped in an OSC 8 hyperlink so the
+ * entire thing is clickable.
  */
 export function formatLinksHybrid(text: string): string {
   return text.replace(LINK_REGEX, (_match: string, linkText: string, url: string) =>
-    terminalHyperlink(`[${CHALK_THEME.link(linkText)}](${chalk.dim(url)})`, url),
+    terminalHyperlink(`[${chalk.italic(CHALK_THEME.link(linkText))}](${chalk.dim(url)})`, url),
   );
 }
 
@@ -633,6 +742,8 @@ export function formatMarkdownHybrid(text: string): string {
   formatted = formatStrikethroughHybrid(formatted);
   formatted = formatBoldHybrid(formatted);
   formatted = formatItalicHybrid(formatted);
+  formatted = formatBareUrlsHybrid(formatted);
+  formatted = formatFilePathsHybrid(formatted);
   formatted = formatLinksHybrid(formatted);
 
   // Restore inline code with hybrid formatting (keeps backticks)

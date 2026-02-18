@@ -116,6 +116,31 @@ describe("markdown-formatter", () => {
     });
   });
 
+  describe("file paths in formatMarkdownHybrid", () => {
+    it("should style absolute paths as clickable links", () => {
+      const input = "Check /Users/me/project/src for more info.";
+      const result = formatMarkdownHybrid(input);
+      expect(result).toContain("\x1b]8;;");
+      expect(result).toContain("file://");
+    });
+
+    it("should not add hyperlink for relative paths (impossible to resolve at click time)", () => {
+      const input = "Check the folder src/cli/presentation for more info.";
+      const result = formatMarkdownHybrid(input);
+      // Relative paths are not wrapped in OSC 8 — only absolute/~/ paths are clickable
+      expect(result).not.toContain("\x1b]8;;");
+    });
+  });
+
+  describe("bare URLs in formatMarkdownHybrid", () => {
+    it("should style bare URLs as clickable links", () => {
+      const input = "See https://example.com for more.";
+      const result = formatMarkdownHybrid(input);
+      expect(result).toContain("\x1b]8;;");
+      expect(result).toContain("https://example.com");
+    });
+  });
+
   describe("formatInlineCode", () => {
     it("should replace backtick-wrapped code with styled output", () => {
       const input = "Use `console.log` to debug";

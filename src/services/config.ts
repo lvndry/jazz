@@ -7,6 +7,7 @@ import type {
   GoogleConfig,
   LLMConfig,
   LoggingConfig,
+  MCPServerConfig,
   StorageConfig,
   WebSearchConfig,
 } from "@/core/types/index";
@@ -103,8 +104,8 @@ export function createConfigLayer(
       const baseConfig = defaultConfig();
       const fileConfig = loaded.fileConfig ?? undefined;
 
-      // Override logging level to debug if --debug flag is set
-      const finalConfig = debug
+      // Merge main config (base + file)
+      const mainConfig = debug
         ? mergeConfig(baseConfig, {
             ...fileConfig,
             logging: {
@@ -114,6 +115,10 @@ export function createConfigLayer(
             },
           })
         : mergeConfig(baseConfig, fileConfig);
+
+      // Merge .agents/mcp.json (user ~/.agents, then project .agents) - project overrides user
+      const agentsMcp = yield* loadAgentsMcpConfig(fs);
+      const finalConfig = mergeConfig(mainConfig, agentsMcp);
 
       return new AgentConfigServiceImpl(finalConfig, loaded.configPath, fs);
     }),
@@ -316,6 +321,52 @@ function loadConfigFile(
     }
 
     return {};
+  });
+}
+
+/**
+ * Load MCP servers from .agents/mcp.json (project and user-level).
+ * Follows the .agents convention for project-scoped agent config.
+ * Merge order: user ~/.agents/mcp.json first, then project .agents/mcp.json (project overrides).
+ */
+function loadAgentsMcpConfig(fs: FileSystem.FileSystem): Effect.Effect<Partial<AppConfig>, never> {
+  return Effect.gen(function* () {
+    const candidates: readonly string[] = [
+      `${expandHome("~/.agents")}/mcp.json`,
+      `${process.cwd()}/.agents/mcp.json`,
+    ];
+
+    let merged: Record<string, unknown> = {};
+
+    for (const filePath of candidates) {
+      const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
+      if (!exists) continue;
+
+      const content = yield* fs
+        .readFileString(filePath)
+        .pipe(Effect.catchAll(() => Effect.succeed("")));
+      if (!content.trim()) continue;
+
+      const parsed = safeParseJson<unknown>(content);
+      if (Option.isNone(parsed)) continue;
+
+      const obj = parsed.value;
+      if (typeof obj !== "object" || obj === null) continue;
+
+      // Support both { "mcpServers": {...} } and direct { "serverName": {...} }
+      const record = obj as Record<string, unknown>;
+      const servers =
+        "mcpServers" in record && typeof record["mcpServers"] === "object"
+          ? (record["mcpServers"] as Record<string, unknown>)
+          : obj;
+
+      if (servers && typeof servers === "object") {
+        merged = { ...merged, ...servers };
+      }
+    }
+
+    if (Object.keys(merged).length === 0) return {};
+    return { mcpServers: merged as Record<string, MCPServerConfig> };
   });
 }
 
