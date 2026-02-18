@@ -20,6 +20,8 @@ export function parseSpecialCommand(input: string): SpecialCommand {
   switch (command) {
     case "new":
       return { type: "new", args };
+    case "fork":
+      return { type: "fork", args };
     case "help":
       return { type: "help", args };
     case "clear":

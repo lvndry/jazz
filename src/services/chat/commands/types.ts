@@ -7,6 +7,7 @@ import type { AutoApprovePolicy } from "@/core/types/tools";
  */
 export type CommandType =
   | "new"
+  | "fork"
   | "help"
   | "clear"
   | "tools"

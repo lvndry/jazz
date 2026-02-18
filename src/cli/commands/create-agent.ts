@@ -4,7 +4,6 @@ import Spinner from "ink-spinner";
 import React from "react";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
-import { agentPromptBuilder } from "@/core/agent/agent-prompt";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
   createCategoryMappings,
@@ -22,6 +21,7 @@ import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-serv
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@/core/interfaces/mcp-server";
+import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import {
@@ -87,7 +87,7 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
 interface AIAgentCreationAnswers {
   name: string;
   description?: string;
-  agentType: string;
+  persona: string;
   llmProvider: ProviderName;
   llmModel: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
@@ -111,6 +111,7 @@ export function createAgentCommand(): Effect.Effect<
   | AgentConfigService
   | MCPServerManager
   | LoggerService
+  | PersonaService
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -122,7 +123,9 @@ export function createAgentCommand(): Effect.Effect<
     const configService = yield* AgentConfigServiceTag;
     const toolRegistry = yield* ToolRegistryTag;
 
-    const agentTypes = yield* agentPromptBuilder.listPersonas();
+    const personaService = yield* PersonaServiceTag;
+    const allPersonas = yield* personaService.listPersonas();
+    const personaNames = allPersonas.map((p) => p.name);
     let toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
     const mcpServerData = yield* getMCPServerCategories();
@@ -142,7 +145,7 @@ export function createAgentCommand(): Effect.Effect<
     const agentAnswers = yield* Effect.tryPromise({
       try: () =>
         promptForAgentInfo(
-          agentTypes,
+          personaNames,
           toolsByCategory,
           llmService,
           configService,
@@ -291,7 +294,7 @@ export function createAgentCommand(): Effect.Effect<
 
     // Build agent configuration
     const config: AgentConfig = {
-      agentType: agentAnswers.agentType,
+      persona: agentAnswers.persona,
       llmProvider: agentAnswers.llmProvider,
       llmModel: selectedModel,
       ...(agentAnswers.reasoningEffort && { reasoningEffort: agentAnswers.reasoningEffort }),
@@ -312,7 +315,7 @@ export function createAgentCommand(): Effect.Effect<
     if (agent.description) {
       yield* terminal.log(`   Description: ${agent.description}`);
     }
-    yield* terminal.log(`   Type: ${config.agentType}`);
+    yield* terminal.log(`   Persona: ${config.persona}`);
     yield* terminal.log(`   LLM Provider: ${formatProviderDisplayName(config.llmProvider)}`);
     yield* terminal.log(`   LLM Model: ${config.llmModel}`);
     yield* terminal.log(`   Reasoning: ${config.reasoningEffort}`);
@@ -333,7 +336,7 @@ type WizardStep =
   | "provider"
   | "model"
   | "reasoning"
-  | "agentType"
+  | "persona"
   | "name"
   | "description"
   | "tools"
@@ -348,7 +351,7 @@ interface WizardState {
   llmProvider?: ProviderName;
   llmModel?: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
-  agentType?: string;
+  persona?: string;
   name?: string;
   description?: string;
   tools?: string[];
@@ -366,7 +369,7 @@ interface WizardState {
  * State is preserved when navigating backward.
  */
 async function promptForAgentInfo(
-  agentTypes: readonly string[],
+  personaNames: readonly string[],
   toolsByCategory: Record<string, readonly string[]>,
   llmService: LLMService,
   configService: AgentConfigService,
@@ -481,7 +484,7 @@ async function promptForAgentInfo(
         state.isReasoningModel = selectedModel?.isReasoningModel ?? false;
         state.supportsTools = selectedModel?.supportsTools ?? false;
 
-        state.step = state.isReasoningModel ? "reasoning" : "agentType";
+        state.step = state.isReasoningModel ? "reasoning" : "persona";
         break;
       }
 
@@ -513,18 +516,18 @@ async function promptForAgentInfo(
         }
 
         state.reasoningEffort = result;
-        state.step = "agentType";
+        state.step = "persona";
         break;
       }
 
       // ═══════════════════════════════════════════════════════════════════════
-      // STEP 4: Agent Type
+      // STEP 4: Persona Selection
       // ═══════════════════════════════════════════════════════════════════════
-      case "agentType": {
+      case "persona": {
         const result = await Effect.runPromise(
           terminal.select<string>(`What persona should the agent have? ${hint}`, {
-            choices: agentTypes,
-            default: state.agentType ?? "default",
+            choices: personaNames,
+            default: state.persona ?? "default",
           }),
         );
 
@@ -533,7 +536,7 @@ async function promptForAgentInfo(
           break;
         }
 
-        state.agentType = result;
+        state.persona = result;
         state.step = "name";
         break;
       }
@@ -573,12 +576,12 @@ async function promptForAgentInfo(
 
         // ESC pressed - go back
         if (result === undefined) {
-          state.step = "agentType";
+          state.step = "persona";
           break;
         }
 
         state.name = result;
-        state.step = state.agentType === "default" ? "description" : "tools";
+        state.step = state.persona === "default" ? "description" : "tools";
         break;
       }
 
@@ -627,7 +630,7 @@ async function promptForAgentInfo(
       // STEP 7: Tool Selection
       // ═══════════════════════════════════════════════════════════════════════
       case "tools": {
-        const currentPredefinedAgent = PREDEFINED_AGENTS[state.agentType!];
+        const currentPredefinedAgent = PREDEFINED_AGENTS[state.persona!];
 
         if (!state.supportsTools) {
           // Model doesn't support tools - show warning and proceed
@@ -737,7 +740,7 @@ async function promptForAgentInfo(
         }
 
         if (shouldGoBack) {
-          state.step = state.agentType === "default" ? "description" : "name";
+          state.step = state.persona === "default" ? "description" : "name";
           break;
         }
 
@@ -748,7 +751,7 @@ async function promptForAgentInfo(
   }
 
   // Build final answer object
-  const currentPredefinedAgent = PREDEFINED_AGENTS[state.agentType!];
+  const currentPredefinedAgent = PREDEFINED_AGENTS[state.persona!];
   const finalTools = state.supportsTools
     ? currentPredefinedAgent
       ? currentPredefinedAgent.toolCategoryIds
@@ -761,7 +764,7 @@ async function promptForAgentInfo(
     llmProvider: state.llmProvider!,
     llmModel: state.llmModel!,
     ...(state.reasoningEffort && { reasoningEffort: state.reasoningEffort }),
-    agentType: state.agentType!,
+    persona: state.persona!,
     name: state.name!,
     ...(state.description && { description: state.description }),
     tools: finalTools,

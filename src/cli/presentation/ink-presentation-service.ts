@@ -228,15 +228,18 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * Print the full response text to Static as a single entry.
    * All text was in the live area during streaming; now it moves to Static
    * so it persists after the live area clears.
+   *
+   * Prefer event.response.content over liveText: the stream processor's
+   * accumulated text is the authoritative full response. liveText can be
+   * truncated (MAX_LIVE_TEXT_LENGTH cap) or cleared when text_start fires
+   * again after mid-stream tool calls, losing the beginning of the response.
    */
   private printFinalResponse(event: Extract<StreamEvent, { type: "complete" }>): void {
     const wasStreaming = this.acc.lastAgentHeaderWritten;
+    const fullContent = event.response.content?.trim() ?? "";
+    const liveContent = this.acc.liveText.trim();
     const finalText =
-      this.acc.liveText.trim().length > 0
-        ? this.acc.liveText
-        : event.response.content.trim().length > 0
-          ? event.response.content
-          : "";
+      fullContent.length > 0 ? fullContent : liveContent.length > 0 ? liveContent : "";
     const formattedFinalText = this.formatMarkdown(finalText);
 
     if (formattedFinalText.length === 0) return;
@@ -853,9 +856,10 @@ class InkPresentationService implements PresentationService {
         store.setPrompt(null);
         const userMessage = typeof input === "string" ? input.trim() : "";
         if (userMessage) {
+          const rawMsg = `${followUpMessage} ${CHALK_THEME.success(userMessage)}`;
           store.printOutput({
             type: "log",
-            message: `${followUpMessage} ${CHALK_THEME.success(userMessage)}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
         }
@@ -924,7 +928,10 @@ class InkPresentationService implements PresentationService {
     });
     store.printOutput({
       type: "log",
-      message: `${CHALK_THEME.primary("❓")} ${chalk.bold(request.question)}`,
+      message: wrapToWidth(
+        `${CHALK_THEME.primary("❓")} ${chalk.bold(request.question)}`,
+        getTerminalWidth() - 8,
+      ),
       timestamp: new Date(),
     });
     store.printOutput({
@@ -944,9 +951,11 @@ class InkPresentationService implements PresentationService {
       },
       resolve: (value: unknown) => {
         const response = String(value);
+        const rawMessage = `${chalk.dim("Your response:")} ${CHALK_THEME.success(response)}`;
+        const available = getTerminalWidth() - 8;
         store.printOutput({
           type: "log",
-          message: `${chalk.dim("Your response:")} ${CHALK_THEME.success(response)}`,
+          message: wrapToWidth(rawMessage, available),
           timestamp: new Date(),
         });
         store.setPrompt(null);
@@ -994,9 +1003,10 @@ class InkPresentationService implements PresentationService {
         },
         resolve: (value: unknown) => {
           const selectedPath = String(value);
+          const rawMsg = `${chalk.dim("Selected:")} ${CHALK_THEME.success(selectedPath)}`;
           store.printOutput({
             type: "log",
-            message: `${chalk.dim("Selected:")} ${CHALK_THEME.success(selectedPath)}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
           store.setPrompt(null);

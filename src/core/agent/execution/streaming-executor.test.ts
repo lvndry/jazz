@@ -95,7 +95,7 @@ describe("executeWithStreaming", () => {
         id: "agent-1",
         name: "test-agent",
         config: {
-          agentType: "default",
+          persona: "default",
           llmModel: "gpt-4",
           llmProvider: "openai",
           reasoningEffort: "medium",
@@ -293,7 +293,7 @@ describe("executeWithStreaming", () => {
         id: "agent-1",
         name: "test-agent",
         config: {
-          agentType: "default",
+          persona: "default",
           llmModel: "gpt-4",
           llmProvider: "openai",
           reasoningEffort: "medium",

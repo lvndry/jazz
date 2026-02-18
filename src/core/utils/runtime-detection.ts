@@ -21,6 +21,7 @@ import { Effect } from "effect";
  *   - `getUserDataDirectory()` - Returns ~/.jazz (prod) or ./.jazz (dev)
  *   - `getPackageRootDirectory()` - The jazz-ai package installation directory
  *   - `getBuiltinSkillsDirectory()` - Where built-in skills are stored
+ *   - `getBuiltinPersonasDirectory()` - Where built-in personas are stored
  *
  * ## Environment Detection
  *   - `isRunningFromGlobalInstall()` - Is Jazz installed globally?
@@ -158,6 +159,30 @@ export function getAgentsSkillsDirectory(): string {
  * @returns Workflows directory path, or null if not found
  *
  */
+/**
+ * Get the directory containing built-in personas shipped with Jazz.
+ *
+ * Built-in personas are located in `personas/<name>/persona.md` within the Jazz package.
+ * These are read-only personas (default, coder, researcher, summarizer) that provide
+ * core agent behaviors. Custom personas live in ~/.jazz/personas/ and override
+ * built-ins when names conflict.
+ *
+ * @returns Built-in personas directory path, or null if not found
+ */
+export function getBuiltinPersonasDirectory(): string | null {
+  const packageDir = getPackageRootDirectory();
+  if (!packageDir) {
+    return null;
+  }
+
+  const personasDir = path.join(packageDir, "personas");
+  if (fs.existsSync(personasDir) && fs.statSync(personasDir).isDirectory()) {
+    return personasDir;
+  }
+
+  return null;
+}
+
 export function getBuiltinWorkflowsDirectory(): string | null {
   const packageDir = getPackageRootDirectory();
   if (!packageDir) {

@@ -4,7 +4,7 @@ Workflows let you automate recurring tasks by scheduling agents to run at specif
 
 ## Quick Start
 
-**💡 Tip**: Use the `create-workflow` skill to generate workflows interactively. Just ask your agent: *"Create a workflow to clean my email every hour"* and it will guide you through the process.
+**💡 Tip**: Use the `create-workflow` skill to generate workflows interactively. Just ask your agent: _"Create a workflow to clean my email every hour"_ and it will guide you through the process.
 
 ### 1. Create a Workflow
 
@@ -90,6 +90,7 @@ Auto-approve policies control which tools can execute without user confirmation 
 | `true`             | Same as `high-risk`                                                    | Fully trusted automation   |
 
 **Safety Note**: Tools are categorized by risk level:
+
 - **Read-only**: `web_search`, `read_file`, `list_emails`, `get_calendar`
 - **Low-risk**: `archive_email`, `create_calendar_event`, `label_email`
 - **High-risk**: `delete_file`, `send_email`, `execute_command`, `git_push`
@@ -212,6 +213,7 @@ skills:
 # Email Cleanup
 
 Review my inbox from the last hour and archive:
+
 - Newsletters older than 2 weeks
 - Promotional emails older than 3 days
 - GitHub notifications I've already seen
@@ -302,11 +304,13 @@ View logs: `~/.jazz/logs/<workflow-name>.log`
 **Scheduled workflows only run if your computer is powered on and awake at the scheduled time.**
 
 If your computer is closed, asleep, or off when a workflow is scheduled:
+
 - ❌ The workflow will NOT run at that time
 - ✅ It WILL run at the next scheduled time (if computer is awake)
 - ✅ You can enable catch-up on startup (see below)
 
 **Solutions:**
+
 1. **Keep your computer awake** during times when workflows should run
 2. **Run Jazz on an always-on device** (Raspberry Pi, server, cloud VM)
 3. **Schedule workflows** when you know your computer will be on
@@ -319,7 +323,7 @@ Enable catch-up to prompt for missed workflows when Jazz starts:
 ```yaml
 ---
 catchUpOnStartup: true
-maxCatchUpAge: 43200  # seconds (12 hours)
+maxCatchUpAge: 43200 # seconds (12 hours)
 ---
 ```
 
@@ -336,6 +340,7 @@ Every workflow execution is tracked:
 - **Schedule metadata**: `~/.jazz/schedules/<workflow-name>.json`
 
 View history with:
+
 ```bash
 jazz workflow history
 ```
@@ -349,8 +354,10 @@ Use `autoApprove: read-only` for research/monitoring workflows, then increase to
 ### 2. Be Explicit About Safety
 
 Include safety guidelines in your workflow prompt:
+
 ```markdown
 **Safety Rules:**
+
 - When in doubt, DO NOTHING
 - Only perform actions you're 100% confident about
 - Leave uncertain items for manual review
@@ -359,6 +366,7 @@ Include safety guidelines in your workflow prompt:
 ### 3. Test Manually First
 
 Before scheduling, run the workflow manually to verify it works:
+
 ```bash
 jazz workflow run my-workflow
 ```
@@ -366,6 +374,7 @@ jazz workflow run my-workflow
 ### 4. Choose the Right Agent
 
 Different workflows may need different agents:
+
 - Research workflows → agent with strong reasoning
 - Email management → agent with email tools enabled
 - Code tasks → agent with filesystem and git tools
@@ -373,6 +382,7 @@ Different workflows may need different agents:
 ### 5. Monitor Logs
 
 Check logs after scheduled runs to ensure everything works:
+
 ```bash
 tail -f ~/.jazz/logs/email-cleanup.log
 ```
@@ -401,6 +411,7 @@ jazz workflow schedule my-workflow
 ### Workflow Asks for Approval Despite autoApprove
 
 Make sure you're using `--auto-approve` when running manually:
+
 ```bash
 jazz workflow run my-workflow --auto-approve
 ```
@@ -425,6 +436,7 @@ jazz
 ```
 
 The skill will:
+
 1. Ask clarifying questions (schedule, safety level, output location)
 2. Generate the complete `WORKFLOW.md` file
 3. Suggest next steps (testing, scheduling)
@@ -482,6 +494,7 @@ Break complex workflows into clear steps:
 ## What's Next
 
 Future enhancements planned:
+
 - **File triggers**: Run workflows when files change
 - **Webhook triggers**: HTTP endpoints to trigger workflows
 - **Workflow dependencies**: Chain workflows together
@@ -493,6 +506,7 @@ See [`TODO.md`](../TODO.md) for the full roadmap.
 ## Examples
 
 See the `workflows/` directory for complete examples:
+
 - [`workflows/email-cleanup/`](../workflows/email-cleanup/WORKFLOW.md) - Hourly email management
 - [`workflows/weather-briefing/`](../workflows/weather-briefing/WORKFLOW.md) - Morning weather check
 - [`workflows/tech-digest/`](../workflows/tech-digest/WORKFLOW.md) - Daily AI/tech news digest

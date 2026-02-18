@@ -27,6 +27,18 @@ Review code against structured checklists for correctness, security, performance
 6. **Prioritize**: Critical → must fix; Suggestion → consider; Nice-to-have → optional
 7. **Respond**: Summary + categorized comments + concrete suggestions + what was done well
 
+## Using git_diff Efficiently
+
+The `git_diff` tool truncates large diffs (default 500 lines). For PRs with many files or 1k+ lines of changes:
+
+1. **Get the file list first**: Call `git_diff` with `commit` (e.g. `main...HEAD`) and `nameOnly: true`. You receive `paths` — the full list of changed files.
+2. **Fetch content by batch**:
+   - **Small PR** (few files, under ~500 lines total): Call `git_diff` with just `commit` for the full diff.
+   - **Large PR**: Call `git_diff` with `commit` and `paths` set to 5–10 files per batch (e.g. `paths: ["src/foo.ts", "src/bar.ts"]`). Use `maxLines: 2000` if batches are large. Iterate until you've reviewed all files.
+3. **Prioritize**: Review highest-risk areas first (auth, input handling, external calls). Security-sensitive files warrant extra attention.
+
+Don't assume a single `git_diff` call shows everything. If the result says `truncated` or you only see a few files, use the batched workflow above.
+
 ## Review Checklist
 
 ### Correctness & Logic

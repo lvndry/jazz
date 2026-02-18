@@ -1,9 +1,10 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
+import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
@@ -51,7 +52,7 @@ function initializeAgentRun(
 
     const actualConversationId = conversationId || `${Date.now()}`;
     const history: ChatMessage[] = options.conversationHistory || [];
-    const agentType = agent.config.agentType;
+    const persona = agent.config.persona;
     const provider: ProviderName = agent.config.llmProvider;
     const model = agent.config.llmModel;
 
@@ -104,7 +105,7 @@ function initializeAgentRun(
     ] as const;
 
     const BUILT_IN_TOOLS = (() => {
-      switch (agentType) {
+      switch (persona) {
         case "summarizer":
           return [];
         default:
@@ -143,15 +144,24 @@ function initializeAgentRun(
     }
 
     // Build messages
-    const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(agentType, {
-      agentName: agent.name,
-      agentDescription: agent.description || "",
-      userInput,
-      conversationHistory: history,
-      toolNames: expandedToolNames,
-      availableTools,
-      knownSkills: relevantSkills,
-    });
+    // Build messages — pass PersonaService so custom personas can be resolved
+    const personaServiceOption = yield* Effect.serviceOption(PersonaServiceTag);
+    const resolvedPersonaService: PersonaService | undefined = Option.isSome(personaServiceOption)
+      ? personaServiceOption.value
+      : undefined;
+    const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
+      persona,
+      {
+        agentName: agent.name,
+        agentDescription: agent.description || "",
+        userInput,
+        conversationHistory: history,
+        toolNames: expandedToolNames,
+        availableTools,
+        knownSkills: relevantSkills,
+      },
+      resolvedPersonaService,
+    );
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,

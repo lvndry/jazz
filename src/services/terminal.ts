@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { Effect, Layer } from "effect";
 import { render } from "ink";
 import React from "react";
+import { wrapToWidth, getTerminalWidth } from "@/cli/presentation/markdown-formatter";
 import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { store } from "@/cli/ui/store";
@@ -14,6 +15,21 @@ import {
 
 // Singleton guard to prevent accidental double instantiation
 let instanceExists = false;
+
+/**
+ * Ink render options for the terminal UI.
+ *
+ * IMPORTANT: Do NOT enable `incrementalRendering`. It causes Ink's Yoga
+ * layout engine to miscompute available widths, which:
+ *   1. Breaks interactive select/wizard prompts (arrow keys emit newlines)
+ *   2. Aggressively truncates multi-line ANSI content (diffs disappear)
+ *
+ * Exported for testability — see terminal.test.ts regression tests.
+ */
+export const INK_RENDER_OPTIONS = {
+  patchConsole: false,
+  exitOnCtrlC: false,
+} as const;
 
 /**
  * Ink-based Terminal Service Implementation
@@ -37,10 +53,10 @@ export class InkTerminalService implements TerminalService {
     // patchConsole: false prevents Ink from intercepting console.* methods,
     // which can cause flickering when external code writes to console during renders
     // Wrap App with InputProvider to provide the input service context
-    this.inkInstance = render(React.createElement(InputProvider, null, React.createElement(App)), {
-      patchConsole: false,
-      exitOnCtrlC: false,
-    });
+    this.inkInstance = render(
+      React.createElement(InputProvider, null, React.createElement(App)),
+      INK_RENDER_OPTIONS,
+    );
     instanceExists = true;
   }
 
@@ -183,9 +199,14 @@ export class InkTerminalService implements TerminalService {
           // The Prompt component validates before calling resolve, so we can trust the input
           const inputValue = String(val);
           store.setPrompt(null);
+          // Pre-wrap user message to fit terminal width, consistent with how
+          // agent responses are pre-wrapped. The offset accounts for App paddingX=3
+          // (6 chars) + the "›" icon + space (2 chars) = 8 chars total.
+          const rawMessage = `${message} ${chalk.green(inputValue)}`;
+          const available = getTerminalWidth() - 8;
           store.printOutput({
             type: "user",
-            message: `${message} ${chalk.green(inputValue)}`,
+            message: wrapToWidth(rawMessage, available),
             timestamp: new Date(),
           });
           resume(Effect.succeed(inputValue));
@@ -263,9 +284,10 @@ export class InkTerminalService implements TerminalService {
           store.setPrompt(null);
           // find label for log
           const choice = choices.find((c) => c.value === val);
+          const rawMsg = `${message} ${chalk.green(choice?.label ?? "")}`;
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.green(choice?.label ?? "")}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as T));
@@ -291,9 +313,10 @@ export class InkTerminalService implements TerminalService {
         options: { defaultValue },
         resolve: (val: unknown) => {
           store.setPrompt(null);
+          const rawMsg = `${message} ${chalk.green(val ? "Yes" : "No")}`;
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.green(val ? "Yes" : "No")}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as boolean));
@@ -323,9 +346,10 @@ export class InkTerminalService implements TerminalService {
           store.setPrompt(null);
           // Find label for log
           const choice = choices.find((c) => c.value === val);
+          const rawMsg = `${message} ${chalk.green(choice?.label ?? "")}`;
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.green(choice?.label ?? "")}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as T));
@@ -373,9 +397,10 @@ export class InkTerminalService implements TerminalService {
             .filter(Boolean)
             .join(", ");
 
+          const rawMsg = `${message} ${chalk.green(`[${selectedLabels}]`)}`;
           store.printOutput({
             type: "log",
-            message: `${message} ${chalk.green(`[${selectedLabels}]`)}`,
+            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
             timestamp: new Date(),
           });
           resume(Effect.succeed(val as readonly T[]));

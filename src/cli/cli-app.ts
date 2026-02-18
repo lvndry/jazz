@@ -18,6 +18,13 @@ import {
   enableMcpServerCommand,
   disableMcpServerCommand,
 } from "./commands/mcp";
+import {
+  createPersonaCommand,
+  listPersonasCommand,
+  showPersonaCommand,
+  editPersonaCommand,
+  deletePersonaCommand,
+} from "./commands/persona";
 import { updateCommand } from "./commands/update";
 import { wizardCommand } from "./commands/wizard";
 import {
@@ -235,6 +242,49 @@ function registerMCPCommands(program: Command): void {
 }
 
 /**
+ * Register persona-related commands
+ */
+function registerPersonaCommands(program: Command): void {
+  const personaCommand = program.command("persona").description("Manage personas");
+
+  const run = <R, E extends Error>(effect: Effect.Effect<void, E, R>) => {
+    const opts = program.opts<CliOptions>();
+    runCliEffect(effect, {
+      verbose: opts.verbose,
+      debug: opts.debug,
+      configPath: opts.config,
+    });
+  };
+
+  personaCommand
+    .command("create")
+    .description("Create a new custom persona (interactive)")
+    .action(() => run(createPersonaCommand()));
+
+  personaCommand
+    .command("list")
+    .alias("ls")
+    .description("List all personas (built-in + custom)")
+    .action(() => run(listPersonasCommand()));
+
+  personaCommand
+    .command("show <identifier>")
+    .description("Show details of a persona by name or ID")
+    .action((identifier: string) => run(showPersonaCommand(identifier)));
+
+  personaCommand
+    .command("edit <identifier>")
+    .description("Edit an existing custom persona")
+    .action((identifier: string) => run(editPersonaCommand(identifier)));
+
+  personaCommand
+    .command("delete <identifier>")
+    .alias("rm")
+    .description("Delete a custom persona")
+    .action((identifier: string) => run(deletePersonaCommand(identifier)));
+}
+
+/**
  * Register update command
  */
 function registerUpdateCommand(program: Command): void {
@@ -416,6 +466,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
 
     // Register all commands
     registerAgentCommands(program);
+    registerPersonaCommands(program);
     registerConfigCommands(program);
     registerMCPCommands(program);
     registerUpdateCommand(program);

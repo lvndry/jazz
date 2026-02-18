@@ -108,7 +108,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             model: parentAgent.model,
             config: {
               ...parentAgent.config,
-              agentType: args.persona ?? "default",
+              persona: args.persona ?? "default",
             },
             createdAt: new Date(),
             updatedAt: new Date(),

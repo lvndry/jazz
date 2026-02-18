@@ -162,7 +162,7 @@ function stripReadPdf(r: Record<string, unknown>): void {
 
 /**
  * git_diff — strip input echo (options), derivable fields.
- * Keep: workingDirectory, diff.
+ * Keep: workingDirectory, paths (scoped files), diff.
  */
 function stripGitDiff(r: Record<string, unknown>): void {
   deleteKeys(r, ["options", "hasChanges", "truncated", "totalLines", "returnedLines"]);

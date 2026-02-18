@@ -11,7 +11,7 @@ interface AgentDetailsItem {
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly config: {
-    readonly agentType?: string | undefined;
+    readonly persona?: string | undefined;
     readonly llmProvider: string;
     readonly llmModel: string;
     readonly reasoningEffort?: string | undefined;
@@ -119,8 +119,8 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
           paddingLeft={1}
         >
           <KeyValue
-            label="Agent type"
-            value={agent.config.agentType ?? "default"}
+            label="Persona"
+            value={agent.config.persona ?? "default"}
             innerWidth={inner - 2}
           />
           <KeyValue

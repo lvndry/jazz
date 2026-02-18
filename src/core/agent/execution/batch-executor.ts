@@ -8,6 +8,7 @@ import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-regi
 import type { ConversationMessages } from "@/core/types";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
+import { isRetryableLLMError } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import type { RecursiveRunner } from "../context/summarizer";
 import { recordLLMRetry } from "../metrics/agent-run-metrics";
@@ -65,7 +66,7 @@ export function executeWithoutStreaming(
             }),
             Schedule.exponential("1 second").pipe(
               Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
-              Schedule.whileInput((error) => error instanceof LLMRateLimitError),
+              Schedule.whileInput((error: unknown) => isRetryableLLMError(error)),
             ),
           );
 

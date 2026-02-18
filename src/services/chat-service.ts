@@ -21,6 +21,7 @@ import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/co
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
 import type { CommandContext, CommandResult } from "./chat/commands/types";
@@ -344,8 +345,20 @@ export class ChatServiceImpl implements ChatService {
                 } else if (error instanceof LLMRequestError) {
                   // Extract clean error message without verbose details
                   const cleanMessage = error.message.split(" | ")[0] || error.message;
-                  yield* terminal.error(`LLM request failed: ${cleanMessage}`);
-                  yield* terminal.log("   This might be a temporary issue. Please try again.");
+                  if (isRetryableLLMError(error)) {
+                    yield* terminal.warn(
+                      `Could not reach the LLM API (retries exhausted): ${cleanMessage}`,
+                    );
+                    yield* terminal.log("   Check your network connection and try again.");
+                  } else {
+                    yield* terminal.error(`LLM request failed: ${cleanMessage}`);
+                    yield* terminal.log("   This might be a temporary issue. Please try again.");
+                  }
+                } else if (error instanceof LLMAuthenticationError) {
+                  yield* terminal.error(`Authentication failed: ${error.message}`);
+                  yield* terminal.log(
+                    `   Run 'jazz config set llm.${error.provider}.api_key <key>' or 'jazz wizard' to fix.`,
+                  );
                 } else {
                   yield* terminal.error(`Error: ${String(error)}`);
                 }

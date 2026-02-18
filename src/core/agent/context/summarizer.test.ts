@@ -14,7 +14,7 @@ function createMockAgent(overrides: Partial<Agent> = {}): Agent {
   const config: AgentConfig = {
     llmProvider: "openai",
     llmModel: "gpt-4",
-    agentType: "general",
+    persona: "default",
     tools: [],
   };
   return {
@@ -253,7 +253,7 @@ describe("Summarizer", () => {
 
       expect(capturedAgent?.id).toBe("summarizer");
       expect(capturedAgent?.name).toBe("Summarizer");
-      expect(capturedAgent?.config.agentType).toBe("summarizer");
+      expect(capturedAgent?.config.persona).toBe("summarizer");
     });
 
     it("should use max iterations of 1 for summarizer", async () => {

@@ -75,7 +75,7 @@ function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
     runId: "test-run",
     agentId: "agent-1",
     agentName: "test-agent",
-    agentType: "default",
+    persona: "default",
     agentUpdatedAt: new Date(),
     conversationId: "conv-123",
     maxIterations: 10,

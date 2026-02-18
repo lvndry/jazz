@@ -4,7 +4,6 @@ import Spinner from "ink-spinner";
 import React from "react";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
-import { agentPromptBuilder } from "@/core/agent/agent-prompt";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
@@ -23,6 +22,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { MCPServerManager } from "@/core/interfaces/mcp-server";
 import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
+import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent, AgentConfig, LLMProvider } from "@/core/types";
@@ -46,7 +46,7 @@ import { formatProviderDisplayName, toPascalCase } from "@/core/utils/string";
 interface AgentEditAnswers {
   name?: string;
   description?: string;
-  agentType?: string;
+  persona?: string;
   llmProvider?: ProviderName;
   llmModel?: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
@@ -67,6 +67,7 @@ export function editAgentCommand(
   | ValidationError
   | LLMConfigurationError,
   | AgentService
+  | PersonaService
   | LLMService
   | ToolRegistry
   | TerminalService
@@ -86,7 +87,7 @@ export function editAgentCommand(
     yield* terminal.heading(`📋 Current Agent: ${agent.name}`);
     yield* terminal.log(`   ID: ${agent.id}`);
     yield* terminal.log(`   Description: ${agent.description}`);
-    yield* terminal.log(`   Type: ${agent.config.agentType || "N/A"}`);
+    yield* terminal.log(`   Persona: ${agent.config.persona || "N/A"}`);
     yield* terminal.log(
       `   LLM Provider: ${formatProviderDisplayName(agent.config.llmProvider) || "N/A"}`,
     );
@@ -102,8 +103,10 @@ export function editAgentCommand(
     const configService = yield* AgentConfigServiceTag;
     const providers = yield* llmService.listProviders();
 
-    // Get available agent types
-    const agentTypes = yield* agentPromptBuilder.listPersonas();
+    // Get available personas (built-in + custom)
+    const personaService = yield* PersonaServiceTag;
+    const personas = yield* personaService.listPersonas();
+    const personaNames = personas.map((p) => p.name);
 
     // Get available tools by category
     const toolRegistry = yield* ToolRegistryTag;
@@ -152,7 +155,7 @@ export function editAgentCommand(
       choices: [
         { name: "Name", value: "name" },
         { name: "Description", value: "description" },
-        { name: "Agent Type", value: "agentType" },
+        { name: "Persona", value: "persona" },
         { name: "LLM Provider", value: "llmProvider" },
         { name: "LLM Model", value: "llmModel" },
         {
@@ -364,7 +367,7 @@ export function editAgentCommand(
         promptForAgentUpdates(
           agent,
           providers,
-          agentTypes,
+          personaNames,
           toolsByCategory,
           terminal,
           llmService,
@@ -459,7 +462,7 @@ export function editAgentCommand(
     // Build updated configuration
     const updatedConfig: AgentConfig = {
       ...agent.config,
-      ...(editAnswers.agentType && { agentType: editAnswers.agentType }),
+      ...(editAnswers.persona && { persona: editAnswers.persona }),
       ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
       ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
       ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
@@ -482,7 +485,7 @@ export function editAgentCommand(
     yield* terminal.log(`   ID: ${updatedAgent.id}`);
     yield* terminal.log(`   Name: ${updatedAgent.name}`);
     yield* terminal.log(`   Description: ${updatedAgent.description}`);
-    yield* terminal.log(`   Type: ${updatedConfig.agentType || "N/A"}`);
+    yield* terminal.log(`   Persona: ${updatedConfig.persona || "N/A"}`);
     yield* terminal.log(
       `   LLM Provider: ${formatProviderDisplayName(updatedConfig.llmProvider) || "N/A"}`,
     );
@@ -502,7 +505,7 @@ export function editAgentCommand(
 async function promptForAgentUpdates(
   currentAgent: Agent,
   providers: readonly { name: ProviderName; displayName?: string; configured: boolean }[],
-  agentTypes: readonly string[],
+  personaNames: readonly string[],
   toolsByCategory: Record<string, readonly string[]>, // { displayName: string[] }
   terminal: TerminalService,
   llmService: LLMService,
@@ -560,22 +563,22 @@ async function promptForAgentUpdates(
     answers.description = description;
   }
 
-  // Update agent type
-  if (fieldToUpdate === "agentType") {
-    const agentType = await Effect.runPromise(
+  // Update persona
+  if (fieldToUpdate === "persona") {
+    const persona = await Effect.runPromise(
       terminal.select<string>("Select agent persona:", {
-        choices: agentTypes.map((type) => ({ name: type, value: type })),
-        ...(currentAgent.config.agentType || agentTypes[0]
-          ? { default: currentAgent.config.agentType || agentTypes[0] }
+        choices: personaNames.map((name) => ({ name, value: name })),
+        ...(currentAgent.config.persona || personaNames[0]
+          ? { default: currentAgent.config.persona || personaNames[0] }
           : {}),
       }),
     );
 
-    if (!agentType) {
+    if (!persona) {
       throw new Error("Edit cancelled");
     }
 
-    answers.agentType = agentType;
+    answers.persona = persona;
   }
 
   // Update LLM provider

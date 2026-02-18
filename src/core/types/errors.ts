@@ -195,6 +195,17 @@ export class ResourceExhaustedError extends Data.TaggedError("ResourceExhaustedE
   readonly suggestion?: string;
 }> {}
 
+// Persona Errors
+export class PersonaNotFoundError extends Data.TaggedError("PersonaNotFoundError")<{
+  readonly personaId: string;
+  readonly suggestion?: string;
+}> {}
+
+export class PersonaAlreadyExistsError extends Data.TaggedError("PersonaAlreadyExistsError")<{
+  readonly personaName: string;
+  readonly suggestion?: string;
+}> {}
+
 // Update Errors
 export class UpdateCheckError extends Data.TaggedError("UpdateCheckError")<{
   readonly message: string;
@@ -217,6 +228,7 @@ export class LLMAuthenticationError extends Data.TaggedError("LLMAuthenticationE
 export class LLMRequestError extends Data.TaggedError("LLMRequestError")<{
   readonly provider: string;
   readonly message: string;
+  readonly statusCode?: number;
   readonly suggestion?: string;
 }> {}
 
@@ -352,4 +364,6 @@ export type JazzError =
   | MCPSchemaConversionError
   | MCPServerNameParseError
   | TelemetryError
-  | TelemetryWriteError;
+  | TelemetryWriteError
+  | PersonaNotFoundError
+  | PersonaAlreadyExistsError;

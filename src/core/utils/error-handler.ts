@@ -398,6 +398,36 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
       };
     }
 
+    case "PersonaNotFoundError": {
+      return {
+        title: "Persona Not Found",
+        message: `No persona found with ID or name: ${error.personaId}`,
+        suggestion:
+          error.suggestion ||
+          "Check if the persona ID/name is correct or if the persona was deleted",
+        recovery: [
+          "List all personas: `jazz persona list`",
+          "Check persona ID/name spelling and case sensitivity",
+          "Create a new persona when creating an agent: `jazz agent create`",
+        ],
+        relatedCommands: ["jazz persona list", "jazz agent create"],
+      };
+    }
+
+    case "PersonaAlreadyExistsError": {
+      return {
+        title: "Persona Already Exists",
+        message: `A persona with name "${error.personaName}" already exists`,
+        suggestion: error.suggestion || "Choose a different name or update the existing persona",
+        recovery: [
+          "Use a different persona name",
+          "List existing personas: `jazz persona list`",
+          "Edit agent to select different persona: `jazz agent edit <agent-id>`",
+        ],
+        relatedCommands: ["jazz persona list", "jazz agent edit"],
+      };
+    }
+
     default: {
       // Surface actual error type and message for unhandled tagged errors (e.g. new error types)
       const tag = error._tag;

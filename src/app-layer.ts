@@ -30,6 +30,7 @@ import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer, setLogFormat, setLogLevel } from "./services/logger";
 import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
 import { NotificationServiceLayer } from "./services/notification";
+import { createPersonaServiceLayer } from "./services/persona-service";
 import { FileStorageService } from "./services/storage/file";
 import { createTelemetryServiceLayer } from "./services/telemetry/telemetry-service";
 import { createPlainTerminalServiceLayer, createTerminalServiceLayer } from "./services/terminal";
@@ -128,6 +129,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
   );
 
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
+  const personaLayer = createPersonaServiceLayer();
 
   const chatLayer = createChatServiceLayer().pipe(
     Layer.provide(terminalLayer),
@@ -164,6 +166,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     mcpServerManagerLayer,
     toolRegistrationLayer,
     agentLayer,
+    personaLayer,
     chatLayer,
     telemetryLayer,
     presentationLayer,

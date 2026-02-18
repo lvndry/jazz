@@ -43,7 +43,7 @@ describe("FileStorageService", () => {
     const agent: Agent = {
       id: "a1",
       name: "Agent 1",
-      config: { agentType: "default", llmProvider: "openai", llmModel: "gpt-4" },
+      config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
       createdAt: new Date(),
       updatedAt: new Date(),
       model: "openai/gpt-4",
@@ -68,7 +68,7 @@ describe("FileStorageService", () => {
         JSON.stringify({
           id: "a1",
           name: "Agent 1",
-          config: { agentType: "default", llmProvider: "openai", llmModel: "gpt-4" },
+          config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }),

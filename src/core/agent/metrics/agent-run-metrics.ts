@@ -32,7 +32,7 @@ export interface AgentRunMetrics {
   readonly runId: string;
   readonly agentId: string;
   readonly agentName: string;
-  readonly agentType: string;
+  readonly persona: string;
   readonly agentUpdatedAt: Date;
   readonly conversationId: string;
   readonly userId?: string;
@@ -70,7 +70,7 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     runId: randomUUID(),
     agentId: agent.id,
     agentName: agent.name,
-    agentType: agent.config.agentType,
+    persona: agent.config.persona,
     agentUpdatedAt: agent.updatedAt,
     conversationId,
     ...(userId ? { userId } : {}),
@@ -255,7 +255,7 @@ export function finalizeAgentRun(
       runId: metrics.runId,
       agentId: metrics.agentId,
       agentName: metrics.agentName,
-      agentType: metrics.agentType,
+      persona: metrics.persona,
       agentUpdatedAt: metrics.agentUpdatedAt,
       conversationId: metrics.conversationId,
       ...(metrics.userId ? { userId: metrics.userId } : {}),
@@ -303,7 +303,7 @@ interface TokenUsageLogPayload {
   readonly runId: string;
   readonly agentId: string;
   readonly agentName: string;
-  readonly agentType: string;
+  readonly persona: string;
   readonly agentUpdatedAt: Date;
   readonly conversationId: string;
   readonly userId?: string;
@@ -357,7 +357,7 @@ function writeTokenUsageLog(
       runId: payload.runId,
       agentId: payload.agentId,
       agentName: payload.agentName,
-      agentType: payload.agentType,
+      persona: payload.persona,
       agentUpdatedAt: payload.agentUpdatedAt.toISOString(),
       conversationId: payload.conversationId,
       userId: payload.userId ?? "anonymous",

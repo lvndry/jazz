@@ -703,5 +703,47 @@ describe("InkStreamingRenderer", () => {
       expect(callOrder.filter((c) => c === "setActivity").length).toBeGreaterThan(0);
       expect(callOrder.filter((c) => c === "printOutput:streamContent").length).toBe(0);
     });
+
+    test("uses response.content over liveText (full response when liveText truncated or cleared)", () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      // Stream only partial content (e.g. tail after mid-stream tool call cleared liveText)
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "tail only",
+          accumulated: "tail only",
+          sequence: 0,
+        }),
+      );
+
+      printOutputCalls.length = 0;
+
+      // Complete with FULL content from stream processor (authoritative source)
+      const fullContent = "## Full Response\n\n### Summary\nBeginning...\n\n---\n\ntail only";
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "complete",
+          response: {
+            id: "",
+            model: "test",
+            content: fullContent,
+            toolCalls: [],
+          },
+          totalDurationMs: 100,
+        }),
+      );
+
+      const streamContentEntries = printOutputCalls.filter((e) => e.type === "streamContent");
+      expect(streamContentEntries).toHaveLength(1);
+      const msg = streamContentEntries[0]!.message as string;
+      // Must use full response from event.response.content, not just "tail only" from liveText
+      expect(msg).toContain("Full Response");
+      expect(msg).toContain("Summary");
+      expect(msg).toContain("Beginning...");
+      expect(msg).toContain("tail only");
+    });
   });
 });

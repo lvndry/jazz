@@ -197,11 +197,16 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
   } else if (httpStatus === 429) {
     llmError = new LLMRateLimitError({ provider: providerName, message: cleanMessage });
   } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
-    llmError = new LLMRequestError({ provider: providerName, message: cleanMessage });
+    llmError = new LLMRequestError({
+      provider: providerName,
+      message: cleanMessage,
+      statusCode: httpStatus,
+    });
   } else if (httpStatus && httpStatus >= 500) {
     llmError = new LLMRequestError({
       provider: providerName,
       message: `Server error (${httpStatus}): ${cleanMessage}`,
+      statusCode: httpStatus,
     });
   } else {
     if (
@@ -227,4 +232,27 @@ Or update it in the interactive wizard: jazz wizard -> Update configuration`;
   }
 
   return llmError;
+}
+
+/**
+ * Determine whether an LLM error is transient and therefore safe to retry.
+ *
+ * Retryable errors include:
+ * - Rate-limit responses (HTTP 429)
+ * - Connection / network errors (no HTTP status — the request never reached the server)
+ * - Server-side errors (HTTP 5xx)
+ *
+ * Non-retryable errors include:
+ * - Authentication failures (HTTP 401 / 403)
+ * - Client request errors (HTTP 4xx other than 429)
+ */
+export function isRetryableLLMError(error: unknown): boolean {
+  if (error instanceof LLMRateLimitError) return true;
+  if (error instanceof LLMRequestError) {
+    // No status code means the request never got a response (connection / DNS / timeout).
+    // 5xx means the server had a transient failure.
+    // Both are worth retrying.
+    return error.statusCode === undefined || error.statusCode >= 500;
+  }
+  return false;
 }
