@@ -22,8 +22,7 @@
       "load_skill_section",
       "context_info",
       "summarize_context",
-      "write_file",
-      "execute_write_file"
+      "write_file"
     ]
   },
   "createdAt": "2025-01-01T00:00:00.000Z",
