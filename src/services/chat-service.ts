@@ -291,17 +291,18 @@ export class ChatServiceImpl implements ChatService {
             ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
             autoApprovedCommands,
             autoApprovedTools,
-            onAutoApproveCommand: (command: string) => {
-              if (!autoApprovedCommands.includes(command)) {
-                autoApprovedCommands.push(command);
-              }
-              Effect.runFork(
-                recordCommandApproval(command, sessionId).pipe(
-                  Effect.catchAll(() => Effect.void),
-                  Effect.provide(fsLayer),
-                ),
-              );
-            },
+            onAutoApproveCommand: (command: string) =>
+              Effect.gen(function* () {
+                if (!autoApprovedCommands.includes(command)) {
+                  autoApprovedCommands.push(command);
+                }
+                yield* Effect.forkDaemon(
+                  recordCommandApproval(command, sessionId).pipe(
+                    Effect.catchAll(() => Effect.void),
+                    Effect.provide(fsLayer),
+                  ),
+                );
+              }),
             onAutoApproveTool: (toolName: string) => {
               if (!autoApprovedTools.includes(toolName)) {
                 autoApprovedTools.push(toolName);

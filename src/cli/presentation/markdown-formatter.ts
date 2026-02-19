@@ -79,9 +79,7 @@ const BARE_URL_REGEX =
 /** Matches fenced code blocks. Anchored to line boundaries so inline triple-backticks are not extracted. */
 const CODE_BLOCK_EXTRACT_REGEX = /^[ \t]*```[\s\S]*?^[ \t]*```/gm;
 const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;
-/** Same pattern as LINK_REGEX — used for the extract/restore cycle that protects link targets from path formatters. */
-// eslint-disable-next-line no-control-regex
-const LINK_EXTRACT_REGEX = /(?<!\u001b)\[([^\]]+)\]\(([^()\s]*(?:\([^()]*\))[^()\s]*|[^)]*?)\)/g;
+// LINK_REGEX is reused for the extract/restore cycle (see extractLinks).
 const EMOJI_SHORTCODE_REGEX = /:([A-Za-z0-9_\-+]+?):/g;
 
 /**
@@ -328,37 +326,45 @@ export function formatHorizontalRules(text: string, terminalWidth: number = 80):
 }
 
 /**
- * Format bare URLs as clickable OSC 8 terminal hyperlinks (rendered mode).
+ * Format bare URLs as clickable OSC 8 terminal hyperlinks.
+ * @param styleFn - styling function for the displayed text
  */
-export function formatBareUrls(text: string): string {
+function formatBareUrlsImpl(text: string, styleFn: (text: string) => string): string {
   return text.replace(BARE_URL_REGEX, (match: string) => {
     const url = match.startsWith("www.") ? `https://${match}` : match;
-    return terminalHyperlink(CHALK_THEME.link(match), url);
+    return terminalHyperlink(styleFn(match), url);
   });
 }
 
+/** Format bare URLs (rendered mode). */
+export function formatBareUrls(text: string): string {
+  return formatBareUrlsImpl(text, CHALK_THEME.link);
+}
+
 /**
- * Format bare file/folder paths as links (rendered mode).
+ * Format bare file/folder paths as links.
  * Only adds OSC 8 hyperlink for absolute or ~/ paths.
  *
  * FILE_PATH_LINE_REGEX matches are extracted into placeholders first so that
  * FILE_PATH_REGEX cannot re-match the path portion of an already-formatted
  * file:line hyperlink.
+ *
+ * @param styleFn - styling function for the displayed text
  */
-export function formatFilePaths(text: string): string {
+function formatFilePathsImpl(text: string, styleFn: (text: string) => string): string {
   // 1. Extract file:line matches into placeholders
   const lineMatches: string[] = [];
   let result = text.replace(FILE_PATH_LINE_REGEX, (match: string) => {
     const idx = lineMatches.length;
     const url = pathWithLineToFileUrl(match);
-    const styled = CHALK_THEME.link(match);
+    const styled = styleFn(match);
     lineMatches.push(url ? terminalHyperlink(styled, url) : styled);
     return `${FILE_PATH_LINE_PLACEHOLDER_START}${idx}${FILE_PATH_LINE_PLACEHOLDER_END}`;
   });
   // 2. Format plain paths (placeholders are safe from re-matching)
   result = result.replace(FILE_PATH_REGEX, (match: string) => {
     const url = pathToFileUrl(match);
-    const styled = CHALK_THEME.link(match);
+    const styled = styleFn(match);
     return url ? terminalHyperlink(styled, url) : styled;
   });
   // 3. Restore file:line placeholders
@@ -369,6 +375,11 @@ export function formatFilePaths(text: string): string {
     );
   }
   return result;
+}
+
+/** Format file paths (rendered mode). */
+export function formatFilePaths(text: string): string {
+  return formatFilePathsImpl(text, CHALK_THEME.link);
 }
 
 /**
@@ -394,7 +405,7 @@ function extractLinks(text: string): {
   links: Array<{ linkText: string; url: string }>;
 } {
   const links: Array<{ linkText: string; url: string }> = [];
-  const replaced = text.replace(LINK_EXTRACT_REGEX, (_match, linkText: string, url: string) => {
+  const replaced = text.replace(LINK_REGEX, (_match, linkText: string, url: string) => {
     const index = links.length;
     links.push({ linkText, url });
     return `${LINK_PLACEHOLDER_START}${index}${LINK_PLACEHOLDER_END}`;
@@ -551,39 +562,28 @@ export function formatCodeBlockContent(codeBlock: string): string {
 }
 
 /**
- * Apply progressive formatting for streaming (stateful).
- *
- * Lines inside fenced code blocks are styled with {@link codeColor} only —
- * inline formatters (bold, italic, links, etc.) are applied exclusively to
- * non-code segments so they cannot corrupt code content.
+ * A contiguous run of lines that are either all inside a code block or all outside.
  */
-export function applyProgressiveFormatting(text: string, state: StreamingState): FormattingResult {
-  if (!text || text.trim().length === 0) {
-    return { formatted: text, state };
-  }
+export type CodeTextSegment = { type: "code" | "text"; lines: string[] };
 
-  let isInCodeBlock = state.isInCodeBlock;
-
-  // Fast path: entirely inside a code block with no fences in this chunk
-  if (isInCodeBlock && !text.includes("```")) {
-    return {
-      formatted: codeColor(text),
-      state: { isInCodeBlock },
-    };
-  }
-
-  // Split lines into contiguous code / non-code segments so inline formatters
-  // are only applied to non-code text (fixes bold/italic corrupting code blocks).
-  const lines = text.split("\n");
-  type Segment = { type: "code" | "text"; lines: string[] };
-  const segments: Segment[] = [];
-  let current: Segment | null = null;
+/**
+ * Split lines into contiguous code / non-code segments, tracking fence toggles.
+ * Fence lines (```) are emitted as single-line code segments styled with chalk.yellow.
+ * Code lines inside fences are styled with {@link codeColor}.
+ * Text lines are left unstyled for downstream formatting.
+ *
+ * Returns the segments and the final code-block state.
+ */
+export function segmentByCodeBlocks(
+  lines: string[],
+  isInCodeBlock: boolean,
+): { segments: CodeTextSegment[]; isInCodeBlock: boolean } {
+  const segments: CodeTextSegment[] = [];
+  let current: CodeTextSegment | null = null;
 
   for (const line of lines) {
     if (line.trim().startsWith("```")) {
-      // Flush current segment
       if (current && current.lines.length > 0) segments.push(current);
-      // Fence line gets its own code segment
       segments.push({ type: "code", lines: [chalk.yellow(line)] });
       isInCodeBlock = !isInCodeBlock;
       current = null;
@@ -603,14 +603,47 @@ export function applyProgressiveFormatting(text: string, state: StreamingState):
   }
   if (current && current.lines.length > 0) segments.push(current);
 
-  // Format text segments with the full inline pipeline; leave code segments as-is
-  const formatted = segments
+  return { segments, isInCodeBlock };
+}
+
+/**
+ * Join segments back into a single string, formatting text segments with the
+ * full inline pipeline and leaving code segments as-is.
+ */
+function formatSegments(segments: CodeTextSegment[]): string {
+  return segments
     .map((seg) =>
       seg.type === "code" ? seg.lines.join("\n") : formatNonCodeText(seg.lines.join("\n")),
     )
     .join("\n");
+}
 
-  return { formatted, state: { isInCodeBlock } };
+/**
+ * Apply progressive formatting for streaming (stateful).
+ *
+ * Lines inside fenced code blocks are styled with {@link codeColor} only —
+ * inline formatters (bold, italic, links, etc.) are applied exclusively to
+ * non-code segments so they cannot corrupt code content.
+ */
+export function applyProgressiveFormatting(text: string, state: StreamingState): FormattingResult {
+  if (!text || text.trim().length === 0) {
+    return { formatted: text, state };
+  }
+
+  // Fast path: entirely inside a code block with no fences in this chunk
+  if (state.isInCodeBlock && !text.includes("```")) {
+    return {
+      formatted: codeColor(text),
+      state: { isInCodeBlock: state.isInCodeBlock },
+    };
+  }
+
+  const { segments, isInCodeBlock } = segmentByCodeBlocks(
+    text.split("\n"),
+    state.isInCodeBlock,
+  );
+
+  return { formatted: formatSegments(segments), state: { isInCodeBlock } };
 }
 
 /**
@@ -817,47 +850,14 @@ function styleAsLink(text: string): string {
   return chalk.italic(CHALK_THEME.link(text));
 }
 
-/**
- * Format bare file/folder paths in hybrid mode — styled as links.
- * Only adds OSC 8 hyperlink for absolute or ~/ paths (relative are impossible to click).
- *
- * Uses the same extract/restore pattern as {@link formatFilePaths} to prevent
- * FILE_PATH_REGEX from re-matching inside already-formatted file:line hyperlinks.
- */
+/** Format file paths (hybrid mode — italic + link color). */
 function formatFilePathsHybrid(text: string): string {
-  // 1. Extract file:line matches into placeholders
-  const lineMatches: string[] = [];
-  let result = text.replace(FILE_PATH_LINE_REGEX, (match: string) => {
-    const idx = lineMatches.length;
-    const url = pathWithLineToFileUrl(match);
-    const styled = styleAsLink(match);
-    lineMatches.push(url ? terminalHyperlink(styled, url) : styled);
-    return `${FILE_PATH_LINE_PLACEHOLDER_START}${idx}${FILE_PATH_LINE_PLACEHOLDER_END}`;
-  });
-  // 2. Format plain paths (placeholders are safe from re-matching)
-  result = result.replace(FILE_PATH_REGEX, (match: string) => {
-    const url = pathToFileUrl(match);
-    const styled = styleAsLink(match);
-    return url ? terminalHyperlink(styled, url) : styled;
-  });
-  // 3. Restore file:line placeholders
-  for (let i = 0; i < lineMatches.length; i++) {
-    result = result.replace(
-      `${FILE_PATH_LINE_PLACEHOLDER_START}${i}${FILE_PATH_LINE_PLACEHOLDER_END}`,
-      lineMatches[i]!,
-    );
-  }
-  return result;
+  return formatFilePathsImpl(text, styleAsLink);
 }
 
-/**
- * Format bare URLs in hybrid mode — styled as links and wrapped in OSC 8 hyperlinks.
- */
+/** Format bare URLs (hybrid mode — italic + link color). */
 function formatBareUrlsHybrid(text: string): string {
-  return text.replace(BARE_URL_REGEX, (match: string) => {
-    const url = match.startsWith("www.") ? `https://${match}` : match;
-    return terminalHyperlink(styleAsLink(match), url);
-  });
+  return formatBareUrlsImpl(text, styleAsLink);
 }
 
 /**

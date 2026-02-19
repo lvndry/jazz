@@ -85,69 +85,73 @@ export class AgentConfigServiceImpl implements AgentConfigService {
     );
   }
 
-  set<A>(key: string, value: A): Effect.Effect<void, never> {
-    return Effect.gen(
-      function* (this: AgentConfigServiceImpl) {
-        const keyLower = key;
-
-        if (keyLower === "mcpServers") {
-          // Bulk replace overrides (e.g. from remove command)
-          const val = value as unknown as Record<string, unknown>;
+  /**
+   * Handle MCP-related set() keys by updating overrides and in-memory config.
+   * Returns an Effect that resolves to true if the key was handled.
+   */
+  private setMcpOverride(key: string, value: unknown): Effect.Effect<boolean, never> {
+    if (key === "mcpServers") {
+      // Bulk replace overrides (e.g. from remove command)
+      return Effect.gen(
+        function* (this: AgentConfigServiceImpl) {
+          const val = value as Record<string, unknown>;
           this.mcpOverrides = Object.fromEntries(
             Object.entries(val ?? {})
               .map(([k, v]) => [k, extractMcpOverride(v)])
               .filter((entry): entry is [string, MCPServerOverride] => entry[1] !== undefined),
           );
           const agentsServers = yield* loadAgentsMcpServers(this.fs);
-          const merged = mergeMcpServers(agentsServers, this.mcpOverrides);
           this.currentConfig = {
             ...this.currentConfig,
-            mcpServers: merged as unknown as Record<string, MCPServerOverride>,
+            mcpServers: mergeMcpServers(agentsServers, this.mcpOverrides),
           };
-        } else if (keyLower.startsWith("mcpServers.")) {
-          const rest = keyLower.slice("mcpServers.".length);
-          const parts = rest.split(".");
-          const serverName = parts[0];
-          if (!serverName) return;
+          return true;
+        }.bind(this),
+      );
+    }
 
-          if (parts.length === 1) {
-            // set("mcpServers.X", { enabled: true }) — merge override
-            const val = value as unknown as Record<string, unknown>;
-            const next = extractMcpOverride(val) ?? {};
-            this.mcpOverrides[serverName] = {
-              ...this.mcpOverrides[serverName],
-              ...next,
-            };
-            const cfg = this.currentConfig.mcpServers?.[serverName] as
-              | Record<string, unknown>
-              | undefined;
-            deepSet(this.currentConfig as unknown as Record<string, unknown>, keyLower, {
-              ...cfg,
-              ...val,
-            } as unknown);
-          } else {
-            // set("mcpServers.X.enabled", value)
-            const prop = parts[1];
-            if (prop === "enabled") {
-              this.mcpOverrides[serverName] = {
-                ...this.mcpOverrides[serverName],
-                enabled: value as boolean,
-              };
-            }
-            deepSet(
-              this.currentConfig as unknown as Record<string, unknown>,
-              keyLower,
-              value as unknown,
-            );
-          }
-        } else {
-          deepSet(
-            this.currentConfig as unknown as Record<string, unknown>,
-            keyLower,
-            value as unknown,
-          );
+    if (!key.startsWith("mcpServers.")) return Effect.succeed(false);
+
+    const rest = key.slice("mcpServers.".length);
+    const dotIndex = rest.indexOf(".");
+    const serverName = dotIndex === -1 ? rest : rest.slice(0, dotIndex);
+    if (!serverName) return Effect.succeed(false);
+
+    if (dotIndex === -1) {
+      // set("mcpServers.X", { enabled: true }) — merge override
+      const val = value as Record<string, unknown>;
+      const next = extractMcpOverride(val) ?? {};
+      this.mcpOverrides[serverName] = { ...this.mcpOverrides[serverName], ...next };
+      const cfg = this.currentConfig.mcpServers?.[serverName] as
+        | Record<string, unknown>
+        | undefined;
+      deepSet(this.currentConfig as unknown as Record<string, unknown>, key, {
+        ...cfg,
+        ...val,
+      } as unknown);
+    } else {
+      // set("mcpServers.X.enabled", value)
+      const prop = rest.slice(dotIndex + 1);
+      if (prop === "enabled") {
+        this.mcpOverrides[serverName] = {
+          ...this.mcpOverrides[serverName],
+          enabled: value as boolean,
+        };
+      }
+      deepSet(this.currentConfig as unknown as Record<string, unknown>, key, value);
+    }
+    return Effect.succeed(true);
+  }
+
+  set<A>(key: string, value: A): Effect.Effect<void, never> {
+    return Effect.gen(
+      function* (this: AgentConfigServiceImpl) {
+        const handled = yield* this.setMcpOverride(key, value);
+        if (!handled) {
+          deepSet(this.currentConfig as unknown as Record<string, unknown>, key, value as unknown);
         }
 
+        // Persist to file
         const path = this.configPath ?? `${expandHome("~/.jazz")}/config.json`;
         if (!this.configPath) {
           this.configPath = path;
@@ -464,15 +468,20 @@ function loadAgentsMcpServers(
       const obj = parsed.value;
       if (typeof obj !== "object" || obj === null) continue;
 
-      // Support both { "mcpServers": {...} } and direct { "serverName": {...} }
+      // Support both { "mcpServers": {...} } wrapper and direct { "serverName": {...} }.
+      // When using the direct format, all top-level keys are treated as server names.
+      // Use the wrapped format to avoid ambiguity with non-server keys (e.g. "$schema").
       const record = obj as Record<string, unknown>;
       const servers =
         "mcpServers" in record && typeof record["mcpServers"] === "object"
           ? (record["mcpServers"] as Record<string, unknown>)
-          : obj;
+          : record;
 
-      if (servers && typeof servers === "object") {
-        merged = { ...merged, ...servers };
+      for (const [name, cfg] of Object.entries(servers)) {
+        // Only include entries that look like server configs (must be objects)
+        if (cfg && typeof cfg === "object") {
+          merged[name] = cfg as unknown;
+        }
       }
     }
 
@@ -494,7 +503,7 @@ function extractMcpOverridesFromFile(
 
 /**
  * Merge full MCP server definitions from .agents/mcp.json with
- * enable/disable overrides from jazz.config.json.
+ * enable/disable overrides from jazz.config.json, returning an updated AppConfig.
  */
 function mergeAgentsMcpIntoConfig(
   config: AppConfig,
@@ -502,19 +511,9 @@ function mergeAgentsMcpIntoConfig(
   overrides: Record<string, MCPServerOverride>,
 ): AppConfig {
   if (Object.keys(agentsServers).length === 0) return config;
-
-  const merged: Record<string, MCPServerConfig> = {};
-  for (const [name, serverConfig] of Object.entries(agentsServers)) {
-    const ov = overrides[name];
-    merged[name] = {
-      ...serverConfig,
-      ...(ov?.enabled !== undefined ? { enabled: ov.enabled } : {}),
-    } as MCPServerConfig;
-  }
-
   return {
     ...config,
-    mcpServers: merged as unknown as Record<string, MCPServerOverride>,
+    mcpServers: mergeMcpServers(agentsServers, overrides),
   };
 }
 

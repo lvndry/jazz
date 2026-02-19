@@ -78,16 +78,17 @@ describe("AgentConfigService", () => {
 
   it("should persist only mcpOverrides (enabled) to jazz config, not full definitions", async () => {
     const configPath = "/tmp/jazz-mcp-overrides-test.json";
-    const configWithMcp = {
+    const configWithMcp: AppConfig = {
       ...initialConfig,
       mcpServers: {
         testServer: {
+          name: "testServer",
           command: "npx",
           args: ["-y", "some-mcp"],
           enabled: true,
         },
       },
-    } as AppConfig;
+    };
     const mcpOverrides = { testServer: { enabled: true as const } };
     const service = new AgentConfigServiceImpl(configWithMcp, mcpOverrides, configPath, mockFS);
 

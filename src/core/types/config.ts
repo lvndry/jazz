@@ -2,6 +2,7 @@
  * Application configuration types
  */
 
+import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type { OutputConfig } from "./output";
 
 export interface AppConfig {
@@ -11,7 +12,8 @@ export interface AppConfig {
   readonly llm?: LLMConfig;
   readonly web_search?: WebSearchConfig;
   readonly output?: OutputConfig;
-  readonly mcpServers?: Record<string, MCPServerOverride>;
+  /** Runtime merged view: full MCPServerConfig objects from .agents/mcp.json + overrides. */
+  readonly mcpServers?: Record<string, MCPServerConfig>;
   readonly notifications?: NotificationsConfig;
   readonly autoApprovedCommands?: readonly string[];
   readonly telemetry?: TelemetryConfig;

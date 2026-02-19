@@ -716,7 +716,9 @@ class InkPresentationService implements PresentationService {
       return;
     }
 
-    // Send system notification for approval request
+    // Send system notification for approval request.
+    // Effect.runFork is required here because we're in a plain void method,
+    // not inside an Effect generator where forkDaemon would be available.
     if (this.notificationService) {
       Effect.runFork(
         this.notificationService
@@ -902,7 +904,9 @@ class InkPresentationService implements PresentationService {
     this.isProcessingUserInput = true;
     const { request, resume } = this.userInputQueue.shift()!;
 
-    // Send system notification for user input request
+    // Send system notification for user input request.
+    // Effect.runFork is required here because we're in a plain void method,
+    // not inside an Effect generator where forkDaemon would be available.
     if (this.notificationService) {
       Effect.runFork(
         this.notificationService

@@ -155,6 +155,17 @@ function initializeAgentRun(
       resolvedPersonaService,
     );
 
+    // Always provide mutable arrays for session-level approvals.
+    // If the caller provided arrays (e.g. from chat-service or parent agent),
+    // use them directly (by reference) so mutations propagate back.
+    // Otherwise create local arrays so approvals still persist within this run.
+    const autoApprovedCommands: string[] = options.autoApprovedCommands
+      ? (options.autoApprovedCommands as string[])
+      : [];
+    const autoApprovedTools: string[] = options.autoApprovedTools
+      ? (options.autoApprovedTools as string[])
+      : [];
+
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
       sessionId: options.sessionId,
@@ -162,18 +173,26 @@ function initializeAgentRun(
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }
         : {}),
-      // Always pass arrays by reference (even when empty) so that in-place
-      // mutations via onAutoApproveCommand/onAutoApproveTool callbacks are
-      // visible to subsequent isCommandAutoApproved/isToolNameAutoApproved
-      // checks within the same agent run.
-      ...(options.autoApprovedCommands
-        ? { autoApprovedCommands: options.autoApprovedCommands }
-        : {}),
-      ...(options.onAutoApproveCommand
-        ? { onAutoApproveCommand: options.onAutoApproveCommand }
-        : {}),
-      ...(options.autoApprovedTools ? { autoApprovedTools: options.autoApprovedTools } : {}),
-      ...(options.onAutoApproveTool ? { onAutoApproveTool: options.onAutoApproveTool } : {}),
+      // Always pass arrays by reference so that in-place mutations via
+      // onAutoApproveCommand/onAutoApproveTool callbacks are visible to
+      // subsequent isAutoApproved checks within the same agent run.
+      autoApprovedCommands,
+      autoApprovedTools,
+      onAutoApproveCommand:
+        options.onAutoApproveCommand ??
+        ((command: string) =>
+          Effect.sync(() => {
+            if (!autoApprovedCommands.includes(command)) {
+              autoApprovedCommands.push(command);
+            }
+          })),
+      onAutoApproveTool:
+        options.onAutoApproveTool ??
+        ((toolName: string) => {
+          if (!autoApprovedTools.includes(toolName)) {
+            autoApprovedTools.push(toolName);
+          }
+        }),
     };
 
     return {

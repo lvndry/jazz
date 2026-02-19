@@ -9,11 +9,6 @@ import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { writeAgentsMcpServer, removeAgentsMcpServer } from "@/services/config";
 
-/**
- * Record of server name -> full MCP server config (runtime merged view).
- * At runtime, mcpServers in AppConfig carries full MCPServerConfig objects
- * after the config service merges .agents/mcp.json + jazz.config.json overrides.
- */
 type McpServersRecord = Record<string, MCPServerConfig>;
 
 const StdioServerConfigSchema = z.object({

@@ -1,3 +1,4 @@
+import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
@@ -77,9 +78,9 @@ export interface AgentRunnerOptions {
   readonly autoApprovedCommands?: readonly string[];
   /**
    * Callback invoked when the user chooses "always approve" for a specific command
-   * from the approval prompt.
+   * from the approval prompt. Returns an Effect for async persistence.
    */
-  readonly onAutoApproveCommand?: (command: string) => void;
+  readonly onAutoApproveCommand?: (command: string) => Effect.Effect<void>;
   /**
    * Tool names to auto-approve for this session (e.g. "edit_file", "write_file").
    * When a tool name appears in this list, it will be auto-approved without prompting.

@@ -1,10 +1,10 @@
-import chalk from "chalk";
 import { Context, Effect, Layer } from "effect";
 import {
   formatMarkdown as formatMarkdownFromFormatter,
   stripAnsiCodes,
   normalizeBlankLines,
   formatNonCodeText,
+  segmentByCodeBlocks,
 } from "@/cli/presentation/markdown-formatter";
 import { codeColor } from "@/cli/ui/theme";
 
@@ -169,32 +169,9 @@ function formatStreamingChunk(text: string, state: StreamingState): FormattedChu
 
   // 1. Process ALL lines to track code block state and separate segments.
   //    Code block state must be updated even for text that will be buffered.
-  const lines = fullText.split("\n");
-  type Segment = { type: "code" | "text"; lines: string[] };
-  const segments: Segment[] = [];
-  let current: Segment | null = null;
-
-  for (const line of lines) {
-    if (line.trim().startsWith("```")) {
-      if (current && current.lines.length > 0) segments.push(current);
-      segments.push({ type: "code", lines: [chalk.yellow(line)] });
-      isInCodeBlock = !isInCodeBlock;
-      current = null;
-    } else if (isInCodeBlock) {
-      if (!current || current.type !== "code") {
-        if (current && current.lines.length > 0) segments.push(current);
-        current = { type: "code", lines: [] };
-      }
-      current.lines.push(codeColor(line));
-    } else {
-      if (!current || current.type !== "text") {
-        if (current && current.lines.length > 0) segments.push(current);
-        current = { type: "text", lines: [] };
-      }
-      current.lines.push(line);
-    }
-  }
-  if (current && current.lines.length > 0) segments.push(current);
+  const result = segmentByCodeBlocks(fullText.split("\n"), isInCodeBlock);
+  const segments = result.segments;
+  isInCodeBlock = result.isInCodeBlock;
 
   // 2. Check the last segment for incomplete syntax (only applies to text
   //    segments — code segments are always "complete" since fences are
