@@ -41,17 +41,19 @@ export function loadCommandApprovals(): Effect.Effect<
     const fs = yield* FileSystem.FileSystem;
     const approvalsPath = getApprovalsPath();
 
-    const content = yield* fs.readFileString(approvalsPath).pipe(
-      Effect.catchAll((e) =>
-        e &&
-        typeof e === "object" &&
-        "_tag" in e &&
-        (e as { _tag: string })._tag === "SystemError" &&
-        (e as { reason?: string }).reason === "NotFound"
-          ? Effect.succeed("")
-          : Effect.fail(e instanceof Error ? e : new Error(String(e))),
-      ),
-    );
+    const content = yield* fs
+      .readFileString(approvalsPath)
+      .pipe(
+        Effect.catchAll((e) =>
+          e &&
+          typeof e === "object" &&
+          "_tag" in e &&
+          (e as { _tag: string })._tag === "SystemError" &&
+          (e as { reason?: string }).reason === "NotFound"
+            ? Effect.succeed("")
+            : Effect.fail(e instanceof Error ? e : new Error(String(e))),
+        ),
+      );
 
     if (content === "") return {};
 
