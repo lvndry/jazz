@@ -1,6 +1,6 @@
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { Effect } from "effect";
+import { FileSystem } from "@effect/platform";
+import { Effect, Option } from "effect";
 import {
   FILE_LOCK_MAX_RETRIES,
   FILE_LOCK_RETRY_DELAY_MS,
@@ -50,10 +50,11 @@ function acquireLock(
   lockPath: string,
   maxRetries = FILE_LOCK_MAX_RETRIES,
   retryDelayMs = FILE_LOCK_RETRY_DELAY_MS,
-): Effect.Effect<void, Error> {
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const result = yield* Effect.tryPromise(() => fs.mkdir(lockPath, { recursive: false })).pipe(
+      const result = yield* fs.makeDirectory(lockPath, { recursive: false }).pipe(
         Effect.map(() => true),
         Effect.catchAll(() => Effect.succeed(false)),
       );
@@ -62,18 +63,18 @@ function acquireLock(
         return;
       }
 
-      // Check if lock is stale
-      const stat = yield* Effect.tryPromise(() => fs.stat(lockPath)).pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
-      );
+      const statResult = yield* fs.stat(lockPath).pipe(Effect.option);
+      const stat = Option.getOrNull(statResult);
 
-      if (stat && Date.now() - stat.mtimeMs > FILE_LOCK_TIMEOUT_MS) {
-        // Remove stale lock
-        yield* Effect.tryPromise(() => fs.rmdir(lockPath)).pipe(Effect.catchAll(() => Effect.void));
+      const mtimeMs = Option.match(stat?.mtime ?? Option.none(), {
+        onNone: () => 0,
+        onSome: (d) => d.getTime(),
+      });
+      if (stat && Date.now() - mtimeMs > FILE_LOCK_TIMEOUT_MS) {
+        yield* fs.remove(lockPath).pipe(Effect.catchAll(() => Effect.void));
         continue;
       }
 
-      // Wait before retry
       yield* Effect.sleep(retryDelayMs);
     }
 
@@ -84,14 +85,19 @@ function acquireLock(
 /**
  * Release the file lock.
  */
-function releaseLock(lockPath: string): Effect.Effect<void, never> {
-  return Effect.tryPromise(() => fs.rmdir(lockPath)).pipe(Effect.catchAll(() => Effect.void));
+function releaseLock(lockPath: string): Effect.Effect<void, never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs.remove(lockPath).pipe(Effect.catchAll(() => Effect.void));
+  });
 }
 
 /**
  * Execute an operation with file locking.
  */
-function withLock<A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E | Error> {
+function withLock<A, E, R>(
+  operation: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | Error, R | FileSystem.FileSystem> {
   const lockPath = getLockPath();
   return Effect.acquireUseRelease(
     acquireLock(lockPath),
@@ -104,24 +110,14 @@ function withLock<A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E | Er
  * Load the run history from disk.
  * Returns empty array if the file does not exist (e.g. no workflows run yet) or is invalid.
  */
-export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error> {
+export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     const historyPath = getHistoryPath();
 
-    const content = yield* Effect.tryPromise(() => fs.readFile(historyPath, "utf-8")).pipe(
-      Effect.catchAll((unknownErr) => {
-        const e =
-          unknownErr &&
-          typeof unknownErr === "object" &&
-          "error" in unknownErr &&
-          (unknownErr as { error: unknown }).error;
-        const code = e instanceof Error && "code" in e ? (e as NodeJS.ErrnoException).code : "";
-        if (code === "ENOENT") return Effect.succeed("");
-        return Effect.fail(
-          unknownErr instanceof Error ? unknownErr : new Error(String(unknownErr)),
-        );
-      }),
-    );
+    const content = yield* fs
+      .readFileString(historyPath)
+      .pipe(Effect.catchAll(() => Effect.succeed("")));
 
     if (content === "") return [];
 
@@ -137,8 +133,11 @@ export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error> {
 /**
  * Save the run history to disk using atomic write (temp file + rename).
  */
-function saveRunHistory(history: WorkflowRunRecord[]): Effect.Effect<void, Error> {
+function saveRunHistory(
+  history: WorkflowRunRecord[],
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     const historyPath = getHistoryPath();
     const dir = path.dirname(historyPath);
     const tempPath = path.join(
@@ -146,24 +145,15 @@ function saveRunHistory(history: WorkflowRunRecord[]): Effect.Effect<void, Error
       `.run-history-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
     );
 
-    yield* Effect.tryPromise({
-      try: () => fs.mkdir(dir, { recursive: true }),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    });
-    yield* Effect.tryPromise({
-      try: () => fs.writeFile(tempPath, JSON.stringify(history, null, 2)),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    });
-    yield* Effect.tryPromise({
-      try: () => fs.rename(tempPath, historyPath),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    }).pipe(
-      Effect.tapError(() =>
-        Effect.tryPromise({
-          try: () => fs.unlink(tempPath),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        }).pipe(Effect.catchAll(() => Effect.void)),
-      ),
+    yield* fs
+      .makeDirectory(dir, { recursive: true })
+      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+    yield* fs
+      .writeFileString(tempPath, JSON.stringify(history, null, 2))
+      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+    yield* fs.rename(tempPath, historyPath).pipe(
+      Effect.tapError(() => fs.remove(tempPath).pipe(Effect.catchAll(() => Effect.void))),
+      Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
     );
   });
 }
@@ -173,7 +163,9 @@ function saveRunHistory(history: WorkflowRunRecord[]): Effect.Effect<void, Error
  * Keeps only the last N records to prevent unbounded growth.
  * Uses file locking to prevent race conditions.
  */
-export function addRunRecord(record: WorkflowRunRecord): Effect.Effect<void, Error> {
+export function addRunRecord(
+  record: WorkflowRunRecord,
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
   return withLock(
     Effect.gen(function* () {
       const history = yield* loadRunHistory();
@@ -196,7 +188,7 @@ export function addRunRecord(record: WorkflowRunRecord): Effect.Effect<void, Err
 export function updateLatestRunRecord(
   workflowName: string,
   update: Partial<WorkflowRunRecord>,
-): Effect.Effect<void, Error> {
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
   return withLock(
     Effect.gen(function* () {
       const history = yield* loadRunHistory();
@@ -219,7 +211,7 @@ export function updateLatestRunRecord(
  */
 export function getWorkflowHistory(
   workflowName: string,
-): Effect.Effect<WorkflowRunRecord[], Error> {
+): Effect.Effect<WorkflowRunRecord[], Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const history = yield* loadRunHistory();
     return history.filter((r) => r.workflowName === workflowName);
@@ -229,7 +221,9 @@ export function getWorkflowHistory(
 /**
  * Get the most recent runs (across all workflows).
  */
-export function getRecentRuns(limit = 20): Effect.Effect<WorkflowRunRecord[], Error> {
+export function getRecentRuns(
+  limit = 20,
+): Effect.Effect<WorkflowRunRecord[], Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const history = yield* loadRunHistory();
     return history.slice(-limit).reverse();

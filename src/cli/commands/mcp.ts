@@ -1,9 +1,8 @@
-import { FileSystem } from "@effect/platform";
 import { execSync } from "node:child_process";
-import nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Effect } from "effect";
+import { FileSystem } from "@effect/platform";
+import { Effect, Option } from "effect";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
@@ -117,17 +116,16 @@ export function addMcpServerCommand(
 ): Effect.Effect<void, never, AgentConfigService | TerminalService | FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
+    const fs = yield* FileSystem.FileSystem;
 
     // 1. From --file
     if (filePath) {
-      let content: string;
-      try {
-        content = nodeFs.readFileSync(filePath, "utf-8");
-      } catch {
+      const contentOpt = yield* fs.readFileString(filePath).pipe(Effect.option);
+      if (Option.isNone(contentOpt)) {
         yield* terminal.error(`Could not read file: ${filePath}`);
         return;
       }
-      return yield* parseAndSaveMcpServers(content);
+      return yield* parseAndSaveMcpServers(contentOpt.value);
     }
 
     // 2. From inline JSON argument
@@ -160,33 +158,29 @@ export function addMcpServerCommand(
   }
 }
 `;
-    nodeFs.writeFileSync(tmpFile, template, "utf-8");
+    yield* fs.writeFileString(tmpFile, template).pipe(Effect.catchAll(() => Effect.void));
 
     yield* terminal.info(`Opening ${editor} to edit MCP server configuration...`);
 
     try {
       execSync(`${editor} "${tmpFile}"`, { stdio: "inherit" });
     } catch {
+      yield* fs.remove(tmpFile).pipe(Effect.catchAll(() => Effect.void));
       yield* terminal.error(
         `Failed to open editor (${editor}). Set $EDITOR or use --file instead.`,
       );
       return;
     }
 
-    let content: string;
-    try {
-      content = nodeFs.readFileSync(tmpFile, "utf-8");
-    } catch {
+    const contentOpt = yield* fs.readFileString(tmpFile).pipe(Effect.option);
+    yield* fs.remove(tmpFile).pipe(Effect.catchAll(() => Effect.void));
+
+    if (Option.isNone(contentOpt)) {
       yield* terminal.error("Could not read temp file after editing.");
       return;
-    } finally {
-      try {
-        nodeFs.unlinkSync(tmpFile);
-      } catch {
-        /* ignore cleanup errors */
-      }
     }
 
+    const content = contentOpt.value;
     if (content.trim() === "" || content.trim() === template.trim()) {
       yield* terminal.warn("No changes made. Aborting.");
       return;
@@ -277,7 +271,6 @@ export function removeMcpServerCommand(): Effect.Effect<
     yield* removeAgentsMcpServer(fs, selected);
 
     // Build overrides: for remaining servers keep their enabled/inputs; for removed server add enabled: false
-    const mcpServers = yield* configService.getOrElse<McpServersRecord>("mcpServers", {});
     const overrides: Record<string, { enabled?: boolean; inputs?: Record<string, string> }> = {};
     for (const [n, c] of Object.entries(mcpServers)) {
       const o: { enabled?: boolean; inputs?: Record<string, string> } = {};

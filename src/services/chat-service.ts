@@ -257,7 +257,7 @@ export class ChatServiceImpl implements ChatService {
                 autoApprovedCommands.push(commandResult.addAutoApprovedCommand);
               }
               // Track for cross-session promotion (fire-and-forget)
-              Effect.runFork(
+              yield* Effect.fork(
                 recordCommandApproval(commandResult.addAutoApprovedCommand, sessionId).pipe(
                   Effect.catchAll(() => Effect.void),
                 ),
@@ -274,6 +274,9 @@ export class ChatServiceImpl implements ChatService {
         }
 
         yield* Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
+
           // Create runner options
           const runnerOptions: AgentRunnerOptions = {
             agent,
@@ -289,9 +292,11 @@ export class ChatServiceImpl implements ChatService {
               if (!autoApprovedCommands.includes(command)) {
                 autoApprovedCommands.push(command);
               }
-              // Track for cross-session promotion (fire-and-forget)
               Effect.runFork(
-                recordCommandApproval(command, sessionId).pipe(Effect.catchAll(() => Effect.void)),
+                recordCommandApproval(command, sessionId).pipe(
+                  Effect.catchAll(() => Effect.void),
+                  Effect.provide(fsLayer),
+                ),
               );
             },
             onAutoApproveTool: (toolName: string) => {
