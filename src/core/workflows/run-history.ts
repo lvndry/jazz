@@ -117,7 +117,17 @@ export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error, File
 
     const content = yield* fs
       .readFileString(historyPath)
-      .pipe(Effect.catchAll(() => Effect.succeed("")));
+      .pipe(
+        Effect.catchAll((e) =>
+          e &&
+          typeof e === "object" &&
+          "_tag" in e &&
+          (e as { _tag: string })._tag === "SystemError" &&
+          (e as { reason?: string }).reason === "NotFound"
+            ? Effect.succeed("")
+            : Effect.fail(e instanceof Error ? e : new Error(String(e))),
+        ),
+      );
 
     if (content === "") return [];
 

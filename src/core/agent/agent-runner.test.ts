@@ -64,6 +64,14 @@ const mockTerminalService = {} as unknown as TerminalService;
 const mockFileSystem = {} as unknown as FileSystem.FileSystem;
 const mockFileSystemContext = {} as unknown as FileSystemContextService;
 
+const BUILTIN_TOOLS_BY_CATEGORY: Record<string, string[]> = {
+  skills: ["load_skill", "load_skill_section"],
+  todo: ["manage_todos", "list_todos"],
+  subagent: ["spawn_subagent", "summarize_context"],
+  user_interaction: ["ask_user_question", "ask_file_picker"],
+  context: ["context_info", "get_time"],
+};
+
 const mockToolRegistry = {
   registerTool: mock(() => Effect.succeed(undefined)),
   registerForCategory: mock(() => mock(() => Effect.succeed(undefined))),
@@ -79,7 +87,13 @@ const mockToolRegistry = {
       "spawn_subagent",
       "summarize_context",
       "get_time",
+      "manage_todos",
+      "list_todos",
+      "context_info",
     ]),
+  ),
+  getToolsInCategory: mock((categoryId: string) =>
+    Effect.succeed(BUILTIN_TOOLS_BY_CATEGORY[categoryId] ?? []),
   ),
   getTool: mock((name: string) =>
     Effect.succeed({

@@ -25,7 +25,11 @@ import { agentPromptBuilder } from "./agent-prompt";
 import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
-import { registerMCPToolsForAgent, registerSkillSystemTools } from "./tools/register-tools";
+import {
+  BUILTIN_TOOL_CATEGORIES,
+  registerMCPToolsForAgent,
+  registerSkillSystemTools,
+} from "./tools/register-tools";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
 
@@ -94,27 +98,15 @@ function initializeAgentRun(
       ),
     );
 
-    const DEFAULT_BUILT_IN_TOOLS = [
-      "load_skill",
-      "load_skill_section",
-      "ask_user_question",
-      "ask_file_picker",
-      "spawn_subagent",
-      "summarize_context",
-      "get_time",
-    ] as const;
-
-    const BUILT_IN_TOOLS = (() => {
-      switch (persona) {
-        case "summarizer":
-          return [];
-        default:
-          return [...DEFAULT_BUILT_IN_TOOLS];
-      }
-    })();
+    const builtInToolNames =
+      persona === "summarizer"
+        ? []
+        : (yield* Effect.all(
+            BUILTIN_TOOL_CATEGORIES.map((cat) => toolRegistry.getToolsInCategory(cat.id)),
+          )).flat();
 
     // Combine agent tools with skill tools (skill tools always available)
-    let combinedToolNames = [...new Set([...agentToolNames, ...BUILT_IN_TOOLS])];
+    let combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
 
     // Filter out any non-existent tools silently — tools may have been removed
     // or MCP servers may be unavailable. The agent can still operate with its
