@@ -11,7 +11,7 @@ export interface AppConfig {
   readonly llm?: LLMConfig;
   readonly web_search?: WebSearchConfig;
   readonly output?: OutputConfig;
-  readonly mcpServers?: Record<string, MCPServerConfig>;
+  readonly mcpServers?: Record<string, MCPServerOverride>;
   readonly notifications?: NotificationsConfig;
   readonly autoApprovedCommands?: readonly string[];
   readonly telemetry?: TelemetryConfig;
@@ -35,11 +35,14 @@ export interface TelemetryConfig {
   readonly retentionDays?: number;
 }
 
-export interface MCPServerConfig {
-  readonly command: string;
-  readonly args?: readonly string[];
-  readonly env?: Record<string, string>;
+/**
+ * MCP server override stored in jazz.config.json.
+ * Only contains Jazz-specific metadata — full server definitions
+ * live in ~/.agents/mcp.json (global) or .agents/mcp.json (project-local).
+ */
+export interface MCPServerOverride {
   readonly enabled?: boolean;
+  /** Resolved template variable values (e.g., ${input:pg_url} -> actual value) */
   readonly inputs?: Record<string, string>;
 }
 

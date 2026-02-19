@@ -47,7 +47,7 @@ describe("AgentConfigService", () => {
   };
 
   it("should get nested properties using dot notation", async () => {
-    const service = new AgentConfigServiceImpl(initialConfig, undefined, mockFS);
+    const service = new AgentConfigServiceImpl(initialConfig, {}, undefined, mockFS);
 
     const level = await Effect.runPromise(service.get<string>("logging.level"));
     expect(level).toBe("info");
@@ -58,7 +58,7 @@ describe("AgentConfigService", () => {
 
   it("should set properties and persist to file", async () => {
     const configPath = "/tmp/config.json";
-    const service = new AgentConfigServiceImpl(initialConfig, configPath, mockFS);
+    const service = new AgentConfigServiceImpl(initialConfig, {}, configPath, mockFS);
 
     await Effect.runPromise(service.set("llm.openai.api_key", "sk-test"));
 
@@ -71,8 +71,43 @@ describe("AgentConfigService", () => {
   });
 
   it("should return default value for missing keys with getOrElse", async () => {
-    const service = new AgentConfigServiceImpl(initialConfig, undefined, mockFS);
+    const service = new AgentConfigServiceImpl(initialConfig, {}, undefined, mockFS);
     const value = await Effect.runPromise(service.getOrElse("missing.key", "default"));
     expect(value).toBe("default");
+  });
+
+  it("should persist only mcpOverrides (enabled, inputs) to jazz config, not full definitions", async () => {
+    const configPath = "/tmp/jazz-mcp-overrides-test.json";
+    const configWithMcp = {
+      ...initialConfig,
+      mcpServers: {
+        testServer: {
+          command: "npx",
+          args: ["-y", "some-mcp"],
+          enabled: true,
+          inputs: { API_KEY: "secret" },
+        },
+      },
+    } as AppConfig;
+    const mcpOverrides = { testServer: { enabled: true as const, inputs: { API_KEY: "secret" } } };
+    const service = new AgentConfigServiceImpl(
+      configWithMcp,
+      mcpOverrides,
+      configPath,
+      mockFS,
+    );
+
+    await Effect.runPromise(service.set("mcpServers.testServer.enabled", false));
+
+    expect(mockFS.writeFileString).toHaveBeenCalled();
+    const calls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+    const written = calls[calls.length - 1]?.[1] as string;
+    const parsed = JSON.parse(written);
+    expect(parsed.mcpServers).toBeDefined();
+    expect(parsed.mcpServers.testServer).toEqual({
+      enabled: false,
+      inputs: { API_KEY: "secret" },
+    });
+    expect(parsed.mcpServers.testServer.command).toBeUndefined();
   });
 });
