@@ -14,6 +14,12 @@ import {
 } from "./markdown-formatter";
 import { CHALK_THEME, codeColor } from "../ui/theme";
 
+/** Count OSC 8 hyperlink sequences (\x1b]8;;) in output. */
+function countOsc8(text: string): number {
+  // eslint-disable-next-line no-control-regex
+  return (text.match(/\x1b]8;;/g) || []).length;
+}
+
 describe("markdown-formatter", () => {
   describe("formatLinks", () => {
     it("should format standard links correctly", () => {
@@ -140,28 +146,28 @@ describe("markdown-formatter", () => {
       const result = formatMarkdownHybrid(input);
       // terminalHyperlink produces two \x1b]8;; sequences per link (open + close),
       // so exactly one hyperlink = 2 occurrences.
-      const osc8Count = (result.match(/\x1b]8;;/g) || []).length;
+      const osc8Count = countOsc8(result);
       expect(osc8Count).toBe(2);
     });
 
     it("should not match absolute paths inside markdown link targets", () => {
       const input = "[Repo](/abs/path/to/file)";
       const result = formatMarkdownHybrid(input);
-      const osc8Count = (result.match(/\x1b]8;;/g) || []).length;
+      const osc8Count = countOsc8(result);
       expect(osc8Count).toBe(2); // single hyperlink, not double
     });
 
     it("should not match home paths inside markdown link targets", () => {
       const input = "[Config](~/dotfiles/config.json)";
       const result = formatMarkdownHybrid(input);
-      const osc8Count = (result.match(/\x1b]8;;/g) || []).length;
+      const osc8Count = countOsc8(result);
       expect(osc8Count).toBe(2);
     });
 
     it("should not match file:line paths inside markdown link targets", () => {
       const input = "[Error](/src/main.ts:42:10)";
       const result = formatMarkdownHybrid(input);
-      const osc8Count = (result.match(/\x1b]8;;/g) || []).length;
+      const osc8Count = countOsc8(result);
       expect(osc8Count).toBe(2);
     });
   });
@@ -171,14 +177,14 @@ describe("markdown-formatter", () => {
       const input = "[Docs](./docs/README.md)";
       const result = formatMarkdown(input);
       // terminalHyperlink produces two \x1b]8;; per link (open + close)
-      const osc8Count = (result.match(/\x1b]8;;/g) || []).length;
+      const osc8Count = countOsc8(result);
       expect(osc8Count).toBe(2);
     });
 
     it("should not match absolute paths inside markdown link targets", () => {
       const input = "[File](/usr/local/bin/app)";
       const result = formatMarkdown(input);
-      const osc8Count = (result.match(/\x1b]8;;/g) || []).length;
+      const osc8Count = countOsc8(result);
       expect(osc8Count).toBe(2);
     });
   });
