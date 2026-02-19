@@ -716,7 +716,7 @@ class InkPresentationService implements PresentationService {
       return;
     }
 
-    // Send system notification for approval request
+    // Send system notification for approval request.
     if (this.notificationService) {
       Effect.runFork(
         this.notificationService
@@ -902,7 +902,7 @@ class InkPresentationService implements PresentationService {
     this.isProcessingUserInput = true;
     const { request, resume } = this.userInputQueue.shift()!;
 
-    // Send system notification for user input request
+    // Send system notification for user input request.
     if (this.notificationService) {
       Effect.runFork(
         this.notificationService

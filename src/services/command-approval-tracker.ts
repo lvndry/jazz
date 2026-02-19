@@ -1,5 +1,5 @@
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { getUserDataDirectory } from "@/core/utils/runtime-detection";
 
@@ -32,19 +32,28 @@ function getApprovalsPath(): string {
   return path.join(getUserDataDirectory(), "command-approvals.json");
 }
 
-export function loadCommandApprovals(): Effect.Effect<CommandApprovals, Error> {
+export function loadCommandApprovals(): Effect.Effect<
+  CommandApprovals,
+  Error,
+  FileSystem.FileSystem
+> {
   return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     const approvalsPath = getApprovalsPath();
 
-    const content = yield* Effect.tryPromise({
-      try: () => fs.readFile(approvalsPath, "utf-8"),
-      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-    }).pipe(
-      Effect.catchIf(
-        (e): e is NodeJS.ErrnoException => e instanceof Error && "code" in e && e.code === "ENOENT",
-        () => Effect.succeed(""),
-      ),
-    );
+    const content = yield* fs
+      .readFileString(approvalsPath)
+      .pipe(
+        Effect.catchAll((e) =>
+          e &&
+          typeof e === "object" &&
+          "_tag" in e &&
+          (e as { _tag: string })._tag === "SystemError" &&
+          (e as { reason?: string }).reason === "NotFound"
+            ? Effect.succeed("")
+            : Effect.fail(e instanceof Error ? e : new Error(String(e))),
+        ),
+      );
 
     if (content === "") return {};
 
@@ -57,8 +66,11 @@ export function loadCommandApprovals(): Effect.Effect<CommandApprovals, Error> {
   });
 }
 
-export function saveCommandApprovals(data: CommandApprovals): Effect.Effect<void, Error> {
+export function saveCommandApprovals(
+  data: CommandApprovals,
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     const approvalsPath = getApprovalsPath();
     const dir = path.dirname(approvalsPath);
     const tempPath = path.join(
@@ -66,24 +78,15 @@ export function saveCommandApprovals(data: CommandApprovals): Effect.Effect<void
       `.command-approvals-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
     );
 
-    yield* Effect.tryPromise({
-      try: () => fs.mkdir(dir, { recursive: true }),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    });
-    yield* Effect.tryPromise({
-      try: () => fs.writeFile(tempPath, JSON.stringify(data, null, 2)),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    });
-    yield* Effect.tryPromise({
-      try: () => fs.rename(tempPath, approvalsPath),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    }).pipe(
-      Effect.tapError(() =>
-        Effect.tryPromise({
-          try: () => fs.unlink(tempPath),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        }).pipe(Effect.catchAll(() => Effect.void)),
-      ),
+    yield* fs
+      .makeDirectory(dir, { recursive: true })
+      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+    yield* fs
+      .writeFileString(tempPath, JSON.stringify(data, null, 2))
+      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+    yield* fs.rename(tempPath, approvalsPath).pipe(
+      Effect.tapError(() => fs.remove(tempPath).pipe(Effect.catchAll(() => Effect.void))),
+      Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
     );
   });
 }
@@ -96,7 +99,7 @@ export function saveCommandApprovals(data: CommandApprovals): Effect.Effect<void
 export function recordCommandApproval(
   command: string,
   sessionId: string,
-): Effect.Effect<number, Error> {
+): Effect.Effect<number, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const approvals = yield* loadCommandApprovals();
 
@@ -123,7 +126,9 @@ export function recordCommandApproval(
 /**
  * Remove a command's tracking entry (after promotion to persistent config).
  */
-export function removeCommandApproval(command: string): Effect.Effect<void, Error> {
+export function removeCommandApproval(
+  command: string,
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const approvals = yield* loadCommandApprovals();
     delete approvals[command];
@@ -135,7 +140,9 @@ export function removeCommandApproval(command: string): Effect.Effect<void, Erro
  * Bump the next prompt threshold for a command (user declined promotion).
  * Uses exponential backoff: nextPromptAt = current sessionCount + (currentThreshold * BACKOFF_MULTIPLIER).
  */
-export function bumpPromotionThreshold(command: string): Effect.Effect<void, Error> {
+export function bumpPromotionThreshold(
+  command: string,
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const approvals = yield* loadCommandApprovals();
     const existing = approvals[command];

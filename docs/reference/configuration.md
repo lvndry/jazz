@@ -1,10 +1,26 @@
 # Configuration Reference
 
-Jazz is configured via a global configuration file and environment variables.
+Jazz is configured via configuration files and environment variables.
 
-## `jazz.config.json`
+## Configuration File Locations
 
-Located at `~/.jazz/config.json`.
+Jazz searches for config files in this order (first found wins):
+
+1. `$JAZZ_CONFIG_PATH` — Path from environment variable
+2. `./jazz.config.json` — Project-level
+3. `~/.jazz/config.json` — User-level (global)
+
+## MCP Servers: `.agents/mcp.json`
+
+Jazz also loads MCP servers from the `.agents` convention paths. These are merged with the main config (project overrides user):
+
+- `~/.agents/mcp.json` — User-level MCP config
+
+See [MCP Servers](../integrations/index.md#mcp-servers) for format details.
+
+## Main Config: `jazz.config.json`
+
+Located at `~/.jazz/config.json` (or project paths above).
 
 ```json
 {

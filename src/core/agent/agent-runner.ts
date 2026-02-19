@@ -25,7 +25,11 @@ import { agentPromptBuilder } from "./agent-prompt";
 import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
-import { registerMCPToolsForAgent, registerSkillSystemTools } from "./tools/register-tools";
+import {
+  BUILTIN_TOOL_CATEGORIES,
+  registerMCPToolsForAgent,
+  registerSkillSystemTools,
+} from "./tools/register-tools";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
 
@@ -94,27 +98,15 @@ function initializeAgentRun(
       ),
     );
 
-    const DEFAULT_BUILT_IN_TOOLS = [
-      "load_skill",
-      "load_skill_section",
-      "ask_user_question",
-      "ask_file_picker",
-      "spawn_subagent",
-      "summarize_context",
-      "get_time",
-    ] as const;
-
-    const BUILT_IN_TOOLS = (() => {
-      switch (persona) {
-        case "summarizer":
-          return [];
-        default:
-          return [...DEFAULT_BUILT_IN_TOOLS];
-      }
-    })();
+    const builtInToolNames =
+      persona === "summarizer"
+        ? []
+        : (yield* Effect.all(
+            BUILTIN_TOOL_CATEGORIES.map((cat) => toolRegistry.getToolsInCategory(cat.id)),
+          )).flat();
 
     // Combine agent tools with skill tools (skill tools always available)
-    let combinedToolNames = [...new Set([...agentToolNames, ...BUILT_IN_TOOLS])];
+    let combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
 
     // Filter out any non-existent tools silently — tools may have been removed
     // or MCP servers may be unavailable. The agent can still operate with its
@@ -163,6 +155,17 @@ function initializeAgentRun(
       resolvedPersonaService,
     );
 
+    // Always provide mutable arrays for session-level approvals.
+    // If the caller provided arrays (e.g. from chat-service or parent agent),
+    // use them directly (by reference) so mutations propagate back.
+    // Otherwise create local arrays so approvals still persist within this run.
+    const autoApprovedCommands: string[] = options.autoApprovedCommands
+      ? (options.autoApprovedCommands as string[])
+      : [];
+    const autoApprovedTools: string[] = options.autoApprovedTools
+      ? (options.autoApprovedTools as string[])
+      : [];
+
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
       sessionId: options.sessionId,
@@ -170,18 +173,26 @@ function initializeAgentRun(
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }
         : {}),
-      // Always pass arrays by reference (even when empty) so that in-place
-      // mutations via onAutoApproveCommand/onAutoApproveTool callbacks are
-      // visible to subsequent isCommandAutoApproved/isToolNameAutoApproved
-      // checks within the same agent run.
-      ...(options.autoApprovedCommands
-        ? { autoApprovedCommands: options.autoApprovedCommands }
-        : {}),
-      ...(options.onAutoApproveCommand
-        ? { onAutoApproveCommand: options.onAutoApproveCommand }
-        : {}),
-      ...(options.autoApprovedTools ? { autoApprovedTools: options.autoApprovedTools } : {}),
-      ...(options.onAutoApproveTool ? { onAutoApproveTool: options.onAutoApproveTool } : {}),
+      // Always pass arrays by reference so that in-place mutations via
+      // onAutoApproveCommand/onAutoApproveTool callbacks are visible to
+      // subsequent isAutoApproved checks within the same agent run.
+      autoApprovedCommands,
+      autoApprovedTools,
+      onAutoApproveCommand:
+        options.onAutoApproveCommand ??
+        ((command: string) =>
+          Effect.sync(() => {
+            if (!autoApprovedCommands.includes(command)) {
+              autoApprovedCommands.push(command);
+            }
+          })),
+      onAutoApproveTool:
+        options.onAutoApproveTool ??
+        ((toolName: string) => {
+          if (!autoApprovedTools.includes(toolName)) {
+            autoApprovedTools.push(toolName);
+          }
+        }),
     };
 
     return {

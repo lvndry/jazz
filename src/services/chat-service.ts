@@ -256,10 +256,13 @@ export class ChatServiceImpl implements ChatService {
               if (!autoApprovedCommands.includes(commandResult.addAutoApprovedCommand)) {
                 autoApprovedCommands.push(commandResult.addAutoApprovedCommand);
               }
-              // Track for cross-session promotion (fire-and-forget)
-              Effect.runFork(
+
+              const fs = yield* FileSystem.FileSystem;
+              const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
+              yield* Effect.forkDaemon(
                 recordCommandApproval(commandResult.addAutoApprovedCommand, sessionId).pipe(
                   Effect.catchAll(() => Effect.void),
+                  Effect.provide(fsLayer),
                 ),
               );
             }
@@ -274,6 +277,9 @@ export class ChatServiceImpl implements ChatService {
         }
 
         yield* Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
+
           // Create runner options
           const runnerOptions: AgentRunnerOptions = {
             agent,
@@ -285,15 +291,18 @@ export class ChatServiceImpl implements ChatService {
             ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
             autoApprovedCommands,
             autoApprovedTools,
-            onAutoApproveCommand: (command: string) => {
-              if (!autoApprovedCommands.includes(command)) {
-                autoApprovedCommands.push(command);
-              }
-              // Track for cross-session promotion (fire-and-forget)
-              Effect.runFork(
-                recordCommandApproval(command, sessionId).pipe(Effect.catchAll(() => Effect.void)),
-              );
-            },
+            onAutoApproveCommand: (command: string) =>
+              Effect.gen(function* () {
+                if (!autoApprovedCommands.includes(command)) {
+                  autoApprovedCommands.push(command);
+                }
+                yield* Effect.forkDaemon(
+                  recordCommandApproval(command, sessionId).pipe(
+                    Effect.catchAll(() => Effect.void),
+                    Effect.provide(fsLayer),
+                  ),
+                );
+              }),
             onAutoApproveTool: (toolName: string) => {
               if (!autoApprovedTools.includes(toolName)) {
                 autoApprovedTools.push(toolName);

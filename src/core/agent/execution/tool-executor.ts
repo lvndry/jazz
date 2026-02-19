@@ -239,7 +239,7 @@ export class ToolExecutor {
           if (outcome.approved) {
             // Handle "always approve this command" choice (execute_command only)
             if (outcome.alwaysApproveCommand && context.onAutoApproveCommand) {
-              context.onAutoApproveCommand(outcome.alwaysApproveCommand);
+              yield* context.onAutoApproveCommand(outcome.alwaysApproveCommand);
               yield* logger.info("User chose to always approve command", {
                 command: outcome.alwaysApproveCommand,
               });

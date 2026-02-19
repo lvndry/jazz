@@ -1097,7 +1097,7 @@ function handleMcpCommand(
 
     if (servers.length === 0) {
       yield* terminal.info("No MCP servers configured.");
-      yield* terminal.log(fmt.keyValueCompact("Config", "~/.jazz/config.json"));
+      yield* terminal.log(fmt.keyValueCompact("Config", "~/.agents/mcp.json"));
       yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }

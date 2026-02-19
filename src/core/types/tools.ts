@@ -1,3 +1,4 @@
+import type { Effect } from "effect";
 import type z from "zod";
 import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
@@ -190,9 +191,10 @@ export interface ToolExecutionContext {
   readonly autoApprovedCommands?: readonly string[];
   /**
    * Callback invoked when the user chooses "always approve" for a specific command.
-   * The chat service uses this to add the command to the auto-approved list.
+   * The chat service uses this to add the command to the auto-approved list and
+   * persist the approval for cross-session promotion.
    */
-  readonly onAutoApproveCommand?: (command: string) => void;
+  readonly onAutoApproveCommand?: (command: string) => Effect.Effect<void>;
   /**
    * Tool names that are always auto-approved for this session.
    * When a tool name appears in this list, it will be auto-approved without prompting.

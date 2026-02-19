@@ -12,6 +12,14 @@ skills:
 
 Review the changes in this pull request.
 
+**Collect ALL issues, never stop at first error**: You MUST review the entire PR and return every issue you find. Do NOT stop when you encounter the first bug, security concern, or suggestion. Accumulate all feedback and emit it together in the final JSON array.
+
+**Write to a file**: Use write_file to accumulate issues in a scratch file. **Always write to /tmp only**—e.g. `/tmp/jazz-review-issues.md`. Never write to the repo workspace. The runner has `mktemp` available; you can use a path like `/tmp/jazz-review-issues.md` (each job runs in isolation, so this is safe). You can only write in this path and should never try to write or edit the codebase.
+**Large PRs — spawn_subagent**: If the PR has many files (10+ changed) or 500+ lines, spawn subagents to review batches of files in parallel. Each subagent returns issues for its batch. Aggregate all subagent results into one combined JSON array.
+Use a todo list if needed to keep track of where you're at and what's left
+
+The final output must include every issue across the entire diff. Partial reviews that stop early are not acceptable.
+
 To get the diff, use the `git_diff` tool with `commit` set to `__PR_BASE_SHA__...__PR_HEAD_SHA__`.
 
 **Workflow for all PRs**:

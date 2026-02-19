@@ -2,6 +2,7 @@
  * Application configuration types
  */
 
+import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type { OutputConfig } from "./output";
 
 export interface AppConfig {
@@ -11,6 +12,7 @@ export interface AppConfig {
   readonly llm?: LLMConfig;
   readonly web_search?: WebSearchConfig;
   readonly output?: OutputConfig;
+  /** Runtime merged view: full MCPServerConfig objects from .agents/mcp.json + overrides. */
   readonly mcpServers?: Record<string, MCPServerConfig>;
   readonly notifications?: NotificationsConfig;
   readonly autoApprovedCommands?: readonly string[];
@@ -35,12 +37,13 @@ export interface TelemetryConfig {
   readonly retentionDays?: number;
 }
 
-export interface MCPServerConfig {
-  readonly command: string;
-  readonly args?: readonly string[];
-  readonly env?: Record<string, string>;
+/**
+ * MCP server override stored in jazz.config.json.
+ * Only contains Jazz-specific metadata — full server definitions
+ * live in ~/.agents/mcp.json (global) or .agents/mcp.json (project-local).
+ */
+export interface MCPServerOverride {
   readonly enabled?: boolean;
-  readonly inputs?: Record<string, string>;
 }
 
 export type StorageConfig =

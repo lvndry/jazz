@@ -253,7 +253,12 @@ MCP (Model Context Protocol) provides a standardized way for AI agents to:
 
 ### Configuration
 
-Add MCP servers to your `jazz.config.json` under the `mcpServers` key:
+Jazz loads MCP servers from multiple locations (later sources override earlier ones):
+
+1. **Main config** — `jazz.config.json` or `.jazz/config.json` (see [Configuration Reference](../reference/configuration.md))
+2. **`.agents/mcp.json`** — Project-level and user-level, following the [.agents convention](https://agentskills.io)
+
+Add MCP servers to any of these files under the `mcpServers` key:
 
 ```json
 {
@@ -268,6 +273,11 @@ Add MCP servers to your `jazz.config.json` under the `mcpServers` key:
   }
 }
 ```
+
+**.agents/mcp.json** locations (merged in order, project overrides user):
+
+- `~/.agents/mcp.json` — User-level (shared across projects)
+- `./.agents/mcp.json` — Project-level (in your repo root)
 
 #### Configuration Options
 
@@ -364,20 +374,18 @@ Query and manage MongoDB databases directly from your agents.
 
 #### PostgreSQL
 
-Connect to PostgreSQL databases for SQL queries.
+Connect to PostgreSQL databases for SQL queries. The server accepts the connection string as a command-line argument.
 
 ```json
 {
   "mcpServers": {
     "postgres": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres", "${input:pg_url}"]
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://user:pass@localhost:5432/dbname"]
     }
   }
 }
 ```
-
-> **Note**: The `${input:pg_url}` syntax prompts you for the PostgreSQL connection URL on first use and stores it securely.
 
 **Available Tools**:
 

@@ -1,20 +1,10 @@
-import chalk from "chalk";
 import { Context, Effect, Layer } from "effect";
 import {
   formatMarkdown as formatMarkdownFromFormatter,
   stripAnsiCodes,
   normalizeBlankLines,
-  formatEscapedText,
-  formatStrikethrough,
-  formatBold,
-  formatItalic,
-  formatInlineCode,
-  formatHeadings,
-  formatBlockquotes,
-  formatTaskLists,
-  formatLists,
-  formatHorizontalRules,
-  formatLinks,
+  formatNonCodeText,
+  segmentByCodeBlocks,
 } from "@/cli/presentation/markdown-formatter";
 import { codeColor } from "@/cli/ui/theme";
 
@@ -97,22 +87,14 @@ const INCOMPLETE_CODE_BLOCK_REGEX = /```[^`]*$/;
 
 /**
  * Apply inline formatting to a non-code-block text segment.
+ *
+ * Delegates to the shared {@link formatNonCodeText} pipeline which handles:
+ * - inline code extraction (protects `code` from bold/italic corruption)
+ * - emoji shortcodes, escape stripping, bold, italic, strikethrough, headings,
+ *   blockquotes, lists, horizontal rules
+ * - link extraction / bare-URL and file-path formatting / link restoration
  */
-function applyInlineFormatting(text: string): string {
-  let formatted = text;
-  formatted = formatEscapedText(formatted);
-  formatted = formatStrikethrough(formatted);
-  formatted = formatBold(formatted);
-  formatted = formatItalic(formatted);
-  formatted = formatInlineCode(formatted);
-  formatted = formatHeadings(formatted);
-  formatted = formatBlockquotes(formatted);
-  formatted = formatTaskLists(formatted);
-  formatted = formatLists(formatted);
-  formatted = formatHorizontalRules(formatted);
-  formatted = formatLinks(formatted);
-  return formatted;
-}
+const applyInlineFormatting = formatNonCodeText;
 
 /**
  * Check if text ends with incomplete syntax that should be buffered.
@@ -176,39 +158,8 @@ function formatStreamingChunk(text: string, state: StreamingState): FormattedChu
   const fullText = state.buffer + text;
   let isInCodeBlock = state.isInCodeBlock;
 
-  // Handle code block state
-  if (fullText.includes("```")) {
-    const lines = fullText.split("\n");
-    const processedLines: string[] = [];
-
-    for (const line of lines) {
-      if (line.trim().startsWith("```")) {
-        isInCodeBlock = !isInCodeBlock;
-        processedLines.push(chalk.yellow(line));
-      } else if (isInCodeBlock) {
-        processedLines.push(codeColor(line));
-      } else {
-        processedLines.push(line);
-      }
-    }
-
-    // Check for incomplete syntax at end
-    const joined = processedLines.join("\n");
-    const { complete, pending } = findIncompleteSyntax(joined);
-
-    // Apply formatting to complete portion (if not in code block)
-    const formatted =
-      !isInCodeBlock && complete.length > 0 ? applyInlineFormatting(complete) : complete;
-
-    return {
-      formatted,
-      pending,
-      state: { isInCodeBlock, buffer: pending },
-    };
-  }
-
-  // If inside code block, just color the text
-  if (isInCodeBlock) {
+  // Fast path: entirely inside a code block with no fences in this chunk
+  if (isInCodeBlock && !fullText.includes("```")) {
     return {
       formatted: codeColor(fullText),
       pending: "",
@@ -216,11 +167,34 @@ function formatStreamingChunk(text: string, state: StreamingState): FormattedChu
     };
   }
 
-  // Check for incomplete syntax
-  const { complete, pending } = findIncompleteSyntax(fullText);
+  // 1. Process ALL lines to track code block state and separate segments.
+  //    Code block state must be updated even for text that will be buffered.
+  const result = segmentByCodeBlocks(fullText.split("\n"), isInCodeBlock);
+  const segments = result.segments;
+  isInCodeBlock = result.isInCodeBlock;
 
-  // Apply formatting to complete portion
-  const formatted = complete.length > 0 ? applyInlineFormatting(complete) : complete;
+  // 2. Check the last segment for incomplete syntax (only applies to text
+  //    segments — code segments are always "complete" since fences are
+  //    tracked statefully).  Run on RAW text so ANSI codes don't interfere.
+  let pending = "";
+  const lastSeg = segments[segments.length - 1];
+  if (lastSeg && lastSeg.type === "text") {
+    const rawLast = lastSeg.lines.join("\n");
+    const { complete, pending: incompleteTail } = findIncompleteSyntax(rawLast);
+    pending = incompleteTail;
+    if (complete.length > 0) {
+      lastSeg.lines = complete.split("\n");
+    } else {
+      segments.pop(); // entirely pending — remove from output
+    }
+  }
+
+  // 3. Format text segments with the full inline pipeline; leave code segments as-is
+  const formatted = segments
+    .map((seg) =>
+      seg.type === "code" ? seg.lines.join("\n") : applyInlineFormatting(seg.lines.join("\n")),
+    )
+    .join("\n");
 
   return {
     formatted,

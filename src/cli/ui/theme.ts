@@ -12,6 +12,8 @@ import chalk from "chalk";
 export const THEME = {
   /** Warm bronze — brand color used for headers, borders, key UI */
   primary: "#DE9A2C",
+  /** Links — blue to signal clickable, distinct from primary UI */
+  link: "#3B82F6",
   /** Agent name throughout the lifecycle (thinking → streaming → complete) */
   agent: "#DE9A2C",
   success: "green",
@@ -51,7 +53,7 @@ export const CHALK_THEME = {
   success: chalk.green,
   heading: chalk.bold.hex(THEME.primary),
   headingUnderline: chalk.bold.hex(THEME.primary).underline,
-  link: chalk.hex(THEME.primary).underline,
+  link: chalk.hex(THEME.link).underline,
   secondary: chalk.dim,
   bold: chalk.bold,
   white: chalk.white,
