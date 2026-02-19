@@ -257,9 +257,12 @@ export class ChatServiceImpl implements ChatService {
                 autoApprovedCommands.push(commandResult.addAutoApprovedCommand);
               }
 
+              const fs = yield* FileSystem.FileSystem;
+              const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
               yield* Effect.forkDaemon(
                 recordCommandApproval(commandResult.addAutoApprovedCommand, sessionId).pipe(
                   Effect.catchAll(() => Effect.void),
+                  Effect.provide(fsLayer),
                 ),
               );
             }
