@@ -256,8 +256,8 @@ export class ChatServiceImpl implements ChatService {
               if (!autoApprovedCommands.includes(commandResult.addAutoApprovedCommand)) {
                 autoApprovedCommands.push(commandResult.addAutoApprovedCommand);
               }
-              // Track for cross-session promotion (fire-and-forget)
-              yield* Effect.fork(
+
+              yield* Effect.forkDaemon(
                 recordCommandApproval(commandResult.addAutoApprovedCommand, sessionId).pipe(
                   Effect.catchAll(() => Effect.void),
                 ),

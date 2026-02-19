@@ -21,7 +21,6 @@ const StdioServerConfigSchema = z.object({
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
-  inputs: z.record(z.string(), z.string()).optional(),
 });
 
 const HttpServerConfigSchema = z.object({
@@ -29,7 +28,6 @@ const HttpServerConfigSchema = z.object({
   url: z.string(),
   headers: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
-  inputs: z.record(z.string(), z.string()).optional(),
 });
 
 const McpServerConfigSchema = z.union([HttpServerConfigSchema, StdioServerConfigSchema]);
@@ -72,7 +70,7 @@ function parseAndSaveMcpServers(
     }
 
     for (const [name, config] of entries) {
-      // Strip 'enabled' from the server config — it's metadata, not part of the server definition
+      // Strip enabled — metadata lives in jazz.config.json, not mcp.json
       const { enabled: _, ...serverConfig } = config;
 
       // Write full server config to ~/.agents/mcp.json
@@ -270,15 +268,14 @@ export function removeMcpServerCommand(): Effect.Effect<
     // but we add enabled: false to jazz overrides to effectively hide it.
     yield* removeAgentsMcpServer(fs, selected);
 
-    // Build overrides: for remaining servers keep their enabled/inputs; for removed server add enabled: false
-    const overrides: Record<string, { enabled?: boolean; inputs?: Record<string, string> }> = {};
+    // Build overrides: for remaining servers keep their enabled; for removed server add enabled: false
+    const overrides: Record<string, { enabled?: boolean }> = {};
     for (const [n, c] of Object.entries(mcpServers)) {
-      const o: { enabled?: boolean; inputs?: Record<string, string> } = {};
+      const o: { enabled?: boolean } = {};
       if (n === selected) {
         o.enabled = false;
-      } else {
-        if (c.enabled !== undefined) o.enabled = c.enabled;
-        if (c.inputs && Object.keys(c.inputs).length > 0) o.inputs = { ...c.inputs };
+      } else if (c.enabled !== undefined) {
+        o.enabled = c.enabled;
       }
       if (Object.keys(o).length > 0) overrides[n] = o;
     }

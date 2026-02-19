@@ -9,7 +9,6 @@ import type {
 import type { MCPClient, MCPTool } from "@/core/types/mcp";
 import type { AgentConfigService } from "./agent-config";
 import type { LoggerService } from "./logger";
-import type { TerminalService } from "./terminal";
 
 /**
  * Transport types supported by MCP servers
@@ -22,10 +21,6 @@ export type MCPTransportType = "stdio" | "http";
 export interface MCPServerConfigBase {
   readonly name: string;
   readonly enabled?: boolean;
-  /**
-   * Resolved input values (after template variable resolution)
-   */
-  readonly inputs?: Record<string, string>;
 }
 
 /**
@@ -92,8 +87,7 @@ export interface MCPServerConnection {
 /**
  * MCP Server Manager interface
  *
- * Manages connections to MCP servers, handles template variable resolution,
- * and provides access to MCP tools.
+ * Manages connections to MCP servers and provides access to MCP tools.
  */
 export interface MCPServerManager {
   /**
@@ -101,11 +95,7 @@ export interface MCPServerManager {
    */
   readonly connectServer: (
     config: MCPServerConfig,
-  ) => Effect.Effect<
-    MCPClient,
-    MCPConnectionError,
-    LoggerService | AgentConfigService | TerminalService
-  >;
+  ) => Effect.Effect<MCPClient, MCPConnectionError, LoggerService>;
 
   /**
    * Disconnect from an MCP server
@@ -130,17 +120,8 @@ export interface MCPServerManager {
   ) => Effect.Effect<
     readonly MCPTool[],
     MCPConnectionError | MCPToolDiscoveryError | MCPDisconnectionError,
-    LoggerService | AgentConfigService | TerminalService
+    LoggerService
   >;
-
-  /**
-   * Resolve template variables in server config
-   * Prompts user for ${input:variable} values and stores them in config
-   * Only applicable to stdio transport configs (which have args)
-   */
-  readonly resolveTemplateVariables: (
-    config: MCPServerConfigStdio,
-  ) => Effect.Effect<readonly string[], Error, AgentConfigService | TerminalService>;
 
   /**
    * List all configured MCP servers

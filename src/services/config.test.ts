@@ -76,7 +76,7 @@ describe("AgentConfigService", () => {
     expect(value).toBe("default");
   });
 
-  it("should persist only mcpOverrides (enabled, inputs) to jazz config, not full definitions", async () => {
+  it("should persist only mcpOverrides (enabled) to jazz config, not full definitions", async () => {
     const configPath = "/tmp/jazz-mcp-overrides-test.json";
     const configWithMcp = {
       ...initialConfig,
@@ -85,17 +85,11 @@ describe("AgentConfigService", () => {
           command: "npx",
           args: ["-y", "some-mcp"],
           enabled: true,
-          inputs: { API_KEY: "secret" },
         },
       },
     } as AppConfig;
-    const mcpOverrides = { testServer: { enabled: true as const, inputs: { API_KEY: "secret" } } };
-    const service = new AgentConfigServiceImpl(
-      configWithMcp,
-      mcpOverrides,
-      configPath,
-      mockFS,
-    );
+    const mcpOverrides = { testServer: { enabled: true as const } };
+    const service = new AgentConfigServiceImpl(configWithMcp, mcpOverrides, configPath, mockFS);
 
     await Effect.runPromise(service.set("mcpServers.testServer.enabled", false));
 
@@ -104,10 +98,7 @@ describe("AgentConfigService", () => {
     const written = calls[calls.length - 1]?.[1] as string;
     const parsed = JSON.parse(written);
     expect(parsed.mcpServers).toBeDefined();
-    expect(parsed.mcpServers.testServer).toEqual({
-      enabled: false,
-      inputs: { API_KEY: "secret" },
-    });
+    expect(parsed.mcpServers.testServer).toEqual({ enabled: false });
     expect(parsed.mcpServers.testServer.command).toBeUndefined();
   });
 });

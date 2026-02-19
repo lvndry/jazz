@@ -8,15 +8,12 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type {
   MCPServerConfig,
-  MCPServerConfigStdio,
   MCPServerConnection,
   MCPServerManager,
   MCPTransport,
   MCPTransportType,
 } from "@/core/interfaces/mcp-server";
 import { isHttpConfig, isStdioConfig, MCPServerManagerTag } from "@/core/interfaces/mcp-server";
-import type { TerminalService } from "@/core/interfaces/terminal";
-import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import {
   MCPConnectionError,
   MCPDisconnectionError,
@@ -44,11 +41,7 @@ class MCPServerManagerImpl implements MCPServerManager {
 
   connectServer(
     config: MCPServerConfig,
-  ): Effect.Effect<
-    MCPClient,
-    MCPConnectionError,
-    LoggerService | AgentConfigService | TerminalService
-  > {
+  ): Effect.Effect<MCPClient, MCPConnectionError, LoggerService> {
     // Capture this to avoid issues with Effect.gen not preserving context
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
@@ -88,19 +81,6 @@ class MCPServerManagerImpl implements MCPServerManager {
         // Stdio transport (default)
         transportType = "stdio";
 
-        // Resolve template variables for stdio transport
-        const resolvedArgs = yield* manager.resolveTemplateVariables(config).pipe(
-          Effect.mapError((error) => {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            return new MCPConnectionError({
-              serverName: config.name,
-              reason: `Failed to resolve template variables: ${errorMessage}`,
-              cause: error,
-              suggestion: `Check the MCP server configuration and ensure all required inputs are provided`,
-            });
-          }),
-        );
-
         // Create sanitized environment (explicit env vars are always passed through)
         const sanitizedEnv = createSanitizedEnv(config.env || {});
 
@@ -108,8 +88,8 @@ class MCPServerManagerImpl implements MCPServerManager {
 
         transport = new StdioClientTransport({
           command: config.command,
-          args: [...resolvedArgs], // Convert readonly array to mutable
-          env: sanitizedEnv as Record<string, string>, // Type assertion for env
+          args: [...(config.args ?? [])],
+          env: sanitizedEnv as Record<string, string>,
         });
       }
 
@@ -316,7 +296,7 @@ class MCPServerManagerImpl implements MCPServerManager {
   ): Effect.Effect<
     readonly MCPTool[],
     MCPConnectionError | MCPToolDiscoveryError | MCPDisconnectionError,
-    LoggerService | AgentConfigService | TerminalService
+    LoggerService
   > {
     // Capture this to avoid issues with Effect.gen not preserving context
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -351,68 +331,6 @@ class MCPServerManagerImpl implements MCPServerManager {
       );
 
       return tools;
-    });
-  }
-
-  resolveTemplateVariables(
-    config: MCPServerConfigStdio,
-  ): Effect.Effect<readonly string[], Error, AgentConfigService | TerminalService> {
-    return Effect.gen(function* () {
-      const configService = yield* AgentConfigServiceTag;
-      const terminal = yield* TerminalServiceTag;
-
-      const resolvedArgs: string[] = [];
-      const templatePattern = /\$\{input:(\w+)\}/g;
-      const args = config.args ?? [];
-
-      for (const arg of args) {
-        const matches = [...arg.matchAll(templatePattern)];
-
-        if (matches.length === 0) {
-          // No templates, use as-is
-          resolvedArgs.push(arg);
-          continue;
-        }
-
-        // Resolve each template variable
-        let resolvedArg = arg;
-        for (const match of matches) {
-          const varName = match[1]; // e.g., "pg_url"
-          const configKey = `mcpServers.${config.name}.inputs.${varName}`;
-
-          // Check if already stored
-          const stored = yield* configService.getOrElse(configKey, undefined);
-
-          if (stored) {
-            resolvedArg = resolvedArg.replace(match[0], stored);
-          } else {
-            // Prompt user
-            const value = yield* terminal.ask(
-              `Enter value for ${varName} (used by ${config.name} MCP server):`,
-              {
-                validate: (input) => {
-                  if (!input.trim()) {
-                    return `${varName} cannot be empty`;
-                  }
-                  return true;
-                },
-              },
-            );
-
-            if (value === undefined) {
-              return yield* Effect.fail(new Error(`Input cancelled for ${varName}`));
-            }
-
-            // Store in config
-            yield* configService.set(configKey, value);
-            resolvedArg = resolvedArg.replace(match[0], value);
-          }
-        }
-
-        resolvedArgs.push(resolvedArg);
-      }
-
-      return resolvedArgs;
     });
   }
 

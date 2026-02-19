@@ -178,7 +178,6 @@ const mockMcpServerManager = {
   disconnectServer: mock(() => Effect.void),
   getServerTools: mock(() => Effect.succeed([])),
   discoverTools: mock(() => Effect.succeed([])),
-  resolveTemplateVariables: mock(() => Effect.succeed([])),
   listServers: mock(() => Effect.succeed([])),
   isConnected: mock(() => Effect.succeed(false)),
   disconnectAllServers: mock(() => Effect.void),

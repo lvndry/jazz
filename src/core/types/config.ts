@@ -42,8 +42,6 @@ export interface TelemetryConfig {
  */
 export interface MCPServerOverride {
   readonly enabled?: boolean;
-  /** Resolved template variable values (e.g., ${input:pg_url} -> actual value) */
-  readonly inputs?: Record<string, string>;
 }
 
 export type StorageConfig =

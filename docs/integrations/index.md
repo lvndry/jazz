@@ -374,20 +374,18 @@ Query and manage MongoDB databases directly from your agents.
 
 #### PostgreSQL
 
-Connect to PostgreSQL databases for SQL queries.
+Connect to PostgreSQL databases for SQL queries. The server accepts the connection string as a command-line argument.
 
 ```json
 {
   "mcpServers": {
     "postgres": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres", "${input:pg_url}"]
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://user:pass@localhost:5432/dbname"]
     }
   }
 }
 ```
-
-> **Note**: The `${input:pg_url}` syntax prompts you for the PostgreSQL connection URL on first use and stores it securely.
 
 **Available Tools**:
 

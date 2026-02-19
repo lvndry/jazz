@@ -1,8 +1,8 @@
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer, Option } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
-import { ConfigurationError, ConfigurationNotFoundError } from "@/core/types/errors";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import { ConfigurationError, ConfigurationNotFoundError } from "@/core/types/errors";
 import type {
   AppConfig,
   GoogleConfig,
@@ -16,19 +16,14 @@ import { safeParseJson } from "@/core/utils/json";
 import { getUserDataDirectory } from "@/core/utils/runtime-detection";
 
 /**
- * Extract only override fields (enabled, inputs) from a server config.
+ * Extract only override fields (enabled) from a server config.
  * Used when persisting to jazz.config.json — full definitions live in mcp.json.
  */
 function extractMcpOverride(entry: unknown): MCPServerOverride | undefined {
   if (!entry || typeof entry !== "object") return undefined;
   const obj = entry as Record<string, unknown>;
-  const override: Record<string, unknown> = {};
-  if (typeof obj["enabled"] === "boolean") override["enabled"] = obj["enabled"];
-  if (obj["inputs"] && typeof obj["inputs"] === "object" && obj["inputs"] !== null) {
-    override["inputs"] = obj["inputs"] as Record<string, string>;
-  }
-  if (Object.keys(override).length === 0) return undefined;
-  return override as MCPServerOverride;
+  if (typeof obj["enabled"] !== "boolean") return undefined;
+  return { enabled: obj["enabled"] } as MCPServerOverride;
 }
 
 /**
@@ -40,8 +35,7 @@ function buildJazzConfigForPersist(
 ): Record<string, unknown> {
   const json = config as unknown as Record<string, unknown>;
   const out = { ...json };
-  out["mcpServers"] =
-    Object.keys(mcpOverrides).length > 0 ? mcpOverrides : undefined;
+  out["mcpServers"] = Object.keys(mcpOverrides).length > 0 ? mcpOverrides : undefined;
   return out;
 }
 
@@ -100,10 +94,9 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           // Bulk replace overrides (e.g. from remove command)
           const val = value as unknown as Record<string, unknown>;
           this.mcpOverrides = Object.fromEntries(
-            Object.entries(val ?? {}).map(([k, v]) => [k, extractMcpOverride(v)]).filter(
-              (entry): entry is [string, MCPServerOverride] =>
-                entry[1] !== undefined,
-            ),
+            Object.entries(val ?? {})
+              .map(([k, v]) => [k, extractMcpOverride(v)])
+              .filter((entry): entry is [string, MCPServerOverride] => entry[1] !== undefined),
           );
           const agentsServers = yield* loadAgentsMcpServers(this.fs);
           const merged = mergeMcpServers(agentsServers, this.mcpOverrides);
@@ -128,32 +121,31 @@ export class AgentConfigServiceImpl implements AgentConfigService {
             const cfg = this.currentConfig.mcpServers?.[serverName] as
               | Record<string, unknown>
               | undefined;
-            deepSet(
-              this.currentConfig as unknown as Record<string, unknown>,
-              keyLower,
-              { ...cfg, ...val } as unknown,
-            );
+            deepSet(this.currentConfig as unknown as Record<string, unknown>, keyLower, {
+              ...cfg,
+              ...val,
+            } as unknown);
           } else {
-            // set("mcpServers.X.inputs.Y", value) or set("mcpServers.X.enabled", value)
+            // set("mcpServers.X.enabled", value)
             const prop = parts[1];
-            const inputKey = parts[2];
             if (prop === "enabled") {
               this.mcpOverrides[serverName] = {
                 ...this.mcpOverrides[serverName],
                 enabled: value as boolean,
               };
-            } else if (prop === "inputs" && inputKey !== undefined) {
-              const inputs = { ...this.mcpOverrides[serverName]?.inputs };
-              inputs[inputKey] = value as string;
-              this.mcpOverrides[serverName] = {
-                ...this.mcpOverrides[serverName],
-                inputs,
-              };
             }
-            deepSet(this.currentConfig as unknown as Record<string, unknown>, keyLower, value as unknown);
+            deepSet(
+              this.currentConfig as unknown as Record<string, unknown>,
+              keyLower,
+              value as unknown,
+            );
           }
         } else {
-          deepSet(this.currentConfig as unknown as Record<string, unknown>, keyLower, value as unknown);
+          deepSet(
+            this.currentConfig as unknown as Record<string, unknown>,
+            keyLower,
+            value as unknown,
+          );
         }
 
         const path = this.configPath ?? `${expandHome("~/.jazz")}/config.json`;
@@ -188,7 +180,6 @@ function mergeMcpServers(
     merged[name] = {
       ...cfg,
       ...(ov?.enabled !== undefined ? { enabled: ov.enabled } : {}),
-      ...(ov?.inputs ? { inputs: ov.inputs } : {}),
     } as MCPServerConfig;
   }
   return merged;
@@ -229,25 +220,14 @@ export function createConfigLayer(
         : mergeConfig(baseConfig, fileConfigWithoutMcp);
 
       // Load MCP definitions from .agents/mcp.json
-      let agentsServers = yield* loadAgentsMcpServers(fs);
+      const agentsServers = yield* loadAgentsMcpServers(fs);
 
-      // Migration: if jazz.config.json has full mcpServers (command/transport/url), move to mcp.json
-      const migrated = yield* migrateMcpFromJazzToAgents(fs, fileConfig, loaded.configPath);
-      if (migrated.didMigrate) {
-        agentsServers = yield* loadAgentsMcpServers(fs);
-      }
-
-      // Extract overrides from jazz (enabled, inputs only)
+      // Extract overrides from jazz (enabled only)
       const mcpOverrides = extractMcpOverridesFromFile(fileConfig?.mcpServers);
 
       const finalConfig = mergeAgentsMcpIntoConfig(mainConfig, agentsServers, mcpOverrides);
 
-      return new AgentConfigServiceImpl(
-        finalConfig,
-        mcpOverrides,
-        loaded.configPath,
-        fs,
-      );
+      return new AgentConfigServiceImpl(finalConfig, mcpOverrides, loaded.configPath, fs);
     }),
   );
 }
@@ -513,51 +493,6 @@ function extractMcpOverridesFromFile(
 }
 
 /**
- * Check if a server entry looks like a full definition (has command or transport/url).
- */
-function hasFullDefinition(entry: unknown): boolean {
-  if (!entry || typeof entry !== "object") return false;
-  const o = entry as Record<string, unknown>;
-  return "command" in o || "transport" in o || "url" in o;
-}
-
-/**
- * One-time migration: move full mcpServers from jazz.config.json to ~/.agents/mcp.json.
- */
-function migrateMcpFromJazzToAgents(
-  fs: FileSystem.FileSystem,
-  fileConfig: Partial<AppConfig> | undefined,
-  configPath: string | undefined,
-): Effect.Effect<{ didMigrate: boolean }, never> {
-  return Effect.gen(function* () {
-    const raw = fileConfig?.mcpServers as Record<string, unknown> | undefined;
-    if (!raw || typeof raw !== "object") return { didMigrate: false };
-
-    const toMigrate = Object.entries(raw).filter(([, v]) => hasFullDefinition(v));
-    if (toMigrate.length === 0) return { didMigrate: false };
-
-    for (const [name, def] of toMigrate) {
-      const clean = def as Record<string, unknown>;
-      const { enabled: _e, inputs: _i, ...rest } = clean;
-      yield* writeAgentsMcpServer(fs, name, rest);
-    }
-
-    const overrides = extractMcpOverridesFromFile(raw);
-    const jazzWithoutFull = fileConfig as Record<string, unknown>;
-    const updated = { ...jazzWithoutFull, mcpServers: overrides };
-
-    const path = configPath ?? `${expandHome("~/.jazz")}/config.json`;
-    const dir = path.substring(0, path.lastIndexOf("/"));
-    yield* fs.makeDirectory(dir, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
-    yield* fs
-      .writeFileString(path, JSON.stringify(updated, null, 2))
-      .pipe(Effect.catchAll(() => Effect.void));
-
-    return { didMigrate: true };
-  });
-}
-
-/**
  * Merge full MCP server definitions from .agents/mcp.json with
  * enable/disable overrides from jazz.config.json.
  */
@@ -574,7 +509,6 @@ function mergeAgentsMcpIntoConfig(
     merged[name] = {
       ...serverConfig,
       ...(ov?.enabled !== undefined ? { enabled: ov.enabled } : {}),
-      ...(ov?.inputs ? { inputs: ov.inputs } : {}),
     } as MCPServerConfig;
   }
 
