@@ -28,35 +28,60 @@ const CODE_BLOCK_PLACEHOLDER_END = "\uE001";
 const INLINE_CODE_PLACEHOLDER_START = "\uE002";
 const INLINE_CODE_PLACEHOLDER_END = "\uE003";
 const TASK_LIST_MARKER = "\uE004";
+const LINK_PLACEHOLDER_START = "\uE005";
+const LINK_PLACEHOLDER_END = "\uE006";
+const FILE_PATH_LINE_PLACEHOLDER_START = "\uE007";
+const FILE_PATH_LINE_PLACEHOLDER_END = "\uE008";
 
 // Pre-compiled regexes for performance - avoid creating RegExp in hot paths
+
+/** Matches SGR escape sequences (\x1b[…m) and OSC 8 hyperlinks (\x1b]8;…\x07). */
 // eslint-disable-next-line no-control-regex
-const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;]*m/g;
+const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;]*m|\x1b\]8;[^\x07]*\x07/g;
 const BLANK_LINES_REGEX = /\n{3,}/g;
 const ESCAPED_TEXT_REGEX = /\\([*_`\\[\]()#+\-.!])/g;
 const STRIKETHROUGH_REGEX = /~~([^~\n]+?)~~/g;
-const BOLD_REGEX = /(\*\*|__)([^*_\n]+?)\1/g;
+/** Matches **bold** or __bold__. Each branch only rejects its own delimiter inside the content. */
+const BOLD_REGEX = /\*\*([^*\n]+?)\*\*|__([^_\n]+?)__/g;
 const ITALIC_ASTERISK_REGEX = /(?<!\*)\*([^*\n]+?)\*(?!\*)/g;
 const ITALIC_UNDERSCORE_REGEX = /(?<!_)_([^_\n]+?)_(?!_)/g;
-const INLINE_CODE_REGEX = /`([^`\n]+)`/g;
-const H4_REGEX = /^\s*####\s+(.+)$/gm;
-const H3_REGEX = /^\s*###\s+(.+)$/gm;
-const H2_REGEX = /^\s*##\s+(.+)$/gm;
-const H1_REGEX = /^\s*#\s+(.+)$/gm;
+const INLINE_CODE_REGEX = /`([^`\n]+?)`/g;
+/** Headings allow 0-3 leading spaces (4+ is an indented code block per CommonMark). */
+const H4_REGEX = /^[ ]{0,3}####\s+(.+)$/gm;
+const H3_REGEX = /^[ ]{0,3}###\s+(.+)$/gm;
+const H2_REGEX = /^[ ]{0,3}##\s+(.+)$/gm;
+const H1_REGEX = /^[ ]{0,3}#\s+(.+)$/gm;
 const BLOCKQUOTE_REGEX = /^\s*>\s+(.+)$/gm;
 const TASK_LIST_REGEX = /^\s*-\s+\[([ xX])\]\s+(.+)$/gm;
-const HORIZONTAL_RULE_REGEX = /^\s*([-*_]){3,}\s*$/gm;
+/** Requires 3+ of the *same* rule character (-, *, or _) via backreference. */
+const HORIZONTAL_RULE_REGEX = /^\s*([-*_])\1{2,}\s*$/gm;
+/** Matches [text](url) with support for one level of balanced parentheses in the URL. Excludes ANSI escapes. */
 // eslint-disable-next-line no-control-regex
-const LINK_REGEX = /(?<!\u001b)\[([^\]]+)\]\(([^)]+)\)/g;
-/** Matches bare file/folder paths: absolute, ~/home, or word/word. Excludes URLs (no // or ://). */
+const LINK_REGEX = /(?<!\u001b)\[([^\]]+)\]\(([^()\s]*(?:\([^()]*\))[^()\s]*|[^)]*?)\)/g;
+/**
+ * Matches bare file/folder paths: absolute, ~/home, or ./relative.
+ * Lookbehinds prevent matching inside URLs (char before is :, word char, or /)
+ * and markdown link targets (preceded by `](`).
+ * Absolute paths require at least /segment (not bare /).
+ * Relative paths require an explicit ./ or ../ prefix to avoid false positives like "and/or".
+ */
 const FILE_PATH_REGEX =
-  /(?<![:\w/])(\/(?!\/)(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]*|~(?:[/a-zA-Z0-9._-]+)+|(?:\.\.?\/)?(?:[a-zA-Z0-9._-]+\/)+[a-zA-Z0-9._-]*)/g;
-/** Matches absolute paths with optional :line or :line:col. Excludes URLs (no // or ://). */
+  /(?<!\]\()(?<![:\w/])(\/(?!\/)(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+|~(?:\/[a-zA-Z0-9._-]+)+|\.\.?\/(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+)/g;
+/**
+ * Matches absolute or ~/home paths with :line or :line:col suffix.
+ * Same lookbehind guards as FILE_PATH_REGEX.
+ */
 const FILE_PATH_LINE_REGEX =
-  /(?<![:\w/])(\/(?!\/)(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+:\d+(?::\d+)?|~(?:[/a-zA-Z0-9._-]+)+:\d+(?::\d+)?)/g;
-const BARE_URL_REGEX = /(?<!\]\()(https?:\/\/[^\s<>"{}|\\^`[\]]+|www\.[^\s<>"{}|\\^`[\]]+)/g;
-const CODE_BLOCK_EXTRACT_REGEX = /```[\s\S]*?```/g;
+  /(?<!\]\()(?<![:\w/])(\/(?!\/)(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+:\d+(?::\d+)?|~(?:\/[a-zA-Z0-9._-]+)+:\d+(?::\d+)?)/g;
+/** Matches bare URLs. Trailing punctuation (.,;:!?) is excluded unless followed by a non-space char. */
+const BARE_URL_REGEX =
+  /(?<!\]\()(https?:\/\/[^\s<>"{}|\\^`[\]]+[^\s<>"{}|\\^`[\].,;:!?)'\]]|www\.[^\s<>"{}|\\^`[\]]+[^\s<>"{}|\\^`[\].,;:!?)'\]])/g;
+/** Matches fenced code blocks. Anchored to line boundaries so inline triple-backticks are not extracted. */
+const CODE_BLOCK_EXTRACT_REGEX = /^[ \t]*```[\s\S]*?^[ \t]*```/gm;
 const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;
+/** Same pattern as LINK_REGEX — used for the extract/restore cycle that protects link targets from path formatters. */
+// eslint-disable-next-line no-control-regex
+const LINK_EXTRACT_REGEX = /(?<!\u001b)\[([^\]]+)\]\(([^()\s]*(?:\([^()]*\))[^()\s]*|[^)]*?)\)/g;
 const EMOJI_SHORTCODE_REGEX = /:([A-Za-z0-9_\-+]+?):/g;
 
 /**
@@ -113,8 +138,10 @@ export function formatStrikethrough(text: string): string {
  * Format markdown bold text (** or __)
  */
 export function formatBold(text: string): string {
-  return text.replace(BOLD_REGEX, (_match: string, _delimiter: string, content: string) =>
-    chalk.bold(content),
+  return text.replace(
+    BOLD_REGEX,
+    (_match: string, asteriskContent: string | undefined, underscoreContent: string | undefined) =>
+      chalk.bold((asteriskContent ?? underscoreContent)!),
   );
 }
 
@@ -313,19 +340,34 @@ export function formatBareUrls(text: string): string {
 /**
  * Format bare file/folder paths as links (rendered mode).
  * Only adds OSC 8 hyperlink for absolute or ~/ paths.
+ *
+ * FILE_PATH_LINE_REGEX matches are extracted into placeholders first so that
+ * FILE_PATH_REGEX cannot re-match the path portion of an already-formatted
+ * file:line hyperlink.
  */
 export function formatFilePaths(text: string): string {
-  let result = text;
-  result = result.replace(FILE_PATH_LINE_REGEX, (match: string) => {
+  // 1. Extract file:line matches into placeholders
+  const lineMatches: string[] = [];
+  let result = text.replace(FILE_PATH_LINE_REGEX, (match: string) => {
+    const idx = lineMatches.length;
     const url = pathWithLineToFileUrl(match);
     const styled = CHALK_THEME.link(match);
-    return url ? terminalHyperlink(styled, url) : styled;
+    lineMatches.push(url ? terminalHyperlink(styled, url) : styled);
+    return `${FILE_PATH_LINE_PLACEHOLDER_START}${idx}${FILE_PATH_LINE_PLACEHOLDER_END}`;
   });
+  // 2. Format plain paths (placeholders are safe from re-matching)
   result = result.replace(FILE_PATH_REGEX, (match: string) => {
     const url = pathToFileUrl(match);
     const styled = CHALK_THEME.link(match);
     return url ? terminalHyperlink(styled, url) : styled;
   });
+  // 3. Restore file:line placeholders
+  for (let i = 0; i < lineMatches.length; i++) {
+    result = result.replace(
+      `${FILE_PATH_LINE_PLACEHOLDER_START}${i}${FILE_PATH_LINE_PLACEHOLDER_END}`,
+      lineMatches[i]!,
+    );
+  }
   return result;
 }
 
@@ -337,6 +379,104 @@ export function formatLinks(text: string): string {
   return text.replace(LINK_REGEX, (_match: string, linkText: string, url: string) =>
     terminalHyperlink(CHALK_THEME.link(linkText), url),
   );
+}
+
+/**
+ * Extract markdown links into placeholders so that subsequent formatters
+ * (formatBareUrls, formatFilePaths) cannot match paths/URLs inside link
+ * targets. Returns the modified text and an array of extracted links.
+ *
+ * Call {@link restoreLinks} or {@link restoreLinksHybrid} after the
+ * path/URL formatters to replace placeholders with formatted hyperlinks.
+ */
+function extractLinks(text: string): {
+  text: string;
+  links: Array<{ linkText: string; url: string }>;
+} {
+  const links: Array<{ linkText: string; url: string }> = [];
+  const replaced = text.replace(LINK_EXTRACT_REGEX, (_match, linkText: string, url: string) => {
+    const index = links.length;
+    links.push({ linkText, url });
+    return `${LINK_PLACEHOLDER_START}${index}${LINK_PLACEHOLDER_END}`;
+  });
+  return { text: replaced, links };
+}
+
+/**
+ * Restore extracted links as rendered-mode terminal hyperlinks (no visible markdown syntax).
+ */
+function restoreLinks(text: string, links: Array<{ linkText: string; url: string }>): string {
+  let result = text;
+  for (let i = 0; i < links.length; i++) {
+    const placeholder = `${LINK_PLACEHOLDER_START}${i}${LINK_PLACEHOLDER_END}`;
+    const { linkText, url } = links[i]!;
+    result = result.replace(placeholder, terminalHyperlink(CHALK_THEME.link(linkText), url));
+  }
+  return result;
+}
+
+/**
+ * Restore extracted links as hybrid-mode terminal hyperlinks (preserves [text](url) syntax).
+ */
+function restoreLinksHybrid(text: string, links: Array<{ linkText: string; url: string }>): string {
+  let result = text;
+  for (let i = 0; i < links.length; i++) {
+    const placeholder = `${LINK_PLACEHOLDER_START}${i}${LINK_PLACEHOLDER_END}`;
+    const { linkText, url } = links[i]!;
+    result = result.replace(
+      placeholder,
+      terminalHyperlink(`[${chalk.italic(CHALK_THEME.link(linkText))}](${chalk.dim(url)})`, url),
+    );
+  }
+  return result;
+}
+
+/**
+ * Apply the full inline-formatting pipeline to non-code-block text.
+ *
+ * 1. Extracts inline code into placeholders (so bold/italic don't corrupt `` `code` ``).
+ * 2. Applies all inline formatters (emoji, escapes, bold, italic, etc.).
+ * 3. Extracts markdown links, formats bare URLs / file paths, restores links.
+ * 4. Restores inline code with {@link codeColor} styling.
+ *
+ * Used by {@link applyProgressiveFormatting} (streaming) and exported for
+ * {@link markdown-service.ts}.
+ */
+export function formatNonCodeText(text: string): string {
+  // 1. Extract inline code to protect from bold/italic/strikethrough
+  const inlineCodes: string[] = [];
+  let formatted = text.replace(INLINE_CODE_EXTRACT_REGEX, (_match, code: string) => {
+    const index = inlineCodes.length;
+    inlineCodes.push(code);
+    return `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
+  });
+
+  // 2. Apply inline formatting (escape stripping runs AFTER code extraction so
+  //    backslash escapes inside `code` are preserved)
+  formatted = formatEmojiShortcodes(formatted);
+  formatted = formatEscapedText(formatted);
+  formatted = formatStrikethrough(formatted);
+  formatted = formatBold(formatted);
+  formatted = formatItalic(formatted);
+  formatted = formatHeadings(formatted);
+  formatted = formatBlockquotes(formatted);
+  formatted = formatTaskLists(formatted);
+  formatted = formatLists(formatted);
+  formatted = formatHorizontalRules(formatted);
+
+  // 3. Extract links, format bare URLs/file paths, restore links
+  const { text: withoutLinks, links } = extractLinks(formatted);
+  formatted = formatBareUrls(withoutLinks);
+  formatted = formatFilePaths(formatted);
+  formatted = restoreLinks(formatted, links);
+
+  // 4. Restore inline code
+  for (let i = 0; i < inlineCodes.length; i++) {
+    const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${i}${INLINE_CODE_PLACEHOLDER_END}`;
+    formatted = formatted.replace(placeholder, codeColor(inlineCodes[i]!));
+  }
+
+  return formatted;
 }
 
 /**
@@ -411,43 +551,66 @@ export function formatCodeBlockContent(codeBlock: string): string {
 }
 
 /**
- * Apply progressive formatting for streaming (stateful)
+ * Apply progressive formatting for streaming (stateful).
+ *
+ * Lines inside fenced code blocks are styled with {@link codeColor} only —
+ * inline formatters (bold, italic, links, etc.) are applied exclusively to
+ * non-code segments so they cannot corrupt code content.
  */
 export function applyProgressiveFormatting(text: string, state: StreamingState): FormattingResult {
   if (!text || text.trim().length === 0) {
     return { formatted: text, state };
   }
 
-  // Handle code blocks first (stateful)
-  const codeBlockResult = formatCodeBlocks(text, state);
-  let formatted = codeBlockResult.formatted;
-  const currentState = codeBlockResult.state;
+  let isInCodeBlock = state.isInCodeBlock;
 
-  // If inside a code block, don't apply other formatting
-  if (currentState.isInCodeBlock && !text.includes("```")) {
-    return { formatted: codeBlockResult.formatted, state: currentState };
+  // Fast path: entirely inside a code block with no fences in this chunk
+  if (isInCodeBlock && !text.includes("```")) {
+    return {
+      formatted: codeColor(text),
+      state: { isInCodeBlock },
+    };
   }
 
-  // Apply formatting in order
-  // Order matters: formatBareUrls/formatFilePaths MUST run before formatLinks.
-  // Otherwise they can pre-wrap URLs inside markdown links like [docs](https://example.com),
-  // so formatLinks receives an OSC8-wrapped URL and may generate broken or double hyperlinks.
-  formatted = formatEmojiShortcodes(formatted);
-  formatted = formatEscapedText(formatted);
-  formatted = formatStrikethrough(formatted);
-  formatted = formatBold(formatted);
-  formatted = formatItalic(formatted);
-  formatted = formatInlineCode(formatted);
-  formatted = formatHeadings(formatted);
-  formatted = formatBlockquotes(formatted);
-  formatted = formatTaskLists(formatted);
-  formatted = formatLists(formatted);
-  formatted = formatHorizontalRules(formatted);
-  formatted = formatBareUrls(formatted);
-  formatted = formatFilePaths(formatted);
-  formatted = formatLinks(formatted);
+  // Split lines into contiguous code / non-code segments so inline formatters
+  // are only applied to non-code text (fixes bold/italic corrupting code blocks).
+  const lines = text.split("\n");
+  type Segment = { type: "code" | "text"; lines: string[] };
+  const segments: Segment[] = [];
+  let current: Segment | null = null;
 
-  return { formatted, state: currentState };
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      // Flush current segment
+      if (current && current.lines.length > 0) segments.push(current);
+      // Fence line gets its own code segment
+      segments.push({ type: "code", lines: [chalk.yellow(line)] });
+      isInCodeBlock = !isInCodeBlock;
+      current = null;
+    } else if (isInCodeBlock) {
+      if (!current || current.type !== "code") {
+        if (current && current.lines.length > 0) segments.push(current);
+        current = { type: "code", lines: [] };
+      }
+      current.lines.push(codeColor(line));
+    } else {
+      if (!current || current.type !== "text") {
+        if (current && current.lines.length > 0) segments.push(current);
+        current = { type: "text", lines: [] };
+      }
+      current.lines.push(line);
+    }
+  }
+  if (current && current.lines.length > 0) segments.push(current);
+
+  // Format text segments with the full inline pipeline; leave code segments as-is
+  const formatted = segments
+    .map((seg) =>
+      seg.type === "code" ? seg.lines.join("\n") : formatNonCodeText(seg.lines.join("\n")),
+    )
+    .join("\n");
+
+  return { formatted, state: { isInCodeBlock } };
 }
 
 /**
@@ -461,9 +624,9 @@ export function formatMarkdown(text: string): string {
   let formatted = text;
   formatted = stripAnsiCodes(formatted);
   formatted = normalizeBlankLines(formatted);
-  formatted = formatEscapedText(formatted);
 
-  // Extract code blocks and inline code to protect them
+  // Extract code blocks and inline code BEFORE formatEscapedText so that
+  // backslash escapes inside fenced code blocks and `inline code` are preserved.
   const codeBlocks: string[] = [];
   const inlineCodes: string[] = [];
 
@@ -481,6 +644,8 @@ export function formatMarkdown(text: string): string {
 
   // Convert emoji shortcodes (after code extraction so :code: in code blocks is preserved)
   formatted = formatEmojiShortcodes(formatted);
+  // Strip backslash escapes after code extraction so \* inside code blocks is preserved
+  formatted = formatEscapedText(formatted);
 
   // Apply formatting
   formatted = formatHeadings(formatted);
@@ -491,12 +656,12 @@ export function formatMarkdown(text: string): string {
   formatted = formatStrikethrough(formatted);
   formatted = formatBold(formatted);
   formatted = formatItalic(formatted);
-  // Order matters: formatBareUrls/formatFilePaths MUST run before formatLinks.
-  // Otherwise they can pre-wrap URLs inside markdown links like [docs](https://example.com),
-  // so formatLinks receives an OSC8-wrapped URL and may generate broken or double hyperlinks.
-  formatted = formatBareUrls(formatted);
+  // Extract markdown links into placeholders so formatBareUrls/formatFilePaths
+  // cannot match paths or URLs inside link targets like [text](./path).
+  const { text: withoutLinks, links } = extractLinks(formatted);
+  formatted = formatBareUrls(withoutLinks);
   formatted = formatFilePaths(formatted);
-  formatted = formatLinks(formatted);
+  formatted = restoreLinks(formatted, links);
 
   // Restore inline code - use simple string replace since placeholders are unique
   for (let index = 0; index < inlineCodes.length; index++) {
@@ -520,7 +685,7 @@ export function formatMarkdown(text: string): string {
 
 // Hybrid regex for safe underscore handling - only match standalone underscores
 // This prevents matching underscores in identifiers like hello_world
-const HYBRID_ITALIC_UNDERSCORE_REGEX = /(?<=^|[\s[(])_([^_\n]+?)_(?=[\s\],.!?)]|$)/g;
+const HYBRID_ITALIC_UNDERSCORE_REGEX = /(?<=^|[\s[(])_([^_\n]+?)_(?=[\s\],.!?)]|$)/gm;
 
 /**
  * Format bold text in hybrid mode - keeps ** markers visible
@@ -528,8 +693,15 @@ const HYBRID_ITALIC_UNDERSCORE_REGEX = /(?<=^|[\s[(])_([^_\n]+?)_(?=[\s\],.!?)]|
 export function formatBoldHybrid(text: string): string {
   return text.replace(
     BOLD_REGEX,
-    (_match: string, delimiter: string, content: string) =>
-      `${delimiter}${chalk.bold(content)}${delimiter}`,
+    (
+      _match: string,
+      asteriskContent: string | undefined,
+      underscoreContent: string | undefined,
+    ) => {
+      const content = (asteriskContent ?? underscoreContent)!;
+      const delimiter = asteriskContent !== undefined ? "**" : "__";
+      return `${delimiter}${chalk.bold(content)}${delimiter}`;
+    },
   );
 }
 
@@ -648,21 +820,33 @@ function styleAsLink(text: string): string {
 /**
  * Format bare file/folder paths in hybrid mode — styled as links.
  * Only adds OSC 8 hyperlink for absolute or ~/ paths (relative are impossible to click).
+ *
+ * Uses the same extract/restore pattern as {@link formatFilePaths} to prevent
+ * FILE_PATH_REGEX from re-matching inside already-formatted file:line hyperlinks.
  */
 function formatFilePathsHybrid(text: string): string {
-  let result = text;
-  // File:line first (absolute only) — more specific
-  result = result.replace(FILE_PATH_LINE_REGEX, (match: string) => {
+  // 1. Extract file:line matches into placeholders
+  const lineMatches: string[] = [];
+  let result = text.replace(FILE_PATH_LINE_REGEX, (match: string) => {
+    const idx = lineMatches.length;
     const url = pathWithLineToFileUrl(match);
     const styled = styleAsLink(match);
-    return url ? terminalHyperlink(styled, url) : styled;
+    lineMatches.push(url ? terminalHyperlink(styled, url) : styled);
+    return `${FILE_PATH_LINE_PLACEHOLDER_START}${idx}${FILE_PATH_LINE_PLACEHOLDER_END}`;
   });
-  // Plain paths
+  // 2. Format plain paths (placeholders are safe from re-matching)
   result = result.replace(FILE_PATH_REGEX, (match: string) => {
     const url = pathToFileUrl(match);
     const styled = styleAsLink(match);
     return url ? terminalHyperlink(styled, url) : styled;
   });
+  // 3. Restore file:line placeholders
+  for (let i = 0; i < lineMatches.length; i++) {
+    result = result.replace(
+      `${FILE_PATH_LINE_PLACEHOLDER_START}${i}${FILE_PATH_LINE_PLACEHOLDER_END}`,
+      lineMatches[i]!,
+    );
+  }
   return result;
 }
 
@@ -737,6 +921,8 @@ export function formatMarkdownHybrid(text: string): string {
 
   // Convert emoji shortcodes (after code extraction so :code: in code blocks is preserved)
   formatted = formatEmojiShortcodes(formatted);
+  // Strip backslash escapes after code extraction so \* inside code blocks is preserved
+  formatted = formatEscapedText(formatted);
 
   // Apply hybrid formatting (preserves syntax markers)
   formatted = formatHeadingsHybrid(formatted);
@@ -747,12 +933,12 @@ export function formatMarkdownHybrid(text: string): string {
   formatted = formatStrikethroughHybrid(formatted);
   formatted = formatBoldHybrid(formatted);
   formatted = formatItalicHybrid(formatted);
-  // Order matters: formatBareUrls/formatFilePaths MUST run before formatLinks.
-  // Otherwise they can pre-wrap URLs inside markdown links like [docs](https://example.com),
-  // so formatLinks receives an OSC8-wrapped URL and may generate broken or double hyperlinks.
-  formatted = formatBareUrlsHybrid(formatted);
+  // Extract markdown links into placeholders so formatBareUrls/formatFilePaths
+  // cannot match paths or URLs inside link targets like [text](./path).
+  const { text: withoutLinks, links } = extractLinks(formatted);
+  formatted = formatBareUrlsHybrid(withoutLinks);
   formatted = formatFilePathsHybrid(formatted);
-  formatted = formatLinksHybrid(formatted);
+  formatted = restoreLinksHybrid(formatted, links);
 
   // Restore inline code with hybrid formatting (keeps backticks)
   for (let index = 0; index < inlineCodes.length; index++) {
