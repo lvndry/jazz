@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyTextChunkOrdered,
+  MAX_LIVE_TEXT_CHARS,
   type TextChunkState,
   type TextChunkEvent,
 } from "./stream-text-order";
@@ -56,5 +57,12 @@ describe("applyTextChunkOrdered", () => {
     s = applyTextChunkOrdered(s, event(4, "Hello"));
     expect(s.liveText).toBe("Hello");
     expect(s.lastAppliedSequence).toBe(4);
+  });
+
+  test("bounds liveText to the latest 1M characters", () => {
+    const bigText = "x".repeat(MAX_LIVE_TEXT_CHARS + 37);
+    const result = applyTextChunkOrdered(state("", -1), event(0, bigText));
+    expect(result.liveText.length).toBe(MAX_LIVE_TEXT_CHARS);
+    expect(result.liveText).toBe(bigText.slice(-MAX_LIVE_TEXT_CHARS));
   });
 });

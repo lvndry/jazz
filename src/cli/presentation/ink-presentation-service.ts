@@ -33,8 +33,6 @@ import {
   formatToolsDetectedEffect,
 } from "./format-utils";
 import {
-  applyProgressiveFormatting,
-  applyProgressiveFormattingHybrid,
   formatForTerminal,
   formatMarkdown,
   formatMarkdownHybrid,
@@ -82,11 +80,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private readonly updateThrottleMs: number;
 
   private streamBuffer = "";
-  private streamState = { isInCodeBlock: false };
+  private streamRaw = "";
+  private streamFormatted = "";
   private lastPrintedLength = 0;
   private hasStreamedText = false;
   private reasoningBuffer = "";
-  private reasoningState = { isInCodeBlock: false };
+  private reasoningRaw = "";
+  private reasoningFormatted = "";
   private reasoningHeaderPrinted = false;
 
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
@@ -208,7 +208,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
 
       if (event.type === "text_chunk") {
-        const delta = this.getStreamingDelta();
+        const delta = this.getStreamingDelta(event);
         if (delta.length > 0) {
           this.appendStreamingText(delta);
         }
@@ -320,22 +320,32 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   private resetStreamingState(): void {
     this.streamBuffer = "";
-    this.streamState = { isInCodeBlock: false };
+    this.streamRaw = "";
+    this.streamFormatted = "";
     this.lastPrintedLength = 0;
     this.hasStreamedText = false;
   }
 
   private resetReasoningState(): void {
     this.reasoningBuffer = "";
-    this.reasoningState = { isInCodeBlock: false };
+    this.reasoningRaw = "";
+    this.reasoningFormatted = "";
     this.reasoningHeaderPrinted = false;
   }
 
-  private getStreamingDelta(): string {
-    const nextText = this.acc.liveText;
+  private getStreamingDelta(event: Extract<StreamEvent, { type: "text_chunk" }>): string {
+    // Only stream for the chunk that was actually applied by the reducer.
+    if (event.sequence !== this.acc.lastAppliedTextSequence) {
+      return "";
+    }
+
+    // Use accumulated text length (not bounded liveText length) so front-trimming
+    // does not break incremental output.
+    const nextText = event.accumulated;
     if (nextText.length <= this.lastPrintedLength) {
       return "";
     }
+
     const delta = nextText.slice(this.lastPrintedLength);
     this.lastPrintedLength = nextText.length;
     return delta;
@@ -399,13 +409,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   private emitStreamText(text: string): void {
-    const formatted = this.formatStreamingChunk(text);
-    if (formatted.length === 0) return;
+    const formattedDelta = this.formatStreamingDelta(text);
+    if (formattedDelta.length === 0) return;
     const padding = 4;
     // Match Ink layout: App paddingX=3 (6 total) + baked left padding.
     store.printOutput({
       type: "streamContent",
-      message: formatForTerminal(formatted, {
+      message: formatForTerminal(formattedDelta, {
         padding,
         availableWidth: getTerminalWidth() - (6 + padding),
       }),
@@ -416,13 +426,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   private emitReasoningText(text: string): void {
     if (!text) return;
-    const formatted = this.formatReasoningChunk(text);
-    if (formatted.length === 0) return;
+    const formattedDelta = this.formatReasoningDelta(text);
+    if (formattedDelta.length === 0) return;
     const padding = 4;
     // Match Ink layout: App paddingX=3 (6 total) + baked left padding.
     store.printOutput({
       type: "streamContent",
-      message: formatForTerminal(chalk.dim(formatted), {
+      message: formatForTerminal(chalk.dim(formattedDelta), {
         padding,
         availableWidth: getTerminalWidth() - (6 + padding),
       }),
@@ -430,32 +440,57 @@ export class InkStreamingRenderer implements StreamingRenderer {
     });
   }
 
-  private formatStreamingChunk(text: string): string {
+  private getFormattedDelta(previous: string, next: string): string {
+    if (next.startsWith(previous)) {
+      return next.slice(previous.length);
+    }
+    // Fallback for rare non-prefix transitions (e.g. formatter reinterpretation).
+    // Emit only the changed suffix to minimize duplication in append-only output.
+    let commonPrefixLength = 0;
+    const maxPrefixLength = Math.min(previous.length, next.length);
+    while (
+      commonPrefixLength < maxPrefixLength &&
+      previous.charCodeAt(commonPrefixLength) === next.charCodeAt(commonPrefixLength)
+    ) {
+      commonPrefixLength += 1;
+    }
+    return next.slice(commonPrefixLength);
+  }
+
+  private formatStreamingAccumulated(text: string): string {
     if (this.displayConfig.mode === "rendered") {
-      const result = applyProgressiveFormatting(text, this.streamState);
-      this.streamState = result.state;
-      return result.formatted;
+      return formatMarkdown(text);
     }
     if (this.displayConfig.mode === "hybrid") {
-      const result = applyProgressiveFormattingHybrid(text, this.streamState);
-      this.streamState = result.state;
-      return result.formatted;
+      return formatMarkdownHybrid(text);
     }
     return text;
   }
 
-  private formatReasoningChunk(text: string): string {
+  private formatReasoningAccumulated(text: string): string {
     if (this.displayConfig.mode === "rendered") {
-      const result = applyProgressiveFormatting(text, this.reasoningState);
-      this.reasoningState = result.state;
-      return result.formatted;
+      return formatMarkdown(text);
     }
     if (this.displayConfig.mode === "hybrid") {
-      const result = applyProgressiveFormattingHybrid(text, this.reasoningState);
-      this.reasoningState = result.state;
-      return result.formatted;
+      return formatMarkdownHybrid(text);
     }
     return text;
+  }
+
+  private formatStreamingDelta(text: string): string {
+    this.streamRaw += text;
+    const nextFormatted = this.formatStreamingAccumulated(this.streamRaw);
+    const delta = this.getFormattedDelta(this.streamFormatted, nextFormatted);
+    this.streamFormatted = nextFormatted;
+    return delta;
+  }
+
+  private formatReasoningDelta(text: string): string {
+    this.reasoningRaw += text;
+    const nextFormatted = this.formatReasoningAccumulated(this.reasoningRaw);
+    const delta = this.getFormattedDelta(this.reasoningFormatted, nextFormatted);
+    this.reasoningFormatted = nextFormatted;
+    return delta;
   }
 
   /** Print token usage metrics. */

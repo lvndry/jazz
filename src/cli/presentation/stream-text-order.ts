@@ -16,6 +16,8 @@ export interface TextChunkEvent {
   accumulated: string;
 }
 
+export const MAX_LIVE_TEXT_CHARS = 1_000_000;
+
 /**
  * Compute new liveText and lastAppliedSequence from a text_chunk event.
  * Only applies the chunk when event.sequence > lastAppliedSequence (ignores stale chunks).
@@ -25,8 +27,12 @@ export function applyTextChunkOrdered(
   event: TextChunkEvent,
 ): TextChunkState {
   if (event.sequence > state.lastAppliedSequence) {
+    const boundedLiveText =
+      event.accumulated.length > MAX_LIVE_TEXT_CHARS
+        ? event.accumulated.slice(-MAX_LIVE_TEXT_CHARS)
+        : event.accumulated;
     return {
-      liveText: event.accumulated,
+      liveText: boundedLiveText,
       lastAppliedSequence: event.sequence,
     };
   }

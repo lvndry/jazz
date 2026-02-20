@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { InkStreamingRenderer } from "./ink-presentation-service";
+import { MAX_LIVE_TEXT_CHARS } from "./stream-text-order";
 import type { ActivityState } from "../ui/activity-state";
 import { store } from "../ui/store";
 import type { OutputEntry } from "../ui/types";
@@ -581,6 +582,74 @@ describe("InkStreamingRenderer", () => {
 
       const afterCount = printOutputCalls.filter((e) => e.type === "streamContent").length;
       expect(afterCount).toBe(beforeCount);
+    });
+
+    test("continues streaming correctly after liveText front-trimming", () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      const base = `${"a".repeat(MAX_LIVE_TEXT_CHARS - 6)}\n`;
+      const marker = "MARKER1234567890\n";
+      const accumulated1 = base;
+      const accumulated2 = base + marker;
+
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: accumulated1,
+          accumulated: accumulated1,
+          sequence: 0,
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: marker,
+          accumulated: accumulated2,
+          sequence: 1,
+        }),
+      );
+
+      Effect.runSync(renderer.flush());
+
+      const streamed = printOutputCalls
+        .filter((e) => e.type === "streamContent")
+        .map((e) => (typeof e.message === "string" ? e.message : ""))
+        .join("");
+
+      expect(streamed).toContain("MARKER1234567890");
+    });
+
+    test("formats inline markdown that closes across chunks", () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "This is **bo",
+          accumulated: "This is **bo",
+          sequence: 0,
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "ld** text\n",
+          accumulated: "This is **bold** text\n",
+          sequence: 1,
+        }),
+      );
+
+      const streamed = printOutputCalls
+        .filter((e) => e.type === "streamContent")
+        .map((e) => (typeof e.message === "string" ? e.message : ""))
+        .join("");
+
+      expect(streamed).toContain("This is bold text");
+      expect(streamed).not.toContain("**bold**");
     });
 
     test("prints response when no streamed text was emitted", () => {

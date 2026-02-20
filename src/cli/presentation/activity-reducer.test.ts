@@ -257,16 +257,15 @@ describe("activity-reducer", () => {
   });
 
   // -------------------------------------------------------------------------
-  // text accumulation (no truncation)
+  // text accumulation
   // -------------------------------------------------------------------------
 
   describe("text accumulation", () => {
-    test("liveText accumulates fully without truncation", () => {
+    test("liveText is bounded to latest 1M characters", () => {
       const a = acc();
       reduceEvent(a, { type: "text_start" }, identity, stubInk);
 
-      // Build a string exceeding 200k — should be kept in full
-      const bigText = "x".repeat(250_000);
+      const bigText = "x".repeat(1_250_000);
       reduceEvent(
         a,
         { type: "text_chunk", delta: bigText, accumulated: bigText, sequence: 0 },
@@ -274,8 +273,8 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      expect(a.liveText.length).toBe(250_000);
-      expect(a.liveText).toBe(bigText);
+      expect(a.liveText.length).toBe(1_000_000);
+      expect(a.liveText).toBe(bigText.slice(-1_000_000));
     });
   });
 
