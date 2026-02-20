@@ -136,6 +136,11 @@ export class UIStore {
   };
 
   clearOutputs = (): void => {
+    // Discard any pending batched outputs to prevent race condition where
+    // a queued microtask flushes after clear
+    this.outputBatch = [];
+    this.batchFlushScheduled = false;
+
     if (!this.clearOutputsHandler) {
       this._pendingClear = true;
       this.pendingOutputQueue.length = 0;

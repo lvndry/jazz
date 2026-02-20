@@ -65,4 +65,20 @@ describe("applyTextChunkOrdered", () => {
     expect(result.liveText.length).toBe(MAX_LIVE_TEXT_CHARS);
     expect(result.liveText).toBe(bigText.slice(-MAX_LIVE_TEXT_CHARS));
   });
+
+  test("truncates ANSI text without splitting escape sequences", () => {
+    // Create text with ANSI escape sequences that exceeds MAX_LIVE_TEXT_CHARS in visible chars
+    const redStart = "\x1b[31m";
+    const reset = "\x1b[0m";
+    const visiblePart = "x".repeat(MAX_LIVE_TEXT_CHARS + 100);
+    const ansiText = redStart + visiblePart + reset;
+
+    const result = applyTextChunkOrdered(state("", -1), event(0, ansiText));
+
+    // Should not contain partial ANSI sequences (e.g., "\x1b[3" without the "1m")
+    // eslint-disable-next-line no-control-regex
+    expect(result.liveText).not.toMatch(/\u001b\[3(?![0-9;]*[A-Za-z])/);
+    // eslint-disable-next-line no-control-regex
+    expect(result.liveText).not.toMatch(/\u001b$/);
+  });
 });

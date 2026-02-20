@@ -5,6 +5,7 @@ import {
   padRight,
   stripAnsiCodes,
   truncateMiddle,
+  truncateTailAnsiSafe,
   wrapCommaList,
 } from "./string-utils";
 
@@ -71,6 +72,60 @@ describe("string-utils", () => {
       const items = ["superlongitemname"];
       const wrapped = wrapCommaList(items, 5);
       expect(wrapped).toEqual(["superlongitemname"]);
+    });
+  });
+
+  describe("truncateTailAnsiSafe", () => {
+    it("should return full text when within limit", () => {
+      const text = "hello world";
+      expect(truncateTailAnsiSafe(text, 20)).toBe("hello world");
+    });
+
+    it("should truncate plain text from the start", () => {
+      const text = "hello world";
+      const result = truncateTailAnsiSafe(text, 5);
+      expect(result).toBe("world");
+    });
+
+    it("should not split ANSI sequences when truncating", () => {
+      const text = chalk.red("hello") + " " + chalk.blue("world");
+      const result = truncateTailAnsiSafe(text, 5);
+      expect(stripAnsiCodes(result)).toBe("world");
+      // Should not have partial/broken ANSI escape (e.g., \x1b[ without the terminating char)
+      // eslint-disable-next-line no-control-regex
+      expect(result).not.toMatch(/\u001b\[(?![0-9;]*[A-Za-z])/);
+      // eslint-disable-next-line no-control-regex
+      expect(result).not.toMatch(/\u001b$/);
+    });
+
+    it("should preserve ANSI codes in the kept portion", () => {
+      const text = "prefix " + chalk.green("hello") + " " + chalk.yellow("world");
+      const result = truncateTailAnsiSafe(text, 11);
+      expect(stripAnsiCodes(result)).toBe("hello world");
+    });
+
+    it("should handle text that is all ANSI codes", () => {
+      const text = chalk.red("hi");
+      const result = truncateTailAnsiSafe(text, 2);
+      expect(stripAnsiCodes(result)).toBe("hi");
+    });
+
+    it("should return empty string for maxVisibleChars <= 0", () => {
+      expect(truncateTailAnsiSafe("hello", 0)).toBe("");
+      expect(truncateTailAnsiSafe("hello", -1)).toBe("");
+    });
+
+    it("should handle nested ANSI styling", () => {
+      const text = chalk.bold(chalk.red("hello")) + " plain " + chalk.blue("world");
+      const result = truncateTailAnsiSafe(text, 5);
+      expect(stripAnsiCodes(result)).toBe("world");
+    });
+
+    it("should correctly count visible chars with multiple ANSI sequences", () => {
+      const text =
+        chalk.red("a") + chalk.green("b") + chalk.blue("c") + chalk.yellow("d") + chalk.cyan("e");
+      const result = truncateTailAnsiSafe(text, 3);
+      expect(stripAnsiCodes(result)).toBe("cde");
     });
   });
 });

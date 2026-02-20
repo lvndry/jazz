@@ -147,6 +147,28 @@ describe("UIStore", () => {
       s.consumePendingClear();
       expect(s.hasPendingClear()).toBe(false);
     });
+
+    test("discards pending batched outputs to prevent post-clear race", async () => {
+      const s = new UIStore();
+      const received: OutputEntry[] = [];
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        received.push(...arr);
+        return arr[0]?.id ?? "generated";
+      });
+      s.registerClearOutputs(() => {
+        received.length = 0;
+      });
+
+      s.printOutput(entry("a"));
+      s.printOutput(entry("b"));
+      // Before microtask flushes, clear outputs
+      s.clearOutputs();
+
+      // Let the microtask run - should NOT flush the discarded batch
+      await Promise.resolve();
+      expect(received).toHaveLength(0);
+    });
   });
 
   // -------------------------------------------------------------------------
