@@ -262,8 +262,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     // Clear the live area AFTER Static content is committed, so the user never
     // sees a blank frame where the streamed content has disappeared.
+    // Keep the interrupt handler registered here; intermediate completions
+    // (e.g. tool-call iterations) should remain interruptible.
     store.setActivity({ phase: "idle" });
-    store.setInterruptHandler(null);
 
     this.acc.liveText = "";
     this.acc.reasoningBuffer = "";
