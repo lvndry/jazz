@@ -98,22 +98,32 @@ describe("CLIRenderer", () => {
       expect(result).toBe(chalk.gray("────────────────────────────────────────") + "\n");
     });
 
-    it("should render code blocks statefully", () => {
-      // Start code block
+    it("should render code blocks when complete", () => {
+      // Code blocks are only colored when both opening and closing fences are present.
+      // This allows inline markdown (bold, italic) to be properly formatted across chunks.
+
+      // Start code block - not colored yet (incomplete)
       const chunk1 = "```typescript\n";
       const result1 = renderer.testRenderChunk(chunk1, 0);
-      expect(result1).toBe(chalk.yellow("```typescript") + "\n");
+      expect(result1).toBe("```typescript\n");
 
-      // Content inside code block
+      // Content inside code block - still incomplete
       const chunk2 = "const x = 1;\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
-      // The implementation colors the entire chunk including the newline
-      expect(result2).toBe(codeColor("const x = 1;\n"));
+      expect(result2).toBe("const x = 1;\n");
 
-      // End code block
+      // End code block - now the block is complete and the delta is the entire formatted block
       const chunk3 = "```\n";
       const result3 = renderer.testRenderChunk(chunk3, 0);
-      expect(result3).toBe(chalk.yellow("```") + "\n");
+      // When the block completes, the reformatted delta includes the full colored block
+      const expectedBlock =
+        chalk.yellow("```typescript") +
+        "\n" +
+        codeColor("const x = 1;") +
+        "\n" +
+        chalk.yellow("```") +
+        "\n";
+      expect(result3).toBe(expectedBlock);
 
       // Content outside code block (plain)
       const chunk4 = "Plain text\n";

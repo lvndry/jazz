@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { InkStreamingRenderer } from "./ink-presentation-service";
+import { stripAnsiCodes } from "./markdown-formatter";
 import { MAX_LIVE_TEXT_CHARS } from "./stream-text-order";
 import type { ActivityState } from "../ui/activity-state";
 import { store } from "../ui/store";
@@ -648,8 +649,10 @@ describe("InkStreamingRenderer", () => {
         .map((e) => (typeof e.message === "string" ? e.message : ""))
         .join("");
 
-      expect(streamed).toContain("This is bold text");
-      expect(streamed).not.toContain("**bold**");
+      // Strip ANSI codes for content check (the output contains bold formatting codes)
+      const stripped = stripAnsiCodes(streamed);
+      expect(stripped).toContain("This is bold text");
+      expect(stripped).not.toContain("**bold**");
     });
 
     test("prints response when no streamed text was emitted", () => {
