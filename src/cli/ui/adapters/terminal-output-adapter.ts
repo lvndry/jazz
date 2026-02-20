@@ -9,7 +9,7 @@
  * Future Ink migrations touch this file only.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { OutputEntry, OutputEntryWithId } from "../types";
 
 /**
@@ -29,19 +29,34 @@ export interface TerminalOutputState {
   readonly staticGeneration: number;
 }
 
-function processEntries(
+function assignEntryIds(
   entries: readonly OutputEntry[],
+  startCounter: number,
+): {
+  entriesWithId: OutputEntryWithId[];
+  firstId: string;
+  nextCounter: number;
+} {
+  let counter = startCounter;
+  const entriesWithId = entries.map((entry) => {
+    const id = entry.id ?? `output-${counter + 1}`;
+    counter += 1;
+    return { ...entry, id };
+  });
+  const firstId = entriesWithId[0]?.id ?? "";
+  return { entriesWithId, firstId, nextCounter: counter };
+}
+
+function processEntries(
+  entries: readonly OutputEntryWithId[],
   prev: TerminalOutputState,
+  nextOutputIdCounter: number,
 ): TerminalOutputState {
   let newLive = prev.liveEntries;
   let newStaticEntries = prev.staticEntries;
-  let outputIdCounter = prev.outputIdCounter;
 
   for (const entry of entries) {
-    const id = entry.id ?? `output-${outputIdCounter + 1}`;
-    const entryWithId: OutputEntryWithId = { ...entry, id } as OutputEntryWithId;
-    newLive = [...newLive, entryWithId];
-    outputIdCounter += 1;
+    newLive = [...newLive, entry];
 
     if (newLive.length > LIVE_TAIL_SIZE) {
       const overflow = newLive.length - LIVE_TAIL_SIZE;
@@ -54,7 +69,7 @@ function processEntries(
   return {
     liveEntries: newLive,
     staticEntries: newStaticEntries,
-    outputIdCounter,
+    outputIdCounter: nextOutputIdCounter,
     staticGeneration: prev.staticGeneration,
   };
 }
@@ -75,6 +90,7 @@ export function useTerminalOutputAdapter(): {
     outputIdCounter: 0,
     staticGeneration: 0,
   });
+  const outputIdCounterRef = useRef(0);
 
   const addEntry = useCallback((entryOrBatch: OutputEntry | readonly OutputEntry[]): string => {
     const entries: readonly OutputEntry[] = Array.isArray(entryOrBatch)
@@ -82,13 +98,17 @@ export function useTerminalOutputAdapter(): {
       : [entryOrBatch];
     if (entries.length === 0) return "";
 
-    const first = entries[0];
-    const firstId: string = first?.id ?? "";
-    setState((prev) => processEntries(entries, prev));
+    const { entriesWithId, firstId, nextCounter } = assignEntryIds(
+      entries,
+      outputIdCounterRef.current,
+    );
+    outputIdCounterRef.current = nextCounter;
+    setState((prev) => processEntries(entriesWithId, prev, nextCounter));
     return firstId;
   }, []);
 
   const clear = useCallback((): void => {
+    outputIdCounterRef.current = 0;
     setState((prev) => ({
       liveEntries: [],
       staticEntries: [],

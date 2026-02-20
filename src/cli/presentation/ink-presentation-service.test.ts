@@ -96,8 +96,8 @@ describe("InkStreamingRenderer", () => {
         }),
       );
 
-      // Wait for any pending buffer flush
-      await new Promise((r) => setTimeout(r, 0));
+      // Flush the streaming buffer to emit any buffered text
+      Effect.runSync(renderer.flush());
 
       const streamed = printOutputCalls
         .filter((e) => e.type === "streamContent")
@@ -129,7 +129,8 @@ describe("InkStreamingRenderer", () => {
         }),
       );
 
-      await new Promise((r) => setTimeout(r, 0));
+      // Flush the streaming buffer to emit any buffered text
+      Effect.runSync(renderer.flush());
 
       const streamed = printOutputCalls
         .filter((e) => e.type === "streamContent")
@@ -327,8 +328,8 @@ describe("InkStreamingRenderer", () => {
         }),
       );
 
-      // Wait for throttle to flush
-      await new Promise((r) => setTimeout(r, 0));
+      // Flush the streaming buffer to emit any buffered text
+      Effect.runSync(renderer.flush());
 
       const streamed = printOutputCalls
         .filter((e) => e.type === "streamContent")
@@ -425,7 +426,8 @@ describe("InkStreamingRenderer", () => {
           typeof e.message === "string" &&
           e.message.includes("partial"),
       );
-      expect(beforeFlush.length).toBeGreaterThan(0);
+      // No newline yet, so text should still be buffered
+      expect(beforeFlush).toHaveLength(0);
 
       // flush() clears activity and emits any remaining buffered text
       Effect.runSync(renderer.flush());

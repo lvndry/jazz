@@ -196,6 +196,13 @@ describe("markdown-formatter", () => {
       expect(result).toContain("\x1b]8;;");
       expect(result).toContain("https://example.com");
     });
+
+    it("should not leak ANSI reset codes when URLs are bolded", () => {
+      const input = "**https://github.com/lvndry/jazz/pull/187**";
+      const result = formatMarkdownHybrid(input);
+      const stripped = stripAnsiCodes(result);
+      expect(stripped).toBe("**https://github.com/lvndry/jazz/pull/187**");
+    });
   });
 
   describe("formatInlineCode", () => {

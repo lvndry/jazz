@@ -75,7 +75,7 @@ const FILE_PATH_LINE_REGEX =
   /(?<!\]\()(?<![:\w/])(\/(?!\/)(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+:\d+(?::\d+)?|~(?:\/[a-zA-Z0-9._-]+)+:\d+(?::\d+)?)/g;
 /** Matches bare URLs. Trailing punctuation (.,;:!?) is excluded unless followed by a non-space char. */
 const BARE_URL_REGEX =
-  /(?<!\]\()(https?:\/\/[^\s<>"{}|\\^`[\]]+[^\s<>"{}|\\^`[\].,;:!?)'\]]|www\.[^\s<>"{}|\\^`[\]]+[^\s<>"{}|\\^`[\].,;:!?)'\]])/g;
+  /(?<!\]\()(https?:\/\/[^\s<>"{}|\\^`[\]\u001b]+[^\s<>"{}|\\^`[\].,;:!?)'\]\u001b]|www\.[^\s<>"{}|\\^`[\]\u001b]+[^\s<>"{}|\\^`[\].,;:!?)'\]\u001b])/g;
 /** Matches fenced code blocks. Anchored to line boundaries so inline triple-backticks are not extracted. */
 const CODE_BLOCK_EXTRACT_REGEX = /^[ \t]*```[\s\S]*?^[ \t]*```/gm;
 const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;

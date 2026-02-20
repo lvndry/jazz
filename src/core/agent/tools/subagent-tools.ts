@@ -145,9 +145,11 @@ ${args.task}`;
             }
           }
 
-          // Show full result indented under the block (Claude-style)
+          // Show a capped preview (last N lines, max chars) under the block
           const fullResult = result?.trim() || "No output";
-          const indentedLines = fullResult.split("\n").map((line) => `     ${line}`);
+          const maxLines = 10;
+          const previewLines = fullResult.split("\n").slice(-maxLines).join("\n");
+          const indentedLines = previewLines.split("\n").map((line) => `     ${line}`);
           yield* presentation.writeOutput(indentedLines.join("\n"));
           yield* presentation.presentCompletion(subagentLabel);
 

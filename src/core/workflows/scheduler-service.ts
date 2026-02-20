@@ -5,11 +5,7 @@ import { Context, Effect, Layer } from "effect";
 import plist from "plist";
 import type { WorkflowMetadata } from "./workflow-service";
 import { isValidCronExpression } from "../utils/cron-utils";
-import {
-  getGlobalUserDataDirectory,
-  getJazzSchedulerInvocation,
-  getUserDataDirectory,
-} from "../utils/runtime-detection";
+import { getGlobalUserDataDirectory, getJazzSchedulerInvocation } from "../utils/runtime-detection";
 import { execCommand, execCommandWithStdin } from "../utils/shell-utils";
 
 /**
@@ -79,61 +75,6 @@ export const SchedulerServiceTag = Context.GenericTag<SchedulerService>("Schedul
  */
 function getSchedulesDirectory(): string {
   return path.join(getGlobalUserDataDirectory(), "schedules");
-}
-
-function getLocalSchedulesDirectory(): string {
-  return path.join(getUserDataDirectory(), "schedules");
-}
-
-function migrateLocalSchedulesToGlobal(): Effect.Effect<void, Error> {
-  return Effect.gen(function* () {
-    const localDir = getLocalSchedulesDirectory();
-    const globalDir = getSchedulesDirectory();
-
-    if (localDir === globalDir) {
-      return;
-    }
-
-    const localStat = yield* Effect.tryPromise({
-      try: () => fs.stat(localDir),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-    if (!localStat || !localStat.isDirectory()) {
-      return;
-    }
-
-    yield* Effect.tryPromise({
-      try: () => fs.mkdir(globalDir, { recursive: true }),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    });
-
-    const files = yield* Effect.tryPromise({
-      try: () => fs.readdir(localDir),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    }).pipe(Effect.catchAll(() => Effect.succeed([])));
-    const jsonFiles = files.filter((f) => f.endsWith(".json"));
-
-    for (const file of jsonFiles) {
-      const sourcePath = path.join(localDir, file);
-      const targetPath = path.join(globalDir, file);
-      const targetStat = yield* Effect.tryPromise({
-        try: () => fs.stat(targetPath),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-      if (!targetStat) {
-        yield* Effect.tryPromise({
-          try: () => fs.copyFile(sourcePath, targetPath),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        });
-      }
-
-      yield* Effect.tryPromise({
-        try: () => fs.rm(sourcePath, { force: true }),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-      }).pipe(Effect.catchAll(() => Effect.void));
-    }
-  });
 }
 
 /**
@@ -423,7 +364,6 @@ function parseScheduledWorkflow(content: string): ScheduledWorkflow | null {
  */
 function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
   return Effect.gen(function* () {
-    yield* migrateLocalSchedulesToGlobal().pipe(Effect.catchAll(() => Effect.void));
     const schedulesDir = getSchedulesDirectory();
 
     // Ensure directory exists
@@ -463,7 +403,6 @@ function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkf
  */
 function isScheduledByMetadata(workflowName: string): Effect.Effect<boolean, Error> {
   return Effect.gen(function* () {
-    yield* migrateLocalSchedulesToGlobal().pipe(Effect.catchAll(() => Effect.void));
     const metadataPath = path.join(getSchedulesDirectory(), `${workflowName}.json`);
     const stat = yield* Effect.tryPromise({
       try: () => fs.stat(metadataPath),

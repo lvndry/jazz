@@ -2,7 +2,7 @@ import type React from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import type { OutputEntry, PromptState } from "./types";
 
-/** Accepts single entry or batch; returns first id or empty string for batch. */
+/** Accepts single entry or batch; returns first id when available. */
 type PrintOutputHandler = (entry: OutputEntry | readonly OutputEntry[]) => string;
 
 const MAX_PENDING_OUTPUT_QUEUE = 2000;

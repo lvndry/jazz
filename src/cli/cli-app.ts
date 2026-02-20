@@ -50,6 +50,7 @@ interface CliOptions {
   debug?: boolean;
   config?: string;
   output?: string;
+  tui?: boolean;
 }
 
 /**
@@ -464,7 +465,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     // Apply global options before any command runs
     program.hook("preAction", (thisCommand) => {
       const opts = thisCommand.optsWithGlobals();
-      if (opts["noTui"]) {
+      if (opts["tui"] === false) {
         process.env["JAZZ_NO_TUI"] = "1";
       }
       if (opts["output"]) {
