@@ -4,6 +4,36 @@ import React from "react";
 import type { ActivityState } from "./activity-state";
 import { TerminalText } from "./components/TerminalText";
 import { THEME } from "./theme";
+
+function todoStatusGlyph(status: "pending" | "in_progress" | "completed" | "cancelled"): string {
+  switch (status) {
+    case "completed":
+      return "✓";
+    case "in_progress":
+      return "◐";
+    case "cancelled":
+      return "✗";
+    case "pending":
+    default:
+      return "○";
+  }
+}
+
+function todoStatusColor(
+  status: "pending" | "in_progress" | "completed" | "cancelled",
+): "green" | "cyan" | "gray" | "yellow" {
+  switch (status) {
+    case "completed":
+      return "green";
+    case "in_progress":
+      return "cyan";
+    case "cancelled":
+      return "gray";
+    case "pending":
+    default:
+      return "yellow";
+  }
+}
 function AgentHeader({
   agentName,
   label,
@@ -115,19 +145,38 @@ export const ActivityView = React.memo(function ActivityView({
 
     case "tool-execution": {
       const uniqueNames = Array.from(new Set(activity.tools.map((t) => t.toolName)));
+      const isManagingTodos = uniqueNames.includes("manage_todos");
       const label =
-        uniqueNames.length === 1
-          ? `Running ${uniqueNames[0]}…`
-          : `Running ${uniqueNames.length} tools… (${uniqueNames.join(", ")})`;
+        isManagingTodos && activity.todoSnapshot && activity.todoSnapshot.length > 0
+          ? "Updating todo list…"
+          : uniqueNames.length === 1
+            ? `Running ${uniqueNames[0]}…`
+            : `Running ${uniqueNames.length} tools… (${uniqueNames.join(", ")})`;
       return (
-        <Box
-          paddingX={2}
-          marginTop={1}
-        >
-          <Text color="yellow">
-            <Spinner type="dots" />
-          </Text>
-          <Text color="yellow"> {label}</Text>
+        <Box flexDirection="column">
+          <Box
+            paddingX={2}
+            marginTop={1}
+          >
+            <Text color="yellow">
+              <Spinner type="dots" />
+            </Text>
+            <Text color="yellow"> {label}</Text>
+          </Box>
+          {activity.todoSnapshot && activity.todoSnapshot.length > 0 ? (
+            <Box
+              paddingLeft={4}
+              flexDirection="column"
+            >
+              {activity.todoSnapshot.map((todo, index) => (
+                <Box key={`${todo.content}-${index}`}>
+                  <Text color={todoStatusColor(todo.status)}>{todoStatusGlyph(todo.status)}</Text>
+                  <Text> </Text>
+                  <Text>{todo.content}</Text>
+                </Box>
+              ))}
+            </Box>
+          ) : null}
         </Box>
       );
     }

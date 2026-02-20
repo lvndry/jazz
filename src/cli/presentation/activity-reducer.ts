@@ -23,6 +23,11 @@ import type { ActiveTool, ActivityState } from "../ui/activity-state";
 import { THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
 
+interface TodoSnapshotItem {
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+}
+
 function renderToolBadge(label: string): React.ReactElement {
   return React.createElement(
     Box,
@@ -47,7 +52,10 @@ export interface ReducerAccumulator {
   lastAgentHeaderWritten: boolean;
   /** Sequence number for ordering out-of-order text chunks from the stream. */
   lastAppliedTextSequence: number;
-  activeTools: Map<string, { toolName: string; startedAt: number }>;
+  activeTools: Map<
+    string,
+    { toolName: string; startedAt: number; todoSnapshot?: TodoSnapshotItem[] }
+  >;
   /** Provider id captured from stream_start for cost calculation. */
   currentProvider: string | null;
   /** Model id captured from stream_start for cost calculation. */
@@ -112,12 +120,82 @@ function buildThinkingOrStreamingActivity(acc: ReducerAccumulator): ActivityStat
 }
 
 function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
-  const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(([toolCallId, entry]) => ({
-    toolCallId,
-    toolName: entry.toolName,
-    startedAt: entry.startedAt,
-  }));
-  return { phase: "tool-execution", agentName: acc.agentName, tools };
+  const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(([toolCallId, entry]) =>
+    entry.todoSnapshot
+      ? {
+          toolCallId,
+          toolName: entry.toolName,
+          startedAt: entry.startedAt,
+          todoSnapshot: entry.todoSnapshot,
+        }
+      : {
+          toolCallId,
+          toolName: entry.toolName,
+          startedAt: entry.startedAt,
+        },
+  );
+  const todoSnapshot = findLatestTodoSnapshot(acc.activeTools);
+  return todoSnapshot
+    ? { phase: "tool-execution", agentName: acc.agentName, tools, todoSnapshot }
+    : { phase: "tool-execution", agentName: acc.agentName, tools };
+}
+
+function parseTodoSnapshot(args?: Record<string, unknown>): TodoSnapshotItem[] | undefined {
+  if (!args) return undefined;
+  const rawTodos = args["todos"];
+  if (!Array.isArray(rawTodos)) return undefined;
+
+  const todos: TodoSnapshotItem[] = [];
+  for (const item of rawTodos) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+    const entry = item as Record<string, unknown>;
+    const content = entry["content"];
+    const status = entry["status"];
+    if (typeof content !== "string" || typeof status !== "string") continue;
+    if (
+      status !== "pending" &&
+      status !== "in_progress" &&
+      status !== "completed" &&
+      status !== "cancelled"
+    ) {
+      continue;
+    }
+    todos.push({ content, status });
+  }
+  return todos.length > 0 ? todos : undefined;
+}
+
+function findLatestTodoSnapshot(
+  activeTools: Map<
+    string,
+    { toolName: string; startedAt: number; todoSnapshot?: TodoSnapshotItem[] }
+  >,
+): TodoSnapshotItem[] | undefined {
+  let latest: { startedAt: number; todoSnapshot?: TodoSnapshotItem[] } | undefined;
+  for (const entry of activeTools.values()) {
+    if (entry.toolName !== "manage_todos" || !entry.todoSnapshot) continue;
+    if (!latest || entry.startedAt >= latest.startedAt) {
+      latest = entry;
+    }
+  }
+  return latest?.todoSnapshot;
+}
+
+function formatTodoSnapshotForOutput(todoSnapshot: TodoSnapshotItem[]): string {
+  const lines = todoSnapshot.map((todo) => {
+    switch (todo.status) {
+      case "completed":
+        return `✓ ${todo.content}`;
+      case "in_progress":
+        return `◐ ${todo.content}`;
+      case "cancelled":
+        return `✗ ${todo.content}`;
+      case "pending":
+      default:
+        return `○ ${todo.content}`;
+    }
+  });
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +375,20 @@ export function reduceEvent(
     }
 
     case "tool_execution_start": {
-      acc.activeTools.set(event.toolCallId, { toolName: event.toolName, startedAt: Date.now() });
+      const todoSnapshot =
+        event.toolName === "manage_todos" ? parseTodoSnapshot(event.arguments) : undefined;
+      if (todoSnapshot) {
+        acc.activeTools.set(event.toolCallId, {
+          toolName: event.toolName,
+          startedAt: Date.now(),
+          todoSnapshot,
+        });
+      } else {
+        acc.activeTools.set(event.toolCallId, {
+          toolName: event.toolName,
+          startedAt: Date.now(),
+        });
+      }
 
       const argsStr = formatToolArguments(event.toolName, event.arguments);
       let providerSuffix = "";
@@ -331,6 +422,13 @@ export function reduceEvent(
       acc.activeTools.delete(event.toolCallId);
 
       let summary = event.summary?.trim();
+      if (
+        toolName === "manage_todos" &&
+        toolEntry?.todoSnapshot &&
+        toolEntry.todoSnapshot.length > 0
+      ) {
+        summary = `Todo list\n${formatTodoSnapshotForOutput(toolEntry.todoSnapshot)}`;
+      }
       if (!summary && toolName && event.result) {
         summary = formatToolResult(toolName, event.result);
       }

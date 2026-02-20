@@ -9,6 +9,12 @@ export interface ActiveTool {
   toolCallId: string;
   toolName: string;
   startedAt: number;
+  todoSnapshot?: TodoSnapshotItem[];
+}
+
+export interface TodoSnapshotItem {
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
 }
 
 export type ActivityPhase =
@@ -36,6 +42,7 @@ export type ActivityState =
       phase: "tool-execution";
       agentName: string;
       tools: ActiveTool[];
+      todoSnapshot?: TodoSnapshotItem[];
     }
   | { phase: "complete" }
   | {
@@ -69,8 +76,16 @@ export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
       const bTools = (b as typeof a).tools;
       if (a.agentName !== (b as typeof a).agentName) return false;
       if (a.tools.length !== bTools.length) return false;
-      return a.tools.every(
+      const sameTools = a.tools.every(
         (t, i) => t.toolCallId === bTools[i]!.toolCallId && t.toolName === bTools[i]!.toolName,
+      );
+      if (!sameTools) return false;
+
+      const aTodos = a.todoSnapshot ?? [];
+      const bTodos = (b as typeof a).todoSnapshot ?? [];
+      if (aTodos.length !== bTodos.length) return false;
+      return aTodos.every(
+        (todo, i) => todo.content === bTodos[i]!.content && todo.status === bTodos[i]!.status,
       );
     }
 

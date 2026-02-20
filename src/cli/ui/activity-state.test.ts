@@ -163,6 +163,44 @@ describe("isActivityEqual", () => {
     ).toBe(false);
   });
 
+  test("tool-execution states with same todo snapshot are equal", () => {
+    expect(
+      isActivityEqual(
+        {
+          phase: "tool-execution",
+          agentName: "A",
+          tools: [],
+          todoSnapshot: [{ content: "Task 1", status: "pending" }],
+        },
+        {
+          phase: "tool-execution",
+          agentName: "A",
+          tools: [],
+          todoSnapshot: [{ content: "Task 1", status: "pending" }],
+        },
+      ),
+    ).toBe(true);
+  });
+
+  test("tool-execution states differ by todo status", () => {
+    expect(
+      isActivityEqual(
+        {
+          phase: "tool-execution",
+          agentName: "A",
+          tools: [],
+          todoSnapshot: [{ content: "Task 1", status: "pending" }],
+        },
+        {
+          phase: "tool-execution",
+          agentName: "A",
+          tools: [],
+          todoSnapshot: [{ content: "Task 1", status: "completed" }],
+        },
+      ),
+    ).toBe(false);
+  });
+
   // ---------------------------------------------------------------------------
   // error
   // ---------------------------------------------------------------------------

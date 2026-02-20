@@ -50,6 +50,18 @@ function findElement(
   return null;
 }
 
+function extractText(node: unknown): string {
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (!React.isValidElement(node)) return "";
+  const props = node.props as { children?: unknown };
+  const children = props.children;
+  if (Array.isArray(children)) {
+    return children.map((child) => extractText(child)).join("");
+  }
+  return extractText(children);
+}
+
 function acc(overrides?: Partial<ReducerAccumulator>): ReducerAccumulator {
   return { ...createAccumulator("TestAgent"), ...overrides };
 }
@@ -361,6 +373,64 @@ describe("activity-reducer", () => {
       expect(result.outputs[1]!.type).toBe("log");
       // Third log is the spacing entry
       expect(result.outputs[2]!.message).toBe("");
+    });
+
+    test("manage_todos tool execution exposes todo snapshot in activity", () => {
+      const a = acc();
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_start",
+          toolName: "manage_todos",
+          toolCallId: "todo-1",
+          arguments: {
+            todos: [
+              { content: "Check status", status: "completed", priority: "high" },
+              { content: "Push branch", status: "in_progress", priority: "medium" },
+            ],
+          },
+        },
+        identity,
+        stubInk,
+      );
+
+      expect(result.activity).not.toBeNull();
+      const activity = result.activity;
+      expect(activity?.phase).toBe("tool-execution");
+      if (activity?.phase === "tool-execution") {
+        expect(activity.todoSnapshot).toHaveLength(2);
+        expect(activity.todoSnapshot?.[0]?.status).toBe("completed");
+      }
+    });
+
+    test("manage_todos completion prints checklist snapshot", () => {
+      const a = acc();
+      const { nodes, render } = createCapturingInk();
+      a.activeTools.set("todo-1", {
+        toolName: "manage_todos",
+        startedAt: Date.now(),
+        todoSnapshot: [
+          { content: "Check status", status: "completed" },
+          { content: "Push branch", status: "in_progress" },
+        ],
+      });
+
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "todo-1",
+          result: JSON.stringify({ ok: true }),
+          durationMs: 10,
+        },
+        identity,
+        render,
+      );
+
+      expect(result.outputs).toHaveLength(3);
+      const outputText = nodes.map((node) => extractText(node)).join("\n");
+      expect(outputText).toContain("✓ Check status");
+      expect(outputText).toContain("◐ Push branch");
     });
   });
 
