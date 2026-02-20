@@ -99,7 +99,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     _streamingConfig?: { textBufferMs?: number },
     throttleMs?: number,
   ) {
-    this.updateThrottleMs = throttleMs ?? 200;
+    this.updateThrottleMs = throttleMs ?? 100;
     this.acc = createAccumulator(agentName);
   }
 
@@ -275,10 +275,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
   /**
    * Print the full response text to Static as a single entry.
    *
-   * Prefer event.response.content over liveText: the stream processor's
-   * accumulated text is the authoritative full response. liveText can be
-   * truncated (MAX_LIVE_TEXT_LENGTH cap) or cleared when text_start fires
-   * again after mid-stream tool calls, losing the beginning of the response.
+   * Prefer event.response.content when no streamed text was emitted.
+   * During streaming we append chunks directly to output, so liveText may be
+   * empty or partial and should not be used to re-print the response.
    */
   private printFinalResponse(event: Extract<StreamEvent, { type: "complete" }>): void {
     const wasStreaming = this.acc.lastAgentHeaderWritten;
@@ -401,9 +400,14 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private emitStreamText(text: string): void {
     const formatted = this.formatStreamingChunk(text);
     if (formatted.length === 0) return;
+    const padding = 4;
+    // Match Ink layout: App paddingX=3 (6 total) + baked left padding.
     store.printOutput({
       type: "streamContent",
-      message: formatForTerminal(formatted, { padding: 2 }),
+      message: formatForTerminal(formatted, {
+        padding,
+        availableWidth: getTerminalWidth() - (6 + padding),
+      }),
       timestamp: new Date(),
     });
     this.hasStreamedText = true;
@@ -413,9 +417,14 @@ export class InkStreamingRenderer implements StreamingRenderer {
     if (!text) return;
     const formatted = this.formatReasoningChunk(text);
     if (formatted.length === 0) return;
+    const padding = 4;
+    // Match Ink layout: App paddingX=3 (6 total) + baked left padding.
     store.printOutput({
       type: "streamContent",
-      message: formatForTerminal(chalk.dim(formatted), { padding: 3 }),
+      message: formatForTerminal(chalk.dim(formatted), {
+        padding,
+        availableWidth: getTerminalWidth() - (6 + padding),
+      }),
       timestamp: new Date(),
     });
   }
