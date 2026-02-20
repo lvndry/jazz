@@ -11,7 +11,7 @@ import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,
 } from "@/core/utils/tool-formatter";
-import { formatMarkdown } from "./markdown-formatter";
+import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
 import { TerminalWriter } from "./output-writer";
@@ -28,6 +28,12 @@ function getTerminalWidth(): number {
     return 80;
   }
 }
+
+/**
+ * Size threshold (in bytes) after which streaming formatting switches to
+ * direct-append mode to avoid O(n²) re-formatting of the entire response.
+ */
+const STREAMING_FORMAT_SIZE_CAP = 8192;
 
 /**
  * CLI renderer configuration
@@ -86,6 +92,7 @@ export class CLIRenderer {
   private lastFlushTime: number = 0;
   private streamingRaw: string = "";
   private streamingFormatted: string = "";
+  private streamingDirectAppend: boolean = false;
 
   constructor(private config: CLIRendererConfig) {
     // Determine output mode
@@ -640,7 +647,33 @@ export class CLIRenderer {
 
   private formatText(text: string): string {
     this.streamingRaw += text;
-    const nextFormatted = formatMarkdown(this.streamingRaw);
+
+    // Once we exceed the size cap, switch to direct-append mode to avoid O(n²)
+    // re-formatting. Trade-off: markdown constructs spanning the boundary may
+    // not render perfectly, but performance is preserved for long outputs.
+    if (!this.streamingDirectAppend && this.streamingRaw.length > STREAMING_FORMAT_SIZE_CAP) {
+      this.streamingDirectAppend = true;
+    }
+
+    if (this.streamingDirectAppend) {
+      // Direct append: format only the new chunk independently
+      const formatted =
+        this.mode === "rendered"
+          ? formatMarkdown(text)
+          : this.mode === "hybrid"
+            ? formatMarkdownHybrid(text)
+            : text;
+      this.streamingFormatted += formatted;
+      return formatted;
+    }
+
+    // Normal mode: re-format entire content and diff
+    const nextFormatted =
+      this.mode === "rendered"
+        ? formatMarkdown(this.streamingRaw)
+        : this.mode === "hybrid"
+          ? formatMarkdownHybrid(this.streamingRaw)
+          : this.streamingRaw;
     const delta = this.getFormattedDelta(this.streamingFormatted, nextFormatted);
     this.streamingFormatted = nextFormatted;
     return delta;
@@ -776,6 +809,7 @@ export class CLIRenderer {
     this.lastFlushTime = 0;
     this.streamingRaw = "";
     this.streamingFormatted = "";
+    this.streamingDirectAppend = false;
   }
 
   /**
