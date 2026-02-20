@@ -16,6 +16,9 @@ import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 /** Sub-agent execution timeout: 30 minutes */
 const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
+/** Maximum iterations for sub-agent execution before returning partial results */
+const SUBAGENT_MAX_ITERATIONS = 20;
+
 /** Monotonic counter for unique sub-agent IDs within this process */
 let subagentCounter = 0;
 
@@ -121,8 +124,7 @@ ${args.task}`;
             userInput: wrappedTask,
             sessionId: context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
-            maxIterations: 20,
-            stream: false,
+            maxIterations: SUBAGENT_MAX_ITERATIONS,
           });
 
           // If the sub-agent hit the iteration limit, response.content may be empty
