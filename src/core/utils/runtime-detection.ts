@@ -19,6 +19,7 @@ import { Effect } from "effect";
  *
  * ## Directory Resolution (most commonly used)
  *   - `getUserDataDirectory()` - Returns ~/.jazz (prod) or ./.jazz (dev)
+ *   - `getGlobalUserDataDirectory()` - Always returns ~/.jazz (for schedulers, etc.)
  *   - `getPackageRootDirectory()` - The jazz-ai package installation directory
  *   - `getBuiltinSkillsDirectory()` - Where built-in skills are stored
  *   - `getBuiltinPersonasDirectory()` - Where built-in personas are stored
@@ -58,6 +59,21 @@ export function getUserDataDirectory(): string {
     }
   }
 
+  return path.resolve(process.cwd(), ".jazz");
+}
+
+/**
+ * Get the global user data directory (~/.jazz), regardless of dev/prod mode.
+ *
+ * Use this when the path will be used by processes that always run in
+ * production context (e.g. launchd jobs, cron). Scheduled workflows, logs,
+ * and schedule metadata should always live in ~/.jazz.
+ */
+export function getGlobalUserDataDirectory(): string {
+  const homeDir = os.homedir();
+  if (homeDir && homeDir.trim().length > 0) {
+    return path.join(homeDir, ".jazz");
+  }
   return path.resolve(process.cwd(), ".jazz");
 }
 

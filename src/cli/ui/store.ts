@@ -2,9 +2,13 @@ import type React from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import type { OutputEntry, PromptState } from "./types";
 
-type PrintOutputHandler = (entry: OutputEntry) => string;
+/** Accepts single entry or batch; returns first id or empty string for batch. */
+type PrintOutputHandler = (entry: OutputEntry | readonly OutputEntry[]) => string;
 
 const MAX_PENDING_OUTPUT_QUEUE = 2000;
+
+/** Set when we've logged the queue-full warning once to avoid spam */
+let _hasWarnedQueueFull = false;
 
 interface ExpandableDiffPayload {
   readonly fullDiff: string;
@@ -18,6 +22,10 @@ export class UIStore {
   private pendingOutputQueue: OutputEntry[] = [];
   private _pendingClear = false;
   private pendingOutputIdCounter = 0;
+
+  /** Coalesce rapid printOutput calls; flush on next microtask */
+  private outputBatch: OutputEntry[] = [];
+  private batchFlushScheduled = false;
 
   // Expandable diff for Ctrl+O expansion
   private expandableDiff: ExpandableDiffPayload | null = null;
@@ -34,6 +42,33 @@ export class UIStore {
 
   // ── Public API (called by consumers) ──────────────────────────────
 
+  private flushOutputBatch = (): void => {
+    this.batchFlushScheduled = false;
+    this.doFlushBatch();
+  };
+
+  private doFlushBatch(): void {
+    if (!this.printOutputHandler || this.outputBatch.length === 0) return;
+    const batch = this.outputBatch;
+    this.outputBatch = [];
+    if (batch.length === 1) {
+      this.printOutputHandler(batch[0]!);
+    } else if (batch.length > 1) {
+      this.printOutputHandler(batch);
+    }
+  }
+
+  /**
+   * Synchronously flush any pending output batch. Use before setActivity during
+   * streaming so output + activity land in same React tick (reduces flicker).
+   */
+  flushOutputBatchNow(): void {
+    if (this.batchFlushScheduled) {
+      this.batchFlushScheduled = false;
+    }
+    this.doFlushBatch();
+  }
+
   printOutput = (entry: OutputEntry): string => {
     const id = entry.id ?? `queued-output-${++this.pendingOutputIdCounter}`;
     const entryWithId = entry.id ? entry : { ...entry, id };
@@ -41,10 +76,23 @@ export class UIStore {
     if (!this.printOutputHandler) {
       if (this.pendingOutputQueue.length < MAX_PENDING_OUTPUT_QUEUE) {
         this.pendingOutputQueue.push(entryWithId);
+      } else {
+        if (!_hasWarnedQueueFull) {
+          _hasWarnedQueueFull = true;
+          console.warn(
+            `[jazz] Output queue full (${MAX_PENDING_OUTPUT_QUEUE}); some output may be dropped until UI is ready.`,
+          );
+        }
       }
       return id;
     }
-    return this.printOutputHandler(entryWithId);
+
+    this.outputBatch.push(entryWithId);
+    if (!this.batchFlushScheduled) {
+      this.batchFlushScheduled = true;
+      queueMicrotask(this.flushOutputBatch);
+    }
+    return id;
   };
 
   setPrompt = (prompt: PromptState | null): void => {

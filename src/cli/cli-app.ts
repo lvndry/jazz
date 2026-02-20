@@ -290,6 +290,7 @@ function registerPersonaCommands(program: Command): void {
 function registerUpdateCommand(program: Command): void {
   program
     .command("update")
+    .alias("upgrade")
     .description("Update Jazz to the latest version")
     .option("--check", "Check for updates without installing")
     .action((options: { check?: boolean }) => {
@@ -452,6 +453,10 @@ export function createCLIApp(): Effect.Effect<Command, never> {
       .option("--debug", "Enable debug level logging")
       .option("--config <path>", "Path to configuration file")
       .option(
+        "--no-tui",
+        "Disable TUI; use plain terminal output (for CI, scripts, small terminals)",
+      )
+      .option(
         "--output <mode>",
         "Output mode: rendered, hybrid (default), raw (no formatting), or quiet (suppress output)",
       );
@@ -459,6 +464,9 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     // Apply global options before any command runs
     program.hook("preAction", (thisCommand) => {
       const opts = thisCommand.optsWithGlobals();
+      if (opts["noTui"]) {
+        process.env["JAZZ_NO_TUI"] = "1";
+      }
       if (opts["output"]) {
         process.env["JAZZ_OUTPUT_MODE"] = opts["output"] as string;
       }

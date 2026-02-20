@@ -2,33 +2,14 @@ import { Box, Static, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import { ActivityView } from "./ActivityView";
+import { useTerminalOutputAdapter } from "./adapters/terminal-output-adapter";
 import ErrorBoundary from "./ErrorBoundary";
 import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { store } from "./store";
-import type { OutputEntry, OutputEntryWithId, PromptState } from "./types";
+import type { OutputEntryWithId, PromptState } from "./types";
 import { InputPriority, InputResults } from "../services/input-service";
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-/**
- * Maximum entries kept in the live (non-Static) React tree.
- *
- * Ink re-runs Yoga layout over every node in the live area on each render
- * frame (keystrokes, spinner ticks, streaming updates, etc.). Keeping this
- * small ensures layout stays O(1) regardless of conversation length.
- *
- * Entries beyond this tail are promoted to Ink's <Static> region where they
- * are rendered to stdout exactly once and never re-laid-out.
- *
- * Chosen as 15 for performance: fewer live nodes means
- * faster layout recompute on each keystroke/stream tick. Trade-off: less
- * recent context visible in the scrollback before it promotes to Static.
- */
-const LIVE_TAIL_SIZE = 15;
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response
@@ -102,114 +83,19 @@ const PromptIsland = React.memo(PromptIslandComponent);
 // ============================================================================
 // Output Island - Isolated state for output entries
 //
-// Uses a two-tier rendering strategy for performance:
-//
-//   1. **Static tier** (Ink <Static>): entries that have scrolled out of the
-//      recent tail. Ink renders these to stdout exactly once, then never
-//      re-lays-out or diffs them again. This keeps Yoga's per-frame layout
-//      cost independent of total conversation length.
-//
-//   2. **Live tier** (regular <Box>): the most recent `LIVE_TAIL_SIZE`
-//      entries. Only these participate in Ink's render/layout cycle, so
-//      keystroke latency stays constant even after thousands of messages.
-//
-// On `clearOutputs()` both tiers are reset (new arrays) and the
-// `staticGeneration` counter is bumped, which changes the React `key`
-// on `<Static>`.  This forces a full remount, resetting Ink's internal
-// positional index so that post-clear items are rendered correctly.
-// Without the remount, Ink's `<Static>` would still remember the old
-// item count and silently drop newly promoted entries (see detailed
-// explanation on the `staticGeneration` field).
+// Uses TerminalOutputAdapter for two-tier Static/live rendering.
 // ============================================================================
 
-interface OutputIslandState {
-  /**
-   * Live tail entries — only these participate in Ink's render/layout cycle.
-   * Capped at LIVE_TAIL_SIZE. When overflow occurs, entries are promoted
-   * to `staticEntries` (append-only) where Ink renders them exactly once.
-   */
-  liveEntries: OutputEntryWithId[];
-  /**
-   * Append-only array fed to Ink's <Static>.  Items are only ever pushed
-   * onto the end — never shifted or spliced — so <Static>'s internal
-   * index-based tracking stays correct.
-   */
-  staticEntries: OutputEntryWithId[];
-  outputIdCounter: number;
-  /**
-   * Monotonically increasing generation counter, bumped on every
-   * `clearOutputs()` call. Used as the React `key` on `<Static>` to
-   * force a full remount, which resets Ink's internal positional index
-   * back to 0.
-   *
-   * Why this is necessary: Ink's `<Static>` tracks how many items it
-   * has already rendered via a `useState(0)` counter (`index`). It only
-   * renders `items.slice(index)` — i.e., items appended since the last
-   * render. When we clear `staticEntries` back to `[]`, React may batch
-   * the clear with subsequent promotions, causing the *first* render
-   * after the clear to see a short array while `index` still equals the
-   * old (larger) count. `items.slice(oldIndex)` on the short array
-   * yields `[]`, silently dropping newly promoted items. Changing the
-   * `key` forces React to unmount and remount `<Static>`, resetting
-   * `index` to 0 so all post-clear items are rendered correctly.
-   */
-  staticGeneration: number;
-}
-
 function OutputIslandComponent(): React.ReactElement {
-  const [state, setState] = useState<OutputIslandState>({
-    liveEntries: [],
-    staticEntries: [],
-    outputIdCounter: 0,
-    staticGeneration: 0,
-  });
+  const { state, addEntry, clear } = useTerminalOutputAdapter();
   const initializedRef = useRef(false);
 
-  const printOutput = useCallback((entry: OutputEntry): string => {
-    let newId = "";
-    setState((prev) => {
-      const id = entry.id ?? `output-${prev.outputIdCounter + 1}`;
-      newId = id;
+  const printOutput = useCallback(
+    (entryOrBatch: Parameters<typeof addEntry>[0]) => addEntry(entryOrBatch),
+    [addEntry],
+  );
 
-      const entryWithId: OutputEntryWithId = { ...entry, id } as OutputEntryWithId;
-      const newLive = [...prev.liveEntries, entryWithId];
-
-      // When the live tail exceeds LIVE_TAIL_SIZE, promote the oldest
-      // entries to the static tier (append-only, rendered once by <Static>).
-      let newStaticEntries = prev.staticEntries;
-      let trimmedLive = newLive;
-
-      if (newLive.length > LIVE_TAIL_SIZE) {
-        const overflow = newLive.length - LIVE_TAIL_SIZE;
-        const promoted = newLive.slice(0, overflow);
-        trimmedLive = newLive.slice(overflow);
-        newStaticEntries = [...prev.staticEntries, ...promoted];
-      }
-
-      // Note: we intentionally do NOT trim staticEntries from the front.
-      // Ink's <Static> tracks rendered items by positional index; any
-      // shift would cause it to skip newly promoted items.  The array
-      // only holds small objects (just references, not Yoga nodes), so
-      // the memory cost is negligible compared to the layout savings.
-
-      return {
-        liveEntries: trimmedLive,
-        staticEntries: newStaticEntries,
-        outputIdCounter: prev.outputIdCounter + 1,
-        staticGeneration: prev.staticGeneration,
-      };
-    });
-    return newId;
-  }, []);
-
-  const clearOutputs = useCallback((): void => {
-    setState((prev) => ({
-      liveEntries: [],
-      staticEntries: [],
-      outputIdCounter: 0,
-      staticGeneration: prev.staticGeneration + 1,
-    }));
-  }, []);
+  const clearOutputs = useCallback(() => clear(), [clear]);
 
   // Register store methods synchronously during render
   if (!initializedRef.current) {
@@ -320,6 +206,9 @@ export function App(): React.ReactElement {
   // Handle interrupt (double-tap Escape)
   const lastEscapeRef = useRef<number>(0);
   const escapeHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Use a ref for synchronous read in the input handler (React state updates are async
+  // and would cause the second ESC press to always see showEscapeHint === false).
+  const escapeHintActiveRef = useRef(false);
   const [showEscapeHint, setShowEscapeHint] = useState(false);
   const DOUBLE_ESCAPE_WINDOW_MS = 1000;
 
@@ -333,9 +222,10 @@ export function App(): React.ReactElement {
     const elapsed = now - lastEscapeRef.current;
     lastEscapeRef.current = now;
 
-    if (elapsed <= DOUBLE_ESCAPE_WINDOW_MS && showEscapeHint) {
+    if (elapsed <= DOUBLE_ESCAPE_WINDOW_MS && escapeHintActiveRef.current) {
       // Second press — interrupt generation
       lastEscapeRef.current = 0;
+      escapeHintActiveRef.current = false;
       setShowEscapeHint(false);
       if (escapeHintTimerRef.current) {
         clearTimeout(escapeHintTimerRef.current);
@@ -344,11 +234,13 @@ export function App(): React.ReactElement {
       interruptHandlerRef.current();
     } else {
       // First press — show hint, auto-dismiss after timeout
+      escapeHintActiveRef.current = true;
       setShowEscapeHint(true);
       if (escapeHintTimerRef.current) {
         clearTimeout(escapeHintTimerRef.current);
       }
       escapeHintTimerRef.current = setTimeout(() => {
+        escapeHintActiveRef.current = false;
         setShowEscapeHint(false);
         escapeHintTimerRef.current = null;
       }, DOUBLE_ESCAPE_WINDOW_MS);
@@ -399,10 +291,14 @@ export function App(): React.ReactElement {
           marginTop={1}
         >
           {/* Output entries - Isolated state, cleared on terminal.clear() */}
-          <OutputIsland />
+          <ErrorBoundary fallback={<Text color="red">Output area error. Restart may help.</Text>}>
+            <OutputIsland />
+          </ErrorBoundary>
 
           {/* Activity - Unified status + streaming response */}
-          <ActivityIsland />
+          <ErrorBoundary fallback={<Text color="red">Activity area error. Restart may help.</Text>}>
+            <ActivityIsland />
+          </ErrorBoundary>
 
           {/* Escape interrupt hint - shown after first Esc during generation */}
           {showEscapeHint && (
@@ -412,7 +308,9 @@ export function App(): React.ReactElement {
           )}
 
           {/* User input prompt - Isolated state */}
-          <PromptIsland />
+          <ErrorBoundary fallback={<Text color="red">Prompt area error. Restart may help.</Text>}>
+            <PromptIsland />
+          </ErrorBoundary>
         </Box>
       </Box>
     </ErrorBoundary>

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   getBuiltinSkillsDirectory,
   getBuiltinWorkflowsDirectory,
+  getGlobalUserDataDirectory,
   getPackageRootDirectory,
   getUserDataDirectory,
   isRunningFromGlobalInstall,
@@ -222,6 +223,31 @@ describe("Runtime Detection", () => {
       expect(typeof result).toBe("string");
       // Should either be ~/.jazz (if homeDir available) or {cwd}/.jazz (fallback)
       expect(result).toMatch(/\.jazz$/);
+    });
+  });
+
+  describe("getGlobalUserDataDirectory", () => {
+    it("should always return ~/.jazz regardless of dev/prod mode (for schedulers)", () => {
+      const homeDir = os.homedir();
+      const expected = path.join(homeDir, ".jazz");
+
+      // Even when in development mode (process.argv points to jazz source), getGlobalUserDataDirectory
+      // must return ~/.jazz so scheduled workflows (launchd/cron) always use the same paths.
+      process.argv[1] = path.join(jazzProjectDir, "src", "main.ts");
+      expect(getUserDataDirectory()).not.toBe(expected); // dev mode uses cwd
+      expect(getGlobalUserDataDirectory()).toBe(expected);
+    });
+
+    it("should return ~/.jazz when in production mode", () => {
+      const homeDir = os.homedir();
+      process.argv[1] = path.join(homeDir, ".bun", "bin", "jazz");
+
+      expect(getGlobalUserDataDirectory()).toBe(path.join(homeDir, ".jazz"));
+    });
+
+    it("should resolve to homedir .jazz path", () => {
+      const homeDir = os.homedir();
+      expect(getGlobalUserDataDirectory()).toBe(path.join(homeDir, ".jazz"));
     });
   });
 

@@ -198,6 +198,25 @@ export function getTerminalWidth(): number {
 }
 
 /**
+ * Consolidated "format for terminal" pipeline: wrap + pad.
+ * Use this before passing text to TerminalText for consistent rendering.
+ *
+ * @param text - Raw or ANSI-formatted text
+ * @param options.availableWidth - Width for wrapping (default: terminal width - 8)
+ * @param options.padding - Leading spaces per line (default: 0)
+ */
+export function formatForTerminal(
+  text: string,
+  options?: { availableWidth?: number; padding?: number },
+): string {
+  if (!text || text.length === 0) return text;
+  const width = options?.availableWidth ?? getTerminalWidth() - 8;
+  const wrapped = wrapToWidth(text, width);
+  const padding = options?.padding ?? 0;
+  return padding > 0 ? padLines(wrapped, padding) : wrapped;
+}
+
+/**
  * Bake left padding into a pre-wrapped string as literal spaces.
  *
  * This avoids passing long text through Ink's Yoga layout engine (which can
@@ -491,6 +510,48 @@ export function formatNonCodeText(text: string): string {
 }
 
 /**
+ * Apply the hybrid inline-formatting pipeline to non-code-block text.
+ *
+ * Mirrors {@link formatMarkdownHybrid} but scoped to non-code text so it can
+ * be used in progressive streaming formatters without corrupting code blocks.
+ */
+function formatNonCodeTextHybrid(text: string): string {
+  // 1. Extract inline code to protect from bold/italic/strikethrough
+  const inlineCodes: string[] = [];
+  let formatted = text.replace(INLINE_CODE_EXTRACT_REGEX, (_match, code: string) => {
+    const index = inlineCodes.length;
+    inlineCodes.push(code);
+    return `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
+  });
+
+  // 2. Apply inline formatting (escape stripping runs AFTER code extraction)
+  formatted = formatEmojiShortcodes(formatted);
+  formatted = formatEscapedText(formatted);
+  formatted = formatHeadingsHybrid(formatted);
+  formatted = formatBlockquotesHybrid(formatted);
+  formatted = formatTaskLists(formatted);
+  formatted = formatLists(formatted);
+  formatted = formatHorizontalRules(formatted);
+  formatted = formatStrikethroughHybrid(formatted);
+  formatted = formatBoldHybrid(formatted);
+  formatted = formatItalicHybrid(formatted);
+
+  // 3. Extract links, format bare URLs/file paths, restore links
+  const { text: withoutLinks, links } = extractLinks(formatted);
+  formatted = formatBareUrlsHybrid(withoutLinks);
+  formatted = formatFilePathsHybrid(formatted);
+  formatted = restoreLinksHybrid(formatted, links);
+
+  // 4. Restore inline code (keep backticks visible)
+  for (let index = 0; index < inlineCodes.length; index++) {
+    const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
+    formatted = formatted.replace(placeholder, `\`${codeColor(inlineCodes[index]!)}\``);
+  }
+
+  return formatted;
+}
+
+/**
  * Convert emoji shortcodes (e.g. :wave:, :thumbsup:) to their unicode equivalents.
  * Uses the node-emoji library for the shortcode-to-unicode mapping.
  * Shortcodes that don't match a known emoji are left as-is.
@@ -502,43 +563,6 @@ export function formatEmojiShortcodes(text: string): string {
   // Reset lastIndex since we used .test() above
   EMOJI_SHORTCODE_REGEX.lastIndex = 0;
   return emojify(text);
-}
-
-/**
- * Format code blocks with stateful tracking
- */
-export function formatCodeBlocks(text: string, state: StreamingState): FormattingResult {
-  let isInCodeBlock = state.isInCodeBlock;
-
-  if (text.includes("```")) {
-    const lines = text.split("\n");
-    const processedLines: string[] = [];
-
-    for (const line of lines) {
-      if (line.trim().startsWith("```")) {
-        isInCodeBlock = !isInCodeBlock;
-        processedLines.push(chalk.yellow(line));
-      } else if (isInCodeBlock) {
-        processedLines.push(codeColor(line));
-      } else {
-        processedLines.push(line);
-      }
-    }
-
-    return {
-      formatted: processedLines.join("\n"),
-      state: { isInCodeBlock },
-    };
-  }
-
-  if (isInCodeBlock) {
-    return {
-      formatted: codeColor(text),
-      state: { isInCodeBlock },
-    };
-  }
-
-  return { formatted: text, state: { isInCodeBlock } };
 }
 
 /**
@@ -618,6 +642,14 @@ function formatSegments(segments: CodeTextSegment[]): string {
     .join("\n");
 }
 
+function formatSegmentsHybrid(segments: CodeTextSegment[]): string {
+  return segments
+    .map((seg) =>
+      seg.type === "code" ? seg.lines.join("\n") : formatNonCodeTextHybrid(seg.lines.join("\n")),
+    )
+    .join("\n");
+}
+
 /**
  * Apply progressive formatting for streaming (stateful).
  *
@@ -638,16 +670,40 @@ export function applyProgressiveFormatting(text: string, state: StreamingState):
     };
   }
 
-  const { segments, isInCodeBlock } = segmentByCodeBlocks(
-    text.split("\n"),
-    state.isInCodeBlock,
-  );
+  const { segments, isInCodeBlock } = segmentByCodeBlocks(text.split("\n"), state.isInCodeBlock);
 
   return { formatted: formatSegments(segments), state: { isInCodeBlock } };
 }
 
 /**
- * Format complete markdown text (stateless, for non-streaming use)
+ * Apply progressive formatting for streaming in hybrid mode (stateful).
+ *
+ * Preserves markdown syntax markers while applying styling, and keeps code
+ * blocks isolated so inline formatters cannot corrupt code content.
+ */
+export function applyProgressiveFormattingHybrid(
+  text: string,
+  state: StreamingState,
+): FormattingResult {
+  if (!text || text.trim().length === 0) {
+    return { formatted: text, state };
+  }
+
+  // Fast path: entirely inside a code block with no fences in this chunk
+  if (state.isInCodeBlock && !text.includes("```")) {
+    return {
+      formatted: codeColor(text),
+      state: { isInCodeBlock: state.isInCodeBlock },
+    };
+  }
+
+  const { segments, isInCodeBlock } = segmentByCodeBlocks(text.split("\n"), state.isInCodeBlock);
+
+  return { formatted: formatSegmentsHybrid(segments), state: { isInCodeBlock } };
+}
+
+/**
+ * Format complete markdown text (stateless)
  */
 export function formatMarkdown(text: string): string {
   if (!text || text.length === 0) {

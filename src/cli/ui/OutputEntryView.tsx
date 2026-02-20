@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import React from "react";
+import { TerminalText } from "./components/TerminalText";
 import { THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
 
@@ -54,7 +55,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
         marginTop={0}
         marginBottom={0}
       >
-        <Text wrap="truncate">{entry.message as string}</Text>
+        <TerminalText>{entry.message as string}</TerminalText>
       </Box>
     );
   }
@@ -80,7 +81,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     }
 
     // Log entries: render just the text with no icon/space siblings.
-    // This keeps Yoga layout minimal — a single Text child in a Box.
+    // Uses TerminalText for multi-line content (e.g. full diff).
     // The caller is responsible for baking any left padding into the string
     // (via padLines) so Yoga doesn't need to compute nested padding.
     if (entry.type === "log") {
@@ -89,7 +90,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
           marginTop={addSpacing ? 1 : 0}
           marginBottom={1}
         >
-          <Text wrap="truncate">{entry.message}</Text>
+          <TerminalText>{entry.message}</TerminalText>
         </Box>
       );
     }
@@ -104,7 +105,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
         <Text
           dimColor={entry.type === "debug"}
           color={color}
-          wrap="truncate"
+          wrap="wrap"
         >
           {entry.message}
         </Text>

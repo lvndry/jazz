@@ -41,17 +41,6 @@ type SpawnSubagentArgs = z.infer<typeof spawnSubagentSchema>;
 const summarizeContextSchema = z.object({});
 
 /**
- * Extracts the first sentence from a text block for progress display.
- */
-function firstSentence(text: string): string {
-  const trimmed = text.trim();
-  // Match up to a sentence-ending punctuation or first 120 chars
-  const match = trimmed.match(/^[^.!?\n]+[.!?]?/);
-  const sentence = match?.[0] ?? trimmed.substring(0, 120);
-  return sentence.length > 120 ? `${sentence.substring(0, 117)}...` : sentence;
-}
-
-/**
  * Creates the sub-agent and summarize tools.
  *
  * These tools allow the agent to:
@@ -94,11 +83,12 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             parentAgentId: parentAgent.id,
           });
 
-          // Show sub-agent launch to the user
-          const taskPreview =
-            args.task.length > 80 ? `${args.task.substring(0, 77)}...` : args.task;
-          yield* presentation.presentThinking(`Sub-Agent (${args.persona})`, true);
-          yield* presentation.writeOutput(`  ↳ Task: ${taskPreview}`);
+          // Show sub-agent launch — header + task (output stays under this block, no streaming collision)
+          const taskPreview = args.task.length > 80 ? `...${args.task.slice(-77)}` : args.task;
+          const subagentLabel = `Sub-Agent (${args.persona})`;
+          yield* presentation.writeOutput(`${subagentLabel} ⤵`);
+          yield* presentation.writeOutput(`     Task: ${taskPreview}`);
+          yield* presentation.presentThinking(subagentLabel, true);
 
           // Create an ephemeral sub-agent with the parent's LLM config but a specific persona
           const subAgent: Agent = {
@@ -125,12 +115,14 @@ You are a sub-agent performing a delegated task for a parent agent. This is a ON
 TASK:
 ${args.task}`;
 
+          // Run without streaming so output stays under this block (no collision when multiple subagents)
           const response = yield* AgentRunner.runRecursive({
             agent: subAgent,
             userInput: wrappedTask,
             sessionId: context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
             maxIterations: 20,
+            stream: false,
           });
 
           // If the sub-agent hit the iteration limit, response.content may be empty
@@ -153,10 +145,11 @@ ${args.task}`;
             }
           }
 
-          // Show sub-agent result preview
-          const resultPreview = firstSentence(result || "No output");
-          yield* presentation.writeOutput(`  ↳ Result: ${resultPreview}`);
-          yield* presentation.presentCompletion(`Sub-Agent (${args.persona})`);
+          // Show full result indented under the block (Claude-style)
+          const fullResult = result?.trim() || "No output";
+          const indentedLines = fullResult.split("\n").map((line) => `     ${line}`);
+          yield* presentation.writeOutput(indentedLines.join("\n"));
+          yield* presentation.presentCompletion(subagentLabel);
 
           yield* logger.info("Sub-agent completed", {
             parentAgentId: parentAgent.id,

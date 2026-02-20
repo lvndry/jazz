@@ -19,14 +19,18 @@ export function normalizeCronExpression(schedule: string): string {
  * Validate a cron expression.
  * Returns true if valid, false otherwise.
  */
-export function isValidCronExpression(cron: string): boolean {
+export function isValidCronExpression(cron: unknown): boolean {
   try {
-    const parts = cron.trim().split(/\s+/);
+    if (cron == null || typeof cron !== "string") {
+      return false;
+    }
+    const trimmed = String(cron).trim();
+    const parts = trimmed.split(/\s+/);
     if (parts.length !== 5 && parts.length !== 6) {
       return false;
     }
 
-    const normalized = normalizeCronExpression(cron);
+    const normalized = normalizeCronExpression(trimmed);
     cronParser.parse(normalized);
     return true;
   } catch {

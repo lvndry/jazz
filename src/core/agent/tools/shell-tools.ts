@@ -70,6 +70,7 @@ const FORBIDDEN_COMMANDS = [
 
 type ExecuteCommandArgs = {
   command: string;
+  description: string;
   workingDirectory?: string;
   timeout?: number;
 };
@@ -77,6 +78,11 @@ type ExecuteCommandArgs = {
 const executeCommandParameters = z
   .object({
     command: z.string().min(1, "command cannot be empty").describe("Shell command to execute"),
+    description: z
+      .string()
+      .trim()
+      .min(1, "description cannot be empty")
+      .describe("Human-readable explanation of what the command will do"),
     workingDirectory: z.string().optional().describe("Working directory (defaults to cwd)"),
     timeout: z.number().int().positive().optional().describe("Timeout in ms (default: 30000)"),
   })
@@ -117,8 +123,10 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
 
         const workingDir = args.workingDirectory || cwd;
         const timeout = args.timeout || 30_000;
+        const description = args.description.trim();
 
         return `Command: ${args.command}
+Description: ${description}
 Working Directory: ${workingDir}
 Timeout: ${timeout}ms
 

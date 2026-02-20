@@ -8,16 +8,11 @@
  *
  * ## Streaming text rendering strategy
  *
- * During streaming, ALL response text lives in the live area (`activity.text`).
- * The reducer returns the raw accumulated text; the renderer is responsible for
- * formatting (markdown + wrapping) and only does so when actually pushing to
- * the store (~10/sec via throttle), not on every token (~80/sec).
- *
- * On completion, the renderer prints the full response as a single Static
- * output entry and clears the live area.
+ * During streaming, response text is appended directly to output entries so it
+ * never disappears from the scrollback. The activity area is reserved for
+ * status and reasoning only.
  */
 
-import chalk from "chalk";
 import { Box, Text } from "ink";
 import React from "react";
 import type { TerminalOutput } from "@/core/interfaces/terminal";
@@ -63,12 +58,6 @@ export interface ReducerAccumulator {
   _cachedReasoningInput: string;
   /** Cached formatted result for reasoning */
   _cachedReasoningOutput: string;
-
-  /**
-   * Whether we've already printed the streaming response header ("X is responding…")
-   * into Static output for the current response.
-   */
-  responseHeaderPrinted: boolean;
 }
 
 export function createAccumulator(agentName: string): ReducerAccumulator {
@@ -86,8 +75,6 @@ export function createAccumulator(agentName: string): ReducerAccumulator {
 
     _cachedReasoningInput: "",
     _cachedReasoningOutput: "",
-
-    responseHeaderPrinted: false,
   };
 }
 
@@ -103,71 +90,24 @@ export interface ReducerResult {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Cap for accumulated reasoning text before truncation. */
-const MAX_REASONING_LENGTH = 8000;
-/** Hard cap for total `liveText` length to prevent unbounded memory growth. */
-const MAX_LIVE_TEXT_LENGTH = 200_000;
-
-function renderStreamingResponseHeader(agentName: string): React.ReactElement {
-  return React.createElement(
-    Box,
-    { flexDirection: "column", paddingLeft: 2, marginTop: 1 },
-    React.createElement(
-      Box,
-      {},
-      React.createElement(Text, { color: THEME.agent }, "…"),
-      React.createElement(Text, {}, " "),
-      React.createElement(Text, { bold: true, color: THEME.agent }, agentName),
-      React.createElement(Text, { dimColor: true }, " is responding…"),
-    ),
-    React.createElement(Text, { dimColor: true }, "─".repeat(40)),
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Helper: build the current activity from accumulator state
 // ---------------------------------------------------------------------------
 
-function buildThinkingOrStreamingActivity(
-  acc: ReducerAccumulator,
-  formatMarkdown: (text: string) => string,
-): ActivityState {
-  const reasoningToShow =
-    acc.reasoningBuffer.trim().length > 0
-      ? acc.reasoningBuffer
-      : acc.completedReasoning.trim().length > 0
-        ? acc.completedReasoning
-        : "";
-
-  // Use cached formatted reasoning to avoid redundant regex work
-  let formattedReasoning: string;
-  if (reasoningToShow.length === 0) {
-    formattedReasoning = "";
-  } else if (reasoningToShow === acc._cachedReasoningInput) {
-    formattedReasoning = acc._cachedReasoningOutput;
-  } else {
-    formattedReasoning = formatMarkdown(reasoningToShow);
-    acc._cachedReasoningInput = reasoningToShow;
-    acc._cachedReasoningOutput = formattedReasoning;
-  }
-
+function buildThinkingOrStreamingActivity(acc: ReducerAccumulator): ActivityState {
   if (acc.liveText.length > 0) {
     return {
       phase: "streaming",
       agentName: acc.agentName,
-      reasoning: formattedReasoning,
-      // Raw text — the renderer formats it only when pushing to the store.
-      text: acc.liveText,
+      reasoning: "",
+      // Streaming text is appended to output entries (not shown in activity).
+      text: "",
     };
   }
 
   return {
     phase: "thinking",
     agentName: acc.agentName,
-    reasoning: formattedReasoning,
+    reasoning: "",
   };
 }
 
@@ -187,7 +127,7 @@ function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
 export function reduceEvent(
   acc: ReducerAccumulator,
   event: StreamEvent,
-  formatMarkdown: (text: string) => string,
+  _formatMarkdown: (text: string) => string,
   inkRender: (node: unknown) => TerminalOutput,
 ): ReducerResult {
   const outputs: OutputEntry[] = [];
@@ -207,11 +147,6 @@ export function reduceEvent(
         message: `${acc.agentName} (${event.provider}/${event.model})`,
         timestamp: new Date(),
       });
-      outputs.push({
-        type: "log",
-        message: chalk.dim("(Tip: Press Esc twice to stop generation)"),
-        timestamp: new Date(),
-      });
 
       return { activity: null, outputs };
     }
@@ -222,7 +157,7 @@ export function reduceEvent(
       acc.reasoningBuffer = "";
       acc.isThinking = true;
       return {
-        activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
+        activity: buildThinkingOrStreamingActivity(acc),
         outputs,
       };
     }
@@ -230,7 +165,7 @@ export function reduceEvent(
     case "thinking_chunk": {
       acc.reasoningBuffer += event.content;
       return {
-        activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
+        activity: buildThinkingOrStreamingActivity(acc),
         outputs,
       };
     }
@@ -238,29 +173,7 @@ export function reduceEvent(
     case "thinking_complete": {
       acc.isThinking = false;
 
-      // Log the reasoning block as an Ink element with padding
-      const reasoning = acc.reasoningBuffer.trim();
-      if (reasoning.length > 0) {
-        const formattedReasoning = formatMarkdown(reasoning);
-        outputs.push({
-          type: "log",
-          message: inkRender(
-            React.createElement(
-              Box,
-              { flexDirection: "column", paddingLeft: 2, marginTop: 1, marginBottom: 1 },
-              React.createElement(Text, { dimColor: true, italic: true }, "▸ Reasoning"),
-              React.createElement(
-                Box,
-                { marginTop: 0, paddingLeft: 1, flexDirection: "column" },
-                React.createElement(Text, { dimColor: true, wrap: "truncate" }, formattedReasoning),
-              ),
-            ),
-          ),
-          timestamp: new Date(),
-        });
-      }
-
-      // Accumulate completed reasoning
+      // Accumulate completed reasoning (used by text_start to decide separator)
       const newReasoning = acc.reasoningBuffer.trim();
       if (newReasoning.length > 0) {
         if (acc.completedReasoning.trim().length > 0) {
@@ -268,23 +181,11 @@ export function reduceEvent(
         } else {
           acc.completedReasoning = newReasoning;
         }
-        // Cap reasoning to prevent unbounded growth
-        if (acc.completedReasoning.length > MAX_REASONING_LENGTH) {
-          const truncatePoint = acc.completedReasoning.length - MAX_REASONING_LENGTH;
-          const nextSeparator = acc.completedReasoning.indexOf("---", truncatePoint);
-          if (nextSeparator > 0) {
-            acc.completedReasoning =
-              "...(earlier reasoning truncated)...\n\n" +
-              acc.completedReasoning.substring(nextSeparator);
-          } else {
-            acc.completedReasoning = acc.completedReasoning.substring(truncatePoint);
-          }
-        }
       }
       acc.reasoningBuffer = "";
 
       return {
-        activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
+        activity: buildThinkingOrStreamingActivity(acc),
         outputs,
       };
     }
@@ -292,8 +193,6 @@ export function reduceEvent(
     // ---- Text content ---------------------------------------------------
 
     case "text_start": {
-      acc.responseHeaderPrinted = false;
-
       // If reasoning was produced, log a separator before the response
       if (acc.completedReasoning.trim().length > 0) {
         outputs.push({
@@ -310,16 +209,6 @@ export function reduceEvent(
         });
       }
 
-      // Print the "is responding…" header into Static once per response.
-      if (!acc.responseHeaderPrinted) {
-        outputs.push({
-          type: "log",
-          message: inkRender(renderStreamingResponseHeader(acc.agentName)),
-          timestamp: new Date(),
-        });
-        acc.responseHeaderPrinted = true;
-      }
-
       acc.liveText = "";
       acc.lastAppliedTextSequence = -1;
 
@@ -327,8 +216,9 @@ export function reduceEvent(
         activity: {
           phase: "streaming",
           agentName: acc.agentName,
-          reasoning:
-            acc.completedReasoning.trim().length > 0 ? formatMarkdown(acc.completedReasoning) : "",
+          // Completed reasoning was already logged to Static output, so don't
+          // duplicate it in the live area.
+          reasoning: "",
           text: "",
         },
         outputs,
@@ -343,17 +233,12 @@ export function reduceEvent(
         },
         { sequence: event.sequence, accumulated: event.accumulated },
       );
-      // Cap live text to prevent unbounded memory growth.
-      if (next.liveText.length > MAX_LIVE_TEXT_LENGTH) {
-        acc.liveText = next.liveText.slice(-MAX_LIVE_TEXT_LENGTH);
-      } else {
-        acc.liveText = next.liveText;
-      }
+      acc.liveText = next.liveText;
       acc.lastAppliedTextSequence = next.lastAppliedSequence;
 
       // All text stays in the live area — no flushing to Static during streaming.
       return {
-        activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
+        activity: buildThinkingOrStreamingActivity(acc),
         outputs,
       };
     }

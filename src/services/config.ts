@@ -13,7 +13,7 @@ import type {
   WebSearchConfig,
 } from "@/core/types/index";
 import { safeParseJson } from "@/core/utils/json";
-import { getUserDataDirectory } from "@/core/utils/runtime-detection";
+import { getGlobalUserDataDirectory } from "@/core/utils/runtime-detection";
 
 /**
  * Extract only override fields (enabled) from a server config.
@@ -260,7 +260,7 @@ export function requireConfigValue<T>(key: string): Effect.Effect<T, never, Agen
 // -----------------
 
 function defaultConfig(): AppConfig {
-  const storage: StorageConfig = { type: "file", path: getUserDataDirectory() };
+  const storage: StorageConfig = { type: "file", path: getGlobalUserDataDirectory() };
   const logging: LoggingConfig = {
     level: "info",
     format: "plain",
@@ -451,7 +451,7 @@ function loadAgentsMcpServers(
       `${process.cwd()}/.agents/mcp.json`,
     ];
 
-    let merged: Record<string, unknown> = {};
+    const merged: Record<string, unknown> = {};
 
     for (const filePath of candidates) {
       const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));

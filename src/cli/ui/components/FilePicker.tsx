@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Box, Text, useInput } from "ink";
@@ -37,7 +38,7 @@ async function scanDirectory(
   async function scan(dir: string, depth: number): Promise<void> {
     if (depth > maxDepth || results.length >= maxResults) return;
 
-    let entries: import("node:fs").Dirent[];
+    let entries: Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {

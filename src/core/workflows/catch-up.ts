@@ -141,10 +141,26 @@ export function getCatchUpCandidates() {
 }
 
 /**
+ * Options for `runCatchUpForWorkflows`.
+ */
+interface RunCatchUpOptions {
+  /**
+   * When true, skip the `decideCatchUp` re-check and `addRunRecord` because
+   * the caller has already persisted "running" records before forking.
+   * This prevents the background fiber from being interrupted before records
+   * are written, which would cause the catch-up prompt to reappear.
+   */
+  readonly recordsPreCreated?: boolean;
+}
+
+/**
  * Run catch-up for the given scheduled workflow entries only.
  * Skips entries where agent or workflow content is unavailable (logs a warning).
  */
-export function runCatchUpForWorkflows(entries: readonly ScheduledWorkflow[]) {
+export function runCatchUpForWorkflows(
+  entries: readonly ScheduledWorkflow[],
+  options: RunCatchUpOptions = {},
+) {
   if (entries.length === 0) {
     return Effect.void;
   }
@@ -152,9 +168,16 @@ export function runCatchUpForWorkflows(entries: readonly ScheduledWorkflow[]) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const workflowService = yield* WorkflowServiceTag;
-    const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
-    const lastRunMap = getLastRunSnapshot(history);
     const now = new Date();
+
+    // Only load history and re-check decisions when records were not pre-created.
+    // When the interactive prompt pre-creates records, re-checking would find
+    // "already ran" (because the record exists) and skip execution entirely.
+    let lastRunMap: Map<string, { lastRunAt?: Date }> | undefined;
+    if (!options.recordsPreCreated) {
+      const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
+      lastRunMap = getLastRunSnapshot(history);
+    }
 
     for (const entry of entries) {
       const workflow = yield* workflowService
@@ -168,15 +191,17 @@ export function runCatchUpForWorkflows(entries: readonly ScheduledWorkflow[]) {
         continue;
       }
 
-      const lastRunAt = lastRunMap.get(entry.workflowName)?.lastRunAt;
-      const decision = decideCatchUp(workflow, lastRunAt, now);
+      if (!options.recordsPreCreated && lastRunMap) {
+        const lastRunAt = lastRunMap.get(entry.workflowName)?.lastRunAt;
+        const decision = decideCatchUp(workflow, lastRunAt, now);
 
-      if (!decision.shouldRun) {
-        yield* logger.debug("Catch-up skipped: no longer needed", {
-          workflow: entry.workflowName,
-          reason: decision.reason,
-        });
-        continue;
+        if (!decision.shouldRun) {
+          yield* logger.debug("Catch-up skipped: no longer needed", {
+            workflow: entry.workflowName,
+            reason: decision.reason,
+          });
+          continue;
+        }
       }
 
       const agentResult = yield* getAgentByIdentifier(entry.agent).pipe(Effect.either);
@@ -200,17 +225,19 @@ export function runCatchUpForWorkflows(entries: readonly ScheduledWorkflow[]) {
 
       yield* logger.info("Running workflow catch-up", {
         workflow: entry.workflowName,
-        scheduledAt: decision.scheduledAt?.toISOString(),
         agent: entry.agent,
       });
 
-      const startedAt = new Date().toISOString();
-      yield* addRunRecord({
-        workflowName: entry.workflowName,
-        startedAt,
-        status: "running",
-        triggeredBy: "scheduled",
-      }).pipe(Effect.catchAll(() => Effect.void));
+      // Only create run records if they weren't pre-created by the caller.
+      if (!options.recordsPreCreated) {
+        const startedAt = new Date().toISOString();
+        yield* addRunRecord({
+          workflowName: entry.workflowName,
+          startedAt,
+          status: "running",
+          triggeredBy: "scheduled",
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
 
       const autoApprovePolicy = workflow.autoApprove ?? true;
       const runId = formatAgentRunId(entry.workflowName, now);

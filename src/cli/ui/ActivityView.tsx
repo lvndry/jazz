@@ -2,9 +2,8 @@ import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
 import type { ActivityState } from "./activity-state";
-import { PreWrappedText } from "./components/PreWrappedText";
+import { TerminalText } from "./components/TerminalText";
 import { THEME } from "./theme";
-
 function AgentHeader({
   agentName,
   label,
@@ -59,7 +58,7 @@ function ReasoningSection({
           </Text>
         )}
       </Box>
-      {reasoning && <PreWrappedText dimColor>{reasoning}</PreWrappedText>}
+      {reasoning && <TerminalText dimColor>{reasoning}</TerminalText>}
     </Box>
   );
 }
@@ -111,7 +110,6 @@ export const ActivityView = React.memo(function ActivityView({
               label="is responding…"
             />
           </Box>
-          {activity.text ? <PreWrappedText>{activity.text}</PreWrappedText> : null}
         </Box>
       );
 

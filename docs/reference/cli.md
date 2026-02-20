@@ -4,6 +4,14 @@
 
 - `--version`: Show version number
 - `--help`: Show help
+- `--no-tui`: Disable the interactive TUI; use plain terminal output (for CI, scripts, or small terminals). Same as `JAZZ_NO_TUI=1`.
+- `--output <mode>`: Output mode: `rendered`, `hybrid` (default), `raw`, or `quiet`.
+
+## Streaming Output
+
+When using the interactive TUI, agent responses stream in append-only mode so
+you can scroll back without losing earlier lines. Output formatting still
+respects `--output` (`rendered`, `hybrid`, `raw`).
 
 ## Commands
 

@@ -6,3 +6,4 @@ Detailed technical documentation for Jazz.
 - **[Configuration](./configuration.md)**: Configure Jazz with `jazz.config.json` and environmental variables.
 - **[Tools Reference](./tools.md)**: List of all available tools and their capabilities.
 - **[Architecture](./architecture.md)**: Deep dive into Jazz's internal architecture and design.
+- **[TUI Architecture](./tui-architecture.md)**: Terminal UI (Ink) layout, append-only streaming behavior, workarounds, and flags.

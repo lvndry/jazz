@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import React from "react";
+import { TerminalText } from "./components/TerminalText";
 import { THEME } from "./theme";
 
 /**
@@ -43,7 +44,7 @@ export function AgentResponseCard({
         paddingLeft={2}
       >
         {/* Do NOT force a color here; allow ANSI styling (chalk/marked-terminal) to render. */}
-        <Text wrap="truncate">{content}</Text>
+        <TerminalText>{content}</TerminalText>
       </Box>
 
       {/* Bottom spacing */}

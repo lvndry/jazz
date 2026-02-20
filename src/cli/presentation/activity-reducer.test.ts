@@ -80,7 +80,7 @@ describe("activity-reducer", () => {
   // -------------------------------------------------------------------------
 
   describe("stream_start", () => {
-    test("emits info + tip logs, stores provider/model, returns no activity", () => {
+    test("emits info log, stores provider/model, returns no activity", () => {
       const a = acc();
       const result = reduceEvent(
         a,
@@ -90,11 +90,10 @@ describe("activity-reducer", () => {
       );
 
       expect(result.activity).toBeNull();
-      expect(result.outputs).toHaveLength(2);
+      expect(result.outputs).toHaveLength(1);
       expect(result.outputs[0]!.type).toBe("info");
       expect(result.outputs[0]!.message).toContain("TestAgent");
       expect(result.outputs[0]!.message).toContain("openai/gpt-4");
-      expect(result.outputs[1]!.type).toBe("log");
       expect(a.lastAgentHeaderWritten).toBe(true);
       expect(a.currentProvider).toBe("openai");
       expect(a.currentModel).toBe("gpt-4");
@@ -128,7 +127,7 @@ describe("activity-reducer", () => {
       expect(a.reasoningBuffer).toBe("Hello world");
     });
 
-    test("thinking_chunk returns thinking phase with reasoning", () => {
+    test("thinking_chunk returns thinking phase without reasoning", () => {
       const a = acc({ isThinking: true });
       const result = reduceEvent(
         a,
@@ -140,20 +139,18 @@ describe("activity-reducer", () => {
       expect(result.activity).not.toBeNull();
       expect(result.activity!.phase).toBe("thinking");
       if (result.activity!.phase === "thinking") {
-        expect(result.activity!.reasoning).toBe("deep thought");
+        expect(result.activity!.reasoning).toBe("");
       }
     });
 
-    test("thinking_complete logs reasoning, accumulates completedReasoning", () => {
+    test("thinking_complete accumulates completedReasoning without logging", () => {
       const a = acc({ isThinking: true, reasoningBuffer: "some reasoning" });
       const result = reduceEvent(a, { type: "thinking_complete" }, identity, stubInk);
 
       expect(a.isThinking).toBe(false);
       expect(a.reasoningBuffer).toBe("");
       expect(a.completedReasoning).toBe("some reasoning");
-      // Should emit a reasoning log (rendered as Ink element)
-      expect(result.outputs.length).toBeGreaterThan(0);
-      expect(result.outputs[0]!.type).toBe("log");
+      expect(result.outputs.length).toBe(0);
     });
 
     test("thinking_complete with empty buffer does not log", () => {
@@ -195,16 +192,27 @@ describe("activity-reducer", () => {
       expect(a.lastAppliedTextSequence).toBe(-1);
     });
 
-    test("text_start enters streaming phase and emits a response header", () => {
+    test("text_start enters streaming phase, emits reasoning separator when reasoning exists", () => {
       const a = acc({ completedReasoning: "thought" });
       const result = reduceEvent(a, { type: "text_start" }, identity, stubInk);
 
       expect(result.activity).not.toBeNull();
       expect(result.activity!.phase).toBe("streaming");
-      expect(result.outputs.length).toBeGreaterThan(0);
+      // Only the reasoning separator is emitted (no "is responding" header)
+      expect(result.outputs).toHaveLength(1);
+      expect(result.outputs[0]!.type).toBe("log");
     });
 
-    test("text_chunk updates liveText and returns streaming activity with text in live area", () => {
+    test("text_start emits no outputs when no reasoning was produced", () => {
+      const a = acc();
+      const result = reduceEvent(a, { type: "text_start" }, identity, stubInk);
+
+      expect(result.activity).not.toBeNull();
+      expect(result.activity!.phase).toBe("streaming");
+      expect(result.outputs).toHaveLength(0);
+    });
+
+    test("text_chunk updates liveText and returns streaming activity without live text", () => {
       const a = acc();
       reduceEvent(a, { type: "text_start" }, identity, stubInk);
       const result = reduceEvent(
@@ -216,9 +224,9 @@ describe("activity-reducer", () => {
 
       expect(a.liveText).toBe("Hi");
       expect(result.activity!.phase).toBe("streaming");
-      // Short text stays in the live area (activity.text), not flushed to Static
+      // Streaming text is appended directly to output entries, not the activity area
       if (result.activity!.phase === "streaming") {
-        expect(result.activity!.text).toContain("Hi");
+        expect(result.activity!.text).toBe("");
       }
     });
 
@@ -237,15 +245,15 @@ describe("activity-reducer", () => {
   });
 
   // -------------------------------------------------------------------------
-  // text memory limits
+  // text accumulation (no truncation)
   // -------------------------------------------------------------------------
 
-  describe("text memory limits", () => {
-    test("caps liveText to MAX_LIVE_TEXT_LENGTH (200k)", () => {
+  describe("text accumulation", () => {
+    test("liveText accumulates fully without truncation", () => {
       const a = acc();
       reduceEvent(a, { type: "text_start" }, identity, stubInk);
 
-      // Build a string exceeding 200k
+      // Build a string exceeding 200k — should be kept in full
       const bigText = "x".repeat(250_000);
       reduceEvent(
         a,
@@ -254,9 +262,8 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      expect(a.liveText.length).toBe(200_000);
-      // Should keep the tail (most recent content)
-      expect(a.liveText).toBe(bigText.slice(-200_000));
+      expect(a.liveText.length).toBe(250_000);
+      expect(a.liveText).toBe(bigText);
     });
   });
 
@@ -481,7 +488,7 @@ describe("activity-reducer", () => {
       // text_start — now enters streaming immediately (even before first chunk)
       const r5 = reduceEvent(a, { type: "text_start" }, identity, stubInk);
       expect(r5.activity!.phase).toBe("streaming");
-      // text_chunk → streaming (text flushed to Static, not in activity.text)
+      // text_chunk → streaming (response text is not shown in activity)
       const r6 = reduceEvent(
         a,
         { type: "text_chunk", delta: "Hi", accumulated: "Hi", sequence: 0 },
@@ -490,8 +497,10 @@ describe("activity-reducer", () => {
       );
       expect(r6.activity!.phase).toBe("streaming");
       if (r6.activity!.phase === "streaming") {
-        expect(r6.activity!.text).toContain("Hi"); // short text stays in live area
-        expect(r6.activity!.reasoning).toBe("hmm");
+        expect(r6.activity!.text).toBe("");
+        // Completed reasoning was already logged to Static output, so it is
+        // NOT carried into the streaming activity (avoids on-screen duplication).
+        expect(r6.activity!.reasoning).toBe("");
       }
 
       // complete
@@ -511,12 +520,12 @@ describe("activity-reducer", () => {
 
   // -------------------------------------------------------------------------
   describe("text container layout (flexDirection column)", () => {
-    test("long text stays in live area (no flush to Static during streaming)", () => {
+    test("long text does not appear in activity state during streaming", () => {
       const { render } = createCapturingInk();
       const a = acc();
       reduceEvent(a, { type: "text_start" }, identity, render);
 
-      // Even very long text should NOT be flushed during streaming
+      // Even very long text should NOT appear in activity state
       const longText = "A".repeat(5000) + "\n\n" + "B".repeat(100);
       const r2 = reduceEvent(
         a,
@@ -529,35 +538,12 @@ describe("activity-reducer", () => {
       const flushedEntry = r2.outputs.find((e) => e.type === "streamContent");
       expect(flushedEntry).toBeUndefined();
 
-      // Text should be in the activity state instead
+      // Activity should be streaming but without response text
       expect(r2.activity).not.toBeNull();
       expect(r2.activity!.phase).toBe("streaming");
       if (r2.activity!.phase === "streaming") {
-        expect(r2.activity!.text).toContain("AAAAA");
+        expect(r2.activity!.text).toBe("");
       }
-    });
-
-    test("reasoning text container uses flexDirection column on inner Box", () => {
-      const { nodes, render } = createCapturingInk();
-      const a = acc({ isThinking: true, reasoningBuffer: "some deep thought" });
-      reduceEvent(a, { type: "thinking_complete" }, identity, render);
-
-      // The reasoning output should have an inner Box with flexDirection column
-      // wrapping the reasoning Text with wrap="truncate"
-      expect(nodes.length).toBeGreaterThan(0);
-      const reasoningRoot = nodes[0]!;
-
-      const innerBox = findElement(reasoningRoot, (p) => {
-        return p["paddingLeft"] === 1 && p["flexDirection"] === "column";
-      });
-      expect(innerBox).toBeDefined();
-
-      // The Text inside should have wrap="truncate" and dimColor
-      const textEl = findElement(
-        innerBox!,
-        (p) => p["wrap"] === "truncate" && p["dimColor"] === true,
-      );
-      expect(textEl).not.toBeNull();
     });
 
     test("multi-line tool result uses flexDirection column on wrapping Box", () => {
@@ -590,7 +576,7 @@ describe("activity-reducer", () => {
       expect(textEl).not.toBeNull();
     });
 
-    test("short streaming text stays in activity.text for live area display", () => {
+    test("short streaming text does not appear in activity.text", () => {
       const a = acc();
       reduceEvent(a, { type: "text_start" }, identity, stubInk);
       const result = reduceEvent(
@@ -600,21 +586,19 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      // Short text stays in the live area (activity.text), not flushed to Static
+      // Response text is appended by the renderer, not stored in activity.text
       expect(result.activity!.phase).toBe("streaming");
       if (result.activity!.phase === "streaming") {
-        expect(result.activity!.text).toContain("Hello world");
+        expect(result.activity!.text).toBe("");
       }
     });
   });
 
   // -------------------------------------------------------------------------
-  // CRITICAL REGRESSION TESTS: streaming text never leaks to Static
+  // CRITICAL REGRESSION TESTS: reducer never emits output for streaming text
   // -------------------------------------------------------------------------
-  // These tests guard the core invariant: during streaming, ALL text stays in
-  // activity.text (the live area). If text_chunk ever produces output entries
-  // (streamContent, log, etc.) each token becomes a separate <Box> element
-  // in Ink's Static region, causing one-word-per-line rendering.
+  // These tests guard the core invariant: the reducer does NOT emit output
+  // entries for streaming text; the renderer handles append-only output.
   // -------------------------------------------------------------------------
 
   describe("streaming text never produces output entries", () => {
@@ -693,9 +677,8 @@ describe("activity-reducer", () => {
     });
   });
 
-  describe("reducer returns raw (unformatted) text", () => {
-    test("activity.text contains raw text, not formatted text", () => {
-      // Use a formatter that wraps text in markers so we can detect if it was applied
+  describe("reducer does not format streaming text", () => {
+    test("activity.text remains empty for streaming text", () => {
       const markerFormatter = (s: string) => `<<FORMATTED>>${s}<<END>>`;
       const a = acc();
       reduceEvent(a, { type: "text_start" }, markerFormatter, stubInk);
@@ -709,9 +692,7 @@ describe("activity-reducer", () => {
 
       expect(result.activity!.phase).toBe("streaming");
       if (result.activity!.phase === "streaming") {
-        // The text should be RAW — no formatting markers
-        expect(result.activity!.text).toBe("hello world");
-        expect(result.activity!.text).not.toContain("<<FORMATTED>>");
+        expect(result.activity!.text).toBe("");
       }
     });
   });

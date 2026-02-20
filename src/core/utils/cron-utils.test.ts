@@ -75,6 +75,23 @@ describe("cron-utils", () => {
       expect(isValidCronExpression("  0  8  *  *  *  ")).toBe(true);
       expect(isValidCronExpression("0\t8\t*\t*\t*")).toBe(true);
     });
+
+    it("should reject null, undefined, and non-string values (YAML/parsing edge cases)", () => {
+      expect(isValidCronExpression(null)).toBe(false);
+      expect(isValidCronExpression(undefined)).toBe(false);
+      expect(isValidCronExpression(123)).toBe(false);
+      expect(isValidCronExpression({ schedule: "0 8 * * *" })).toBe(false);
+      expect(isValidCronExpression(true)).toBe(false);
+      expect(isValidCronExpression("")).toBe(false);
+    });
+
+    it("should accept tech-digest schedule 0 8 * * * (regression)", () => {
+      expect(isValidCronExpression("0 8 * * *")).toBe(true);
+    });
+
+    it("should accept 6-field expression (normalized form)", () => {
+      expect(isValidCronExpression("0 0 8 * * *")).toBe(true);
+    });
   });
 
   describe("describeCronSchedule", () => {

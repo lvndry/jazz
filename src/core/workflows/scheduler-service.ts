@@ -5,7 +5,11 @@ import { Context, Effect, Layer } from "effect";
 import plist from "plist";
 import type { WorkflowMetadata } from "./workflow-service";
 import { isValidCronExpression } from "../utils/cron-utils";
-import { getJazzSchedulerInvocation, getUserDataDirectory } from "../utils/runtime-detection";
+import {
+  getGlobalUserDataDirectory,
+  getJazzSchedulerInvocation,
+  getUserDataDirectory,
+} from "../utils/runtime-detection";
 import { execCommand, execCommandWithStdin } from "../utils/shell-utils";
 
 /**
@@ -71,10 +75,65 @@ export const SchedulerServiceTag = Context.GenericTag<SchedulerService>("Schedul
 
 /**
  * Get the directory for storing schedule metadata.
- * Uses getUserDataDirectory() to respect development/production separation.
+ * Always uses ~/.jazz/schedules so launchd/cron jobs find it when they run.
  */
 function getSchedulesDirectory(): string {
+  return path.join(getGlobalUserDataDirectory(), "schedules");
+}
+
+function getLocalSchedulesDirectory(): string {
   return path.join(getUserDataDirectory(), "schedules");
+}
+
+function migrateLocalSchedulesToGlobal(): Effect.Effect<void, Error> {
+  return Effect.gen(function* () {
+    const localDir = getLocalSchedulesDirectory();
+    const globalDir = getSchedulesDirectory();
+
+    if (localDir === globalDir) {
+      return;
+    }
+
+    const localStat = yield* Effect.tryPromise({
+      try: () => fs.stat(localDir),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    if (!localStat || !localStat.isDirectory()) {
+      return;
+    }
+
+    yield* Effect.tryPromise({
+      try: () => fs.mkdir(globalDir, { recursive: true }),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+    const files = yield* Effect.tryPromise({
+      try: () => fs.readdir(localDir),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    }).pipe(Effect.catchAll(() => Effect.succeed([])));
+    const jsonFiles = files.filter((f) => f.endsWith(".json"));
+
+    for (const file of jsonFiles) {
+      const sourcePath = path.join(localDir, file);
+      const targetPath = path.join(globalDir, file);
+      const targetStat = yield* Effect.tryPromise({
+        try: () => fs.stat(targetPath),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+      if (!targetStat) {
+        yield* Effect.tryPromise({
+          try: () => fs.copyFile(sourcePath, targetPath),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
+      }
+
+      yield* Effect.tryPromise({
+        try: () => fs.rm(sourcePath, { force: true }),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(Effect.catchAll(() => Effect.void));
+    }
+  });
 }
 
 /**
@@ -187,7 +246,7 @@ function parseCronField(value: string, fieldName: string): number | undefined {
 
 /**
  * Convert a cron expression to a launchd schedule dictionary.
- * Supports standard cron format: minute hour day-of-month month day-of-week
+ * Supports both 5-field (minute hour day month weekday) and 6-field (second minute hour day month weekday) format.
  *
  * NOTE: launchd only supports simple integer values or wildcards for schedule fields.
  * Complex cron features like steps, ranges, and lists are NOT supported
@@ -197,8 +256,12 @@ function cronToLaunchdSchedule(
   cron: string,
 ): { Minute?: number; Hour?: number; Day?: number; Month?: number; Weekday?: number }[] {
   const parts = cron.trim().split(/\s+/);
+  // Accept 5 or 6 fields; if 6, the first is seconds (we use the rest)
+  if (parts.length === 6) {
+    parts.shift(); // drop seconds
+  }
   if (parts.length !== 5) {
-    throw new Error(`Invalid cron expression: ${cron}. Expected 5 fields.`);
+    throw new Error(`Invalid cron expression: ${cron}. Expected 5 or 6 fields.`);
   }
 
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
@@ -252,7 +315,7 @@ function generateLaunchdPlist(
   options?: ScheduleOptions,
 ): string {
   const schedule = cronToLaunchdSchedule(workflow.schedule!);
-  const logDir = path.join(getUserDataDirectory(), "logs");
+  const logDir = path.join(getGlobalUserDataDirectory(), "logs");
   const runAtLoad = options?.runAtLoad ?? false;
 
   const programArgs = [
@@ -305,7 +368,7 @@ function generateCrontabEntry(
   jazzInvocation: readonly string[],
   agentId: string,
 ): string {
-  const logDir = path.join(getUserDataDirectory(), "logs");
+  const logDir = path.join(getGlobalUserDataDirectory(), "logs");
 
   const escapedLogPath = escapeShellArg(`${logDir}/${workflow.name}.log`);
 
@@ -360,6 +423,7 @@ function parseScheduledWorkflow(content: string): ScheduledWorkflow | null {
  */
 function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
   return Effect.gen(function* () {
+    yield* migrateLocalSchedulesToGlobal().pipe(Effect.catchAll(() => Effect.void));
     const schedulesDir = getSchedulesDirectory();
 
     // Ensure directory exists
@@ -399,6 +463,7 @@ function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkf
  */
 function isScheduledByMetadata(workflowName: string): Effect.Effect<boolean, Error> {
   return Effect.gen(function* () {
+    yield* migrateLocalSchedulesToGlobal().pipe(Effect.catchAll(() => Effect.void));
     const metadataPath = path.join(getSchedulesDirectory(), `${workflowName}.json`);
     const stat = yield* Effect.tryPromise({
       try: () => fs.stat(metadataPath),
@@ -433,20 +498,25 @@ class LaunchdScheduler implements SchedulerService {
   ): Effect.Effect<void, Error> {
     return Effect.gen(
       function* (this: LaunchdScheduler) {
-        if (!workflow.schedule) {
+        if (!workflow.schedule || typeof workflow.schedule !== "string") {
           return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
         }
 
-        if (!isValidCronExpression(workflow.schedule)) {
+        const schedule = String(workflow.schedule).trim();
+        if (!isValidCronExpression(schedule)) {
           return yield* Effect.fail(
-            new Error(
-              `Workflow ${workflow.name} has invalid cron expression: ${workflow.schedule}`,
-            ),
+            new Error(`Workflow ${workflow.name} has invalid cron expression: ${schedule}`),
           );
         }
 
         const jazzInvocation = yield* getJazzSchedulerInvocation();
-        const plistContent = generateLaunchdPlist(workflow, jazzInvocation, agentId, options);
+        const workflowWithTrimmedSchedule = { ...workflow, schedule };
+        const plistContent = generateLaunchdPlist(
+          workflowWithTrimmedSchedule,
+          jazzInvocation,
+          agentId,
+          options,
+        );
         const plistPath = this.getPlistPath(workflow.name);
         const metadataPath = this.getMetadataPath(workflow.name);
 
@@ -460,7 +530,7 @@ class LaunchdScheduler implements SchedulerService {
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         });
         yield* Effect.tryPromise({
-          try: () => fs.mkdir(path.join(getUserDataDirectory(), "logs"), { recursive: true }),
+          try: () => fs.mkdir(path.join(getGlobalUserDataDirectory(), "logs"), { recursive: true }),
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         });
 
@@ -478,7 +548,7 @@ class LaunchdScheduler implements SchedulerService {
         // Save metadata
         const metadata: ScheduledWorkflow = {
           workflowName: workflow.name,
-          schedule: workflow.schedule,
+          schedule,
           agent: agentId,
           enabled: true,
           runAtLoad: options?.runAtLoad ?? false,
@@ -561,20 +631,20 @@ class CronScheduler implements SchedulerService {
   ): Effect.Effect<void, Error> {
     return Effect.gen(
       function* (this: CronScheduler) {
-        if (!workflow.schedule) {
+        if (!workflow.schedule || typeof workflow.schedule !== "string") {
           return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
         }
 
-        if (!isValidCronExpression(workflow.schedule)) {
+        const schedule = String(workflow.schedule).trim();
+        if (!isValidCronExpression(schedule)) {
           return yield* Effect.fail(
-            new Error(
-              `Workflow ${workflow.name} has invalid cron expression: ${workflow.schedule}`,
-            ),
+            new Error(`Workflow ${workflow.name} has invalid cron expression: ${schedule}`),
           );
         }
 
         const jazzInvocation = yield* getJazzSchedulerInvocation();
-        const entry = generateCrontabEntry(workflow, jazzInvocation, agentId);
+        const workflowWithTrimmedSchedule = { ...workflow, schedule };
+        const entry = generateCrontabEntry(workflowWithTrimmedSchedule, jazzInvocation, agentId);
         const metadataPath = this.getMetadataPath(workflow.name);
 
         // Ensure directories exist
@@ -583,7 +653,7 @@ class CronScheduler implements SchedulerService {
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         });
         yield* Effect.tryPromise({
-          try: () => fs.mkdir(path.join(getUserDataDirectory(), "logs"), { recursive: true }),
+          try: () => fs.mkdir(path.join(getGlobalUserDataDirectory(), "logs"), { recursive: true }),
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         });
 
@@ -615,7 +685,7 @@ class CronScheduler implements SchedulerService {
         // Save metadata (runAtLoad is not applicable to cron, but stored for consistency)
         const metadata: ScheduledWorkflow = {
           workflowName: workflow.name,
-          schedule: workflow.schedule,
+          schedule,
           agent: agentId,
           enabled: true,
           scheduledAt: new Date().toISOString(),

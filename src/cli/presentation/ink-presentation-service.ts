@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
 import { Box, Text } from "ink";
 import React from "react";
+import type { ActivityState } from "@/cli/ui/activity-state";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { NotificationServiceTag, type NotificationService } from "@/core/interfaces/notification";
@@ -32,6 +33,9 @@ import {
   formatToolsDetectedEffect,
 } from "./format-utils";
 import {
+  applyProgressiveFormatting,
+  applyProgressiveFormattingHybrid,
+  formatForTerminal,
   formatMarkdown,
   formatMarkdownHybrid,
   wrapToWidth,
@@ -54,24 +58,36 @@ import { CHALK_THEME, THEME } from "../ui/theme";
  * usage reasonable. Infrequent events (tool start/complete) bypass the
  * throttle so spinners appear immediately.
  *
- * **Live-area flushing**: When the reducer flushes paragraphs from the live
- * area to Static (via output entries on text_chunk), this renderer bypasses
- * the throttle for that update so the live area shrinks in the same frame
- * the Static content appears — preventing brief duplication.
+ * **Tail-cap**: During streaming, `formatActivityText` formats the full
+ * accumulated raw text and returns only the last N lines (where N fits the
+ * terminal height) as `activity.text` for the live area. No content is
+ * flushed to Static during streaming — the live area stays within the
+ * terminal height at all times.
  *
- * **Completion**: On `complete`, the unflushed tail of `liveText` (not the
- * full accumulation) is printed to Static, since earlier portions were
- * already flushed during streaming.
+ * **Formatting**: Always uses stateless `formatMarkdown()` — the same code
+ * path for both streaming and completion. This eliminates format mismatches
+ * that caused truncation bugs with progressive (stateful) formatting.
+ *
+ * **Completion**: The full authoritative response (`event.response.content`)
+ * is printed to Static as a single entry so it becomes fully scrollable.
  */
 export class InkStreamingRenderer implements StreamingRenderer {
   private readonly acc;
   /** Timestamp of the last activity state push to the store. */
   private lastUpdateTime: number = 0;
   /** Most recent activity state waiting to be flushed by the throttle timer. */
-  private pendingActivity: import("../ui/activity-state").ActivityState | null = null;
+  private pendingActivity: ActivityState | null = null;
   /** Timer handle for the throttled activity update. */
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private readonly updateThrottleMs: number;
+
+  private streamBuffer = "";
+  private streamState = { isInCodeBlock: false };
+  private lastPrintedLength = 0;
+  private hasStreamedText = false;
+  private reasoningBuffer = "";
+  private reasoningState = { isInCodeBlock: false };
+  private reasoningHeaderPrinted = false;
 
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000; // 30 seconds
@@ -80,11 +96,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
     private readonly agentName: string,
     private readonly showMetrics: boolean,
     private readonly displayConfig: DisplayConfig,
+    _streamingConfig?: { textBufferMs?: number },
     throttleMs?: number,
   ) {
-    // Increased from 50ms to 100ms to reduce render pressure during long streaming responses
-    // 100ms = 10 updates/sec is still very smooth for humans while significantly reducing CPU load
-    this.updateThrottleMs = throttleMs ?? 100;
+    this.updateThrottleMs = throttleMs ?? 200;
     this.acc = createAccumulator(agentName);
   }
 
@@ -99,6 +114,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.acc.lastAppliedTextSequence = -1;
       this.acc._cachedReasoningInput = "";
       this.acc._cachedReasoningOutput = "";
+      this.resetStreamingState();
+      this.resetReasoningState();
       this.lastUpdateTime = 0;
       this.pendingActivity = null;
       if (this.updateTimeoutId) {
@@ -121,15 +138,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.pendingActivity = null;
       this.clearAllToolTimeouts();
 
-      // Print accumulated text as a single Static entry
-      if (this.acc.liveText.trim().length > 0) {
-        const formatted = this.formatMarkdown(this.acc.liveText);
-        store.printOutput({
-          type: "streamContent",
-          message: padLines(formatted, 2),
-          timestamp: new Date(),
-        });
-      }
+      // Flush any buffered streaming text to output
+      this.flushStreamingBuffer(true);
+      this.flushReasoningBuffer(true);
       this.acc.liveText = "";
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
@@ -144,6 +155,23 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   handleEvent(event: StreamEvent): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (event.type === "stream_start") {
+        this.resetStreamingState();
+        this.resetReasoningState();
+      }
+
+      if (this.displayConfig.showThinking) {
+        if (event.type === "thinking_start") {
+          this.startReasoningStream();
+        }
+        if (event.type === "thinking_chunk") {
+          this.appendReasoningText(event.content);
+        }
+        if (event.type === "thinking_complete") {
+          this.flushReasoningBuffer(true);
+        }
+      }
+
       // Handle "complete" specially — it has async cost-calculation + response card rendering
       if (event.type === "complete") {
         this.handleComplete(event);
@@ -164,12 +192,26 @@ export class InkStreamingRenderer implements StreamingRenderer {
         );
       }
 
-      // Run the pure reducer
-      const result = reduceEvent(this.acc, event, (text) => this.formatMarkdown(text), ink);
+      // Run the pure reducer.
+      // Reasoning text uses a narrower pre-wrap width to match its display
+      // container (thinking Box paddingX=2 + reasoning Box paddingLeft=1 = 5
+      // extra on top of App paddingX=3, total 11 chars of horizontal padding).
+      const result = reduceEvent(this.acc, event, (text) => this.formatReasoningText(text), ink);
 
       // Flush output side-effects immediately
       for (const entry of result.outputs) {
         store.printOutput(entry);
+      }
+
+      if (event.type === "text_start") {
+        this.resetStreamingState();
+      }
+
+      if (event.type === "text_chunk") {
+        const delta = this.getStreamingDelta();
+        if (delta.length > 0) {
+          this.appendStreamingText(delta);
+        }
       }
 
       // Throttle high-frequency activity updates (streaming text / thinking).
@@ -207,7 +249,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.pendingActivity = null;
     }
 
-    this.printFinalResponse(event);
+    this.flushStreamingBuffer(true);
+    this.flushReasoningBuffer(true);
+    if (!this.hasStreamedText) {
+      this.printFinalResponse(event);
+    }
 
     if (this.showMetrics && event.metrics) {
       this.printMetrics(event);
@@ -222,12 +268,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
     this.acc.liveText = "";
     this.acc.reasoningBuffer = "";
     this.acc.completedReasoning = "";
+    this.resetStreamingState();
+    this.resetReasoningState();
   }
 
   /**
    * Print the full response text to Static as a single entry.
-   * All text was in the live area during streaming; now it moves to Static
-   * so it persists after the live area clears.
    *
    * Prefer event.response.content over liveText: the stream processor's
    * accumulated text is the authoritative full response. liveText can be
@@ -240,19 +286,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const liveContent = this.acc.liveText.trim();
     const finalText =
       fullContent.length > 0 ? fullContent : liveContent.length > 0 ? liveContent : "";
-    const formattedFinalText = this.formatMarkdown(finalText);
+    const formattedFull = this.formatMarkdown(finalText);
 
-    if (formattedFinalText.length === 0) return;
+    if (formattedFull.length === 0) return;
 
-    // Print to Static FIRST so the content is visible before the live area clears.
-    // Ink's render cycle erases the live area, writes new static output, then
-    // re-renders the live area — so brief duplication is invisible to the user.
     if (wasStreaming) {
-      // Bake left padding as literal spaces instead of using Ink's Yoga layout.
-      // This avoids Yoga intermittently computing incorrect narrow widths.
+      // Print the full formatted response as a single Static entry.
       store.printOutput({
         type: "streamContent",
-        message: padLines(formattedFinalText, 2),
+        message: padLines(formattedFull, 2),
         timestamp: new Date(),
       });
     } else {
@@ -268,12 +310,142 @@ export class InkStreamingRenderer implements StreamingRenderer {
         message: ink(
           React.createElement(AgentResponseCard, {
             agentName: this.agentName,
-            content: formattedFinalText,
+            content: formattedFull,
           }),
         ),
         timestamp: new Date(),
       });
     }
+  }
+
+  private resetStreamingState(): void {
+    this.streamBuffer = "";
+    this.streamState = { isInCodeBlock: false };
+    this.lastPrintedLength = 0;
+    this.hasStreamedText = false;
+  }
+
+  private resetReasoningState(): void {
+    this.reasoningBuffer = "";
+    this.reasoningState = { isInCodeBlock: false };
+    this.reasoningHeaderPrinted = false;
+  }
+
+  private getStreamingDelta(): string {
+    const nextText = this.acc.liveText;
+    if (nextText.length <= this.lastPrintedLength) {
+      return "";
+    }
+    const delta = nextText.slice(this.lastPrintedLength);
+    this.lastPrintedLength = nextText.length;
+    return delta;
+  }
+
+  private appendStreamingText(delta: string): void {
+    if (!delta) return;
+    this.streamBuffer += delta;
+
+    let flushText = "";
+    const lastNewline = this.streamBuffer.lastIndexOf("\n");
+    if (lastNewline !== -1) {
+      flushText += this.streamBuffer.slice(0, lastNewline + 1);
+      this.streamBuffer = this.streamBuffer.slice(lastNewline + 1);
+    }
+
+    if (flushText.length > 0) {
+      this.emitStreamText(flushText);
+    }
+  }
+
+  private startReasoningStream(): void {
+    if (this.reasoningHeaderPrinted) return;
+    const header = chalk.dim(chalk.italic("▸ Reasoning"));
+    store.printOutput({
+      type: "streamContent",
+      message: formatForTerminal(header, { padding: 2 }),
+      timestamp: new Date(),
+    });
+    this.reasoningHeaderPrinted = true;
+  }
+
+  private appendReasoningText(delta: string): void {
+    if (!delta) return;
+    this.reasoningBuffer += delta;
+
+    let flushText = "";
+    const lastNewline = this.reasoningBuffer.lastIndexOf("\n");
+    if (lastNewline !== -1) {
+      flushText += this.reasoningBuffer.slice(0, lastNewline + 1);
+      this.reasoningBuffer = this.reasoningBuffer.slice(lastNewline + 1);
+    }
+
+    if (flushText.length > 0) {
+      this.emitReasoningText(flushText);
+    }
+  }
+
+  private flushStreamingBuffer(force: boolean): void {
+    if (force && this.streamBuffer.length > 0) {
+      this.emitStreamText(this.streamBuffer);
+      this.streamBuffer = "";
+    }
+  }
+
+  private flushReasoningBuffer(force: boolean): void {
+    if (force && this.reasoningBuffer.length > 0) {
+      this.emitReasoningText(this.reasoningBuffer);
+      this.reasoningBuffer = "";
+    }
+  }
+
+  private emitStreamText(text: string): void {
+    const formatted = this.formatStreamingChunk(text);
+    if (formatted.length === 0) return;
+    store.printOutput({
+      type: "streamContent",
+      message: formatForTerminal(formatted, { padding: 2 }),
+      timestamp: new Date(),
+    });
+    this.hasStreamedText = true;
+  }
+
+  private emitReasoningText(text: string): void {
+    if (!text) return;
+    const formatted = this.formatReasoningChunk(text);
+    if (formatted.length === 0) return;
+    store.printOutput({
+      type: "streamContent",
+      message: formatForTerminal(chalk.dim(formatted), { padding: 3 }),
+      timestamp: new Date(),
+    });
+  }
+
+  private formatStreamingChunk(text: string): string {
+    if (this.displayConfig.mode === "rendered") {
+      const result = applyProgressiveFormatting(text, this.streamState);
+      this.streamState = result.state;
+      return result.formatted;
+    }
+    if (this.displayConfig.mode === "hybrid") {
+      const result = applyProgressiveFormattingHybrid(text, this.streamState);
+      this.streamState = result.state;
+      return result.formatted;
+    }
+    return text;
+  }
+
+  private formatReasoningChunk(text: string): string {
+    if (this.displayConfig.mode === "rendered") {
+      const result = applyProgressiveFormatting(text, this.reasoningState);
+      this.reasoningState = result.state;
+      return result.formatted;
+    }
+    if (this.displayConfig.mode === "hybrid") {
+      const result = applyProgressiveFormattingHybrid(text, this.reasoningState);
+      this.reasoningState = result.state;
+      return result.formatted;
+    }
+    return text;
   }
 
   /** Print token usage metrics. */
@@ -421,7 +593,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * This avoids expensive formatting on every token (~80/sec) — it only
    * happens at the throttle rate (~10/sec).
    */
-  private throttledSetActivity(activity: import("../ui/activity-state").ActivityState): void {
+  private throttledSetActivity(activity: ActivityState): void {
     const now = Date.now();
     const timeSinceLastUpdate = now - this.lastUpdateTime;
 
@@ -434,8 +606,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
           this.updateTimeoutId = null;
           this.lastUpdateTime = Date.now();
           if (this.pendingActivity) {
-            store.setActivity(this.formatActivityText(this.pendingActivity));
+            const nextActivity = this.pendingActivity;
             this.pendingActivity = null;
+            store.flushOutputBatchNow();
+            store.setActivity(nextActivity);
           }
         }, delay);
       }
@@ -444,33 +618,38 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     this.lastUpdateTime = now;
     this.pendingActivity = null;
-    store.setActivity(this.formatActivityText(activity));
+    store.flushOutputBatchNow();
+    store.setActivity(activity);
   }
 
   /**
-   * Format streaming response text in an activity state for display.
-   * Only called when actually pushing to the store (~10/sec), not on every token.
-   */
-  private formatActivityText(
-    activity: import("../ui/activity-state").ActivityState,
-  ): import("../ui/activity-state").ActivityState {
-    if (activity.phase === "streaming" && activity.text.length > 0) {
-      return {
-        ...activity,
-        text: padLines(this.formatMarkdown(activity.text), 2),
-      };
-    }
-    return activity;
-  }
-
-  /**
-   * Format markdown and pre-wrap at terminal width.
+   * Format markdown and pre-wrap at terminal width for streaming response text.
    *
    * Pre-wrapping ensures correct line breaks regardless of Ink/Yoga's width.
-   * Both the live area and Static entries render inside App paddingX=3 (6 chars)
-   * with padLines(2) applied downstream = 8 chars total horizontal padding.
+   * Streaming response text renders inside App paddingX=3 (6 chars) with
+   * padLines(2) applied downstream = 8 chars total horizontal padding.
+   *
+   * Always uses stateless formatting — same code path for streaming and completion.
    */
   private formatMarkdown(text: string): string {
+    // Pre-wrap to bypass Ink/Yoga layout bugs with live area text wrapping.
+    // 8 = App paddingX=3 (6) + padLines(2) baked in downstream.
+    return this.formatMarkdownAtWidth(text, getTerminalWidth() - 8);
+  }
+
+  /**
+   * Format markdown and pre-wrap at terminal width for reasoning text.
+   *
+   * Reasoning is displayed in the thinking-phase Box hierarchy:
+   *   App paddingX=3 (6) + thinking Box paddingX=2 (4) + reasoning Box paddingLeft=1 (1) = 11
+   * Using the correct width prevents Ink from double-wrapping pre-wrapped lines.
+   */
+  private formatReasoningText(text: string): string {
+    // 11 = App(6) + thinking paddingX=2(4) + reasoning paddingLeft=1(1)
+    return this.formatMarkdownAtWidth(text, getTerminalWidth() - 11);
+  }
+
+  private formatMarkdownAtWidth(text: string, availableWidth: number): string {
     let formatted: string;
     if (this.displayConfig.mode === "rendered") {
       formatted = formatMarkdown(text);
@@ -479,10 +658,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     } else {
       formatted = text;
     }
-    // Pre-wrap to bypass Ink/Yoga layout bugs with live area text wrapping.
-    // 8 = App paddingX=3 (6) + padLines(2) baked in downstream.
-    const available = getTerminalWidth() - 8;
-    return wrapToWidth(formatted, available);
+    return wrapToWidth(formatted, availableWidth);
   }
 }
 
@@ -623,7 +799,12 @@ class InkPresentationService implements PresentationService {
     config: StreamingRendererConfig,
   ): Effect.Effect<StreamingRenderer, never> {
     return Effect.sync(() => {
-      return new InkStreamingRenderer(config.agentName, config.showMetrics, config.displayConfig);
+      return new InkStreamingRenderer(
+        config.agentName,
+        config.showMetrics,
+        config.displayConfig,
+        config.streamingConfig,
+      );
     });
   }
 
