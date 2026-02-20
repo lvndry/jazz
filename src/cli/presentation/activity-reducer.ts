@@ -8,16 +8,11 @@
  *
  * ## Streaming text rendering strategy
  *
- * During streaming, ALL response text lives in the live area (`activity.text`).
- * The reducer returns the raw accumulated text; the renderer is responsible for
- * formatting (markdown + wrapping) and only does so when actually pushing to
- * the store (~10/sec via throttle), not on every token (~80/sec).
- *
- * On completion, the renderer prints the full response as a single Static
- * output entry and clears the live area.
+ * During streaming, response text is appended directly to output entries so it
+ * never disappears from the scrollback. The activity area is reserved for
+ * status and reasoning only.
  */
 
-import chalk from "chalk";
 import { Box, Text } from "ink";
 import React from "react";
 import type { TerminalOutput } from "@/core/interfaces/terminal";
@@ -27,6 +22,11 @@ import { applyTextChunkOrdered } from "./stream-text-order";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
 import { THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
+
+interface TodoSnapshotItem {
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+}
 
 function renderToolBadge(label: string): React.ReactElement {
   return React.createElement(
@@ -52,7 +52,10 @@ export interface ReducerAccumulator {
   lastAgentHeaderWritten: boolean;
   /** Sequence number for ordering out-of-order text chunks from the stream. */
   lastAppliedTextSequence: number;
-  activeTools: Map<string, { toolName: string; startedAt: number }>;
+  activeTools: Map<
+    string,
+    { toolName: string; startedAt: number; todoSnapshot?: TodoSnapshotItem[] }
+  >;
   /** Provider id captured from stream_start for cost calculation. */
   currentProvider: string | null;
   /** Model id captured from stream_start for cost calculation. */
@@ -63,12 +66,6 @@ export interface ReducerAccumulator {
   _cachedReasoningInput: string;
   /** Cached formatted result for reasoning */
   _cachedReasoningOutput: string;
-
-  /**
-   * Whether we've already printed the streaming response header ("X is responding…")
-   * into Static output for the current response.
-   */
-  responseHeaderPrinted: boolean;
 }
 
 export function createAccumulator(agentName: string): ReducerAccumulator {
@@ -86,8 +83,6 @@ export function createAccumulator(agentName: string): ReducerAccumulator {
 
     _cachedReasoningInput: "",
     _cachedReasoningOutput: "",
-
-    responseHeaderPrinted: false,
   };
 }
 
@@ -103,81 +98,104 @@ export interface ReducerResult {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Cap for accumulated reasoning text before truncation. */
-const MAX_REASONING_LENGTH = 8000;
-/** Hard cap for total `liveText` length to prevent unbounded memory growth. */
-const MAX_LIVE_TEXT_LENGTH = 200_000;
-
-function renderStreamingResponseHeader(agentName: string): React.ReactElement {
-  return React.createElement(
-    Box,
-    { flexDirection: "column", paddingLeft: 2, marginTop: 1 },
-    React.createElement(
-      Box,
-      {},
-      React.createElement(Text, { color: THEME.agent }, "…"),
-      React.createElement(Text, {}, " "),
-      React.createElement(Text, { bold: true, color: THEME.agent }, agentName),
-      React.createElement(Text, { dimColor: true }, " is responding…"),
-    ),
-    React.createElement(Text, { dimColor: true }, "─".repeat(40)),
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Helper: build the current activity from accumulator state
 // ---------------------------------------------------------------------------
 
-function buildThinkingOrStreamingActivity(
-  acc: ReducerAccumulator,
-  formatMarkdown: (text: string) => string,
-): ActivityState {
-  const reasoningToShow =
-    acc.reasoningBuffer.trim().length > 0
-      ? acc.reasoningBuffer
-      : acc.completedReasoning.trim().length > 0
-        ? acc.completedReasoning
-        : "";
-
-  // Use cached formatted reasoning to avoid redundant regex work
-  let formattedReasoning: string;
-  if (reasoningToShow.length === 0) {
-    formattedReasoning = "";
-  } else if (reasoningToShow === acc._cachedReasoningInput) {
-    formattedReasoning = acc._cachedReasoningOutput;
-  } else {
-    formattedReasoning = formatMarkdown(reasoningToShow);
-    acc._cachedReasoningInput = reasoningToShow;
-    acc._cachedReasoningOutput = formattedReasoning;
-  }
-
+function buildThinkingOrStreamingActivity(acc: ReducerAccumulator): ActivityState {
   if (acc.liveText.length > 0) {
     return {
       phase: "streaming",
       agentName: acc.agentName,
-      reasoning: formattedReasoning,
-      // Raw text — the renderer formats it only when pushing to the store.
-      text: acc.liveText,
+      reasoning: "",
+      // Streaming text is appended to output entries (not shown in activity).
+      text: "",
     };
   }
 
   return {
     phase: "thinking",
     agentName: acc.agentName,
-    reasoning: formattedReasoning,
+    reasoning: "",
   };
 }
 
 function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
-  const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(([toolCallId, entry]) => ({
-    toolCallId,
-    toolName: entry.toolName,
-    startedAt: entry.startedAt,
-  }));
-  return { phase: "tool-execution", agentName: acc.agentName, tools };
+  const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(([toolCallId, entry]) =>
+    entry.todoSnapshot
+      ? {
+          toolCallId,
+          toolName: entry.toolName,
+          startedAt: entry.startedAt,
+          todoSnapshot: entry.todoSnapshot,
+        }
+      : {
+          toolCallId,
+          toolName: entry.toolName,
+          startedAt: entry.startedAt,
+        },
+  );
+  const todoSnapshot = findLatestTodoSnapshot(acc.activeTools);
+  return todoSnapshot
+    ? { phase: "tool-execution", agentName: acc.agentName, tools, todoSnapshot }
+    : { phase: "tool-execution", agentName: acc.agentName, tools };
+}
+
+function parseTodoSnapshot(args?: Record<string, unknown>): TodoSnapshotItem[] | undefined {
+  if (!args) return undefined;
+  const rawTodos = args["todos"];
+  if (!Array.isArray(rawTodos)) return undefined;
+
+  const todos: TodoSnapshotItem[] = [];
+  for (const item of rawTodos) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+    const entry = item as Record<string, unknown>;
+    const content = entry["content"];
+    const status = entry["status"];
+    if (typeof content !== "string" || typeof status !== "string") continue;
+    if (
+      status !== "pending" &&
+      status !== "in_progress" &&
+      status !== "completed" &&
+      status !== "cancelled"
+    ) {
+      continue;
+    }
+    todos.push({ content, status });
+  }
+  return todos.length > 0 ? todos : undefined;
+}
+
+function findLatestTodoSnapshot(
+  activeTools: Map<
+    string,
+    { toolName: string; startedAt: number; todoSnapshot?: TodoSnapshotItem[] }
+  >,
+): TodoSnapshotItem[] | undefined {
+  let latest: { startedAt: number; todoSnapshot?: TodoSnapshotItem[] } | undefined;
+  for (const entry of activeTools.values()) {
+    if (entry.toolName !== "manage_todos" || !entry.todoSnapshot) continue;
+    if (!latest || entry.startedAt >= latest.startedAt) {
+      latest = entry;
+    }
+  }
+  return latest?.todoSnapshot;
+}
+
+function formatTodoSnapshotForOutput(todoSnapshot: TodoSnapshotItem[]): string {
+  const lines = todoSnapshot.map((todo) => {
+    switch (todo.status) {
+      case "completed":
+        return `✓ ${todo.content}`;
+      case "in_progress":
+        return `◐ ${todo.content}`;
+      case "cancelled":
+        return `✗ ${todo.content}`;
+      case "pending":
+      default:
+        return `○ ${todo.content}`;
+    }
+  });
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +205,7 @@ function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
 export function reduceEvent(
   acc: ReducerAccumulator,
   event: StreamEvent,
-  formatMarkdown: (text: string) => string,
+  _formatMarkdown: (text: string) => string,
   inkRender: (node: unknown) => TerminalOutput,
 ): ReducerResult {
   const outputs: OutputEntry[] = [];
@@ -207,11 +225,6 @@ export function reduceEvent(
         message: `${acc.agentName} (${event.provider}/${event.model})`,
         timestamp: new Date(),
       });
-      outputs.push({
-        type: "log",
-        message: chalk.dim("(Tip: Press Esc twice to stop generation)"),
-        timestamp: new Date(),
-      });
 
       return { activity: null, outputs };
     }
@@ -222,7 +235,7 @@ export function reduceEvent(
       acc.reasoningBuffer = "";
       acc.isThinking = true;
       return {
-        activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
+        activity: buildThinkingOrStreamingActivity(acc),
         outputs,
       };
     }
@@ -230,7 +243,7 @@ export function reduceEvent(
     case "thinking_chunk": {
       acc.reasoningBuffer += event.content;
       return {
-        activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
+        activity: buildThinkingOrStreamingActivity(acc),
         outputs,
       };
     }
@@ -238,29 +251,7 @@ export function reduceEvent(
     case "thinking_complete": {
       acc.isThinking = false;
 
-      // Log the reasoning block as an Ink element with padding
-      const reasoning = acc.reasoningBuffer.trim();
-      if (reasoning.length > 0) {
-        const formattedReasoning = formatMarkdown(reasoning);
-        outputs.push({
-          type: "log",
-          message: inkRender(
-            React.createElement(
-              Box,
-              { flexDirection: "column", paddingLeft: 2, marginTop: 1, marginBottom: 1 },
-              React.createElement(Text, { dimColor: true, italic: true }, "▸ Reasoning"),
-              React.createElement(
-                Box,
-                { marginTop: 0, paddingLeft: 1, flexDirection: "column" },
-                React.createElement(Text, { dimColor: true, wrap: "truncate" }, formattedReasoning),
-              ),
-            ),
-          ),
-          timestamp: new Date(),
-        });
-      }
-
-      // Accumulate completed reasoning
+      // Accumulate completed reasoning (used by text_start to decide separator)
       const newReasoning = acc.reasoningBuffer.trim();
       if (newReasoning.length > 0) {
         if (acc.completedReasoning.trim().length > 0) {
@@ -268,23 +259,11 @@ export function reduceEvent(
         } else {
           acc.completedReasoning = newReasoning;
         }
-        // Cap reasoning to prevent unbounded growth
-        if (acc.completedReasoning.length > MAX_REASONING_LENGTH) {
-          const truncatePoint = acc.completedReasoning.length - MAX_REASONING_LENGTH;
-          const nextSeparator = acc.completedReasoning.indexOf("---", truncatePoint);
-          if (nextSeparator > 0) {
-            acc.completedReasoning =
-              "...(earlier reasoning truncated)...\n\n" +
-              acc.completedReasoning.substring(nextSeparator);
-          } else {
-            acc.completedReasoning = acc.completedReasoning.substring(truncatePoint);
-          }
-        }
       }
       acc.reasoningBuffer = "";
 
       return {
-        activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
+        activity: buildThinkingOrStreamingActivity(acc),
         outputs,
       };
     }
@@ -292,8 +271,6 @@ export function reduceEvent(
     // ---- Text content ---------------------------------------------------
 
     case "text_start": {
-      acc.responseHeaderPrinted = false;
-
       // If reasoning was produced, log a separator before the response
       if (acc.completedReasoning.trim().length > 0) {
         outputs.push({
@@ -310,16 +287,6 @@ export function reduceEvent(
         });
       }
 
-      // Print the "is responding…" header into Static once per response.
-      if (!acc.responseHeaderPrinted) {
-        outputs.push({
-          type: "log",
-          message: inkRender(renderStreamingResponseHeader(acc.agentName)),
-          timestamp: new Date(),
-        });
-        acc.responseHeaderPrinted = true;
-      }
-
       acc.liveText = "";
       acc.lastAppliedTextSequence = -1;
 
@@ -327,8 +294,9 @@ export function reduceEvent(
         activity: {
           phase: "streaming",
           agentName: acc.agentName,
-          reasoning:
-            acc.completedReasoning.trim().length > 0 ? formatMarkdown(acc.completedReasoning) : "",
+          // Completed reasoning was already logged to Static output, so don't
+          // duplicate it in the live area.
+          reasoning: "",
           text: "",
         },
         outputs,
@@ -343,17 +311,12 @@ export function reduceEvent(
         },
         { sequence: event.sequence, accumulated: event.accumulated },
       );
-      // Cap live text to prevent unbounded memory growth.
-      if (next.liveText.length > MAX_LIVE_TEXT_LENGTH) {
-        acc.liveText = next.liveText.slice(-MAX_LIVE_TEXT_LENGTH);
-      } else {
-        acc.liveText = next.liveText;
-      }
+      acc.liveText = next.liveText;
       acc.lastAppliedTextSequence = next.lastAppliedSequence;
 
       // All text stays in the live area — no flushing to Static during streaming.
       return {
-        activity: buildThinkingOrStreamingActivity(acc, formatMarkdown),
+        activity: buildThinkingOrStreamingActivity(acc),
         outputs,
       };
     }
@@ -412,7 +375,20 @@ export function reduceEvent(
     }
 
     case "tool_execution_start": {
-      acc.activeTools.set(event.toolCallId, { toolName: event.toolName, startedAt: Date.now() });
+      const todoSnapshot =
+        event.toolName === "manage_todos" ? parseTodoSnapshot(event.arguments) : undefined;
+      if (todoSnapshot) {
+        acc.activeTools.set(event.toolCallId, {
+          toolName: event.toolName,
+          startedAt: Date.now(),
+          todoSnapshot,
+        });
+      } else {
+        acc.activeTools.set(event.toolCallId, {
+          toolName: event.toolName,
+          startedAt: Date.now(),
+        });
+      }
 
       const argsStr = formatToolArguments(event.toolName, event.arguments);
       let providerSuffix = "";
@@ -446,6 +422,13 @@ export function reduceEvent(
       acc.activeTools.delete(event.toolCallId);
 
       let summary = event.summary?.trim();
+      if (
+        toolName === "manage_todos" &&
+        toolEntry?.todoSnapshot &&
+        toolEntry.todoSnapshot.length > 0
+      ) {
+        summary = `Todo list\n${formatTodoSnapshotForOutput(toolEntry.todoSnapshot)}`;
+      }
       if (!summary && toolName && event.result) {
         summary = formatToolResult(toolName, event.result);
       }

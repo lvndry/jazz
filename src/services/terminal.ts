@@ -5,6 +5,7 @@ import React from "react";
 import { wrapToWidth, getTerminalWidth } from "@/cli/presentation/markdown-formatter";
 import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
+import { TerminalDimensionsProvider } from "@/cli/ui/contexts/TerminalDimensionsContext";
 import { store } from "@/cli/ui/store";
 import type { OutputEntry } from "@/cli/ui/types";
 import {
@@ -54,7 +55,11 @@ export class InkTerminalService implements TerminalService {
     // which can cause flickering when external code writes to console during renders
     // Wrap App with InputProvider to provide the input service context
     this.inkInstance = render(
-      React.createElement(InputProvider, null, React.createElement(App)),
+      React.createElement(
+        TerminalDimensionsProvider,
+        null,
+        React.createElement(InputProvider, null, React.createElement(App)),
+      ),
       INK_RENDER_OPTIONS,
     );
     instanceExists = true;

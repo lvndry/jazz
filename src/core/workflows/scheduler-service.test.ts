@@ -1,6 +1,15 @@
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "bun:test";
-import { getLaunchdPath, type ScheduledWorkflow } from "./scheduler-service";
+import { Effect } from "effect";
+import {
+  getLaunchdPath,
+  SchedulerServiceLayer,
+  SchedulerServiceTag,
+  type ScheduledWorkflow,
+} from "./scheduler-service";
+import type { WorkflowMetadata } from "./workflow-service";
 import { isValidCronExpression } from "../utils/cron-utils";
 
 // Re-implement parseCronField for testing since it's not exported
@@ -213,6 +222,156 @@ describe("SchedulerService", () => {
       const dirs = result.split(":");
       const unique = new Set(dirs);
       expect(dirs.length).toBe(unique.size);
+    });
+  });
+
+  describe("scheduler regression (tech-digest, paths, 6-field cron)", () => {
+    const testWorkflowName = "scheduler-regression-test";
+
+    const techDigestWorkflow: WorkflowMetadata = {
+      name: testWorkflowName,
+      description: "Regression test workflow",
+      path: "/tmp",
+      schedule: "0 8 * * *",
+    };
+
+    const sixFieldWorkflow: WorkflowMetadata = {
+      name: testWorkflowName,
+      description: "6-field regression test",
+      path: "/tmp",
+      schedule: "0 0 8 * * *",
+    };
+
+    const workflowWithWhitespace: WorkflowMetadata = {
+      name: testWorkflowName,
+      description: "Whitespace trim regression test",
+      path: "/tmp",
+      schedule: "  0 8 * * *  ",
+    };
+
+    it("should schedule tech-digest cron expression 0 8 * * * without error", async () => {
+      if (process.platform !== "darwin") return;
+
+      const program = Effect.gen(function* () {
+        const scheduler = yield* SchedulerServiceTag;
+        yield* scheduler.schedule(techDigestWorkflow, "test-agent-id");
+        return "ok";
+      });
+
+      const result = await Effect.runPromise(
+        program.pipe(
+          Effect.provide(SchedulerServiceLayer),
+          Effect.catchAll((e) => Effect.fail(e)),
+        ),
+      );
+
+      expect(result).toBe("ok");
+
+      // Cleanup
+      const scheduler = await Effect.runPromise(
+        Effect.provide(
+          Effect.gen(function* () {
+            const s = yield* SchedulerServiceTag;
+            yield* s.unschedule(testWorkflowName);
+            return s;
+          }),
+          SchedulerServiceLayer,
+        ),
+      );
+      expect(scheduler).toBeDefined();
+    });
+
+    it("should schedule 6-field cron expression without error", async () => {
+      if (process.platform !== "darwin") return;
+
+      const program = Effect.gen(function* () {
+        const scheduler = yield* SchedulerServiceTag;
+        yield* scheduler.schedule(sixFieldWorkflow, "test-agent-id");
+        return "ok";
+      });
+
+      const result = await Effect.runPromise(
+        program.pipe(
+          Effect.provide(SchedulerServiceLayer),
+          Effect.catchAll((e) => Effect.fail(e)),
+        ),
+      );
+
+      expect(result).toBe("ok");
+
+      // Cleanup
+      await Effect.runPromise(
+        Effect.provide(
+          Effect.gen(function* () {
+            const s = yield* SchedulerServiceTag;
+            yield* s.unschedule(testWorkflowName);
+          }),
+          SchedulerServiceLayer,
+        ),
+      );
+    });
+
+    it("should write plist with log paths in ~/.jazz (not cwd)", async () => {
+      if (process.platform !== "darwin") return;
+
+      const program = Effect.gen(function* () {
+        const scheduler = yield* SchedulerServiceTag;
+        yield* scheduler.schedule(techDigestWorkflow, "test-agent-id");
+      });
+
+      await Effect.runPromise(program.pipe(Effect.provide(SchedulerServiceLayer)));
+
+      const plistPath = path.join(
+        os.homedir(),
+        "Library",
+        "LaunchAgents",
+        `com.jazz.workflow.${testWorkflowName}.plist`,
+      );
+      const plistContent = await fs.readFile(plistPath, "utf-8");
+
+      const homeJazz = path.join(os.homedir(), ".jazz");
+      expect(plistContent).toContain(homeJazz);
+      expect(plistContent).toContain(path.join(homeJazz, "logs"));
+
+      // Cleanup
+      await Effect.runPromise(
+        Effect.provide(
+          Effect.gen(function* () {
+            const s = yield* SchedulerServiceTag;
+            yield* s.unschedule(testWorkflowName);
+          }),
+          SchedulerServiceLayer,
+        ),
+      );
+    });
+
+    it("should accept schedule with leading/trailing whitespace (trim regression)", async () => {
+      if (process.platform !== "darwin") return;
+
+      const program = Effect.gen(function* () {
+        const scheduler = yield* SchedulerServiceTag;
+        yield* scheduler.schedule(workflowWithWhitespace, "test-agent-id");
+        return "ok";
+      });
+
+      const result = await Effect.runPromise(
+        program.pipe(
+          Effect.provide(SchedulerServiceLayer),
+          Effect.catchAll((e) => Effect.fail(e)),
+        ),
+      );
+
+      expect(result).toBe("ok");
+
+      await Effect.runPromise(
+        Effect.provide(
+          Effect.gen(function* () {
+            const s = yield* SchedulerServiceTag;
+            yield* s.unschedule(testWorkflowName);
+          }),
+          SchedulerServiceLayer,
+        ),
+      );
     });
   });
 });

@@ -51,7 +51,10 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
 
         if (statResult) {
           if (statResult.type === "Directory") {
-            return `Directory already exists: ${target}\n\nNo action needed.`;
+            return {
+              skipApproval: true as const,
+              toolResult: { success: true, result: `Directory already exists: ${target}` },
+            };
           } else {
             return `Path exists but is not a directory: ${target}\n\nCannot create directory here.`;
           }

@@ -17,7 +17,6 @@ import { TerminalServiceTag } from "./core/interfaces/terminal";
 import { QuietPresentationServiceLayer } from "./core/presentation/quiet-presentation-service";
 import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
-import type { OutputMode } from "./core/types/output";
 import { handleError } from "./core/utils/error-handler";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
 import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
@@ -34,6 +33,34 @@ import { createPersonaServiceLayer } from "./services/persona-service";
 import { FileStorageService } from "./services/storage/file";
 import { createTelemetryServiceLayer } from "./services/telemetry/telemetry-service";
 import { createPlainTerminalServiceLayer, createTerminalServiceLayer } from "./services/terminal";
+
+/** Config used to select terminal and presentation layers. Exported for testing. */
+export interface PresentationConfig {
+  readonly isQuiet: boolean;
+  readonly usePlainTerminal: boolean;
+  readonly useCLIPresentation: boolean;
+}
+
+/**
+ * Determine which terminal and presentation layers to use.
+ * Pure and testable; createAppLayer uses this with process.env / process.stdout.
+ */
+type EnvShape = { JAZZ_OUTPUT_MODE?: string; JAZZ_NO_TUI?: string };
+type StdoutShape = { isTTY?: boolean; rows?: number };
+
+export function getPresentationConfig(
+  env: EnvShape = process.env as EnvShape,
+  stdout: StdoutShape = process.stdout as StdoutShape,
+): PresentationConfig {
+  const isQuiet = env.JAZZ_OUTPUT_MODE === "quiet";
+  const forceNoTUI = env.JAZZ_NO_TUI === "1" || (stdout.isTTY === true && (stdout.rows ?? 24) < 10);
+
+  return {
+    isQuiet,
+    usePlainTerminal: isQuiet || forceNoTUI,
+    useCLIPresentation: !isQuiet && (!stdout.isTTY || forceNoTUI),
+  };
+}
 
 /**
  * Configuration options for creating the application layer
@@ -84,13 +111,11 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     }),
   ).pipe(Layer.provide(configLayer));
 
-  // Determine output mode from JAZZ_OUTPUT_MODE env var (set by --output CLI flag or externally).
-  // "quiet" mode forces plain terminal (no interactive prompts, no output).
-  // Otherwise, auto-detect based on TTY status.
-  const outputMode = process.env["JAZZ_OUTPUT_MODE"] as OutputMode | undefined;
-  const isQuiet = outputMode === "quiet";
+  const presentationConfig = getPresentationConfig();
 
-  const terminalLayer = isQuiet ? createPlainTerminalServiceLayer() : createTerminalServiceLayer();
+  const terminalLayer = presentationConfig.usePlainTerminal
+    ? createPlainTerminalServiceLayer()
+    : createTerminalServiceLayer();
 
   const storageLayer = Layer.effect(
     StorageServiceTag,
@@ -143,12 +168,10 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     Layer.provide(WorkflowsLive.layer),
   );
 
-  // "quiet" mode: suppress all presentation output (QuietPresentationService no-ops everything).
-  // Non-TTY (CI, pipes): use CLI presentation layer which writes directly to stdout.
-  // TTY (interactive): use Ink UI for rich rendering.
-  const presentationLayer = isQuiet
+  // isQuiet: no output. useCLIPresentation: CLI (plain stdout). else: Ink UI.
+  const presentationLayer = presentationConfig.isQuiet
     ? QuietPresentationServiceLayer
-    : !process.stdout.isTTY
+    : presentationConfig.useCLIPresentation
       ? CLIPresentationServiceLayer
       : InkPresentationServiceLayer.pipe(Layer.provide(NotificationServiceLayer));
 

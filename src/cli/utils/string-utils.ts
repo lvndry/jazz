@@ -95,6 +95,93 @@ export function truncate(text: string, max: number): string {
 }
 
 /**
+ * ANSI escape sequence regex pattern.
+ * Matches CSI sequences like \x1b[31m, \x1b[0m, etc.
+ */
+// eslint-disable-next-line no-control-regex
+const ANSI_REGEX = /\u001b\[[0-9;]*[A-Za-z]/g;
+
+/**
+ * Parse a string into segments of visible text and ANSI escape sequences.
+ */
+interface TextSegment {
+  type: "text" | "ansi";
+  content: string;
+}
+
+function parseAnsiSegments(text: string): TextSegment[] {
+  const segments: TextSegment[] = [];
+  let lastIndex = 0;
+
+  ANSI_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = ANSI_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: "text", content: text.slice(lastIndex, match.index) });
+    }
+    segments.push({ type: "ansi", content: match[0] });
+    lastIndex = ANSI_REGEX.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    segments.push({ type: "text", content: text.slice(lastIndex) });
+  }
+
+  return segments;
+}
+
+/**
+ * Truncate text from the start (keeping the tail), respecting ANSI escape sequences.
+ * This ensures ANSI sequences are not split and maintains proper terminal styling.
+ *
+ * @param text - Text to truncate
+ * @param maxVisibleChars - Maximum number of visible characters to keep
+ * @returns Truncated text with ANSI sequences intact
+ */
+export function truncateTailAnsiSafe(text: string, maxVisibleChars: number): string {
+  if (maxVisibleChars <= 0) return "";
+
+  const visibleLength = getVisualWidth(text);
+  if (visibleLength <= maxVisibleChars) return text;
+
+  const segments = parseAnsiSegments(text);
+  const charsToSkip = visibleLength - maxVisibleChars;
+
+  let skippedChars = 0;
+  const resultSegments: TextSegment[] = [];
+  let startedCollecting = false;
+
+  for (const segment of segments) {
+    if (segment.type === "ansi") {
+      if (startedCollecting) {
+        resultSegments.push(segment);
+      }
+      continue;
+    }
+
+    const textContent = segment.content;
+    if (!startedCollecting) {
+      const remainingToSkip = charsToSkip - skippedChars;
+      if (textContent.length <= remainingToSkip) {
+        skippedChars += textContent.length;
+      } else {
+        startedCollecting = true;
+        const keptText = textContent.slice(remainingToSkip);
+        if (keptText.length > 0) {
+          resultSegments.push({ type: "text", content: keptText });
+        }
+        skippedChars = charsToSkip;
+      }
+    } else {
+      resultSegments.push(segment);
+    }
+  }
+
+  return resultSegments.map((s) => s.content).join("");
+}
+
+/**
  * Format a Date to a short ISO-like string: "YYYY-MM-DD HH:MM"
  */
 export function formatIsoShort(date: Date): string {

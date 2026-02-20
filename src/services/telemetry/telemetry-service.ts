@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, readdir, unlink } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { Effect, Layer } from "effect";
-import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
-import { LoggerServiceTag } from "@/core/interfaces/logger";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type {
   AgentUsage,
   ModelUsage,
@@ -18,7 +17,7 @@ import type {
 import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
 import type { TelemetryConfig } from "@/core/types/config";
 import { TelemetryError, TelemetryWriteError } from "@/core/types/errors";
-import { isRunningFromGlobalInstall } from "@/core/utils/runtime-detection";
+import { getUserDataDirectory } from "@/core/utils/runtime-detection";
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -34,13 +33,7 @@ const EVENTS_DIR = "events";
  * Mirrors the pattern used by the logger for resolving log directories.
  */
 function resolveDefaultStoragePath(): string {
-  if (isRunningFromGlobalInstall()) {
-    const homeDir = os.homedir();
-    if (homeDir && homeDir.trim().length > 0) {
-      return path.join(homeDir, ".jazz", "telemetry");
-    }
-  }
-  return path.resolve(process.cwd(), ".jazz", "telemetry");
+  return path.join(getUserDataDirectory(), "telemetry");
 }
 
 /**
@@ -738,8 +731,7 @@ export class TelemetryServiceImpl implements TelemetryService {
 export function createTelemetryServiceLayer(): Layer.Layer<
   TelemetryService,
   never,
-  | import("@/core/interfaces/agent-config").AgentConfigService
-  | import("@/core/interfaces/logger").LoggerService
+  AgentConfigService | LoggerService
 > {
   return Layer.effect(
     TelemetryServiceTag,

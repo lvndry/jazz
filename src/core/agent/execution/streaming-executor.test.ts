@@ -378,4 +378,128 @@ describe("executeWithStreaming", () => {
     // Restore original
     ToolExecutor.executeToolCalls = originalExecute;
   });
+
+  it("clears interrupt handler only after run completion", async () => {
+    const interruptCalls: Array<(() => void) | null> = [];
+    const renderer = {
+      handleEvent: () => Effect.void,
+      setInterruptHandler: (handler: (() => void) | null) =>
+        Effect.sync(() => {
+          interruptCalls.push(handler);
+        }),
+      reset: () => Effect.void,
+      flush: () => Effect.void,
+    };
+
+    const presentationService = {
+      ...mockPresentationService,
+      createStreamingRenderer: () => Effect.succeed(renderer),
+    } as any;
+
+    const options: AgentRunnerOptions = {
+      sessionId: "test-session",
+      agent: {
+        id: "agent-1",
+        name: "test-agent",
+        config: {
+          persona: "default",
+          llmModel: "gpt-4",
+          llmProvider: "openai",
+          reasoningEffort: "medium",
+        },
+        prompts: { system: "system prompt" },
+      } as any,
+      userInput: "hello",
+    };
+
+    const runContext: AgentRunContext = {
+      actualConversationId: "conv-123",
+      context: {
+        agentId: "agent-1",
+        conversationId: "conv-123",
+      },
+      tools: [],
+      messages: [{ role: "user", content: "hello" }],
+      runMetrics: {
+        startedAt: new Date(),
+        toolCalls: 0,
+        toolCallCounts: {},
+        toolsUsed: new Set(),
+        totalPromptTokens: 0,
+        totalCompletionTokens: 0,
+        iterationSummaries: [],
+        errors: [],
+        metrics: {
+          totalDuration: 0,
+          totalLLMDuration: 0,
+          totalToolDuration: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalCost: 0,
+        },
+      } as any,
+      provider: "openai",
+      model: "gpt-4",
+      agent: options.agent,
+      expandedToolNames: [],
+      connectedMCPServers: [],
+      knownSkills: [],
+    };
+
+    const mockLLMService: LLMService = {
+      createStreamingChatCompletion: () =>
+        Effect.succeed({
+          stream: Stream.fromIterable([
+            {
+              type: "text_chunk",
+              delta: "Hello world",
+              accumulated: "Hello world",
+              sequence: 0,
+            },
+            {
+              type: "complete",
+              response: {
+                id: "test",
+                model: "gpt-4",
+                content: "Hello world",
+                toolCalls: [],
+              },
+            },
+          ]),
+          cancel: Effect.void,
+        }),
+      createChatCompletion: () => Effect.fail(new Error("")),
+      listProviders: () => Effect.succeed([]),
+      getProvider: () => Effect.fail(new Error("")),
+      supportsNativeWebSearch: () => Effect.succeed(false),
+    } as unknown as LLMService;
+
+    const TestLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, presentationService),
+      Layer.succeed(LLMServiceTag, mockLLMService),
+      Layer.succeed(ToolRegistryTag, mockToolRegistry),
+      Layer.succeed(MCPServerManagerTag, mockMCPServerManager),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(FileSystem.FileSystem, mockFileSystem),
+      Layer.succeed(TerminalServiceTag, mockTerminalService),
+      Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+    );
+
+    const program = executeWithStreaming(
+      options,
+      runContext,
+      { showThinking: false, showToolExecution: false, mode: "markdown" },
+      { enabled: true },
+      false,
+      () => Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse),
+    );
+
+    await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
+
+    expect(interruptCalls.length).toBeGreaterThanOrEqual(2);
+    expect(typeof interruptCalls[0]).toBe("function");
+    expect(interruptCalls[interruptCalls.length - 1]).toBeNull();
+  });
 });

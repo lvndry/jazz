@@ -1,5 +1,6 @@
 import type { Effect } from "effect";
 import type z from "zod";
+import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
 
@@ -20,7 +21,7 @@ export type AutoApprovePolicy = boolean | "read-only" | "low-risk" | "high-risk"
  * Check if a tool's risk level should be auto-approved given a policy.
  */
 export function shouldAutoApprove(
-  riskLevel: import("@/core/interfaces/tool-registry").ToolRiskLevel,
+  riskLevel: ToolRiskLevel,
   policy: AutoApprovePolicy | undefined,
 ): boolean {
   if (!policy) return false;

@@ -172,7 +172,7 @@ export function executeAgentLoop(
             let lastUserContent: string | undefined;
             for (let j = currentMessages.length - 1; j >= 0; j--) {
               if (currentMessages[j]?.role === "user") {
-                lastUserContent = currentMessages[j]?.content?.substring(0, 500);
+                lastUserContent = currentMessages[j]?.content;
                 break;
               }
             }

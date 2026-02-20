@@ -325,6 +325,14 @@ export function executeWithStreaming(
       },
     };
 
-    return yield* executeAgentLoop(options, runContext, displayConfig, strategy, runRecursive);
+    const response = yield* executeAgentLoop(
+      options,
+      runContext,
+      displayConfig,
+      strategy,
+      runRecursive,
+    ).pipe(Effect.ensuring(renderer.setInterruptHandler(null)));
+
+    return response;
   });
 }

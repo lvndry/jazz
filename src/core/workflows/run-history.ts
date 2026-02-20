@@ -7,7 +7,7 @@ import {
   FILE_LOCK_TIMEOUT_MS,
   MAX_RUN_HISTORY_RECORDS,
 } from "@/core/constants/agent";
-import { getUserDataDirectory } from "@/core/utils/runtime-detection";
+import { getGlobalUserDataDirectory } from "@/core/utils/runtime-detection";
 
 /**
  * Record of a single workflow run.
@@ -16,7 +16,7 @@ export interface WorkflowRunRecord {
   readonly workflowName: string;
   readonly startedAt: string;
   readonly completedAt?: string;
-  readonly status: "running" | "completed" | "failed";
+  readonly status: "running" | "completed" | "failed" | "skipped";
   readonly error?: string;
   readonly triggeredBy: "manual" | "scheduled";
 }
@@ -25,7 +25,7 @@ export interface WorkflowRunRecord {
  * Get the path to the run history file.
  */
 function getHistoryPath(): string {
-  return path.join(getUserDataDirectory(), "run-history.json");
+  return path.join(getGlobalUserDataDirectory(), "run-history.json");
 }
 
 /**
@@ -39,7 +39,7 @@ export function getRunHistoryFilePath(): string {
  * Get the path to the lock file.
  */
 function getLockPath(): string {
-  return path.join(getUserDataDirectory(), "run-history.lock");
+  return path.join(getGlobalUserDataDirectory(), "run-history.lock");
 }
 
 /**
@@ -239,3 +239,8 @@ export function getRecentRuns(
     return history.slice(-limit).reverse();
   });
 }
+
+/**
+ * Load run history from both local and global directories (dedupe not required).
+ * Useful when scheduled runs execute in a different runtime context.
+ */

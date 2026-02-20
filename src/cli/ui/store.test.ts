@@ -72,19 +72,40 @@ describe("UIStore", () => {
   // -------------------------------------------------------------------------
 
   describe("handler registration", () => {
-    test("delegates to handler once registered", () => {
+    test("delegates to handler once registered (batched on microtask)", async () => {
       const s = new UIStore();
       const received: OutputEntry[] = [];
-      s.registerPrintOutput((e) => {
-        received.push(e);
-        return e.id ?? "generated";
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        received.push(...arr);
+        return arr[0]?.id ?? "generated";
       });
 
       s.printOutput(entry("direct"));
+      await Promise.resolve(); // Let batch microtask run
       expect(received).toHaveLength(1);
       expect(received[0]!.message).toBe("direct");
-      // Nothing in pending queue
       expect(s.drainPendingOutputQueue()).toHaveLength(0);
+    });
+
+    test("coalesces rapid calls into single batch", async () => {
+      const s = new UIStore();
+      const received: OutputEntry[] = [];
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        received.push(...arr);
+        return arr[0]?.id ?? "generated";
+      });
+
+      s.printOutput(entry("a"));
+      s.printOutput(entry("b"));
+      s.printOutput(entry("c"));
+      expect(received).toHaveLength(0); // Not yet flushed
+      await Promise.resolve();
+      expect(received).toHaveLength(3);
+      expect(received[0]!.message).toBe("a");
+      expect(received[1]!.message).toBe("b");
+      expect(received[2]!.message).toBe("c");
     });
   });
 
@@ -125,6 +146,28 @@ describe("UIStore", () => {
 
       s.consumePendingClear();
       expect(s.hasPendingClear()).toBe(false);
+    });
+
+    test("discards pending batched outputs to prevent post-clear race", async () => {
+      const s = new UIStore();
+      const received: OutputEntry[] = [];
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        received.push(...arr);
+        return arr[0]?.id ?? "generated";
+      });
+      s.registerClearOutputs(() => {
+        received.length = 0;
+      });
+
+      s.printOutput(entry("a"));
+      s.printOutput(entry("b"));
+      // Before microtask flushes, clear outputs
+      s.clearOutputs();
+
+      // Let the microtask run - should NOT flush the discarded batch
+      await Promise.resolve();
+      expect(received).toHaveLength(0);
     });
   });
 

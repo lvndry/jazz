@@ -7,6 +7,7 @@ import {
   runCatchUpForWorkflows,
   type CatchUpCandidate,
 } from "@/core/workflows/catch-up";
+import { addRunRecord } from "@/core/workflows/run-history";
 
 function formatMissedTime(scheduledAt: Date | undefined): string {
   if (!scheduledAt) return "unknown time";
@@ -85,6 +86,17 @@ export function promptInteractiveCatchUp() {
     const wantsCatchUp = yield* terminal.confirm("Would you like to catch them up?", false);
 
     if (!wantsCatchUp) {
+      const skippedAt = new Date().toISOString();
+      for (const candidate of candidates) {
+        yield* addRunRecord({
+          workflowName: candidate.entry.workflowName,
+          startedAt: skippedAt,
+          completedAt: skippedAt,
+          status: "skipped",
+          triggeredBy: "scheduled",
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
+
       yield* terminal.log("");
       return;
     }
@@ -120,10 +132,26 @@ export function promptInteractiveCatchUp() {
     );
     yield* terminal.log("");
 
+    // Persist "running" records BEFORE forking so that even if the background
+    // fiber is interrupted (e.g. the main command finishes first and the scope
+    // closes), the next CLI invocation sees these records and won't re-prompt.
+    const startedAt = new Date().toISOString();
+    for (const entry of entriesToRun) {
+      yield* addRunRecord({
+        workflowName: entry.workflowName,
+        startedAt,
+        status: "running",
+        triggeredBy: "scheduled",
+      }).pipe(Effect.catchAll(() => Effect.void));
+    }
+
     // Fork the catch-up execution so it runs in the background.
     // Use quiet presentation so "pilot is thinking" and tool output don't overwrite the main UI.
+    // Pass recordsPreCreated so the fork skips the decideCatchUp re-check (which would
+    // see the records we just wrote and incorrectly conclude "already ran") and skips
+    // addRunRecord (already done above).
     yield* Effect.fork(
-      runCatchUpForWorkflows(entriesToRun).pipe(
+      runCatchUpForWorkflows(entriesToRun, { recordsPreCreated: true }).pipe(
         Effect.provide(QuietPresentationServiceLayer),
         Effect.tap(() =>
           logger.info("Background catch-up completed", {

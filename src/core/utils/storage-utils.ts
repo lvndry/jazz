@@ -1,5 +1,5 @@
 import type { StorageConfig } from "../types";
-import { getUserDataDirectory } from "./runtime-detection";
+import { getGlobalUserDataDirectory } from "./runtime-detection";
 
 /**
  * Resolve the effective directory that should be used for file-based storage.
@@ -14,5 +14,5 @@ export function resolveStorageDirectory(storage: StorageConfig): string {
     }
   }
 
-  return getUserDataDirectory();
+  return getGlobalUserDataDirectory();
 }

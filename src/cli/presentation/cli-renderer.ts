@@ -11,11 +11,7 @@ import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,
 } from "@/core/utils/tool-formatter";
-import {
-  applyProgressiveFormatting,
-  type FormattingResult,
-  type StreamingState,
-} from "./markdown-formatter";
+import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
 import { TerminalWriter } from "./output-writer";
@@ -32,6 +28,12 @@ function getTerminalWidth(): number {
     return 80;
   }
 }
+
+/**
+ * Size threshold (in bytes) after which streaming formatting switches to
+ * direct-append mode to avoid O(n²) re-formatting of the entire response.
+ */
+const STREAMING_FORMAT_SIZE_CAP = 8192;
 
 /**
  * CLI renderer configuration
@@ -88,7 +90,9 @@ export class CLIRenderer {
   private markedInitialized: boolean = false;
   private streamingBuffer: string = "";
   private lastFlushTime: number = 0;
-  private streamingState: StreamingState = { isInCodeBlock: false };
+  private streamingRaw: string = "";
+  private streamingFormatted: string = "";
+  private streamingDirectAppend: boolean = false;
 
   constructor(private config: CLIRendererConfig) {
     // Determine output mode
@@ -565,9 +569,7 @@ export class CLIRenderer {
       const completeLines = this.streamingBuffer.substring(0, lastNewlineIndex + 1);
       const remainder = this.streamingBuffer.substring(lastNewlineIndex + 1);
 
-      const result = this.formatText(completeLines, this.streamingState);
-      output += result.formatted;
-      this.streamingState = result.state;
+      output += this.formatText(completeLines);
       this.streamingBuffer = remainder;
       this.lastFlushTime = now;
     }
@@ -598,9 +600,7 @@ export class CLIRenderer {
       const toRender = this.streamingBuffer;
       this.streamingBuffer = "";
       this.lastFlushTime = now;
-      const result = this.formatText(toRender, this.streamingState);
-      output += result.formatted;
-      this.streamingState = result.state;
+      output += this.formatText(toRender);
     }
 
     return output;
@@ -620,9 +620,7 @@ export class CLIRenderer {
     this.streamingBuffer = "";
     this.lastFlushTime = Date.now();
 
-    const result = this.formatText(toRender, this.streamingState);
-    this.streamingState = result.state;
-    return result.formatted;
+    return this.formatText(toRender);
   }
 
   /**
@@ -631,8 +629,54 @@ export class CLIRenderer {
   /**
    * Format text using progressive formatting for streaming chunks
    */
-  private formatText(text: string, state: StreamingState): FormattingResult {
-    return applyProgressiveFormatting(text, state);
+  private getFormattedDelta(previous: string, next: string): string {
+    if (next.startsWith(previous)) {
+      return next.slice(previous.length);
+    }
+    // Fallback for rare non-prefix transitions after reformatting.
+    let commonPrefixLength = 0;
+    const maxPrefixLength = Math.min(previous.length, next.length);
+    while (
+      commonPrefixLength < maxPrefixLength &&
+      previous.charCodeAt(commonPrefixLength) === next.charCodeAt(commonPrefixLength)
+    ) {
+      commonPrefixLength += 1;
+    }
+    return next.slice(commonPrefixLength);
+  }
+
+  private formatText(text: string): string {
+    this.streamingRaw += text;
+
+    // Once we exceed the size cap, switch to direct-append mode to avoid O(n²)
+    // re-formatting. Trade-off: markdown constructs spanning the boundary may
+    // not render perfectly, but performance is preserved for long outputs.
+    if (!this.streamingDirectAppend && this.streamingRaw.length > STREAMING_FORMAT_SIZE_CAP) {
+      this.streamingDirectAppend = true;
+    }
+
+    if (this.streamingDirectAppend) {
+      // Direct append: format only the new chunk independently
+      const formatted =
+        this.mode === "rendered"
+          ? formatMarkdown(text)
+          : this.mode === "hybrid"
+            ? formatMarkdownHybrid(text)
+            : text;
+      this.streamingFormatted += formatted;
+      return formatted;
+    }
+
+    // Normal mode: re-format entire content and diff
+    const nextFormatted =
+      this.mode === "rendered"
+        ? formatMarkdown(this.streamingRaw)
+        : this.mode === "hybrid"
+          ? formatMarkdownHybrid(this.streamingRaw)
+          : this.streamingRaw;
+    const delta = this.getFormattedDelta(this.streamingFormatted, nextFormatted);
+    this.streamingFormatted = nextFormatted;
+    return delta;
   }
 
   // ==================== Public Formatting Methods ====================
@@ -763,7 +807,9 @@ export class CLIRenderer {
   private resetStreamingBuffer(): void {
     this.streamingBuffer = "";
     this.lastFlushTime = 0;
-    this.streamingState = { isInCodeBlock: false };
+    this.streamingRaw = "";
+    this.streamingFormatted = "";
+    this.streamingDirectAppend = false;
   }
 
   /**

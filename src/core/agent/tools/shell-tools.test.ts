@@ -92,6 +92,7 @@ describe("Shell Tools", () => {
     // Verify schema has required fields
     const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
     expect(schema._def.shape).toHaveProperty("command");
+    expect(schema._def.shape).toHaveProperty("description");
     expect(schema._def.shape).not.toHaveProperty("confirm");
   });
 
@@ -113,6 +114,7 @@ describe("Shell Tools", () => {
     // Verify schema has required fields (no confirm field for approved tool)
     const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
     expect(schema._def.shape).toHaveProperty("command");
+    expect(schema._def.shape).toHaveProperty("description");
     expect(schema._def.shape).not.toHaveProperty("confirm");
   });
 
@@ -128,6 +130,7 @@ describe("Shell Tools", () => {
         tool.execute(
           {
             command: "echo 'hello world'",
+            description: "Print a hello message to verify shell execution.",
           },
           context,
         ),
@@ -150,7 +153,7 @@ describe("Shell Tools", () => {
 
     // Test missing required field
     const result1: ToolExecutionResult = await Effect.runPromise(
-      Effect.provide(tool.execute({}, context), createTestLayer()),
+      Effect.provide(tool.execute({} as Record<string, unknown>, context), createTestLayer()),
     );
 
     expect(result1.success).toBe(false);
@@ -183,6 +186,7 @@ describe("Shell Tools", () => {
           tool.execute(
             {
               command,
+              description: "Attempt a command that should be blocked for safety.",
             },
             context,
           ),
@@ -207,6 +211,7 @@ describe("Shell Tools", () => {
         tool.execute(
           {
             command: "echo 'test output'",
+            description: "Print a test string to stdout.",
           },
           context,
         ),
@@ -234,6 +239,7 @@ describe("Shell Tools", () => {
         tool.execute(
           {
             command: "nonexistentcommand12345",
+            description: "Run a nonexistent command to verify error handling.",
           },
           context,
         ),

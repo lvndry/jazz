@@ -285,6 +285,21 @@ export function formatToolArguments(
       if (!dirPath) return "";
       return usePlain ? `{ path: ${dirPath} }` : formatKeyValue("path", dirPath);
     }
+    case "manage_todos": {
+      const todos = args["todos"];
+      if (!Array.isArray(todos)) return "";
+      const total = todos.length;
+      let completed = 0;
+      let inProgress = 0;
+      for (const todo of todos) {
+        if (typeof todo !== "object" || todo === null || Array.isArray(todo)) continue;
+        const status = (todo as Record<string, unknown>)["status"];
+        if (status === "completed") completed += 1;
+        if (status === "in_progress") inProgress += 1;
+      }
+      const value = `${total} items (${completed} done, ${inProgress} in progress)`;
+      return usePlain ? `{ todos: ${value} }` : formatKeyValue("todos", value);
+    }
     default: {
       // For unknown tools, show first few arguments (truncate long values)
       const MAX_VALUE_LENGTH = 120;
