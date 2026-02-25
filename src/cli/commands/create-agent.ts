@@ -399,6 +399,7 @@ async function promptForAgentInfo(
               name: provider.displayName ?? provider.name,
               value: provider.name,
             })),
+            placeholder: "Search providers...",
           }),
         );
 
@@ -469,6 +470,7 @@ async function promptForAgentInfo(
               description: model.displayName || model.id,
               value: model.id,
             })),
+            placeholder: "Search models...",
           }),
         );
 
@@ -571,7 +573,10 @@ async function promptForAgentInfo(
         }
 
         const result = await Effect.runPromise(
-          terminal.ask(`Name of your new agent ${hint}:`, askOptions),
+          terminal.ask(`Name of your new agent ${hint}:`, {
+            ...askOptions,
+            placeholder: "my-agent",
+          }),
         );
 
         // ESC pressed - go back
@@ -612,7 +617,9 @@ async function promptForAgentInfo(
         }
 
         const result = await Effect.runPromise(
-          terminal.ask(`Describe what this agent will do ${hint}:`, descOptions),
+          terminal.ask(`Describe what this agent will do ${hint}:`, {
+            ...descOptions,
+          }),
         );
 
         // ESC pressed - go back

@@ -91,7 +91,12 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           const subagentLabel = `Sub-Agent (${args.persona})`;
           yield* presentation.writeOutput(`${subagentLabel} ⤵`);
           yield* presentation.writeOutput(`     Task: ${taskPreview}`);
-          yield* presentation.presentThinking(subagentLabel, true);
+          if (
+            parentAgent.config.reasoningEffort &&
+            parentAgent.config.reasoningEffort !== "disable"
+          ) {
+            yield* presentation.presentThinking(subagentLabel, true);
+          }
 
           // Create an ephemeral sub-agent with the parent's LLM config but a specific persona
           const subAgent: Agent = {

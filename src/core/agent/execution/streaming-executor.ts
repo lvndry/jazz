@@ -64,6 +64,9 @@ export function executeWithStreaming(
     const { agent } = options;
     const { runMetrics, provider, model, actualConversationId } = runContext;
 
+    const reasoningEffort = agent.config.reasoningEffort ?? "disable";
+    const shouldShowThinking = displayConfig.showThinking && reasoningEffort !== "disable";
+
     // Create renderer
     const normalizedStreamingConfig: StreamingConfig = {
       enabled: true,
@@ -77,7 +80,7 @@ export function executeWithStreaming(
       streamingConfig: normalizedStreamingConfig,
       showMetrics,
       agentName: agent.name,
-      reasoningEffort: agent.config.reasoningEffort,
+      reasoningEffort,
     });
 
     // Create interruption signal
@@ -93,7 +96,7 @@ export function executeWithStreaming(
     const textAccumulatorRef = yield* Ref.make<string>("");
 
     const strategy: CompletionStrategy = {
-      shouldShowThinking: true,
+      shouldShowThinking,
 
       getCompletion(currentMessages, _iteration) {
         return Effect.gen(function* () {
@@ -106,7 +109,7 @@ export function executeWithStreaming(
             messages: currentMessages,
             tools: runContext.tools,
             toolChoice: "auto" as const,
-            reasoning_effort: agent.config.reasoningEffort ?? "disable",
+            reasoning_effort: reasoningEffort,
           };
 
           const streamingResult = yield* Effect.retry(

@@ -50,4 +50,18 @@ describe("decideCatchUp", () => {
     expect(decision.shouldRun).toBe(false);
     expect(decision.reason).toBe("missed window");
   });
+
+  it("should not run when latest record is running and started within catch-up window", () => {
+    // Schedule 8 AM; user started catch-up at 7:30, record still "running" (e.g. update never persisted)
+    const workflow = createWorkflow({
+      schedule: "0 8 * * *",
+      maxCatchUpAge: 86400,
+    });
+    const lastRunAt = new Date(2026, 1, 3, 7, 30, 0);
+    const now = new Date(2026, 1, 3, 9, 0, 0);
+
+    const decision = decideCatchUp(workflow, lastRunAt, now, "running");
+    expect(decision.shouldRun).toBe(false);
+    expect(decision.reason).toBe("already ran");
+  });
 });
