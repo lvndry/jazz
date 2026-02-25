@@ -72,6 +72,13 @@ export interface CompletionStrategy {
   getRenderer(): StreamingRenderer | null;
 
   /**
+   * Optional interrupt signal (e.g. Deferred.await) used to interrupt tool execution
+   * when the user triggers double-Escape. When provided, tool execution races with
+   * this effect so double-Esc during a tool call stops the tools and breaks the loop.
+   */
+  getInterruptSignal?(): Effect.Effect<void, never> | undefined;
+
+  /**
    * Whether to show thinking indicators for this strategy.
    */
   shouldShowThinking: boolean;

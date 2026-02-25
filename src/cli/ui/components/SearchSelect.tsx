@@ -6,6 +6,7 @@ import type { Choice } from "../types";
 interface SearchSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];
   readonly pageSize?: number;
+  readonly placeholder?: string;
   readonly onSelect: (value: T) => void;
   readonly onCancel?: () => void;
 }
@@ -17,6 +18,7 @@ interface SearchSelectProps<T = unknown> {
 export function SearchSelect<T = unknown>({
   options,
   pageSize = 10,
+  placeholder = "Type to search...",
   onSelect,
   onCancel,
 }: SearchSelectProps<T>): React.ReactElement {
@@ -125,8 +127,20 @@ export function SearchSelect<T = unknown>({
       {/* Search input */}
       <Box>
         <Text color="gray">Search: </Text>
-        <Text color={THEME.primary}>{query}</Text>
-        <Text color="gray">│</Text>
+        {query.length === 0 ? (
+          <Text
+            color="gray"
+            dimColor
+          >
+            <Text inverse>{placeholder[0] || " "}</Text>
+            {placeholder.slice(1)}
+          </Text>
+        ) : (
+          <>
+            <Text color={THEME.primary}>{query}</Text>
+            <Text inverse> </Text>
+          </>
+        )}
       </Box>
 
       {/* Results count */}

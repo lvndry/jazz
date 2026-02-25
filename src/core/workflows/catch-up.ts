@@ -5,7 +5,12 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { DEFAULT_MAX_CATCH_UP_AGE_SECONDS } from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { normalizeCronExpression } from "@/core/utils/cron-utils";
-import { addRunRecord, loadRunHistory, updateLatestRunRecord } from "@/core/workflows/run-history";
+import {
+  addRunRecord,
+  loadRunHistory,
+  updateLatestRunRecord,
+  type WorkflowRunRecord,
+} from "@/core/workflows/run-history";
 import { SchedulerServiceTag, type ScheduledWorkflow } from "@/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
 
@@ -27,10 +32,12 @@ export interface CatchUpCandidate {
 interface WorkflowRunSnapshot {
   readonly workflowName: string;
   readonly lastRunAt?: Date;
+  /** Status of the latest run; used to treat recent "running" as already handling catch-up. */
+  readonly lastRunStatus?: WorkflowRunRecord["status"];
 }
 
 function getLastRunSnapshot(
-  history: readonly { workflowName: string; startedAt: string; completedAt?: string }[],
+  history: readonly WorkflowRunRecord[],
 ): Map<string, WorkflowRunSnapshot> {
   const map = new Map<string, WorkflowRunSnapshot>();
 
@@ -44,6 +51,7 @@ function getLastRunSnapshot(
       map.set(record.workflowName, {
         workflowName: record.workflowName,
         lastRunAt: parsed,
+        lastRunStatus: record.status,
       });
     }
   }
@@ -65,6 +73,7 @@ export function decideCatchUp(
   workflow: WorkflowMetadata,
   lastRunAt: Date | undefined,
   now: Date,
+  lastRunStatus?: WorkflowRunRecord["status"],
 ): CatchUpDecision {
   if (!workflow.schedule) {
     return { shouldRun: false, reason: "missing schedule" };
@@ -79,14 +88,25 @@ export function decideCatchUp(
     return { shouldRun: false, reason: "invalid schedule" };
   }
 
-  if (lastRunAt && lastRunAt.getTime() >= scheduledAt.getTime()) {
-    return { shouldRun: false, reason: "already ran" };
-  }
-
   const maxAgeSeconds =
     typeof workflow.maxCatchUpAge === "number" && workflow.maxCatchUpAge > 0
       ? workflow.maxCatchUpAge
       : DEFAULT_MAX_CATCH_UP_AGE_SECONDS;
+
+  if (lastRunAt && lastRunAt.getTime() >= scheduledAt.getTime()) {
+    return { shouldRun: false, reason: "already ran" };
+  }
+
+  // A "running" record started within the catch-up window means the user already
+  // triggered catch-up (or it completed but the record was never updated). Don't re-prompt.
+  if (
+    lastRunStatus === "running" &&
+    lastRunAt &&
+    Math.floor((now.getTime() - lastRunAt.getTime()) / 1000) <= maxAgeSeconds
+  ) {
+    return { shouldRun: false, reason: "already ran" };
+  }
+
   const ageSeconds = Math.floor((now.getTime() - scheduledAt.getTime()) / 1000);
 
   if (ageSeconds > maxAgeSeconds) {
@@ -128,8 +148,8 @@ export function getCatchUpCandidates() {
 
       if (!workflow) continue;
 
-      const lastRunAt = lastRunMap.get(entry.workflowName)?.lastRunAt;
-      const decision = decideCatchUp(workflow, lastRunAt, now);
+      const snapshot = lastRunMap.get(entry.workflowName);
+      const decision = decideCatchUp(workflow, snapshot?.lastRunAt, now, snapshot?.lastRunStatus);
 
       if (decision.shouldRun) {
         candidates.push({ entry, workflow, decision });
@@ -173,7 +193,7 @@ export function runCatchUpForWorkflows(
     // Only load history and re-check decisions when records were not pre-created.
     // When the interactive prompt pre-creates records, re-checking would find
     // "already ran" (because the record exists) and skip execution entirely.
-    let lastRunMap: Map<string, { lastRunAt?: Date }> | undefined;
+    let lastRunMap: Map<string, WorkflowRunSnapshot> | undefined;
     if (!options.recordsPreCreated) {
       const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
       lastRunMap = getLastRunSnapshot(history);
@@ -192,8 +212,8 @@ export function runCatchUpForWorkflows(
       }
 
       if (!options.recordsPreCreated && lastRunMap) {
-        const lastRunAt = lastRunMap.get(entry.workflowName)?.lastRunAt;
-        const decision = decideCatchUp(workflow, lastRunAt, now);
+        const snapshot = lastRunMap.get(entry.workflowName);
+        const decision = decideCatchUp(workflow, snapshot?.lastRunAt, now, snapshot?.lastRunStatus);
 
         if (!decision.shouldRun) {
           yield* logger.debug("Catch-up skipped: no longer needed", {

@@ -69,7 +69,7 @@ export function handleSpecialCommand(
 
     switch (command.type) {
       case "new":
-        return yield* handleNewCommand(terminal);
+        return yield* handleNewCommand(terminal, agent);
 
       case "fork":
         return yield* handleForkCommand(terminal, conversationHistory);
@@ -147,11 +147,31 @@ export function handleSpecialCommand(
 /**
  * Handle /new command - Start a new conversation
  */
-function handleNewCommand(terminal: TerminalService): Effect.Effect<CommandResult, never, never> {
+function handleNewCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     yield* terminal.info("Starting new conversation...");
     yield* terminal.log(fmt.item("Conversation context cleared"));
     yield* terminal.log(fmt.item("Fresh start with the agent"));
+
+    // Check if model supports tools and warn if not
+    const modelMeta = yield* Effect.promise(() =>
+      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+    );
+    if (
+      modelMeta &&
+      !modelMeta.supportsTools &&
+      agent.config.tools &&
+      agent.config.tools.length > 0
+    ) {
+      yield* terminal.log("");
+      yield* terminal.warn(
+        `⚠️  The current model (${agent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
+      );
+    }
+
     yield* terminal.log(fmt.blank());
     yield* terminal.log(fmt.blank());
     return {
@@ -446,6 +466,23 @@ function handleSwitchCommand(
         yield* terminal.success(
           `Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`,
         );
+
+        // Check if model supports tools and warn if not
+        const modelMeta = yield* Effect.promise(() =>
+          getModelsDevMetadata(newAgent.config.llmModel, newAgent.config.llmProvider),
+        );
+        if (
+          modelMeta &&
+          !modelMeta.supportsTools &&
+          newAgent.config.tools &&
+          newAgent.config.tools.length > 0
+        ) {
+          yield* terminal.log("");
+          yield* terminal.warn(
+            `⚠️  The current model (${newAgent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
+          );
+        }
+
         yield* terminal.log("");
         return { shouldContinue: true, newAgent };
       }
@@ -507,6 +544,23 @@ function handleSwitchCommand(
     yield* terminal.success(
       `Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`,
     );
+
+    // Check if model supports tools and warn if not
+    const modelMeta = yield* Effect.promise(() =>
+      getModelsDevMetadata(newAgent.config.llmModel, newAgent.config.llmProvider),
+    );
+    if (
+      modelMeta &&
+      !modelMeta.supportsTools &&
+      newAgent.config.tools &&
+      newAgent.config.tools.length > 0
+    ) {
+      yield* terminal.log("");
+      yield* terminal.warn(
+        `⚠️  The current model (${newAgent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
+      );
+    }
+
     yield* terminal.log("");
 
     return { shouldContinue: true, newAgent };
@@ -699,6 +753,23 @@ function handleModelCommand(
       };
       const newAgent = yield* agentService.updateAgent(agent.id, { config: updatedConfig });
       yield* terminal.success(`Reasoning effort set to: ${level}`);
+
+      // Check if model supports tools and warn if not
+      const modelMeta = yield* Effect.promise(() =>
+        getModelsDevMetadata(newAgent.config.llmModel, newAgent.config.llmProvider),
+      );
+      if (
+        modelMeta &&
+        !modelMeta.supportsTools &&
+        newAgent.config.tools &&
+        newAgent.config.tools.length > 0
+      ) {
+        yield* terminal.log("");
+        yield* terminal.warn(
+          `⚠️  The current model (${newAgent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
+        );
+      }
+
       yield* terminal.log("");
       return { shouldContinue: true, newAgent };
     }
@@ -731,6 +802,23 @@ function handleModelCommand(
     };
     const newAgent = yield* agentService.updateAgent(agent.id, { config: updatedConfig });
     yield* terminal.success(`Model switched to: ${providerName}/${modelId}`);
+
+    // Check if model supports tools and warn if not
+    const modelMeta = yield* Effect.promise(() =>
+      getModelsDevMetadata(newAgent.config.llmModel, newAgent.config.llmProvider),
+    );
+    if (
+      modelMeta &&
+      !modelMeta.supportsTools &&
+      newAgent.config.tools &&
+      newAgent.config.tools.length > 0
+    ) {
+      yield* terminal.log("");
+      yield* terminal.warn(
+        `⚠️  The current model (${newAgent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
+      );
+    }
+
     yield* terminal.log("");
     return { shouldContinue: true, newAgent };
   });
