@@ -201,7 +201,24 @@ describe("markdown-formatter", () => {
       const input = "**https://github.com/lvndry/jazz/pull/187**";
       const result = formatMarkdownHybrid(input);
       const stripped = stripAnsiCodes(result);
+      // Display preserves full match; OSC 8 URL is clean (no ** in clicked target)
       expect(stripped).toBe("**https://github.com/lvndry/jazz/pull/187**");
+    });
+
+    it("should not include ** or __ in the clicked URL when links are bold-wrapped", () => {
+      const input = "**https://www.example.com**";
+      const result = formatMarkdownHybrid(input);
+      // OSC 8 format: \x1b]8;;URL\x07...\x1b]8;;\x07 — URL must not include **
+      expect(result).toContain("\x1b]8;;https://www.example.com\x07");
+      expect(result).not.toContain("\x1b]8;;https://www.example.com**\x07");
+    });
+
+    it("should preserve underscore and asterisk inside legitimate URLs", () => {
+      const input =
+        "See https://example.com/path_with_underscore and https://example.com/file*name.txt";
+      const result = formatMarkdownHybrid(input);
+      expect(result).toContain("\x1b]8;;https://example.com/path_with_underscore\x07");
+      expect(result).toContain("\x1b]8;;https://example.com/file*name.txt\x07");
     });
   });
 

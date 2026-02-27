@@ -346,12 +346,25 @@ export function formatHorizontalRules(text: string, terminalWidth: number = 80):
 }
 
 /**
+ * Strip trailing markdown bold/italic delimiters (** and __) from a URL.
+ * Used when the bare-URL regex captures delimiter chars (e.g. **url**).
+ */
+function stripTrailingMarkdownDelimiters(s: string): string {
+  return s.replace(/(\*{2}|_{2})+$/, "");
+}
+
+/**
  * Format bare URLs as clickable OSC 8 terminal hyperlinks.
+ * Strips trailing markdown bold delimiters (asterisk-pairs and underscore-pairs)
+ * from the matched URL so markdown-wrapped links open correctly, while
+ * preserving underscore and asterisk inside legitimate URLs.
+ *
  * @param styleFn - styling function for the displayed text
  */
 function formatBareUrlsImpl(text: string, styleFn: (text: string) => string): string {
   return text.replace(BARE_URL_REGEX, (match: string) => {
-    const url = match.startsWith("www.") ? `https://${match}` : match;
+    const cleanUrl = stripTrailingMarkdownDelimiters(match);
+    const url = cleanUrl.startsWith("www.") ? `https://${cleanUrl}` : cleanUrl;
     return terminalHyperlink(styleFn(match), url);
   });
 }
