@@ -201,8 +201,8 @@ describe("markdown-formatter", () => {
       const input = "**https://github.com/lvndry/jazz/pull/187**";
       const result = formatMarkdownHybrid(input);
       const stripped = stripAnsiCodes(result);
-      // Trailing ** stripped from URL (were captured by regex); leading ** remain from bold
-      expect(stripped).toBe("**https://github.com/lvndry/jazz/pull/187");
+      // Display preserves full match; OSC 8 URL is clean (no ** in clicked target)
+      expect(stripped).toBe("**https://github.com/lvndry/jazz/pull/187**");
     });
 
     it("should not include ** or __ in the clicked URL when links are bold-wrapped", () => {

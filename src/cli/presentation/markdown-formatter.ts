@@ -365,7 +365,7 @@ function formatBareUrlsImpl(text: string, styleFn: (text: string) => string): st
   return text.replace(BARE_URL_REGEX, (match: string) => {
     const cleanUrl = stripTrailingMarkdownDelimiters(match);
     const url = cleanUrl.startsWith("www.") ? `https://${cleanUrl}` : cleanUrl;
-    return terminalHyperlink(styleFn(cleanUrl), url);
+    return terminalHyperlink(styleFn(match), url);
   });
 }
 
