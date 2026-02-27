@@ -203,6 +203,14 @@ describe("markdown-formatter", () => {
       const stripped = stripAnsiCodes(result);
       expect(stripped).toBe("**https://github.com/lvndry/jazz/pull/187**");
     });
+
+    it("should not include ** or __ in the clicked URL when links are bold-wrapped", () => {
+      const input = "**https://www.example.com**";
+      const result = formatMarkdownHybrid(input);
+      // OSC 8 format: \x1b]8;;URL\x07...\x1b]8;;\x07 — URL must not include **
+      expect(result).toContain("\x1b]8;;https://www.example.com\x07");
+      expect(result).not.toContain("\x1b]8;;https://www.example.com**\x07");
+    });
   });
 
   describe("formatInlineCode", () => {
