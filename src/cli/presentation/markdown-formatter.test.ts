@@ -201,6 +201,7 @@ describe("markdown-formatter", () => {
       const input = "**https://github.com/lvndry/jazz/pull/187**";
       const result = formatMarkdownHybrid(input);
       const stripped = stripAnsiCodes(result);
+      // Trailing ** stripped from URL; leading ** remain from bold formatting
       expect(stripped).toBe("**https://github.com/lvndry/jazz/pull/187**");
     });
 

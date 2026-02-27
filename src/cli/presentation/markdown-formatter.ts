@@ -73,10 +73,10 @@ const FILE_PATH_REGEX =
  */
 const FILE_PATH_LINE_REGEX =
   /(?<!\]\()(?<![:\w/])(\/(?!\/)(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+:\d+(?::\d+)?|~(?:\/[a-zA-Z0-9._-]+)+:\d+(?::\d+)?)/g;
-/** Matches bare URLs. Trailing punctuation (.,;:!?) and markdown delimiters (*_) are excluded. */
+/** Matches bare URLs. Trailing punctuation (.,;:!?) is excluded unless followed by a non-space char. */
 const BARE_URL_REGEX =
   // eslint-disable-next-line no-control-regex
-  /(?<!\]\()(https?:\/\/[^\s<>"{}|\\^`[\]*_\u001b]+[^\s<>"{}|\\^`[\].,;:!?)'\]*_\u001b]|www\.[^\s<>"{}|\\^`[\]*_\u001b]+[^\s<>"{}|\\^`[\].,;:!?)'\]*_\u001b])/g;
+  /(?<!\]\()(https?:\/\/[^\s<>"{}|\\^`[\]\u001b]+[^\s<>"{}|\\^`[\].,;:!?)'\]\u001b]|www\.[^\s<>"{}|\\^`[\]\u001b]+[^\s<>"{}|\\^`[\].,;:!?)'\]\u001b])/g;
 /** Matches fenced code blocks. Anchored to line boundaries so inline triple-backticks are not extracted. */
 const CODE_BLOCK_EXTRACT_REGEX = /^[ \t]*```[\s\S]*?^[ \t]*```/gm;
 const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;
@@ -346,13 +346,26 @@ export function formatHorizontalRules(text: string, terminalWidth: number = 80):
 }
 
 /**
+ * Strip trailing markdown bold/italic delimiters (** and __) from a URL.
+ * Used when the bare-URL regex captures delimiter chars (e.g. **url**).
+ */
+function stripTrailingMarkdownDelimiters(s: string): string {
+  return s.replace(/(\*{2}|_{2})+$/, "");
+}
+
+/**
  * Format bare URLs as clickable OSC 8 terminal hyperlinks.
+ * Strips trailing markdown bold delimiters (asterisk-pairs and underscore-pairs)
+ * from the matched URL so markdown-wrapped links open correctly, while
+ * preserving underscore and asterisk inside legitimate URLs.
+ *
  * @param styleFn - styling function for the displayed text
  */
 function formatBareUrlsImpl(text: string, styleFn: (text: string) => string): string {
   return text.replace(BARE_URL_REGEX, (match: string) => {
-    const url = match.startsWith("www.") ? `https://${match}` : match;
-    return terminalHyperlink(styleFn(match), url);
+    const cleanUrl = stripTrailingMarkdownDelimiters(match);
+    const url = cleanUrl.startsWith("www.") ? `https://${cleanUrl}` : cleanUrl;
+    return terminalHyperlink(styleFn(cleanUrl), url);
   });
 }
 
