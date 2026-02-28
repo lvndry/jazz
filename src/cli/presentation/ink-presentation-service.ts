@@ -33,12 +33,10 @@ import {
   formatToolsDetectedEffect,
 } from "./format-utils";
 import {
-  formatForTerminal,
   formatMarkdown,
   formatMarkdownHybrid,
   wrapToWidth,
   getTerminalWidth,
-  padLines,
 } from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/store";
@@ -169,6 +167,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
         }
         if (event.type === "thinking_complete") {
           this.flushReasoningBuffer(true);
+          // Add visual separation between reasoning block and main response.
+          store.printOutput({
+            type: "streamContent",
+            message: "\n",
+            timestamp: new Date(),
+          });
         }
       }
 
@@ -292,9 +296,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     if (wasStreaming) {
       // Print the full formatted response as a single Static entry.
+      // No padding/wrapping baked in — handled by Ink paddingLeft on the Box.
       store.printOutput({
         type: "streamContent",
-        message: padLines(formattedFull, 2),
+        message: formattedFull,
         timestamp: new Date(),
       });
     } else {
@@ -369,10 +374,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   private startReasoningStream(): void {
     if (this.reasoningHeaderPrinted) return;
-    const header = chalk.dim(chalk.italic("▸ Reasoning"));
     store.printOutput({
       type: "streamContent",
-      message: formatForTerminal(header, { padding: 2 }),
+      message: chalk.dim(chalk.italic("▸ Reasoning")),
       timestamp: new Date(),
     });
     this.reasoningHeaderPrinted = true;
@@ -409,16 +413,17 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   private emitStreamText(text: string): void {
-    const formattedDelta = this.formatStreamingDelta(text);
-    if (formattedDelta.length === 0) return;
-    const padding = 4;
-    // Match Ink layout: App paddingX=3 (6 total) + baked left padding.
+    // Accumulate raw text, format the FULL accumulated output, then diff
+    // against the previous formatted output.  No pre-wrapping — the terminal
+    // handles line wrapping natively so text reflows on resize.
+    this.streamRaw += text;
+    const formatted = this.formatStreamingAccumulated(this.streamRaw);
+    const delta = this.getFormattedDelta(this.streamFormatted, formatted);
+    this.streamFormatted = formatted;
+    if (delta.length === 0) return;
     store.printOutput({
       type: "streamContent",
-      message: formatForTerminal(formattedDelta, {
-        padding,
-        availableWidth: getTerminalWidth() - (6 + padding),
-      }),
+      message: delta,
       timestamp: new Date(),
     });
     this.hasStreamedText = true;
@@ -426,16 +431,16 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   private emitReasoningText(text: string): void {
     if (!text) return;
-    const formattedDelta = this.formatReasoningDelta(text);
-    if (formattedDelta.length === 0) return;
-    const padding = 4;
-    // Match Ink layout: App paddingX=3 (6 total) + baked left padding.
+    // Same approach as emitStreamText: format the full accumulated reasoning
+    // text, diff, and emit.  No pre-wrapping — terminal handles reflow.
+    this.reasoningRaw += text;
+    const formatted = this.formatReasoningAccumulated(this.reasoningRaw);
+    const delta = this.getFormattedDelta(this.reasoningFormatted, formatted);
+    this.reasoningFormatted = formatted;
+    if (delta.length === 0) return;
     store.printOutput({
       type: "streamContent",
-      message: formatForTerminal(chalk.dim(formattedDelta), {
-        padding,
-        availableWidth: getTerminalWidth() - (6 + padding),
-      }),
+      message: chalk.dim(delta),
       timestamp: new Date(),
     });
   }
@@ -475,22 +480,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
       return formatMarkdownHybrid(text);
     }
     return text;
-  }
-
-  private formatStreamingDelta(text: string): string {
-    this.streamRaw += text;
-    const nextFormatted = this.formatStreamingAccumulated(this.streamRaw);
-    const delta = this.getFormattedDelta(this.streamFormatted, nextFormatted);
-    this.streamFormatted = nextFormatted;
-    return delta;
-  }
-
-  private formatReasoningDelta(text: string): string {
-    this.reasoningRaw += text;
-    const nextFormatted = this.formatReasoningAccumulated(this.reasoningRaw);
-    const delta = this.getFormattedDelta(this.reasoningFormatted, nextFormatted);
-    this.reasoningFormatted = nextFormatted;
-    return delta;
   }
 
   /** Print token usage metrics. */
@@ -668,42 +657,37 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   /**
-   * Format markdown and pre-wrap at terminal width for streaming response text.
+   * Format markdown content without pre-wrapping.
    *
-   * Pre-wrapping ensures correct line breaks regardless of Ink/Yoga's width.
-   * Streaming response text renders inside App paddingX=3 (6 chars) with
-   * padLines(2) applied downstream = 8 chars total horizontal padding.
-   *
-   * Always uses stateless formatting — same code path for streaming and completion.
+   * No width-based wrapping is applied — the terminal handles line wrapping
+   * natively so text reflows correctly on resize.  Ink's paddingLeft on the
+   * output Box provides consistent left indentation.
    */
   private formatMarkdown(text: string): string {
-    // Pre-wrap to bypass Ink/Yoga layout bugs with live area text wrapping.
-    // 8 = App paddingX=3 (6) + padLines(2) baked in downstream.
-    return this.formatMarkdownAtWidth(text, getTerminalWidth() - 8);
+    return this.formatMarkdownContent(text);
   }
 
   /**
-   * Format markdown and pre-wrap at terminal width for reasoning text.
+   * Format markdown and pre-wrap at terminal width for live-area reasoning.
    *
-   * Reasoning is displayed in the thinking-phase Box hierarchy:
-   *   App paddingX=3 (6) + thinking Box paddingX=2 (4) + reasoning Box paddingLeft=1 (1) = 11
-   * Using the correct width prevents Ink from double-wrapping pre-wrapped lines.
+   * The live area is re-rendered frequently by Ink/Yoga, which can miscalculate
+   * available width. Pre-wrapping avoids that bug. The Box hierarchy is:
+   *   App paddingX=3 (6) + thinking paddingX=2 (4) + reasoning paddingLeft=1 (1) = 11
    */
   private formatReasoningText(text: string): string {
-    // 11 = App(6) + thinking paddingX=2(4) + reasoning paddingLeft=1(1)
-    return this.formatMarkdownAtWidth(text, getTerminalWidth() - 11);
+    const formatted = this.formatMarkdownContent(text);
+    return wrapToWidth(formatted, getTerminalWidth() - 11);
   }
 
-  private formatMarkdownAtWidth(text: string, availableWidth: number): string {
-    let formatted: string;
+  /** Apply markdown formatting based on display mode (no wrapping). */
+  private formatMarkdownContent(text: string): string {
     if (this.displayConfig.mode === "rendered") {
-      formatted = formatMarkdown(text);
-    } else if (this.displayConfig.mode === "hybrid") {
-      formatted = formatMarkdownHybrid(text);
-    } else {
-      formatted = text;
+      return formatMarkdown(text);
     }
-    return wrapToWidth(formatted, availableWidth);
+    if (this.displayConfig.mode === "hybrid") {
+      return formatMarkdownHybrid(text);
+    }
+    return text;
   }
 }
 
@@ -746,18 +730,15 @@ class InkPresentationService implements PresentationService {
     private readonly notificationService: NotificationService | null,
   ) {}
 
-  /** Format markdown using the display mode from config, pre-wrapped to terminal width. */
+  /** Format markdown using the display mode from config. No pre-wrapping. */
   private formatMarkdownText(text: string): string {
-    let formatted: string;
     if (this.displayConfig.mode === "rendered") {
-      formatted = formatMarkdown(text);
-    } else if (this.displayConfig.mode === "hybrid") {
-      formatted = formatMarkdownHybrid(text);
-    } else {
-      formatted = text;
+      return formatMarkdown(text);
     }
-    const available = getTerminalWidth() - 12;
-    return wrapToWidth(formatted, available);
+    if (this.displayConfig.mode === "hybrid") {
+      return formatMarkdownHybrid(text);
+    }
+    return text;
   }
 
   presentThinking(agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {
@@ -1085,7 +1066,7 @@ class InkPresentationService implements PresentationService {
           const rawMsg = `${followUpMessage} ${CHALK_THEME.success(userMessage)}`;
           store.printOutput({
             type: "log",
-            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
+            message: rawMsg,
             timestamp: new Date(),
           });
         }
@@ -1154,10 +1135,7 @@ class InkPresentationService implements PresentationService {
     });
     store.printOutput({
       type: "log",
-      message: wrapToWidth(
-        `${CHALK_THEME.primary("❓")} ${chalk.bold(request.question)}`,
-        getTerminalWidth() - 8,
-      ),
+      message: `${CHALK_THEME.primary("❓")} ${chalk.bold(request.question)}`,
       timestamp: new Date(),
     });
     store.printOutput({
@@ -1178,10 +1156,9 @@ class InkPresentationService implements PresentationService {
       resolve: (value: unknown) => {
         const response = String(value);
         const rawMessage = `${chalk.dim("Your response:")} ${CHALK_THEME.success(response)}`;
-        const available = getTerminalWidth() - 8;
         store.printOutput({
           type: "log",
-          message: wrapToWidth(rawMessage, available),
+          message: rawMessage,
           timestamp: new Date(),
         });
         store.setPrompt(null);
@@ -1232,7 +1209,7 @@ class InkPresentationService implements PresentationService {
           const rawMsg = `${chalk.dim("Selected:")} ${CHALK_THEME.success(selectedPath)}`;
           store.printOutput({
             type: "log",
-            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
+            message: rawMsg,
             timestamp: new Date(),
           });
           store.setPrompt(null);
