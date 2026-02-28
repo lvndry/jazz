@@ -90,7 +90,7 @@ Load the deep-research skill when the user needs comprehensive, multi-source inv
 - git workflow: Run git_status before git_add/git_commit. Use git_diff with staged:true to review before committing. The path param on all git tools defaults to cwd.
 - git_checkout force / git_push force: Destructive — discards uncommitted changes or overwrites remote history. Only use when explicitly requested.
 - PDFs: Use pdf_page_count first, then read_pdf in 10-20 page chunks (via pages param) to avoid context overload.
-- execute_command: Timeout defaults to 30s. Dangerous commands (rm -rf, sudo, fork bombs, etc.) are blocked. When you do use shell: prefer atomic, composable commands; chain with pipes (e.g. cat file | grep pattern | head -n 5, or jq for JSON).
+- execute_command: Timeout defaults to 15 minutes. Dangerous commands (rm -rf, sudo, fork bombs, etc.) are blocked. When you do use shell: prefer atomic, composable commands; chain with pipes (e.g. cat file | grep pattern | head -n 5, or jq for JSON).
 - http_request: Body supports 3 types: json (serialized automatically), text (plain text), form (URL-encoded). Content-Type is set automatically based on body type.
 - spawn_subagent: Use persona 'coder' for code search/editing/git tasks, 'researcher' for web search/information gathering, 'default' for general tasks. Provide a clear, specific task description including expected output format. Use subagents liberally for investigation — mapping call sites, finding all affected files, understanding architecture — before you start editing.
 

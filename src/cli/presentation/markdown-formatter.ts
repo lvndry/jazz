@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import chalk from "chalk";
 import { emojify } from "node-emoji";
 import wrapAnsi from "wrap-ansi";
-import { codeColor, CHALK_THEME } from "../ui/theme";
+import { codeColor, CHALK_THEME, PADDING_BUDGET } from "../ui/theme";
 
 /**
  * Shared markdown formatting utilities for terminal output.
@@ -203,7 +203,7 @@ export function getTerminalWidth(): number {
  * Use this before passing text to TerminalText for consistent rendering.
  *
  * @param text - Raw or ANSI-formatted text
- * @param options.availableWidth - Width for wrapping (default: terminal width - 8)
+ * @param options.availableWidth - Width for wrapping (default: terminal width - PADDING_BUDGET)
  * @param options.padding - Leading spaces per line (default: 0)
  */
 export function formatForTerminal(
@@ -211,7 +211,7 @@ export function formatForTerminal(
   options?: { availableWidth?: number; padding?: number },
 ): string {
   if (!text || text.length === 0) return text;
-  const width = options?.availableWidth ?? getTerminalWidth() - 8;
+  const width = options?.availableWidth ?? getTerminalWidth() - PADDING_BUDGET;
   const wrapped = wrapToWidth(text, width);
   const padding = options?.padding ?? 0;
   return padding > 0 ? padLines(wrapped, padding) : wrapped;

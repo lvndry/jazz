@@ -114,7 +114,7 @@ export function WizardHome({
         <Gradient name="morning">
           <BigText
             text="Jazz"
-            font="tiny"
+            font="block"
           />
         </Gradient>
         <Text dimColor>v{packageJson.version} • Agentic CLI 🎷</Text>

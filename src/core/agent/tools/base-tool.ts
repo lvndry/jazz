@@ -201,6 +201,11 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
   ) => Effect.Effect<ToolExecutionResult, Error, R>;
   /** Optional summary generator */
   readonly createSummary?: (result: ToolExecutionResult) => string | undefined;
+  /**
+   * Custom timeout in milliseconds for the execution tool.
+   * Overrides the default 3-minute executor timeout.
+   */
+  readonly timeoutMs?: number;
 }
 
 /**
@@ -290,6 +295,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     validate: validator,
     handler: config.handler,
     ...(config.createSummary ? { createSummary: config.createSummary } : {}),
+    ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
   });
 
   return {

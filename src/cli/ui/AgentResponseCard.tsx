@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import React from "react";
 import { TerminalText } from "./components/TerminalText";
-import { THEME } from "./theme";
+import { PADDING, THEME } from "./theme";
 
 /**
  * AgentResponseCard displays the agent's response with a minimal header design.
@@ -18,7 +18,7 @@ export function AgentResponseCard({
     <Box
       flexDirection="column"
       marginTop={1}
-      paddingX={2}
+      paddingX={PADDING.content}
     >
       {/* Minimal header with status indicator */}
       <Box>
@@ -41,7 +41,7 @@ export function AgentResponseCard({
       {/* Content area - no borders for easy copying */}
       <Box
         marginTop={1}
-        paddingLeft={2}
+        paddingLeft={PADDING.content}
       >
         {/* Do NOT force a color here; allow ANSI styling (chalk/marked-terminal) to render. */}
         <TerminalText>{content}</TerminalText>

@@ -8,6 +8,7 @@ import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { store } from "./store";
+import { PADDING } from "./theme";
 import type { OutputEntryWithId, PromptState } from "./types";
 import { InputPriority, InputResults } from "../services/input-service";
 
@@ -287,7 +288,7 @@ export function App(): React.ReactElement {
         {/* Main Chat Area */}
         <Box
           flexDirection="column"
-          paddingX={3}
+          paddingX={PADDING.page}
           marginTop={1}
         >
           {/* Output entries - Isolated state, cleared on terminal.clear() */}
@@ -302,7 +303,7 @@ export function App(): React.ReactElement {
 
           {/* Escape interrupt hint - shown after first Esc during generation */}
           {showEscapeHint && (
-            <Box paddingX={2}>
+            <Box paddingX={PADDING.content}>
               <Text color="red">Press Esc again to interrupt generation</Text>
             </Box>
           )}

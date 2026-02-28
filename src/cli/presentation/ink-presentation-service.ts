@@ -40,7 +40,7 @@ import {
 } from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/store";
-import { CHALK_THEME, THEME } from "../ui/theme";
+import { CHALK_THEME, PADDING, PADDING_BUDGET, THEME } from "../ui/theme";
 
 /**
  * Bridges the pure activity reducer with Ink's rendering system.
@@ -198,8 +198,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
       // Run the pure reducer.
       // Reasoning text uses a narrower pre-wrap width to match its display
-      // container (thinking Box paddingX=2 + reasoning Box paddingLeft=1 = 5
-      // extra on top of App paddingX=3, total 11 chars of horizontal padding).
+      // container. Uses PADDING_BUDGET from theme.ts for consistency.
       const result = reduceEvent(this.acc, event, (text) => this.formatReasoningText(text), ink);
 
       // Flush output side-effects immediately
@@ -671,12 +670,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * Format markdown and pre-wrap at terminal width for live-area reasoning.
    *
    * The live area is re-rendered frequently by Ink/Yoga, which can miscalculate
-   * available width. Pre-wrapping avoids that bug. The Box hierarchy is:
-   *   App paddingX=3 (6) + thinking paddingX=2 (4) + reasoning paddingLeft=1 (1) = 11
+   * available width. Pre-wrapping avoids that bug. Uses PADDING constants
+   * from theme.ts: page×2 + content + content (reasoning) = total budget.
    */
   private formatReasoningText(text: string): string {
     const formatted = this.formatMarkdownContent(text);
-    return wrapToWidth(formatted, getTerminalWidth() - 11);
+    const reasoningBudget = PADDING_BUDGET + PADDING.content;
+    return wrapToWidth(formatted, getTerminalWidth() - reasoningBudget);
   }
 
   /** Apply markdown formatting based on display mode (no wrapping). */
@@ -949,7 +949,7 @@ class InkPresentationService implements PresentationService {
         flexDirection: "column",
         borderStyle: "round",
         borderColor: "yellow",
-        paddingX: 2,
+        paddingX: PADDING.content,
         paddingY: 1,
         marginTop: 1,
       },

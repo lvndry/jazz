@@ -84,7 +84,7 @@ const executeCommandParameters = z
       .min(1, "description cannot be empty")
       .describe("Human-readable explanation of what the command will do"),
     workingDirectory: z.string().optional().describe("Working directory (defaults to cwd)"),
-    timeout: z.number().int().positive().optional().describe("Timeout in ms (default: 30000)"),
+    timeout: z.number().int().positive().optional().describe("Timeout in ms (default: 900000 = 15 min)"),
   })
   .strict();
 
@@ -105,6 +105,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
     name: "execute_command",
     description: "Execute a shell command. Use only when no dedicated tool exists.",
     tags: ["shell", "execution"],
+    timeoutMs: 15 * 60 * 1000, // 15 minutes — executor cap so long-running commands can complete
     parameters: executeCommandParameters,
     validate: (args) => {
       const result = executeCommandParameters.safeParse(args);
@@ -122,7 +123,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
         });
 
         const workingDir = args.workingDirectory || cwd;
-        const timeout = args.timeout || 30_000;
+        const timeout = args.timeout || 900_000; // 15 minutes
         const description = args.description.trim();
 
         return `Command: ${args.command}
@@ -145,7 +146,7 @@ This command will be executed on your system. Only approve commands you trust.`;
         const workingDir = args.workingDirectory
           ? yield* shell.resolvePath(key, args.workingDirectory)
           : yield* shell.getCwd(key);
-        const timeout = args.timeout || 30_000;
+        const timeout = args.timeout || 900_000; // 15 minutes
 
         // Basic safety checks
         const command = args.command.trim();

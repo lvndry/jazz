@@ -2,21 +2,24 @@
  * TerminalOutputAdapter — encapsulates Ink Static/live tier logic.
  *
  * Centralizes:
- * - Two-tier rendering: Static (append-only scrollback) + live (current turn)
- * - Turn-based promotion: when a new "user" entry arrives, all previous
- *   live entries are promoted to Static (frozen, no longer re-laid-out)
+ * - Two-tier rendering: Static (append-only scrollback) + live (last N entries)
+ * - LIVE_TAIL_SIZE promotion from live to Static
  * - staticGeneration key on <Static> to reset on clear (ensures correct layout)
- *
- * This keeps the entire last response in the live area so it stays responsive
- * to terminal resize (Ink/Yoga re-layout on each frame). Once the user sends
- * a new message, the previous turn is frozen into Static where the terminal's
- * native soft-wrap handles any future resize.
  *
  * Future Ink migrations touch this file only.
  */
 
 import { useCallback, useRef, useState } from "react";
 import type { OutputEntry, OutputEntryWithId } from "../types";
+
+/**
+ * Maximum entries kept in the live (non-Static) React tree.
+ *
+ * Ink re-runs Yoga layout over every node in the live area on each render
+ * frame. Keeping this small ensures layout stays O(1) regardless of
+ * conversation length. Entries beyond this are promoted to Static.
+ */
+export const LIVE_TAIL_SIZE = 15;
 
 export interface TerminalOutputState {
   readonly liveEntries: OutputEntryWithId[];
@@ -53,15 +56,14 @@ function processEntries(
   let newStaticEntries = prev.staticEntries;
 
   for (const entry of entries) {
-    // A "user" entry marks the start of a new turn.
-    // Promote everything currently in live to static so the previous
-    // turn is frozen and the new turn starts fresh in the live area.
-    if (entry.type === "user" && newLive.length > 0) {
-      newStaticEntries = [...newStaticEntries, ...newLive];
-      newLive = [];
-    }
-
     newLive = [...newLive, entry];
+
+    if (newLive.length > LIVE_TAIL_SIZE) {
+      const overflow = newLive.length - LIVE_TAIL_SIZE;
+      const promoted = newLive.slice(0, overflow);
+      newLive = newLive.slice(overflow);
+      newStaticEntries = [...newStaticEntries, ...promoted];
+    }
   }
 
   return {

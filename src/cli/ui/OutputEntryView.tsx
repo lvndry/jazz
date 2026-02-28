@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import React from "react";
-import { THEME } from "./theme";
+import { PADDING, THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
 
 // Pre-created icon elements to avoid creating new React elements on every render
@@ -53,7 +53,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
       <Box
         marginTop={0}
         marginBottom={0}
-        paddingLeft={2}
+        paddingLeft={PADDING.content}
       >
         <Text>{entry.message as string}</Text>
       </Box>

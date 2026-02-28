@@ -28,6 +28,38 @@ export const THEME = {
 } as const;
 
 /**
+ * Unified spacing constants for the Jazz CLI.
+ *
+ * Single source of truth for all padding/indentation used in Ink components.
+ * Every Box that adds horizontal padding should reference these values so the
+ * whole UI has consistent left-alignment.
+ *
+ * Layout hierarchy (left side):
+ *   App paddingX = page (2)       → 2 chars left
+ *     content paddingLeft = content (2) → +2 chars (tool calls, activity, stream text)
+ *       nested paddingLeft = nested (4) → +2 more (multi-line tool results, todo lists)
+ *
+ * Total horizontal padding budget:
+ *   page×2 = 4 chars (both sides from App)
+ *   + content = 2 chars (left, inner content)
+ *   = 6 chars on the left for most content
+ */
+export const PADDING = {
+  /** Outer page padding (paddingX on the main App container) */
+  page: 2,
+  /** Content-level left indent (tool calls, stream text, activity phases) */
+  content: 2,
+  /** Deeply nested content (todo snapshots, multi-line tool results) */
+  nested: 4,
+} as const;
+
+/**
+ * Total horizontal chars consumed by padding, for pre-wrap width calculations.
+ * = page×2 (both sides) + content (left only)
+ */
+export const PADDING_BUDGET = PADDING.page * 2 + PADDING.content;
+
+/**
  * Chalk function for code/codespan colouring.
  * Adapts to the terminal's colour depth automatically.
  */
