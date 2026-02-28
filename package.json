@@ -1,6 +1,6 @@
 {
   "name": "jazz-ai",
-  "version": "0.9.12",
+  "version": "0.9.13",
   "description": "Create autonomous AI agents that actually execute tasks—read emails, manage git, run commands, search the web, and orchestrate workflows through natural conversation",
   "license": "MIT",
   "main": "dist/main.js",
