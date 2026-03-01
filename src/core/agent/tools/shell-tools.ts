@@ -84,7 +84,12 @@ const executeCommandParameters = z
       .min(1, "description cannot be empty")
       .describe("Human-readable explanation of what the command will do"),
     workingDirectory: z.string().optional().describe("Working directory (defaults to cwd)"),
-    timeout: z.number().int().positive().optional().describe("Timeout in ms (default: 900000 = 15 min)"),
+    timeout: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Timeout in ms (default: 900000 = 15 min)"),
   })
   .strict();
 
