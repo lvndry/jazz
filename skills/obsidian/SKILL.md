@@ -1,73 +1,194 @@
 ---
 name: obsidian
-description: "Operate Obsidian via obsidian-cli to create rich, visual notes with LaTeX, images, colors, callouts, and canvases. Use Obsidian's full potential to embed images, format with markdown, create colored canvas nodes, diagrams, and leverage advanced features. Use when the user mentions Obsidian, obsidian-cli, vaults, notes, or wants rich documentation."
+description: "Use the official Obsidian CLI (v1.12+) to manage vaults, notes, daily notes, search, tasks, tags, properties, links, templates, sync, publish, and workspaces. Use when the user mentions Obsidian, vaults, notes, or wants to automate note-taking and knowledge base workflows."
 ---
 
-# Obsidian CLI
+# Obsidian CLI (Official)
 
-Use `obsidian-cli` (Yakitrak) to manage notes and vaults.
+Use the **official Obsidian CLI** ([help.obsidian.md/cli](https://help.obsidian.md/cli)) to control Obsidian from the terminal. The CLI connects to a running Obsidian instance via IPC.
 
 ## When to Use
 
-- User asks about Obsidian.
-- User wants to manage notes (open, search, create, move, delete).
-- User wants rich documentation with LaTeX, callouts, or diagrams.
-- User asks for canvases, diagrams or `.canvas` files.
+- User asks about Obsidian or vaults.
+- User wants to manage notes (open, create, read, append, move, delete).
+- User wants daily notes, search, tasks, tags, or properties.
+- User wants to automate templates, sync, publish, or workspaces.
+- User asks for rich documentation with LaTeX, callouts, or diagrams (create content with Obsidian-flavored markdown).
 
-## Core Philosophy: User-Driven Design
+## Prerequisites
 
-**Ask the user for their preferences** before creating complex structures. While you can create rich, visual notes, always check if they have specific requirements for:
+- **Obsidian 1.12+** installed and **running**
+- CLI enabled: **Settings → General → Command line interface**
+- The `obsidian` binary in your PATH
 
-- **Depth**: Quick summary vs. exhaustive guide.
-- **Visuals**: Do they want images, LaTeX, or Mermaid diagrams?
-- **Organization**: Should it be a single note, a folder structure, slides or a Canvas?
+**Important:** The CLI talks to the running app via IPC. Obsidian must be open for commands to work.
 
-## Quick Start
+### Platform Notes
 
-1. **Vault Management**:
-   - `obsidian-cli set-default "VaultName"` — switch default vault (use before writing when not in the right vault).
-   - `obsidian-cli print-default --path-only` — show current default (use to verify vault before writing).
-2. **Note Operations**:
-   - `obsidian-cli create "Note.md" --content "Content"`
-   - `obsidian-cli open "Note.md"`
-   - `obsidian-cli search-content "term"`
-   - `obsidian-cli fm "Note.md" --edit --key "status" --value "done"`
-3. **CLI Help and commands**
+- **macOS/Windows:** Installer usually adds the CLI to PATH.
+- **Linux:** You may need a wrapper so Electron flags don’t break CLI args; ensure IPC socket is available (e.g. `PrivateTmp=false` for systemd).
 
-- `obsidian-cli --help`
-- `obsidian-cli [command] --help`
+## Command Overview (from official docs)
+
+Syntax: `obsidian [vault=Name] <command> [params]`. Use `param=value`; quote values with spaces. Use `vault=` as the **first** parameter to target a vault.
+
+### General
+
+```bash
+obsidian help                    # List commands or help for a command
+obsidian version                 # Obsidian version
+obsidian reload                  # Reload the app window
+obsidian restart                 # Restart the app
+```
+
+### Vault
+
+```bash
+obsidian vault                   # Current vault info (name, path, files, size)
+obsidian vault info=name         # Vault name only
+obsidian vault info=path         # Vault path only
+obsidian vaults                  # List known vaults (desktop)
+obsidian vault=MyVault <cmd>     # Run command in vault MyVault (must be first)
+```
+
+### Files and Folders
+
+```bash
+obsidian read file=Recipe                # Read by name (wikilink resolution)
+obsidian read path="Work/notes.md"       # Read by exact path
+obsidian file file=Recipe               # File info (path, size, dates)
+obsidian create name=Note content="Hi"   # Create note with content
+obsidian create name=Note template=Travel   # Create from template
+obsidian create path="Work/note.md" content="text"  # Create at path
+obsidian create name=Note overwrite     # Overwrite if exists
+obsidian open file=Recipe               # Open in Obsidian
+obsidian open file=Recipe newtab        # Open in new tab
+obsidian append file=Log content="Line" # Append to file
+obsidian prepend file=Log content="# H"  # Prepend (after frontmatter)
+obsidian move file=Old to="Archive/Old.md"  # Move/rename (include .md)
+obsidian delete file=Old                # Delete to trash
+obsidian delete file=Old permanent      # Delete permanently
+obsidian files total                    # File count
+obsidian files folder="Work" ext=md     # Filter by folder/extension
+obsidian folders                        # List folders
+obsidian folder path="Work" info=size   # Folder size
+```
+
+### Daily Notes
+
+```bash
+obsidian daily                      # Open today's daily note
+obsidian daily silent               # Open without focusing
+obsidian daily:read                 # Read daily note contents
+obsidian daily:path                 # Get daily note path
+obsidian daily:append content="- [ ] Task"
+obsidian daily:prepend content="# Header"
+```
+
+### Search
+
+```bash
+obsidian search query="meeting notes"
+obsidian search query="TODO" matches    # With context
+obsidian search query="x" path="Work" limit=10
+obsidian search:open query="TODO"       # Open search in app
+```
+
+### Tasks
+
+```bash
+obsidian tasks daily                  # Tasks in daily note
+obsidian tasks daily todo             # Incomplete
+obsidian tasks all todo               # All incomplete in vault
+obsidian task daily line=3 toggle     # Toggle completion
+obsidian task daily line=3 done       # Mark done
+obsidian task ref="path/to.md:5" toggle
+```
+
+### Tags and Properties
+
+```bash
+obsidian tags all counts
+obsidian tags file=Note
+obsidian tag name=project total
+obsidian properties file=Note
+obsidian property:read name=status file=Note
+obsidian property:set name=status value=done file=Note
+obsidian property:remove name=status file=Note
+obsidian aliases
+```
+
+### Links and Outline
+
+```bash
+obsidian backlinks file=Note
+obsidian links file=Note
+obsidian unresolved
+obsidian orphans
+obsidian deadends
+obsidian outline file=Note
+```
+
+### Templates
+
+```bash
+obsidian templates
+obsidian template:read name=Daily
+obsidian template:read name=Daily resolve title="My Note"
+obsidian template:insert name=Daily    # Into active file
+```
+
+### History and Sync
+
+```bash
+obsidian history file=Note
+obsidian history:list
+obsidian history:read file=Note version=3
+obsidian history:restore file=Note version=3
+obsidian diff file=Note from=1 to=3
+obsidian sync:status
+obsidian sync:history file=Note
+obsidian sync:restore file=Note version=2
+```
+
+### Other
+
+```bash
+obsidian random
+obsidian random:read
+obsidian wordcount file=Note
+obsidian bookmarks
+obsidian bookmark file="note.md" title="My Note"
+obsidian bases
+obsidian base:query file=MyBase format=json
+obsidian workspace:save name="coding"
+obsidian workspace:load name="coding"
+obsidian plugins
+obsidian plugin:enable id=dataview
+obsidian theme:set name="Minimal"
+obsidian publish:add file=Note
+obsidian web url="https://example.com"
+```
 
 ## Best Practices
 
-1. **Vault First**: Before any operation, check current vault with `print-default`; if wrong, run `obsidian-cli set-default "VaultName"` then proceed.
-2. **Ask First & Plan**: Before writing files, ask the user for their preferences regarding **tone**, **structure**, and **verbosity**. Propose a brief plan or preview of the note's structure.
-3. **Visual & Rich Content**: Ask the user if they want diagrams (Mermaid), LaTeX, or callouts. Proactively search for relevant, high-quality online images if they would make the note more useful and complete.
-4. **Smart Verbosity**: Decide on a verbosity level based on the context, but explicitly ask the user if the scope or level of detail is unclear.
-5. **Canvas Design**: Use colors strategically: "1" (Red/Urgent), "3" (Yellow/Idea), "4" (Green/Done), "5" (Blue/Info).
-6. **Metadata & Organization**: Always include YAML frontmatter for tags, status, and dates to ensure the note is discoverable and organized.
-7. **Rich & Complete**: Aim for high-quality, professional results that leverage Obsidian's full potential to be a "second brain" for the user.
+1. **Vault:** Always precise `vault=Name`. If CWD is inside a vault, that vault is used; otherwise confirm vault to use.
+2. **Ask first:** For big or structured notes, confirm depth, visuals (images, LaTeX, Mermaid), and organization (single note, folder, canvas).
+3. **File vs path:** `file=` uses wikilink-style resolution (name only). Use `path=` for an exact path from vault root.
+4. **Quoting:** Use quotes for values with spaces: `content="Hello world"`.
+5. **Rich content:** Use [Obsidian Advanced Syntax](https://help.obsidian.md/advanced-syntax) and [Obsidian Flavored Markdown](https://help.obsidian.md/obsidian-flavored-markdown) for callouts, LaTeX, Mermaid. Add YAML frontmatter (tags, status, dates) for discoverability.
+6. **Canvas:** For `.canvas` files, use colors "1"–"6" as strings; text nodes support full markdown. See `references/canvas-format.md` for structure.
 
-## Vault: Check Before Any Operation
+## Troubleshooting
 
-**Always verify you are in the correct vault before any operation.**
+- **"Cannot connect"**: Obsidian must be running and CLI enabled in Settings → General.
+- **"Command not found"**: Ensure `obsidian` is in PATH.
+- **Linux:** Use a wrapper that doesn’t inject Electron flags; for systemd, set `PrivateTmp=false` so IPC works.
 
-1. **Before any operation** (create, open, search, edit, move, delete, fm, etc.): check the current default vault with `obsidian-cli print-default --path-only` (or without `--path-only` to see the vault name).
-2. **If the target vault differs** from the user's intended vault: switch with `obsidian-cli set-default "VaultName"` (use the exact vault name the user wants).
-3. **Then** run the operation.
+## References
 
-Never assume the CLI is already on the right vault. If the user specified a vault or you infer one from context, confirm it matches the default and call `set-default` when it does not.
-
-## Technical Constraints
-
-- Paths are relative to vault root.
-- Use quotes for filenames with spaces.
-- Text nodes in canvas support full markdown.
-- Canvas colors are strings "1" through "6".
-- Don't add comments in .canvas files
-
-## Additional Resources
-
-- [Obsidian Advanced Syntax](https://help.obsidian.md/advanced-syntax) - Official guide for callouts, highlights, and more.
-- [Obsidian Flavored Markdown](https://help.obsidian.md/obsidian-flavored-markdown) - Official documentation for Mermaid, MathJax (LaTeX), and embeds.
-- For detailed Canvas JSON structure, see [references/canvas-format.md](references/canvas-format.md)
-- For advanced Markdown features (LaTeX, Callouts, Mermaid), see [references/markdown-features.md](references/markdown-features.md)
+- [Obsidian CLI](https://help.obsidian.md/cli) — Official CLI docs
+- [Obsidian Advanced Syntax](https://help.obsidian.md/advanced-syntax)
+- [Obsidian Flavored Markdown](https://help.obsidian.md/obsidian-flavored-markdown)
+- [references/canvas-format.md](references/canvas-format.md) — Canvas JSON
+- [references/markdown-features.md](references/markdown-features.md) — LaTeX, callouts, Mermaid
