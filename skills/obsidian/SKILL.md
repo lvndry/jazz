@@ -172,7 +172,7 @@ obsidian web url="https://example.com"
 
 ## Best Practices
 
-1. **Vault:** Always precise `vault=Name`. If CWD is inside a vault, that vault is used; otherwise confirm vault to use.
+1. **Vault:** Always specify `vault=Name`. If CWD is inside a vault, that vault is used; otherwise confirm vault to use.
 2. **Ask first:** For big or structured notes, confirm depth, visuals (images, LaTeX, Mermaid), and organization (single note, folder, canvas).
 3. **File vs path:** `file=` uses wikilink-style resolution (name only). Use `path=` for an exact path from vault root.
 4. **Quoting:** Use quotes for values with spaces: `content="Hello world"`.

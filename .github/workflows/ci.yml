@@ -3,7 +3,25 @@ name: CI
 on:
   push:
     branches: ["main"]
+    paths:
+      - "src/**"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig*"
+      - ".prettierrc*"
+      - "eslint.config.*"
+      - ".eslintrc*"
+      - ".github/workflows/ci.yml"
   pull_request:
+    paths:
+      - "src/**"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig*"
+      - ".prettierrc*"
+      - "eslint.config.*"
+      - ".eslintrc*"
+      - ".github/workflows/ci.yml"
 
 jobs:
   lint-and-build:
