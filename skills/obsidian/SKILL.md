@@ -3,7 +3,7 @@ name: obsidian
 description: "Use the official Obsidian CLI (v1.12+) to manage vaults, notes, daily notes, search, tasks, tags, properties, links, templates, sync, publish, and workspaces. Use when the user mentions Obsidian, vaults, notes, or wants to automate note-taking and knowledge base workflows."
 ---
 
-# Obsidian CLI (Official)
+# Obsidian CLI
 
 Use the **official Obsidian CLI** ([help.obsidian.md/cli](https://help.obsidian.md/cli)) to control Obsidian from the terminal. The CLI connects to a running Obsidian instance via IPC.
 
@@ -57,9 +57,9 @@ obsidian vault=MyVault <cmd>     # Run command in vault MyVault (must be first)
 obsidian read file=Recipe                # Read by name (wikilink resolution)
 obsidian read path="Work/notes.md"       # Read by exact path
 obsidian file file=Recipe               # File info (path, size, dates)
-obsidian create name=Note content="Hi"   # Create note with content
+obsidian create name=Note               # Create empty note (prefer path + write_file for content)
 obsidian create name=Note template=Travel   # Create from template
-obsidian create path="Work/note.md" content="text"  # Create at path
+obsidian create path="Work/note.md"     # Create empty at path
 obsidian create name=Note overwrite     # Overwrite if exists
 obsidian open file=Recipe               # Open in Obsidian
 obsidian open file=Recipe newtab        # Open in new tab
@@ -178,6 +178,19 @@ obsidian web url="https://example.com"
 4. **Quoting:** Use quotes for values with spaces: `content="Hello world"`.
 5. **Rich content:** Use [Obsidian Advanced Syntax](https://help.obsidian.md/advanced-syntax) and [Obsidian Flavored Markdown](https://help.obsidian.md/obsidian-flavored-markdown) for callouts, LaTeX, Mermaid. Add YAML frontmatter (tags, status, dates) for discoverability.
 6. **Canvas:** For `.canvas` files, use colors "1"–"6" as strings; text nodes support full markdown. See `references/canvas-format.md` for structure.
+
+### Writing note content: use path + write_file
+
+The CLI can create **empty** notes or notes with **very small** content via `create`, but for any real note content **always** use the CLI only to get the path, then write with **write_file**:
+
+1. **Get the full path** with the Obsidian CLI:
+   - Vault root: `obsidian vault info=path` (then join with your relative path, e.g. `Research/MyNote.md`).
+   - Daily note: `obsidian daily:path`.
+   - Existing note path: `obsidian file file=NoteName` (or build path from vault root).
+   - New note: `obsidian vault info=path` then `path_from_vault_root/NoteName.md`.
+2. **Write the content** using the **write_file** skill (or your environment’s file write tool) to that absolute path.
+
+Use `obsidian create name=Note` (no content) only when you need an empty file; for any content, get the path and use write_file. This avoids quoting/escaping, length limits, and fragile CLI argument handling.
 
 ## Troubleshooting
 
