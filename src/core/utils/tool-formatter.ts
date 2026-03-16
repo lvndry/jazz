@@ -334,6 +334,30 @@ export function formatToolResult(toolName: string, result: string): string {
     const obj = parsed as Record<string, unknown>;
 
     switch (toolName) {
+      case "read_pdf": {
+        const pageCount = obj["pageCount"];
+        const pagesExtracted = obj["pagesExtracted"];
+        const truncated = obj["truncated"];
+        const path = obj["path"];
+        const tables = obj["tables"];
+        const totalLines = obj["totalLines"];
+        let summaryParts: string[] = [];
+        if (path) summaryParts.push(`file: ${safeString(path)}`);
+        if (Array.isArray(pagesExtracted) && pagesExtracted.length > 0) {
+          summaryParts.push(`pages: ${pagesExtracted.join(", ")}`);
+        }
+        if (typeof pageCount === "number") {
+          summaryParts.push(`total: ${pageCount}`);
+        }
+        if (typeof totalLines === "number") {
+          summaryParts.push(`lines: ${totalLines}`);
+        }
+        if (Array.isArray(tables)) {
+          summaryParts.push(`tables: ${tables.length}`);
+        }
+        if (truncated) summaryParts.push(chalk.yellow("truncated"));
+        return summaryParts.length > 0 ? ` ${chalk.dim("(")}${summaryParts.join(", ")}${chalk.dim(")")}` : "";
+      }
       case "read_file": {
         const content = obj["content"];
         if (typeof content !== "string") return "";
