@@ -49,7 +49,7 @@ export const Layout = React.memo(function Layout({
           <Gradient name="morning">
             <BigText
               text="Jazz"
-              font="tiny"
+              font="block"
             />
           </Gradient>
           <Text dimColor>

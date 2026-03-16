@@ -71,7 +71,7 @@ function acquireLock(
         onSome: (d) => d.getTime(),
       });
       if (stat && Date.now() - mtimeMs > FILE_LOCK_TIMEOUT_MS) {
-        yield* fs.remove(lockPath).pipe(Effect.catchAll(() => Effect.void));
+        yield* fs.remove(lockPath, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
         continue;
       }
 
@@ -84,11 +84,12 @@ function acquireLock(
 
 /**
  * Release the file lock.
+ * Uses recursive:true because the lock is a directory and Node's fs.rm
  */
 function releaseLock(lockPath: string): Effect.Effect<void, never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    yield* fs.remove(lockPath).pipe(Effect.catchAll(() => Effect.void));
+    yield* fs.remove(lockPath, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
   });
 }
 

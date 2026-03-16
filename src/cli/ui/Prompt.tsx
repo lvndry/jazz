@@ -297,6 +297,7 @@ function PromptComponent({
           <SearchSelect
             options={prompt.options?.choices ?? []}
             pageSize={10}
+            placeholder={(prompt.options?.["placeholder"] as string) ?? "Type to search..."}
             onSelect={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
           />
@@ -322,6 +323,7 @@ function PromptComponent({
               <TextInput
                 inputId={prompt.message}
                 defaultValue={(prompt.options?.["defaultValue"] as string) ?? ""}
+                placeholder={(prompt.options?.["placeholder"] as string) ?? ""}
                 {...(validate ? { validate } : {})}
                 onSubmit={(value: string) => prompt.resolve(value)}
                 onCancel={() => prompt.reject?.()}

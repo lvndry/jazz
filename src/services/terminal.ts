@@ -166,6 +166,7 @@ export class InkTerminalService implements TerminalService {
       cancellable?: boolean;
       simple?: boolean;
       hidden?: boolean;
+      placeholder?: string;
     },
   ): Effect.Effect<string | undefined, never> {
     return Effect.async<string, Error>((resume) => {
@@ -173,6 +174,7 @@ export class InkTerminalService implements TerminalService {
       const isCancellable = options?.cancellable === true;
       const isSimple = options?.simple === true;
       const isHidden = options?.hidden === true;
+      const placeholder = options?.placeholder;
 
       const promptType = isHidden ? "hidden" : isSimple ? "text" : "chat";
 
@@ -183,6 +185,7 @@ export class InkTerminalService implements TerminalService {
           defaultValue?: string;
           validate?: (input: string) => boolean | string;
           commandSuggestions?: boolean;
+          placeholder?: string;
         };
         resolve: (val: unknown) => void;
         reject?: () => void;
@@ -197,6 +200,7 @@ export class InkTerminalService implements TerminalService {
                   : {}),
                 ...(validateFn ? { validate: validateFn } : {}),
                 ...(options.commandSuggestions === true ? { commandSuggestions: true } : {}),
+                ...(placeholder ? { placeholder } : {}),
               },
             }
           : {}),
@@ -334,6 +338,7 @@ export class InkTerminalService implements TerminalService {
     message: string,
     options: {
       choices: readonly (string | { name: string; value: T; description?: string })[];
+      placeholder?: string;
     },
   ): Effect.Effect<T | undefined, never> {
     return Effect.async<T, Error>((resume) => {
@@ -346,7 +351,7 @@ export class InkTerminalService implements TerminalService {
       store.setPrompt({
         type: "search",
         message,
-        options: { choices },
+        options: { choices, placeholder: options.placeholder },
         resolve: (val: unknown) => {
           store.setPrompt(null);
           // Find label for log

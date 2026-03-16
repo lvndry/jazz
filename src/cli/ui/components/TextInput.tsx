@@ -7,6 +7,7 @@ export interface TextInputProps {
   /** Unique identifier for this input (used to prevent state sharing) */
   inputId: string;
   defaultValue?: string;
+  placeholder?: string;
   /** Mask character for password input (e.g., "*") */
   mask?: string;
   validate?: (input: string) => boolean | string;
@@ -24,6 +25,7 @@ export interface TextInputProps {
 export const TextInput = React.memo(function TextInput({
   inputId,
   defaultValue = "",
+  placeholder = "",
   mask,
   validate,
   onSubmit,
@@ -90,6 +92,15 @@ export const TextInput = React.memo(function TextInput({
 
   // Render value with a visible block cursor (works in any terminal theme)
   const renderValue = () => {
+    if (value.length === 0 && placeholder.length > 0) {
+      return (
+        <Text color="gray">
+          <Text inverse>{placeholder[0] || " "}</Text>
+          {placeholder.slice(1)}
+        </Text>
+      );
+    }
+
     const displayValue = mask ? mask.repeat(value.length) : value;
 
     const beforeCursor = displayValue.slice(0, cursor);

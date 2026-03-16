@@ -5,6 +5,7 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import { AgentNotFoundError } from "@/core/types/errors";
 import { CommonSuggestions } from "@/core/utils/error-handler";
+import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 
 /**
  * CLI commands for AI-powered chat agent interactions
@@ -59,6 +60,23 @@ export function chatWithAIAgentCommand(
     yield* terminal.log("");
     yield* terminal.info("Type '/help' to see available special commands.");
     yield* terminal.info("Type '/exit' to end the conversation.");
+
+    // Check if model supports tools and warn if not
+    const modelMeta = yield* Effect.promise(() =>
+      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+    );
+    if (
+      modelMeta &&
+      !modelMeta.supportsTools &&
+      agent.config.tools &&
+      agent.config.tools.length > 0
+    ) {
+      yield* terminal.log("");
+      yield* terminal.warn(
+        `⚠️  The current model (${agent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
+      );
+    }
+
     yield* terminal.log("");
 
     // Start the chat session using the chat service

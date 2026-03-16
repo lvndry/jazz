@@ -84,8 +84,8 @@ jobs:
           PREVIOUS_TAG: ${{ needs.tag.outputs.previous_tag }}
           REPO: ${{ github.repository }}
         run: |
-          mkdir -p .jazz/agents workflows/release-notes
-          cp .github/jazz/agents/release-notes.json .jazz/agents/
+          mkdir -p "$HOME/.jazz/agents" workflows/release-notes
+          cp .github/jazz/agents/release-notes.json "$HOME/.jazz/agents/"
           sed -e "s/__NEW_TAG__/$NEW_TAG/g" -e "s/__PREVIOUS_TAG__/$PREVIOUS_TAG/g" -e "s|__REPO__|$REPO|g" \
             .github/jazz/workflows/release-notes/WORKFLOW.md > workflows/release-notes/WORKFLOW.md
           echo "--- Substituted workflow ---"

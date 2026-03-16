@@ -94,6 +94,8 @@ export interface TerminalService {
       simple?: boolean;
       /** When true, hide the prompt UI but still wait for Enter key. Useful for "Press Enter to continue" scenarios. */
       hidden?: boolean;
+      /** Optional placeholder text to show when input is empty. */
+      placeholder?: string;
     },
   ) => Effect.Effect<string | undefined, never>;
 
@@ -135,6 +137,8 @@ export interface TerminalService {
     message: string,
     options: {
       choices: readonly (string | { name: string; value: T; description?: string })[];
+      /** Optional placeholder text to show when search query is empty. */
+      placeholder?: string;
     },
   ) => Effect.Effect<T | undefined, never>;
 

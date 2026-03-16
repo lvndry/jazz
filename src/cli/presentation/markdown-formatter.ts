@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import chalk from "chalk";
 import { emojify } from "node-emoji";
 import wrapAnsi from "wrap-ansi";
-import { codeColor, CHALK_THEME } from "../ui/theme";
+import { codeColor, CHALK_THEME, PADDING_BUDGET } from "../ui/theme";
 
 /**
  * Shared markdown formatting utilities for terminal output.
@@ -203,7 +203,7 @@ export function getTerminalWidth(): number {
  * Use this before passing text to TerminalText for consistent rendering.
  *
  * @param text - Raw or ANSI-formatted text
- * @param options.availableWidth - Width for wrapping (default: terminal width - 8)
+ * @param options.availableWidth - Width for wrapping (default: terminal width - PADDING_BUDGET)
  * @param options.padding - Leading spaces per line (default: 0)
  */
 export function formatForTerminal(
@@ -211,7 +211,7 @@ export function formatForTerminal(
   options?: { availableWidth?: number; padding?: number },
 ): string {
   if (!text || text.length === 0) return text;
-  const width = options?.availableWidth ?? getTerminalWidth() - 8;
+  const width = options?.availableWidth ?? getTerminalWidth() - PADDING_BUDGET;
   const wrapped = wrapToWidth(text, width);
   const padding = options?.padding ?? 0;
   return padding > 0 ? padLines(wrapped, padding) : wrapped;
@@ -346,12 +346,25 @@ export function formatHorizontalRules(text: string, terminalWidth: number = 80):
 }
 
 /**
+ * Strip trailing markdown bold/italic delimiters (** and __) from a URL.
+ * Used when the bare-URL regex captures delimiter chars (e.g. **url**).
+ */
+function stripTrailingMarkdownDelimiters(s: string): string {
+  return s.replace(/(\*{2}|_{2})+$/, "");
+}
+
+/**
  * Format bare URLs as clickable OSC 8 terminal hyperlinks.
+ * Strips trailing markdown bold delimiters (asterisk-pairs and underscore-pairs)
+ * from the matched URL so markdown-wrapped links open correctly, while
+ * preserving underscore and asterisk inside legitimate URLs.
+ *
  * @param styleFn - styling function for the displayed text
  */
 function formatBareUrlsImpl(text: string, styleFn: (text: string) => string): string {
   return text.replace(BARE_URL_REGEX, (match: string) => {
-    const url = match.startsWith("www.") ? `https://${match}` : match;
+    const cleanUrl = stripTrailingMarkdownDelimiters(match);
+    const url = cleanUrl.startsWith("www.") ? `https://${cleanUrl}` : cleanUrl;
     return terminalHyperlink(styleFn(match), url);
   });
 }

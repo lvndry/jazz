@@ -42,8 +42,11 @@ export function executeWithoutStreaming(
     const { agent } = options;
     const { runMetrics, provider, model } = runContext;
 
+    const reasoningEffort = agent.config.reasoningEffort ?? "disable";
+    const shouldShowThinking = displayConfig.showThinking && reasoningEffort !== "disable";
+
     const strategy: CompletionStrategy = {
-      shouldShowThinking: displayConfig.showThinking,
+      shouldShowThinking,
 
       getCompletion(currentMessages: ConversationMessages, _iteration: number) {
         return Effect.gen(function* () {
@@ -52,7 +55,7 @@ export function executeWithoutStreaming(
             messages: currentMessages,
             tools: runContext.tools,
             toolChoice: "auto" as const,
-            reasoning_effort: agent.config.reasoningEffort ?? "disable",
+            reasoning_effort: reasoningEffort,
           };
 
           const completion = yield* Effect.retry(

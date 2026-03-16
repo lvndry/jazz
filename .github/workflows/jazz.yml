@@ -103,8 +103,8 @@ jobs:
           PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         run: |
-          mkdir -p .jazz/agents workflows/code-review
-          cp .github/jazz/agents/ci-reviewer.json .jazz/agents/
+          mkdir -p "$HOME/.jazz/agents" workflows/code-review
+          cp .github/jazz/agents/ci-reviewer.json "$HOME/.jazz/agents/"
           sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" \
             .github/jazz/workflows/code-review/WORKFLOW.md > workflows/code-review/WORKFLOW.md
           echo "--- Substituted workflow ---"

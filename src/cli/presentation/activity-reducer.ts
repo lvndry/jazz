@@ -20,7 +20,7 @@ import type { StreamEvent } from "@/core/types/streaming";
 import { formatToolArguments, formatToolResult } from "./format-utils";
 import { applyTextChunkOrdered } from "./stream-text-order";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
-import { THEME } from "../ui/theme";
+import { PADDING, THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
 
 interface TodoSnapshotItem {
@@ -278,7 +278,7 @@ export function reduceEvent(
           message: inkRender(
             React.createElement(
               Box,
-              { flexDirection: "column", paddingLeft: 2 },
+              { flexDirection: "column", paddingLeft: PADDING.content },
               React.createElement(Text, { dimColor: true }, "─".repeat(40)),
               React.createElement(Text, { dimColor: true, italic: true }, "▸ Response"),
             ),
@@ -362,7 +362,7 @@ export function reduceEvent(
         message: inkRender(
           React.createElement(
             Box,
-            { paddingLeft: 2, marginTop: 1 },
+            { paddingLeft: PADDING.content, marginTop: 1 },
             React.createElement(Text, { color: THEME.primary }, "▸ "),
             React.createElement(Text, { bold: true }, toolName),
             providerLabel ? React.createElement(Text, { dimColor: true }, providerLabel) : null,
@@ -403,7 +403,7 @@ export function reduceEvent(
         message: inkRender(
           React.createElement(
             Box,
-            { paddingLeft: 2, marginTop: 1 },
+            { paddingLeft: PADDING.content, marginTop: 1 },
             React.createElement(Text, { color: THEME.primary }, "▸ "),
             React.createElement(Text, { bold: true }, event.toolName),
             providerSuffix ? React.createElement(Text, { dimColor: true }, providerSuffix) : null,
@@ -443,7 +443,7 @@ export function reduceEvent(
           message: inkRender(
             React.createElement(
               Box,
-              { paddingLeft: 2 },
+              { paddingLeft: PADDING.content },
               React.createElement(Text, { color: THEME.success }, "✔ "),
               React.createElement(Text, {}, `${namePrefix}done`),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
@@ -456,7 +456,7 @@ export function reduceEvent(
           message: inkRender(
             React.createElement(
               Box,
-              { paddingLeft: 4, flexDirection: "column" },
+              { paddingLeft: PADDING.nested, flexDirection: "column" },
               React.createElement(Text, { wrap: "truncate" }, displayText),
             ),
           ),
@@ -468,7 +468,7 @@ export function reduceEvent(
           message: inkRender(
             React.createElement(
               Box,
-              { paddingLeft: 2 },
+              { paddingLeft: PADDING.content },
               React.createElement(Text, { color: THEME.success }, "✔ "),
               React.createElement(Text, { wrap: "truncate" }, displayText),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),

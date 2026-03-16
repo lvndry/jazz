@@ -1,7 +1,6 @@
 import { Box, Text } from "ink";
 import React from "react";
-import { TerminalText } from "./components/TerminalText";
-import { THEME } from "./theme";
+import { PADDING, THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
 
 // Pre-created icon elements to avoid creating new React elements on every render
@@ -54,8 +53,9 @@ export const OutputEntryView = React.memo(function OutputEntryView({
       <Box
         marginTop={0}
         marginBottom={0}
+        paddingLeft={PADDING.content}
       >
-        <TerminalText>{entry.message as string}</TerminalText>
+        <Text>{entry.message as string}</Text>
       </Box>
     );
   }
@@ -81,16 +81,14 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     }
 
     // Log entries: render just the text with no icon/space siblings.
-    // Uses TerminalText for multi-line content (e.g. full diff).
-    // The caller is responsible for baking any left padding into the string
-    // (via padLines) so Yoga doesn't need to compute nested padding.
+    // No pre-wrapping — the terminal handles line wrapping natively.
     if (entry.type === "log") {
       return (
         <Box
           marginTop={addSpacing ? 1 : 0}
           marginBottom={1}
         >
-          <TerminalText>{entry.message}</TerminalText>
+          <Text>{entry.message}</Text>
         </Box>
       );
     }

@@ -3,7 +3,7 @@ import Spinner from "ink-spinner";
 import React from "react";
 import type { ActivityState } from "./activity-state";
 import { TerminalText } from "./components/TerminalText";
-import { THEME } from "./theme";
+import { PADDING, THEME } from "./theme";
 
 function todoStatusGlyph(status: "pending" | "in_progress" | "completed" | "cancelled"): string {
   switch (status) {
@@ -70,7 +70,7 @@ function ReasoningSection({
   return (
     <Box
       marginTop={1}
-      paddingLeft={1}
+      paddingLeft={PADDING.content}
       flexDirection="column"
     >
       <Box>
@@ -112,7 +112,7 @@ export const ActivityView = React.memo(function ActivityView({
         <Box
           flexDirection="column"
           marginTop={1}
-          paddingX={2}
+          paddingX={PADDING.content}
         >
           <AgentHeader
             agentName={activity.agentName}
@@ -134,7 +134,7 @@ export const ActivityView = React.memo(function ActivityView({
           flexDirection="column"
           marginTop={1}
         >
-          <Box paddingX={2}>
+          <Box paddingX={PADDING.content}>
             <AgentHeader
               agentName={activity.agentName}
               label="is responding…"
@@ -155,7 +155,7 @@ export const ActivityView = React.memo(function ActivityView({
       return (
         <Box flexDirection="column">
           <Box
-            paddingX={2}
+            paddingX={PADDING.content}
             marginTop={1}
           >
             <Text color="yellow">
@@ -165,7 +165,7 @@ export const ActivityView = React.memo(function ActivityView({
           </Box>
           {activity.todoSnapshot && activity.todoSnapshot.length > 0 ? (
             <Box
-              paddingLeft={4}
+              paddingLeft={PADDING.nested}
               flexDirection="column"
             >
               {activity.todoSnapshot.map((todo, index) => (
@@ -184,7 +184,7 @@ export const ActivityView = React.memo(function ActivityView({
     case "error":
       return (
         <Box
-          paddingX={2}
+          paddingX={PADDING.content}
           marginTop={1}
         >
           <Text color="red">{activity.message}</Text>
