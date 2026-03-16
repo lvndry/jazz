@@ -331,7 +331,7 @@ export function formatToolResult(toolName: string, result: string): string {
       return "";
     }
 
-    const obj = parsed as Record<string, unknown>;
+    const parsedResult = parsed as Record<string, unknown>;
 
     switch (toolName) {
       case "read_pdf": {
@@ -359,47 +359,50 @@ export function formatToolResult(toolName: string, result: string): string {
         return summaryParts.length > 0 ? ` ${chalk.dim("(")}${summaryParts.join(", ")}${chalk.dim(")")}` : "";
       }
       case "read_file": {
-        const content = obj["content"];
+        const content = parsedResult["content"];
         if (typeof content !== "string") return "";
         const lines = content.split("\n").length;
         return ` ${chalk.dim(`(${lines} line${lines !== 1 ? "s" : ""})`)}`;
       }
       case "cd": {
-        const newPath = safeString(obj["path"] || obj["currentDirectory"]);
+        const newPath = safeString(parsedResult["path"] || parsedResult["currentDirectory"]);
         return newPath ? ` ${chalk.dim("→")} ${chalk.cyan(newPath)}` : "";
       }
       case "git_status": {
-        const branch = safeString(obj["branch"]);
-        const modified = Array.isArray(obj["modified"]) ? obj["modified"].length : 0;
-        const staged = Array.isArray(obj["staged"]) ? obj["staged"].length : 0;
+        const branch = safeString(parsedResult["branch"]);
+        const modified = Array.isArray(parsedResult["modified"])
+          ? parsedResult["modified"].length
+          : 0;
+        const staged = Array.isArray(parsedResult["staged"]) ? parsedResult["staged"].length : 0;
         const parts: string[] = [];
         if (branch) parts.push(chalk.cyan(branch));
         if (modified > 0) parts.push(chalk.yellow(`${modified} modified`));
+
         if (staged > 0) parts.push(chalk.green(`${staged} staged`));
         return parts.length > 0
           ? ` ${chalk.dim("(")}${parts.join(chalk.dim(", "))}${chalk.dim(")")}`
           : "";
       }
       case "git_log": {
-        const commits = obj["commits"] || obj;
+        const commits = parsedResult["commits"] || parsedResult;
         const count = Array.isArray(commits) ? commits.length : 0;
         return count > 0 ? ` ${chalk.dim(`(${count} commit${count !== 1 ? "s" : ""})`)}` : "";
       }
       case "git_diff": {
         const parts: string[] = [];
-        const paths = obj["paths"];
-        const nameOnly = obj["nameOnly"] === true;
+        const paths = parsedResult["paths"];
+        const nameOnly = parsedResult["nameOnly"] === true;
         if (Array.isArray(paths) && paths.length > 0) {
           parts.push(chalk.cyan(`${paths.length} file${paths.length !== 1 ? "s" : ""}`));
           if (nameOnly) {
             parts.push(chalk.dim("(names only)"));
           }
         }
-        const truncated = obj["truncated"];
+        const truncated = parsedResult["truncated"];
         if (truncated === true) {
           parts.push(chalk.yellow("truncated"));
         }
-        const hasChanges = obj["hasChanges"];
+        const hasChanges = parsedResult["hasChanges"];
         if (hasChanges === false && !nameOnly) {
           parts.push(chalk.dim("no diff"));
         }
@@ -408,19 +411,19 @@ export function formatToolResult(toolName: string, result: string): string {
           : "";
       }
       case "grep": {
-        const matches = obj["matches"] || obj;
+        const matches = parsedResult["matches"] || parsedResult;
         const count = Array.isArray(matches) ? matches.length : 0;
         return count > 0 ? ` ${chalk.dim(`(${count} match${count !== 1 ? "es" : ""})`)}` : "";
       }
       case "ls": {
-        const items = obj["items"] || obj["files"] || obj;
+        const items = parsedResult["items"] || parsedResult["files"] || parsedResult;
         const count = Array.isArray(items) ? items.length : 0;
         return count > 0 ? ` ${chalk.dim(`(${count} item${count !== 1 ? "s" : ""})`)}` : "";
       }
       case "execute_command":
       case "execute_execute_command": {
-        const exitCode = obj["exitCode"];
-        const output = obj["output"];
+        const exitCode = parsedResult["exitCode"];
+        const output = parsedResult["output"];
         if (exitCode !== undefined && exitCode !== null) {
           const exitCodeNum = Number(exitCode);
           if (!isNaN(exitCodeNum) && exitCodeNum !== 0) {
@@ -433,7 +436,7 @@ export function formatToolResult(toolName: string, result: string): string {
         return "";
       }
       case "http_request": {
-        const status = obj["statusCode"];
+        const status = parsedResult["statusCode"];
         if (status !== undefined && status !== null) {
           const statusStr = safeString(status);
           return statusStr ? ` ${chalk.dim(`(${statusStr})`)}` : "";
@@ -443,11 +446,37 @@ export function formatToolResult(toolName: string, result: string): string {
       case "execute_edit_file":
       case "execute_write_file": {
         // Check for diff in the result
-        const diff = obj["diff"];
+        const diff = parsedResult["diff"];
         if (typeof diff === "string" && diff.length > 0) {
           return `\n${diff}`;
         }
         return "";
+      }
+      case "read_pdf": {
+        const pageCount = parsedResult["pageCount"];
+        const pagesExtracted = parsedResult["pagesExtracted"];
+        const truncated = parsedResult["truncated"];
+        const path = parsedResult["path"];
+        const tables = parsedResult["tables"];
+        const totalLines = parsedResult["totalLines"];
+        const summaryParts: string[] = [];
+        if (path) summaryParts.push(`file: ${safeString(path)}`);
+        if (Array.isArray(pagesExtracted) && pagesExtracted.length > 0) {
+          summaryParts.push(`pages: ${pagesExtracted.join(", ")}`);
+        }
+        if (typeof pageCount === "number") {
+          summaryParts.push(`total: ${pageCount}`);
+        }
+        if (typeof totalLines === "number") {
+          summaryParts.push(`lines: ${totalLines}`);
+        }
+        if (Array.isArray(tables)) {
+          summaryParts.push(`tables: ${tables.length}`);
+        }
+        if (truncated) summaryParts.push(chalk.yellow("truncated"));
+        return summaryParts.length > 0
+          ? ` ${chalk.dim("(")}${summaryParts.join(", ")}${chalk.dim(")")}`
+          : "";
       }
       default:
         return "";
