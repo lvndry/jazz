@@ -127,10 +127,10 @@ export function extractCleanErrorMessage(error: unknown): string {
   }
 
   if (error && typeof error === "object") {
-    const obj = error as Record<string, unknown>;
+    const errorData = error as Record<string, unknown>;
     // Try to find a message property
-    if (typeof obj["message"] === "string") {
-      let message = obj["message"];
+    if (typeof errorData["message"] === "string") {
+      let message = errorData["message"];
       // Clean the message
       if (message.includes(" | ")) {
         message = message.split(" | ")[0] || message;
@@ -138,8 +138,8 @@ export function extractCleanErrorMessage(error: unknown): string {
       return message;
     }
     // Try to find an error.message nested structure
-    if (obj["error"] && typeof obj["error"] === "object") {
-      const errorObj = obj["error"] as Record<string, unknown>;
+    if (errorData["error"] && typeof errorData["error"] === "object") {
+      const errorObj = errorData["error"] as Record<string, unknown>;
       if (typeof errorObj["message"] === "string") {
         let message = errorObj["message"];
         // Clean the message

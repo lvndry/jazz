@@ -1,6 +1,9 @@
 import chalk from "chalk";
 import { safeString } from "./string";
 
+const MAX_RESULT_DISPLAY_LINES = 12;
+const MAX_RESULT_DISPLAY_CHARS = 1200;
+
 /**
  * Utility functions for formatting tool arguments and results
  * Used by both streaming and non-streaming modes
@@ -325,24 +328,145 @@ export function formatToolArguments(
  * Shows relevant summary information for each tool type
  */
 export function formatToolResult(toolName: string, result: string): string {
+  function truncateDisplayText(text: string): string {
+    const normalized = text.replace(/\r\n/g, "\n").trim();
+    if (!normalized) return "";
+
+    const lines = normalized.split("\n");
+    const visibleLines = lines.slice(0, MAX_RESULT_DISPLAY_LINES);
+    const omittedLines = lines.length - visibleLines.length;
+
+    let output = visibleLines.join("\n");
+    if (output.length > MAX_RESULT_DISPLAY_CHARS) {
+      output = output.slice(0, MAX_RESULT_DISPLAY_CHARS).trimEnd() + "…";
+    }
+    if (omittedLines > 0) {
+      output += `\n… ${omittedLines} more line${omittedLines === 1 ? "" : "s"}`;
+    }
+    return output;
+  }
+
+  function formatTodoList(parsedResult: Record<string, unknown>): string {
+    const todos = Array.isArray(parsedResult["todos"]) ? parsedResult["todos"] : [];
+    if (todos.length === 0) {
+      return safeString(parsedResult["message"]);
+    }
+
+    const lines = todos.flatMap((todo) => {
+      if (typeof todo !== "object" || todo === null || Array.isArray(todo)) return [];
+      const item = todo as Record<string, unknown>;
+      const content = safeString(item["content"]);
+      if (!content) return [];
+
+      const status = safeString(item["status"]) || "unknown";
+      const priority = safeString(item["priority"]);
+      return [priority ? `[${status}] ${content} (${priority})` : `[${status}] ${content}`];
+    });
+
+    return lines.join("\n");
+  }
+
+  function formatContextInfo(parsedResult: Record<string, unknown>): string {
+    const estimatedTokensUsed = safeString(parsedResult["estimatedTokensUsed"]);
+    const maxTokens = safeString(parsedResult["maxTokens"]);
+    const remainingTokens = safeString(parsedResult["remainingTokens"]);
+    const percentUsed = safeString(parsedResult["percentUsed"]);
+    const recommendation = safeString(parsedResult["recommendation"]);
+
+    const lines = [
+      estimatedTokensUsed ? `estimatedTokensUsed: ${estimatedTokensUsed}` : "",
+      maxTokens ? `maxTokens: ${maxTokens}` : "",
+      remainingTokens ? `remainingTokens: ${remainingTokens}` : "",
+      percentUsed ? `percentUsed: ${percentUsed}%` : "",
+      recommendation ? `recommendation: ${recommendation}` : "",
+    ].filter((line) => line.length > 0);
+
+    return lines.join("\n");
+  }
+
+  function formatReadFileResult(parsedResult: Record<string, unknown>): string {
+    const path = safeString(parsedResult["path"]);
+    const content = safeString(parsedResult["content"]);
+    const truncated = parsedResult["truncated"] === true;
+    const lines: string[] = [];
+
+    if (path) lines.push(path);
+    if (content) {
+      if (lines.length > 0) lines.push("");
+      lines.push(content);
+    }
+    if (truncated) {
+      lines.push("");
+      lines.push("[truncated]");
+    }
+
+    return lines.join("\n");
+  }
+
+  function formatCommandResult(parsedResult: Record<string, unknown>): string {
+    const stdout = safeString(parsedResult["stdout"]);
+    const stderr = safeString(parsedResult["stderr"]);
+    const exitCode = safeString(parsedResult["exitCode"]);
+
+    if (!stdout && !stderr) {
+      return exitCode ? `exitCode: ${exitCode}` : "";
+    }
+
+    const lines: string[] = [];
+    if (stdout) lines.push(stdout);
+    if (stderr) {
+      if (stdout) lines.push("");
+      lines.push("stderr:");
+      lines.push(stderr);
+    }
+    if (exitCode && exitCode !== "0") {
+      lines.push("");
+      lines.push(`exitCode: ${exitCode}`);
+    }
+
+    return lines.join("\n");
+  }
+
+  function formatGenericObject(parsedResult: Record<string, unknown>): string {
+    return JSON.stringify(parsedResult, null, 2);
+  }
+
   try {
     const parsed: unknown = JSON.parse(result);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return "";
+    if (typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") {
+      return truncateDisplayText(String(parsed));
+    }
+    if (parsed === null) {
+      return "null";
+    }
+    if (Array.isArray(parsed)) {
+      const parsedArray: readonly unknown[] = parsed;
+      return truncateDisplayText(JSON.stringify(parsedArray, null, 2));
     }
 
     const parsedResult = parsed as Record<string, unknown>;
 
     switch (toolName) {
-      case "read_file": {
-        const content = parsedResult["content"];
-        if (typeof content !== "string") return "";
-        const lines = content.split("\n").length;
-        return ` ${chalk.dim(`(${lines} line${lines !== 1 ? "s" : ""})`)}`;
+      case "list_todos":
+        return truncateDisplayText(formatTodoList(parsedResult));
+      case "manage_todos":
+        return truncateDisplayText(
+          formatTodoList(parsedResult) || safeString(parsedResult["message"]),
+        );
+      case "context_info":
+        return truncateDisplayText(formatContextInfo(parsedResult));
+      case "load_skill":
+      case "load_skill_section": {
+        if (parsedResult["success"] === true) {
+          return ` ${chalk.dim("(loaded)")}`;
+        }
+        return ` ${chalk.red(`(error: ${safeString(parsedResult["error"] || parsedResult["result"])})`)}`;
       }
-      case "cd": {
-        const newPath = safeString(parsedResult["path"] || parsedResult["currentDirectory"]);
-        return newPath ? ` ${chalk.dim("→")} ${chalk.cyan(newPath)}` : "";
+      case "spawn_subagent": {
+        if (parsedResult["success"] === true) {
+          return ` ${chalk.dim("(sub-agent completed)")}`;
+        }
+        return ` ${chalk.red(`(error: ${safeString(parsedResult["error"] || parsedResult["result"])})`)}`;
       }
       case "git_status": {
         const branch = safeString(parsedResult["branch"]);
@@ -353,7 +477,6 @@ export function formatToolResult(toolName: string, result: string): string {
         const parts: string[] = [];
         if (branch) parts.push(chalk.cyan(branch));
         if (modified > 0) parts.push(chalk.yellow(`${modified} modified`));
-
         if (staged > 0) parts.push(chalk.green(`${staged} staged`));
         return parts.length > 0
           ? ` ${chalk.dim("(")}${parts.join(chalk.dim(", "))}${chalk.dim(")")}`
@@ -396,20 +519,16 @@ export function formatToolResult(toolName: string, result: string): string {
         const count = Array.isArray(items) ? items.length : 0;
         return count > 0 ? ` ${chalk.dim(`(${count} item${count !== 1 ? "s" : ""})`)}` : "";
       }
+      case "read_file": {
+        return truncateDisplayText(formatReadFileResult(parsedResult));
+      }
+      case "cd": {
+        const newPath = safeString(parsedResult["path"] || parsedResult["currentDirectory"]);
+        return newPath ? ` ${chalk.dim("→")} ${chalk.cyan(newPath)}` : "";
+      }
       case "execute_command":
       case "execute_execute_command": {
-        const exitCode = parsedResult["exitCode"];
-        const output = parsedResult["output"];
-        if (exitCode !== undefined && exitCode !== null) {
-          const exitCodeNum = Number(exitCode);
-          if (!isNaN(exitCodeNum) && exitCodeNum !== 0) {
-            return ` ${chalk.red(`(exit: ${exitCodeNum})`)}`;
-          }
-        }
-        if (output && typeof output === "string") {
-          return ` ${chalk.dim(`(${output})`)}`;
-        }
-        return "";
+        return truncateDisplayText(formatCommandResult(parsedResult));
       }
       case "http_request": {
         const status = parsedResult["statusCode"];
@@ -455,9 +574,9 @@ export function formatToolResult(toolName: string, result: string): string {
           : "";
       }
       default:
-        return "";
+        return truncateDisplayText(formatGenericObject(parsedResult));
     }
   } catch {
-    return "";
+    return truncateDisplayText(result);
   }
 }

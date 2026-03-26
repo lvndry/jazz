@@ -2,11 +2,11 @@
   "id": "ci-reviewer",
   "name": "ci-reviewer",
   "description": "CI code review agent",
-  "model": "openai/gpt-5.2-codex",
+  "model": "openai/gpt-5.4-mini",
   "config": {
     "persona": "coder",
     "llmProvider": "openai",
-    "llmModel": "gpt-5.2-codex",
+    "llmModel": "gpt-5.4-mini",
     "reasoningEffort": "medium",
     "tools": [
       "find",

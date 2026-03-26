@@ -195,11 +195,11 @@ export class StreamProcessor {
               textChunk = textArray
                 .map((item: unknown) => {
                   if (typeof item === "object" && item !== null) {
-                    const obj = item as Record<string, unknown>;
-                    if (obj["type"] === "text" && "text" in obj) {
-                      return String(obj["text"]);
+                    const itemData = item as Record<string, unknown>;
+                    if (itemData["type"] === "text" && "text" in itemData) {
+                      return String(itemData["text"]);
                     }
-                    if (obj["type"] === "reference") {
+                    if (itemData["type"] === "reference") {
                       // Skip reference items for now, could be enhanced to handle citations
                       return "";
                     }

@@ -470,7 +470,7 @@ export function reduceEvent(
               Box,
               { paddingLeft: PADDING.content },
               React.createElement(Text, { color: THEME.success }, "✔ "),
-              React.createElement(Text, { wrap: "truncate" }, displayText),
+              React.createElement(Text, {}, displayText),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
             ),
           ),
