@@ -27,6 +27,8 @@ export interface StaticModelEntry {
 export const STATIC_PROVIDER_MODELS = {
   openai: [
     { id: "gpt-5.4-pro", displayName: "GPT-5.4 Pro" },
+    { id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini" },
+    { id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano" },
     { id: "gpt-5.4", displayName: "GPT-5.4" },
     { id: "gpt-5.2-pro", displayName: "GPT-5.2 Pro" },
     { id: "gpt-5.2", displayName: "GPT-5.2" },

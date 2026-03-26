@@ -426,25 +426,6 @@ export function updateCommand(options?: {
 
     yield* terminal.success("A new version is available!");
 
-    // Fetch and display release notes since current version
-    const releaseNotes = yield* fetchReleaseNotesSince(versionInfo.currentVersion).pipe(
-      Effect.timeout(5000), // 5 seconds timeout for release notes
-      Effect.catchAll(() => Effect.succeed([] as ReleaseNote[])),
-    );
-
-    if (releaseNotes.length > 0) {
-      yield* terminal.log("");
-      yield* terminal.log("📋 What's new:");
-      for (const release of releaseNotes) {
-        yield* terminal.log("");
-        yield* terminal.log(`   v${release.version}:`);
-        // Indent each line of the release notes
-        for (const line of release.summary.split("\n")) {
-          yield* terminal.log(`      ${line}`);
-        }
-      }
-    }
-
     // If --check flag is used, just show the info and exit
     if (options?.check) {
       yield* terminal.log("\n💡 Run 'jazz update' to install the latest version");
