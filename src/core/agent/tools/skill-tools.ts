@@ -29,7 +29,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
             const skill = yield* skillService.loadSkill(skillName);
             return {
               success: true,
-              result: `Loaded skill: ${skill.metadata.name}\n\n${skill.core}`,
+              result: `Loaded skill: ${skill.metadata.name}\n\n`,
             };
           } catch (error) {
             return {

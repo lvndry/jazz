@@ -1,6 +1,9 @@
 import chalk from "chalk";
 import { safeString } from "./string";
 
+const MAX_RESULT_DISPLAY_LINES = 12;
+const MAX_RESULT_DISPLAY_CHARS = 1200;
+
 /**
  * Utility functions for formatting tool arguments and results
  * Used by both streaming and non-streaming modes
@@ -325,96 +328,159 @@ export function formatToolArguments(
  * Shows relevant summary information for each tool type
  */
 export function formatToolResult(toolName: string, result: string): string {
+  function truncateDisplayText(text: string): string {
+    const normalized = text.replace(/\r\n/g, "\n").trim();
+    if (!normalized) return "";
+
+    const lines = normalized.split("\n");
+    const visibleLines = lines.slice(0, MAX_RESULT_DISPLAY_LINES);
+    const omittedLines = lines.length - visibleLines.length;
+
+    let output = visibleLines.join("\n");
+    if (output.length > MAX_RESULT_DISPLAY_CHARS) {
+      output = output.slice(0, MAX_RESULT_DISPLAY_CHARS).trimEnd() + "…";
+    }
+    if (omittedLines > 0) {
+      output += `\n… ${omittedLines} more line${omittedLines === 1 ? "" : "s"}`;
+    }
+    return output;
+  }
+
+  function formatTodoList(obj: Record<string, unknown>): string {
+    const todos = Array.isArray(obj["todos"]) ? obj["todos"] : [];
+    if (todos.length === 0) {
+      return safeString(obj["message"]);
+    }
+
+    const lines = todos.flatMap((todo) => {
+      if (typeof todo !== "object" || todo === null || Array.isArray(todo)) return [];
+      const item = todo as Record<string, unknown>;
+      const content = safeString(item["content"]);
+      if (!content) return [];
+
+      const status = safeString(item["status"]) || "unknown";
+      const priority = safeString(item["priority"]);
+      return [priority ? `[${status}] ${content} (${priority})` : `[${status}] ${content}`];
+    });
+
+    return lines.join("\n");
+  }
+
+  function formatGitStatus(obj: Record<string, unknown>): string {
+    const lines: string[] = [];
+    const branch = safeString(obj["branch"]);
+    if (branch) {
+      lines.push(`branch: ${branch}`);
+    }
+
+    const summary = Array.isArray(obj["summary"]) ? obj["summary"] : [];
+    for (const entry of summary) {
+      const text = safeString(entry);
+      if (text) lines.push(text);
+    }
+
+    return lines.join("\n");
+  }
+
+  function formatContextInfo(obj: Record<string, unknown>): string {
+    const estimatedTokensUsed = safeString(obj["estimatedTokensUsed"]);
+    const maxTokens = safeString(obj["maxTokens"]);
+    const remainingTokens = safeString(obj["remainingTokens"]);
+    const percentUsed = safeString(obj["percentUsed"]);
+    const recommendation = safeString(obj["recommendation"]);
+
+    const lines = [
+      estimatedTokensUsed ? `estimatedTokensUsed: ${estimatedTokensUsed}` : "",
+      maxTokens ? `maxTokens: ${maxTokens}` : "",
+      remainingTokens ? `remainingTokens: ${remainingTokens}` : "",
+      percentUsed ? `percentUsed: ${percentUsed}%` : "",
+      recommendation ? `recommendation: ${recommendation}` : "",
+    ].filter((line) => line.length > 0);
+
+    return lines.join("\n");
+  }
+
+  function formatReadFileResult(obj: Record<string, unknown>): string {
+    const path = safeString(obj["path"]);
+    const content = safeString(obj["content"]);
+    const truncated = obj["truncated"] === true;
+    const lines: string[] = [];
+
+    if (path) lines.push(path);
+    if (content) {
+      if (lines.length > 0) lines.push("");
+      lines.push(content);
+    }
+    if (truncated) {
+      lines.push("");
+      lines.push("[truncated]");
+    }
+
+    return lines.join("\n");
+  }
+
+  function formatCommandResult(obj: Record<string, unknown>): string {
+    const stdout = safeString(obj["stdout"]);
+    const stderr = safeString(obj["stderr"]);
+    const exitCode = safeString(obj["exitCode"]);
+
+    if (!stdout && !stderr) {
+      return exitCode ? `exitCode: ${exitCode}` : "";
+    }
+
+    const lines: string[] = [];
+    if (stdout) lines.push(stdout);
+    if (stderr) {
+      if (stdout) lines.push("");
+      lines.push("stderr:");
+      lines.push(stderr);
+    }
+    if (exitCode && exitCode !== "0") {
+      lines.push("");
+      lines.push(`exitCode: ${exitCode}`);
+    }
+
+    return lines.join("\n");
+  }
+
+  function formatGenericObject(obj: Record<string, unknown>): string {
+    return JSON.stringify(obj, null, 2);
+  }
+
   try {
     const parsed: unknown = JSON.parse(result);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return "";
+    if (typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") {
+      return truncateDisplayText(String(parsed));
+    }
+    if (parsed === null) {
+      return "null";
+    }
+    if (Array.isArray(parsed)) {
+      const parsedArray: readonly unknown[] = parsed;
+      return truncateDisplayText(JSON.stringify(parsedArray, null, 2));
     }
 
     const obj = parsed as Record<string, unknown>;
 
     switch (toolName) {
+      case "list_todos":
+        return truncateDisplayText(formatTodoList(obj));
+      case "manage_todos":
+        return truncateDisplayText(formatTodoList(obj) || safeString(obj["message"]));
+      case "context_info":
+        return truncateDisplayText(formatContextInfo(obj));
+      case "git_status":
+        return truncateDisplayText(formatGitStatus(obj));
       case "read_file": {
-        const content = obj["content"];
-        if (typeof content !== "string") return "";
-        const lines = content.split("\n").length;
-        return ` ${chalk.dim(`(${lines} line${lines !== 1 ? "s" : ""})`)}`;
+        return truncateDisplayText(formatReadFileResult(obj));
       }
       case "cd": {
         const newPath = safeString(obj["path"] || obj["currentDirectory"]);
         return newPath ? ` ${chalk.dim("→")} ${chalk.cyan(newPath)}` : "";
       }
-      case "git_status": {
-        const branch = safeString(obj["branch"]);
-        const modified = Array.isArray(obj["modified"]) ? obj["modified"].length : 0;
-        const staged = Array.isArray(obj["staged"]) ? obj["staged"].length : 0;
-        const parts: string[] = [];
-        if (branch) parts.push(chalk.cyan(branch));
-        if (modified > 0) parts.push(chalk.yellow(`${modified} modified`));
-        if (staged > 0) parts.push(chalk.green(`${staged} staged`));
-        return parts.length > 0
-          ? ` ${chalk.dim("(")}${parts.join(chalk.dim(", "))}${chalk.dim(")")}`
-          : "";
-      }
-      case "git_log": {
-        const commits = obj["commits"] || obj;
-        const count = Array.isArray(commits) ? commits.length : 0;
-        return count > 0 ? ` ${chalk.dim(`(${count} commit${count !== 1 ? "s" : ""})`)}` : "";
-      }
-      case "git_diff": {
-        const parts: string[] = [];
-        const paths = obj["paths"];
-        const nameOnly = obj["nameOnly"] === true;
-        if (Array.isArray(paths) && paths.length > 0) {
-          parts.push(chalk.cyan(`${paths.length} file${paths.length !== 1 ? "s" : ""}`));
-          if (nameOnly) {
-            parts.push(chalk.dim("(names only)"));
-          }
-        }
-        const truncated = obj["truncated"];
-        if (truncated === true) {
-          parts.push(chalk.yellow("truncated"));
-        }
-        const hasChanges = obj["hasChanges"];
-        if (hasChanges === false && !nameOnly) {
-          parts.push(chalk.dim("no diff"));
-        }
-        return parts.length > 0
-          ? ` ${chalk.dim("(")}${parts.join(chalk.dim(", "))}${chalk.dim(")")}`
-          : "";
-      }
-      case "grep": {
-        const matches = obj["matches"] || obj;
-        const count = Array.isArray(matches) ? matches.length : 0;
-        return count > 0 ? ` ${chalk.dim(`(${count} match${count !== 1 ? "es" : ""})`)}` : "";
-      }
-      case "ls": {
-        const items = obj["items"] || obj["files"] || obj;
-        const count = Array.isArray(items) ? items.length : 0;
-        return count > 0 ? ` ${chalk.dim(`(${count} item${count !== 1 ? "s" : ""})`)}` : "";
-      }
       case "execute_command":
       case "execute_execute_command": {
-        const exitCode = obj["exitCode"];
-        const output = obj["output"];
-        if (exitCode !== undefined && exitCode !== null) {
-          const exitCodeNum = Number(exitCode);
-          if (!isNaN(exitCodeNum) && exitCodeNum !== 0) {
-            return ` ${chalk.red(`(exit: ${exitCodeNum})`)}`;
-          }
-        }
-        if (output && typeof output === "string") {
-          return ` ${chalk.dim(`(${output})`)}`;
-        }
-        return "";
-      }
-      case "http_request": {
-        const status = obj["statusCode"];
-        if (status !== undefined && status !== null) {
-          const statusStr = safeString(status);
-          return statusStr ? ` ${chalk.dim(`(${statusStr})`)}` : "";
-        }
-        return "";
+        return truncateDisplayText(formatCommandResult(obj));
       }
       case "execute_edit_file":
       case "execute_write_file": {
@@ -426,9 +492,9 @@ export function formatToolResult(toolName: string, result: string): string {
         return "";
       }
       default:
-        return "";
+        return truncateDisplayText(formatGenericObject(obj));
     }
   } catch {
-    return "";
+    return truncateDisplayText(result);
   }
 }

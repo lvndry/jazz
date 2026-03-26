@@ -25,7 +25,6 @@ import {
  * Features:
  * - Smart hierarchical search (cwd → parents → home) with parallel scanning.
  * - .gitignore-aware by default.
- * - Results sorted by most recently modified first.
  * - Glob patterns, regex, type filters, hidden files.
  * - Size/mtime/minDepth/pathPattern/excludePaths when needed.
  */
@@ -329,6 +328,11 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       for (const ex of args.excludePaths) {
         expr.push("-path", ex, "-prune", "-o");
       }
+    }
+
+    // Hidden handling: match fast-glob/fd default behavior when includeHidden is false.
+    if (!args.includeHidden) {
+      expr.push("-not", "-path", "*/.*");
     }
 
     if (args.pathPattern) expr.push("-path", args.pathPattern);

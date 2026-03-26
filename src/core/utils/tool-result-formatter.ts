@@ -6,7 +6,7 @@
  *   Phase 1 — Lossless noise stripping: remove input echoes, derivable fields,
  *             duplicate representations, and constant/diagnostic fields.
  *   Phase 2 — Structure-aware truncation: only when the stripped result exceeds
- *             a per-tool character budget, truncate by removing complete entries
+ *             an adaptive character budget, truncate by removing complete entries
  *             (array items, lines) rather than slicing mid-structure.
  *
  * Design principles:
@@ -23,22 +23,21 @@
 /** Default character budget for serialized tool results. */
 const DEFAULT_MAX_CHARS = 12_000;
 
-/**
- * Per-tool max chars. Tools with typically large output get higher budgets.
- * Tools not listed here use DEFAULT_MAX_CHARS.
- */
-const TOOL_MAX_CHARS: Readonly<Record<string, number>> = {
-  read_file: 24_000,
-  read_pdf: 24_000,
-  head: 16_000,
-  tail: 16_000,
-  git_diff: 16_000,
-  execute_command: 16_000,
-  http_request: 16_000,
-  grep: 12_000,
-  git_log: 12_000,
-  git_blame: 12_000,
-};
+const WIDE_PAYLOAD_MAX_CHARS = 16_000;
+const VERY_WIDE_PAYLOAD_MAX_CHARS = 24_000;
+const LARGE_TEXT_FIELD_KEYS = new Set(["content", "diff", "stdout", "stderr", "body", "text"]);
+const LARGE_ARRAY_FIELD_KEYS = new Set([
+  "matches",
+  "results",
+  "files",
+  "counts",
+  "lines",
+  "commits",
+  "summary",
+  "items",
+  "entries",
+  "todos",
+]);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +60,44 @@ function safeStringify(value: unknown): string {
   } catch {
     return JSON.stringify({ error: "Failed to serialize tool result" });
   }
+}
+
+function hasLargeTextField(value: Record<string, unknown>): boolean {
+  for (const [key, fieldValue] of Object.entries(value)) {
+    if (!LARGE_TEXT_FIELD_KEYS.has(key)) continue;
+    if (typeof fieldValue === "string" && fieldValue.length > 2_000) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasLargeArrayField(value: Record<string, unknown>): boolean {
+  for (const [key, fieldValue] of Object.entries(value)) {
+    if (!LARGE_ARRAY_FIELD_KEYS.has(key)) continue;
+    if (Array.isArray(fieldValue) && fieldValue.length > 100) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveMaxChars(result: unknown): number {
+  if (typeof result === "string") {
+    return result.length > 4_000 ? VERY_WIDE_PAYLOAD_MAX_CHARS : DEFAULT_MAX_CHARS;
+  }
+  if (Array.isArray(result)) {
+    return result.length > 100 ? VERY_WIDE_PAYLOAD_MAX_CHARS : WIDE_PAYLOAD_MAX_CHARS;
+  }
+  if (isRecord(result)) {
+    if (hasLargeTextField(result)) {
+      return VERY_WIDE_PAYLOAD_MAX_CHARS;
+    }
+    if (hasLargeArrayField(result)) {
+      return WIDE_PAYLOAD_MAX_CHARS;
+    }
+  }
+  return DEFAULT_MAX_CHARS;
 }
 
 /**
@@ -327,12 +364,7 @@ function truncateArray(arr: readonly unknown[], maxChars: number): unknown[] {
  * Given a serialized result that exceeds the budget, attempt structure-aware truncation.
  * Falls back to a hard slice with a note if no better strategy applies.
  */
-function truncateResult(
-  _toolName: string,
-  result: unknown,
-  serialized: string,
-  maxChars: number,
-): string {
+function truncateResult(result: unknown, serialized: string, maxChars: number): string {
   // If the result is a string (some tools return plain strings), truncate by lines
   if (typeof result === "string") {
     return truncateLineContent(result, maxChars);
@@ -431,11 +463,11 @@ export function formatToolResultForContext(toolName: string, result: unknown): s
   // Serialize
   const serialized = typeof stripped === "string" ? stripped : safeStringify(stripped);
 
-  // Phase 2: Truncate if necessary
-  const maxChars = TOOL_MAX_CHARS[toolName] ?? DEFAULT_MAX_CHARS;
+  // Phase 2: Truncate only when payload actually exceeds adaptive budget.
+  const maxChars = resolveMaxChars(stripped);
   if (serialized.length <= maxChars) {
     return serialized;
   }
 
-  return truncateResult(toolName, stripped, serialized, maxChars);
+  return truncateResult(stripped, serialized, maxChars);
 }

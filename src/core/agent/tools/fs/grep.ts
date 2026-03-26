@@ -184,25 +184,148 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     return counts.slice(0, maxResults);
   }
 
-  function parseContentOutput(stdout: string, maxResults: number) {
-    const lines = stdout.split("\n").filter((line) => line.trim());
-    const matches: Array<{ file: string; line: number; text: string }> = [];
-    const seenMatches = new Set<string>();
+  interface ContextLine {
+    line: number;
+    text: string;
+  }
 
-    for (const line of lines) {
-      if (line === "--") continue;
-      const parts = line.split(":");
-      if (parts.length >= 3 && parts[0] && parts[1]) {
-        const file = parts[0];
-        const lineNum = parseInt(parts[1], 10);
-        const text = parts.slice(2).join(":");
-        const key = `${file}:${lineNum}`;
-        if (!seenMatches.has(key)) {
-          seenMatches.add(key);
-          matches.push({ file, line: lineNum, text });
-        }
+  interface ContentMatch {
+    file: string;
+    line: number;
+    text: string;
+    contextBefore?: ContextLine[];
+    contextAfter?: ContextLine[];
+  }
+
+  interface ParsedContentLine {
+    file: string;
+    line: number;
+    text: string;
+    kind: "match" | "context";
+  }
+
+  function parseSearchOutputLine(rawLine: string): ParsedContentLine | null {
+    // Both rg and grep use:
+    // - "file:line:text" for a match
+    // - "file-line-text" for context lines when -C is enabled
+    const parsed = rawLine.match(/^(.*)([:-])(\d+)\2(.*)$/);
+    if (!parsed) return null;
+    const file = parsed[1] ?? "";
+    const delimiter = parsed[2];
+    const lineNum = parseInt(parsed[3] ?? "", 10);
+    const text = parsed[4] ?? "";
+
+    if (!file || Number.isNaN(lineNum)) return null;
+    return {
+      file,
+      line: lineNum,
+      text,
+      kind: delimiter === ":" ? "match" : "context",
+    };
+  }
+
+  function mergeContextLines(
+    existing: ContextLine[] = [],
+    incoming: ContextLine[] = [],
+  ): ContextLine[] {
+    const merged = [...existing];
+    const seen = new Set(existing.map((c) => `${c.line}:${c.text}`));
+    for (const line of incoming) {
+      const key = `${line.line}:${line.text}`;
+      if (!seen.has(key)) {
+        merged.push(line);
+        seen.add(key);
       }
     }
+    return merged;
+  }
+
+  function parseContentOutput(
+    stdout: string,
+    maxResults: number,
+    includeContext: boolean,
+  ): ContentMatch[] {
+    const lines = stdout.split("\n").filter((line) => line.trim());
+    const blocks: string[][] = [];
+    let currentBlock: string[] = [];
+
+    for (const line of lines) {
+      if (line === "--") {
+        if (currentBlock.length > 0) blocks.push(currentBlock);
+        currentBlock = [];
+        continue;
+      }
+      currentBlock.push(line);
+    }
+    if (currentBlock.length > 0) blocks.push(currentBlock);
+
+    const matches: ContentMatch[] = [];
+    const seenMatches = new Map<string, number>();
+
+    for (const block of blocks) {
+      const entries = block
+        .map((line) => parseSearchOutputLine(line))
+        .filter((entry): entry is ParsedContentLine => entry !== null);
+
+      const matchIndexes: number[] = [];
+      for (let i = 0; i < entries.length; i++) {
+        if (entries[i]?.kind === "match") {
+          matchIndexes.push(i);
+        }
+      }
+
+      for (let i = 0; i < matchIndexes.length; i++) {
+        const matchIndex = matchIndexes[i];
+        if (typeof matchIndex !== "number") continue;
+        const matchEntry = entries[matchIndex];
+        if (!matchEntry) continue;
+
+        const key = `${matchEntry.file}:${matchEntry.line}`;
+
+        const prevMatchIndex = i > 0 ? (matchIndexes[i - 1] ?? -1) : -1;
+        const nextMatchIndex =
+          i < matchIndexes.length - 1 ? (matchIndexes[i + 1] ?? entries.length) : entries.length;
+
+        const contextBefore: ContextLine[] = [];
+        const contextAfter: ContextLine[] = [];
+
+        if (includeContext) {
+          for (let j = prevMatchIndex + 1; j < matchIndex; j++) {
+            const entry = entries[j];
+            if (!entry || entry.kind !== "context" || entry.file !== matchEntry.file) continue;
+            contextBefore.push({ line: entry.line, text: entry.text });
+          }
+          for (let j = matchIndex + 1; j < nextMatchIndex; j++) {
+            const entry = entries[j];
+            if (!entry || entry.kind !== "context" || entry.file !== matchEntry.file) continue;
+            contextAfter.push({ line: entry.line, text: entry.text });
+          }
+        }
+
+        const existingIndex = seenMatches.get(key);
+        if (typeof existingIndex === "number") {
+          if (!includeContext) continue;
+          const existing = matches[existingIndex];
+          if (!existing) continue;
+          existing.contextBefore = mergeContextLines(existing.contextBefore, contextBefore);
+          existing.contextAfter = mergeContextLines(existing.contextAfter, contextAfter);
+          continue;
+        }
+
+        const item: ContentMatch = {
+          file: matchEntry.file,
+          line: matchEntry.line,
+          text: matchEntry.text,
+        };
+        if (includeContext) {
+          item.contextBefore = contextBefore;
+          item.contextAfter = contextAfter;
+        }
+        seenMatches.set(key, matches.length);
+        matches.push(item);
+      }
+    }
+
     return matches.slice(0, maxResults);
   }
 
@@ -355,7 +478,11 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         }
 
         // Content mode (default)
-        const matches = parseContentOutput(result.stdout, maxResults);
+        const matches = parseContentOutput(
+          result.stdout,
+          maxResults,
+          typeof args.contextLines === "number" && args.contextLines > 0,
+        );
         return {
           success: true,
           result: {
