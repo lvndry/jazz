@@ -332,7 +332,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
     // Hidden handling: match fast-glob/fd default behavior when includeHidden is false.
     if (!args.includeHidden) {
-      expr.push("-not", "-path", "*/.*");
+      expr.push("-path", "*/.*", "-prune", "-o");
     }
 
     if (args.pathPattern) expr.push("-path", args.pathPattern);

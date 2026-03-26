@@ -394,8 +394,8 @@ function truncateResult(result: unknown, serialized: string, maxChars: number): 
       }
     }
 
-    // Try truncating known large array fields (matches, commits, lines, results)
-    const arrayFields = ["matches", "commits", "lines", "results", "files", "counts", "summary"];
+    // Try truncating known large array fields (aligned with LARGE_ARRAY_FIELD_KEYS)
+    const arrayFields = Array.from(LARGE_ARRAY_FIELD_KEYS);
     for (const field of arrayFields) {
       const val = clone[field];
       if (Array.isArray(val) && val.length > 5) {
