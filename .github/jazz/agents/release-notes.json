@@ -2,11 +2,11 @@
   "id": "release-notes",
   "name": "release-notes",
   "description": "Release notes generator agent",
-  "model": "openai/gpt-5.2-codex",
+  "model": "openai/gpt-5.4-mini",
   "config": {
     "persona": "coder",
     "llmProvider": "openai",
-    "llmModel": "gpt-5.2-codex",
+    "llmModel": "gpt-5.4-mini",
     "reasoningEffort": "medium",
     "tools": [
       "find",

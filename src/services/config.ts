@@ -21,9 +21,9 @@ import { getGlobalUserDataDirectory } from "@/core/utils/runtime-detection";
  */
 function extractMcpOverride(entry: unknown): MCPServerOverride | undefined {
   if (!entry || typeof entry !== "object") return undefined;
-  const obj = entry as Record<string, unknown>;
-  if (typeof obj["enabled"] !== "boolean") return undefined;
-  return { enabled: obj["enabled"] } as MCPServerOverride;
+  const entryData = entry as Record<string, unknown>;
+  if (typeof entryData["enabled"] !== "boolean") return undefined;
+  return { enabled: entryData["enabled"] } as MCPServerOverride;
 }
 
 /**
@@ -465,13 +465,13 @@ function loadAgentsMcpServers(
       const parsed = safeParseJson<unknown>(content);
       if (Option.isNone(parsed)) continue;
 
-      const obj = parsed.value;
-      if (typeof obj !== "object" || obj === null) continue;
+      const parsedValue = parsed.value;
+      if (typeof parsedValue !== "object" || parsedValue === null) continue;
 
       // Support both { "mcpServers": {...} } wrapper and direct { "serverName": {...} }.
       // When using the direct format, all top-level keys are treated as server names.
       // Use the wrapped format to avoid ambiguity with non-server keys (e.g. "$schema").
-      const record = obj as Record<string, unknown>;
+      const record = parsedValue as Record<string, unknown>;
       const servers =
         "mcpServers" in record && typeof record["mcpServers"] === "object"
           ? (record["mcpServers"] as Record<string, unknown>)

@@ -606,9 +606,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
         return;
       }
-      const obj = parsed as Record<string, unknown>;
-      const fullDiff = obj["fullDiff"];
-      const wasTruncated = obj["wasTruncated"];
+      const parsedResult = parsed as Record<string, unknown>;
+      const fullDiff = parsedResult["fullDiff"];
+      const wasTruncated = parsedResult["wasTruncated"];
       if (typeof fullDiff === "string" && fullDiff.length > 0 && wasTruncated === true) {
         store.setExpandableDiff(fullDiff);
       }

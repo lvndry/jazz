@@ -346,10 +346,10 @@ export function formatToolResult(toolName: string, result: string): string {
     return output;
   }
 
-  function formatTodoList(obj: Record<string, unknown>): string {
-    const todos = Array.isArray(obj["todos"]) ? obj["todos"] : [];
+  function formatTodoList(parsedResult: Record<string, unknown>): string {
+    const todos = Array.isArray(parsedResult["todos"]) ? parsedResult["todos"] : [];
     if (todos.length === 0) {
-      return safeString(obj["message"]);
+      return safeString(parsedResult["message"]);
     }
 
     const lines = todos.flatMap((todo) => {
@@ -366,12 +366,12 @@ export function formatToolResult(toolName: string, result: string): string {
     return lines.join("\n");
   }
 
-  function formatContextInfo(obj: Record<string, unknown>): string {
-    const estimatedTokensUsed = safeString(obj["estimatedTokensUsed"]);
-    const maxTokens = safeString(obj["maxTokens"]);
-    const remainingTokens = safeString(obj["remainingTokens"]);
-    const percentUsed = safeString(obj["percentUsed"]);
-    const recommendation = safeString(obj["recommendation"]);
+  function formatContextInfo(parsedResult: Record<string, unknown>): string {
+    const estimatedTokensUsed = safeString(parsedResult["estimatedTokensUsed"]);
+    const maxTokens = safeString(parsedResult["maxTokens"]);
+    const remainingTokens = safeString(parsedResult["remainingTokens"]);
+    const percentUsed = safeString(parsedResult["percentUsed"]);
+    const recommendation = safeString(parsedResult["recommendation"]);
 
     const lines = [
       estimatedTokensUsed ? `estimatedTokensUsed: ${estimatedTokensUsed}` : "",
@@ -384,10 +384,10 @@ export function formatToolResult(toolName: string, result: string): string {
     return lines.join("\n");
   }
 
-  function formatReadFileResult(obj: Record<string, unknown>): string {
-    const path = safeString(obj["path"]);
-    const content = safeString(obj["content"]);
-    const truncated = obj["truncated"] === true;
+  function formatReadFileResult(parsedResult: Record<string, unknown>): string {
+    const path = safeString(parsedResult["path"]);
+    const content = safeString(parsedResult["content"]);
+    const truncated = parsedResult["truncated"] === true;
     const lines: string[] = [];
 
     if (path) lines.push(path);
@@ -403,10 +403,10 @@ export function formatToolResult(toolName: string, result: string): string {
     return lines.join("\n");
   }
 
-  function formatCommandResult(obj: Record<string, unknown>): string {
-    const stdout = safeString(obj["stdout"]);
-    const stderr = safeString(obj["stderr"]);
-    const exitCode = safeString(obj["exitCode"]);
+  function formatCommandResult(parsedResult: Record<string, unknown>): string {
+    const stdout = safeString(parsedResult["stdout"]);
+    const stderr = safeString(parsedResult["stderr"]);
+    const exitCode = safeString(parsedResult["exitCode"]);
 
     if (!stdout && !stderr) {
       return exitCode ? `exitCode: ${exitCode}` : "";
@@ -427,8 +427,8 @@ export function formatToolResult(toolName: string, result: string): string {
     return lines.join("\n");
   }
 
-  function formatGenericObject(obj: Record<string, unknown>): string {
-    return JSON.stringify(obj, null, 2);
+  function formatGenericObject(parsedResult: Record<string, unknown>): string {
+    return JSON.stringify(parsedResult, null, 2);
   }
 
   try {
@@ -444,19 +444,36 @@ export function formatToolResult(toolName: string, result: string): string {
       return truncateDisplayText(JSON.stringify(parsedArray, null, 2));
     }
 
-    const obj = parsed as Record<string, unknown>;
+    const parsedResult = parsed as Record<string, unknown>;
 
     switch (toolName) {
       case "list_todos":
-        return truncateDisplayText(formatTodoList(obj));
+        return truncateDisplayText(formatTodoList(parsedResult));
       case "manage_todos":
-        return truncateDisplayText(formatTodoList(obj) || safeString(obj["message"]));
+        return truncateDisplayText(
+          formatTodoList(parsedResult) || safeString(parsedResult["message"]),
+        );
       case "context_info":
-        return truncateDisplayText(formatContextInfo(obj));
+        return truncateDisplayText(formatContextInfo(parsedResult));
+      case "load_skill":
+      case "load_skill_section": {
+        if (parsedResult["success"] === true) {
+          return ` ${chalk.dim("(loaded)")}`;
+        }
+        return ` ${chalk.red(`(error: ${safeString(parsedResult["error"] || parsedResult["result"])})`)}`;
+      }
+      case "spawn_subagent": {
+        if (parsedResult["success"] === true) {
+          return ` ${chalk.dim("(sub-agent completed)")}`;
+        }
+        return ` ${chalk.red(`(error: ${safeString(parsedResult["error"] || parsedResult["result"])})`)}`;
+      }
       case "git_status": {
-        const branch = safeString(obj["branch"]);
-        const modified = Array.isArray(obj["modified"]) ? obj["modified"].length : 0;
-        const staged = Array.isArray(obj["staged"]) ? obj["staged"].length : 0;
+        const branch = safeString(parsedResult["branch"]);
+        const modified = Array.isArray(parsedResult["modified"])
+          ? parsedResult["modified"].length
+          : 0;
+        const staged = Array.isArray(parsedResult["staged"]) ? parsedResult["staged"].length : 0;
         const parts: string[] = [];
         if (branch) parts.push(chalk.cyan(branch));
         if (modified > 0) parts.push(chalk.yellow(`${modified} modified`));
@@ -466,25 +483,25 @@ export function formatToolResult(toolName: string, result: string): string {
           : "";
       }
       case "git_log": {
-        const commits = obj["commits"] || obj;
+        const commits = parsedResult["commits"] || parsedResult;
         const count = Array.isArray(commits) ? commits.length : 0;
         return count > 0 ? ` ${chalk.dim(`(${count} commit${count !== 1 ? "s" : ""})`)}` : "";
       }
       case "git_diff": {
         const parts: string[] = [];
-        const paths = obj["paths"];
-        const nameOnly = obj["nameOnly"] === true;
+        const paths = parsedResult["paths"];
+        const nameOnly = parsedResult["nameOnly"] === true;
         if (Array.isArray(paths) && paths.length > 0) {
           parts.push(chalk.cyan(`${paths.length} file${paths.length !== 1 ? "s" : ""}`));
           if (nameOnly) {
             parts.push(chalk.dim("(names only)"));
           }
         }
-        const truncated = obj["truncated"];
+        const truncated = parsedResult["truncated"];
         if (truncated === true) {
           parts.push(chalk.yellow("truncated"));
         }
-        const hasChanges = obj["hasChanges"];
+        const hasChanges = parsedResult["hasChanges"];
         if (hasChanges === false && !nameOnly) {
           parts.push(chalk.dim("no diff"));
         }
@@ -493,28 +510,28 @@ export function formatToolResult(toolName: string, result: string): string {
           : "";
       }
       case "grep": {
-        const matches = obj["matches"] || obj;
+        const matches = parsedResult["matches"] || parsedResult;
         const count = Array.isArray(matches) ? matches.length : 0;
         return count > 0 ? ` ${chalk.dim(`(${count} match${count !== 1 ? "es" : ""})`)}` : "";
       }
       case "ls": {
-        const items = obj["items"] || obj["files"] || obj;
+        const items = parsedResult["items"] || parsedResult["files"] || parsedResult;
         const count = Array.isArray(items) ? items.length : 0;
         return count > 0 ? ` ${chalk.dim(`(${count} item${count !== 1 ? "s" : ""})`)}` : "";
       }
       case "read_file": {
-        return truncateDisplayText(formatReadFileResult(obj));
+        return truncateDisplayText(formatReadFileResult(parsedResult));
       }
       case "cd": {
-        const newPath = safeString(obj["path"] || obj["currentDirectory"]);
+        const newPath = safeString(parsedResult["path"] || parsedResult["currentDirectory"]);
         return newPath ? ` ${chalk.dim("→")} ${chalk.cyan(newPath)}` : "";
       }
       case "execute_command":
       case "execute_execute_command": {
-        return truncateDisplayText(formatCommandResult(obj));
+        return truncateDisplayText(formatCommandResult(parsedResult));
       }
       case "http_request": {
-        const status = obj["statusCode"];
+        const status = parsedResult["statusCode"];
         if (status !== undefined && status !== null) {
           const statusStr = safeString(status);
           return statusStr ? ` ${chalk.dim(`(${statusStr})`)}` : "";
@@ -524,19 +541,19 @@ export function formatToolResult(toolName: string, result: string): string {
       case "execute_edit_file":
       case "execute_write_file": {
         // Check for diff in the result
-        const diff = obj["diff"];
+        const diff = parsedResult["diff"];
         if (typeof diff === "string" && diff.length > 0) {
           return `\n${diff}`;
         }
         return "";
       }
       case "read_pdf": {
-        const pageCount = obj["pageCount"];
-        const pagesExtracted = obj["pagesExtracted"];
-        const truncated = obj["truncated"];
-        const path = obj["path"];
-        const tables = obj["tables"];
-        const totalLines = obj["totalLines"];
+        const pageCount = parsedResult["pageCount"];
+        const pagesExtracted = parsedResult["pagesExtracted"];
+        const truncated = parsedResult["truncated"];
+        const path = parsedResult["path"];
+        const tables = parsedResult["tables"];
+        const totalLines = parsedResult["totalLines"];
         const summaryParts: string[] = [];
         if (path) summaryParts.push(`file: ${safeString(path)}`);
         if (Array.isArray(pagesExtracted) && pagesExtracted.length > 0) {
@@ -557,7 +574,7 @@ export function formatToolResult(toolName: string, result: string): string {
           : "";
       }
       default:
-        return truncateDisplayText(formatGenericObject(obj));
+        return truncateDisplayText(formatGenericObject(parsedResult));
     }
   } catch {
     return truncateDisplayText(result);
