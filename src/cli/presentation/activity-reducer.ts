@@ -457,7 +457,7 @@ export function reduceEvent(
             React.createElement(
               Box,
               { paddingLeft: PADDING.nested, flexDirection: "column" },
-              React.createElement(Text, {}, displayText),
+              React.createElement(Text, { wrap: "truncate" }, displayText),
             ),
           ),
           timestamp: new Date(),
