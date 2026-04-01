@@ -13,7 +13,7 @@ import {
   stripAnsiCodes,
   wrapToWidth,
 } from "./markdown-formatter";
-import { CHALK_THEME, codeColor } from "../ui/theme";
+import { CHALK_THEME, codeColor, THEME } from "../ui/theme";
 
 /** Count OSC 8 hyperlink sequences (\x1b]8;;) in output. */
 function countOsc8(text: string): number {
@@ -65,6 +65,18 @@ describe("markdown-formatter", () => {
       const input = "## Response Overview";
       const result = formatMarkdown(input);
       expect(result).toBe(CHALK_THEME.agentBold("▸ Response Overview"));
+    });
+
+    it("should style headings with extra leading spaces (LLM-indented markdown)", () => {
+      expect(formatMarkdown("    ## Code Review")).toBe(CHALK_THEME.agentBold("▸ Code Review"));
+      expect(formatMarkdown("      ### Suggestions")).toBe(
+        chalk.hex(THEME.link).bold("• Suggestions"),
+      );
+    });
+
+    it("should style heavily indented headings in hybrid mode", () => {
+      const result = formatMarkdownHybrid("    ## Hybrid H2");
+      expect(result).toBe(`## ${CHALK_THEME.agentBold("Hybrid H2")}`);
     });
   });
 

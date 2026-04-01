@@ -13,6 +13,8 @@ type FormatStyle = "plain" | "colored";
 
 interface FormatOptions {
   style?: FormatStyle;
+  /** Executor hints for display (e.g. web_search backend: builtin vs configured provider). */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -25,12 +27,19 @@ export function formatToolArguments(
   args?: Record<string, unknown>,
   options: FormatOptions = { style: "colored" },
 ): string {
-  if (!args || Object.keys(args).length === 0) {
-    return "";
-  }
-
   const style = options.style ?? "colored";
   const usePlain = style === "plain";
+
+  if (!args || Object.keys(args).length === 0) {
+    if (toolName === "web_search") {
+      const provider = safeString(options.metadata?.["provider"]);
+      if (!provider) return "";
+      return usePlain
+        ? `{ provider: ${provider} }`
+        : ` ${chalk.dim("provider:")} ${chalk.cyan(provider)}`;
+    }
+    return "";
+  }
 
   // Helper to format key-value pairs
   function formatKeyValue(key: string, value: string): string {
@@ -280,8 +289,19 @@ export function formatToolArguments(
     case "web_search": {
       // Check common query argument names across providers
       const query = safeString(args["query"] || args["search_query"] || args["q"]);
-      if (!query) return "";
-      return usePlain ? `{ query: "${query}" }` : formatKeyValue("query", query);
+      const provider = safeString(options.metadata?.["provider"]);
+      if (!query) {
+        if (!provider) return "";
+        return usePlain
+          ? `{ provider: ${provider} }`
+          : ` ${chalk.dim("provider:")} ${chalk.cyan(provider)}`;
+      }
+      if (!provider) {
+        return usePlain ? `{ query: "${query}" }` : formatKeyValue("query", query);
+      }
+      return usePlain
+        ? `{ query: "${query}", provider: ${provider} }`
+        : `${formatKeyValue("query", query)} ${chalk.dim(`(${provider})`)}`;
     }
     case "mkdir": {
       const dirPath = safeString(args["path"]);

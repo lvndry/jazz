@@ -306,11 +306,15 @@ export class CLIRenderer {
     toolName: string;
     toolCallId: string;
     arguments?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
   }): string {
     // Store tool name for later use in completion
     this.toolNameMap.set(event.toolCallId, event.toolName);
 
-    const argsStr = CLIRenderer.formatToolArguments(event.toolName, event.arguments);
+    const argsStr = formatToolArgumentsShared(event.toolName, event.arguments, {
+      style: "colored",
+      ...(event.metadata !== undefined ? { metadata: event.metadata } : {}),
+    });
     const { colors, icons } = this.theme;
 
     return (
@@ -776,8 +780,15 @@ export class CLIRenderer {
   /**
    * Format tool arguments for display (used in both streaming and non-streaming modes)
    */
-  static formatToolArguments(toolName: string, args?: Record<string, unknown>): string {
-    return formatToolArgumentsShared(toolName, args, { style: "colored" });
+  static formatToolArguments(
+    toolName: string,
+    args?: Record<string, unknown>,
+    metadata?: Record<string, unknown>,
+  ): string {
+    return formatToolArgumentsShared(toolName, args, {
+      style: "colored",
+      ...(metadata !== undefined ? { metadata } : {}),
+    });
   }
 
   /**

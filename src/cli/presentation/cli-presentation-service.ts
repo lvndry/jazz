@@ -114,10 +114,10 @@ export class CLIPresentationService implements PresentationService {
   formatToolExecutionStart(
     toolName: string,
     args?: Record<string, unknown>,
+    options?: { metadata?: Record<string, unknown> },
   ): Effect.Effect<string, never> {
     return Effect.sync(() => {
-      const argsStr = this.formatToolArguments(toolName, args);
-      return argsStr;
+      return CLIRenderer.formatToolArguments(toolName, args, options?.metadata);
     }).pipe(
       Effect.flatMap((argsStr) => this.getRenderer().formatToolExecutionStart(toolName, argsStr)),
     );

@@ -282,6 +282,27 @@ describe("activity-reducer", () => {
       expect(String(result.outputs[0]!.message)).toContain("execute_bash");
     });
 
+    test("tool_execution_start for web_search appends provider from metadata", () => {
+      const a = acc();
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_start",
+          toolName: "web_search",
+          toolCallId: "ws-1",
+          arguments: { query: "effect typescript" },
+          metadata: { provider: "builtin" },
+        },
+        identity,
+        stubInk,
+      );
+
+      expect(result.outputs).toHaveLength(1);
+      const line = String(result.outputs[0]!.message);
+      expect(line).toContain("effect typescript");
+      expect(line).toContain("builtin");
+    });
+
     test("tool_execution_complete removes tool and transitions to idle when last", () => {
       const a = acc();
       a.activeTools.set("tc-1", { toolName: "execute_bash", startedAt: Date.now() });
@@ -347,8 +368,9 @@ describe("activity-reducer", () => {
       expect(outputText).not.toContain("load_skill done");
     });
 
-    test("tool_execution_complete with multi-line summary emits two logs", () => {
+    test("tool_execution_complete with multi-line summary renders full body in bordered log", () => {
       const a = acc();
+      const { nodes, render } = createCapturingInk();
       a.activeTools.set("tc-1", { toolName: "diff_tool", startedAt: Date.now() });
 
       const result = reduceEvent(
@@ -361,11 +383,14 @@ describe("activity-reducer", () => {
           summary: "line1\nline2",
         },
         identity,
-        stubInk,
+        render,
       );
 
       expect(result.outputs).toHaveLength(2);
       expect(result.outputs[0]!.type).toBe("log");
+      const outputText = nodes.map((node) => extractText(node)).join("\n");
+      expect(outputText).toContain("line1");
+      expect(outputText).toContain("line2");
       // Second log is the spacing entry
       expect(result.outputs[1]!.message).toBe("");
     });

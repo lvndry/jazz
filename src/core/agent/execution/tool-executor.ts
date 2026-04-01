@@ -167,7 +167,11 @@ export class ToolExecutor {
               ...(isLongRunning ? { longRunning: true } : {}),
             });
           } else {
-            const message = yield* presentationService.formatToolExecutionStart(name, args);
+            const message = yield* presentationService.formatToolExecutionStart(
+              name,
+              args,
+              metadata ? { metadata } : undefined,
+            );
             yield* presentationService.writeBlankLine();
             yield* presentationService.writeOutput(message);
           }
@@ -265,17 +269,26 @@ export class ToolExecutor {
 
             // Emit execution start for the follow-up tool
             if (displayConfig.showToolExecution) {
+              let executeMetadata: Record<string, unknown> | undefined;
+              if (approvalResult.executeToolName === "web_search") {
+                const configService = yield* AgentConfigServiceTag;
+                const appConfig = yield* configService.appConfig;
+                const provider = appConfig.web_search?.provider;
+                executeMetadata = { provider: provider ?? "builtin" };
+              }
               if (renderer) {
                 yield* renderer.handleEvent({
                   type: "tool_execution_start",
                   toolName: approvalResult.executeToolName,
                   toolCallId: toolCall.id,
                   arguments: approvalResult.executeArgs,
+                  ...(executeMetadata ? { metadata: executeMetadata } : {}),
                 });
               } else {
                 const message = yield* presentationService.formatToolExecutionStart(
                   approvalResult.executeToolName,
                   approvalResult.executeArgs,
+                  executeMetadata ? { metadata: executeMetadata } : undefined,
                 );
                 yield* presentationService.writeBlankLine();
                 yield* presentationService.writeOutput(message);

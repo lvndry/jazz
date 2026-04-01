@@ -46,11 +46,16 @@ const BOLD_REGEX = /\*\*([^*\n]+?)\*\*|__([^_\n]+?)__/g;
 const ITALIC_ASTERISK_REGEX = /(?<!\*)\*([^*\n]+?)\*(?!\*)/g;
 const ITALIC_UNDERSCORE_REGEX = /(?<!_)_([^_\n]+?)_(?!_)/g;
 const INLINE_CODE_REGEX = /`([^`\n]+?)`/g;
-/** Headings allow 0-3 leading spaces (4+ is an indented code block per CommonMark). */
-const H4_REGEX = /^[ ]{0,3}####\s+(.+)$/gm;
-const H3_REGEX = /^[ ]{0,3}###\s+(.+)$/gm;
-const H2_REGEX = /^[ ]{0,3}##\s+(.+)$/gm;
-const H1_REGEX = /^[ ]{0,3}#\s+(.+)$/gm;
+/**
+ * ATX headings: CommonMark allows 0–3 spaces before `#`; models often indent further
+ * (e.g. under a list). We strip any leading spaces/tabs so those lines still format
+ * as headings and align with the rest of the response. (Fenced code uses separate
+ * extraction, so `##` inside a code block is unaffected.)
+ */
+const H4_REGEX = /^[ \t]*####\s+(.+)$/gm;
+const H3_REGEX = /^[ \t]*###\s+(.+)$/gm;
+const H2_REGEX = /^[ \t]*##\s+(.+)$/gm;
+const H1_REGEX = /^[ \t]*#\s+(.+)$/gm;
 const BLOCKQUOTE_REGEX = /^\s*>\s+(.+)$/gm;
 const TASK_LIST_REGEX = /^\s*-\s+\[([ xX])\]\s+(.+)$/gm;
 /** Requires 3+ of the *same* rule character (-, *, or _) via backreference. */

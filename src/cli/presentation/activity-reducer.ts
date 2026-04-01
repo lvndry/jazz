@@ -343,7 +343,11 @@ export function reduceEvent(
     case "tool_execution_start": {
       const todoSnapshot =
         event.toolName === "manage_todos" ? parseTodoSnapshot(event.arguments) : undefined;
-      const args = formatToolArguments(event.toolName, event.arguments);
+      const args = formatToolArguments(
+        event.toolName,
+        event.arguments,
+        event.metadata !== undefined ? { metadata: event.metadata } : undefined,
+      );
       if (todoSnapshot) {
         acc.activeTools.set(event.toolCallId, {
           toolName: event.toolName,
@@ -386,16 +390,10 @@ export function reduceEvent(
       const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
       const hasMultiLine = displayText.includes("\n");
 
-      if (
-        toolName === "manage_todos" &&
-        summary &&
-        summary.length > 0 &&
-        hasMultiLine &&
-        toolEntry?.todoSnapshot &&
-        toolEntry.todoSnapshot.length > 0
-      ) {
+      if (summary && summary.length > 0 && hasMultiLine) {
         const lines = summary.split("\n");
-        const headerLine = (lines[0] ?? "Todo list").trim();
+        const headerLine =
+          (lines[0] ?? "").trim().length > 0 ? (lines[0] ?? "").trim() : (toolName ?? "Tool");
         const bodyLines = lines.slice(1);
         outputs.push({
           type: "log",
@@ -419,7 +417,7 @@ export function reduceEvent(
               ...bodyLines.map((line, index) =>
                 React.createElement(
                   Box,
-                  { key: `manage-todos-line-${index}` },
+                  { key: `tool-result-line-${index}` },
                   React.createElement(Text, { dimColor: true }, line),
                 ),
               ),
@@ -428,17 +426,8 @@ export function reduceEvent(
           timestamp: new Date(),
         });
       } else {
-        let singleLineSummary: string;
-        if (!hasMultiLine && summary && summary.length > 0) {
-          singleLineSummary = summary;
-        } else if (hasMultiLine && summary && summary.length > 0) {
-          const firstLine = summary.split("\n")[0]?.trim() ?? "";
-          singleLineSummary = firstLine.length > 0 ? firstLine : (toolName ?? "Tool");
-        } else {
-          singleLineSummary = toolName ?? "Tool";
-        }
+        const singleLineSummary = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
 
-        // Output exactly one line, completely dimmed
         outputs.push({
           type: "log",
           message: inkRender(

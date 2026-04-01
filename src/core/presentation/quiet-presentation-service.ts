@@ -54,6 +54,7 @@ class QuietPresentationService implements PresentationService {
   formatToolExecutionStart(
     _toolName: string,
     _args?: Record<string, unknown>,
+    _options?: { readonly metadata?: Record<string, unknown> },
   ): Effect.Effect<string, never> {
     return Effect.succeed("");
   }

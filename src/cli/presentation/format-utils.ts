@@ -22,8 +22,15 @@ import { CHALK_THEME } from "../ui/theme";
 // Tool formatting (delegates to core)
 // ---------------------------------------------------------------------------
 
-export function formatToolArguments(toolName: string, args?: Record<string, unknown>): string {
-  return formatToolArgumentsCore(toolName, args, { style: "colored" });
+export function formatToolArguments(
+  toolName: string,
+  args?: Record<string, unknown>,
+  options?: { metadata?: Record<string, unknown> },
+): string {
+  return formatToolArgumentsCore(toolName, args, {
+    style: "colored",
+    ...(options?.metadata !== undefined ? { metadata: options.metadata } : {}),
+  });
 }
 
 export function formatToolResult(toolName: string, result: string): string {
@@ -57,6 +64,18 @@ export function formatToolExecutionComplete(summary: string | null, durationMs: 
 
 export function formatToolExecutionError(errorMessage: string, durationMs: number): string {
   return ` ${chalk.redBright("✖")} ${chalk.redBright(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+}
+
+/**
+ * Dim formatted reasoning for the Static output stream. Nested markdown uses SGR 22
+ * to end **bold**, which also clears faint/dim on common terminals — re-apply SGR 2
+ * after each 22 so following text stays subdued within the same chunk.
+ */
+export function dimReasoningMarkdownOutput(formatted: string): string {
+  if (formatted.length === 0) return formatted;
+  // eslint-disable-next-line no-control-regex -- SGR 22 ends bold and clears dim; restore faint after each
+  const patched = formatted.replace(/\x1b\[22m/g, "\x1b[22m\x1b[2m");
+  return chalk.dim(patched);
 }
 
 export function formatToolsDetected(

@@ -97,6 +97,7 @@ export interface PresentationService {
   readonly formatToolExecutionStart: (
     toolName: string,
     args?: Record<string, unknown>,
+    options?: { readonly metadata?: Record<string, unknown> },
   ) => Effect.Effect<string, never>;
 
   /**

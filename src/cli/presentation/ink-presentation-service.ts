@@ -23,6 +23,7 @@ import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/mod
 import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
+  dimReasoningMarkdownOutput,
   formatToolArguments,
   formatToolResult,
   formatCompletion,
@@ -439,7 +440,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     if (delta.length === 0) return;
     store.printOutput({
       type: "streamContent",
-      message: chalk.dim(delta),
+      message: dimReasoningMarkdownOutput(delta),
       timestamp: new Date(),
     });
   }
@@ -796,8 +797,14 @@ class InkPresentationService implements PresentationService {
   formatToolExecutionStart(
     toolName: string,
     args?: Record<string, unknown>,
+    options?: { metadata?: Record<string, unknown> },
   ): Effect.Effect<string, never> {
-    return formatToolExecutionStartEffect(toolName, this.formatToolArguments(toolName, args));
+    const formatArgsOpts =
+      options?.metadata !== undefined ? { metadata: options.metadata } : undefined;
+    return formatToolExecutionStartEffect(
+      toolName,
+      formatToolArguments(toolName, args, formatArgsOpts),
+    );
   }
 
   formatToolExecutionComplete(
