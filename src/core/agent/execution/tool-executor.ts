@@ -455,7 +455,7 @@ export class ToolExecutor {
       const uniqueToolNames = Array.from(new Set(toolNames));
       const toolResults = yield* Effect.all(
         uniqueToolNames.map((toolName) => Effect.either(registry.getTool(toolName))),
-        { concurrency: "unbounded" },
+        { concurrency: MAX_CONCURRENT_TOOLS },
       );
       const approvalToolNameSet = new Set<string>();
       for (let i = 0; i < uniqueToolNames.length; i++) {
