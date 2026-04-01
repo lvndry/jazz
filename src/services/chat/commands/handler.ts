@@ -236,28 +236,29 @@ function handleForkCommand(
 function handleHelpCommand(terminal: TerminalService): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     yield* terminal.log(fmt.heading("Available Commands"));
-    yield* terminal.log(fmt.commandRow("/new", "Start a new conversation (clear context)"));
     yield* terminal.log(
-      fmt.commandRow("/fork", "Fork conversation (new branch from last message)"),
+      [
+        fmt.commandRow("/new", "Start a new conversation (clear context)"),
+        fmt.commandRow("/fork", "Fork conversation (new branch from last message)"),
+        fmt.commandRow("/tools", "List all agent tools by category"),
+        fmt.commandRow("/agents", "List all available agents"),
+        fmt.commandRow("/switch [agent]", "Switch to a different agent"),
+        fmt.commandRow("/clear", "Clear the screen"),
+        fmt.commandRow("/compact", "Summarize history to save tokens"),
+        fmt.commandRow("/context", "Show context window usage"),
+        fmt.commandRow("/cost", "Show token usage and estimated cost"),
+        fmt.commandRow("/copy", "Copy last agent response to clipboard"),
+        fmt.commandRow("/model", "Show or change model and reasoning"),
+        fmt.commandRow("/config", "Show or modify agent configuration"),
+        fmt.commandRow("/skills", "List and view available skills"),
+        fmt.commandRow("/workflows", "List or create workflows"),
+        fmt.commandRow("/stats", "Show session statistics"),
+        fmt.commandRow("/mcp", "Show MCP server status"),
+        fmt.commandRow("/mode", "Switch approval modes"),
+        fmt.commandRow("/help", "Show this help message"),
+        fmt.commandRow("/exit", "Exit the chat"),
+      ].join("\n"),
     );
-    yield* terminal.log(fmt.commandRow("/tools", "List all agent tools by category"));
-    yield* terminal.log(fmt.commandRow("/agents", "List all available agents"));
-    yield* terminal.log(fmt.commandRow("/switch [agent]", "Switch to a different agent"));
-    yield* terminal.log(fmt.commandRow("/clear", "Clear the screen"));
-    yield* terminal.log(fmt.commandRow("/compact", "Summarize history to save tokens"));
-    yield* terminal.log(fmt.commandRow("/context", "Show context window usage"));
-    yield* terminal.log(fmt.commandRow("/cost", "Show token usage and estimated cost"));
-    yield* terminal.log(fmt.commandRow("/copy", "Copy last agent response to clipboard"));
-    yield* terminal.log(fmt.commandRow("/model", "Show or change model and reasoning"));
-    yield* terminal.log(fmt.commandRow("/config", "Show or modify agent configuration"));
-    yield* terminal.log(fmt.commandRow("/skills", "List and view available skills"));
-    yield* terminal.log(fmt.commandRow("/workflows", "List or create workflows"));
-    yield* terminal.log(fmt.commandRow("/stats", "Show session statistics"));
-    yield* terminal.log(fmt.commandRow("/mcp", "Show MCP server status"));
-    yield* terminal.log(fmt.commandRow("/mode", "Switch approval modes"));
-    yield* terminal.log(fmt.commandRow("/help", "Show this help message"));
-    yield* terminal.log(fmt.commandRow("/exit", "Exit the chat"));
-    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }

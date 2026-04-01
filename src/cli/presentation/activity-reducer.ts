@@ -31,8 +31,8 @@ interface TodoSnapshotItem {
 function renderToolBadge(label: string): React.ReactElement {
   return React.createElement(
     Box,
-    { borderStyle: "round", borderColor: THEME.primary, paddingX: 1 },
-    React.createElement(Text, { color: THEME.primary }, label),
+    { borderStyle: "round", borderColor: THEME.toolBorder, paddingX: 1 },
+    React.createElement(Text, { color: THEME.agent }, label),
   );
 }
 
@@ -337,46 +337,13 @@ export function reduceEvent(
     }
 
     case "tool_call": {
-      if (!event.providerNative) {
-        return { activity: null, outputs };
-      }
-
-      const toolName = event.toolCall.function.name;
-      let parsedArgs: Record<string, unknown> | undefined;
-      try {
-        const raw: unknown = JSON.parse(event.toolCall.function.arguments);
-        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-          parsedArgs = raw as Record<string, unknown>;
-        }
-      } catch {
-        // ignore parse errors
-      }
-
-      const argsStr = formatToolArguments(toolName, parsedArgs);
-      let providerLabel = "";
-      if (toolName === "web_search" && acc.currentProvider) {
-        providerLabel = ` [${acc.currentProvider}]`;
-      }
-      outputs.push({
-        type: "log",
-        message: inkRender(
-          React.createElement(
-            Box,
-            { paddingLeft: PADDING.content, marginTop: 1 },
-            React.createElement(Text, { color: THEME.primary }, "▸ "),
-            React.createElement(Text, { bold: true }, toolName),
-            providerLabel ? React.createElement(Text, { dimColor: true }, providerLabel) : null,
-            argsStr ? React.createElement(Text, { dimColor: true }, argsStr) : null,
-          ),
-        ),
-        timestamp: new Date(),
-      });
       return { activity: null, outputs };
     }
 
     case "tool_execution_start": {
       const todoSnapshot =
         event.toolName === "manage_todos" ? parseTodoSnapshot(event.arguments) : undefined;
+      const args = formatToolArguments(event.toolName, event.arguments);
       if (todoSnapshot) {
         acc.activeTools.set(event.toolCallId, {
           toolName: event.toolName,
@@ -390,26 +357,9 @@ export function reduceEvent(
         });
       }
 
-      const argsStr = formatToolArguments(event.toolName, event.arguments);
-      let providerSuffix = "";
-      if (event.toolName === "web_search") {
-        const provider = event.metadata?.["provider"];
-        if (typeof provider === "string") {
-          providerSuffix = ` [${provider}]`;
-        }
-      }
       outputs.push({
-        type: "log",
-        message: inkRender(
-          React.createElement(
-            Box,
-            { paddingLeft: PADDING.content, marginTop: 1 },
-            React.createElement(Text, { color: THEME.primary }, "▸ "),
-            React.createElement(Text, { bold: true }, event.toolName),
-            providerSuffix ? React.createElement(Text, { dimColor: true }, providerSuffix) : null,
-            argsStr ? React.createElement(Text, { dimColor: true }, argsStr) : null,
-          ),
-        ),
+        type: "info",
+        message: `${event.toolName}${args.length > 0 ? ` ${args}` : ""}`,
         timestamp: new Date(),
       });
 
@@ -433,36 +383,62 @@ export function reduceEvent(
         summary = formatToolResult(toolName, event.result);
       }
 
-      const namePrefix = toolName ? `${toolName} ` : "";
-      const displayText = summary && summary.length > 0 ? summary : namePrefix + "done";
+      const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
       const hasMultiLine = displayText.includes("\n");
 
-      if (hasMultiLine) {
+      if (
+        toolName === "manage_todos" &&
+        summary &&
+        summary.length > 0 &&
+        hasMultiLine &&
+        toolEntry?.todoSnapshot &&
+        toolEntry.todoSnapshot.length > 0
+      ) {
+        const lines = summary.split("\n");
+        const headerLine = (lines[0] ?? "Todo list").trim();
+        const bodyLines = lines.slice(1);
         outputs.push({
           type: "log",
           message: inkRender(
             React.createElement(
               Box,
-              { paddingLeft: PADDING.content },
-              React.createElement(Text, { color: THEME.success }, "✔ "),
-              React.createElement(Text, {}, `${namePrefix}done`),
-              React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
-            ),
-          ),
-          timestamp: new Date(),
-        });
-        outputs.push({
-          type: "log",
-          message: inkRender(
-            React.createElement(
-              Box,
-              { paddingLeft: PADDING.nested, flexDirection: "column" },
-              React.createElement(Text, { wrap: "truncate" }, displayText),
+              {
+                paddingLeft: PADDING.content,
+                flexDirection: "column",
+                borderStyle: "round",
+                borderColor: THEME.toolBorder,
+                paddingX: 1,
+              },
+              React.createElement(
+                Box,
+                null,
+                React.createElement(Text, { color: THEME.success }, "✔ "),
+                React.createElement(Text, { color: THEME.agent }, headerLine),
+                React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
+              ),
+              ...bodyLines.map((line, index) =>
+                React.createElement(
+                  Box,
+                  { key: `manage-todos-line-${index}` },
+                  React.createElement(Text, { dimColor: true }, line),
+                ),
+              ),
             ),
           ),
           timestamp: new Date(),
         });
       } else {
+        let singleLineSummary: string;
+        if (!hasMultiLine && summary && summary.length > 0) {
+          singleLineSummary = summary;
+        } else if (hasMultiLine && summary && summary.length > 0) {
+          const firstLine = summary.split("\n")[0]?.trim() ?? "";
+          singleLineSummary = firstLine.length > 0 ? firstLine : (toolName ?? "Tool");
+        } else {
+          singleLineSummary = toolName ?? "Tool";
+        }
+
+        // Output exactly one line, completely dimmed
         outputs.push({
           type: "log",
           message: inkRender(
@@ -470,7 +446,7 @@ export function reduceEvent(
               Box,
               { paddingLeft: PADDING.content },
               React.createElement(Text, { color: THEME.success }, "✔ "),
-              React.createElement(Text, {}, displayText),
+              React.createElement(Text, { color: THEME.agent }, singleLineSummary),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
             ),
           ),

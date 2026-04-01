@@ -36,27 +36,27 @@ export function formatToolResult(toolName: string, result: string): string {
 
 export function formatThinking(agentName: string, isFirstIteration: boolean = false): string {
   const message = isFirstIteration ? "thinking..." : "processing results...";
-  return CHALK_THEME.primary(`🤖  ${agentName} is ${message}`);
+  return CHALK_THEME.primary(`◉  ${agentName} is ${message}`);
 }
 
 export function formatCompletion(agentName: string): string {
-  return CHALK_THEME.success(`✅  ${agentName} completed successfully`);
+  return chalk.greenBright(`✔  ${agentName} completed successfully`);
 }
 
 export function formatWarning(agentName: string, message: string): string {
-  return chalk.yellow(`⚠️  ${agentName}: ${message}`);
+  return chalk.yellowBright(`⚠  ${agentName}: ${message}`);
 }
 
 export function formatToolExecutionStart(toolName: string, argsStr: string): string {
-  return `\n${CHALK_THEME.primary("▸")} Executing tool: ${CHALK_THEME.primary(toolName)}${argsStr}...`;
+  return `\n${chalk.cyanBright("▸")} Executing tool: ${chalk.cyanBright.bold(toolName)}${chalk.cyan(argsStr)}...`;
 }
 
 export function formatToolExecutionComplete(summary: string | null, durationMs: number): string {
-  return ` ${CHALK_THEME.success("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+  return ` ${chalk.greenBright("✔")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${durationMs}ms)`)}\n`;
 }
 
 export function formatToolExecutionError(errorMessage: string, durationMs: number): string {
-  return ` ${chalk.red("✗")} ${chalk.red(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+  return ` ${chalk.redBright("✖")} ${chalk.redBright(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
 }
 
 export function formatToolsDetected(
@@ -73,7 +73,7 @@ export function formatToolsDetected(
       return name;
     })
     .join(", ");
-  return `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
+  return `\n${chalk.yellow("⌁")} ${chalk.yellow(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
 }
 
 // ---------------------------------------------------------------------------

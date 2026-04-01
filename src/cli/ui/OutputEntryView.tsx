@@ -6,20 +6,20 @@ import type { OutputEntryWithId, OutputType } from "./types";
 // Pre-created icon elements to avoid creating new React elements on every render
 const ICONS: Record<OutputType, React.ReactElement> = {
   success: <Text color={THEME.success}>✔</Text>,
-  error: <Text color="red">✖</Text>,
-  warn: <Text color="yellow">⚠</Text>,
+  error: <Text color={THEME.error}>✖</Text>,
+  warn: <Text color={THEME.warning}>⚠</Text>,
   info: <Text color={THEME.info}>ℹ</Text>,
-  debug: <Text dimColor>•</Text>,
+  debug: <Text color={THEME.secondary}>✧</Text>,
   user: <Text color={THEME.primary}>›</Text>,
   log: <></>,
   streamContent: <></>,
 };
 
 const COLORS: Record<OutputType, string> = {
-  success: "green",
-  error: "red",
-  warn: "yellow",
-  debug: "gray",
+  success: THEME.success,
+  error: THEME.error,
+  warn: THEME.warning,
+  debug: THEME.secondary,
   user: THEME.primary,
   info: THEME.info,
   log: "white",
@@ -66,13 +66,13 @@ export const OutputEntryView = React.memo(function OutputEntryView({
         <Box
           marginTop={addSpacing ? 1 : 0}
           marginBottom={1}
+          paddingLeft={PADDING.content}
         >
-          {icon}
+          <Text color={THEME.primary}>You:</Text>
           <Text> </Text>
           <Text
-            color={THEME.primary}
-            bold
-            wrap="truncate"
+            color="white"
+            wrap="wrap"
           >
             {entry.message}
           </Text>
@@ -87,21 +87,23 @@ export const OutputEntryView = React.memo(function OutputEntryView({
         <Box
           marginTop={addSpacing ? 1 : 0}
           marginBottom={1}
+          paddingLeft={PADDING.content}
         >
           <Text>{entry.message}</Text>
         </Box>
       );
     }
 
+    const isDebug = entry.type === "debug";
     return (
       <Box
         marginTop={addSpacing ? 1 : 0}
-        marginBottom={1}
+        marginBottom={isDebug ? 0 : 1}
+        paddingLeft={isDebug ? PADDING.content : 0}
       >
         {icon}
         <Text> </Text>
         <Text
-          dimColor={entry.type === "debug"}
           color={color}
           wrap="wrap"
         >

@@ -324,6 +324,28 @@ export function formatToolArguments(
 }
 
 /**
+ * Summarize load_skill tool payload when the stream passes JSON.stringify(innerResult)
+ * (a string body), not the full { success, result } envelope.
+ */
+function formatLoadSkillStringBody(body: string): string {
+  const firstLine = body.split("\n")[0]?.trim() ?? "";
+  const loaded = /^Loaded skill:\s*(.+)$/.exec(firstLine);
+  if (loaded) {
+    return ` ${chalk.dim(`(loaded · ${loaded[1]})`)}`;
+  }
+  return ` ${chalk.dim("(loaded)")}`;
+}
+
+/** Same as formatLoadSkillStringBody for load_skill_section payloads. */
+function formatLoadSkillSectionStringBody(body: string): string {
+  const section = /^Loaded section '([^']*)' from skill '([^']*)':/.exec(body);
+  if (section) {
+    return ` ${chalk.dim(`(section · ${section[2]}/${section[1]})`)}`;
+  }
+  return ` ${chalk.dim("(loaded)")}`;
+}
+
+/**
  * Format tool result for display
  * Shows relevant summary information for each tool type
  */
@@ -360,7 +382,15 @@ export function formatToolResult(toolName: string, result: string): string {
 
       const status = safeString(item["status"]) || "unknown";
       const priority = safeString(item["priority"]);
-      return [priority ? `[${status}] ${content} (${priority})` : `[${status}] ${content}`];
+      const glyph =
+        status === "completed"
+          ? "✓"
+          : status === "in_progress"
+            ? "◐"
+            : status === "cancelled"
+              ? "✗"
+              : "○";
+      return [priority ? `${glyph} ${content} (${priority})` : `${glyph} ${content}`];
     });
 
     return lines.join("\n");
@@ -433,6 +463,12 @@ export function formatToolResult(toolName: string, result: string): string {
 
   try {
     const parsed: unknown = JSON.parse(result);
+    if (toolName === "load_skill" && typeof parsed === "string") {
+      return formatLoadSkillStringBody(parsed);
+    }
+    if (toolName === "load_skill_section" && typeof parsed === "string") {
+      return formatLoadSkillSectionStringBody(parsed);
+    }
     if (typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") {
       return truncateDisplayText(String(parsed));
     }

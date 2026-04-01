@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import chalk from "chalk";
 import { emojify } from "node-emoji";
 import wrapAnsi from "wrap-ansi";
-import { codeColor, CHALK_THEME, PADDING_BUDGET } from "../ui/theme";
+import { codeColor, CHALK_THEME, PADDING_BUDGET, THEME } from "../ui/theme";
 
 /**
  * Shared markdown formatting utilities for terminal output.
@@ -82,6 +82,12 @@ const CODE_BLOCK_EXTRACT_REGEX = /^[ \t]*```[\s\S]*?^[ \t]*```/gm;
 const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;
 // LINK_REGEX is reused for the extract/restore cycle (see extractLinks).
 const EMOJI_SHORTCODE_REGEX = /:([A-Za-z0-9_\-+]+?):/g;
+const EMPHASIS_BRIGHT = chalk.bold.hex("#F8FAFC");
+const HEADING_PRIMARY = CHALK_THEME.primaryBold;
+const HEADING_AGENT = CHALK_THEME.agentBold;
+const HEADING_LINK = chalk.hex(THEME.link).bold;
+const HEADING_MUTED = chalk.hex(THEME.secondary).bold;
+const ITALIC_MUTED = chalk.italic.hex(THEME.secondary);
 
 /**
  * Streaming state for progressive markdown formatting
@@ -140,7 +146,7 @@ export function formatBold(text: string): string {
   return text.replace(
     BOLD_REGEX,
     (_match: string, asteriskContent: string | undefined, underscoreContent: string | undefined) =>
-      chalk.bold((asteriskContent ?? underscoreContent)!),
+      EMPHASIS_BRIGHT((asteriskContent ?? underscoreContent)!),
   );
 }
 
@@ -151,11 +157,11 @@ export function formatItalic(text: string): string {
   let formatted = text;
 
   formatted = formatted.replace(ITALIC_ASTERISK_REGEX, (_match: string, content: string) =>
-    chalk.italic(content),
+    ITALIC_MUTED(content),
   );
 
   formatted = formatted.replace(ITALIC_UNDERSCORE_REGEX, (_match: string, content: string) =>
-    chalk.italic(content),
+    ITALIC_MUTED(content),
   );
 
   return formatted;
@@ -248,16 +254,16 @@ export function formatHeadings(text: string): string {
   let formatted = text;
 
   // H4 (####)
-  formatted = formatted.replace(H4_REGEX, (_match, header) => chalk.bold(header));
+  formatted = formatted.replace(H4_REGEX, (_match, header) => HEADING_MUTED(`· ${header}`));
 
   // H3 (###)
-  formatted = formatted.replace(H3_REGEX, (_match, header) => CHALK_THEME.heading(header));
+  formatted = formatted.replace(H3_REGEX, (_match, header) => HEADING_LINK(`• ${header}`));
 
   // H2 (##)
-  formatted = formatted.replace(H2_REGEX, (_match, header) => CHALK_THEME.headingUnderline(header));
+  formatted = formatted.replace(H2_REGEX, (_match, header) => HEADING_AGENT(`▸ ${header}`));
 
   // H1 (#)
-  formatted = formatted.replace(H1_REGEX, (_match, header) => CHALK_THEME.headingUnderline(header));
+  formatted = formatted.replace(H1_REGEX, (_match, header) => HEADING_PRIMARY(`◆ ${header}`));
 
   return formatted;
 }
@@ -266,8 +272,9 @@ export function formatHeadings(text: string): string {
  * Format markdown blockquotes with gray color and visual bar
  */
 export function formatBlockquotes(text: string): string {
-  return text.replace(BLOCKQUOTE_REGEX, (_match: string, content: string) =>
-    chalk.gray(`│ ${content}`),
+  return text.replace(
+    BLOCKQUOTE_REGEX,
+    (_match: string, content: string) => `${CHALK_THEME.reasoning("▏")} ${ITALIC_MUTED(content)}`,
   );
 }
 
@@ -803,7 +810,7 @@ export function formatBoldHybrid(text: string): string {
     ) => {
       const content = (asteriskContent ?? underscoreContent)!;
       const delimiter = asteriskContent !== undefined ? "**" : "__";
-      return `${delimiter}${chalk.bold(content)}${delimiter}`;
+      return `${delimiter}${EMPHASIS_BRIGHT(content)}${delimiter}`;
     },
   );
 }
@@ -818,13 +825,13 @@ export function formatItalicHybrid(text: string): string {
   // Asterisk italics - safe to use
   formatted = formatted.replace(
     ITALIC_ASTERISK_REGEX,
-    (_match: string, content: string) => `*${chalk.italic(content)}*`,
+    (_match: string, content: string) => `*${ITALIC_MUTED(content)}*`,
   );
 
   // Underscore italics - only match if surrounded by whitespace/punctuation
   formatted = formatted.replace(
     HYBRID_ITALIC_UNDERSCORE_REGEX,
-    (_match: string, content: string) => `_${chalk.italic(content)}_`,
+    (_match: string, content: string) => `_${ITALIC_MUTED(content)}_`,
   );
 
   return formatted;
@@ -847,22 +854,16 @@ export function formatHeadingsHybrid(text: string): string {
   let formatted = text;
 
   // H4 (####)
-  formatted = formatted.replace(H4_REGEX, (_match, header) => `#### ${chalk.bold(header)}`);
+  formatted = formatted.replace(H4_REGEX, (_match, header) => `#### ${HEADING_MUTED(header)}`);
 
   // H3 (###)
-  formatted = formatted.replace(H3_REGEX, (_match, header) => `### ${CHALK_THEME.heading(header)}`);
+  formatted = formatted.replace(H3_REGEX, (_match, header) => `### ${HEADING_LINK(header)}`);
 
   // H2 (##)
-  formatted = formatted.replace(
-    H2_REGEX,
-    (_match, header) => `## ${CHALK_THEME.headingUnderline(header)}`,
-  );
+  formatted = formatted.replace(H2_REGEX, (_match, header) => `## ${HEADING_AGENT(header)}`);
 
   // H1 (#)
-  formatted = formatted.replace(
-    H1_REGEX,
-    (_match, header) => `# ${CHALK_THEME.headingUnderline(header)}`,
-  );
+  formatted = formatted.replace(H1_REGEX, (_match, header) => `# ${HEADING_PRIMARY(header)}`);
 
   return formatted;
 }
@@ -873,7 +874,7 @@ export function formatHeadingsHybrid(text: string): string {
 export function formatBlockquotesHybrid(text: string): string {
   return text.replace(
     BLOCKQUOTE_REGEX,
-    (_match: string, content: string) => `> ${chalk.gray(content)}`,
+    (_match: string, content: string) => `> ${ITALIC_MUTED(content)}`,
   );
 }
 

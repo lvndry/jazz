@@ -98,14 +98,10 @@ export function WizardHome({
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor={THEME.primary}
       paddingX={2}
       paddingY={1}
-      width="100%"
-      alignItems="center"
     >
-      {/* Top Header Section */}
+      {/* Logo */}
       <Box
         flexDirection="column"
         alignItems="center"
@@ -120,82 +116,52 @@ export function WizardHome({
         <Text dimColor>v{packageJson.version} • Agentic CLI 🎷</Text>
       </Box>
 
-      {/* Main Content — capped width so it doesn't stretch too thin */}
+      {/* Menu */}
       <Box
-        flexDirection="row"
+        flexDirection="column"
         marginTop={1}
-        width={72}
+        paddingX={1}
+        paddingY={0}
       >
-        {/* Left Column: Menu */}
-        <Box
-          flexDirection="column"
-          flexGrow={1}
-          paddingRight={2}
-        >
-          <Box marginBottom={1}>
-            <Text
-              bold
-              color="white"
-            >
-              {title || "What would you like to do?"}
-            </Text>
-          </Box>
-
-          <SelectInput
-            items={items}
-            onSelect={(item) => onSelect(item.value)}
-            indicatorComponent={IndicatorComponent}
-            itemComponent={ItemComponent}
-          />
+        <Box marginBottom={1}>
+          <Text
+            bold
+            color="white"
+          >
+            {title || "What would you like to do?"}
+          </Text>
         </Box>
 
-        {/* Vertical Separator */}
-        <Box marginRight={2}>
-          <Text dimColor>│</Text>
-        </Box>
+        <SelectInput
+          items={items}
+          onSelect={(item) => onSelect(item.value)}
+          indicatorComponent={IndicatorComponent}
+          itemComponent={ItemComponent}
+        />
+      </Box>
 
-        {/* Right Column: Info/Tips */}
-        <Box
-          flexDirection="column"
-          width={24}
-        >
-          <Box marginBottom={1}>
-            <Text
-              bold
-              color={THEME.primary}
-            >
-              💡 Pro Tip
-            </Text>
-          </Box>
-          <Box>
-            <Text
-              dimColor
-              wrap="wrap"
-            >
-              {TIPS[tipIndex]}
-            </Text>
-          </Box>
+      {/* Tip — below menu, subtle */}
+      <Box
+        marginTop={1}
+        flexDirection="column"
+      >
+        <Text dimColor>{"─".repeat(40)}</Text>
+        <Box marginTop={1}>
+          <Text color={THEME.primary}>💡 </Text>
+          <Text
+            dimColor
+            wrap="wrap"
+          >
+            {TIPS[tipIndex]}
+          </Text>
         </Box>
       </Box>
 
-      {/* Footer */}
-      <Box marginTop={2}>
+      {/* Footer hint */}
+      <Box marginTop={1}>
         <Text dimColor>
-          Use{" "}
-          <Text
-            bold
-            color={THEME.primary}
-          >
-            ↑/↓
-          </Text>{" "}
-          to navigate,{" "}
-          <Text
-            bold
-            color={THEME.primary}
-          >
-            Enter
-          </Text>{" "}
-          to select
+          <Text color={THEME.primary}>↑/↓</Text> navigate · <Text color={THEME.primary}>Enter</Text>{" "}
+          select · <Text color={THEME.primary}>q</Text> quit
         </Text>
       </Box>
     </Box>
@@ -205,7 +171,16 @@ export function WizardHome({
 function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): React.ReactElement {
   return (
     <Box marginRight={1}>
-      <Text color={THEME.selected}>{isSelected ? ">" : " "}</Text>
+      {isSelected ? (
+        <Text
+          color={THEME.primary}
+          bold
+        >
+          ❯
+        </Text>
+      ) : (
+        <Text> </Text>
+      )}
     </Box>
   );
 }

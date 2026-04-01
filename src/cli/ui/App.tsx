@@ -8,7 +8,7 @@ import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { store } from "./store";
-import { PADDING } from "./theme";
+import { PADDING, THEME } from "./theme";
 import type { OutputEntryWithId, PromptState } from "./types";
 import { InputPriority, InputResults } from "../services/input-service";
 
@@ -285,33 +285,33 @@ export function App(): React.ReactElement {
         flexDirection="column"
         display={customView ? "none" : "flex"}
       >
-        {/* Main Chat Area */}
         <Box
           flexDirection="column"
           paddingX={PADDING.page}
           marginTop={1}
         >
-          {/* Output entries - Isolated state, cleared on terminal.clear() */}
           <ErrorBoundary fallback={<Text color="red">Output area error. Restart may help.</Text>}>
             <OutputIsland />
           </ErrorBoundary>
 
-          {/* Activity - Unified status + streaming response */}
           <ErrorBoundary fallback={<Text color="red">Activity area error. Restart may help.</Text>}>
             <ActivityIsland />
           </ErrorBoundary>
 
-          {/* Escape interrupt hint - shown after first Esc during generation */}
           {showEscapeHint && (
-            <Box paddingX={PADDING.content}>
-              <Text color="red">Press Esc again to interrupt generation</Text>
+            <Box
+              marginTop={1}
+              paddingX={PADDING.content}
+            >
+              <Text color={THEME.error}>Press Esc again to interrupt generation</Text>
             </Box>
           )}
 
-          {/* User input prompt - Isolated state */}
-          <ErrorBoundary fallback={<Text color="red">Prompt area error. Restart may help.</Text>}>
-            <PromptIsland />
-          </ErrorBoundary>
+          <Box marginTop={1}>
+            <ErrorBoundary fallback={<Text color="red">Prompt area error. Restart may help.</Text>}>
+              <PromptIsland />
+            </ErrorBoundary>
+          </Box>
         </Box>
       </Box>
     </ErrorBoundary>

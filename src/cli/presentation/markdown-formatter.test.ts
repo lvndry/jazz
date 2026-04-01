@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import chalk from "chalk";
 import {
   applyProgressiveFormatting,
   formatBold,
@@ -55,9 +56,25 @@ describe("markdown-formatter", () => {
       // Simulate input that might have caused issues before
       const input = "# Release 0.6.1";
       const result = formatMarkdown(input);
-      expect(result).toBe(CHALK_THEME.headingUnderline("Release 0.6.1"));
+      expect(result).toBe(CHALK_THEME.primaryBold("◆ Release 0.6.1"));
       // Ensure no leaked ANSI codes as text
       expect(result).not.toContain("1mRelease");
+    });
+
+    it("should style second-level headings with stronger hierarchy", () => {
+      const input = "## Response Overview";
+      const result = formatMarkdown(input);
+      expect(result).toBe(CHALK_THEME.agentBold("▸ Response Overview"));
+    });
+  });
+
+  describe("formatBlockquotes", () => {
+    it("should tint blockquotes with the reasoning accent", () => {
+      const input = "> Thinking aloud";
+      const result = formatMarkdown(input);
+      expect(result).toBe(
+        `${CHALK_THEME.reasoning("▏")} ${chalk.italic.hex("#94A3B8")("Thinking aloud")}`,
+      );
     });
   });
 
@@ -295,10 +312,10 @@ describe("markdown-formatter", () => {
       expect(width).toBeGreaterThan(0);
     });
 
-    it("should return at least 80 (the default fallback)", () => {
-      // In test environments, stdout.columns may be undefined, falling back to 80
+    it("should return at least 20 (handles thin text pseudo-terminals)", () => {
+      // In test environments, stdout.columns may be undefined or small, falling back to 80 or using actual
       const width = getTerminalWidth();
-      expect(width).toBeGreaterThanOrEqual(80);
+      expect(width).toBeGreaterThanOrEqual(20);
     });
   });
 

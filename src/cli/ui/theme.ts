@@ -10,21 +10,38 @@ import chalk from "chalk";
  * terminals chalk auto-downgrades to the closest 256/16-color match.
  */
 export const THEME = {
-  /** Warm bronze — brand color used for headers, borders, key UI */
+  /** Primary brand accent used for prompts, selection, and key affordances. */
   primary: "#DE9A2C",
-  /** Links — blue to signal clickable, distinct from primary UI */
-  link: "#3B82F6",
-  /** Agent name throughout the lifecycle (thinking → streaming → complete) */
-  agent: "#DE9A2C",
-  success: "green",
-  error: "red",
-  warning: "yellow",
-  /** Info messages, tips */
-  info: "#DE9A2C",
-  secondary: "gray",
-  /** Selected / highlighted menu items */
-  selected: "#DE9A2C",
-  reasoning: "gray",
+  /** Secondary accent used for live agent identity and active surfaces. */
+  agent: "#22D3EE",
+  /** Links and code-adjacent interactive elements. */
+  link: "#60A5FA",
+  /** Success feedback. */
+  success: "#22C55E",
+  /** Error feedback. */
+  error: "#FB7185",
+  /** Warning feedback. */
+  warning: "#F59E0B",
+  /** Informational feedback. */
+  info: "#38BDF8",
+  /** Selected / highlighted menu items. */
+  selected: "#F8FAFC",
+  /** Input prompt chevron and active cursor-adjacent accents. */
+  prompt: "#DE9A2C",
+  /** Muted secondary text. */
+  secondary: "#94A3B8",
+  /** Non-selected / default text in lists. */
+  muted: "#64748B",
+  /** Reasoning content should feel quieter than response text, but not dead. */
+  reasoning: "#A5B4FC",
+  /** Tool execution chrome. */
+  toolBorder: "#475569",
+  /** Subtle surfaces and separators. */
+  surface: "#111827",
+  surfaceSoft: "#1F2937",
+  surfaceStrong: "#334155",
+  border: "#334155",
+  borderSoft: "#1F2937",
 } as const;
 
 /**
@@ -54,6 +71,29 @@ export const PADDING = {
 } as const;
 
 /**
+ * Standardized vertical spacing between UI sections.
+ * Use these instead of ad-hoc marginTop/marginBottom values.
+ */
+export const SPACING = {
+  /** Gap between major sections (e.g. after header, between prompt and output) */
+  section: 1,
+  /** Gap between sub-items within a section (e.g. between menu items and tips) */
+  item: 1,
+  /** Tight gap for live status rows and compact cards. */
+  compact: 0,
+} as const;
+
+/**
+ * Motion timing constants used for subtle UX feedback.
+ */
+export const MOTION = {
+  instant: 0,
+  quick: 90,
+  standard: 140,
+  gentle: 180,
+} as const;
+
+/**
  * Total horizontal chars consumed by padding, for pre-wrap width calculations.
  * = page×2 (both sides) + content (left only)
  */
@@ -65,12 +105,12 @@ export const PADDING_BUDGET = PADDING.page * 2 + PADDING.content;
  */
 function getCodeColor(): (text: string) => string {
   if (chalk.level === 3) {
-    return chalk.hex("#D4A054");
+    return chalk.hex("#F59E0B");
   }
   if (chalk.level === 2) {
-    return chalk.ansi256(250);
+    return chalk.ansi256(214);
   }
-  return chalk.greenBright;
+  return chalk.yellowBright;
 }
 
 export const codeColor: (text: string) => string = getCodeColor();
@@ -82,11 +122,17 @@ export const codeColor: (text: string) => string = getCodeColor();
 export const CHALK_THEME = {
   primary: chalk.hex(THEME.primary),
   primaryBold: chalk.hex(THEME.primary).bold,
-  success: chalk.green,
-  heading: chalk.bold.hex(THEME.primary),
+  agent: chalk.hex(THEME.agent),
+  agentBold: chalk.hex(THEME.agent).bold,
+  reasoning: chalk.hex(THEME.reasoning),
+  success: chalk.hex(THEME.success),
+  error: chalk.hex(THEME.error),
+  warning: chalk.hex(THEME.warning),
+  heading: chalk.bold.hex(THEME.agent),
   headingUnderline: chalk.bold.hex(THEME.primary).underline,
   link: chalk.hex(THEME.link).underline,
+  muted: chalk.hex(THEME.secondary),
   secondary: chalk.dim,
   bold: chalk.bold,
-  white: chalk.white,
+  white: chalk.hex(THEME.selected),
 } as const;

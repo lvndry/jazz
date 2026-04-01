@@ -29,7 +29,7 @@ const ARROW = "▸";
  * The caller is expected to pass this to `terminal.log()`.
  */
 export function heading(text: string): string {
-  return `\n${CHALK_THEME.heading(text)}\n`;
+  return CHALK_THEME.heading(text);
 }
 
 // ── Section / group header ───────────────────────────────────────────

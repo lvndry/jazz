@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
 import React from "react";
+import { AnimatedEllipsis } from "./components/AnimatedEllipsis";
 import { THEME } from "./theme";
 
 function StatusFooter({
@@ -17,25 +17,27 @@ function StatusFooter({
   return (
     <Box
       marginTop={1}
-      borderStyle="single"
-      borderColor="gray"
+      borderStyle="round"
+      borderColor={THEME.borderSoft}
       paddingX={1}
+      paddingY={0}
+      flexDirection="row"
+      justifyContent="space-between"
+      width="100%"
     >
-      <Box flexDirection="row">
-        {status && (
-          <Box marginRight={2}>
-            <Text color={THEME.primary}>
-              <Spinner type="dots" />
-            </Text>
-            <Text> {status}</Text>
-          </Box>
-        )}
-        {workingDirectory && (
-          <Box>
-            <Text color="gray">📁 {workingDirectory}</Text>
-          </Box>
-        )}
-      </Box>
+      {status && (
+        <Box>
+          <AnimatedEllipsis
+            label={status}
+            color={THEME.primary}
+          />
+        </Box>
+      )}
+      {workingDirectory && (
+        <Box>
+          <Text dimColor>{workingDirectory}</Text>
+        </Box>
+      )}
     </Box>
   );
 }

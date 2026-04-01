@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
 import React from "react";
 import type { ActivityState } from "./activity-state";
+import { AnimatedEllipsis } from "./components/AnimatedEllipsis";
 import { TerminalText } from "./components/TerminalText";
 import { PADDING, THEME } from "./theme";
 
@@ -34,18 +34,19 @@ function todoStatusColor(
       return "yellow";
   }
 }
+
 function AgentHeader({
   agentName,
   label,
+  animated = false,
 }: {
   agentName: string;
   label: string;
+  animated?: boolean;
 }): React.ReactElement {
   return (
     <Box>
-      <Text color={THEME.agent}>
-        <Spinner type="dots" />
-      </Text>
+      <Text color={THEME.agent}>◉</Text>
       <Text> </Text>
       <Text
         bold
@@ -54,6 +55,12 @@ function AgentHeader({
         {agentName}
       </Text>
       <Text dimColor> {label}</Text>
+      {animated ? (
+        <AnimatedEllipsis
+          label=""
+          color={THEME.agent}
+        />
+      ) : null}
     </Box>
   );
 }
@@ -69,26 +76,30 @@ function ReasoningSection({
 
   return (
     <Box
-      marginTop={1}
+      marginTop={0}
       paddingLeft={PADDING.content}
       flexDirection="column"
     >
       <Box>
-        <Text dimColor>{"▸ "}</Text>
+        <Text color={THEME.reasoning}>▸ </Text>
         <Text
-          dimColor
+          color={THEME.reasoning}
           italic
         >
           Reasoning
         </Text>
         {isThinking && (
-          <Text dimColor>
-            {" "}
-            <Spinner type="dots" />
-          </Text>
+          <AnimatedEllipsis
+            label=""
+            color={THEME.reasoning}
+          />
         )}
       </Box>
-      {reasoning && <TerminalText dimColor>{reasoning}</TerminalText>}
+      {reasoning && (
+        <Box marginTop={0}>
+          <TerminalText color={THEME.reasoning}>{reasoning}</TerminalText>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -116,11 +127,9 @@ export const ActivityView = React.memo(function ActivityView({
         >
           <AgentHeader
             agentName={activity.agentName}
-            label="is thinking…"
+            label="is thinking"
+            animated
           />
-          <Box marginTop={0}>
-            <Text dimColor>{"─".repeat(40)}</Text>
-          </Box>
           <ReasoningSection
             reasoning={activity.reasoning}
             isThinking={true}
@@ -133,13 +142,13 @@ export const ActivityView = React.memo(function ActivityView({
         <Box
           flexDirection="column"
           marginTop={1}
+          paddingX={PADDING.content}
         >
-          <Box paddingX={PADDING.content}>
-            <AgentHeader
-              agentName={activity.agentName}
-              label="is responding…"
-            />
-          </Box>
+          <AgentHeader
+            agentName={activity.agentName}
+            label="is responding"
+            animated
+          />
         </Box>
       );
 
@@ -153,18 +162,18 @@ export const ActivityView = React.memo(function ActivityView({
             ? `Running ${uniqueNames[0]}…`
             : `Running ${uniqueNames.length} tools… (${uniqueNames.join(", ")})`;
       return (
-        <Box flexDirection="column">
-          <Box
-            paddingX={PADDING.content}
-            marginTop={1}
-          >
-            <Text color="yellow">
-              <Spinner type="dots" />
-            </Text>
-            <Text color="yellow"> {label}</Text>
-          </Box>
+        <Box
+          flexDirection="column"
+          marginTop={1}
+          paddingX={PADDING.content}
+        >
+          <AnimatedEllipsis
+            label={label}
+            color={THEME.agent}
+          />
           {activity.todoSnapshot && activity.todoSnapshot.length > 0 ? (
             <Box
+              marginTop={1}
               paddingLeft={PADDING.nested}
               flexDirection="column"
             >
@@ -187,7 +196,7 @@ export const ActivityView = React.memo(function ActivityView({
           paddingX={PADDING.content}
           marginTop={1}
         >
-          <Text color="red">{activity.message}</Text>
+          <Text color={THEME.error}>✖ {activity.message}</Text>
         </Box>
       );
 

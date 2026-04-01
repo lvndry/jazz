@@ -2,7 +2,7 @@ import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Suggestion } from "@/core/interfaces/presentation";
 import { filterCommandsByPrefix, type ChatCommandInfo } from "@/services/chat/commands";
-import { ChatInput, SHORTCUTS_HINT } from "./components/ChatInput";
+import { ChatInput } from "./components/ChatInput";
 import { FilePicker } from "./components/FilePicker";
 import { Questionnaire } from "./components/Questionnaire";
 import { ScrollableMultiSelect } from "./components/ScrollableMultiSelect";
@@ -10,7 +10,7 @@ import { ScrollableSelect } from "./components/ScrollableSelect";
 import { SearchSelect } from "./components/SearchSelect";
 import { TextInput } from "./components/TextInput";
 import { useInputHandler, InputResults, useTextInput } from "./hooks/use-input-service";
-import { THEME } from "./theme";
+import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
@@ -188,16 +188,25 @@ function PromptComponent({
     <Box
       flexDirection="column"
       marginTop={1}
-      paddingX={1}
+      paddingX={PADDING.content}
+      paddingY={0}
     >
-      {/* Prompt message with indicator */}
-      <Box>
-        <Text color={THEME.primary}>?</Text>
-        <Text> </Text>
-        <Text bold>{prompt.message}</Text>
-      </Box>
+      {/* Path shown on its own static line above everything */}
+      {workingDirectory && (
+        <Box marginBottom={0}>
+          <Text dimColor>{workingDirectory}</Text>
+        </Box>
+      )}
 
-      {/* Input area */}
+      {/* Question header — only for non-chat prompts */}
+      {prompt.type !== "chat" && (
+        <Box>
+          <Text color={THEME.primary}>?</Text>
+          <Text> </Text>
+          <Text bold>{prompt.message}</Text>
+        </Box>
+      )}
+
       <Box
         marginTop={1}
         paddingLeft={1}
@@ -205,18 +214,17 @@ function PromptComponent({
       >
         {prompt.type === "chat" && (
           <>
-            <Box
-              borderStyle="round"
-              borderColor="gray"
-              borderDimColor
-              backgroundColor="black"
-              paddingX={2}
-              paddingY={1}
-              flexDirection="column"
-              overflowX="hidden"
-              overflowY="hidden"
-            >
-              <Box>
+            <Box flexDirection="row">
+              <Text
+                color={THEME.prompt}
+                bold
+              >
+                ❯{" "}
+              </Text>
+              <Box
+                flexDirection="column"
+                flexGrow={1}
+              >
                 <ChatInput
                   value={value}
                   cursor={cursor}
@@ -225,42 +233,26 @@ function PromptComponent({
                   textColor="white"
                 />
               </Box>
-              {/* Command suggestions when typing / */}
-              {suggestionsVisible && (
-                <Box
-                  marginTop={1}
-                  flexDirection="column"
-                >
-                  <Text dimColor> Commands (↑/↓ select, Enter to pick):</Text>
-                  {filteredCommands.map((cmd, index) => (
-                    <CommandSuggestionItem
-                      key={cmd.name}
-                      command={cmd}
-                      isSelected={index === selectedSuggestionIndex}
-                    />
-                  ))}
-                </Box>
-              )}
             </Box>
-            {/* Hints below box so terminal selection inside box captures only input text */}
-            <Box
-              marginTop={1}
-              flexDirection="column"
-            >
-              {workingDirectory && <Text dimColor>Current directory: {workingDirectory}</Text>}
-              <Text dimColor>{SHORTCUTS_HINT}</Text>
-            </Box>
-            {/* Validation error message */}
-            {validationError && (
+            {suggestionsVisible && (
               <Box
                 marginTop={1}
-                paddingLeft={1}
-                paddingRight={1}
-                borderStyle="round"
-                borderColor="red"
+                flexDirection="column"
               >
+                <Text dimColor>Commands (↑/↓ select, Enter to pick):</Text>
+                {filteredCommands.map((cmd, index) => (
+                  <CommandSuggestionItem
+                    key={cmd.name}
+                    command={cmd}
+                    isSelected={index === selectedSuggestionIndex}
+                  />
+                ))}
+              </Box>
+            )}
+            {validationError && (
+              <Box marginTop={1}>
                 <Text
-                  color="red"
+                  color={THEME.error}
                   bold
                 >
                   ✗ {validationError}
@@ -302,7 +294,6 @@ function PromptComponent({
             onCancel={() => prompt.reject?.()}
           />
         )}
-
         {prompt.type === "confirm" && (
           <ScrollableSelect
             options={[

@@ -496,7 +496,7 @@ export class CLIRenderer {
             codespan: codeColor,
             blockquote: chalk.gray,
             html: chalk.gray,
-            heading: CHALK_THEME.heading,
+            heading: CHALK_THEME.agentBold,
             firstHeading: CHALK_THEME.headingUnderline,
             strong: chalk.bold.white,
             em: chalk.italic,
@@ -686,7 +686,7 @@ export class CLIRenderer {
    */
   formatAgentResponse(agentName: string, content: string): Effect.Effect<string, never> {
     return Effect.gen(this, function* () {
-      const header = CHALK_THEME.primaryBold(`🤖 ${agentName}:`);
+      const header = CHALK_THEME.primaryBold(`◉ ${agentName}:`);
       const renderedContent = yield* this.renderMarkdown(content);
       return `${header}\n${renderedContent}`;
     });
@@ -740,7 +740,7 @@ export class CLIRenderer {
           return name;
         })
         .join(", ");
-      return `\n${chalk.yellow("🔧")} ${chalk.yellow(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
+      return `\n${chalk.yellow("⌁")} ${chalk.yellow(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
     });
   }
 
@@ -753,7 +753,7 @@ export class CLIRenderer {
   ): Effect.Effect<string, never> {
     return Effect.sync(() => {
       const message = isFirstIteration ? "thinking..." : "processing results...";
-      return CHALK_THEME.primary(`🤖  ${agentName} is ${message}`);
+      return CHALK_THEME.primary(`◉  ${agentName} is ${message}`);
     });
   }
 
@@ -761,7 +761,7 @@ export class CLIRenderer {
    * Format completion message with styling
    */
   formatCompletion(agentName: string): Effect.Effect<string, never> {
-    return Effect.sync(() => CHALK_THEME.success(`✅  ${agentName} completed successfully`));
+    return Effect.sync(() => CHALK_THEME.success(`✔  ${agentName} completed successfully`));
   }
 
   /**

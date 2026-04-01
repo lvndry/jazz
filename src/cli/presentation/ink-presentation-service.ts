@@ -97,7 +97,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     _streamingConfig?: { textBufferMs?: number },
     throttleMs?: number,
   ) {
-    this.updateThrottleMs = throttleMs ?? 100;
+    this.updateThrottleMs = throttleMs ?? 60;
     this.acc = createAccumulator(agentName);
   }
 
@@ -520,7 +520,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private printCost(event: Extract<StreamEvent, { type: "complete" }>): void {
     const usage = event.response.usage;
     if (!usage || !this.acc.currentProvider || !this.acc.currentModel) {
-      store.printOutput({ type: "log", message: "", timestamp: new Date() });
       return;
     }
 
@@ -552,7 +551,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
           timestamp: new Date(),
         });
       }
-      store.printOutput({ type: "log", message: "", timestamp: new Date() });
     };
 
     // Try synchronous cache hit first to avoid async print-after-prompt
@@ -564,7 +562,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       void getModelsDevMetadata(model, provider)
         .then(emitCost)
         .catch(() => {
-          store.printOutput({ type: "log", message: "", timestamp: new Date() });
+          /* pricing unavailable — omit cost line */
         });
     }
   }
@@ -773,7 +771,7 @@ class InkPresentationService implements PresentationService {
 
   presentAgentResponse(agentName: string, content: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      const header = CHALK_THEME.primaryBold(`🤖 ${agentName}:`);
+      const header = CHALK_THEME.primaryBold(`◉ ${agentName}:`);
       const rendered = this.formatMarkdownText(content);
       store.printOutput({
         type: "log",

@@ -17,12 +17,12 @@ export function AgentResponseCard({
   return (
     <Box
       flexDirection="column"
-      marginTop={1}
+      marginTop={2}
+      marginBottom={1}
       paddingX={PADDING.content}
     >
-      {/* Minimal header with status indicator */}
       <Box>
-        <Text color={THEME.success}>✔</Text>
+        <Text color={THEME.agent}>◆</Text>
         <Text> </Text>
         <Text
           bold
@@ -30,15 +30,10 @@ export function AgentResponseCard({
         >
           {agentName}
         </Text>
-        <Text dimColor> replied</Text>
+        <Text dimColor> response</Text>
+        <Text color={THEME.agent}>:</Text>
       </Box>
 
-      {/* Subtle separator line */}
-      <Box marginTop={0}>
-        <Text dimColor>{"─".repeat(40)}</Text>
-      </Box>
-
-      {/* Content area - no borders for easy copying */}
       <Box
         marginTop={1}
         paddingLeft={PADDING.content}

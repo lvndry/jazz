@@ -24,32 +24,6 @@ function createCapturingInk() {
   return { nodes, render };
 }
 
-/**
- * Recursively find the first React element in the tree whose props match the predicate.
- */
-function findElement(
-  el: React.ReactElement,
-  predicate: (props: Record<string, unknown>) => boolean,
-): React.ReactElement | null {
-  const props = el.props as Record<string, unknown>;
-  if (predicate(props)) return el;
-
-  const children = props["children"];
-  if (React.isValidElement(children)) {
-    const found = findElement(children, predicate);
-    if (found) return found;
-  }
-  if (Array.isArray(children)) {
-    for (const child of children) {
-      if (React.isValidElement(child)) {
-        const found = findElement(child, predicate);
-        if (found) return found;
-      }
-    }
-  }
-  return null;
-}
-
 function extractText(node: unknown): string {
   if (typeof node === "string") return node;
   if (typeof node === "number") return String(node);
@@ -303,8 +277,9 @@ describe("activity-reducer", () => {
         expect(result.activity!.tools).toHaveLength(1);
         expect(result.activity!.tools[0]!.toolName).toBe("execute_bash");
       }
-      expect(result.outputs.length).toBeGreaterThan(0);
-      expect(result.outputs[0]!.type).toBe("log");
+      expect(result.outputs.length).toBe(1);
+      expect(result.outputs[0]!.type).toBe("info");
+      expect(String(result.outputs[0]!.message)).toContain("execute_bash");
     });
 
     test("tool_execution_complete removes tool and transitions to idle when last", () => {
@@ -350,6 +325,28 @@ describe("activity-reducer", () => {
       expect(result.activity!.phase).toBe("tool-execution");
     });
 
+    test("tool_execution_complete for load_skill shows skill name in one line", () => {
+      const a = acc();
+      const { nodes, render } = createCapturingInk();
+      a.activeTools.set("tc-skill", { toolName: "load_skill", startedAt: Date.now() });
+      const skillBody = "Loaded skill: create-rule\n\n# Instructions\n…";
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "tc-skill",
+          result: JSON.stringify(skillBody),
+          durationMs: 2,
+        },
+        identity,
+        render,
+      );
+      expect(result.outputs[0]!.type).toBe("log");
+      const outputText = nodes.map((node) => extractText(node)).join("\n");
+      expect(outputText).toContain("create-rule");
+      expect(outputText).not.toContain("load_skill done");
+    });
+
     test("tool_execution_complete with multi-line summary emits two logs", () => {
       const a = acc();
       a.activeTools.set("tc-1", { toolName: "diff_tool", startedAt: Date.now() });
@@ -367,11 +364,10 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      expect(result.outputs).toHaveLength(3);
+      expect(result.outputs).toHaveLength(2);
       expect(result.outputs[0]!.type).toBe("log");
-      expect(result.outputs[1]!.type).toBe("log");
-      // Third log is the spacing entry
-      expect(result.outputs[2]!.message).toBe("");
+      // Second log is the spacing entry
+      expect(result.outputs[1]!.message).toBe("");
     });
 
     test("manage_todos tool execution exposes todo snapshot in activity", () => {
@@ -426,10 +422,12 @@ describe("activity-reducer", () => {
         render,
       );
 
-      expect(result.outputs).toHaveLength(3);
+      expect(result.outputs).toHaveLength(2);
       const outputText = nodes.map((node) => extractText(node)).join("\n");
+      expect(outputText).toContain("Todo list");
       expect(outputText).toContain("✓ Check status");
       expect(outputText).toContain("◐ Push branch");
+      expect(outputText).not.toMatch(/manage_todos done/);
     });
   });
 
@@ -613,36 +611,6 @@ describe("activity-reducer", () => {
       if (r2.activity!.phase === "streaming") {
         expect(r2.activity!.text).toBe("");
       }
-    });
-
-    test("multi-line tool result uses flexDirection column on wrapping Box", () => {
-      const { nodes, render } = createCapturingInk();
-      const a = acc();
-      a.activeTools.set("tc-1", { toolName: "diff_tool", startedAt: Date.now() });
-
-      reduceEvent(
-        a,
-        {
-          type: "tool_execution_complete",
-          toolCallId: "tc-1",
-          result: "ok",
-          durationMs: 10,
-          summary: "line1\nline2\nline3",
-        },
-        identity,
-        render,
-      );
-
-      // Find the Box with paddingLeft=4 and flexDirection column (multi-line result container)
-      const resultBox = nodes.find((el) => {
-        const props = el.props as Record<string, unknown>;
-        return props["paddingLeft"] === 4 && props["flexDirection"] === "column";
-      });
-      expect(resultBox).toBeDefined();
-
-      // The child Text should have wrap="truncate"
-      const textEl = findElement(resultBox!, (p) => p["wrap"] === "truncate");
-      expect(textEl).not.toBeNull();
     });
 
     test("short streaming text does not appear in activity.text", () => {

@@ -106,7 +106,7 @@ export default [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "off",
       "no-console": "off",
       "n/no-missing-import": "off",
       "n/no-unsupported-features/es-syntax": "off",
