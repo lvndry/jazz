@@ -476,8 +476,10 @@ describe("activity-reducer", () => {
       );
 
       expect(result.activity).toBeNull();
-      expect(result.outputs).toHaveLength(1);
-      expect(result.outputs[0]!.type).toBe("info");
+      expect(result.outputs).toHaveLength(2);
+      expect(result.outputs[0]!.type).toBe("log");
+      expect(result.outputs[0]!.message).toBe("");
+      expect(result.outputs[1]!.type).toBe("info");
     });
   });
 

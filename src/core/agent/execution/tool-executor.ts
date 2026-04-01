@@ -450,17 +450,29 @@ export class ToolExecutor {
       const registry = yield* ToolRegistryTag;
       const toolNames = toolCalls.map((tc) => tc.function.name);
 
-      // Fetch tool information to determine which require approval
-      const toolsRequiringApproval: string[] = [];
-      for (const toolName of toolNames) {
-        const toolResult = yield* Effect.either(registry.getTool(toolName));
-        if (Either.isRight(toolResult)) {
-          const tool = toolResult.right;
-          if (tool.approvalExecuteToolName) {
-            toolsRequiringApproval.push(toolName);
-          }
+      // Fetch tool information to determine which require approval.
+      // Do this in parallel so large tool batches don't pay a sequential pre-pass.
+      const uniqueToolNames = Array.from(new Set(toolNames));
+      const toolResults = yield* Effect.all(
+        uniqueToolNames.map((toolName) => Effect.either(registry.getTool(toolName))),
+        { concurrency: MAX_CONCURRENT_TOOLS },
+      );
+      const approvalToolNameSet = new Set<string>();
+      for (let i = 0; i < uniqueToolNames.length; i++) {
+        const uniqueToolName = uniqueToolNames[i];
+        const toolResult = toolResults[i];
+        if (
+          uniqueToolName &&
+          toolResult &&
+          Either.isRight(toolResult) &&
+          toolResult.right.approvalExecuteToolName
+        ) {
+          approvalToolNameSet.add(uniqueToolName);
         }
       }
+      const toolsRequiringApproval = toolNames.filter((toolName) =>
+        approvalToolNameSet.has(toolName),
+      );
 
       // Show tools detected
       if (displayConfig.showToolExecution) {
