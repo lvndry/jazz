@@ -328,6 +328,12 @@ export function reduceEvent(
       const formattedTools = event.toolNames
         .map((name) => (approvalSet.has(name) ? `${name} (requires approval)` : name))
         .join(", ");
+      // Blank line after prior static output (e.g. metrics/cost from complete) before the badge.
+      outputs.push({
+        type: "log",
+        message: "",
+        timestamp: new Date(),
+      });
       outputs.push({
         type: "info",
         message: inkRender(renderToolBadge(`Tools: ${formattedTools}`)),

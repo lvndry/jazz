@@ -1,0 +1,184 @@
+name: Jazz PR Assistant
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: "PR number to respond to (required when run from Actions tab)"
+        required: true
+        type: number
+      request:
+        description: "Optional request to send to Jazz"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      base_sha: ${{ steps.resolve.outputs.base_sha }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      pr_head_repo_full_name: ${{ steps.resolve.outputs.pr_head_repo_full_name }}
+      request: ${{ steps.resolve.outputs.request }}
+    steps:
+      - name: Resolve PR context and request
+        id: resolve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            function extractRequest(body) {
+              if (!body) return '';
+              const match = body.match(/@jazz(?:\s*[:,-])?\s*([\s\S]*)/i);
+              return match?.[1]?.trim() ?? '';
+            }
+
+            let prNumber;
+            let baseSha;
+            let headSha;
+            let prHeadRepoFullName;
+            let request = '';
+
+            if (context.eventName === 'issue_comment') {
+              const issueNumber = context.payload.issue?.number;
+              if (!issueNumber) {
+                throw new Error('issue_comment event missing issue number');
+              }
+
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: issueNumber,
+              });
+
+              prNumber = pr.number;
+              baseSha = pr.base.sha;
+              headSha = pr.head.sha;
+              prHeadRepoFullName = pr.head.repo.full_name;
+              request = extractRequest(context.payload.comment?.body);
+            } else if (context.eventName === 'workflow_dispatch') {
+              prNumber = Number(context.payload.inputs.pull_request_number);
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+
+              baseSha = pr.base.sha;
+              headSha = pr.head.sha;
+              prHeadRepoFullName = pr.head.repo.full_name;
+              request = String(context.payload.inputs.request ?? '').trim();
+            } else {
+              throw new Error(`Unsupported event: ${context.eventName}`);
+            }
+
+            if (!request) {
+              request = 'Review this pull request and call out anything important.';
+            }
+
+            core.setOutput('pr_number', String(prNumber));
+            core.setOutput('base_sha', baseSha);
+            core.setOutput('head_sha', headSha);
+            core.setOutput('pr_head_repo_full_name', prHeadRepoFullName);
+            core.setOutput('request', request);
+
+  assistant:
+    needs: resolve
+    runs-on: ubuntu-latest
+    # Security gate — only run when the PR head is from this repository.
+    # issue_comment additionally requires trusted authors and an explicit @jazz mention.
+    if: |
+      (github.event_name == 'workflow_dispatch' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '@jazz') && (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Jazz
+        run: npm install -g jazz-ai
+
+      - name: Setup Jazz agent and workflow
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          REQUEST: ${{ needs.resolve.outputs.request }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.jazz/agents" workflows/pr-assistant
+          cp .github/jazz/agents/pr-assistant.json "$HOME/.jazz/agents/"
+          node - <<'NODE'
+          const fs = require('fs');
+          const template = fs.readFileSync('.github/jazz/workflows/pr-assistant/WORKFLOW.md', 'utf8');
+          const replacements = {
+            '__PR_NUMBER__': process.env.PR_NUMBER,
+            '__PR_BASE_SHA__': process.env.PR_BASE_SHA,
+            '__PR_HEAD_SHA__': process.env.PR_HEAD_SHA,
+            '__REQUEST__': process.env.REQUEST,
+            '__REPO__': process.env.REPO,
+          };
+          let output = template;
+          for (const [needle, value] of Object.entries(replacements)) {
+            output = output.split(needle).join(value);
+          }
+          fs.writeFileSync('workflows/pr-assistant/WORKFLOW.md', output);
+          NODE
+          echo "--- Substituted workflow ---"
+          cat workflows/pr-assistant/WORKFLOW.md
+
+      - name: Run Jazz assistant
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CI: "true"
+          JAZZ_DISABLE_CATCH_UP: "1"
+        run: |
+          set -euo pipefail
+          jazz --output raw workflow run pr-assistant --auto-approve --agent pr-assistant \
+            2>&1 | tee /tmp/jazz-pr-assistant.txt
+
+      - name: Post PR comment
+        if: always()
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/jazz-pr-assistant.txt', 'utf8');
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+
+            let mdBlocks = [...output.matchAll(/````markdown\s*\n([\s\S]*?)````/g)];
+            if (mdBlocks.length === 0) {
+              mdBlocks = [...output.matchAll(/```markdown\s*\n([\s\S]*?)```/g)];
+            }
+
+            const commentBody = mdBlocks.length > 0
+              ? mdBlocks[mdBlocks.length - 1][1].trim()
+              : (output.trim() || '_No output from Jazz assistant._');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `## Jazz PR Assistant\n\n${commentBody}`,
+            });

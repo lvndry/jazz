@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
-
+  issues: write
 jobs:
   # Resolve PR metadata first so that code-review can gate on pr_head_repo_full_name.
   # This job runs unconditionally; the security gate lives in code-review's `if`.
