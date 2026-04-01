@@ -206,7 +206,6 @@ Every pull request to Jazz gets reviewed by a Jazz agent. The [`jazz.yml`](.gith
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 ```
 
-Comment `@jazz <request>` on a pull request to invoke the PR assistant on demand. If you just say `@jazz` with no extra text, Jazz defaults to a PR review pass.
 The review agent checks for correctness, security issues, TypeScript best practices, Effect-TS patterns, and performance concerns. Real reviews, on real code, every PR.
 
 ### Automated Release Notes
