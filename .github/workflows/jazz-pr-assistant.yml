@@ -89,6 +89,40 @@ jobs:
             core.setOutput('pr_head_repo_full_name', prHeadRepoFullName);
             core.setOutput('request', request);
 
+      - name: React with eyes on triggering comment
+        if: |
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request != null &&
+          contains(github.event.comment.body, '@jazz') && (
+            github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'COLLABORATOR'
+          ) &&
+          steps.resolve.outputs.pr_head_repo_full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const commentId = context.payload.comment?.id;
+            if (!commentId) {
+              core.warning('issue_comment event missing comment id; skipping reaction');
+              return;
+            }
+            try {
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: commentId,
+                content: 'eyes',
+              });
+            } catch (e) {
+              // Duplicate reaction (e.g. workflow re-run) returns 422
+              if (e.status === 422) {
+                core.info('Reaction already present or not applicable; continuing');
+                return;
+              }
+              throw e;
+            }
+
   assistant:
     needs: resolve
     runs-on: ubuntu-latest

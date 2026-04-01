@@ -461,7 +461,12 @@ export class ToolExecutor {
       for (let i = 0; i < uniqueToolNames.length; i++) {
         const uniqueToolName = uniqueToolNames[i];
         const toolResult = toolResults[i];
-        if (uniqueToolName && toolResult && Either.isRight(toolResult) && toolResult.right.approvalExecuteToolName) {
+        if (
+          uniqueToolName &&
+          toolResult &&
+          Either.isRight(toolResult) &&
+          toolResult.right.approvalExecuteToolName
+        ) {
           approvalToolNameSet.add(uniqueToolName);
         }
       }
@@ -557,7 +562,6 @@ export class ToolExecutor {
     });
   }
 }
-
 
 /**
  * Check if a command is auto-approved via the per-command allowlist.

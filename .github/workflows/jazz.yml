@@ -2,7 +2,7 @@ name: Jazz AI
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened]
   workflow_dispatch:
     inputs:
       pull_request_number:
