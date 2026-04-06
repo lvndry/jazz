@@ -117,7 +117,11 @@ export function setConfigCommand(
 
         yield* terminal.info(`Configuring ${provider}...`);
 
-        const apiKey = yield* terminal.ask("Enter API Key:");
+        const apiKey = yield* terminal.ask("Enter API Key:", {
+          simple: true,
+          secret: true,
+          placeholder: "Paste your API key...",
+        });
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
 
         yield* terminal.success(`Configuration for ${provider} updated.`);

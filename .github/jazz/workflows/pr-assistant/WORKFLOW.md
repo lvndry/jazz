@@ -1,6 +1,6 @@
 ---
 name: pr-assistant
-description: Respond to @jazz PR comments with PR-aware assistance
+description: Respond to /jazz PR comments with PR-aware assistance
 autoApprove: true
 agent: pr-assistant
 maxIterations: 100
@@ -10,7 +10,7 @@ skills:
 
 # Pull Request Assistant
 
-A reviewer mentioned `@jazz` on pull request **#__PR_NUMBER__**.
+A reviewer invoked `/jazz` on pull request **#__PR_NUMBER__**.
 
 ## Request
 

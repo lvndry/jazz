@@ -48,7 +48,9 @@ jobs:
           script: |
             function extractRequest(body) {
               if (!body) return '';
-              const match = body.match(/@jazz(?:\s*[:,-])?\s*([\s\S]*)/i);
+              const trimmed = body.trim();
+              // Slash command avoids GitHub @-mention UX; exclude /jazz-review so review-only comments do not capture "-review…" as the request.
+              const match = trimmed.match(/^\/jazz(?!-review)(?:\s*[:,-])?\s*([\s\S]*)/i);
               return match?.[1]?.trim() ?? '';
             }
 
@@ -104,7 +106,8 @@ jobs:
         if: |
           github.event_name == 'issue_comment' &&
           github.event.issue.pull_request != null &&
-          contains(github.event.comment.body, '@jazz') && (
+          contains(github.event.comment.body, '/jazz') &&
+          !contains(github.event.comment.body, '/jazz-review') && (
             github.event.comment.author_association == 'OWNER' ||
             github.event.comment.author_association == 'MEMBER' ||
             github.event.comment.author_association == 'COLLABORATOR'
@@ -373,13 +376,14 @@ jobs:
               });
             }
 
-  # On-demand PR assistant — triggered by @jazz mentions or manual workflow dispatch.
+  # On-demand PR assistant — triggered by a /jazz comment or manual workflow dispatch.
   assistant:
     needs: resolve
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'assistant' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '@jazz') && (
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz') &&
+        !contains(github.event.comment.body, '/jazz-review') && (
         github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR'

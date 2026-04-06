@@ -616,6 +616,9 @@ async function promptForAgentUpdates(
 
       const apiKey = await Effect.runPromise(
         terminal.ask(`${providerDisplayName} API Key:`, {
+          simple: true,
+          secret: true,
+          placeholder: "Paste your API key...",
           validate: (inputValue: string): boolean | string => {
             if (!inputValue || inputValue.trim().length === 0) {
               return "API key cannot be empty";

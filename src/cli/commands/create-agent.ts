@@ -6,6 +6,7 @@ import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
+  BUILTIN_TOOL_CATEGORIES,
   createCategoryMappings,
   FILE_MANAGEMENT_CATEGORY,
   getMCPServerCategories,
@@ -13,7 +14,6 @@ import {
   HTTP_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
-  BUILTIN_TOOL_CATEGORIES,
 } from "@/core/agent/tools/register-tools";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -428,6 +428,9 @@ async function promptForAgentInfo(
           const isOptional = result === "ollama";
           const apiKey = await Effect.runPromise(
             terminal.ask(`${providerDisplayName} API Key${isOptional ? " (optional)" : ""}:`, {
+              simple: true,
+              secret: true,
+              placeholder: "Paste your API key...",
               validate: (inputValue: string): boolean | string => {
                 if (isOptional) return true;
                 if (!inputValue || inputValue.trim().length === 0) {

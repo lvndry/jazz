@@ -77,6 +77,9 @@ export function handleWebSearchConfiguration(
     if (!hasApiKey) {
       // Prompt for API key
       const apiKey = yield* terminal.ask(`Enter API Key for ${provider}:`, {
+        simple: true,
+        secret: true,
+        placeholder: "Paste your API key...",
         validate: (input) => (input.trim().length > 0 ? true : "API Key cannot be empty"),
       });
 
