@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import {
   getLaunchdPath,
@@ -227,6 +227,17 @@ describe("SchedulerService", () => {
 
   describe("scheduler regression (tech-digest, paths, 6-field cron)", () => {
     const testWorkflowName = "scheduler-regression-test";
+    let testLaunchAgentsDir = "";
+
+    beforeAll(async () => {
+      testLaunchAgentsDir = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-launch-agents-"));
+      process.env["JAZZ_LAUNCH_AGENTS_DIR"] = testLaunchAgentsDir;
+    });
+
+    afterAll(async () => {
+      delete process.env["JAZZ_LAUNCH_AGENTS_DIR"];
+      await fs.rm(testLaunchAgentsDir, { recursive: true, force: true });
+    });
 
     const techDigestWorkflow: WorkflowMetadata = {
       name: testWorkflowName,
@@ -322,9 +333,7 @@ describe("SchedulerService", () => {
       await Effect.runPromise(program.pipe(Effect.provide(SchedulerServiceLayer)));
 
       const plistPath = path.join(
-        os.homedir(),
-        "Library",
-        "LaunchAgents",
+        testLaunchAgentsDir,
         `com.jazz.workflow.${testWorkflowName}.plist`,
       );
       const plistContent = await fs.readFile(plistPath, "utf-8");
