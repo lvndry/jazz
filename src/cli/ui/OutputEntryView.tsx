@@ -98,7 +98,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     return (
       <Box
         marginTop={addSpacing ? 1 : 0}
-        marginBottom={isDebug ? 0 : 1}
+        marginBottom={1}
         paddingLeft={isDebug ? PADDING.content : 0}
       >
         {icon}
