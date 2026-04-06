@@ -232,6 +232,14 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
       // no fallback; models.dev or defaults
     }));
   },
+  // llama-server returns standard OpenAI /v1/models format
+  llamacpp: (data: unknown) => {
+    const response = data as { data?: { id: string }[] };
+    return (response.data ?? []).map((model) => ({
+      id: model.id,
+      displayName: model.id,
+    }));
+  },
   togetherai: (data: unknown) => {
     const models = data as {
       id: string;
@@ -321,14 +329,11 @@ export function createModelFetcher(): ModelFetcherService {
           });
 
           if (!response.ok) {
-            if (response.status === 404) {
-              if (providerName === "ollama") {
-                throw new Error(
-                  "Failed to fetch models: No models found. Pull a model using `ollama pull` first.",
-                );
-              }
+            if (response.status === 404 && providerName === "ollama") {
+              throw new Error(
+                "Failed to fetch models: No models found. Pull a model using `ollama pull` first.",
+              );
             }
-
             throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
           }
 
@@ -345,11 +350,27 @@ export function createModelFetcher(): ModelFetcherService {
           const raw = extractor(data);
           return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
         },
-        catch: (error) =>
-          new LLMConfigurationError({
+        catch: (error) => {
+          const msg = error instanceof Error ? error.message : String(error);
+          const isConnectionRefused =
+            msg.includes("ECONNREFUSED") ||
+            msg.includes("fetch failed") ||
+            msg.includes("Failed to fetch");
+          if (providerName === "llamacpp" && isConnectionRefused) {
+            return new LLMConfigurationError({
+              provider: providerName,
+              message:
+                "llama-server is not running. Start it with:\n" +
+                "  llama-server -hf <org/model-GGUF>\n" +
+                "Example: llama-server -hf ggml-org/gemma-4-E2B-it-GGUF\n" +
+                "Then try again. The server listens on http://localhost:8080 by default.",
+            });
+          }
+          return new LLMConfigurationError({
             provider: providerName,
-            message: `Model discovery failed: ${error instanceof Error ? error.message : String(error)}`,
-          }),
+            message: `Model discovery failed: ${msg}`,
+          });
+        },
       }),
   };
 }

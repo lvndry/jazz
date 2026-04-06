@@ -116,6 +116,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   minimax: "MiniMax",
   mistral: "Mistral",
   moonshotai: "Moonshot AI",
+  llamacpp: "llama.cpp",
   ollama: "Ollama",
   openai: "OpenAI",
   openrouter: "OpenRouter",
@@ -132,6 +133,18 @@ export function formatProviderDisplayName(provider: string): string {
   const known = PROVIDER_DISPLAY_NAMES[provider];
   if (known) return known;
   return provider.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Format a model ID for display next to a provider label.
+ * For local file-based providers (llamacpp), the model ID is a full file path —
+ * show only the filename instead of the full path to keep the UI readable.
+ */
+export function formatModelDisplayName(modelId: string, provider: string): string {
+  if (provider === "llamacpp" && (modelId.startsWith("/") || modelId.startsWith("~"))) {
+    return modelId.split("/").pop() ?? modelId;
+  }
+  return modelId;
 }
 
 export function toPascalCase(str: string): string {

@@ -14,6 +14,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@/core/types";
 import { type LLMError } from "@/core/types/errors";
 import type { ToolCall } from "@/core/types/tools";
+import { parseLlamaCppRawToolCalls } from "@/core/utils/llamacpp-tool-parser";
 
 /**
  * Type for AI SDK StreamText result
@@ -73,7 +74,28 @@ interface StreamProcessorState {
 
   // Interruption
   cancelled: boolean;
+
+  /**
+   * Buffer for raw tool-call tokens that llama-server leaks as plain text.
+   * When we see an opening sentinel (e.g. "<|tool_call>") we accumulate the
+   * delta chunks here instead of emitting them to the UI.  Once a closing
+   * sentinel is seen we parse the buffer and suppress it from the display;
+   * if parsing fails we flush the buffer as normal text.
+   */
+  rawToolCallBuffer: string | null;
 }
+
+/**
+ * Raw tool-call opening / closing sentinels we need to watch for in streaming
+ * text deltas so we can suppress them from the display.
+ *
+ * Order matters: put longer/more specific patterns first to avoid false matches.
+ */
+const RAW_TOOL_CALL_OPEN = "<|tool_call>";
+const RAW_TOOL_CALL_CLOSE = "<tool_call|>";
+const LLAMA_TOOL_CALL_OPEN = "[TOOL_CALLS]";
+const QWEN_TOOL_CALL_OPEN = "<tool_call>";
+const QWEN_TOOL_CALL_CLOSE = "</tool_call>";
 
 /**
  * Create initial processor state
@@ -94,6 +116,7 @@ function createInitialState(): StreamProcessorState {
     finishEventReceived: false,
     finishReason: undefined,
     cancelled: false,
+    rawToolCallBuffer: null,
   };
 }
 
@@ -212,8 +235,23 @@ export class StreamProcessor {
               textChunk = String(part.text ?? "");
             }
 
-            // Emit text start on first chunk
-            if (!this.state.hasStartedText && textChunk.length > 0) {
+            // Always accumulate the raw chunk first so buildFinalResponse has
+            // the full text (including any raw tool-call tokens) for parsing.
+            if (textChunk.length > 0) {
+              this.state.accumulatedText += textChunk;
+            }
+
+            // For llamacpp: strip raw tool-call token sequences from the live
+            // display so they don't flicker on-screen during streaming.
+            // Accumulation above is unaffected — buildFinalResponse will parse
+            // and strip them from the final content after the stream ends.
+            let displayChunk = textChunk;
+            if (this.config.providerName === "llamacpp" && textChunk.length > 0) {
+              displayChunk = this.filterLlamaCppRawToolCallChunk(textChunk);
+            }
+
+            // Emit text start on first visible chunk
+            if (!this.state.hasStartedText && displayChunk.length > 0) {
               const firstTokenLatency = Date.now() - this.config.startTime;
               void this.logger.debug(
                 `[LLM Timing] 🎯 FIRST TOKEN arrived after ${firstTokenLatency}ms`,
@@ -223,12 +261,11 @@ export class StreamProcessor {
               this.recordFirstToken("text");
             }
 
-            // Emit text chunk
-            if (textChunk.length > 0) {
-              this.state.accumulatedText += textChunk;
+            // Emit text chunk (display-filtered delta, raw accumulated text)
+            if (displayChunk.length > 0) {
               void this.emitEvent({
                 type: "text_chunk",
-                delta: textChunk,
+                delta: displayChunk,
                 accumulated: this.state.accumulatedText,
                 sequence: this.state.textSequence++,
               });
@@ -449,9 +486,20 @@ export class StreamProcessor {
    * Build final response
    */
   private async buildFinalResponse(result: StreamTextResult): Promise<ChatCompletionResponse> {
-    const finalText = this.state.accumulatedText;
-    const toolCalls =
+    let finalText = this.state.accumulatedText;
+    let toolCalls: ToolCall[] | undefined =
       this.state.collectedToolCalls.length > 0 ? this.state.collectedToolCalls : undefined;
+
+    // llamacpp fallback: llama-server sometimes leaks the model's native tool-call
+    // tokens as plain text instead of returning structured function calls.
+    // Parse them out and strip them from the final content.
+    if (this.config.providerName === "llamacpp" && (!toolCalls || toolCalls.length === 0)) {
+      const parsed = parseLlamaCppRawToolCalls(finalText);
+      if (parsed) {
+        toolCalls = parsed.toolCalls;
+        finalText = parsed.cleanText;
+      }
+    }
 
     let usage: ChatCompletionResponse["usage"];
     try {
@@ -544,6 +592,112 @@ export class StreamProcessor {
       totalDurationMs,
       ...(metrics && { metrics }),
     });
+  }
+
+  /**
+   * Filter raw tool-call token sequences from a llamacpp streaming text chunk.
+   *
+   * When we encounter an opening sentinel (e.g. "<|tool_call>") we start
+   * buffering into `state.rawToolCallBuffer` and return an empty string so
+   * nothing is emitted to the display.  When the matching closing sentinel
+   * arrives we clear the buffer (the tokens are later parsed by
+   * buildFinalResponse) and return an empty string.  Everything before the
+   * opening and after the closing is passed through normally.
+   *
+   * Note: the raw tokens are still accumulated into `state.accumulatedText`
+   * by the caller (they pass through via the standard path only for non-tool-
+   * call text).  For tool-call segments we deliberately keep them OUT of
+   * accumulatedText as well, because buildFinalResponse uses
+   * parseLlamaCppRawToolCalls on the accumulated text and then strips them.
+   * To keep things simple we let buildFinalResponse do the stripping on the
+   * full accumulated text; we just avoid emitting them to the UI.
+   */
+  private filterLlamaCppRawToolCallChunk(chunk: string): string {
+    // Fast path: nothing buffered and no sentinel present.
+    const openers = [RAW_TOOL_CALL_OPEN, LLAMA_TOOL_CALL_OPEN, QWEN_TOOL_CALL_OPEN];
+    if (this.state.rawToolCallBuffer === null && !openers.some((o) => chunk.includes(o))) {
+      return chunk;
+    }
+
+    let result = "";
+    let remaining = chunk;
+
+    // If we're already buffering, append to buffer and look for a close.
+    if (this.state.rawToolCallBuffer !== null) {
+      this.state.rawToolCallBuffer += remaining;
+      remaining = "";
+
+      // Check for Gemma close
+      if (this.state.rawToolCallBuffer.includes(RAW_TOOL_CALL_CLOSE)) {
+        // Everything after the close can be returned as normal text.
+        const closeIdx =
+          this.state.rawToolCallBuffer.indexOf(RAW_TOOL_CALL_CLOSE) + RAW_TOOL_CALL_CLOSE.length;
+        result += this.state.rawToolCallBuffer.slice(closeIdx);
+        this.state.rawToolCallBuffer = null;
+        return result.trimStart();
+      }
+
+      // Check for Llama/Mistral — the whole pattern is on one line typically
+      if (
+        this.state.rawToolCallBuffer.startsWith(LLAMA_TOOL_CALL_OPEN) &&
+        this.state.rawToolCallBuffer.includes("]")
+      ) {
+        // Find the last ']' which closes the JSON array.
+        const lastBracket = this.state.rawToolCallBuffer.lastIndexOf("]");
+        result += this.state.rawToolCallBuffer.slice(lastBracket + 1);
+        this.state.rawToolCallBuffer = null;
+        return result.trimStart();
+      }
+
+      // Check for Qwen XML close
+      if (this.state.rawToolCallBuffer.includes(QWEN_TOOL_CALL_CLOSE)) {
+        const closeIdx =
+          this.state.rawToolCallBuffer.indexOf(QWEN_TOOL_CALL_CLOSE) + QWEN_TOOL_CALL_CLOSE.length;
+        result += this.state.rawToolCallBuffer.slice(closeIdx);
+        this.state.rawToolCallBuffer = null;
+        return result.trimStart();
+      }
+
+      // Still incomplete — keep buffering, emit nothing.
+      return "";
+    }
+
+    // Not currently buffering. Scan for an opener in the remaining text.
+    for (const opener of openers) {
+      const openIdx = remaining.indexOf(opener);
+      if (openIdx !== -1) {
+        // Pass through everything BEFORE the opener.
+        result += remaining.slice(0, openIdx);
+        // Start buffering from the opener.
+        this.state.rawToolCallBuffer = remaining.slice(openIdx);
+        remaining = "";
+
+        // Immediately check if the closing sentinel is also in this chunk.
+        const closer =
+          opener === RAW_TOOL_CALL_OPEN
+            ? RAW_TOOL_CALL_CLOSE
+            : opener === QWEN_TOOL_CALL_OPEN
+              ? QWEN_TOOL_CALL_CLOSE
+              : null;
+
+        if (closer && this.state.rawToolCallBuffer.includes(closer)) {
+          const closeIdx = this.state.rawToolCallBuffer.indexOf(closer) + closer.length;
+          result += this.state.rawToolCallBuffer.slice(closeIdx);
+          this.state.rawToolCallBuffer = null;
+        } else if (opener === LLAMA_TOOL_CALL_OPEN) {
+          // Llama format is typically a single line; look for closing ']'
+          const lastBracket = this.state.rawToolCallBuffer.lastIndexOf("]");
+          if (lastBracket !== -1) {
+            result += this.state.rawToolCallBuffer.slice(lastBracket + 1);
+            this.state.rawToolCallBuffer = null;
+          }
+        }
+
+        return result;
+      }
+    }
+
+    return result + remaining;
   }
 
   /**

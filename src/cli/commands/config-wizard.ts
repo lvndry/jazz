@@ -1,10 +1,15 @@
 import { Effect } from "effect";
 import React from "react";
+import { checkLlamaCppServerRunning, ensureLlamaCppServerConfig } from "@/cli/helpers/llamacpp";
 import {
   WEB_SEARCH_PROVIDERS,
   type WebSearchProviderName,
 } from "@/core/agent/tools/web-search-tools";
-import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
+import {
+  AVAILABLE_PROVIDERS,
+  isLocalLLMProvider,
+  type ProviderName,
+} from "@/core/constants/models";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { ColorProfile, OutputMode } from "@/core/types/output";
@@ -105,7 +110,8 @@ function configureLLMProviders() {
 
       const choices: { name: string; value: ProviderName | "back" }[] = AVAILABLE_PROVIDERS.map(
         (p) => {
-          const hasKey = !!config.llm?.[p]?.api_key;
+          const providerConf = config.llm?.[p];
+          const hasKey = !!(providerConf && "api_key" in providerConf && providerConf.api_key);
           return {
             name: `${formatProviderDisplayName(p)} ${hasKey ? "(configured)" : ""}`,
             value: p,
@@ -127,15 +133,29 @@ function configureLLMProviders() {
 
       const providerDisplay = formatProviderDisplayName(provider);
       yield* terminal.info(`Configuring ${providerDisplay}...`);
-      const apiKey = yield* terminal.password(
-        `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
-      );
 
-      if (apiKey.trim()) {
-        yield* configService.set(`llm.${provider}.api_key`, apiKey);
-        yield* terminal.success(`Configuration for ${providerDisplay} updated.`);
+      if (isLocalLLMProvider(provider)) {
+        yield* terminal.success(
+          `${providerDisplay} requires no API key — it runs locally. No configuration needed.`,
+        );
+        if (provider === "llamacpp") {
+          const addr = yield* ensureLlamaCppServerConfig(terminal, configService);
+          const ready = yield* checkLlamaCppServerRunning(terminal, configService, addr);
+          if (ready) {
+            yield* terminal.success("llama-server is running and reachable.");
+          }
+        }
       } else {
-        yield* terminal.info("No changes made.");
+        const apiKey = yield* terminal.password(
+          `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
+        );
+
+        if (apiKey.trim()) {
+          yield* configService.set(`llm.${provider}.api_key`, apiKey);
+          yield* terminal.success(`Configuration for ${providerDisplay} updated.`);
+        } else {
+          yield* terminal.info("No changes made.");
+        }
       }
 
       yield* terminal.log(""); // Spacing

@@ -4,6 +4,7 @@ import { Box, Text } from "ink";
 import React from "react";
 import type { ActivityState } from "@/cli/ui/activity-state";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
+import { isLocalLLMProvider } from "@/core/constants/models";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { NotificationServiceTag, type NotificationService } from "@/core/interfaces/notification";
 import type {
@@ -17,27 +18,27 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { ink } from "@/core/interfaces/terminal";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
-import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
+import type { ApprovalOutcome, ApprovalRequest } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/models-dev-client";
 import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   dimReasoningMarkdownOutput,
-  formatToolArguments,
-  formatToolResult,
   formatCompletion,
-  formatWarning,
-  formatToolExecutionStartEffect,
+  formatToolArguments,
   formatToolExecutionCompleteEffect,
   formatToolExecutionErrorEffect,
+  formatToolExecutionStartEffect,
+  formatToolResult,
   formatToolsDetectedEffect,
+  formatWarning,
 } from "./format-utils";
 import {
   formatMarkdown,
   formatMarkdownHybrid,
-  wrapToWidth,
   getTerminalWidth,
+  wrapToWidth,
 } from "./markdown-formatter";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/store";
@@ -495,16 +496,25 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
     const usage = event.response.usage;
     if (usage) {
-      parts.push(`Input: ${usage.promptTokens}`);
-      parts.push(`Output: ${usage.completionTokens}`);
+      if (usage.promptTokens > 0 || usage.completionTokens > 0) {
+        parts.push(`Input: ${usage.promptTokens}`);
+        parts.push(`Output: ${usage.completionTokens}`);
+      }
       if (usage.reasoningTokens !== undefined && usage.reasoningTokens > 0) {
         parts.push(`Reasoning: ${usage.reasoningTokens}`);
       }
-      parts.push(`Total: ${usage.totalTokens} tokens`);
+      if (usage.totalTokens > 0) {
+        parts.push(`Total: ${usage.totalTokens} tokens`);
+      }
     } else if (event.metrics.totalTokens) {
       parts.push(`Total: ${event.metrics.totalTokens} tokens`);
     }
     if (parts.length > 0) {
+      store.printOutput({
+        type: "log",
+        message: "",
+        timestamp: new Date(),
+      });
       store.printOutput({
         type: "debug",
         message: `[${parts.join(" | ")}]`,
@@ -526,6 +536,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     const provider = this.acc.currentProvider;
     const model = this.acc.currentModel;
+
+    if (isLocalLLMProvider(provider)) {
+      return;
+    }
+
     const promptTokens = usage.promptTokens;
     const completionTokens = usage.completionTokens;
 

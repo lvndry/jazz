@@ -323,11 +323,8 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
 }
 
 function expandHome(p: string): string {
-  if (p.startsWith("~")) {
-    const home = process.env["HOME"] || process.env["USERPROFILE"] || "";
-    return home ? p.replace(/^~/, home) : p;
-  }
-  return p;
+  const home = process.env["HOME"] ?? process.env["USERPROFILE"] ?? "";
+  return p.startsWith("~") && home ? p.replace(/^~/, home) : p;
 }
 
 function loadConfigFile(

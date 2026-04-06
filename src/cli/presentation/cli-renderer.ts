@@ -2,11 +2,13 @@ import chalk from "chalk";
 import { Effect } from "effect";
 import { marked } from "marked";
 import TerminalRenderer from "marked-terminal";
+import { isLocalLLMProvider } from "@/core/constants/models";
 import { type LLMError } from "@/core/types/errors";
 import type { ColorProfile, DisplayConfig, OutputMode, RenderTheme } from "@/core/types/output";
 import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
 import type { ToolCall } from "@/core/types/tools";
 import { getModelsDevMetadataSync } from "@/core/utils/models-dev-client";
+import { formatModelDisplayName } from "@/core/utils/string";
 import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,
@@ -16,7 +18,7 @@ import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
 import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
-import { codeColor, CHALK_THEME } from "../ui/theme";
+import { CHALK_THEME, codeColor } from "../ui/theme";
 
 /**
  * Get terminal width, with fallback to 80
@@ -246,7 +248,7 @@ export class CLIRenderer {
     return (
       "\n" +
       this.theme.colors.agentName(this.config.agentName) +
-      ` (${event.provider}/${event.model})` +
+      ` (${event.provider}/${formatModelDisplayName(event.model, event.provider)})` +
       reasoningInfo +
       ":\n"
     );
@@ -439,12 +441,13 @@ export class CLIRenderer {
       }
     }
 
-    // Show cost estimate if pricing data is available
+    // Show cost estimate if pricing data is available (skip for local providers)
     if (
       this.config.showMetrics &&
       this.accumulatedUsage &&
       this.currentModel &&
-      this.currentProvider
+      this.currentProvider &&
+      !isLocalLLMProvider(this.currentProvider)
     ) {
       const meta = getModelsDevMetadataSync(this.currentModel, this.currentProvider);
       if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
