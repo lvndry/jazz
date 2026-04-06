@@ -96,6 +96,8 @@ export interface TerminalService {
       hidden?: boolean;
       /** Optional placeholder text to show when input is empty. */
       placeholder?: string;
+      /** When true, mask the echoed value in the terminal history (e.g. for API keys). */
+      secret?: boolean;
     },
   ) => Effect.Effect<string | undefined, never>;
 

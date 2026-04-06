@@ -167,6 +167,7 @@ export class InkTerminalService implements TerminalService {
       simple?: boolean;
       hidden?: boolean;
       placeholder?: string;
+      secret?: boolean;
     },
   ): Effect.Effect<string | undefined, never> {
     return Effect.async<string, Error>((resume) => {
@@ -174,6 +175,7 @@ export class InkTerminalService implements TerminalService {
       const isCancellable = options?.cancellable === true;
       const isSimple = options?.simple === true;
       const isHidden = options?.hidden === true;
+      const isSecret = options?.secret === true;
       const placeholder = options?.placeholder;
 
       const promptType = isHidden ? "hidden" : isSimple ? "text" : "chat";
@@ -211,7 +213,8 @@ export class InkTerminalService implements TerminalService {
           // Pre-wrap user message to fit terminal width, consistent with how
           // agent responses are pre-wrapped. The offset accounts for App paddingX=3
           // (6 chars) + the "›" icon + space (2 chars) = 8 chars total.
-          const rawMessage = `${message} ${chalk.green(inputValue)}`;
+          const displayValue = isSecret ? "•".repeat(Math.min(inputValue.length, 8)) : inputValue;
+          const rawMessage = `${message} ${chalk.green(displayValue)}`;
           const available = getTerminalWidth() - 8;
           store.printOutput({
             type: "user",

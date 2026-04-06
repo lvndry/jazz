@@ -9,7 +9,7 @@ import { ScrollableMultiSelect } from "./components/ScrollableMultiSelect";
 import { ScrollableSelect } from "./components/ScrollableSelect";
 import { SearchSelect } from "./components/SearchSelect";
 import { TextInput } from "./components/TextInput";
-import { useInputHandler, InputResults, useTextInput } from "./hooks/use-input-service";
+import { InputResults, useInputHandler, useTextInput } from "./hooks/use-input-service";
 import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
 
@@ -97,7 +97,7 @@ function PromptComponent({
     currentPrompt.resolve(val);
   }, []);
 
-  const textInputActive = prompt.type === "chat" || prompt.type === "password";
+  const textInputActive = prompt.type === "chat";
   const { value, cursor, setValue } = useTextInput({
     id: "text-input",
     isActive: textInputActive,
@@ -265,6 +265,7 @@ function PromptComponent({
           <TextInput
             inputId={`password-${prompt.message}`}
             mask="*"
+            maskRevealTail={5}
             onSubmit={(value: string) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
           />
