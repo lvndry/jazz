@@ -109,6 +109,7 @@ export const STATIC_PROVIDER_MODELS = {
     { id: "moonshot-v1-32k", displayName: "Moonshot V1 32K" },
     { id: "moonshot-v1-8k", displayName: "Moonshot V1 8K" },
   ],
+  llamacpp: [],
   ollama: [],
   togetherai: [],
 } as const satisfies Record<string, readonly StaticModelEntry[]>;
@@ -119,3 +120,15 @@ export type ProviderName = keyof typeof STATIC_PROVIDER_MODELS;
  * List of all available providers
  */
 export const AVAILABLE_PROVIDERS = Object.keys(STATIC_PROVIDER_MODELS) as ProviderName[];
+
+/**
+ * Providers that run locally and require no API key.
+ */
+export const LOCAL_LLM_PROVIDERS = [
+  "ollama",
+  "llamacpp",
+] as const satisfies readonly ProviderName[];
+
+export function isLocalLLMProvider(name: string): boolean {
+  return (LOCAL_LLM_PROVIDERS as readonly string[]).includes(name);
+}

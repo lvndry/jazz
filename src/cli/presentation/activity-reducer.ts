@@ -17,6 +17,7 @@ import { Box, Text } from "ink";
 import React from "react";
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
+import { formatModelDisplayName } from "@/core/utils/string";
 import { formatToolArguments, formatToolResult } from "./format-utils";
 import { applyTextChunkOrdered } from "./stream-text-order";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
@@ -219,14 +220,19 @@ export function reduceEvent(
       acc.currentModel = event.model;
       acc.reasoningBuffer = "";
       acc.completedReasoning = "";
+      // Reset live text so buildThinkingOrStreamingActivity returns "thinking"
+      // (not "streaming") while we wait for the first token.
+      acc.liveText = "";
 
       outputs.push({
         type: "info",
-        message: `${acc.agentName} (${event.provider}/${event.model})`,
+        message: `${acc.agentName} (${event.provider}/${formatModelDisplayName(event.model, event.provider)})`,
         timestamp: new Date(),
       });
 
-      return { activity: null, outputs };
+      // Show animated "is thinking…" spinner immediately so the user gets
+      // feedback during high-latency first-token waits (e.g. llamacpp).
+      return { activity: buildThinkingOrStreamingActivity(acc), outputs };
     }
 
     // ---- Thinking / Reasoning -------------------------------------------

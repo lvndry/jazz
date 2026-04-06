@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { checkLlamaCppServerRunning, ensureLlamaCppServerConfig } from "@/cli/helpers/llamacpp";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
@@ -15,7 +16,7 @@ import {
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
 } from "@/core/agent/tools/register-tools";
-import type { ProviderName } from "@/core/constants/models";
+import { isLocalLLMProvider, type ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -164,12 +165,12 @@ export function createAgentCommand(): Effect.Effect<
       return;
     }
 
-    // Validate the chosen model against the chosen provider
+    // Resolve the final model ID.
+    // Prefer the user's explicit choice; only fall back to the provider default when
+    // the wizard produced no selection (empty string). For file-based providers like
+    // llamacpp the model is a file path that won't be in supportedModels — that is fine.
     const chosenProvider = yield* llmService.getProvider(agentAnswers.llmProvider);
-    const modelIds: string[] = chosenProvider.supportedModels.map((model) => model.id);
-    const selectedModel = modelIds.includes(agentAnswers.llmModel)
-      ? agentAnswers.llmModel
-      : chosenProvider.defaultModel;
+    const selectedModel = agentAnswers.llmModel || chosenProvider.defaultModel;
 
     // Handle MCP server selections - register tools for selected MCP servers
     const mcpManager = yield* MCPServerManagerTag;
@@ -410,11 +411,12 @@ async function promptForAgentInfo(
 
         state.llmProvider = result;
 
-        // Check/prompt for API key
+        // Check/prompt for API key (skip for key-free local providers)
         const providerDisplayName =
           state.allProviders.find((p) => p.name === result)?.displayName ?? result;
         const apiKeyPath = `llm.${result}.api_key`;
-        const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
+        const hasApiKey =
+          isLocalLLMProvider(result) || (await Effect.runPromise(configService.has(apiKeyPath)));
 
         if (!hasApiKey) {
           await Effect.runPromise(
@@ -425,14 +427,12 @@ async function promptForAgentInfo(
             }),
           );
 
-          const isOptional = result === "ollama";
           const apiKey = await Effect.runPromise(
-            terminal.ask(`${providerDisplayName} API Key${isOptional ? " (optional)" : ""}:`, {
+            terminal.ask(`${providerDisplayName} API Key:`, {
               simple: true,
               secret: true,
               placeholder: "Paste your API key...",
               validate: (inputValue: string): boolean | string => {
-                if (isOptional) return true;
                 if (!inputValue || inputValue.trim().length === 0) {
                   return "API key cannot be empty";
                 }
@@ -448,6 +448,18 @@ async function promptForAgentInfo(
               yield* terminal.log("");
             }),
           );
+        }
+
+        // For llamacpp: ensure server config, then verify it's reachable
+        if (result === "llamacpp") {
+          const addr = await Effect.runPromise(ensureLlamaCppServerConfig(terminal, configService));
+          const ready = await Effect.runPromise(
+            checkLlamaCppServerRunning(terminal, configService, addr),
+          );
+          if (!ready) {
+            state.step = "provider";
+            break;
+          }
         }
 
         // Cache provider info for next step
@@ -466,20 +478,25 @@ async function promptForAgentInfo(
       // STEP 2: Model Selection
       // ═══════════════════════════════════════════════════════════════════════
       case "model": {
-        const result = await Effect.runPromise(
-          terminal.search<string>(`Which model would you like to use? ${hint}`, {
-            choices: state.providerInfo!.supportedModels.map((model) => ({
-              name: model.displayName || model.id,
-              description: model.displayName || model.id,
-              value: model.id,
-            })),
-            placeholder: "Search models...",
-          }),
-        );
+        const modelChoices = state.providerInfo!.supportedModels;
+        let result: string | undefined;
 
-        if (result === undefined) {
-          state.step = "provider";
-          break;
+        {
+          result = await Effect.runPromise(
+            terminal.search<string>(`Which model would you like to use? ${hint}`, {
+              choices: modelChoices.map((model) => ({
+                name: model.displayName || model.id,
+                description: model.displayName || model.id,
+                value: model.id,
+              })),
+              placeholder: "Search models...",
+            }),
+          );
+
+          if (result === undefined) {
+            state.step = "provider";
+            break;
+          }
         }
 
         state.llmModel = result;

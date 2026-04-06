@@ -416,14 +416,21 @@ function isScheduledByMetadata(workflowName: string): Effect.Effect<boolean, Err
  * macOS launchd implementation of SchedulerService.
  */
 class LaunchdScheduler implements SchedulerService {
-  private readonly launchAgentsDir = path.join(os.homedir(), "Library", "LaunchAgents");
-
   getSchedulerType(): "launchd" | "cron" | "unsupported" {
     return "launchd";
   }
 
+  /** Overridable for tests via JAZZ_LAUNCH_AGENTS_DIR (read lazily so env can be set in tests). */
+  private getLaunchAgentsDirectory(): string {
+    const override = process.env["JAZZ_LAUNCH_AGENTS_DIR"]?.trim();
+    if (override) {
+      return path.resolve(override);
+    }
+    return path.join(os.homedir(), "Library", "LaunchAgents");
+  }
+
   private getPlistPath(workflowName: string): string {
-    return path.join(this.launchAgentsDir, `com.jazz.workflow.${workflowName}.plist`);
+    return path.join(this.getLaunchAgentsDirectory(), `com.jazz.workflow.${workflowName}.plist`);
   }
 
   private getMetadataPath(workflowName: string): string {
@@ -461,7 +468,7 @@ class LaunchdScheduler implements SchedulerService {
 
         // Ensure directories exist
         yield* Effect.tryPromise({
-          try: () => fs.mkdir(this.launchAgentsDir, { recursive: true }),
+          try: () => fs.mkdir(this.getLaunchAgentsDirectory(), { recursive: true }),
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         });
         yield* Effect.tryPromise({

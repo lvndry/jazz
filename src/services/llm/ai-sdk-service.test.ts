@@ -111,14 +111,20 @@ describe("AI SDK Service - Unit Tests", () => {
     it("should handle empty LLM config", async () => {
       // Clear env vars that would be detected as fallback API keys
       const envVarsToSave = [
-        "OPENAI_API_KEY",
+        "ALIBABA_API_KEY",
         "ANTHROPIC_API_KEY",
-        "GOOGLE_GENERATIVE_AI_API_KEY",
-        "MISTRAL_API_KEY",
-        "XAI_API_KEY",
+        "CEREBRAS_API_KEY",
         "DEEPSEEK_API_KEY",
+        "FIREWORKS_API_KEY",
+        "GOOGLE_GENERATIVE_AI_API_KEY",
         "GROQ_API_KEY",
+        "MINIMAX_API_KEY",
+        "MISTRAL_API_KEY",
+        "MOONSHOT_API_KEY",
+        "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
+        "TOGETHER_AI_API_KEY",
+        "XAI_API_KEY",
       ];
       const savedEnvVars: Record<string, string | undefined> = {};
       for (const key of envVarsToSave) {
@@ -137,8 +143,8 @@ describe("AI SDK Service - Unit Tests", () => {
         const result = await runWithTestLayers(testEffect, configLayer);
 
         const configuredProviders = result.filter((p) => p.configured);
-        expect(configuredProviders.length).toBe(1); // Only Ollama
-        expect(configuredProviders[0]?.name).toBe("ollama");
+        const names = configuredProviders.map((p) => p.name).sort();
+        expect(names).toEqual(["llamacpp", "ollama"]);
       } finally {
         // Restore env vars
         for (const key of envVarsToSave) {
@@ -150,18 +156,7 @@ describe("AI SDK Service - Unit Tests", () => {
     });
 
     it("should have a check for every provider in LLMConfig", () => {
-      const llmConfigProviders: ProviderName[] = [
-        "openai",
-        "anthropic",
-        "google",
-        "mistral",
-        "xai",
-        "deepseek",
-        "ollama",
-        "openrouter",
-        "ai_gateway",
-        "groq",
-      ];
+      const llmConfigProviders: ProviderName[] = [...AVAILABLE_PROVIDERS];
 
       // Read the source file to check for provider checks
       const sourceFile = readFileSync(join(import.meta.dir, "ai-sdk-service.ts"), "utf-8");
@@ -185,9 +180,8 @@ describe("AI SDK Service - Unit Tests", () => {
       const missingProviders: ProviderName[] = [];
 
       for (const provider of AVAILABLE_PROVIDERS) {
-        // Ollama is handled specially (always added), so check for that pattern
+        // Local providers are always listed — no llmConfig.{name}?.api_key gate
         if (provider === "ollama") {
-          // Check for ollama handling - look for providers.push with "ollama" or llmConfig.ollama
           if (
             !functionSection.includes('"ollama"') &&
             !functionSection.includes("'ollama'") &&
@@ -195,9 +189,11 @@ describe("AI SDK Service - Unit Tests", () => {
           ) {
             missingProviders.push(provider);
           }
+        } else if (provider === "llamacpp") {
+          if (!functionSection.includes('"llamacpp"') && !functionSection.includes("'llamacpp'")) {
+            missingProviders.push(provider);
+          }
         } else {
-          // For other providers, check for: llmConfig.{provider}?.api_key
-          // Simple string search for the pattern
           const searchPattern = `llmConfig.${provider}?.api_key`;
           if (!functionSection.includes(searchPattern)) {
             missingProviders.push(provider);

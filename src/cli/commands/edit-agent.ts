@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { checkLlamaCppServerRunning, ensureLlamaCppServerConfig } from "@/cli/helpers/llamacpp";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
@@ -14,7 +15,7 @@ import {
   WEB_SEARCH_CATEGORY,
 } from "@/core/agent/tools/register-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
-import type { ProviderName } from "@/core/constants/models";
+import { isLocalLLMProvider, type ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -600,9 +601,10 @@ async function promptForAgentUpdates(
     const providerDisplayName =
       providers.find((p) => p.name === llmProvider)?.displayName ?? llmProvider;
 
-    // Check if API key exists for the selected provider
+    // Check if API key exists for the selected provider (skip for key-free local providers)
     const apiKeyPath = `llm.${llmProvider}.api_key`;
-    const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
+    const hasApiKey =
+      isLocalLLMProvider(llmProvider) || (await Effect.runPromise(configService.has(apiKeyPath)));
 
     if (!hasApiKey) {
       // Show message and prompt for API key
@@ -639,6 +641,15 @@ async function promptForAgentUpdates(
       );
     }
 
+    // For llamacpp: ensure server config, then verify it's reachable
+    if (llmProvider === "llamacpp") {
+      const addr = await Effect.runPromise(ensureLlamaCppServerConfig(terminal, configService));
+      const ready = await Effect.runPromise(
+        checkLlamaCppServerRunning(terminal, configService, addr),
+      );
+      if (!ready) return {};
+    }
+
     // When provider is changed, we must also select a model for that provider
     const providerInfo = await Effect.runPromise(llmService.getProvider(llmProvider)).catch(
       (error: unknown) => {
@@ -647,14 +658,17 @@ async function promptForAgentUpdates(
       },
     );
 
-    const llmModel = await Effect.runPromise(
-      terminal.search<string>(`Select model for ${providerDisplayName}:`, {
-        choices: providerInfo.supportedModels.map((model) => ({
-          name: model.displayName || model.id,
-          value: model.id,
-        })),
-      }),
-    );
+    let llmModel: string | undefined;
+    {
+      llmModel = await Effect.runPromise(
+        terminal.search<string>(`Select model for ${providerDisplayName}:`, {
+          choices: providerInfo.supportedModels.map((model) => ({
+            name: model.displayName || model.id,
+            value: model.id,
+          })),
+        }),
+      );
+    }
 
     if (!llmModel) {
       throw new Error("Edit cancelled");

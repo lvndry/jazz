@@ -1,6 +1,10 @@
 /* eslint-disable import/order */
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
-import type { ProviderName } from "@/core/constants/models";
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  isLocalLLMProvider,
+  type ProviderName,
+} from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -18,13 +22,15 @@ import type { WebSearchConfig } from "@/core/types/config";
 import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
 import type { ToolCall } from "@/core/types/tools";
 import { safeParseJson } from "@/core/utils/json";
-import { formatProviderDisplayName, sanitize } from "@/core/utils/string";
+import { parseLlamaCppRawToolCalls } from "@/core/utils/llamacpp-tool-parser";
 import {
   convertToLLMError,
   extractCleanErrorMessage,
   truncateRequestBodyValues,
 } from "@/core/utils/llm-error";
+import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
 import { createDeferred } from "@/core/utils/promise";
+import { formatProviderDisplayName, sanitize } from "@/core/utils/string";
 import { alibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
 import { anthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { cerebras } from "@ai-sdk/cerebras";
@@ -37,7 +43,6 @@ import { moonshotai, type MoonshotAILanguageModelOptions } from "@ai-sdk/moonsho
 import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { togetherai } from "@ai-sdk/togetherai";
 import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
-import { minimax } from "vercel-minimax-ai-provider";
 import {
   createOpenRouter,
   type OpenRouterProviderOptions,
@@ -61,12 +66,11 @@ import {
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
+import { minimax } from "vercel-minimax-ai-provider";
 import { z } from "zod";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
-import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
 import { StreamProcessor } from "./stream-processor";
-import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 
 interface AISDKConfig {
   llmConfig?: LLMConfig;
@@ -454,20 +458,23 @@ function getConfiguredProviders(
     }
   }
 
-  // Ollama is always available (no API key required)
+  // Local providers (Ollama, llama.cpp) are always available — no API key required
   if (!addedProviders.has("ollama")) {
     providers.push({ name: "ollama", apiKey: llmConfig?.ollama?.api_key ?? "" });
+  }
+  if (!addedProviders.has("llamacpp")) {
+    providers.push({ name: "llamacpp", apiKey: "" });
   }
 
   return providers;
 }
 
-function selectModel(
+async function selectModel(
   providerName: ProviderName,
   modelId: ModelName,
   llmConfig?: LLMConfig,
   cache?: Map<string, LanguageModel>,
-): LanguageModel {
+): Promise<LanguageModel> {
   // Check cache first
   const cacheKey = `${providerName}:${modelId}`;
   if (cache?.has(cacheKey)) {
@@ -547,6 +554,15 @@ function selectModel(
     }
     case "groq": {
       model = groq(modelId);
+      break;
+    }
+    case "llamacpp": {
+      const host = llmConfig?.llamacpp?.host ?? "localhost";
+      const port = llmConfig?.llamacpp?.port ?? 8080;
+      const baseURL = `http://${host}:${port}/v1`;
+      const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+      const llamaServer = createOpenAICompatible({ name: "llamacpp", baseURL });
+      model = llamaServer(modelId);
       break;
     }
     default:
@@ -800,7 +816,14 @@ class AISDKService implements LLMService {
     }
 
     const providerConfig = this.config.llmConfig?.[providerName];
-    const baseUrl = modelSource.defaultBaseUrl;
+
+    // For llamacpp, honour user-configured host/port instead of the default.
+    let baseUrl = modelSource.defaultBaseUrl;
+    if (providerName === "llamacpp") {
+      const host = this.config.llmConfig?.llamacpp?.host ?? "localhost";
+      const port = this.config.llmConfig?.llamacpp?.port ?? 8080;
+      baseUrl = `http://${host}:${port}`;
+    }
 
     if (!baseUrl) {
       void this.logger.warn(
@@ -809,7 +832,8 @@ class AISDKService implements LLMService {
       return Effect.succeed([]);
     }
 
-    const apiKey = providerConfig?.api_key;
+    const apiKey =
+      providerConfig && "api_key" in providerConfig ? providerConfig.api_key : undefined;
 
     return this.modelFetcher
       .fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey)
@@ -845,11 +869,11 @@ class AISDKService implements LLMService {
           defaultModel: models[0]?.id ?? "",
           authenticate: () => {
             const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
-            const apiKey = providerConfig?.api_key;
+            const apiKey =
+              providerConfig && "api_key" in providerConfig ? providerConfig.api_key : undefined;
 
             if (!apiKey) {
-              // API Key is optional for Ollama
-              if (providerName.toLowerCase() === "ollama") {
+              if (isLocalLLMProvider(providerName)) {
                 return Effect.succeed(void 0);
               }
               return Effect.fail(
@@ -970,7 +994,7 @@ class AISDKService implements LLMService {
         );
 
         const modelSelectStart = Date.now();
-        const model = selectModel(
+        const model = await selectModel(
           providerName,
           options.model,
           this.config.llmConfig,
@@ -1028,7 +1052,7 @@ class AISDKService implements LLMService {
         }
 
         const responseModel = options.model;
-        const content = result.text ?? "";
+        let content = result.text ?? "";
         let toolCalls: ChatCompletionResponse["toolCalls"] = undefined;
         let usage: ChatCompletionResponse["usage"] = undefined;
 
@@ -1098,6 +1122,20 @@ class AISDKService implements LLMService {
           }
         }
 
+        // llamacpp fallback: llama-server sometimes leaks the model's native tool-call
+        // tokens as plain text instead of returning structured function calls.
+        // Parse them out and strip them from the displayed content.
+        if (providerName === "llamacpp" && (!toolCalls || toolCalls.length === 0)) {
+          const parsed = parseLlamaCppRawToolCalls(content);
+          if (parsed) {
+            void this.logger.debug(
+              `[llamacpp] Parsed ${parsed.toolCalls.length} raw tool call(s) from text output`,
+            );
+            toolCalls = parsed.toolCalls;
+            content = parsed.cleanText;
+          }
+        }
+
         const resultObj: ChatCompletionResponse = {
           id: shortUUID.generate(),
           model: responseModel,
@@ -1164,15 +1202,15 @@ class AISDKService implements LLMService {
     providerName: ProviderName,
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
-    return Effect.try({
-      try: () => {
+    return Effect.tryPromise({
+      try: async () => {
         const timingStart = Date.now();
         void this.logger.debug(
           `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
         );
 
         const modelSelectStart = Date.now();
-        const model = selectModel(
+        const model = await selectModel(
           providerName,
           options.model,
           this.config.llmConfig,

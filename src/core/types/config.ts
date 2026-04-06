@@ -74,6 +74,13 @@ export interface OllamaProviderConfig {
   readonly api_key?: string;
 }
 
+export interface LlamaCppProviderConfig {
+  /** Hostname of the running llama-server instance. Defaults to "localhost". */
+  readonly host?: string;
+  /** Port of the running llama-server instance. Defaults to 8080. */
+  readonly port?: number;
+}
+
 export interface LLMConfig {
   readonly ai_gateway?: LLMProviderConfig;
   readonly alibaba?: LLMProviderConfig;
@@ -86,6 +93,7 @@ export interface LLMConfig {
   readonly minimax?: LLMProviderConfig;
   readonly mistral?: LLMProviderConfig;
   readonly moonshotai?: LLMProviderConfig;
+  readonly llamacpp?: LlamaCppProviderConfig;
   readonly ollama?: OllamaProviderConfig;
   readonly openai?: LLMProviderConfig;
   readonly openrouter?: LLMProviderConfig;

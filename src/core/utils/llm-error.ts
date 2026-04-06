@@ -1,7 +1,9 @@
 import { APICallError } from "ai";
 import type { ProviderName } from "@/core/constants/models";
+import { isLocalLLMProvider } from "@/core/constants/models";
 import {
   LLMAuthenticationError,
+  LLMConfigurationError,
   LLMRateLimitError,
   LLMRequestError,
   type LLMError,
@@ -169,8 +171,24 @@ export function extractCleanErrorMessage(error: unknown): string {
  *
  */
 export function convertToLLMError(error: unknown, providerName: ProviderName): LLMError {
+  // Pass already-typed LLM errors through without re-wrapping
+  if (
+    error instanceof LLMAuthenticationError ||
+    error instanceof LLMConfigurationError ||
+    error instanceof LLMRateLimitError ||
+    error instanceof LLMRequestError
+  ) {
+    return error;
+  }
+
   // Use clean message for user-facing error (keeps terminal output readable)
   const cleanMessage = extractCleanErrorMessage(error);
+
+  // Local providers (Ollama, llama.cpp) never make network calls — any error
+  // is a configuration or runtime issue, never a transient network failure.
+  if (isLocalLLMProvider(providerName)) {
+    return new LLMConfigurationError({ provider: providerName, message: cleanMessage });
+  }
 
   if (APICallError.isInstance(error)) {
     if (error.statusCode === 401 || error.statusCode === 403) {

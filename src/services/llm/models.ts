@@ -14,6 +14,7 @@ export type ModelSource =
   | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api";
+export const DEFAULT_LLAMACPP_BASE_URL = "http://localhost:8080";
 
 export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   anthropic: {
@@ -75,6 +76,11 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   moonshotai: {
     type: "static",
     models: STATIC_PROVIDER_MODELS.moonshotai,
+  },
+  llamacpp: {
+    type: "dynamic",
+    endpointPath: "/v1/models",
+    defaultBaseUrl: DEFAULT_LLAMACPP_BASE_URL,
   },
   ollama: {
     type: "dynamic",

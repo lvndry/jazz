@@ -5,8 +5,12 @@ import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
-import { STATIC_PROVIDER_MODELS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  STATIC_PROVIDER_MODELS,
+  isLocalLLMProvider,
+} from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
@@ -14,8 +18,8 @@ import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import {
   MCPServerManagerTag,
-  isStdioConfig,
   isHttpConfig,
+  isStdioConfig,
   type MCPServerManager,
 } from "@/core/interfaces/mcp-server";
 import type { PresentationService } from "@/core/interfaces/presentation";
@@ -32,8 +36,8 @@ import type { AutoApprovePolicy } from "@/core/types/tools";
 import { sortAgents } from "@/core/utils/agent-sort";
 import { describeCronSchedule } from "@/core/utils/cron-utils";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
-import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
 import type { WorkflowMetadata } from "@/core/workflows/workflow-service";
+import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
 import { groupWorkflows } from "@/core/workflows/workflow-utils";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
@@ -1156,16 +1160,18 @@ function handleStatsCommand(
       ),
     );
 
-    // Estimated cost
-    const meta = yield* Effect.promise(() =>
-      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
-    );
-    const inputPricePerMillion = meta?.inputPricePerMillion ?? 0;
-    const outputPricePerMillion = meta?.outputPricePerMillion ?? 0;
-    const inputCost = (promptTokens / 1_000_000) * inputPricePerMillion;
-    const outputCost = (completionTokens / 1_000_000) * outputPricePerMillion;
-    const totalCost = inputCost + outputCost;
-    yield* terminal.log(fmt.keyValueCompact("Est. cost", formatUsd(totalCost)));
+    // Estimated cost (skip for local providers — they're free)
+    if (!isLocalLLMProvider(agent.config.llmProvider)) {
+      const meta = yield* Effect.promise(() =>
+        getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+      );
+      const inputPricePerMillion = meta?.inputPricePerMillion ?? 0;
+      const outputPricePerMillion = meta?.outputPricePerMillion ?? 0;
+      const inputCost = (promptTokens / 1_000_000) * inputPricePerMillion;
+      const outputCost = (completionTokens / 1_000_000) * outputPricePerMillion;
+      const totalCost = inputCost + outputCost;
+      yield* terminal.log(fmt.keyValueCompact("Est. cost", formatUsd(totalCost)));
+    }
 
     yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
@@ -1619,6 +1625,13 @@ function handleCostCommand(
     if (totalTokens === 0) {
       yield* terminal.log(fmt.blank());
       yield* terminal.info("No tokens used yet in this conversation.");
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true };
+    }
+
+    if (isLocalLLMProvider(agent.config.llmProvider)) {
+      yield* terminal.log(fmt.blank());
+      yield* terminal.info("Running locally — no cost.");
       yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }

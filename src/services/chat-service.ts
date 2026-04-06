@@ -17,7 +17,12 @@ import {
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
 import type { SkillService } from "@/core/skills/skill-service";
-import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
+import {
+  LLMAuthenticationError,
+  LLMConfigurationError,
+  LLMRateLimitError,
+  LLMRequestError,
+} from "@/core/types/errors";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
@@ -34,10 +39,10 @@ import {
   updateWorkingDirectoryInStore,
 } from "./chat/session";
 import {
+  bumpPromotionThreshold,
   loadCommandApprovals,
   recordCommandApproval,
   removeCommandApproval,
-  bumpPromotionThreshold,
   type CommandApprovalRecord,
 } from "./command-approval-tracker";
 
@@ -363,6 +368,11 @@ export class ChatServiceImpl implements ChatService {
                     yield* terminal.error(`LLM request failed: ${cleanMessage}`);
                     yield* terminal.log("   This might be a temporary issue. Please try again.");
                   }
+                } else if (error instanceof LLMConfigurationError) {
+                  yield* terminal.error(`Configuration error: ${error.message}`);
+                  yield* terminal.log(
+                    "   Run 'jazz edit-agent' to update your agent's provider and model.",
+                  );
                 } else if (error instanceof LLMAuthenticationError) {
                   yield* terminal.error(`Authentication failed: ${error.message}`);
                   yield* terminal.log(

@@ -66,7 +66,7 @@ describe("activity-reducer", () => {
   // -------------------------------------------------------------------------
 
   describe("stream_start", () => {
-    test("emits info log, stores provider/model, returns no activity", () => {
+    test("emits info log, stores provider/model, enters thinking activity until first token", () => {
       const a = acc();
       const result = reduceEvent(
         a,
@@ -75,7 +75,8 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      expect(result.activity).toBeNull();
+      expect(result.activity).not.toBeNull();
+      expect(result.activity!.phase).toBe("thinking");
       expect(result.outputs).toHaveLength(1);
       expect(result.outputs[0]!.type).toBe("info");
       expect(result.outputs[0]!.message).toContain("TestAgent");
@@ -567,7 +568,7 @@ describe("activity-reducer", () => {
         identity,
         stubInk,
       );
-      expect(r1.activity).toBeNull();
+      expect(r1.activity!.phase).toBe("thinking");
 
       // thinking_start → thinking phase
       const r2 = reduceEvent(a, { type: "thinking_start", provider: "p" }, identity, stubInk);

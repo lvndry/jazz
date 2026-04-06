@@ -1,4 +1,16 @@
+import { resolve } from "node:path";
+
 export type ProcessEnvRecord = Record<string, string | undefined>;
+
+/**
+ * Expand a leading `~` to the user's home directory and resolve the result
+ * to an absolute path. Safe to call on paths that are already absolute.
+ */
+export function expandPath(p: string): string {
+  const home = process.env["HOME"] ?? process.env["USERPROFILE"] ?? "";
+  const expanded = p.startsWith("~") && home ? p.replace(/^~/, home) : p;
+  return resolve(expanded);
+}
 
 /**
  * Build a sanitized environment for child process execution.
