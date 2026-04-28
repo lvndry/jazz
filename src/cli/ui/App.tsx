@@ -349,9 +349,7 @@ export function App(): React.ReactElement {
             </ErrorBoundary>
           </Box>
 
-          <ErrorBoundary
-            fallback={<Text color="red">Status footer error. Restart may help.</Text>}
-          >
+          <ErrorBoundary fallback={<Text color="red">Status footer error. Restart may help.</Text>}>
             <StatusFooterIsland />
           </ErrorBoundary>
         </Box>

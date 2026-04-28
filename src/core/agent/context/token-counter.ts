@@ -91,7 +91,12 @@ export function inferFamily(hint: ModelHint): ModelFamily {
   const provider = hint.provider.toLowerCase();
   const id = hint.modelId.toLowerCase();
 
-  if (provider === "openai" || id.startsWith("gpt-") || id.startsWith("o1") || id.startsWith("o3")) {
+  if (
+    provider === "openai" ||
+    id.startsWith("gpt-") ||
+    id.startsWith("o1") ||
+    id.startsWith("o3")
+  ) {
     // o200k for gpt-4o, gpt-4.1, gpt-5.x; cl100k for older gpt-3.5/gpt-4
     if (
       id.startsWith("gpt-4o") ||

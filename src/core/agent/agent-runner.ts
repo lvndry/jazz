@@ -128,13 +128,11 @@ function initializeAgentRun(
     })();
 
     const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((c) => c.id));
-    const builtInToolNames = (
-      yield* Effect.all(
-        requestedBuiltinCategoryIds
-          .filter((id) => validBuiltinCategoryIds.has(id))
-          .map((id) => toolRegistry.getToolsInCategory(id)),
-      )
-    ).flat();
+    const builtInToolNames = (yield* Effect.all(
+      requestedBuiltinCategoryIds
+        .filter((id) => validBuiltinCategoryIds.has(id))
+        .map((id) => toolRegistry.getToolsInCategory(id)),
+    )).flat();
 
     // Combine agent tools with built-in tools, then apply persona deny list.
     let combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];

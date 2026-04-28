@@ -130,9 +130,7 @@ function formatAgentsListBlock(
               truncateMiddle(tools.join(", "), innerWidth - 20),
             )}`
           : `${chalk.dim("tools")} ${chalk.dim("none configured")}`;
-      lines.push(
-        chalk.dim(g.boxV) + " " + padRight(toolsLine, innerWidth - 1) + chalk.dim(g.boxV),
-      );
+      lines.push(chalk.dim(g.boxV) + " " + padRight(toolsLine, innerWidth - 1) + chalk.dim(g.boxV));
     }
 
     lines.push(chalk.dim(sep));
@@ -319,8 +317,7 @@ function formatAgentDetailsBlock(agent: {
   lines.push(v + padRight(` ${chalk.bold(`Agent: ${agent.name}`)}`, innerWidth) + v);
   lines.push(chalk.dim(sep));
 
-  const kv = (k: string, val: string) =>
-    v + padRight(` ${chalk.dim(k)} ${val}`, innerWidth) + v;
+  const kv = (k: string, val: string) => v + padRight(` ${chalk.dim(k)} ${val}`, innerWidth) + v;
 
   lines.push(kv("ID:", agent.id));
   lines.push(kv("Model:", model));

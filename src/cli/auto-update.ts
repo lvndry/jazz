@@ -3,8 +3,8 @@ import { Effect } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { getUserDataDirectory } from "@/core/utils/runtime-detection";
-import { getGlyphs } from "./ui/glyphs";
 import { checkForUpdate, fetchReleaseNotesSince } from "./commands/update";
+import { getGlyphs } from "./ui/glyphs";
 
 const UPDATE_CHECK_INTERVAL_DAYS = 3;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;

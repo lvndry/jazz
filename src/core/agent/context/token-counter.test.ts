@@ -130,7 +130,9 @@ describe("TokenCounter — message-level counting", () => {
     const withCalls: ChatMessage = {
       role: "assistant",
       content: "I'll check the status.",
-      tool_calls: [{ id: "1", type: "function", function: { name: "git_status", arguments: "{}" } }],
+      tool_calls: [
+        { id: "1", type: "function", function: { name: "git_status", arguments: "{}" } },
+      ],
     };
 
     const without = counter.countMessage(assistantMsg("I'll check the status."), hint);

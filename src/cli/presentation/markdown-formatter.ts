@@ -406,12 +406,12 @@ function computeColumnWidths(
 ): number[] {
   const MIN_COL_WIDTH = 4;
 
-  const intrinsic = new Array(colCount).fill(0);
+  const intrinsic: number[] = new Array<number>(colCount).fill(0);
   const measureCell = (cell: string, c: number): void => {
     // Multi-line cells: take the widest line.
     for (const line of cell.split("\n")) {
       const w = visibleWidth(line);
-      if (w > intrinsic[c]) intrinsic[c] = w;
+      if (w > (intrinsic[c] ?? 0)) intrinsic[c] = w;
     }
   };
   for (let c = 0; c < colCount; c++) measureCell(headerCells[c] ?? "", c);
@@ -1472,25 +1472,25 @@ export function formatHeadingsHybrid(text: string): string {
   // H4 (####)
   formatted = formatted.replace(
     H4_REGEX,
-    (_match, header) => `#### ${wrapPreservingInner(header, HEADING_MUTED)}`,
+    (_match: string, header: string) => `#### ${wrapPreservingInner(header, HEADING_MUTED)}`,
   );
 
   // H3 (###)
   formatted = formatted.replace(
     H3_REGEX,
-    (_match, header) => `### ${wrapPreservingInner(header, HEADING_LINK)}`,
+    (_match: string, header: string) => `### ${wrapPreservingInner(header, HEADING_LINK)}`,
   );
 
   // H2 (##)
   formatted = formatted.replace(
     H2_REGEX,
-    (_match, header) => `## ${wrapPreservingInner(header, HEADING_AGENT)}`,
+    (_match: string, header: string) => `## ${wrapPreservingInner(header, HEADING_AGENT)}`,
   );
 
   // H1 (#)
   formatted = formatted.replace(
     H1_REGEX,
-    (_match, header) => `# ${wrapPreservingInner(header, HEADING_PRIMARY)}`,
+    (_match: string, header: string) => `# ${wrapPreservingInner(header, HEADING_PRIMARY)}`,
   );
 
   return formatted;

@@ -21,7 +21,10 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
       description:
         "Search the skill catalog by query and return the top matches with their full descriptions. Use this when the system-prompt skill index doesn't have enough detail to decide which skill to load.",
       parameters: z.object({
-        query: z.string().min(1).describe("Free-text query (e.g. 'email triage', 'commit message')"),
+        query: z
+          .string()
+          .min(1)
+          .describe("Free-text query (e.g. 'email triage', 'commit message')"),
         limit: z
           .number()
           .int()
@@ -35,7 +38,8 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
       createSummary: undefined,
       execute: (args: Record<string, unknown>) =>
         Effect.gen(function* () {
-          const query = String(args["query"] ?? "").trim();
+          const queryArg = args["query"];
+          const query = (typeof queryArg === "string" ? queryArg : "").trim();
           const limit = typeof args["limit"] === "number" ? args["limit"] : 5;
           const skillService = yield* SkillServiceTag;
 
@@ -59,9 +63,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
             };
           }
 
-          const lines = ranked
-            .map((s) => `- ${s.name}: ${s.description}`)
-            .join("\n");
+          const lines = ranked.map((s) => `- ${s.name}: ${s.description}`).join("\n");
           return {
             success: true,
             result: `Top ${ranked.length} skill(s) matching "${query}":\n${lines}\n\nLoad one with load_skill.`,

@@ -1,8 +1,8 @@
 import { Box, Text } from "ink";
 import React from "react";
 import { AnimatedEllipsis } from "./components/AnimatedEllipsis";
-import { THEME } from "./theme";
 import type { RunStats } from "./store";
+import { THEME } from "./theme";
 
 /**
  * Format a USD cost for the status footer.
@@ -121,11 +121,7 @@ function StatusFooter({
           <Text dimColor> </Text>
         )}
       </Box>
-      <Box flexShrink={0}>
-        {wd && (
-          <Text dimColor>{wd}</Text>
-        )}
-      </Box>
+      <Box flexShrink={0}>{wd && <Text dimColor>{wd}</Text>}</Box>
     </Box>
   );
 }

@@ -11,6 +11,7 @@ import type { Agent } from "@/core/types";
 import type { LLMConfig } from "@/core/types/config";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
+import type { AgentResponse } from "../types";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 
@@ -18,7 +19,6 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 function modelHintFromAgent(agent: Agent): ModelHint {
   return { provider: agent.config.llmProvider, modelId: agent.config.llmModel };
 }
-import type { AgentResponse } from "../types";
 
 /**
  * Fallback cheap models for each static provider if models.dev lookup fails.

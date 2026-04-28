@@ -199,7 +199,9 @@ export const ActivityView = React.memo(function ActivityView({
           paddingX={PADDING.content}
           marginTop={1}
         >
-          <Text color={THEME.error}>{G.error} {activity.message}</Text>
+          <Text color={THEME.error}>
+            {G.error} {activity.message}
+          </Text>
         </Box>
       );
 
