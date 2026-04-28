@@ -93,6 +93,7 @@
     "exa-js": "^2.3.0",
     "fast-glob": "^3.3.3",
     "fs-extra": "^11.3.3",
+    "gpt-tokenizer": "^3.4.0",
     "gray-matter": "^4.0.3",
     "ink": "^6.7.0",
     "ink-big-text": "^2.0.0",

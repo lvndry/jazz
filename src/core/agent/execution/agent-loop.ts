@@ -14,10 +14,14 @@ import type { DisplayConfig } from "@/core/types/output";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { ToolExecutor } from "./tool-executor";
-import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "../context/context-window-manager";
+import {
+  ContextWindowManager,
+  DEFAULT_CONTEXT_WINDOW_MANAGER,
+} from "../context/context-window-manager";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import {
   beginIteration,
+  calibrateTokenCounter,
   completeIteration,
   estimateTokens,
   finalizeAgentRun,
@@ -140,6 +144,19 @@ export function executeAgentLoop(
 
         const contextWindowMaxTokens = modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
 
+        // Per-run ContextWindowManager carrying the active model hint so the
+        // token counter can pick the right tokenizer (gpt-tokenizer for
+        // OpenAI families) and apply this model's calibrated ratio. The
+        // budget stays at the singleton's default; we only override the hint.
+        const trimBudgetTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
+        const protectedRecentTurns =
+          DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().protectedRecentTurns;
+        const runContextWindowManager = new ContextWindowManager({
+          maxTokens: trimBudgetTokens,
+          ...(protectedRecentTurns !== undefined && { protectedRecentTurns }),
+          modelHint: { provider, modelId: model },
+        });
+
         yield* logger.debug("Using model context window", {
           model,
           provider,
@@ -235,6 +252,15 @@ export function executeAgentLoop(
 
             if (completion.usage) {
               recordLLMUsage(runMetrics, completion.usage);
+              // Calibrate the token counter so subsequent pre-call estimates
+              // converge on this model's actual chars/token ratio. The
+              // messages passed are exactly what produced this usage report.
+              calibrateTokenCounter({
+                authoritativePromptTokens: completion.usage.promptTokens,
+                messagesAtCallTime: currentMessages,
+                provider,
+                modelId: model,
+              });
             }
 
             // Record tool definition telemetry
@@ -268,7 +294,7 @@ export function executeAgentLoop(
 
             currentMessages.push(assistantMessage);
 
-            const trimUpdate = yield* DEFAULT_CONTEXT_WINDOW_MANAGER.trim(
+            const trimUpdate = yield* runContextWindowManager.trim(
               currentMessages,
               logger,
               agent.id,
@@ -289,8 +315,7 @@ export function executeAgentLoop(
               const contextWithTokenStats = {
                 ...context,
                 tokenStats: {
-                  currentTokens:
-                    DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages),
+                  currentTokens: runContextWindowManager.calculateTotalTokens(currentMessages),
                   maxTokens: contextWindowMaxTokens,
                 },
                 conversationMessages: currentMessages,

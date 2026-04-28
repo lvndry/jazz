@@ -5,6 +5,8 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { TelemetryService, TokenUsage } from "@/core/interfaces/telemetry";
 import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
 import { type Agent } from "@/core/types";
+import type { ChatMessage } from "@/core/types/message";
+import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 
 export interface AgentRunMetricsContext {
   readonly agent: Agent;
@@ -121,6 +123,27 @@ export function recordLLMUsage(
   if (usage.cacheWriteTokens != null) {
     metrics.totalCacheWriteTokens += usage.cacheWriteTokens;
   }
+}
+
+/**
+ * Calibrate the default token counter using an authoritative usage report.
+ *
+ * Wires the model's actual `promptTokens` count into the per-model
+ * chars-per-token ratio so subsequent pre-call estimates converge on truth.
+ *
+ * Safe to call from anywhere we receive `usage` from the AI SDK; a no-op
+ * when inputs are missing or zero.
+ */
+export function calibrateTokenCounter(args: {
+  readonly authoritativePromptTokens: number;
+  readonly messagesAtCallTime: readonly ChatMessage[];
+  readonly provider: string;
+  readonly modelId: string;
+}): void {
+  DEFAULT_TOKEN_COUNTER.calibrate(args.authoritativePromptTokens, args.messagesAtCallTime, {
+    provider: args.provider,
+    modelId: args.modelId,
+  });
 }
 
 export function recordLLMRetry(metrics: AgentRunMetrics, error: unknown): void {

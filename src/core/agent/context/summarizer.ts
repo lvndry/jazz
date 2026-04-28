@@ -12,6 +12,12 @@ import type { LLMConfig } from "@/core/types/config";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
+import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
+
+/** Build a token-counter hint from an agent's provider/model. */
+function modelHintFromAgent(agent: Agent): ModelHint {
+  return { provider: agent.config.llmProvider, modelId: agent.config.llmModel };
+}
 import type { AgentResponse } from "../types";
 
 /**
@@ -172,6 +178,7 @@ export const Summarizer = {
   splitMessages(
     currentMessages: ConversationMessages,
     maxTokens: number,
+    modelHint?: ModelHint,
   ): {
     systemMessage: ChatMessage;
     messagesToSummarize: ChatMessage[];
@@ -179,6 +186,7 @@ export const Summarizer = {
   } {
     // Keep system message [0] and recent messages that fit in token budget
     const systemMessage = currentMessages[0];
+    const hint: ModelHint = modelHint ?? { provider: "", modelId: "" };
 
     // Reserve 20% of max tokens for recent context
     // This ensures we keep recent context while preventing it from eating the entire window
@@ -190,8 +198,8 @@ export const Summarizer = {
     for (let i = currentMessages.length - 1; i > 0; i--) {
       const msg = currentMessages[i];
       if (!msg) continue;
-      // Calculate tokens for this single message
-      const tokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens([msg]);
+      // Calculate tokens for this single message via the calibrated counter.
+      const tokens = DEFAULT_TOKEN_COUNTER.countMessage(msg, hint);
 
       // Stop if adding this message exceeds budget, unless it's the very first one we're checking
       // (we always want to keep at least 1 recent message even if it's large, though extremely large messages are risky)
@@ -278,7 +286,8 @@ export const Summarizer = {
 
       // Use model-specific context window or fall back to default
       const maxTokens = modelContextWindow ?? DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
-      const currentTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(currentMessages);
+      const hint = modelHintFromAgent(agent);
+      const currentTokens = DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint);
       const threshold = maxTokens * 0.8; // 80% threshold
 
       // Check if summarization is needed
@@ -306,7 +315,7 @@ export const Summarizer = {
       });
 
       const { systemMessage, messagesToSummarize, sanitizedRecentMessages } =
-        Summarizer.splitMessages(currentMessages, maxTokens);
+        Summarizer.splitMessages(currentMessages, maxTokens, hint);
 
       if (messagesToSummarize.length === 0) {
         // Not enough to summarize, just return as-is
@@ -335,7 +344,7 @@ export const Summarizer = {
         ...sanitizedRecentMessages,
       ] as ConversationMessages;
 
-      const newTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.calculateTotalTokens(compactedMessages);
+      const newTokens = DEFAULT_TOKEN_COUNTER.countMessages(compactedMessages, hint);
 
       yield* logger.info("Context compacted successfully", {
         originalMessages: currentMessages.length,
