@@ -114,6 +114,7 @@ describe("StreamProcessor", () => {
     expect(
       events.some((e) => e.type === "thinking_chunk" && e.content === "let me think... "),
     ).toBe(true);
+    expect(events.some((e) => e.type === "thinking_complete")).toBe(true);
   });
 
   it("populates response.reasoning alongside content when both are present", async () => {

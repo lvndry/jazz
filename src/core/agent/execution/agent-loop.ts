@@ -433,7 +433,7 @@ export function executeAgentLoop(
             };
 
             // Let strategy present the response (batch renders markdown, streaming is already rendered)
-            yield* strategy.presentResponse(agent.name, completion.content, completion);
+            yield* strategy.presentResponse(agent.name, visibleContent, completion);
             yield* presentationService.presentCompletion(agent.name);
             yield* strategy.onComplete(agent.name, completion);
 

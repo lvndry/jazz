@@ -376,6 +376,7 @@ describe("executeAgentLoop", () => {
 
   it("does not warn empty when the model produced reasoning but no content", async () => {
     const warningCalls: string[] = [];
+    let presentedResponseContent = "";
     const trackingPresentationService = {
       ...mockPresentationService,
       presentWarning: (_name: string, msg: string) => {
@@ -396,7 +397,10 @@ describe("executeAgentLoop", () => {
           },
           interrupted: false,
         }),
-      presentResponse: () => Effect.void,
+      presentResponse: (_agentName, content) => {
+        presentedResponseContent = content;
+        return Effect.void;
+      },
       onComplete: () => Effect.void,
       getRenderer: () => null,
     };
@@ -424,6 +428,7 @@ describe("executeAgentLoop", () => {
     // Reasoning text becomes the visible content for downstream consumers.
     expect(result.content).toBe("the answer is 42");
     expect(result.reasoning).toBe("the answer is 42");
+    expect(presentedResponseContent).toBe("the answer is 42");
   });
 
   it("should record token usage from completions", async () => {
