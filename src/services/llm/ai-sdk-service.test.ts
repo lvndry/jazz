@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { APICallError } from "ai";
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Stream } from "effect";
 import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
 import type { ProviderName } from "../../core/constants/models";
@@ -21,6 +21,11 @@ import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
 import { createAISDKServiceLayer } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
+
+mock.module("@/core/utils/models-dev-client", () => ({
+  getModelsDevMap: () => Promise.resolve(new Map()),
+  getMetadataFromMap: () => null,
+}));
 
 describe("AI SDK Service - Unit Tests", () => {
   /**

@@ -104,7 +104,8 @@ type LlamaCppPropsResponse = {
  * under `/v1`.
  */
 function llamaCppServerRoot(baseUrl: string): string {
-  return baseUrl.replace(/\/v1\/?$/, "");
+  // Strip trailing /v1 (or /v1/), then any trailing slash, so callers can safely append /props.
+  return baseUrl.replace(/\/v1\/?$/, "").replace(/\/$/, "");
 }
 
 async function fetchLlamaCppProps(baseUrl: string): Promise<LlamaCppPropsResponse | undefined> {
