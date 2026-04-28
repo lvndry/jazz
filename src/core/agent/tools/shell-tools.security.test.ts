@@ -38,8 +38,12 @@ describe("shell denylist — blocks dangerous commands", () => {
       // root path
       "rm /",
       "rm -i /",
-      // home directory
+      // home directory — `~` as a standalone path or path prefix
       "rm somefile ~/junk",
+      "rm ~",
+      "rm ~/.config",
+      "rm -rf ~",
+      "rm ~root",
       // wildcards
       "rm /tmp/*",
       "rm -- *",
@@ -87,15 +91,7 @@ describe("shell denylist — blocks dangerous commands", () => {
   });
 
   describe("power and runlevel changes", () => {
-    const cases = [
-      "shutdown -h now",
-      "shutdown",
-      "reboot",
-      "halt",
-      "poweroff",
-      "init 0",
-      "init 6",
-    ];
+    const cases = ["shutdown -h now", "shutdown", "reboot", "halt", "poweroff", "init 0", "init 6"];
     for (const cmd of cases) {
       it(`blocks ${JSON.stringify(cmd)}`, () => {
         expect(isDangerousCommand(cmd)).toBe(true);
@@ -259,6 +255,10 @@ describe("shell denylist — allows safe commands", () => {
     // legitimate rm of single files (no destructive flags)
     "rm tmpfile.txt",
     "rm ./build.log",
+    // editor backup files (trailing `~`) — must NOT be treated as a home-dir target
+    "rm file.txt~",
+    "rm ./notes.md~",
+    "rm foo bar~",
     // legitimate chmod
     "chmod +x ./script.sh",
     "chmod 644 file.txt",

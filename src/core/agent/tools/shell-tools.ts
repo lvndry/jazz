@@ -29,7 +29,10 @@ export const FORBIDDEN_COMMANDS: readonly RegExp[] = [
   /\brm\s+-[rfRF]\s+-[rfRF]\b/, // rm -r -f, rm -f -r
   /\brm\s+(?:.*\s+)?\/\s*$/, // rm targeting / (end of line, with or without other args)
   /\brm\s+(?:.*\s+)?\/(?:\s|$)/, // rm targeting / followed by space or end
-  /\brm\s+.*~/, // rm targeting home (with or without space before)
+  // rm targeting home — only when `~` starts an argument (after `rm` or
+  // whitespace). Avoids false positives on Emacs-style backup files like
+  // `rm file.txt~` or `rm src/*~`.
+  /\brm\s+(?:.*?\s)?~/,
   /\brm\s+.*\*/, // rm with glob (no required space before *)
 
   // Privilege escalation
