@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
@@ -405,6 +405,112 @@ describe("PersonaService", () => {
 
       const result = await run(program);
       expect(result.name).toBe("by-name");
+    });
+  });
+
+  describe("toolProfile", () => {
+    function writeRawPersona(name: string, frontmatter: string, body = "Body."): void {
+      const dir = join(tempDir, "personas", name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "persona.md"), `---\n${frontmatter}\n---\n\n${body}\n`, "utf-8");
+    }
+
+    it("returns undefined when no tools block is present", async () => {
+      writeRawPersona(
+        "no-profile",
+        ["name: no-profile", "description: A persona without a tool profile."].join("\n"),
+      );
+
+      const program = Effect.gen(function* () {
+        const service = yield* PersonaServiceTag;
+        return yield* service.getPersonaByName("no-profile");
+      });
+
+      const result = await run(program);
+      expect(result.toolProfile).toBeUndefined();
+    });
+
+    it("parses categories and deny lists from frontmatter", async () => {
+      writeRawPersona(
+        "with-profile",
+        [
+          "name: with-profile",
+          "description: A persona with a profile.",
+          "tools:",
+          "  categories: [skills, todo]",
+          "  deny: [git_push, write_file]",
+        ].join("\n"),
+      );
+
+      const program = Effect.gen(function* () {
+        const service = yield* PersonaServiceTag;
+        return yield* service.getPersonaByName("with-profile");
+      });
+
+      const result = await run(program);
+      expect(result.toolProfile).toEqual({
+        categories: ["skills", "todo"],
+        deny: ["git_push", "write_file"],
+      });
+    });
+
+    it("treats categories: [] as an explicit empty bundle", async () => {
+      writeRawPersona(
+        "empty-bundle",
+        [
+          "name: empty-bundle",
+          "description: A persona that wants no built-in tools.",
+          "tools:",
+          "  categories: []",
+        ].join("\n"),
+      );
+
+      const program = Effect.gen(function* () {
+        const service = yield* PersonaServiceTag;
+        return yield* service.getPersonaByName("empty-bundle");
+      });
+
+      const result = await run(program);
+      expect(result.toolProfile).toEqual({ categories: [] });
+    });
+
+    it("ignores malformed tools blocks", async () => {
+      writeRawPersona(
+        "malformed",
+        [
+          "name: malformed",
+          "description: Tools block is not an object.",
+          'tools: "this is wrong"',
+        ].join("\n"),
+      );
+
+      const program = Effect.gen(function* () {
+        const service = yield* PersonaServiceTag;
+        return yield* service.getPersonaByName("malformed");
+      });
+
+      const result = await run(program);
+      expect(result.toolProfile).toBeUndefined();
+    });
+
+    it("filters out non-string entries from deny list", async () => {
+      writeRawPersona(
+        "mixed-deny",
+        [
+          "name: mixed-deny",
+          "description: Mixed-type deny list.",
+          "tools:",
+          "  deny: [git_push, 42, null, write_file]",
+        ].join("\n"),
+      );
+
+      const program = Effect.gen(function* () {
+        const service = yield* PersonaServiceTag;
+        return yield* service.getPersonaByName("mixed-deny");
+      });
+
+      const result = await run(program);
+      expect(result.toolProfile?.deny).toEqual(["git_push", "write_file"]);
     });
   });
 });

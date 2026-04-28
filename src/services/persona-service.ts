@@ -12,7 +12,7 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "@/core/types/errors";
-import type { CreatePersonaInput, Persona } from "@/core/types/persona";
+import type { CreatePersonaInput, Persona, PersonaToolProfile } from "@/core/types/persona";
 import { scanMarkdownIndex } from "@/core/utils/markdown-index";
 import { getBuiltinPersonasDirectory } from "@/core/utils/runtime-detection";
 
@@ -89,6 +89,35 @@ function parsePersonaFrontmatter(
 }
 
 /**
+ * Parse the optional `tools` frontmatter block into a PersonaToolProfile.
+ * Returns undefined when the block is absent or malformed; in that case the
+ * persona behaves as if no profile were declared.
+ */
+function parseToolProfile(data: Record<string, unknown>): PersonaToolProfile | undefined {
+  const raw = data["tools"];
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) return undefined;
+
+  const block = raw as Record<string, unknown>;
+  const profile: { categories?: readonly string[]; deny?: readonly string[] } = {};
+
+  const categories = block["categories"];
+  if (Array.isArray(categories)) {
+    const cleaned = categories.filter((c): c is string => typeof c === "string" && c.length > 0);
+    profile.categories = cleaned;
+  }
+
+  const deny = block["deny"];
+  if (Array.isArray(deny)) {
+    const cleaned = deny.filter((d): d is string => typeof d === "string" && d.length > 0);
+    if (cleaned.length > 0) profile.deny = cleaned;
+  }
+
+  if (profile.categories === undefined && profile.deny === undefined) return undefined;
+  return profile;
+}
+
+/**
  * File-based PersonaService implementation
  *
  * Scans two directories for persona.md files (like skills and workflows):
@@ -154,6 +183,8 @@ export class PersonaServiceImpl implements PersonaService {
       const createdAt = typeof data["createdAt"] === "string" ? new Date(data["createdAt"]) : now;
       const updatedAt = typeof data["updatedAt"] === "string" ? new Date(data["updatedAt"]) : now;
 
+      const toolProfile = parseToolProfile(data);
+
       return {
         id,
         name: typeof data["name"] === "string" ? data["name"] : path.basename(personaDir),
@@ -162,6 +193,7 @@ export class PersonaServiceImpl implements PersonaService {
         ...(typeof data["tone"] === "string" && data["tone"].length > 0 && { tone: data["tone"] }),
         ...(typeof data["style"] === "string" &&
           data["style"].length > 0 && { style: data["style"] }),
+        ...(toolProfile !== undefined && { toolProfile }),
         createdAt: isNaN(createdAt.getTime()) ? now : createdAt,
         updatedAt: isNaN(updatedAt.getTime()) ? now : updatedAt,
       } as Persona;

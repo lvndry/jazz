@@ -12,7 +12,11 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
+import {
+  matchSkillTriggers,
+  SkillServiceTag,
+  type SkillService,
+} from "@/core/skills/skill-service";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
@@ -60,6 +64,20 @@ function initializeAgentRun(
     const provider: ProviderName = agent.config.llmProvider;
     const model = agent.config.llmModel;
 
+    // Resolve persona service early so we can read the persona's tool profile
+    // before building the tool set. Falls back gracefully if the service is
+    // not provided (e.g. some test layers omit it).
+    const personaServiceOption = yield* Effect.serviceOption(PersonaServiceTag);
+    const resolvedPersonaService: PersonaService | undefined = Option.isSome(personaServiceOption)
+      ? personaServiceOption.value
+      : undefined;
+    const resolvedPersona = resolvedPersonaService
+      ? yield* resolvedPersonaService
+          .getPersonaByIdentifier(persona)
+          .pipe(Effect.catchAll(() => Effect.succeed(null)))
+      : null;
+    const toolProfile = resolvedPersona?.toolProfile;
+
     const runMetrics = createAgentRunMetrics({
       agent,
       conversationId: actualConversationId,
@@ -98,15 +116,33 @@ function initializeAgentRun(
       ),
     );
 
-    const builtInToolNames =
-      persona === "summarizer"
-        ? []
-        : (yield* Effect.all(
-            BUILTIN_TOOL_CATEGORIES.map((cat) => toolRegistry.getToolsInCategory(cat.id)),
-          )).flat();
+    // Resolve which built-in categories the persona wants. Default = all of
+    // BUILTIN_TOOL_CATEGORIES (current behavior). If toolProfile.categories is
+    // explicitly an empty array, no built-in tools are included (replaces the
+    // legacy `persona === "summarizer" ? []` carve-out).
+    const requestedBuiltinCategoryIds: readonly string[] = (() => {
+      if (toolProfile?.categories !== undefined) return toolProfile.categories;
+      // Back-compat: summarizer with no profile keeps its empty bundle.
+      if (persona === "summarizer") return [];
+      return BUILTIN_TOOL_CATEGORIES.map((c) => c.id);
+    })();
 
-    // Combine agent tools with skill tools (skill tools always available)
+    const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((c) => c.id));
+    const builtInToolNames = (
+      yield* Effect.all(
+        requestedBuiltinCategoryIds
+          .filter((id) => validBuiltinCategoryIds.has(id))
+          .map((id) => toolRegistry.getToolsInCategory(id)),
+      )
+    ).flat();
+
+    // Combine agent tools with built-in tools, then apply persona deny list.
     let combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
+
+    if (toolProfile?.deny && toolProfile.deny.length > 0) {
+      const denied = new Set(toolProfile.deny);
+      combinedToolNames = combinedToolNames.filter((name) => !denied.has(name));
+    }
 
     // Filter out any non-existent tools silently — tools may have been removed
     // or MCP servers may be unavailable. The agent can still operate with its
@@ -135,12 +171,14 @@ function initializeAgentRun(
       availableTools[tool.function.name] = tool.function.description;
     }
 
-    // Build messages
-    // Build messages — pass PersonaService so custom personas can be resolved
-    const personaServiceOption = yield* Effect.serviceOption(PersonaServiceTag);
-    const resolvedPersonaService: PersonaService | undefined = Option.isSome(personaServiceOption)
-      ? personaServiceOption.value
-      : undefined;
+    // Pre-router: scan the user input for skill triggers. Skills whose
+    // `triggers` frontmatter list contains a substring of the input have
+    // their full description auto-injected into this turn's system prompt.
+    // Deterministic, zero LLM overhead, predictable for skill authors.
+    const triggeredSkillNames = matchSkillTriggers(userInput, relevantSkills);
+
+    // Build messages — reuses the PersonaService resolved earlier so custom
+    // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
       persona,
       {
@@ -151,6 +189,7 @@ function initializeAgentRun(
         toolNames: expandedToolNames,
         availableTools,
         knownSkills: relevantSkills,
+        ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
       },
       resolvedPersonaService,
     );
