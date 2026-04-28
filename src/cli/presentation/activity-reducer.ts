@@ -487,7 +487,34 @@ export function reduceEvent(
     // ---- Complete -------------------------------------------------------
 
     case "complete": {
-      return { activity: { phase: "complete" }, outputs: [] };
+      // If the model produced reasoning but no text content (common with
+      // OpenAI-compatible local servers like llama-server --jinja, where
+      // jinja templates route the entire response into reasoning_content),
+      // surface the reasoning as the visible response so the user sees it
+      // instead of nothing.
+      const pendingReasoning = acc.reasoningBuffer.trim();
+      const finalReasoning =
+        pendingReasoning.length > 0
+          ? acc.completedReasoning.trim().length > 0
+            ? `${acc.completedReasoning}\n\n---\n\n${pendingReasoning}`
+            : pendingReasoning
+          : acc.completedReasoning;
+
+      if (finalReasoning.trim().length > 0 && acc.liveText.length === 0) {
+        outputs.push({
+          type: "log",
+          message: inkRender(
+            React.createElement(
+              Box,
+              { flexDirection: "column", paddingLeft: PADDING.content },
+              React.createElement(Text, { color: THEME.reasoning, italic: true }, finalReasoning),
+            ),
+          ),
+          timestamp: new Date(),
+        });
+      }
+
+      return { activity: { phase: "complete" }, outputs };
     }
   }
 }

@@ -418,7 +418,19 @@ export function executeAgentLoop(
               totalToolsUsed: runMetrics.toolCalls,
             });
 
-            response = { ...response, content: completion.content };
+            // If the model produced reasoning but no text content (e.g. llama.cpp
+            // with --jinja routing the entire response into reasoning_content),
+            // surface the reasoning as the visible content so downstream
+            // consumers — conversation history, summarization, batch rendering —
+            // see what the model actually said.
+            const visibleContent = completion.content?.trim().length
+              ? completion.content
+              : (completion.reasoning ?? completion.content);
+            response = {
+              ...response,
+              content: visibleContent,
+              ...(completion.reasoning ? { reasoning: completion.reasoning } : {}),
+            };
 
             // Let strategy present the response (batch renders markdown, streaming is already rendered)
             yield* strategy.presentResponse(agent.name, completion.content, completion);
@@ -440,7 +452,12 @@ export function executeAgentLoop(
             agent.name,
             `iteration limit reached (${maxIterations}) - type 'continue' to resume`,
           );
-        } else if (!response.content?.trim() && !response.toolCalls && !interrupted) {
+        } else if (
+          !response.content?.trim() &&
+          !response.reasoning?.trim() &&
+          !response.toolCalls &&
+          !interrupted
+        ) {
           yield* presentationService.presentWarning(agent.name, "model returned an empty response");
         }
 
