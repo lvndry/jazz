@@ -2,11 +2,11 @@
   "id": "pr-assistant",
   "name": "pr-assistant",
   "description": "Pull request assistant agent for /jazz PR comments",
-  "model": "openai/gpt-5.4-mini",
+  "model": "openrouter/free",
   "config": {
     "persona": "coder",
-    "llmProvider": "openai",
-    "llmModel": "gpt-5.4-mini",
+    "llmProvider": "openrouter",
+    "llmModel": "free",
     "reasoningEffort": "medium",
     "tools": [
       "find",
