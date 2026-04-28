@@ -528,6 +528,84 @@ describe("activity-reducer", () => {
       expect(result.activity).toEqual({ phase: "complete" });
       expect(result.outputs).toHaveLength(0);
     });
+
+    test("flushes completedReasoning to outputs when no text was streamed", () => {
+      // Reasoning-only response (e.g. llama.cpp --jinja routing the entire
+      // response into reasoning_content). The reducer should emit the
+      // reasoning text as a Static output entry so the user sees it instead
+      // of an empty live area being cleared.
+      const ink = createCapturingInk();
+      const a = acc({
+        completedReasoning: "let me think carefully about this answer",
+        liveText: "",
+      });
+
+      const result = reduceEvent(
+        a,
+        {
+          type: "complete",
+          response: { content: "", role: "assistant", usage: undefined, toolCalls: [] },
+          totalDurationMs: 100,
+        },
+        identity,
+        ink.render,
+      );
+
+      expect(result.activity).toEqual({ phase: "complete" });
+      expect(result.outputs).toHaveLength(1);
+      expect(result.outputs[0]!.type).toBe("log");
+      expect(extractText(ink.nodes[0])).toContain("let me think carefully about this answer");
+    });
+
+    test("does not flush reasoning when text content was already streamed", () => {
+      const ink = createCapturingInk();
+      const a = acc({
+        completedReasoning: "thinking",
+        liveText: "actual answer",
+      });
+
+      const result = reduceEvent(
+        a,
+        {
+          type: "complete",
+          response: {
+            content: "actual answer",
+            role: "assistant",
+            usage: undefined,
+            toolCalls: [],
+          },
+          totalDurationMs: 100,
+        },
+        identity,
+        ink.render,
+      );
+
+      expect(result.outputs).toHaveLength(0);
+      expect(ink.nodes).toHaveLength(0);
+    });
+
+    test("flushes a still-buffered reasoning chunk if reasoning-end did not fire", () => {
+      const ink = createCapturingInk();
+      const a = acc({
+        completedReasoning: "",
+        reasoningBuffer: "incomplete thought",
+        liveText: "",
+      });
+
+      const result = reduceEvent(
+        a,
+        {
+          type: "complete",
+          response: { content: "", role: "assistant", usage: undefined, toolCalls: [] },
+          totalDurationMs: 100,
+        },
+        identity,
+        ink.render,
+      );
+
+      expect(result.outputs).toHaveLength(1);
+      expect(extractText(ink.nodes[0])).toContain("incomplete thought");
+    });
   });
 
   // -------------------------------------------------------------------------

@@ -112,6 +112,13 @@ export interface AgentResponse {
    */
   readonly content: string;
   /**
+   * Reasoning / chain-of-thought text emitted by the model, when the provider
+   * exposes it as a separate channel. Populated when the response carried
+   * `reasoning_content` (e.g. llama.cpp with `--jinja`). Useful for callers
+   * that want to distinguish "the model thought" from "the model answered".
+   */
+  readonly reasoning?: string;
+  /**
    * The conversation identifier for this run.
    * This will be the same as the `conversationId` provided in options, or a newly generated
    * ID if one wasn't provided. Use this to track and correlate related conversation turns.

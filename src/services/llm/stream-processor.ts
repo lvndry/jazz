@@ -56,6 +56,14 @@ interface StreamProcessorState {
   reasoningSequence: number;
   reasoningTokens: number | undefined;
   reasoningStreamCompleted: boolean;
+  /**
+   * Reasoning text accumulated across reasoning-delta events. Always captured
+   * (regardless of whether the user enabled reasoning) so a response that
+   * emits only reasoning — e.g. llama.cpp models with `--jinja` routing
+   * everything into `reasoning_content` — can still be surfaced to the user
+   * instead of looking empty.
+   */
+  accumulatedReasoning: string;
 
   // Tool calls
   collectedToolCalls: ToolCall[];
@@ -86,6 +94,7 @@ function createInitialState(): StreamProcessorState {
     reasoningSequence: 0,
     reasoningTokens: undefined,
     reasoningStreamCompleted: false,
+    accumulatedReasoning: "",
     collectedToolCalls: [],
     pendingNativeToolCalls: new Map(),
     firstTokenTime: null,
@@ -237,12 +246,11 @@ export class StreamProcessor {
           }
 
           case "reasoning-start": {
-            // Handle reasoning start event (emitted before reasoning-delta chunks)
-            if (!this.config.hasReasoningEnabled) {
-              break;
-            }
-
-            // Emit thinking start on reasoning-start event
+            // Emit thinking start on reasoning-start event. Reasoning is always
+            // surfaced when the provider sends it: providers that respect
+            // disabled reasoning won't emit these parts, and providers that
+            // emit reasoning anyway (e.g. llama-server with --jinja) should
+            // remain visible to the user rather than be silently dropped.
             if (this.state.reasoningSequence === 0) {
               const firstReasoningLatency = Date.now() - this.config.startTime;
               void this.logger.debug(
@@ -255,13 +263,11 @@ export class StreamProcessor {
           }
 
           case "reasoning-delta": {
-            if (!this.config.hasReasoningEnabled) {
-              break;
-            }
-
             const textDelta = part.text;
 
             if (textDelta && textDelta.length > 0) {
+              this.state.accumulatedReasoning += textDelta;
+
               // Emit thinking start if we haven't received reasoning-start event
               if (this.state.reasoningSequence === 0) {
                 const firstReasoningLatency = Date.now() - this.config.startTime;
@@ -297,9 +303,10 @@ export class StreamProcessor {
               this.state.reasoningTokens = reasoningTokens;
             }
 
-            // Emit thinking complete
+            // Emit thinking complete whenever a reasoning stream was opened
+            // (matches reasoning-start / reasoning-delta: not gated on
+            // hasReasoningEnabled so provider-emitted reasoning always closes).
             if (
-              this.config.hasReasoningEnabled &&
               this.state.reasoningSequence > 0 &&
               !this.state.reasoningStreamCompleted
             ) {
@@ -487,10 +494,13 @@ export class StreamProcessor {
       // Ignore usage errors
     }
 
+    const reasoningText = this.state.accumulatedReasoning;
+
     return {
       id: "",
       model: this.config.modelName,
       content: finalText,
+      ...(reasoningText.length > 0 && { reasoning: reasoningText }),
       ...(toolCalls && { toolCalls }),
       ...(usage && { usage }),
       ...(this.config.toolsDisabled ? { toolsDisabled: true } : {}),
