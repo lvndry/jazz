@@ -91,6 +91,35 @@ type OllamaShowResponse = {
   };
 };
 
+type LlamaCppModelEntry = { id: string };
+type LlamaCppModelsResponse = { data?: LlamaCppModelEntry[] };
+type LlamaCppPropsResponse = {
+  default_generation_settings?: { n_ctx?: number };
+  chat_template_caps?: Record<string, boolean>;
+};
+
+/**
+ * Strip a trailing `/v1` (or `/v1/`) from a llama-server base URL so we can
+ * reach the server-root `/props` endpoint. `/props` lives at the root, not
+ * under `/v1`.
+ */
+function llamaCppServerRoot(baseUrl: string): string {
+  return baseUrl.replace(/\/v1\/?$/, "");
+}
+
+async function fetchLlamaCppProps(baseUrl: string): Promise<LlamaCppPropsResponse | undefined> {
+  try {
+    const response = await fetch(`${llamaCppServerRoot(baseUrl)}/props`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!response.ok) return undefined;
+    return (await response.json()) as LlamaCppPropsResponse;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Extract context length from Ollama model_info
  * The key format is `<family>.context_length` (e.g., "gemma3.context_length")
@@ -292,6 +321,41 @@ async function transformOllamaModels(
   return results;
 }
 
+/**
+ * llama.cpp: list from /v1/models, enrich via /props once.
+ *  - contextWindow: props.default_generation_settings.n_ctx (else DEFAULT_CONTEXT_WINDOW)
+ *  - supportsTools: props.chat_template_caps.supports_tools && supports_tool_calls
+ *    (both required; populated by jinja::caps when llama-server runs with --jinja)
+ */
+async function transformLlamaCppModels(
+  data: unknown,
+  baseUrl: string,
+  modelsDevMap: Map<string, ModelsDevMetadata> | null,
+): Promise<ModelInfo[]> {
+  const response = data as LlamaCppModelsResponse;
+  const models = response.data ?? [];
+  if (models.length === 0) {
+    throw new Error("No models loaded. Start `llama-server` with `-m <path>.gguf` first.");
+  }
+
+  const props = await fetchLlamaCppProps(baseUrl);
+  const ctx = props?.default_generation_settings?.n_ctx;
+  const caps = props?.chat_template_caps ?? {};
+  const supportsTools = caps["supports_tools"] === true && caps["supports_tool_calls"] === true;
+
+  return models.map((model) => {
+    const entry: RawModelEntry = { id: model.id, displayName: model.id };
+    const dev = getMetadataFromMap(modelsDevMap, model.id);
+    if (dev) return resolveToModelInfo(entry, modelsDevMap);
+    entry.fallback = {
+      contextWindow: ctx ?? DEFAULT_CONTEXT_WINDOW,
+      supportsTools,
+      isReasoningModel: false,
+    };
+    return resolveToModelInfo(entry, null);
+  });
+}
+
 export function createModelFetcher(): ModelFetcherService {
   return {
     fetchModels: (providerName, baseUrl, endpointPath, apiKey) =>
@@ -336,6 +400,10 @@ export function createModelFetcher(): ModelFetcherService {
 
           if (providerName === "ollama") {
             return transformOllamaModels(data, baseUrl, modelsDevMap);
+          }
+
+          if (providerName === "llamacpp") {
+            return transformLlamaCppModels(data, baseUrl, modelsDevMap);
           }
 
           const extractor = LIST_EXTRACTORS[providerName];
