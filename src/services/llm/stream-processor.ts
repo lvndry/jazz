@@ -306,10 +306,7 @@ export class StreamProcessor {
             // Emit thinking complete whenever a reasoning stream was opened
             // (matches reasoning-start / reasoning-delta: not gated on
             // hasReasoningEnabled so provider-emitted reasoning always closes).
-            if (
-              this.state.reasoningSequence > 0 &&
-              !this.state.reasoningStreamCompleted
-            ) {
+            if (this.state.reasoningSequence > 0 && !this.state.reasoningStreamCompleted) {
               this.state.reasoningStreamCompleted = true;
               void this.emitEvent({
                 type: "thinking_complete",
