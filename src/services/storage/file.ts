@@ -6,6 +6,24 @@ import { AgentConfigurationError, StorageError, StorageNotFoundError } from "@/c
 import type { Agent, AgentConfig } from "@/core/types/index";
 import { parseJson } from "@/core/utils/json";
 
+/** On-disk agent JSON may omit timestamps (e.g. repo templates); defaults apply at read time. */
+function resolveAgentFileTimestamps(raw: {
+  readonly createdAt?: unknown;
+  readonly updatedAt?: unknown;
+}): { readonly createdAt: Date; readonly updatedAt: Date } {
+  const now = new Date();
+  const createdFrom = typeof raw.createdAt === "string" ? new Date(raw.createdAt) : now;
+  const createdAt = Number.isNaN(createdFrom.getTime()) ? now : createdFrom;
+
+  if (typeof raw.updatedAt === "string") {
+    const updatedFrom = new Date(raw.updatedAt);
+    const updatedAt = Number.isNaN(updatedFrom.getTime()) ? createdAt : updatedFrom;
+    return { createdAt, updatedAt };
+  }
+
+  return { createdAt, updatedAt: createdAt };
+}
+
 export class FileStorageService implements StorageService {
   constructor(
     private readonly basePath: string,
@@ -89,9 +107,13 @@ export class FileStorageService implements StorageService {
           .readFileString(path)
           .pipe(Effect.mapError((error) => this.mapReadError(path, error)));
 
-        const rawData = yield* parseJson<Agent & { createdAt: string; updatedAt: string }>(
-          content,
-        ).pipe(
+        const rawData = yield* parseJson<
+          Omit<Agent, "createdAt" | "updatedAt" | "model"> & {
+            readonly model?: string;
+            readonly createdAt?: string;
+            readonly updatedAt?: string;
+          }
+        >(content).pipe(
           Effect.mapError(
             (error) =>
               new StorageError({
@@ -132,13 +154,14 @@ export class FileStorageService implements StorageService {
         const configWithNormalizedTools: AgentConfig =
           normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
 
-        // Convert date strings back to Date objects
+        const { createdAt, updatedAt } = resolveAgentFileTimestamps(rawData);
+
         const agent: Agent = {
           ...rawData,
           model: `${configWithNormalizedTools.llmProvider}/${configWithNormalizedTools.llmModel}`,
           config: configWithNormalizedTools,
-          createdAt: new Date(rawData.createdAt),
-          updatedAt: new Date(rawData.updatedAt),
+          createdAt,
+          updatedAt,
         };
 
         return agent;

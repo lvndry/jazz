@@ -82,6 +82,30 @@ describe("FileStorageService", () => {
     expect(result[0]!.id).toBe("a1");
   });
 
+  it("should list agents when createdAt and updatedAt are omitted from JSON", async () => {
+    // @ts-expect-error - mocking
+    mockFS.readDirectory.mockReturnValueOnce(Effect.succeed(["a1.json"]));
+    // @ts-expect-error - mocking
+    mockFS.readFileString.mockReturnValueOnce(
+      Effect.succeed(
+        JSON.stringify({
+          id: "a1",
+          name: "Agent 1",
+          config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
+        }),
+      ),
+    );
+
+    const program = service.listAgents();
+    const result = await Effect.runPromise(program);
+
+    expect(result.length).toBe(1);
+    expect(result[0]!.createdAt).toBeInstanceOf(Date);
+    expect(result[0]!.updatedAt).toBeInstanceOf(Date);
+    expect(Number.isNaN(result[0]!.createdAt.getTime())).toBe(false);
+    expect(Number.isNaN(result[0]!.updatedAt.getTime())).toBe(false);
+  });
+
   it("should handle missing file as StorageNotFoundError", async () => {
     // @ts-expect-error - mocking
     mockFS.readFileString.mockReturnValueOnce(Effect.fail({ _tag: "NotFound" }));
