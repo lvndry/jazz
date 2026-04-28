@@ -137,8 +137,10 @@ describe("AI SDK Service - Unit Tests", () => {
         const result = await runWithTestLayers(testEffect, configLayer);
 
         const configuredProviders = result.filter((p) => p.configured);
-        expect(configuredProviders.length).toBe(1); // Only Ollama
-        expect(configuredProviders[0]?.name).toBe("ollama");
+        expect(configuredProviders.length).toBe(2); // Ollama and llamacpp (local providers)
+        const configuredNames = configuredProviders.map((p) => p.name);
+        expect(configuredNames).toContain("ollama");
+        expect(configuredNames).toContain("llamacpp");
       } finally {
         // Restore env vars
         for (const key of envVarsToSave) {
@@ -185,14 +187,11 @@ describe("AI SDK Service - Unit Tests", () => {
       const missingProviders: ProviderName[] = [];
 
       for (const provider of AVAILABLE_PROVIDERS) {
-        // Ollama is handled specially (always added), so check for that pattern
-        if (provider === "ollama") {
-          // Check for ollama handling - look for providers.push with "ollama" or llmConfig.ollama
-          if (
-            !functionSection.includes('"ollama"') &&
-            !functionSection.includes("'ollama'") &&
-            !functionSection.includes("llmConfig.ollama")
-          ) {
+        // Ollama and llamacpp are handled specially (always added as local providers)
+        if (provider === "ollama" || provider === "llamacpp") {
+          // Check for local-provider handling - look for providers.push with the provider name
+          const providerQuoted = `"${provider}"`;
+          if (!functionSection.includes(providerQuoted)) {
             missingProviders.push(provider);
           }
         } else {
