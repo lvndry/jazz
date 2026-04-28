@@ -36,6 +36,8 @@ The requester said:
 
 ## Output Format
 
-You MUST output a single markdown fenced code block (use FOUR backticks) as the very last thing you write. Do NOT output anything after it.
+Your answer will be posted as a comment on a GitHub pull request. Format it as a GitHub-flavored markdown comment body — use headings (`###` and below, since the poster prepends `## Jazz PR Assistant`), bullet lists, fenced code blocks for code (use language tags like ```ts, ```diff), and ``backticked`` identifiers. You can reference files with `path/to/file.ts:42` so reviewers can click through. Do NOT include greetings, sign-offs, or "as an AI assistant" preambles.
 
-The content inside the block should be the final PR comment body. Keep it focused and actionable.
+You MUST emit exactly one fenced code block — opened with FOUR backticks and the language tag `markdown` — as the very last thing you output. The contents of that block are the entire PR comment body. Do NOT output anything after the closing four backticks. Do NOT use four-backtick fences anywhere else in your response.
+
+Inside that outer block, use normal triple-backtick fences for any code samples — they nest cleanly inside the four-backtick wrapper.

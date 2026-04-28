@@ -460,37 +460,19 @@ jobs:
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const runUrl = process.env.RUN_URL;
 
-            // Prefer the markdown block the agent is supposed to emit as its
-            // final answer (FOUR-backtick form, falling back to triple).
+            // The agent's contract is to emit its final answer as a fenced
+            // markdown block (FOUR backticks preferred, triple as fallback).
+            // Anything outside that block is workflow/tool decoration and
+            // must not leak into the PR comment.
             let mdBlocks = [...output.matchAll(/````markdown\s*\n([\s\S]*?)````/g)];
             if (mdBlocks.length === 0) {
               mdBlocks = [...output.matchAll(/```markdown\s*\n([\s\S]*?)```/g)];
             }
 
-            let commentBody;
-            if (mdBlocks.length > 0) {
-              commentBody = mdBlocks[mdBlocks.length - 1][1].trim();
-            } else {
-              // No markdown block — the agent didn't follow the output contract,
-              // usually because it errored mid-run. Post a clean failure summary
-              // with a link to the workflow logs instead of dumping raw shell
-              // output (tool error transcripts, git usage text, etc.).
-              const lower = output.toLowerCase();
-              const looksLikeFailure =
-                lower.includes('llmrequesterror') ||
-                lower.includes('failed after') ||
-                lower.includes('git diff failed') ||
-                lower.includes('not a git repository') ||
-                lower.includes('error:');
-
-              if (looksLikeFailure) {
-                commentBody =
-                  `_The Jazz assistant didn't produce a usable answer. ` +
-                  `See the [workflow run](${runUrl}) for details._`;
-              } else {
-                commentBody = output.trim() || '_No output from Jazz assistant._';
-              }
-            }
+            const commentBody = mdBlocks.length > 0
+              ? mdBlocks[mdBlocks.length - 1][1].trim()
+              : `_The Jazz assistant didn't produce a usable answer. ` +
+                `See the [workflow run](${runUrl}) for details._`;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
