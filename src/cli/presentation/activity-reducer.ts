@@ -60,6 +60,10 @@ export interface ReducerAccumulator {
   currentProvider: string | null;
   /** Model id captured from stream_start for cost calculation. */
   currentModel: string | null;
+  /** Running USD cost across the session, summed after each completion. */
+  cumulativeCostUSD: number;
+  /** Last observed prompt-side token count (used for the footer's tokens-in-context). */
+  lastPromptTokens: number;
 
   // ── Markdown formatting cache ──────────────────────────────────────
   /** Cached reasoning input */
@@ -80,6 +84,8 @@ export function createAccumulator(agentName: string): ReducerAccumulator {
     activeTools: new Map(),
     currentProvider: null,
     currentModel: null,
+    cumulativeCostUSD: 0,
+    lastPromptTokens: 0,
 
     _cachedReasoningInput: "",
     _cachedReasoningOutput: "",

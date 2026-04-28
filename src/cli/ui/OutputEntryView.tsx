@@ -1,16 +1,23 @@
 import { Box, Text } from "ink";
 import React from "react";
+import { getGlyphs } from "./glyphs";
 import { PADDING, THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
 
-// Pre-created icon elements to avoid creating new React elements on every render
+// Icons routed through the glyph module so they degrade to ASCII when the
+// user's font/terminal don't render Unicode dingbats reliably. Computed
+// once per process — `getGlyphs()` reads env at module init; tests that
+// flip the env mid-process should restart the module if they need a
+// different set, but that's intentional (we don't want a per-render env
+// read).
+const G = getGlyphs();
 const ICONS: Record<OutputType, React.ReactElement> = {
-  success: <Text color={THEME.success}>✔</Text>,
-  error: <Text color={THEME.error}>✖</Text>,
-  warn: <Text color={THEME.warning}>⚠</Text>,
-  info: <Text color={THEME.info}>ℹ</Text>,
-  debug: <Text color={THEME.secondary}>✧</Text>,
-  user: <Text color={THEME.primary}>›</Text>,
+  success: <Text color={THEME.success}>{G.success}</Text>,
+  error: <Text color={THEME.error}>{G.error}</Text>,
+  warn: <Text color={THEME.warning}>{G.warn}</Text>,
+  info: <Text color={THEME.info}>{G.info}</Text>,
+  debug: <Text color={THEME.secondary}>{G.debug}</Text>,
+  user: <Text color={THEME.primary}>{G.arrow}</Text>,
   log: <></>,
   streamContent: <></>,
 };

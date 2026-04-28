@@ -7,7 +7,8 @@ import ErrorBoundary from "./ErrorBoundary";
 import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
-import { store } from "./store";
+import StatusFooter from "./StatusFooter";
+import { store, type RunStats } from "./store";
 import { PADDING, THEME } from "./theme";
 import type { OutputEntryWithId, PromptState } from "./types";
 import { InputPriority, InputResults } from "../services/input-service";
@@ -80,6 +81,41 @@ function PromptIslandComponent(): React.ReactElement | null {
 }
 
 const PromptIsland = React.memo(PromptIslandComponent);
+
+// ============================================================================
+// Status Footer Island — model · tokens · cost · cwd
+// ============================================================================
+
+function StatusFooterIslandComponent(): React.ReactElement | null {
+  // RunStats is the footer's primary content — model · tokens · cost.
+  // The working directory is rendered by the prompt island already, so
+  // we don't duplicate it here (avoids conflicting with the prompt's
+  // single-slot wd setter).
+  const [runStats, setRunStats] = React.useState<RunStats>({});
+  const initializedRef = useRef(false);
+
+  if (!initializedRef.current) {
+    store.registerRunStatsSetter(setRunStats);
+    setRunStats(store.getRunStatsSnapshot());
+    initializedRef.current = true;
+  }
+
+  useEffect(() => {
+    return () => {
+      store.registerRunStatsSetter(() => {});
+    };
+  }, []);
+
+  return (
+    <StatusFooter
+      status={null}
+      workingDirectory={null}
+      runStats={runStats}
+    />
+  );
+}
+
+const StatusFooterIsland = React.memo(StatusFooterIslandComponent);
 
 // ============================================================================
 // Output Island - Isolated state for output entries
@@ -312,6 +348,12 @@ export function App(): React.ReactElement {
               <PromptIsland />
             </ErrorBoundary>
           </Box>
+
+          <ErrorBoundary
+            fallback={<Text color="red">Status footer error. Restart may help.</Text>}
+          >
+            <StatusFooterIsland />
+          </ErrorBoundary>
         </Box>
       </Box>
     </ErrorBoundary>

@@ -157,6 +157,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "stream_start") {
         this.resetStreamingState();
         this.resetReasoningState();
+        // Show the model in the footer the moment the stream starts —
+        // gives users feedback that "yes, the call went through" before
+        // any response text arrives.
+        store.updateRunStats({ provider: event.provider, model: event.model });
       }
 
       if (this.displayConfig.showThinking) {
@@ -501,6 +505,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
         parts.push(`Reasoning: ${usage.reasoningTokens}`);
       }
       parts.push(`Total: ${usage.totalTokens} tokens`);
+      // Push the prompt-side count to the persistent footer so users have
+      // visibility on context-window pressure between turns.
+      this.acc.lastPromptTokens = usage.promptTokens;
+      store.updateRunStats({ tokensInContext: usage.promptTokens });
     } else if (event.metrics.totalTokens) {
       parts.push(`Total: ${event.metrics.totalTokens} tokens`);
     }
@@ -550,6 +558,14 @@ export class InkStreamingRenderer implements StreamingRenderer {
           type: "debug",
           message: `[Cost: ${fmt(inputCost)} input + ${fmt(outputCost)} output = ${fmt(totalCost)} total]`,
           timestamp: new Date(),
+        });
+
+        // Roll session-cumulative cost into the persistent footer.
+        this.acc.cumulativeCostUSD += totalCost;
+        store.updateRunStats({
+          model,
+          provider,
+          costUSD: this.acc.cumulativeCostUSD,
         });
       }
     };

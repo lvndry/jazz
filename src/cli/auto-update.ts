@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { getUserDataDirectory } from "@/core/utils/runtime-detection";
+import { getGlyphs } from "./ui/glyphs";
 import { checkForUpdate, fetchReleaseNotesSince } from "./commands/update";
 
 const UPDATE_CHECK_INTERVAL_DAYS = 3;
@@ -71,15 +72,24 @@ export function autoCheckForUpdate(): Effect.Effect<
     }
 
     if (result.hasUpdate) {
+      const g = getGlyphs();
+      // 67-char content width — matches the existing announcement layout.
+      const innerWidth = 67;
+      const horiz = g.boxH.repeat(innerWidth);
+      const blank = " ".repeat(innerWidth);
+      const versions = `Update available! ${result.currentVersion} ${g.arrow} ${result.latestVersion}`;
+      const upgrade = "Run `jazz update` to upgrade to the latest version.";
+      const padLine = (msg: string): string => {
+        const pad = innerWidth - msg.length - 3; // 3 = leading "  "+1 trailing space
+        return `${g.boxV}  ${msg}${" ".repeat(Math.max(0, pad))} ${g.boxV}`;
+      };
       yield* terminal.log("");
-      yield* terminal.log(`╭─────────────────────────────────────────────────────────────────╮`);
-      yield* terminal.log(`│                                                                 │`);
-      yield* terminal.log(
-        `│   Update available! ${result.currentVersion} → ${result.latestVersion}                              │`,
-      );
-      yield* terminal.log(`│   Run \`jazz update\` to upgrade to the latest version.           │`);
-      yield* terminal.log(`│                                                                 │`);
-      yield* terminal.log(`╰─────────────────────────────────────────────────────────────────╯`);
+      yield* terminal.log(`${g.boxTL}${horiz}${g.boxTR}`);
+      yield* terminal.log(`${g.boxV}${blank}${g.boxV}`);
+      yield* terminal.log(padLine(versions));
+      yield* terminal.log(padLine(upgrade));
+      yield* terminal.log(`${g.boxV}${blank}${g.boxV}`);
+      yield* terminal.log(`${g.boxBL}${horiz}${g.boxBR}`);
 
       // Fetch and display release notes since current version
       const releaseNotes = yield* fetchReleaseNotesSince(result.currentVersion).pipe(

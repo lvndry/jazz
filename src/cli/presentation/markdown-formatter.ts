@@ -2,8 +2,10 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import chalk from "chalk";
+import { highlight, supportsLanguage } from "cli-highlight";
 import { emojify } from "node-emoji";
 import wrapAnsi from "wrap-ansi";
+import { getGlyphs, resolveGlyphMode } from "../ui/glyphs";
 import { codeColor, CHALK_THEME, PADDING_BUDGET, THEME } from "../ui/theme";
 
 /**
@@ -533,14 +535,20 @@ const TABLE_CHARS: Record<TableStyle, TableChars> = {
 /**
  * Resolve which table style to use.
  *
- * Default is `ascii` for portability. Override via the `JAZZ_TABLE_STYLE`
- * environment variable (`ascii` | `unicode` | `minimal`). A future
- * settings layer can wire this through display config too.
+ * Resolution order:
+ *
+ *   1. `JAZZ_TABLE_STYLE` env if set to a valid value — most specific,
+ *      lets users get `minimal` borderless tables without changing the
+ *      rest of the UI's glyph mode.
+ *   2. The active `JAZZ_UI_GLYPHS` mode — `ascii`/`unicode` map directly.
+ *   3. Default `ascii` (portable).
  */
 function resolveTableStyle(): TableStyle {
   const raw = (process.env["JAZZ_TABLE_STYLE"] ?? "").toLowerCase();
   if (raw === "unicode" || raw === "minimal" || raw === "ascii") return raw;
-  return "ascii";
+  // Inherit from the global glyph mode so a single `JAZZ_UI_GLYPHS=unicode`
+  // setting flips both tables and decoration glyphs.
+  return resolveGlyphMode() === "unicode" ? "unicode" : "ascii";
 }
 
 /**
@@ -741,25 +749,26 @@ export function formatInlineCode(text: string): string {
  */
 export function formatHeadings(text: string): string {
   let formatted = text;
+  const g = getGlyphs();
 
-  // H4 (####) — non-bold, dim secondary; lightest visual weight.
+  // H4 — lightest visual weight (non-bold, dim secondary).
   formatted = formatted.replace(H4_REGEX, (_match, header) =>
-    wrapPreservingInner(`· ${header}`, HEADING_MUTED),
+    wrapPreservingInner(`${g.heading4} ${header}`, HEADING_MUTED),
   );
 
-  // H3 (###) — bold link blue.
+  // H3 — bold link blue.
   formatted = formatted.replace(H3_REGEX, (_match, header) =>
-    wrapPreservingInner(`• ${header}`, HEADING_LINK),
+    wrapPreservingInner(`${g.heading3} ${header}`, HEADING_LINK),
   );
 
-  // H2 (##) — bold agent accent.
+  // H2 — bold agent accent.
   formatted = formatted.replace(H2_REGEX, (_match, header) =>
-    wrapPreservingInner(`▸ ${header}`, HEADING_AGENT),
+    wrapPreservingInner(`${g.heading2} ${header}`, HEADING_AGENT),
   );
 
-  // H1 (#) — bold + underline + primary; heaviest visual weight.
+  // H1 — bold + underline + primary; heaviest visual weight.
   formatted = formatted.replace(H1_REGEX, (_match, header) =>
-    wrapPreservingInner(`◆ ${header}`, HEADING_PRIMARY),
+    wrapPreservingInner(`${g.heading1} ${header}`, HEADING_PRIMARY),
   );
 
   return formatted;
@@ -771,7 +780,8 @@ export function formatHeadings(text: string): string {
 export function formatBlockquotes(text: string): string {
   return text.replace(
     BLOCKQUOTE_REGEX,
-    (_match: string, content: string) => `${CHALK_THEME.reasoning("▏")} ${ITALIC_MUTED(content)}`,
+    (_match: string, content: string) =>
+      `${CHALK_THEME.reasoning(getGlyphs().blockquote)} ${ITALIC_MUTED(content)}`,
   );
 }
 
@@ -1094,23 +1104,103 @@ export function formatEmojiShortcodes(text: string): string {
 }
 
 /**
- * Format code block content (for extracted code blocks)
+ * Extract a language hint from a fence line like ```ts or ```python.
+ * Empty / unrecognized → null, signalling "fall back to plain code color".
+ */
+function extractFenceLanguage(line: string): string | null {
+  const m = line.trim().match(/^```([a-zA-Z0-9+_.-]+)/);
+  if (!m) return null;
+  const lang = m[1]!.toLowerCase();
+  return supportsLanguage(lang) ? lang : null;
+}
+
+/**
+ * Apply syntax highlighting to a code block body using `cli-highlight`.
+ *
+ * Returns the highlighted source on success, or `null` if highlighting
+ * fails (unknown grammar, malformed input, etc.) so callers can fall back
+ * to the plain-color path. We never throw out of this — markdown rendering
+ * must remain best-effort.
+ */
+function tryHighlight(body: string, language: string): string | null {
+  try {
+    return highlight(body, { language, ignoreIllegals: true });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Format code block content (for extracted code blocks).
+ *
+ * Detects the language from the opening fence (```ts, ```python, etc.)
+ * and pipes the body through `cli-highlight` for syntax coloring. The
+ * fence lines themselves stay yellow. When the language isn't specified
+ * or isn't recognized by highlight.js, falls back to the previous
+ * monochrome `codeColor` styling so output never regresses.
  */
 export function formatCodeBlockContent(codeBlock: string): string {
   const lines = codeBlock.split("\n");
-  const processedLines: string[] = [];
+  if (lines.length === 0) return codeBlock;
 
-  for (const line of lines) {
-    if (line.trim().startsWith("```")) {
-      const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
-      const content = line.trimStart();
-      processedLines.push(leadingWhitespace + chalk.yellow(content));
-    } else {
-      processedLines.push(codeColor(line));
+  // Find the opening fence line (first line that starts with ```).
+  let openIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]!.trim().startsWith("```")) {
+      openIdx = i;
+      break;
     }
   }
 
-  return processedLines.join("\n");
+  if (openIdx === -1) {
+    // No fence — treat the whole thing as styled body.
+    return lines.map((l) => codeColor(l)).join("\n");
+  }
+
+  const language = extractFenceLanguage(lines[openIdx]!);
+  // Find the closing fence (last line that starts with ```).
+  let closeIdx = lines.length;
+  for (let i = lines.length - 1; i > openIdx; i--) {
+    if (lines[i]!.trim().startsWith("```")) {
+      closeIdx = i;
+      break;
+    }
+  }
+
+  const bodyLines = lines.slice(openIdx + 1, closeIdx);
+  const body = bodyLines.join("\n");
+
+  let styledBody: string;
+  if (language && body.length > 0) {
+    const highlighted = tryHighlight(body, language);
+    styledBody = highlighted ?? bodyLines.map((l) => codeColor(l)).join("\n");
+  } else {
+    styledBody = bodyLines.map((l) => codeColor(l)).join("\n");
+  }
+
+  const out: string[] = [];
+  // Pre-fence lines (rare — usually nothing).
+  for (let i = 0; i < openIdx; i++) out.push(codeColor(lines[i]!));
+  // Open fence stays yellow so the markdown delimiter is visible.
+  {
+    const line = lines[openIdx]!;
+    const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
+    out.push(leadingWhitespace + chalk.yellow(line.trimStart()));
+  }
+  // Highlighted body.
+  if (styledBody.length > 0 || bodyLines.length > 0) {
+    out.push(styledBody);
+  }
+  // Close fence (if present).
+  if (closeIdx < lines.length) {
+    const line = lines[closeIdx]!;
+    const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
+    out.push(leadingWhitespace + chalk.yellow(line.trimStart()));
+  }
+  // Anything after the close fence (rare).
+  for (let i = closeIdx + 1; i < lines.length; i++) out.push(codeColor(lines[i]!));
+
+  return out.join("\n");
 }
 
 /**

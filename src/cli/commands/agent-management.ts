@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { Effect } from "effect";
 import React from "react";
+import { getGlyphs } from "@/cli/ui/glyphs";
 import {
   formatIsoShort,
   getTerminalWidth,
@@ -38,10 +39,12 @@ function formatAgentsListBlock(
 ): string {
   const width = Math.max(60, Math.min(getTerminalWidth(), 120));
 
+  const g = getGlyphs();
   const title = `Agents (${agents.length})`;
   const innerWidth = width - 2;
-  const header = `┌${"─".repeat(innerWidth)}┐`;
-  const footer = `└${"─".repeat(innerWidth)}┘`;
+  const header = `${g.boxTL}${g.boxH.repeat(innerWidth)}${g.boxTR}`;
+  const footer = `${g.boxBL}${g.boxH.repeat(innerWidth)}${g.boxBR}`;
+  const sep = `${g.boxML}${g.boxH.repeat(innerWidth)}${g.boxMR}`;
 
   const lines: string[] = [];
   lines.push(chalk.dim(header));
@@ -49,8 +52,8 @@ function formatAgentsListBlock(
   const titleLine = ` ${chalk.bold(title)} ${chalk.dim(
     "— use `jazz agent get <id|name>` or `jazz agent chat <id|name>`",
   )}`;
-  lines.push(chalk.dim("│") + padRight(titleLine, innerWidth) + chalk.dim("│"));
-  lines.push(chalk.dim(`├${"─".repeat(innerWidth)}┤`));
+  lines.push(chalk.dim(g.boxV) + padRight(titleLine, innerWidth) + chalk.dim(g.boxV));
+  lines.push(chalk.dim(sep));
 
   // Columns (keep conservative so we don't rely on perfect ANSI width measurement)
   const idxW = 3; // "12 "
@@ -76,9 +79,12 @@ function formatAgentsListBlock(
     " ".repeat(gap) +
     padRight("Description", descW);
   lines.push(
-    chalk.dim("│") + " " + chalk.dim(truncateMiddle(colHeader, innerWidth - 1)) + chalk.dim("│"),
+    chalk.dim(g.boxV) +
+      " " +
+      chalk.dim(truncateMiddle(colHeader, innerWidth - 1)) +
+      chalk.dim(g.boxV),
   );
-  lines.push(chalk.dim(`├${"─".repeat(innerWidth)}┤`));
+  lines.push(chalk.dim(sep));
 
   for (const [index, agent] of agents.entries()) {
     const idx = String(index + 1);
@@ -100,7 +106,10 @@ function formatAgentsListBlock(
       padRight(truncateMiddle(agent.description ?? "", descW), descW);
 
     lines.push(
-      chalk.dim("│") + " " + chalk.white(truncateMiddle(row, innerWidth - 1)) + chalk.dim("│"),
+      chalk.dim(g.boxV) +
+        " " +
+        chalk.white(truncateMiddle(row, innerWidth - 1)) +
+        chalk.dim(g.boxV),
     );
 
     const metaParts: string[] = [];
@@ -108,21 +117,25 @@ function formatAgentsListBlock(
     metaParts.push(`${chalk.dim("created")} ${chalk.dim(formatIsoShort(agent.createdAt))}`);
     metaParts.push(`${chalk.dim("updated")} ${chalk.dim(formatIsoShort(agent.updatedAt))}`);
 
-    const meta = metaParts.join(chalk.dim("  ·  "));
-    lines.push(chalk.dim("│") + " " + padRight(meta, innerWidth - 1) + chalk.dim("│"));
+    // Use a simple separator that's identical width in any font; the meta
+    // line is dim throughout so visual weight is uniform.
+    const meta = metaParts.join(chalk.dim("  -  "));
+    lines.push(chalk.dim(g.boxV) + " " + padRight(meta, innerWidth - 1) + chalk.dim(g.boxV));
 
     if (options.verbose) {
       const tools = agent.config.tools ?? [];
       const toolsLine =
         tools.length > 0
-          ? `${chalk.dim("tools")} ${chalk.dim(`${tools.length}`)} ${chalk.dim("—")} ${chalk.dim(
+          ? `${chalk.dim("tools")} ${chalk.dim(`${tools.length}`)} ${chalk.dim("-")} ${chalk.dim(
               truncateMiddle(tools.join(", "), innerWidth - 20),
             )}`
           : `${chalk.dim("tools")} ${chalk.dim("none configured")}`;
-      lines.push(chalk.dim("│") + " " + padRight(toolsLine, innerWidth - 1) + chalk.dim("│"));
+      lines.push(
+        chalk.dim(g.boxV) + " " + padRight(toolsLine, innerWidth - 1) + chalk.dim(g.boxV),
+      );
     }
 
-    lines.push(chalk.dim(`├${"─".repeat(innerWidth)}┤`));
+    lines.push(chalk.dim(sep));
   }
 
   // Replace last separator with footer for cleaner look
@@ -287,12 +300,14 @@ function formatAgentDetailsBlock(agent: {
     readonly tools?: readonly string[] | undefined;
   };
 }): string {
+  const g = getGlyphs();
   const width = Math.max(60, Math.min(getTerminalWidth(), 120));
   const innerWidth = width - 2;
 
-  const header = `┌${"─".repeat(innerWidth)}┐`;
-  const footer = `└${"─".repeat(innerWidth)}┘`;
-  const sep = `├${"─".repeat(innerWidth)}┤`;
+  const header = `${g.boxTL}${g.boxH.repeat(innerWidth)}${g.boxTR}`;
+  const footer = `${g.boxBL}${g.boxH.repeat(innerWidth)}${g.boxBR}`;
+  const sep = `${g.boxML}${g.boxH.repeat(innerWidth)}${g.boxMR}`;
+  const v = chalk.dim(g.boxV);
 
   const model = agent.model?.trim().length
     ? agent.model
@@ -301,44 +316,40 @@ function formatAgentDetailsBlock(agent: {
 
   const lines: string[] = [];
   lines.push(chalk.dim(header));
-  lines.push(
-    chalk.dim("│") +
-      padRight(` ${chalk.bold(`Agent: ${agent.name}`)}`, innerWidth) +
-      chalk.dim("│"),
-  );
+  lines.push(v + padRight(` ${chalk.bold(`Agent: ${agent.name}`)}`, innerWidth) + v);
   lines.push(chalk.dim(sep));
 
-  const kv = (k: string, v: string) =>
-    chalk.dim("│") + padRight(` ${chalk.dim(k)} ${v}`, innerWidth) + chalk.dim("│");
+  const kv = (k: string, val: string) =>
+    v + padRight(` ${chalk.dim(k)} ${val}`, innerWidth) + v;
 
   lines.push(kv("ID:", agent.id));
   lines.push(kv("Model:", model));
   lines.push(kv("Created:", agent.createdAt.toISOString()));
   lines.push(kv("Updated:", agent.updatedAt.toISOString()));
-  lines.push(kv("Description:", agent.description?.trim().length ? agent.description : "—"));
+  lines.push(kv("Description:", agent.description?.trim().length ? agent.description : "-"));
 
   lines.push(chalk.dim(sep));
   lines.push(kv("Persona:", agent.config.persona ?? "default"));
   lines.push(kv("Provider:", formatProviderDisplayName(agent.config.llmProvider)));
   lines.push(kv("LLM model:", agent.config.llmModel));
   lines.push(
-    kv("Reasoning:", agent.config.reasoningEffort ? String(agent.config.reasoningEffort) : "—"),
+    kv("Reasoning:", agent.config.reasoningEffort ? String(agent.config.reasoningEffort) : "-"),
   );
 
   lines.push(chalk.dim(sep));
   lines.push(
-    chalk.dim("│") +
+    v +
       padRight(
-        ` ${chalk.bold(`Tools (${tools.length})`)}${tools.length ? ":" : " — none configured"}`,
+        ` ${chalk.bold(`Tools (${tools.length})`)}${tools.length ? ":" : " - none configured"}`,
         innerWidth,
       ) +
-      chalk.dim("│"),
+      v,
   );
 
   if (tools.length > 0) {
     const wrapped = wrapCommaList(tools, Math.max(20, innerWidth - 4));
     for (const line of wrapped) {
-      lines.push(chalk.dim("│") + padRight(`   ${line}`, innerWidth) + chalk.dim("│"));
+      lines.push(v + padRight(`   ${line}`, innerWidth) + v);
     }
   }
 

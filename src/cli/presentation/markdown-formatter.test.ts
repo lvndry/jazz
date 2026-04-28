@@ -58,7 +58,7 @@ describe("markdown-formatter", () => {
       const result = formatMarkdown(input);
       // H1 = bold + underline + primary color (intentional hierarchy: H1 is
       // visibly heavier than H2-H4 beyond just color).
-      expect(result).toBe(chalk.bold.underline.hex(THEME.primary)("◆ Release 0.6.1"));
+      expect(result).toBe(chalk.bold.underline.hex(THEME.primary)("# Release 0.6.1"));
       // Ensure no leaked ANSI codes as text
       expect(result).not.toContain("1mRelease");
     });
@@ -66,13 +66,13 @@ describe("markdown-formatter", () => {
     it("should style second-level headings with stronger hierarchy", () => {
       const input = "## Response Overview";
       const result = formatMarkdown(input);
-      expect(result).toBe(CHALK_THEME.agentBold("▸ Response Overview"));
+      expect(result).toBe(CHALK_THEME.agentBold("## Response Overview"));
     });
 
     it("should style headings with extra leading spaces (LLM-indented markdown)", () => {
-      expect(formatMarkdown("    ## Code Review")).toBe(CHALK_THEME.agentBold("▸ Code Review"));
+      expect(formatMarkdown("    ## Code Review")).toBe(CHALK_THEME.agentBold("## Code Review"));
       expect(formatMarkdown("      ### Suggestions")).toBe(
-        chalk.hex(THEME.link).bold("• Suggestions"),
+        chalk.hex(THEME.link).bold("### Suggestions"),
       );
     });
 
@@ -87,7 +87,7 @@ describe("markdown-formatter", () => {
       const input = "> Thinking aloud";
       const result = formatMarkdown(input);
       expect(result).toBe(
-        `${CHALK_THEME.reasoning("▏")} ${chalk.italic.hex("#94A3B8")("Thinking aloud")}`,
+        `${CHALK_THEME.reasoning(">")} ${chalk.italic.hex("#94A3B8")("Thinking aloud")}`,
       );
     });
   });
@@ -464,8 +464,8 @@ describe("markdown-formatter", () => {
       expect(stripped).toContain("Humility: Biblical Foundations");
       // The `**` markers are stripped in rendered mode.
       expect(stripped).not.toContain("**");
-      // Heading bullet is present.
-      expect(stripped).toMatch(/^\s*•\s/);
+      // Heading marker is present (literal `###` for H3).
+      expect(stripped).toMatch(/^\s*###\s/);
     });
 
     it("hybrid: H3 with bold preserves both ## markers and **", () => {
