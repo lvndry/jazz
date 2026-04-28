@@ -113,6 +113,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   fireworks: "Fireworks",
   google: "Google",
   groq: "Groq",
+  llamacpp: "llama.cpp",
   minimax: "MiniMax",
   mistral: "Mistral",
   moonshotai: "Moonshot AI",

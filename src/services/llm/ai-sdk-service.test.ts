@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { APICallError } from "ai";
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Stream } from "effect";
 import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
 import type { ProviderName } from "../../core/constants/models";
@@ -21,6 +21,11 @@ import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
 import { createAISDKServiceLayer } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
+
+mock.module("@/core/utils/models-dev-client", () => ({
+  getModelsDevMap: () => Promise.resolve(new Map()),
+  getMetadataFromMap: () => null,
+}));
 
 describe("AI SDK Service - Unit Tests", () => {
   /**
@@ -83,6 +88,7 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(providerNames).toContain("openrouter");
       expect(providerNames).toContain("anthropic");
       expect(providerNames).toContain("ollama");
+      expect(providerNames).toContain("llamacpp");
 
       // Check configured status
       const openaiProvider = result.find((p) => p.name === "openai");
@@ -106,6 +112,21 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const ollamaProvider = result.find((p) => p.name === "ollama");
       expect(ollamaProvider?.configured).toBe(true);
+    });
+
+    it("should mark llamacpp as configured even without API key", async () => {
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        return yield* llmService.listProviders();
+      });
+
+      const configLayer = createTestConfigLayer({});
+
+      const result = await runWithTestLayers(testEffect, configLayer);
+
+      const llamacpp = result.find((p) => p.name === "llamacpp");
+      expect(llamacpp).toBeDefined();
+      expect(llamacpp?.configured).toBe(true);
     });
 
     it("should handle empty LLM config", async () => {
@@ -137,8 +158,10 @@ describe("AI SDK Service - Unit Tests", () => {
         const result = await runWithTestLayers(testEffect, configLayer);
 
         const configuredProviders = result.filter((p) => p.configured);
-        expect(configuredProviders.length).toBe(1); // Only Ollama
-        expect(configuredProviders[0]?.name).toBe("ollama");
+        expect(configuredProviders.length).toBe(2); // Ollama and llamacpp (local providers)
+        const configuredNames = configuredProviders.map((p) => p.name);
+        expect(configuredNames).toContain("ollama");
+        expect(configuredNames).toContain("llamacpp");
       } finally {
         // Restore env vars
         for (const key of envVarsToSave) {
@@ -185,14 +208,11 @@ describe("AI SDK Service - Unit Tests", () => {
       const missingProviders: ProviderName[] = [];
 
       for (const provider of AVAILABLE_PROVIDERS) {
-        // Ollama is handled specially (always added), so check for that pattern
-        if (provider === "ollama") {
-          // Check for ollama handling - look for providers.push with "ollama" or llmConfig.ollama
-          if (
-            !functionSection.includes('"ollama"') &&
-            !functionSection.includes("'ollama'") &&
-            !functionSection.includes("llmConfig.ollama")
-          ) {
+        // Ollama and llamacpp are handled specially (always added as local providers)
+        if (provider === "ollama" || provider === "llamacpp") {
+          // Check for local-provider handling - look for providers.push with the provider name
+          const providerQuoted = `"${provider}"`;
+          if (!functionSection.includes(providerQuoted)) {
             missingProviders.push(provider);
           }
         } else {
@@ -595,6 +615,46 @@ describe("AI SDK Service - Unit Tests", () => {
       // Should find OpenAI regardless of case in config
       const openaiProvider = result.find((p) => p.name === "openai");
       expect(openaiProvider?.configured).toBe(true);
+    });
+
+    it("uses configured base_url when fetching llamacpp models", async () => {
+      let observedUrl = "";
+      global.fetch = ((url: string) => {
+        observedUrl = String(url);
+        if (observedUrl.endsWith("/models")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: [{ id: "test-model" }] }),
+          });
+        }
+        if (observedUrl.endsWith("/props")) {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                default_generation_settings: { n_ctx: 8192 },
+                chat_template_caps: {},
+              }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      }) as unknown as typeof fetch;
+
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        const provider = yield* llmService.getProvider("llamacpp");
+        return provider.supportedModels;
+      });
+
+      const configLayer = createTestConfigLayer({
+        llamacpp: { base_url: "http://example:9090/v1" },
+      });
+
+      const result = await runWithTestLayers(testEffect, configLayer);
+
+      expect(result[0]!.id).toBe("test-model");
+      expect(result[0]!.contextWindow).toBe(8192);
+      expect(observedUrl).toContain("example:9090");
     });
   });
 

@@ -60,10 +60,11 @@ import {
 } from "ai";
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import shortUUID from "short-uuid";
 import { z } from "zod";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
-import { DEFAULT_OLLAMA_BASE_URL, PROVIDER_MODELS } from "./models";
+import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
 import { StreamProcessor } from "./stream-processor";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
@@ -361,6 +362,7 @@ const PROVIDER_ENV_VARS: Record<string, string> = {
   fireworks: "FIREWORKS_API_KEY",
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
   groq: "GROQ_API_KEY",
+  llamacpp: "LLAMACPP_API_KEY",
   minimax: "MINIMAX_API_KEY",
   mistral: "MISTRAL_API_KEY",
   moonshotai: "MOONSHOT_API_KEY",
@@ -454,9 +456,12 @@ function getConfiguredProviders(
     }
   }
 
-  // Ollama is always available (no API key required)
+  // Local-server providers are always available (no API key required)
   if (!addedProviders.has("ollama")) {
     providers.push({ name: "ollama", apiKey: llmConfig?.ollama?.api_key ?? "" });
+  }
+  if (!addedProviders.has("llamacpp")) {
+    providers.push({ name: "llamacpp", apiKey: llmConfig?.llamacpp?.api_key ?? "" });
   }
 
   return providers;
@@ -517,8 +522,21 @@ function selectModel(
       const headers = llmConfig?.ollama?.api_key
         ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` }
         : {};
-      const ollamaInstance = createOllama({ baseURL: DEFAULT_OLLAMA_BASE_URL, headers });
+      const baseURL = resolveLocalProviderBaseUrl("ollama", llmConfig);
+      const ollamaInstance = createOllama({ baseURL, headers });
       model = ollamaInstance(modelId);
+      break;
+    }
+    case "llamacpp": {
+      const apiKey = llmConfig?.llamacpp?.api_key;
+      const baseURL = resolveLocalProviderBaseUrl("llamacpp", llmConfig);
+      const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
+      const llamacpp = createOpenAICompatible({
+        name: "llamacpp",
+        baseURL,
+        ...(headers ? { headers } : {}),
+      });
+      model = llamacpp(modelId);
       break;
     }
     case "openrouter": {
@@ -800,7 +818,10 @@ class AISDKService implements LLMService {
     }
 
     const providerConfig = this.config.llmConfig?.[providerName];
-    const baseUrl = modelSource.defaultBaseUrl;
+    const baseUrl =
+      providerName === "ollama" || providerName === "llamacpp"
+        ? resolveLocalProviderBaseUrl(providerName, this.config.llmConfig)
+        : modelSource.defaultBaseUrl;
 
     if (!baseUrl) {
       void this.logger.warn(
@@ -849,7 +870,8 @@ class AISDKService implements LLMService {
 
             if (!apiKey) {
               // API Key is optional for Ollama
-              if (providerName.toLowerCase() === "ollama") {
+              const lower = providerName.toLowerCase();
+              if (lower === "ollama" || lower === "llamacpp") {
                 return Effect.succeed(void 0);
               }
               return Effect.fail(

@@ -374,6 +374,63 @@ describe("executeAgentLoop", () => {
     expect(warningCalls.some((msg) => msg.includes("empty response"))).toBe(true);
   });
 
+  it("does not warn empty when the model produced reasoning but no content", async () => {
+    const warningCalls: string[] = [];
+    let presentedResponseContent = "";
+    const trackingPresentationService = {
+      ...mockPresentationService,
+      presentWarning: (_name: string, msg: string) => {
+        warningCalls.push(msg);
+        return Effect.void;
+      },
+    };
+
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "llamacpp/qwen",
+            content: "",
+            reasoning: "the answer is 42",
+          },
+          interrupted: false,
+        }),
+      presentResponse: (_agentName, content) => {
+        presentedResponseContent = content;
+        return Effect.void;
+      },
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, trackingPresentationService as any),
+      Layer.succeed(LLMServiceTag, mockLLMService),
+      Layer.succeed(ToolRegistryTag, mockToolRegistry),
+      Layer.succeed(MCPServerManagerTag, {} as any),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(FileSystem.FileSystem, {} as any),
+      Layer.succeed(TerminalServiceTag, {} as any),
+      Layer.succeed(FileSystemContextServiceTag, {} as any),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+    );
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(makeOptions(), makeRunContext(), displayConfig, strategy, runRecursive).pipe(
+        Effect.provide(testLayer),
+      ),
+    );
+
+    expect(warningCalls.some((msg) => msg.includes("empty response"))).toBe(false);
+    // Reasoning text becomes the visible content for downstream consumers.
+    expect(result.content).toBe("the answer is 42");
+    expect(result.reasoning).toBe("the answer is 42");
+    expect(presentedResponseContent).toBe("the answer is 42");
+  });
+
   it("should record token usage from completions", async () => {
     const strategy: CompletionStrategy = {
       shouldShowThinking: false,

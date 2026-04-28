@@ -77,4 +77,87 @@ describe("ModelFetcher", () => {
 
     expect(result._tag).toBe("Failure");
   });
+
+  it("fetches llama.cpp models with /v1/models + /props (happy path)", async () => {
+    const modelsResponse = { data: [{ id: "qwen2.5-coder-32b" }] };
+    const propsResponse = {
+      default_generation_settings: { n_ctx: 32768 },
+      chat_template_caps: { supports_tools: true, supports_tool_calls: true },
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(modelsResponse) });
+      if (url.endsWith("/props"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(propsResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("llamacpp", "http://localhost:8080/v1", "/models");
+    const result = await Effect.runPromise(program);
+
+    expect(result.length).toBe(1);
+    expect(result[0]!.id).toBe("qwen2.5-coder-32b");
+    expect(result[0]!.contextWindow).toBe(32768);
+    expect(result[0]!.supportsTools).toBe(true);
+  });
+
+  it("falls back to defaults when llama.cpp /props is unreachable", async () => {
+    const modelsResponse = { data: [{ id: "tinyllama" }] };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(modelsResponse) });
+      if (url.endsWith("/props"))
+        return Promise.resolve({ ok: false, status: 404, statusText: "Not Found" });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("llamacpp", "http://localhost:8080/v1", "/models");
+    const result = await Effect.runPromise(program);
+
+    expect(result.length).toBe(1);
+    expect(result[0]!.id).toBe("tinyllama");
+    expect(result[0]!.contextWindow).toBe(128_000);
+    expect(result[0]!.supportsTools).toBe(false);
+  });
+
+  it("requires both supports_tools and supports_tool_calls in chat_template_caps", async () => {
+    const modelsResponse = { data: [{ id: "partial-tools" }] };
+    const propsResponse = {
+      default_generation_settings: { n_ctx: 4096 },
+      chat_template_caps: { supports_tools: true, supports_tool_calls: false },
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(modelsResponse) });
+      if (url.endsWith("/props"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(propsResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("llamacpp", "http://localhost:8080/v1", "/models");
+    const result = await Effect.runPromise(program);
+
+    expect(result[0]!.supportsTools).toBe(false);
+    expect(result[0]!.contextWindow).toBe(4096);
+  });
+
+  it("returns a friendly error when llama.cpp has no model loaded", async () => {
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("llamacpp", "http://localhost:8080/v1", "/models");
+    const result = await Effect.runPromiseExit(program);
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      const msg = String(result.cause);
+      expect(msg).toMatch(/no models loaded|llama-server/i);
+    }
+  });
 });

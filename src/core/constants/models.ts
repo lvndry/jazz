@@ -85,6 +85,7 @@ export const STATIC_PROVIDER_MODELS = {
   fireworks: [],
 
   groq: [],
+  llamacpp: [],
   minimax: [
     { id: "MiniMax-M2", displayName: "MiniMax M2" },
     { id: "MiniMax-M2-Stable", displayName: "MiniMax M2 Stable" },

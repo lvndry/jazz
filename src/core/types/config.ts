@@ -72,6 +72,12 @@ export interface LLMProviderConfig {
 
 export interface OllamaProviderConfig {
   readonly api_key?: string;
+  readonly base_url?: string;
+}
+
+export interface LlamaCppProviderConfig {
+  readonly api_key?: string;
+  readonly base_url?: string;
 }
 
 export interface LLMConfig {
@@ -83,6 +89,7 @@ export interface LLMConfig {
   readonly fireworks?: LLMProviderConfig;
   readonly google?: LLMProviderConfig;
   readonly groq?: LLMProviderConfig;
+  readonly llamacpp?: LlamaCppProviderConfig;
   readonly minimax?: LLMProviderConfig;
   readonly mistral?: LLMProviderConfig;
   readonly moonshotai?: LLMProviderConfig;
