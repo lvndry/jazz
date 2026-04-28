@@ -505,19 +505,20 @@ describe("markdown-formatter", () => {
   });
 
   describe("formatTables", () => {
-    it("renders a simple two-column table with box-drawing borders", () => {
+    it("renders a simple two-column table with ASCII borders by default", () => {
       const md = ["| Name | Age |", "|------|-----|", "| Alice | 30 |", "| Bob | 25 |"].join("\n");
       const result = formatMarkdown(md);
       const stripped = stripAnsiCodes(result);
-      expect(stripped).toContain("┌");
-      expect(stripped).toContain("┐");
-      expect(stripped).toContain("├");
-      expect(stripped).toContain("┤");
-      expect(stripped).toContain("└");
-      expect(stripped).toContain("┘");
+      // ASCII style is the default (font-portable).
+      expect(stripped).toContain("+");
+      expect(stripped).toContain("|");
+      expect(stripped).toContain("-");
       expect(stripped).toContain("Name");
       expect(stripped).toContain("Alice");
       expect(stripped).toContain("Bob");
+      // Must NOT use Unicode box-drawing in the default style.
+      expect(stripped).not.toContain("┌");
+      expect(stripped).not.toContain("│");
     });
 
     it("drops the alignment row from the visible output", () => {
@@ -535,7 +536,8 @@ describe("markdown-formatter", () => {
       const result = formatMarkdown(md);
       // Visible widths should be consistent — count visible chars per body row.
       const stripped = stripAnsiCodes(result);
-      const bodyLines = stripped.split("\n").filter((l) => l.includes("│"));
+      // Body rows start with the vertical bar (`|` in the default ASCII style).
+      const bodyLines = stripped.split("\n").filter((l) => l.startsWith("|"));
       // All body lines (header + data) must share the same visible length.
       const lengths = new Set(bodyLines.map((l) => l.length));
       expect(lengths.size).toBe(1);
@@ -545,8 +547,10 @@ describe("markdown-formatter", () => {
       const md = ["| A | B |", "|---|---|", "| 1 | 2 |"].join("\n");
       const result = formatMarkdownHybrid(md);
       const stripped = stripAnsiCodes(result);
-      expect(stripped).toContain("┌");
-      expect(stripped).toContain("│");
+      // Default ASCII style.
+      expect(stripped).toContain("+");
+      // Vertical bars present.
+      expect(stripped.split("\n").some((l) => l.startsWith("|"))).toBe(true);
     });
 
     it("leaves non-table use of pipes untouched", () => {
@@ -554,7 +558,8 @@ describe("markdown-formatter", () => {
       const result = formatMarkdown(md);
       const stripped = stripAnsiCodes(result);
       expect(stripped).toContain("cat foo | grep bar");
-      expect(stripped).not.toContain("┌");
+      // No table border row inserted.
+      expect(stripped).not.toMatch(/^\+-+\+/m);
     });
 
     it("rejects malformed tables without an alignment row", () => {
@@ -563,7 +568,8 @@ describe("markdown-formatter", () => {
       const stripped = stripAnsiCodes(result);
       // Without alignment row, both lines should pass through verbatim.
       expect(stripped).toContain("| Name | Age |");
-      expect(stripped).not.toContain("┌");
+      // No ASCII table border line.
+      expect(stripped).not.toMatch(/^\+-+\+/m);
     });
 
     it("handles tables with bold + heading siblings in the same input", () => {
@@ -581,7 +587,61 @@ describe("markdown-formatter", () => {
       expect(stripped).toContain("Value");
       expect(stripped).toContain("Tokens");
       expect(stripped).toContain("9246");
-      expect(stripped).toContain("┌");
+      // Default ASCII border present.
+      expect(stripped).toMatch(/^\+-+\+/m);
+    });
+
+    it("respects JAZZ_TABLE_STYLE=unicode for opt-in box-drawing", () => {
+      const original = process.env["JAZZ_TABLE_STYLE"];
+      process.env["JAZZ_TABLE_STYLE"] = "unicode";
+      try {
+        const md = ["| A | B |", "|---|---|", "| 1 | 2 |"].join("\n");
+        const result = formatMarkdown(md);
+        const stripped = stripAnsiCodes(result);
+        expect(stripped).toContain("┌");
+        expect(stripped).toContain("│");
+        expect(stripped).toContain("─");
+      } finally {
+        if (original === undefined) delete process.env["JAZZ_TABLE_STYLE"];
+        else process.env["JAZZ_TABLE_STYLE"] = original;
+      }
+    });
+
+    it("respects JAZZ_TABLE_STYLE=minimal for borderless rendering", () => {
+      const original = process.env["JAZZ_TABLE_STYLE"];
+      process.env["JAZZ_TABLE_STYLE"] = "minimal";
+      try {
+        const md = ["| A | B |", "|---|---|", "| 1 | 2 |"].join("\n");
+        const result = formatMarkdown(md);
+        const stripped = stripAnsiCodes(result);
+        // Cell content present, no box-drawing borders.
+        expect(stripped).toContain("A");
+        expect(stripped).toContain("B");
+        expect(stripped).toContain("1");
+        expect(stripped).toContain("2");
+        expect(stripped).not.toContain("+");
+        expect(stripped).not.toContain("┌");
+        // No leading `|` border on rows.
+        expect(stripped.split("\n").every((l) => !l.startsWith("|"))).toBe(true);
+      } finally {
+        if (original === undefined) delete process.env["JAZZ_TABLE_STYLE"];
+        else process.env["JAZZ_TABLE_STYLE"] = original;
+      }
+    });
+
+    it("falls back to ASCII for an unknown JAZZ_TABLE_STYLE value", () => {
+      const original = process.env["JAZZ_TABLE_STYLE"];
+      process.env["JAZZ_TABLE_STYLE"] = "fancy-glyphs";
+      try {
+        const md = ["| A | B |", "|---|---|", "| 1 | 2 |"].join("\n");
+        const result = formatMarkdown(md);
+        const stripped = stripAnsiCodes(result);
+        expect(stripped).toContain("+");
+        expect(stripped).not.toContain("┌");
+      } finally {
+        if (original === undefined) delete process.env["JAZZ_TABLE_STYLE"];
+        else process.env["JAZZ_TABLE_STYLE"] = original;
+      }
     });
 
     it("converts <br> inside cells into multi-line rows", () => {
@@ -597,9 +657,9 @@ describe("markdown-formatter", () => {
       expect(stripped).toContain("Read Scripture.");
       expect(stripped).toContain("Pray for guidance.");
       expect(stripped).toContain("Reflect.");
-      // The table should remain a single visual unit — vertical pipe runs
-      // through every line of the multi-line row.
-      const bodyLines = stripped.split("\n").filter((l) => l.startsWith("│"));
+      // Vertical pipe (`|` in the default ASCII style) runs through every
+      // line of the multi-line row so the table reads as one visual unit.
+      const bodyLines = stripped.split("\n").filter((l) => l.startsWith("|"));
       // Header + 3 wrapped lines for the multi-line body row = 4 rows minimum.
       expect(bodyLines.length).toBeGreaterThanOrEqual(4);
     });
@@ -620,15 +680,22 @@ describe("markdown-formatter", () => {
       const md = [
         "| L | C | R |",
         "|:--|:-:|--:|",
-        "| a | b | c |",
-        "| x | y | z |",
+        "| Apple | banana | cherry |",
+        "| x     | y      | z      |",
       ].join("\n");
       const result = formatMarkdown(md);
       const stripped = stripAnsiCodes(result);
-      // We don't assert exact column widths (varies with terminal width), but
-      // the table must contain all visible content.
-      expect(stripped).toContain("│ a");
-      expect(stripped).toContain("│ x");
+      // The body row for "Apple" is the widest in column L (5 chars). Center
+      // column "banana" sets C to 6. Right column "cherry" sets R to 6.
+      // Verify per-column alignment for the second body row (single chars).
+      const bodyLines = stripped.split("\n").filter((l) => l.startsWith("|"));
+      // Find the row containing 'x'.
+      const xRow = bodyLines.find((l) => l.includes("x"));
+      expect(xRow).toBeDefined();
+      // Left column: "x    " — content immediately after `| `.
+      expect(xRow).toMatch(/^\|\s+x\s+\|/);
+      // Right column: trailing spaces before "z" then `|` close.
+      expect(xRow).toMatch(/\|\s+z\s+\|$/);
     });
 
     it("caps table to terminal width when intrinsic width exceeds it", () => {

@@ -455,24 +455,117 @@ function wrapCell(cell: string, width: number): string[] {
 }
 
 /**
- * Render a parsed table to a multi-line string with box-drawing borders.
+ * Border character set for a given table style.
+ *
+ * `ascii` (default) — uses only `+`, `-`, `|`. Renders identically in every
+ * monospace font and terminal that's ever existed. The portable choice;
+ * what we recommend unless the user has explicitly verified Unicode
+ * box-drawing renders cleanly in their setup.
+ *
+ * `unicode` — `┌┬┐├┼┤└┴┘│─`. Looks great in modern fonts (JetBrains
+ * Mono, Fira Code, MesloLGS, SF Mono) but renders broken in macOS
+ * default Menlo, in some CJK locales (ambiguous-width interpretation),
+ * and in any terminal whose font doesn't include U+2500 box-drawing
+ * glyphs (those fall back to a different font with a different metric,
+ * mis-aligning everything).
+ *
+ * `minimal` — no borders, just dim column separators. Lightest visual
+ * weight, never wraps wrong because there's nothing to break.
+ */
+type TableStyle = "ascii" | "unicode" | "minimal";
+
+interface TableChars {
+  /** top-left corner */ readonly tl: string;
+  /** top junction (╤) */ readonly tj: string;
+  /** top-right corner */ readonly tr: string;
+  /** mid-left junction */ readonly ml: string;
+  /** mid junction (┼) */ readonly mj: string;
+  /** mid-right junction */ readonly mr: string;
+  /** bottom-left corner */ readonly bl: string;
+  /** bottom junction (┴) */ readonly bj: string;
+  /** bottom-right corner */ readonly br: string;
+  /** vertical bar */ readonly v: string;
+  /** horizontal bar */ readonly h: string;
+}
+
+const TABLE_CHARS: Record<TableStyle, TableChars> = {
+  ascii: {
+    tl: "+",
+    tj: "+",
+    tr: "+",
+    ml: "+",
+    mj: "+",
+    mr: "+",
+    bl: "+",
+    bj: "+",
+    br: "+",
+    v: "|",
+    h: "-",
+  },
+  unicode: {
+    tl: "┌",
+    tj: "┬",
+    tr: "┐",
+    ml: "├",
+    mj: "┼",
+    mr: "┤",
+    bl: "└",
+    bj: "┴",
+    br: "┘",
+    v: "│",
+    h: "─",
+  },
+  minimal: {
+    tl: "",
+    tj: "",
+    tr: "",
+    ml: "",
+    mj: "",
+    mr: "",
+    bl: "",
+    bj: "",
+    br: "",
+    v: " ",
+    h: "",
+  },
+};
+
+/**
+ * Resolve which table style to use.
+ *
+ * Default is `ascii` for portability. Override via the `JAZZ_TABLE_STYLE`
+ * environment variable (`ascii` | `unicode` | `minimal`). A future
+ * settings layer can wire this through display config too.
+ */
+function resolveTableStyle(): TableStyle {
+  const raw = (process.env["JAZZ_TABLE_STYLE"] ?? "").toLowerCase();
+  if (raw === "unicode" || raw === "minimal" || raw === "ascii") return raw;
+  return "ascii";
+}
+
+/**
+ * Render a parsed table to a multi-line string.
  *
  * Each row may have `rowHeight > 1` lines if any cell wraps. The
- * vertical border `│` runs through every line of the row so the table
- * reads as one visual unit.
+ * vertical border runs through every line of the row so the table
+ * reads as one visual unit. Border style is selected via
+ * `resolveTableStyle()` — defaults to ASCII (`+` `|` `-`) for
+ * font/terminal portability; users with confirmed Unicode-capable
+ * setups can opt in via `JAZZ_TABLE_STYLE=unicode`.
  */
 function renderTable(
   header: readonly string[],
   body: readonly (readonly string[])[],
   aligns: readonly ColumnAlign[],
 ): string {
+  const style = resolveTableStyle();
+  const c = TABLE_CHARS[style];
   const colCount = header.length;
   const overhead = tableOverhead(colCount);
 
   // Available width for cell content. Subtract overhead for borders +
-  // padding. The PADDING_BUDGET subtracts the page/content padding the
-  // outer Box already consumes, so the table never visually exceeds the
-  // viewport.
+  // padding. PADDING_BUDGET subtracts the page/content padding the outer
+  // Box already consumes, so the table never visually exceeds the viewport.
   const terminalWidth = getTerminalWidth();
   const availableContentWidth = Math.max(
     colCount * 4, // floor: 4 chars per column
@@ -481,11 +574,19 @@ function renderTable(
 
   const widths = computeColumnWidths(header, body, colCount, availableContentWidth);
 
-  // Precompute line styles.
-  const top = TABLE_BORDER(`┌${widths.map((w) => "─".repeat(w + 2)).join("┬")}┐`);
-  const sep = TABLE_BORDER(`├${widths.map((w) => "─".repeat(w + 2)).join("┼")}┤`);
-  const bottom = TABLE_BORDER(`└${widths.map((w) => "─".repeat(w + 2)).join("┴")}┘`);
-  const pipe = TABLE_BORDER("│");
+  const isMinimal = style === "minimal";
+
+  // Border lines. For `minimal`, the top/separator/bottom rules are
+  // empty — we'll filter them out before joining. For ascii/unicode they
+  // span every column with junction chars.
+  const buildRule = (left: string, junction: string, right: string): string => {
+    const segs = widths.map((w) => c.h.repeat(w + 2));
+    return TABLE_BORDER(`${left}${segs.join(junction)}${right}`);
+  };
+  const top = isMinimal ? "" : buildRule(c.tl, c.tj, c.tr);
+  const sep = isMinimal ? "" : buildRule(c.ml, c.mj, c.mr);
+  const bottom = isMinimal ? "" : buildRule(c.bl, c.bj, c.br);
+  const pipe = TABLE_BORDER(c.v);
 
   const alignCell = (text: string, idx: number): string => {
     const w = widths[idx] ?? 0;
@@ -501,7 +602,7 @@ function renderTable(
       const lines = wrapCell(cell ?? "", widths[idx] ?? 0);
       return styleHeader ? lines.map((l) => TABLE_HEADER_CELL(l)) : lines;
     });
-    const rowHeight = Math.max(...wrappedPerCell.map((c) => c.length), 1);
+    const rowHeight = Math.max(...wrappedPerCell.map((line) => line.length), 1);
 
     const out: string[] = [];
     for (let line = 0; line < rowHeight; line++) {
@@ -509,17 +610,27 @@ function renderTable(
         const text = cellLines[line] ?? "";
         return alignCell(text, idx);
       });
-      out.push(`${pipe} ${segments.join(` ${pipe} `)} ${pipe}`);
+      // For ascii/unicode: pipes wrap cells with single-space padding on
+      // each side. For minimal: no outer pipes, dim space separator
+      // between cells, no surrounding padding.
+      if (isMinimal) {
+        out.push(segments.join(`  `));
+      } else {
+        out.push(`${pipe} ${segments.join(` ${pipe} `)} ${pipe}`);
+      }
     }
     return out;
   };
 
-  const lines: string[] = [top, ...renderRow(header, true), sep];
+  const lines: string[] = [];
+  if (top) lines.push(top);
+  lines.push(...renderRow(header, true));
+  if (sep) lines.push(sep);
   for (const row of body) {
     const normalized = new Array(colCount).fill("").map((_, idx) => row[idx] ?? "");
     lines.push(...renderRow(normalized, false));
   }
-  lines.push(bottom);
+  if (bottom) lines.push(bottom);
   return lines.join("\n");
 }
 
