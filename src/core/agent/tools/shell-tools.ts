@@ -10,63 +10,98 @@ import { createSanitizedEnv } from "@/core/utils/env-utils";
 import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 
-// Enhanced security checks for potentially dangerous commands
-const FORBIDDEN_COMMANDS = [
-  // File system destruction
-  /rm\s+-rf\s+/, // rm -rf (any path)
-  /rm\s+.*\s+\//, // rm with root path
-  /rm\s+.*\s+~/, // rm with home directory
-  /rm\s+.*\s+\*/, // rm with wildcards
+/**
+ * Patterns that block obviously dangerous shell commands before execution.
+ *
+ * This is a defense-in-depth denylist, not a sandbox. It cannot stop a
+ * determined attacker — variable expansion, base64 obfuscation, eval, and
+ * other indirection paths can route around any string matcher. The intent is
+ * to catch accidental destructive operations from a confused or malicious
+ * model, while every command still requires explicit human approval upstream.
+ *
+ * See `shell-tools.security.test.ts` for the regression suite and the
+ * documented set of known bypasses.
+ */
+export const FORBIDDEN_COMMANDS: readonly RegExp[] = [
+  // File-system destruction (rm with any -r/-f flag combination, root paths,
+  // home, or wildcards)
+  /\brm\s+-[a-z]*[rf][a-z]*\s+/i, // rm -r / -f / -rf / -fr / -Rfv / -rfvI etc.
+  /\brm\s+-[rfRF]\s+-[rfRF]\b/, // rm -r -f, rm -f -r
+  /\brm\s+(?:.*\s+)?\/\s*$/, // rm targeting / (end of line, with or without other args)
+  /\brm\s+(?:.*\s+)?\/(?:\s|$)/, // rm targeting / followed by space or end
+  /\brm\s+.*~/, // rm targeting home (with or without space before)
+  /\brm\s+.*\*/, // rm with glob (no required space before *)
 
-  // System commands
-  /sudo\s+/, // sudo commands
-  /su\s+/, // su commands
-  /mkfs\./, // format filesystem
-  /dd\s+if=.*of=\/dev\//, // dd to device
-  /shutdown/, // shutdown commands
-  /reboot/, // reboot commands
-  /halt/, // halt commands
-  /poweroff/, // poweroff commands
-  /init\s+[0-6]/, // init runlevel changes
+  // Privilege escalation
+  /\bsudo\b/, // sudo in any position
+  /\bsu\s+/, // su <user>
+  /\bdoas\b/, // OpenBSD/Linux sudo alternative
 
-  // Network and code execution
-  /curl\s+.*\s*\|/, // curl with pipe
-  /wget\s+.*\s*\|/, // wget with pipe
-  /python\s+-c/, // python code execution
-  /node\s+-e/, // node code execution
-  /bash\s+-c/, // bash code execution
-  /sh\s+-c/, // shell code execution
+  // Device-level destruction
+  /\bmkfs\b/, // mkfs.<fs> formatting
+  /\bdd\s+.*\bof=\/dev\//, // dd to a device, in any arg order
+  /\bdd\s+.*\bif=\/dev\/(?:zero|random|urandom)\b/, // dd from /dev/zero etc.
+
+  // Power / runlevel
+  /\bshutdown\b/,
+  /\breboot\b/,
+  /\bhalt\b/,
+  /\bpoweroff\b/,
+  /\binit\s+[0-6]\b/,
+
+  // Remote-code-fetch piped to a shell (the classic curl|sh footgun)
+  /\bcurl\b.*\|\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
+  /\bwget\b.*\|\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
+  /\bcurl\b\s+(?:-s\s+)?https?:\/\/.*\s*\|\s*\S/, // any pipe after curl URL
+  /\bwget\b\s+(?:-q?O-?\s+)?https?:\/\/.*\s*\|\s*\S/, // wget -O- URL | ...
+
+  // In-process code execution via interpreters
+  /\b(?:python\d?|ruby|perl|node|deno|bun)\s+-[ce]\b/, // -c / -e flags
+  /\b(?:bash|sh|zsh|fish|ksh|dash)\s+-c\b/,
+  /\beval\s+/, // eval ... (anything)
 
   // Process manipulation
-  /kill\s+-9/, // force kill processes
-  /pkill\s+/, // kill processes by name
-  /killall\s+/, // kill all processes
+  /\bkill\s+-9\b/,
+  /\bpkill\b/,
+  /\bkillall\b/,
 
-  // Fork bombs and resource exhaustion
-  /:\(\)\s*{/, // fork bomb pattern
-  /while\s+true/, // infinite loops
-  /for\s+\S+\s+in\s+\S+\s+do\s+\S+\s+done/, // shell loops (uses \S+ to avoid backtracking)
+  // Fork-bomb shapes — match a function defined as `<name>(){<...>:|<name>&...}`
+  // The classic `:(){ :|:& };:` and any single-letter-renamed variant. The
+  // function name can be `:` (non-word), so we anchor on the preceding
+  // boundary instead of `\b` which doesn't fire before `:`.
+  /(?:^|[\s;&|])\S+\s*\(\s*\)\s*\{[^}]*\|\s*\S+\s*&[^}]*\}\s*;\s*\S+/,
+  /\bwhile\s+(?:true|:)(?:\s|;|$)/, // while true / while :
 
-  // File system manipulation
-  /chmod\s+777/, // overly permissive permissions
-  /chown\s+root/, // changing ownership to root
-  /mount\s+/, // mounting filesystems
-  /umount\s+/, // unmounting filesystems
+  // Permission widening
+  /\bchmod\s+(?:0?777|a\+rwx|a=rwx|ugo\+rwx)\b/,
+  /\bchown\s+(?:root|0)\b/,
 
-  // Network manipulation
-  /iptables/, // firewall manipulation
-  /ufw\s+/, // ubuntu firewall
-  /netstat\s+-tulpn/, // network information gathering
-  /ss\s+-tulpn/, // socket statistics
+  // Filesystem mounting
+  /\bmount\s+/,
+  /\bumount\s+/,
 
-  // System information gathering
-  /cat\s+\/etc\/passwd/, // reading password file
-  /cat\s+\/etc\/shadow/, // reading shadow file
-  /cat\s+\/etc\/hosts/, // reading hosts file
-  /ps\s+aux/, // process listing
-  /top\s*$/, // system monitor
-  /htop\s*$/, // system monitor
+  // Firewall / network surface manipulation
+  /\biptables\b/,
+  /\bnftables\b/,
+  /\bufw\s+/,
+
+  // Sensitive file disclosure — match common readers (cat/less/more/head/tail/
+  // awk/grep/strings/od/xxd) targeting /etc/passwd or /etc/shadow.
+  /\b(?:cat|less|more|head|tail|awk|grep|strings|od|xxd|nl|cut|sed)\s+[^|;&]*\/etc\/(?:passwd|shadow)\b/,
+
+  // Crypto-key disclosure — same readers targeting common private-key paths.
+  /\b(?:cat|less|more|head|tail|awk|grep|strings|od|xxd|nl)\s+[^|;&]*(?:\.ssh\/id_(?:rsa|ed25519|ecdsa|dsa)|\.aws\/credentials|\.gnupg\/private-keys-v1\.d)\b/,
 ];
+
+/**
+ * Pure check: does this command match any forbidden pattern?
+ *
+ * Exposed for testing and reuse. Callers must still treat the result as
+ * advisory — see the doc on FORBIDDEN_COMMANDS about the limits of denylists.
+ */
+export function isDangerousCommand(command: string): boolean {
+  return FORBIDDEN_COMMANDS.some((pattern) => pattern.test(command));
+}
 
 type ExecuteCommandArgs = {
   command: string;
