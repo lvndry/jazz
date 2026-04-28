@@ -153,6 +153,47 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 2. Pull a model: `ollama pull llama3.2`
 3. Jazz will auto-detect available models from your Ollama instance.
 
+```json
+{
+  "llm": {
+    "ollama": {
+      "base_url": "http://localhost:11434/api",
+      "api_key": "optional-bearer-token"
+    }
+  }
+}
+```
+
+Both fields are optional. When `base_url` is omitted, Jazz uses `http://localhost:11434/api`. You can also set `OLLAMA_BASE_URL` (config takes precedence over env).
+
+### llama.cpp
+
+**Capabilities**: Run any GGUF model locally via [`llama-server`](https://github.com/ggml-org/llama.cpp). Tool calling supported when `llama-server` is started with `--jinja` (see [function calling guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/function-calling.md)). Context window and tool support are auto-detected from the server's `/props` endpoint.
+
+**Setup**:
+
+1. Build or install `llama-server` from the [llama.cpp repo](https://github.com/ggml-org/llama.cpp).
+2. Start it with a model and (for tools) the `--jinja` flag:
+
+```bash
+llama-server -m /path/to/model.gguf --jinja --port 8080
+```
+
+3. Add to your config (all fields optional — defaults shown):
+
+```json
+{
+  "llm": {
+    "llamacpp": {
+      "base_url": "http://localhost:8080/v1",
+      "api_key": "your-key-if-server-uses-bearer-auth"
+    }
+  }
+}
+```
+
+You can also set `LLAMACPP_BASE_URL` and `LLAMACPP_API_KEY` env vars; the config file takes precedence.
+
 ---
 
 ## Email & Calendar (Skills)
