@@ -460,17 +460,18 @@ jobs:
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const runUrl = process.env.RUN_URL;
 
-            // The agent's contract is to emit its final answer as a fenced
-            // markdown block (FOUR backticks preferred, triple as fallback).
-            // Anything outside that block is workflow/tool decoration and
-            // must not leak into the PR comment.
-            let mdBlocks = [...output.matchAll(/````markdown\s*\n([\s\S]*?)````/g)];
-            if (mdBlocks.length === 0) {
-              mdBlocks = [...output.matchAll(/```markdown\s*\n([\s\S]*?)```/g)];
-            }
+            // The agent's contract is to emit its final answer wrapped in a
+            // FOUR-backtick `markdown` fence. Anything outside that fence is
+            // workflow/tool decoration and must not leak into the PR comment.
+            // The four-backtick form is required because nested ``` code
+            // fences inside the answer would otherwise close the wrapper
+            // early. If the agent doesn't honor the contract, post the
+            // failure message instead of guessing — we don't try to recover
+            // from malformed agent output here.
+            const mdMatch = output.match(/````markdown\s*\n([\s\S]*?)\n?````/);
 
-            const commentBody = mdBlocks.length > 0
-              ? mdBlocks[mdBlocks.length - 1][1].trim()
+            const commentBody = mdMatch
+              ? mdMatch[1].trim()
               : `_The Jazz assistant didn't produce a usable answer. ` +
                 `See the [workflow run](${runUrl}) for details._`;
 
