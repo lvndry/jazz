@@ -476,6 +476,9 @@ jobs:
               // with a link to the workflow logs instead of dumping raw shell
               // output (tool error transcripts, git usage text, etc.).
               const lower = output.toLowerCase();
+              const emptyResponse =
+                lower.includes('returned an empty response') ||
+                lower.includes('model returned no');
               const looksLikeFailure =
                 lower.includes('llmrequesterror') ||
                 lower.includes('failed after') ||
@@ -483,7 +486,16 @@ jobs:
                 lower.includes('not a git repository') ||
                 lower.includes('error:');
 
-              if (looksLikeFailure) {
+              if (emptyResponse) {
+                // The model produced no text content (often because the chosen
+                // OpenRouter model emits reasoning_content that the published
+                // jazz-ai version doesn't surface yet). Don't paste the
+                // workflow header/footer onto the PR — explain the situation.
+                commentBody =
+                  `_The model returned an empty response. This usually means the ` +
+                  `selected model emitted reasoning rather than a final answer. ` +
+                  `See the [workflow run](${runUrl}) for the full transcript._`;
+              } else if (looksLikeFailure) {
                 commentBody =
                   `_The Jazz assistant didn't produce a usable answer. ` +
                   `See the [workflow run](${runUrl}) for details._`;
