@@ -425,7 +425,7 @@ async function promptForAgentInfo(
             }),
           );
 
-          const isOptional = result === "ollama";
+          const isOptional = result === "ollama" || result === "llamacpp";
           const apiKey = await Effect.runPromise(
             terminal.ask(`${providerDisplayName} API Key${isOptional ? " (optional)" : ""}:`, {
               simple: true,
