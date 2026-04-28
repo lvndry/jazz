@@ -464,13 +464,20 @@ jobs:
             // markdown block (FOUR backticks preferred, triple as fallback).
             // Anything outside that block is workflow/tool decoration and
             // must not leak into the PR comment.
-            let mdBlocks = [...output.matchAll(/````markdown\s*\n([\s\S]*?)````/g)];
-            if (mdBlocks.length === 0) {
-              mdBlocks = [...output.matchAll(/```markdown\s*\n([\s\S]*?)```/g)];
-            }
+            //
+            // For the 4-backtick form we use non-greedy: there should be
+            // exactly one outer wrapper and nested ``` fences cannot close it.
+            //
+            // For the 3-backtick fallback we use GREEDY: nested ``` fences
+            // (e.g. ```ts code blocks) inside the wrapper would otherwise
+            // terminate a non-greedy match prematurely, leaking only a
+            // partial answer onto the PR.
+            const fourBacktick = output.match(/````markdown\s*\n([\s\S]*?)\n?````/);
+            const threeBacktick = output.match(/```markdown\s*\n([\s\S]*)\n```/);
+            const captured = fourBacktick?.[1] ?? threeBacktick?.[1];
 
-            const commentBody = mdBlocks.length > 0
-              ? mdBlocks[mdBlocks.length - 1][1].trim()
+            const commentBody = captured
+              ? captured.trim()
               : `_The Jazz assistant didn't produce a usable answer. ` +
                 `See the [workflow run](${runUrl}) for details._`;
 
