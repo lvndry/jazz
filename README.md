@@ -98,7 +98,7 @@ Jazz understands your filesystem, your git history, your shell, HTTP APIs, the w
 
 Jazz doesn't lock you in. Use whichever model fits the task or switch mid-conversation. Run locally with Ollama, go through OpenRouter for access to hundreds of models, or plug in your own endpoint.
 
-OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Groq, Cerebras, Fireworks, TogetherAI, Ollama, OpenRouter, and more.
+OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Groq, Cerebras, Fireworks, TogetherAI, Ollama, llama.cpp, OpenRouter, and more.
 
 ### MCP: Connect to Everything
 
