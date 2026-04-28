@@ -49,10 +49,14 @@ export const OutputEntryView = React.memo(function OutputEntryView({
   const color = COLORS[entry.type];
 
   if (entry.type === "streamContent") {
+    // marginBottom={1} so the LLM response is visually separated from any
+    // metrics / cost / approval prompt that immediately follows it. The
+    // streamContent block itself is the entire response (already wrapped &
+    // formatted) so we don't need internal spacing.
     return (
       <Box
         marginTop={0}
-        marginBottom={0}
+        marginBottom={1}
         paddingLeft={PADDING.content}
       >
         <Text>{entry.message as string}</Text>
@@ -95,11 +99,15 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     }
 
     const isDebug = entry.type === "debug";
+    // Debug entries (token/cost metric lines) come in stacked groups with no
+    // visual separation between them; we collapse marginBottom so consecutive
+    // debug lines are tight, then rely on the next non-debug entry's
+    // marginTop (or its own internal separator) to break out of the group.
     return (
       <Box
         marginTop={addSpacing ? 1 : 0}
-        marginBottom={1}
-        paddingLeft={isDebug ? PADDING.content : 0}
+        marginBottom={isDebug ? 0 : 1}
+        paddingLeft={PADDING.content}
       >
         {icon}
         <Text> </Text>
@@ -118,6 +126,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
       <Box
         marginTop={addSpacing ? 1 : 0}
         marginBottom={1}
+        paddingLeft={PADDING.content}
       >
         {entry.message.node}
       </Box>

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
-import { codeColor, CHALK_THEME } from "../ui/theme";
+import { codeColor, CHALK_THEME, THEME } from "../ui/theme";
 
 // Test helper class to access protected methods
 class TestCLIRenderer extends CLIRenderer {
@@ -50,7 +50,7 @@ describe("CLIRenderer", () => {
       const text = "**Bold**";
       renderer.testRenderChunk(text, 0);
       const result = renderer.testFlushBuffer();
-      expect(result).toBe(chalk.bold.hex("#F8FAFC")("Bold"));
+      expect(result).toBe(chalk.bold.hex(THEME.primary)("Bold"));
     });
 
     it("should render italic text correctly", () => {
@@ -211,7 +211,7 @@ describe("CLIRenderer", () => {
 
       // Flush buffer to get the result
       const result3 = renderer.testFlushBuffer();
-      expect(result3).toBe(chalk.bold.hex("#F8FAFC")("Bold"));
+      expect(result3).toBe(chalk.bold.hex(THEME.primary)("Bold"));
     });
 
     it("should handle split headers across multiple chunks", () => {
