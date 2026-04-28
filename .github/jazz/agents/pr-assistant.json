@@ -6,7 +6,7 @@
   "config": {
     "persona": "coder",
     "llmProvider": "openrouter",
-    "llmModel": "free",
+    "llmModel": "openrouter/free",
     "reasoningEffort": "medium",
     "tools": [
       "find",
