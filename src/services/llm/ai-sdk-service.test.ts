@@ -611,6 +611,46 @@ describe("AI SDK Service - Unit Tests", () => {
       const openaiProvider = result.find((p) => p.name === "openai");
       expect(openaiProvider?.configured).toBe(true);
     });
+
+    it("uses configured base_url when fetching llamacpp models", async () => {
+      let observedUrl = "";
+      global.fetch = ((url: string) => {
+        observedUrl = String(url);
+        if (observedUrl.endsWith("/models")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: [{ id: "test-model" }] }),
+          });
+        }
+        if (observedUrl.endsWith("/props")) {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                default_generation_settings: { n_ctx: 8192 },
+                chat_template_caps: {},
+              }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      }) as unknown as typeof fetch;
+
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        const provider = yield* llmService.getProvider("llamacpp");
+        return provider.supportedModels;
+      });
+
+      const configLayer = createTestConfigLayer({
+        llamacpp: { base_url: "http://example:9090/v1" },
+      });
+
+      const result = await runWithTestLayers(testEffect, configLayer);
+
+      expect(result[0]!.id).toBe("test-model");
+      expect(result[0]!.contextWindow).toBe(8192);
+      expect(observedUrl).toContain("example:9090");
+    });
   });
 
   /**

@@ -818,7 +818,10 @@ class AISDKService implements LLMService {
     }
 
     const providerConfig = this.config.llmConfig?.[providerName];
-    const baseUrl = modelSource.defaultBaseUrl;
+    const baseUrl =
+      providerName === "ollama" || providerName === "llamacpp"
+        ? resolveLocalProviderBaseUrl(providerName, this.config.llmConfig)
+        : modelSource.defaultBaseUrl;
 
     if (!baseUrl) {
       void this.logger.warn(
