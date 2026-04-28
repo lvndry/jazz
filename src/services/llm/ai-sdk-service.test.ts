@@ -83,6 +83,7 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(providerNames).toContain("openrouter");
       expect(providerNames).toContain("anthropic");
       expect(providerNames).toContain("ollama");
+      expect(providerNames).toContain("llamacpp");
 
       // Check configured status
       const openaiProvider = result.find((p) => p.name === "openai");
@@ -106,6 +107,21 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const ollamaProvider = result.find((p) => p.name === "ollama");
       expect(ollamaProvider?.configured).toBe(true);
+    });
+
+    it("should mark llamacpp as configured even without API key", async () => {
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        return yield* llmService.listProviders();
+      });
+
+      const configLayer = createTestConfigLayer({});
+
+      const result = await runWithTestLayers(testEffect, configLayer);
+
+      const llamacpp = result.find((p) => p.name === "llamacpp");
+      expect(llamacpp).toBeDefined();
+      expect(llamacpp?.configured).toBe(true);
     });
 
     it("should handle empty LLM config", async () => {
