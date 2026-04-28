@@ -20,11 +20,48 @@ export interface AgentPromptOptions {
   readonly conversationHistory?: ChatMessage[];
   readonly toolNames?: readonly string[];
   readonly availableTools?: Record<string, string>;
+  /**
+   * All skills available to the agent. Rendered as a compact index
+   * (one line per skill) in the system prompt — full descriptions are loaded
+   * JIT via `find_skills` or auto-injected when a trigger matches the user
+   * message. Each entry can optionally provide a curated `tagline`; if absent
+   * the system falls back to a truncated description.
+   */
   readonly knownSkills?: readonly {
     readonly name: string;
     readonly description: string;
     readonly path: string;
+    readonly tagline?: string;
+    readonly triggers?: readonly string[];
   }[];
+  /**
+   * Names of skills whose triggers matched the current user input. The full
+   * descriptions for these are inlined into the system prompt to bias the
+   * model toward loading them, even on small models that wouldn't think to
+   * call `find_skills` first. Subset of `knownSkills` by name.
+   */
+  readonly triggeredSkillNames?: readonly string[];
+}
+
+/**
+ * Pick the line shown in the system-prompt skill index.
+ *
+ * Mirrors `getSkillIndexLine` in skill-service but operates on the inline
+ * `knownSkills` shape used by the prompt builder (no `source` required).
+ * Prefers `tagline`; otherwise truncates `description` to one sentence or
+ * 80 chars so legacy skills without a tagline still render compactly.
+ */
+function getSkillIndexLineFromOption(s: {
+  readonly name: string;
+  readonly description: string;
+  readonly tagline?: string;
+}): string {
+  if (s.tagline && s.tagline.trim().length > 0) return s.tagline.trim();
+  const desc = s.description.trim();
+  if (desc.length === 0) return s.name;
+  const firstSentence = desc.match(/^[^.!?]{1,80}[.!?]/);
+  if (firstSentence) return firstSentence[0];
+  return desc.length > 80 ? desc.slice(0, 77) + "..." : desc;
 }
 
 /** Fallback when PersonaService is unavailable or persona cannot be resolved. */
@@ -92,6 +129,11 @@ export class AgentPromptBuilder {
     hash.update(options.agentDescription);
     if (options.knownSkills && options.knownSkills.length > 0) {
       hash.update(JSON.stringify(options.knownSkills.map((s) => s.name).sort()));
+    }
+    // Triggered-skill set varies per turn; mix it into the cache key so the
+    // injected detail block is rebuilt whenever the trigger match changes.
+    if (options.triggeredSkillNames && options.triggeredSkillNames.length > 0) {
+      hash.update(`triggered:${[...options.triggeredSkillNames].sort().join(",")}`);
     }
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
@@ -180,19 +222,40 @@ export class AgentPromptBuilder {
           .replace("{username}", username);
 
         if (options.knownSkills && options.knownSkills.length > 0) {
-          const skillsXml = options.knownSkills
+          // Compact index — one line per skill. Full descriptions are loaded
+          // JIT via the `find_skills` tool. This keeps system-prompt overhead
+          // bounded as the skill catalog grows.
+          const indexLines = options.knownSkills
+            .map((s) => `- ${s.name}: ${getSkillIndexLineFromOption(s)}`)
+            .join("\n");
+
+          // Triggered skills get their full description inlined so the model
+          // is biased toward loading them on this turn. Filtered to skills
+          // that are actually in `knownSkills`.
+          const triggeredSet = new Set(options.triggeredSkillNames ?? []);
+          const triggeredDetailXml = options.knownSkills
+            .filter((s) => triggeredSet.has(s.name))
             .map(
               (s) =>
                 `  <skill>\n    <name>${s.name}</name>\n    <description>${s.description}</description>\n  </skill>`,
             )
             .join("\n");
 
+          const triggeredBlock =
+            triggeredDetailXml.length > 0
+              ? `
+<likely_relevant_skills>
+${triggeredDetailXml}
+</likely_relevant_skills>
+`
+              : "";
+
           const skillsSection = `
 ${SKILLS_INSTRUCTIONS}
 <available_skills>
-${skillsXml}
+${indexLines}
 </available_skills>
-`;
+${triggeredBlock}`;
           systemPrompt = systemPrompt + skillsSection;
         }
 

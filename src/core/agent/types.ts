@@ -180,5 +180,7 @@ export interface AgentRunContext {
     readonly name: string;
     readonly description: string;
     readonly path: string;
+    readonly tagline?: string;
+    readonly triggers?: readonly string[];
   }[];
 }

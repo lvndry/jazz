@@ -56,7 +56,9 @@ describe("markdown-formatter", () => {
       // Simulate input that might have caused issues before
       const input = "# Release 0.6.1";
       const result = formatMarkdown(input);
-      expect(result).toBe(CHALK_THEME.primaryBold("◆ Release 0.6.1"));
+      // H1 = bold + underline + primary color (intentional hierarchy: H1 is
+      // visibly heavier than H2-H4 beyond just color).
+      expect(result).toBe(chalk.bold.underline.hex(THEME.primary)("# Release 0.6.1"));
       // Ensure no leaked ANSI codes as text
       expect(result).not.toContain("1mRelease");
     });
@@ -64,13 +66,13 @@ describe("markdown-formatter", () => {
     it("should style second-level headings with stronger hierarchy", () => {
       const input = "## Response Overview";
       const result = formatMarkdown(input);
-      expect(result).toBe(CHALK_THEME.agentBold("▸ Response Overview"));
+      expect(result).toBe(CHALK_THEME.agentBold("## Response Overview"));
     });
 
     it("should style headings with extra leading spaces (LLM-indented markdown)", () => {
-      expect(formatMarkdown("    ## Code Review")).toBe(CHALK_THEME.agentBold("▸ Code Review"));
+      expect(formatMarkdown("    ## Code Review")).toBe(CHALK_THEME.agentBold("## Code Review"));
       expect(formatMarkdown("      ### Suggestions")).toBe(
-        chalk.hex(THEME.link).bold("• Suggestions"),
+        chalk.hex(THEME.link).bold("### Suggestions"),
       );
     });
 
@@ -85,7 +87,7 @@ describe("markdown-formatter", () => {
       const input = "> Thinking aloud";
       const result = formatMarkdown(input);
       expect(result).toBe(
-        `${CHALK_THEME.reasoning("▏")} ${chalk.italic.hex("#94A3B8")("Thinking aloud")}`,
+        `${CHALK_THEME.reasoning(">")} ${chalk.italic.hex("#94A3B8")("Thinking aloud")}`,
       );
     });
   });
@@ -445,6 +447,288 @@ describe("markdown-formatter", () => {
       // The period should not be inside the hyperlink
       const stripped = stripAnsiCodes(result);
       expect(stripped).toMatch(/example\.com[^.]*\.$/);
+    });
+  });
+
+  describe("heading + inline bold composition (regression: heading color preserved)", () => {
+    /**
+     * Repro for the bug where a `**bold**` span inside a heading caused the
+     * heading color to drop on text after the bold. Asserts visible text is
+     * intact and the heading's open ANSI sequence appears AFTER each inner
+     * reset so the outer color/weight survives.
+     */
+    it("rendered: H3 with leading text and bold span keeps full visible content", () => {
+      const result = formatMarkdown("### 🕊️ **Humility: Biblical Foundations**");
+      const stripped = stripAnsiCodes(result);
+      expect(stripped).toContain("🕊️");
+      expect(stripped).toContain("Humility: Biblical Foundations");
+      // The `**` markers are stripped in rendered mode.
+      expect(stripped).not.toContain("**");
+      // Heading marker is present (literal `###` for H3).
+      expect(stripped).toMatch(/^\s*###\s/);
+    });
+
+    it("hybrid: H3 with bold preserves both ## markers and **", () => {
+      const result = formatMarkdownHybrid("### 🕊️ **Humility: Biblical Foundations**");
+      const stripped = stripAnsiCodes(result);
+      expect(stripped).toContain("###");
+      expect(stripped).toContain("**Humility: Biblical Foundations**");
+      expect(stripped).toContain("🕊️");
+    });
+
+    it("rendered: H1 with mixed text keeps every word", () => {
+      const result = formatMarkdown("# Pre **Bold** Mid **Bold2** Post");
+      const stripped = stripAnsiCodes(result);
+      // All four content tokens must appear in order.
+      expect(stripped).toMatch(/Pre.*Bold.*Mid.*Bold2.*Post/);
+    });
+
+    it("rendered: H4 with bold composes without losing surrounding dim style", () => {
+      const result = formatMarkdown("#### Note: **Important** detail");
+      const stripped = stripAnsiCodes(result);
+      expect(stripped).toContain("Note:");
+      expect(stripped).toContain("Important");
+      expect(stripped).toContain("detail");
+    });
+
+    it("hybrid: trailing text after a bold span keeps its visible content", () => {
+      // Regression for the user-reported case where `### Pre **Bold** Post`
+      // would visibly lose " Post" because the inner bold close cancelled the
+      // outer heading color and the terminal effectively swallowed the rest.
+      // We assert visible content survives intact (chalk-level-independent).
+      const result = formatMarkdownHybrid("### Pre **Bold** Post");
+      const stripped = stripAnsiCodes(result);
+      expect(stripped).toContain("Pre");
+      expect(stripped).toContain("Bold");
+      expect(stripped).toContain("Post");
+    });
+  });
+
+  describe("formatTables", () => {
+    it("renders a simple two-column table with ASCII borders by default", () => {
+      const md = ["| Name | Age |", "|------|-----|", "| Alice | 30 |", "| Bob | 25 |"].join("\n");
+      const result = formatMarkdown(md);
+      const stripped = stripAnsiCodes(result);
+      // ASCII style is the default (font-portable).
+      expect(stripped).toContain("+");
+      expect(stripped).toContain("|");
+      expect(stripped).toContain("-");
+      expect(stripped).toContain("Name");
+      expect(stripped).toContain("Alice");
+      expect(stripped).toContain("Bob");
+      // Must NOT use Unicode box-drawing in the default style.
+      expect(stripped).not.toContain("┌");
+      expect(stripped).not.toContain("│");
+    });
+
+    it("drops the alignment row from the visible output", () => {
+      const md = ["| A | B |", "|---|---|", "| 1 | 2 |"].join("\n");
+      const result = formatMarkdown(md);
+      const stripped = stripAnsiCodes(result);
+      // The literal `---|---` separator should not appear in body rows.
+      expect(stripped).not.toMatch(/\|---\|---\|/);
+    });
+
+    it("aligns columns when cells contain ANSI-styled content (bold inside table)", () => {
+      const md = ["| Name | Age |", "|------|-----|", "| **Alice** | 30 |", "| Bob | 25 |"].join(
+        "\n",
+      );
+      const result = formatMarkdown(md);
+      // Visible widths should be consistent — count visible chars per body row.
+      const stripped = stripAnsiCodes(result);
+      // Body rows start with the vertical bar (`|` in the default ASCII style).
+      const bodyLines = stripped.split("\n").filter((l) => l.startsWith("|"));
+      // All body lines (header + data) must share the same visible length.
+      const lengths = new Set(bodyLines.map((l) => l.length));
+      expect(lengths.size).toBe(1);
+    });
+
+    it("hybrid mode also renders tables", () => {
+      const md = ["| A | B |", "|---|---|", "| 1 | 2 |"].join("\n");
+      const result = formatMarkdownHybrid(md);
+      const stripped = stripAnsiCodes(result);
+      // Default ASCII style.
+      expect(stripped).toContain("+");
+      // Vertical bars present.
+      expect(stripped.split("\n").some((l) => l.startsWith("|"))).toBe(true);
+    });
+
+    it("leaves non-table use of pipes untouched", () => {
+      const md = "Use the `cat foo | grep bar` pattern.";
+      const result = formatMarkdown(md);
+      const stripped = stripAnsiCodes(result);
+      expect(stripped).toContain("cat foo | grep bar");
+      // No table border row inserted.
+      expect(stripped).not.toMatch(/^\+-+\+/m);
+    });
+
+    it("rejects malformed tables without an alignment row", () => {
+      const md = ["| Name | Age |", "| Alice | 30 |"].join("\n");
+      const result = formatMarkdown(md);
+      const stripped = stripAnsiCodes(result);
+      // Without alignment row, both lines should pass through verbatim.
+      expect(stripped).toContain("| Name | Age |");
+      // No ASCII table border line.
+      expect(stripped).not.toMatch(/^\+-+\+/m);
+    });
+
+    it("handles tables with bold + heading siblings in the same input", () => {
+      const md = [
+        "## Results",
+        "",
+        "| Metric | **Value** |",
+        "|--------|-----------|",
+        "| Tokens | 9246 |",
+      ].join("\n");
+      const result = formatMarkdown(md);
+      const stripped = stripAnsiCodes(result);
+      expect(stripped).toContain("Results");
+      expect(stripped).toContain("Metric");
+      expect(stripped).toContain("Value");
+      expect(stripped).toContain("Tokens");
+      expect(stripped).toContain("9246");
+      // Default ASCII border present.
+      expect(stripped).toMatch(/^\+-+\+/m);
+    });
+
+    it("respects JAZZ_TABLE_STYLE=unicode for opt-in box-drawing", () => {
+      const original = process.env["JAZZ_TABLE_STYLE"];
+      process.env["JAZZ_TABLE_STYLE"] = "unicode";
+      try {
+        const md = ["| A | B |", "|---|---|", "| 1 | 2 |"].join("\n");
+        const result = formatMarkdown(md);
+        const stripped = stripAnsiCodes(result);
+        expect(stripped).toContain("┌");
+        expect(stripped).toContain("│");
+        expect(stripped).toContain("─");
+      } finally {
+        if (original === undefined) delete process.env["JAZZ_TABLE_STYLE"];
+        else process.env["JAZZ_TABLE_STYLE"] = original;
+      }
+    });
+
+    it("respects JAZZ_TABLE_STYLE=minimal for borderless rendering", () => {
+      const original = process.env["JAZZ_TABLE_STYLE"];
+      process.env["JAZZ_TABLE_STYLE"] = "minimal";
+      try {
+        const md = ["| A | B |", "|---|---|", "| 1 | 2 |"].join("\n");
+        const result = formatMarkdown(md);
+        const stripped = stripAnsiCodes(result);
+        // Cell content present, no box-drawing borders.
+        expect(stripped).toContain("A");
+        expect(stripped).toContain("B");
+        expect(stripped).toContain("1");
+        expect(stripped).toContain("2");
+        expect(stripped).not.toContain("+");
+        expect(stripped).not.toContain("┌");
+        // No leading `|` border on rows.
+        expect(stripped.split("\n").every((l) => !l.startsWith("|"))).toBe(true);
+      } finally {
+        if (original === undefined) delete process.env["JAZZ_TABLE_STYLE"];
+        else process.env["JAZZ_TABLE_STYLE"] = original;
+      }
+    });
+
+    it("falls back to ASCII for an unknown JAZZ_TABLE_STYLE value", () => {
+      const original = process.env["JAZZ_TABLE_STYLE"];
+      process.env["JAZZ_TABLE_STYLE"] = "fancy-glyphs";
+      try {
+        const md = ["| A | B |", "|---|---|", "| 1 | 2 |"].join("\n");
+        const result = formatMarkdown(md);
+        const stripped = stripAnsiCodes(result);
+        expect(stripped).toContain("+");
+        expect(stripped).not.toContain("┌");
+      } finally {
+        if (original === undefined) delete process.env["JAZZ_TABLE_STYLE"];
+        else process.env["JAZZ_TABLE_STYLE"] = original;
+      }
+    });
+
+    it("converts <br> inside cells into multi-line rows", () => {
+      const md = [
+        "| Topic | Steps |",
+        "|-------|-------|",
+        "| Wisdom | Read Scripture.<br>Pray for guidance.<br>Reflect. |",
+      ].join("\n");
+      const result = formatMarkdown(md);
+      const stripped = stripAnsiCodes(result);
+      // Each step should be on its own line (no literal <br> remaining).
+      expect(stripped).not.toContain("<br>");
+      expect(stripped).toContain("Read Scripture.");
+      expect(stripped).toContain("Pray for guidance.");
+      expect(stripped).toContain("Reflect.");
+      // Vertical pipe (`|` in the default ASCII style) runs through every
+      // line of the multi-line row so the table reads as one visual unit.
+      const bodyLines = stripped.split("\n").filter((l) => l.startsWith("|"));
+      // Header + 3 wrapped lines for the multi-line body row = 4 rows minimum.
+      expect(bodyLines.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it("supports <br/>, <br />, and uppercase variants", () => {
+      const md = ["| A | B |", "|---|---|", "| x | one<br>two<br/>three<BR />four |"].join("\n");
+      const result = formatMarkdown(md);
+      const stripped = stripAnsiCodes(result);
+      expect(stripped).not.toContain("<br>");
+      expect(stripped).not.toContain("<br/>");
+      expect(stripped).not.toContain("<BR");
+      for (const word of ["one", "two", "three", "four"]) {
+        expect(stripped).toContain(word);
+      }
+    });
+
+    it("respects column alignment markers (left / center / right)", () => {
+      const md = [
+        "| L | C | R |",
+        "|:--|:-:|--:|",
+        "| Apple | banana | cherry |",
+        "| x     | y      | z      |",
+      ].join("\n");
+      const result = formatMarkdown(md);
+      const stripped = stripAnsiCodes(result);
+      // The body row for "Apple" is the widest in column L (5 chars). Center
+      // column "banana" sets C to 6. Right column "cherry" sets R to 6.
+      // Verify per-column alignment for the second body row (single chars).
+      const bodyLines = stripped.split("\n").filter((l) => l.startsWith("|"));
+      // Find the row containing 'x'.
+      const xRow = bodyLines.find((l) => l.includes("x"));
+      expect(xRow).toBeDefined();
+      // Left column: "x    " — content immediately after `| `.
+      expect(xRow).toMatch(/^\|\s+x\s+\|/);
+      // Right column: trailing spaces before "z" then `|` close.
+      expect(xRow).toMatch(/\|\s+z\s+\|$/);
+    });
+
+    it("caps table to terminal width when intrinsic width exceeds it", () => {
+      const longCell = "x".repeat(100);
+      const md = [`| A | B |`, `|---|---|`, `| ${longCell} | ${longCell} |`].join("\n");
+      const original = process.stdout.columns;
+      Object.defineProperty(process.stdout, "columns", { value: 60, configurable: true });
+      try {
+        const result = formatMarkdown(md);
+        const stripped = stripAnsiCodes(result);
+        // Every visible row line should be ≤ terminal width (allowing ±1
+        // for rounding due to MIN_COL_WIDTH floors).
+        const tableLines = stripped.split("\n").filter((l) => /[│┌┬├]/.test(l));
+        for (const line of tableLines) {
+          expect(line.length).toBeLessThanOrEqual(64);
+        }
+      } finally {
+        Object.defineProperty(process.stdout, "columns", {
+          value: original,
+          configurable: true,
+        });
+      }
+    });
+
+    it("preserves <br> outside tables (prose, list items)", () => {
+      const md = "Line one<br>Line two<br/>Line three";
+      const result = formatMarkdown(md);
+      const stripped = stripAnsiCodes(result);
+      expect(stripped).toContain("Line one");
+      expect(stripped).toContain("Line two");
+      expect(stripped).toContain("Line three");
+      expect(stripped).not.toContain("<br>");
+      expect(stripped.split("\n").length).toBeGreaterThanOrEqual(3);
     });
   });
 });

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
-import { codeColor, CHALK_THEME } from "../ui/theme";
+import { stripAnsiCodes } from "./markdown-formatter";
+import { codeColor, CHALK_THEME, THEME } from "../ui/theme";
 
 // Test helper class to access protected methods
 class TestCLIRenderer extends CLIRenderer {
@@ -50,7 +51,7 @@ describe("CLIRenderer", () => {
       const text = "**Bold**";
       renderer.testRenderChunk(text, 0);
       const result = renderer.testFlushBuffer();
-      expect(result).toBe(chalk.bold.hex("#F8FAFC")("Bold"));
+      expect(result).toBe(chalk.bold.hex(THEME.primary)("Bold"));
     });
 
     it("should render italic text correctly", () => {
@@ -70,14 +71,14 @@ describe("CLIRenderer", () => {
     it("should render headers correctly", () => {
       const text = "## Header\n";
       const result = renderer.testRenderChunk(text, 0);
-      expect(result).toBe(CHALK_THEME.agentBold("▸ Header") + "\n");
+      expect(result).toBe(CHALK_THEME.agentBold("## Header") + "\n");
     });
 
     it("should render blockquotes correctly", () => {
       const text = "> Quote\n";
       const result = renderer.testRenderChunk(text, 0);
       expect(result).toBe(
-        `${CHALK_THEME.reasoning("▏")} ${chalk.italic.hex("#94A3B8")("Quote")}\n`,
+        `${CHALK_THEME.reasoning(">")} ${chalk.italic.hex("#94A3B8")("Quote")}\n`,
       );
     });
 
@@ -102,17 +103,19 @@ describe("CLIRenderer", () => {
 
     it("should render code blocks when complete", () => {
       // When a complete code block arrives in a single chunk, it's fully formatted.
+      // Note: marked-terminal pipes code blocks through cli-highlight when
+      // chalk colors are enabled, so we assert on visible content rather
+      // than exact ANSI bytes — body color depends on the `typescript`
+      // grammar's keyword/operator/number rules.
       const chunk = "```typescript\nconst x = 1;\n```\n";
       const result = renderer.testRenderChunk(chunk, 0);
 
-      const expectedBlock =
-        chalk.yellow("```typescript") +
-        "\n" +
-        codeColor("const x = 1;") +
-        "\n" +
-        chalk.yellow("```") +
-        "\n";
-      expect(result).toBe(expectedBlock);
+      // Fences stay yellow.
+      expect(result).toContain(chalk.yellow("```typescript"));
+      expect(result).toContain(chalk.yellow("```"));
+      // Body content is present (regardless of intra-line highlighting).
+      const stripped = stripAnsiCodes(result);
+      expect(stripped).toContain("const x = 1;");
 
       // Content outside code block (plain)
       const chunk2 = "Plain text\n";
@@ -146,7 +149,9 @@ describe("CLIRenderer", () => {
       const result1 = renderer.testRenderChunk(chunk1, 0);
       const lines = result1.split("\n");
       expect(lines[0]).toBe(chalk.yellow("```typescript"));
-      expect(lines[1]).toBe(codeColor("const x = 1;"));
+      // Body line: assert visible content (intra-line ANSI varies with
+      // cli-highlight's typescript grammar).
+      expect(stripAnsiCodes(lines[1] ?? "")).toContain("const x = 1;");
       expect(lines[2]).toBe(chalk.yellow("```"));
 
       // Next chunk should be plain (not green)
@@ -165,7 +170,9 @@ describe("CLIRenderer", () => {
       const result2 = renderer.testRenderChunk(chunk2, 0);
       const lines = result2.split("\n");
       expect(lines[0]).toBe(chalk.yellow("```python"));
-      expect(lines[1]).toBe(codeColor("print('hello')"));
+      // Body line: assert visible content (cli-highlight applies python
+      // grammar to keywords/strings/etc.; we don't pin exact ANSI bytes).
+      expect(stripAnsiCodes(lines[1] ?? "")).toContain("print('hello')");
       expect(lines[2]).toBe(chalk.yellow("```"));
 
       // Text after should be plain
@@ -183,7 +190,7 @@ describe("CLIRenderer", () => {
       // Chunk 2: " Header\n" (should complete the header)
       const chunk2 = " Header\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
-      expect(result2).toBe(CHALK_THEME.agentBold("▸ Header") + "\n");
+      expect(result2).toBe(CHALK_THEME.agentBold("## Header") + "\n");
     });
 
     it("should buffer partial headers with leading spaces", () => {
@@ -195,7 +202,7 @@ describe("CLIRenderer", () => {
       // Chunk 2: " Header\n" (should complete the header)
       const chunk2 = " Header\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
-      expect(result2).toBe(CHALK_THEME.agentBold("▸ Header") + "\n");
+      expect(result2).toBe(CHALK_THEME.agentBold("## Header") + "\n");
     });
 
     it("should buffer partial bold markers", () => {
@@ -211,7 +218,7 @@ describe("CLIRenderer", () => {
 
       // Flush buffer to get the result
       const result3 = renderer.testFlushBuffer();
-      expect(result3).toBe(chalk.bold.hex("#F8FAFC")("Bold"));
+      expect(result3).toBe(chalk.bold.hex(THEME.primary)("Bold"));
     });
 
     it("should handle split headers across multiple chunks", () => {
@@ -220,7 +227,7 @@ describe("CLIRenderer", () => {
       // Chunk 2: " Hea"
       expect(renderer.testRenderChunk(" Hea", 0)).toBe("");
       // Chunk 3: "der\n"
-      expect(renderer.testRenderChunk("der\n", 0)).toBe(CHALK_THEME.agentBold("▸ Header") + "\n");
+      expect(renderer.testRenderChunk("der\n", 0)).toBe(CHALK_THEME.agentBold("## Header") + "\n");
     });
 
     it("should handle multiple lines correctly", () => {
@@ -239,7 +246,7 @@ describe("CLIRenderer", () => {
       // Chunk 2: " Header\n"
       const chunk2 = " Header\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
-      expect(result2).toBe(CHALK_THEME.agentBold("▸ Header") + "\n");
+      expect(result2).toBe(CHALK_THEME.agentBold("## Header") + "\n");
     });
 
     it("should render strikethrough text correctly", () => {
@@ -338,7 +345,7 @@ describe("CLIRenderer", () => {
 
       // Now flush should return the formatted header
       const result3 = renderer.testFlushBuffer();
-      expect(result3).toBe(CHALK_THEME.agentBold("▸ Header"));
+      expect(result3).toBe(CHALK_THEME.agentBold("## Header"));
     });
 
     it("should flush partial header as styled header if stream ends", () => {
@@ -346,7 +353,7 @@ describe("CLIRenderer", () => {
       const result = renderer.testFlushBuffer();
       // If the stream ends, we process what we have.
       // Since "## Partial" matches the header regex (start of string), it gets styled.
-      expect(result).toBe(CHALK_THEME.agentBold("▸ Partial"));
+      expect(result).toBe(CHALK_THEME.agentBold("## Partial"));
     });
   });
 

@@ -2,8 +2,10 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import chalk from "chalk";
+import { highlight, supportsLanguage } from "cli-highlight";
 import { emojify } from "node-emoji";
 import wrapAnsi from "wrap-ansi";
+import { getGlyphs, resolveGlyphMode } from "../ui/glyphs";
 import { codeColor, CHALK_THEME, PADDING_BUDGET, THEME } from "../ui/theme";
 
 /**
@@ -87,11 +89,31 @@ const CODE_BLOCK_EXTRACT_REGEX = /^[ \t]*```[\s\S]*?^[ \t]*```/gm;
 const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;
 // LINK_REGEX is reused for the extract/restore cycle (see extractLinks).
 const EMOJI_SHORTCODE_REGEX = /:([A-Za-z0-9_\-+]+?):/g;
-const EMPHASIS_BRIGHT = chalk.bold.hex("#F8FAFC");
-const HEADING_PRIMARY = CHALK_THEME.primaryBold;
+/**
+ * Bold styling for **bold** text. Uses the theme's primary accent so it
+ * visibly pops against body text on both light and dark terminals — the
+ * previous near-white (#F8FAFC) was indistinguishable from default body
+ * text on most dark themes, especially in `hybrid` display mode where the
+ * `**` markers stay visible alongside the styled inner text.
+ */
+const EMPHASIS_BRIGHT = chalk.bold.hex(THEME.primary);
+/**
+ * Heading styles with deliberate weight/decoration variation so that H1–H4
+ * are visually distinguishable beyond color alone (terminals don't render
+ * font sizes — we have to fake hierarchy via weight, underline, and bullet).
+ *
+ * Hierarchy: H1 is bold + underline + warm primary; H2 is bold + agent
+ * accent; H3 is bold + link blue; H4 is dim/non-bold + secondary so it
+ * reads as the smallest level.
+ */
+const HEADING_PRIMARY = chalk.bold.underline.hex(THEME.primary);
 const HEADING_AGENT = CHALK_THEME.agentBold;
 const HEADING_LINK = chalk.hex(THEME.link).bold;
-const HEADING_MUTED = chalk.hex(THEME.secondary).bold;
+/**
+ * H4 intentionally not bold so readers feel a weight drop from H3 → H4 even
+ * without font-size changes.
+ */
+const HEADING_MUTED = chalk.dim.hex(THEME.secondary);
 const ITALIC_MUTED = chalk.italic.hex(THEME.secondary);
 
 /**
@@ -119,6 +141,50 @@ export const INITIAL_STREAMING_STATE: StreamingState = { isInCodeBlock: false };
  */
 export function stripAnsiCodes(text: string): string {
   return text.replace(ANSI_ESCAPE_REGEX, "");
+}
+
+/**
+ * Convert HTML `<br>` tags (any common variant) to real newlines.
+ *
+ * Markdown source typically can't express line breaks in contexts like
+ * table cells, so models reach for `<br>` / `<br/>` / `<br />`. Without
+ * this pass, those tags render as literal text, inflating cell widths
+ * and confusing readers. We treat them as a hard line break.
+ */
+export function convertHtmlLineBreaks(text: string): string {
+  return text.replace(/<br\s*\/?>/gi, "\n");
+}
+
+/**
+ * SGR codes that act as resets for the styles we layer (color, bold, italic,
+ * underline, inverse, strikethrough). Any of these inside a span wrapped by
+ * an outer style will cancel that outer style. We re-emit the outer's open
+ * codes immediately after each match so the outer survives.
+ */
+// eslint-disable-next-line no-control-regex
+const RESET_RE = /\x1b\[0m|\x1b\[(?:22|23|24|27|29|39|49)m/g;
+
+/**
+ * Wrap `text` (which may contain its own ANSI escapes) in an outer chalk
+ * style, in a way that survives inner resets.
+ *
+ * Plain `chalk.red(textWithBoldAlready)` produces `\x1b[31m...\x1b[22m...\x1b[39m`
+ * — the inner `\x1b[22m` from the bold close also kills the red. After this
+ * helper, every inner reset is followed by a re-emit of the outer's open
+ * codes so the outer color (and weight) carry through to the next reset.
+ */
+function wrapPreservingInner(text: string, outer: chalk.Chalk): string {
+  // Probe the outer style's open and close sequences by wrapping a sentinel.
+  // Sentinel uses a PUA char that won't appear in real content.
+  const SENTINEL = "";
+  const probed = outer(SENTINEL);
+  const parts = probed.split(SENTINEL);
+  const open = parts[0] ?? "";
+  const close = parts[1] ?? "";
+  if (open.length === 0) return text;
+  // Re-emit `open` after each inner reset so the outer style survives.
+  const restored = text.replace(RESET_RE, (match) => match + open);
+  return open + restored + close;
 }
 
 /**
@@ -153,6 +219,427 @@ export function formatBold(text: string): string {
     (_match: string, asteriskContent: string | undefined, underscoreContent: string | undefined) =>
       EMPHASIS_BRIGHT((asteriskContent ?? underscoreContent)!),
   );
+}
+
+// ============================================================================
+// Tables — GitHub-flavored markdown
+// ============================================================================
+
+/** Border / separator chalk style. Subtle so it doesn't compete with content. */
+const TABLE_BORDER = chalk.hex(THEME.secondary).dim;
+/** Header cell style. Bold + accent color so headers stand out from body rows. */
+const TABLE_HEADER_CELL = chalk.bold.hex(THEME.primary);
+
+/**
+ * Visible-character width of a string, ignoring ANSI escape codes.
+ *
+ * Conservative implementation: counts code units, which is correct for ASCII
+ * and Latin-1 but slightly over-counts for some CJK / emoji glyphs. Used only
+ * for column alignment, where small drift is preferable to depending on a
+ * full Unicode east-asian-width table.
+ */
+function visibleWidth(text: string): number {
+  return stripAnsiCodes(text).length;
+}
+
+/** Pad ANSI-formatted text on the right to a target visible width. */
+function padRight(text: string, width: number): string {
+  const visible = visibleWidth(text);
+  if (visible >= width) return text;
+  return text + " ".repeat(width - visible);
+}
+
+/** Pad ANSI-formatted text on the LEFT to a target visible width. */
+function padLeft(text: string, width: number): string {
+  const visible = visibleWidth(text);
+  if (visible >= width) return text;
+  return " ".repeat(width - visible) + text;
+}
+
+/** Pad ANSI-formatted text on BOTH sides to center it within a target width. */
+function padCenter(text: string, width: number): string {
+  const visible = visibleWidth(text);
+  if (visible >= width) return text;
+  const total = width - visible;
+  const left = Math.floor(total / 2);
+  const right = total - left;
+  return " ".repeat(left) + text + " ".repeat(right);
+}
+
+type ColumnAlign = "left" | "center" | "right";
+
+/**
+ * Test whether a line looks like a markdown table alignment row.
+ * Examples: `|---|---|`, `|:---|---:|`, `| :--- | ---: | :---: |`
+ */
+function isAlignmentRow(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) return false;
+  // Each cell must be /[\s:-]+/ with at least one dash.
+  return /^\|(?:\s*:?-+:?\s*\|)+$/.test(trimmed);
+}
+
+/**
+ * Parse the alignment row into per-column alignment markers.
+ * `:---`  → left, `---:` → right, `:---:` → center, `---` → left (default).
+ */
+function parseAlignmentRow(line: string): ColumnAlign[] {
+  const inner = line.trim().slice(1, -1);
+  return inner.split("|").map((cell) => {
+    const c = cell.trim();
+    const startsColon = c.startsWith(":");
+    const endsColon = c.endsWith(":");
+    if (startsColon && endsColon) return "center";
+    if (endsColon) return "right";
+    return "left";
+  });
+}
+
+/** Test whether a line looks like a markdown table row. */
+function isTableRow(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length >= 3;
+}
+
+/**
+ * Split a table row line into cell contents.
+ *
+ * - Strips the leading and trailing pipes and splits on unescaped `|`.
+ * - Converts HTML `<br>` (any common variant) to a real newline so cells
+ *   can have multi-line content. Markdown tables can't span source lines,
+ *   so `<br>` is the standard way to express line breaks within a cell.
+ *
+ * (We don't support `\|` escapes for literal pipes inside a cell because
+ * models rarely emit them; if needed later, swap split for a regex.)
+ */
+function parseTableRow(line: string): string[] {
+  const inner = line.trim().slice(1, -1);
+  return inner.split("|").map((cell) => cell.trim().replace(/<br\s*\/?>/gi, "\n"));
+}
+
+/**
+ * Detect and render markdown tables to box-drawn ASCII art.
+ *
+ * Handles:
+ *   - alignment row markers (`:---`, `---:`, `:---:`)
+ *   - `<br>` line breaks inside cells (converted to `\n`)
+ *   - multi-line cells (rendered as multi-line rows with vertical borders
+ *     spanning every line so the table reads as a single visual unit)
+ *   - cell contents pre-styled with ANSI escapes (column widths measured
+ *     against visible characters)
+ *   - terminal-width capping: if the natural table is wider than the
+ *     available width, columns are scaled proportionally and content is
+ *     soft-wrapped via wrap-ansi so borders don't overflow and break.
+ *
+ * Falls through unchanged when a candidate block lacks the header +
+ * alignment row pair, so non-table use of `|` survives.
+ */
+export function formatTables(text: string): string {
+  if (!text.includes("|")) return text;
+
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const headerLine = lines[i];
+    const alignLine = lines[i + 1];
+    if (
+      headerLine !== undefined &&
+      alignLine !== undefined &&
+      isTableRow(headerLine) &&
+      isAlignmentRow(alignLine)
+    ) {
+      const headerCells = parseTableRow(headerLine);
+      const aligns = parseAlignmentRow(alignLine);
+      const bodyRows: string[][] = [];
+      let j = i + 2;
+      while (j < lines.length && isTableRow(lines[j]!)) {
+        bodyRows.push(parseTableRow(lines[j]!));
+        j++;
+      }
+
+      if (headerCells.length > 0) {
+        out.push(renderTable(headerCells, bodyRows, aligns));
+        i = j;
+        continue;
+      }
+    }
+
+    out.push(headerLine ?? "");
+    i++;
+  }
+
+  return out.join("\n");
+}
+
+/** Per-table layout overhead (border pipes + cell side padding). */
+function tableOverhead(colCount: number): number {
+  // Layout: │ <cell> │ <cell> │ <cell> │
+  // = 1 (left border) + colCount * (1 padding + content + 1 padding) + (colCount - 1) inner pipes + 1 (right border)
+  // Per col: 2 (padding) + 1 (separator pipe to next, except last)
+  // Total non-content: 1 + 1 + (colCount - 1) + 2 * colCount = 2 * colCount + colCount + 1 = 3 * colCount + 1.
+  // Wait that double-counts. Re-derive:
+  //   pipes: colCount + 1
+  //   side padding inside each cell: colCount * 2
+  // Total = 3 * colCount + 1.
+  return 3 * colCount + 1;
+}
+
+/**
+ * Compute final column widths.
+ *
+ * Step 1: intrinsic — the longest visible-line width in each column,
+ * across header + body, taking multi-line cells into account.
+ *
+ * Step 2: cap — if total > available terminal width, scale columns
+ * proportionally to their intrinsic width, with a floor of MIN_COL_WIDTH
+ * so each column is still readable. The scaled total may exceed the
+ * available width slightly (due to MIN_COL_WIDTH floors) — the terminal
+ * will wrap, but borders stay intact within each column.
+ */
+function computeColumnWidths(
+  headerCells: readonly string[],
+  bodyRows: readonly (readonly string[])[],
+  colCount: number,
+  availableContentWidth: number,
+): number[] {
+  const MIN_COL_WIDTH = 4;
+
+  const intrinsic: number[] = new Array<number>(colCount).fill(0);
+  const measureCell = (cell: string, c: number): void => {
+    // Multi-line cells: take the widest line.
+    for (const line of cell.split("\n")) {
+      const w = visibleWidth(line);
+      if (w > (intrinsic[c] ?? 0)) intrinsic[c] = w;
+    }
+  };
+  for (let c = 0; c < colCount; c++) measureCell(headerCells[c] ?? "", c);
+  for (const row of bodyRows) {
+    for (let c = 0; c < colCount; c++) measureCell(row[c] ?? "", c);
+  }
+
+  const total = intrinsic.reduce((s: number, w: number) => s + w, 0);
+  if (total <= availableContentWidth || availableContentWidth <= 0) {
+    return intrinsic.map((w: number) => Math.max(MIN_COL_WIDTH, w));
+  }
+
+  // Proportional scale-down with floor.
+  const scaled = intrinsic.map((w: number) => {
+    const share = (w / total) * availableContentWidth;
+    return Math.max(MIN_COL_WIDTH, Math.floor(share));
+  });
+  return scaled;
+}
+
+/**
+ * Wrap a single cell's text to fit within `width` visible columns.
+ * Returns the array of resulting lines.
+ *
+ * Honors any pre-existing newlines in the cell (from `<br>` conversion)
+ * and additionally wraps each line that's too long. Uses `wrap-ansi` with
+ * `hard: true` so words longer than the column don't escape; trim is
+ * disabled so leading/trailing intentional whitespace inside a cell is
+ * preserved (rare but possible).
+ */
+function wrapCell(cell: string, width: number): string[] {
+  if (width <= 0) return [cell];
+  const out: string[] = [];
+  for (const line of cell.split("\n")) {
+    if (line.length === 0) {
+      out.push("");
+      continue;
+    }
+    const wrapped = wrapAnsi(line, width, { hard: true, trim: false });
+    for (const w of wrapped.split("\n")) out.push(w);
+  }
+  return out.length > 0 ? out : [""];
+}
+
+/**
+ * Border character set for a given table style.
+ *
+ * `ascii` (default) — uses only `+`, `-`, `|`. Renders identically in every
+ * monospace font and terminal that's ever existed. The portable choice;
+ * what we recommend unless the user has explicitly verified Unicode
+ * box-drawing renders cleanly in their setup.
+ *
+ * `unicode` — `┌┬┐├┼┤└┴┘│─`. Looks great in modern fonts (JetBrains
+ * Mono, Fira Code, MesloLGS, SF Mono) but renders broken in macOS
+ * default Menlo, in some CJK locales (ambiguous-width interpretation),
+ * and in any terminal whose font doesn't include U+2500 box-drawing
+ * glyphs (those fall back to a different font with a different metric,
+ * mis-aligning everything).
+ *
+ * `minimal` — no borders, just dim column separators. Lightest visual
+ * weight, never wraps wrong because there's nothing to break.
+ */
+type TableStyle = "ascii" | "unicode" | "minimal";
+
+interface TableChars {
+  /** top-left corner */ readonly tl: string;
+  /** top junction (╤) */ readonly tj: string;
+  /** top-right corner */ readonly tr: string;
+  /** mid-left junction */ readonly ml: string;
+  /** mid junction (┼) */ readonly mj: string;
+  /** mid-right junction */ readonly mr: string;
+  /** bottom-left corner */ readonly bl: string;
+  /** bottom junction (┴) */ readonly bj: string;
+  /** bottom-right corner */ readonly br: string;
+  /** vertical bar */ readonly v: string;
+  /** horizontal bar */ readonly h: string;
+}
+
+const TABLE_CHARS: Record<TableStyle, TableChars> = {
+  ascii: {
+    tl: "+",
+    tj: "+",
+    tr: "+",
+    ml: "+",
+    mj: "+",
+    mr: "+",
+    bl: "+",
+    bj: "+",
+    br: "+",
+    v: "|",
+    h: "-",
+  },
+  unicode: {
+    tl: "┌",
+    tj: "┬",
+    tr: "┐",
+    ml: "├",
+    mj: "┼",
+    mr: "┤",
+    bl: "└",
+    bj: "┴",
+    br: "┘",
+    v: "│",
+    h: "─",
+  },
+  minimal: {
+    tl: "",
+    tj: "",
+    tr: "",
+    ml: "",
+    mj: "",
+    mr: "",
+    bl: "",
+    bj: "",
+    br: "",
+    v: " ",
+    h: "",
+  },
+};
+
+/**
+ * Resolve which table style to use.
+ *
+ * Resolution order:
+ *
+ *   1. `JAZZ_TABLE_STYLE` env if set to a valid value — most specific,
+ *      lets users get `minimal` borderless tables without changing the
+ *      rest of the UI's glyph mode.
+ *   2. The active `JAZZ_UI_GLYPHS` mode — `ascii`/`unicode` map directly.
+ *   3. Default `ascii` (portable).
+ */
+function resolveTableStyle(): TableStyle {
+  const raw = (process.env["JAZZ_TABLE_STYLE"] ?? "").toLowerCase();
+  if (raw === "unicode" || raw === "minimal" || raw === "ascii") return raw;
+  // Inherit from the global glyph mode so a single `JAZZ_UI_GLYPHS=unicode`
+  // setting flips both tables and decoration glyphs.
+  return resolveGlyphMode() === "unicode" ? "unicode" : "ascii";
+}
+
+/**
+ * Render a parsed table to a multi-line string.
+ *
+ * Each row may have `rowHeight > 1` lines if any cell wraps. The
+ * vertical border runs through every line of the row so the table
+ * reads as one visual unit. Border style is selected via
+ * `resolveTableStyle()` — defaults to ASCII (`+` `|` `-`) for
+ * font/terminal portability; users with confirmed Unicode-capable
+ * setups can opt in via `JAZZ_TABLE_STYLE=unicode`.
+ */
+function renderTable(
+  header: readonly string[],
+  body: readonly (readonly string[])[],
+  aligns: readonly ColumnAlign[],
+): string {
+  const style = resolveTableStyle();
+  const c = TABLE_CHARS[style];
+  const colCount = header.length;
+  const overhead = tableOverhead(colCount);
+
+  // Available width for cell content. Subtract overhead for borders +
+  // padding. PADDING_BUDGET subtracts the page/content padding the outer
+  // Box already consumes, so the table never visually exceeds the viewport.
+  const terminalWidth = getTerminalWidth();
+  const availableContentWidth = Math.max(
+    colCount * 4, // floor: 4 chars per column
+    terminalWidth - PADDING_BUDGET - overhead,
+  );
+
+  const widths = computeColumnWidths(header, body, colCount, availableContentWidth);
+
+  const isMinimal = style === "minimal";
+
+  // Border lines. For `minimal`, the top/separator/bottom rules are
+  // empty — we'll filter them out before joining. For ascii/unicode they
+  // span every column with junction chars.
+  const buildRule = (left: string, junction: string, right: string): string => {
+    const segs = widths.map((w) => c.h.repeat(w + 2));
+    return TABLE_BORDER(`${left}${segs.join(junction)}${right}`);
+  };
+  const top = isMinimal ? "" : buildRule(c.tl, c.tj, c.tr);
+  const sep = isMinimal ? "" : buildRule(c.ml, c.mj, c.mr);
+  const bottom = isMinimal ? "" : buildRule(c.bl, c.bj, c.br);
+  const pipe = TABLE_BORDER(c.v);
+
+  const alignCell = (text: string, idx: number): string => {
+    const w = widths[idx] ?? 0;
+    const a = aligns[idx] ?? "left";
+    if (a === "right") return padLeft(text, w);
+    if (a === "center") return padCenter(text, w);
+    return padRight(text, w);
+  };
+
+  const renderRow = (cells: readonly string[], styleHeader: boolean): string[] => {
+    // Wrap each cell to its column's width — produces an array of lines.
+    const wrappedPerCell = cells.map((cell, idx) => {
+      const lines = wrapCell(cell ?? "", widths[idx] ?? 0);
+      return styleHeader ? lines.map((l) => TABLE_HEADER_CELL(l)) : lines;
+    });
+    const rowHeight = Math.max(...wrappedPerCell.map((line) => line.length), 1);
+
+    const out: string[] = [];
+    for (let line = 0; line < rowHeight; line++) {
+      const segments = wrappedPerCell.map((cellLines, idx) => {
+        const text = cellLines[line] ?? "";
+        return alignCell(text, idx);
+      });
+      // For ascii/unicode: pipes wrap cells with single-space padding on
+      // each side. For minimal: no outer pipes, dim space separator
+      // between cells, no surrounding padding.
+      if (isMinimal) {
+        out.push(segments.join(`  `));
+      } else {
+        out.push(`${pipe} ${segments.join(` ${pipe} `)} ${pipe}`);
+      }
+    }
+    return out;
+  };
+
+  const lines: string[] = [];
+  if (top) lines.push(top);
+  lines.push(...renderRow(header, true));
+  if (sep) lines.push(sep);
+  for (const row of body) {
+    const normalized = new Array(colCount).fill("").map((_, idx) => row[idx] ?? "");
+    lines.push(...renderRow(normalized, false));
+  }
+  if (bottom) lines.push(bottom);
+  return lines.join("\n");
 }
 
 /**
@@ -253,22 +740,36 @@ export function formatInlineCode(text: string): string {
 }
 
 /**
- * Format markdown headings with ANSI colors
+ * Format markdown headings with ANSI colors.
+ *
+ * Uses `wrapPreservingInner` so that any pre-existing ANSI inside the heading
+ * text (e.g. a `**bold span**` already styled by an earlier pass) does not
+ * cancel the heading color when its inner reset fires. Without this, a line
+ * like `### Pre **Bolded** Post` would lose the heading color on " Post".
  */
 export function formatHeadings(text: string): string {
   let formatted = text;
+  const g = getGlyphs();
 
-  // H4 (####)
-  formatted = formatted.replace(H4_REGEX, (_match, header) => HEADING_MUTED(`· ${header}`));
+  // H4 — lightest visual weight (non-bold, dim secondary).
+  formatted = formatted.replace(H4_REGEX, (_match, header) =>
+    wrapPreservingInner(`${g.heading4} ${header}`, HEADING_MUTED),
+  );
 
-  // H3 (###)
-  formatted = formatted.replace(H3_REGEX, (_match, header) => HEADING_LINK(`• ${header}`));
+  // H3 — bold link blue.
+  formatted = formatted.replace(H3_REGEX, (_match, header) =>
+    wrapPreservingInner(`${g.heading3} ${header}`, HEADING_LINK),
+  );
 
-  // H2 (##)
-  formatted = formatted.replace(H2_REGEX, (_match, header) => HEADING_AGENT(`▸ ${header}`));
+  // H2 — bold agent accent.
+  formatted = formatted.replace(H2_REGEX, (_match, header) =>
+    wrapPreservingInner(`${g.heading2} ${header}`, HEADING_AGENT),
+  );
 
-  // H1 (#)
-  formatted = formatted.replace(H1_REGEX, (_match, header) => HEADING_PRIMARY(`◆ ${header}`));
+  // H1 — bold + underline + primary; heaviest visual weight.
+  formatted = formatted.replace(H1_REGEX, (_match, header) =>
+    wrapPreservingInner(`${g.heading1} ${header}`, HEADING_PRIMARY),
+  );
 
   return formatted;
 }
@@ -279,7 +780,8 @@ export function formatHeadings(text: string): string {
 export function formatBlockquotes(text: string): string {
   return text.replace(
     BLOCKQUOTE_REGEX,
-    (_match: string, content: string) => `${CHALK_THEME.reasoning("▏")} ${ITALIC_MUTED(content)}`,
+    (_match: string, content: string) =>
+      `${CHALK_THEME.reasoning(getGlyphs().blockquote)} ${ITALIC_MUTED(content)}`,
   );
 }
 
@@ -550,17 +1052,27 @@ function formatNonCodeTextHybrid(text: string): string {
     return `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
   });
 
-  // 2. Apply inline formatting (escape stripping runs AFTER code extraction)
+  // 2. Apply inline formatting (escape stripping runs AFTER code extraction).
+  //    Inline emphasis runs BEFORE headings so the heading wrapper sees
+  //    already-styled inner text — `wrapPreservingInner` keeps the heading
+  //    color alive across the inner emphasis's reset codes.
   formatted = formatEmojiShortcodes(formatted);
   formatted = formatEscapedText(formatted);
+  formatted = formatStrikethroughHybrid(formatted);
+  formatted = formatBoldHybrid(formatted);
+  formatted = formatItalicHybrid(formatted);
   formatted = formatHeadingsHybrid(formatted);
   formatted = formatBlockquotesHybrid(formatted);
   formatted = formatTaskLists(formatted);
   formatted = formatLists(formatted);
   formatted = formatHorizontalRules(formatted);
-  formatted = formatStrikethroughHybrid(formatted);
-  formatted = formatBoldHybrid(formatted);
-  formatted = formatItalicHybrid(formatted);
+  formatted = formatTables(formatted);
+  // After tables consume their cells (which may contain `<br>`), convert
+  // any remaining `<br>` in prose / list items / blockquotes to a real
+  // newline. Doing this AFTER formatTables means a body row like
+  // `| cell with <br>break | ... |` stays on one physical line until the
+  // table parser splits cells, then the per-cell parser converts the break.
+  formatted = convertHtmlLineBreaks(formatted);
 
   // 3. Extract links, format bare URLs/file paths, restore links
   const { text: withoutLinks, links } = extractLinks(formatted);
@@ -592,23 +1104,103 @@ export function formatEmojiShortcodes(text: string): string {
 }
 
 /**
- * Format code block content (for extracted code blocks)
+ * Extract a language hint from a fence line like ```ts or ```python.
+ * Empty / unrecognized → null, signalling "fall back to plain code color".
+ */
+function extractFenceLanguage(line: string): string | null {
+  const m = line.trim().match(/^```([a-zA-Z0-9+_.-]+)/);
+  if (!m) return null;
+  const lang = m[1]!.toLowerCase();
+  return supportsLanguage(lang) ? lang : null;
+}
+
+/**
+ * Apply syntax highlighting to a code block body using `cli-highlight`.
+ *
+ * Returns the highlighted source on success, or `null` if highlighting
+ * fails (unknown grammar, malformed input, etc.) so callers can fall back
+ * to the plain-color path. We never throw out of this — markdown rendering
+ * must remain best-effort.
+ */
+function tryHighlight(body: string, language: string): string | null {
+  try {
+    return highlight(body, { language, ignoreIllegals: true });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Format code block content (for extracted code blocks).
+ *
+ * Detects the language from the opening fence (```ts, ```python, etc.)
+ * and pipes the body through `cli-highlight` for syntax coloring. The
+ * fence lines themselves stay yellow. When the language isn't specified
+ * or isn't recognized by highlight.js, falls back to the previous
+ * monochrome `codeColor` styling so output never regresses.
  */
 export function formatCodeBlockContent(codeBlock: string): string {
   const lines = codeBlock.split("\n");
-  const processedLines: string[] = [];
+  if (lines.length === 0) return codeBlock;
 
-  for (const line of lines) {
-    if (line.trim().startsWith("```")) {
-      const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
-      const content = line.trimStart();
-      processedLines.push(leadingWhitespace + chalk.yellow(content));
-    } else {
-      processedLines.push(codeColor(line));
+  // Find the opening fence line (first line that starts with ```).
+  let openIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]!.trim().startsWith("```")) {
+      openIdx = i;
+      break;
     }
   }
 
-  return processedLines.join("\n");
+  if (openIdx === -1) {
+    // No fence — treat the whole thing as styled body.
+    return lines.map((l) => codeColor(l)).join("\n");
+  }
+
+  const language = extractFenceLanguage(lines[openIdx]!);
+  // Find the closing fence (last line that starts with ```).
+  let closeIdx = lines.length;
+  for (let i = lines.length - 1; i > openIdx; i--) {
+    if (lines[i]!.trim().startsWith("```")) {
+      closeIdx = i;
+      break;
+    }
+  }
+
+  const bodyLines = lines.slice(openIdx + 1, closeIdx);
+  const body = bodyLines.join("\n");
+
+  let styledBody: string;
+  if (language && body.length > 0) {
+    const highlighted = tryHighlight(body, language);
+    styledBody = highlighted ?? bodyLines.map((l) => codeColor(l)).join("\n");
+  } else {
+    styledBody = bodyLines.map((l) => codeColor(l)).join("\n");
+  }
+
+  const out: string[] = [];
+  // Pre-fence lines (rare — usually nothing).
+  for (let i = 0; i < openIdx; i++) out.push(codeColor(lines[i]!));
+  // Open fence stays yellow so the markdown delimiter is visible.
+  {
+    const line = lines[openIdx]!;
+    const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
+    out.push(leadingWhitespace + chalk.yellow(line.trimStart()));
+  }
+  // Highlighted body.
+  if (styledBody.length > 0 || bodyLines.length > 0) {
+    out.push(styledBody);
+  }
+  // Close fence (if present).
+  if (closeIdx < lines.length) {
+    const line = lines[closeIdx]!;
+    const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
+    out.push(leadingWhitespace + chalk.yellow(line.trimStart()));
+  }
+  // Anything after the close fence (rare).
+  for (let i = closeIdx + 1; i < lines.length; i++) out.push(codeColor(lines[i]!));
+
+  return out.join("\n");
 }
 
 /**
@@ -762,15 +1354,29 @@ export function formatMarkdown(text: string): string {
   // Strip backslash escapes after code extraction so \* inside code blocks is preserved
   formatted = formatEscapedText(formatted);
 
-  // Apply formatting
+  // Apply formatting.
+  // Order matters: inline emphasis (bold, italic, strikethrough) runs
+  // BEFORE headings so the heading wrapper sees already-styled inner text
+  // and can use `wrapPreservingInner` to keep its outer color across each
+  // inner reset. Reversing this order causes the heading color to drop off
+  // after a `**bold**` span inside the heading.
+  formatted = formatStrikethrough(formatted);
+  formatted = formatBold(formatted);
+  formatted = formatItalic(formatted);
   formatted = formatHeadings(formatted);
   formatted = formatBlockquotes(formatted);
   formatted = formatTaskLists(formatted);
   formatted = formatLists(formatted);
   formatted = formatHorizontalRules(formatted);
-  formatted = formatStrikethrough(formatted);
-  formatted = formatBold(formatted);
-  formatted = formatItalic(formatted);
+  // Tables run after everything else so cell content is fully styled.
+  // Width measurement strips ANSI to keep columns aligned.
+  formatted = formatTables(formatted);
+  // After tables consume their cells (which may contain `<br>`), convert
+  // any remaining `<br>` in prose / list items / blockquotes to a real
+  // newline. Doing this AFTER formatTables means a body row like
+  // `| cell with <br>break | ... |` stays on one physical line until the
+  // table parser splits cells, then the per-cell parser converts the break.
+  formatted = convertHtmlLineBreaks(formatted);
   // Extract markdown links into placeholders so formatBareUrls/formatFilePaths
   // cannot match paths or URLs inside link targets like [text](./path).
   const { text: withoutLinks, links } = extractLinks(formatted);
@@ -853,22 +1459,39 @@ export function formatInlineCodeHybrid(text: string): string {
 }
 
 /**
- * Format headings in hybrid mode - keeps # markers visible
+ * Format headings in hybrid mode — keeps `#` markers visible.
+ *
+ * Uses `wrapPreservingInner` for the same reason as `formatHeadings`: when
+ * an earlier pass has already styled `**bold spans**` inside the heading
+ * text, the inner ANSI reset must not cancel the heading color on the rest
+ * of the line.
  */
 export function formatHeadingsHybrid(text: string): string {
   let formatted = text;
 
   // H4 (####)
-  formatted = formatted.replace(H4_REGEX, (_match, header) => `#### ${HEADING_MUTED(header)}`);
+  formatted = formatted.replace(
+    H4_REGEX,
+    (_match: string, header: string) => `#### ${wrapPreservingInner(header, HEADING_MUTED)}`,
+  );
 
   // H3 (###)
-  formatted = formatted.replace(H3_REGEX, (_match, header) => `### ${HEADING_LINK(header)}`);
+  formatted = formatted.replace(
+    H3_REGEX,
+    (_match: string, header: string) => `### ${wrapPreservingInner(header, HEADING_LINK)}`,
+  );
 
   // H2 (##)
-  formatted = formatted.replace(H2_REGEX, (_match, header) => `## ${HEADING_AGENT(header)}`);
+  formatted = formatted.replace(
+    H2_REGEX,
+    (_match: string, header: string) => `## ${wrapPreservingInner(header, HEADING_AGENT)}`,
+  );
 
   // H1 (#)
-  formatted = formatted.replace(H1_REGEX, (_match, header) => `# ${HEADING_PRIMARY(header)}`);
+  formatted = formatted.replace(
+    H1_REGEX,
+    (_match: string, header: string) => `# ${wrapPreservingInner(header, HEADING_PRIMARY)}`,
+  );
 
   return formatted;
 }
@@ -1000,15 +1623,27 @@ export function formatMarkdownHybrid(text: string): string {
   // Strip backslash escapes after code extraction so \* inside code blocks is preserved
   formatted = formatEscapedText(formatted);
 
-  // Apply hybrid formatting (preserves syntax markers)
+  // Apply hybrid formatting (preserves syntax markers).
+  // Inline emphasis runs BEFORE headings so wrapPreservingInner inside the
+  // heading wrapper can keep the heading color intact across each inner
+  // emphasis reset (otherwise `### **Bold** trail` loses heading color on
+  // " trail").
+  formatted = formatStrikethroughHybrid(formatted);
+  formatted = formatBoldHybrid(formatted);
+  formatted = formatItalicHybrid(formatted);
   formatted = formatHeadingsHybrid(formatted);
   formatted = formatBlockquotesHybrid(formatted);
   formatted = formatTaskLists(formatted); // Task lists can use standard formatting
   formatted = formatLists(formatted); // Lists can use standard formatting
   formatted = formatHorizontalRules(formatted);
-  formatted = formatStrikethroughHybrid(formatted);
-  formatted = formatBoldHybrid(formatted);
-  formatted = formatItalicHybrid(formatted);
+  // Tables run last so cells already contain styled inline content.
+  formatted = formatTables(formatted);
+  // After tables consume their cells (which may contain `<br>`), convert
+  // any remaining `<br>` in prose / list items / blockquotes to a real
+  // newline. Doing this AFTER formatTables means a body row like
+  // `| cell with <br>break | ... |` stays on one physical line until the
+  // table parser splits cells, then the per-cell parser converts the break.
+  formatted = convertHtmlLineBreaks(formatted);
   // Extract markdown links into placeholders so formatBareUrls/formatFilePaths
   // cannot match paths or URLs inside link targets like [text](./path).
   const { text: withoutLinks, links } = extractLinks(formatted);

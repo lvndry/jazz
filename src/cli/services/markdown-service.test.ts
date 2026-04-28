@@ -38,7 +38,9 @@ describe("MarkdownService", () => {
 
     test("formats code blocks", () => {
       const result = formatMarkdown("```javascript\nconst x = 1;\n```");
-      expect(result).toContain("const x = 1;");
+      // Syntax highlighting may split tokens with intra-line ANSI; strip
+      // before asserting on visible content.
+      expect(stripAnsiCodes(result)).toContain("const x = 1;");
     });
 
     test("formats bullet lists", () => {

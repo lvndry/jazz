@@ -9,9 +9,12 @@ import { ScrollableMultiSelect } from "./components/ScrollableMultiSelect";
 import { ScrollableSelect } from "./components/ScrollableSelect";
 import { SearchSelect } from "./components/SearchSelect";
 import { TextInput } from "./components/TextInput";
+import { getGlyphs } from "./glyphs";
 import { InputResults, useInputHandler, useTextInput } from "./hooks/use-input-service";
 import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
+
+const G = getGlyphs();
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
 
@@ -219,7 +222,7 @@ function PromptComponent({
                 color={THEME.prompt}
                 bold
               >
-                ❯{" "}
+                {G.promptCursor}{" "}
               </Text>
               <Box
                 flexDirection="column"
@@ -255,7 +258,7 @@ function PromptComponent({
                   color={THEME.error}
                   bold
                 >
-                  ✗ {validationError}
+                  {G.error} {validationError}
                 </Text>
               </Box>
             )}

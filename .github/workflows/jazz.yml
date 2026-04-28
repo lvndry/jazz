@@ -179,6 +179,7 @@ jobs:
       - name: Run code review
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
@@ -436,6 +437,7 @@ jobs:
       - name: Run Jazz assistant
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |

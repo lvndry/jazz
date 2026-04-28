@@ -8,6 +8,31 @@
  */
 
 /**
+ * Optional tool capability profile for a persona.
+ *
+ * Lets a persona narrow the tools an agent can use. Applied on top of the
+ * agent's own tool configuration: `categories` controls which built-in
+ * categories the persona wants, and `deny` is a hard exclusion that beats
+ * both built-in defaults and `agent.config.tools`.
+ *
+ * Absent profile = current behavior (every built-in category, no exclusions).
+ */
+export interface PersonaToolProfile {
+  /**
+   * Built-in tool categories this persona wants. Subset of BUILTIN_TOOL_CATEGORIES
+   * ids (e.g. "skills", "todo", "subagent", "user_interaction", "context").
+   * If omitted, all built-in categories are included.
+   * If set to an empty array, no built-in tools are included (used by summarizer).
+   */
+  readonly categories?: readonly string[];
+  /**
+   * Tool names that must never be available to this persona, regardless of
+   * agent configuration. Applied last, after categories and agent.config.tools.
+   */
+  readonly deny?: readonly string[];
+}
+
+/**
  * Core Persona entity representing a reusable agent identity
  *
  * A Persona defines the behavioral and communication style for an agent.
@@ -40,6 +65,12 @@ export interface Persona {
    * Used for display/filtering purposes.
    */
   readonly style?: string;
+  /**
+   * Optional tool capability profile.
+   * When present, narrows the tool set the agent can use beyond what
+   * `agent.config.tools` and the default built-in bundle would provide.
+   */
+  readonly toolProfile?: PersonaToolProfile;
   /** Creation timestamp */
   readonly createdAt: Date;
   /** Last update timestamp */

@@ -3,19 +3,22 @@ import React from "react";
 import type { ActivityState } from "./activity-state";
 import { AnimatedEllipsis } from "./components/AnimatedEllipsis";
 import { TerminalText } from "./components/TerminalText";
+import { getGlyphs } from "./glyphs";
 import { PADDING, THEME } from "./theme";
+
+const G = getGlyphs();
 
 function todoStatusGlyph(status: "pending" | "in_progress" | "completed" | "cancelled"): string {
   switch (status) {
     case "completed":
-      return "✓";
+      return G.success;
     case "in_progress":
-      return "◐";
+      return G.proposed;
     case "cancelled":
-      return "✗";
+      return G.error;
     case "pending":
     default:
-      return "○";
+      return G.pending;
   }
 }
 
@@ -46,7 +49,7 @@ function AgentHeader({
 }): React.ReactElement {
   return (
     <Box>
-      <Text color={THEME.agent}>◉</Text>
+      <Text color={THEME.agent}>{G.bullet}</Text>
       <Text> </Text>
       <Text
         bold
@@ -81,7 +84,7 @@ function ReasoningSection({
       flexDirection="column"
     >
       <Box>
-        <Text color={THEME.reasoning}>▸ </Text>
+        <Text color={THEME.reasoning}>{G.arrow} </Text>
         <Text
           color={THEME.reasoning}
           italic
@@ -196,7 +199,9 @@ export const ActivityView = React.memo(function ActivityView({
           paddingX={PADDING.content}
           marginTop={1}
         >
-          <Text color={THEME.error}>✖ {activity.message}</Text>
+          <Text color={THEME.error}>
+            {G.error} {activity.message}
+          </Text>
         </Box>
       );
 

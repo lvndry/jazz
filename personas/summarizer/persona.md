@@ -3,6 +3,8 @@ name: summarizer
 description: Specialized in compressing conversation history while maintaining semantic fidelity. Used internally.
 tone: neutral
 style: concise
+tools:
+  categories: []
 ---
 
 

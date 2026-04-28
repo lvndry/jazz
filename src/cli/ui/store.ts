@@ -15,6 +15,26 @@ interface ExpandableDiffPayload {
   readonly timestamp: number;
 }
 
+/**
+ * Persistent run-level stats surfaced in the status footer.
+ *
+ * All fields are optional so partial information renders gracefully —
+ * the footer simply omits any field that hasn't been populated yet.
+ * Most fields are session-totals, updated after each LLM round-trip.
+ */
+export interface RunStats {
+  /** Display name of the active model (e.g. "claude-sonnet-4-5"). */
+  readonly model?: string;
+  /** Provider name (e.g. "anthropic", "openai"). */
+  readonly provider?: string;
+  /** Tokens currently in the context window for this conversation. */
+  readonly tokensInContext?: number;
+  /** Model's maximum context window in tokens. */
+  readonly maxContextTokens?: number;
+  /** Running total cost in USD across this session. */
+  readonly costUSD?: number;
+}
+
 export class UIStore {
   // Output handlers
   private printOutputHandler: PrintOutputHandler | null = null;
@@ -34,11 +54,13 @@ export class UIStore {
   private promptSnapshot: PromptState | null = null;
   private activitySnapshot: ActivityState = { phase: "idle" };
   private workingDirectorySnapshot: string | null = null;
+  private runStatsSnapshot: RunStats = {};
 
   // React state setters (registered by island components)
   private promptSetter: ((prompt: PromptState | null) => void) | null = null;
   private activitySetter: ((activity: ActivityState) => void) | null = null;
   private workingDirectorySetter: ((wd: string | null) => void) | null = null;
+  private runStatsSetter: ((stats: RunStats) => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
 
@@ -119,6 +141,29 @@ export class UIStore {
     }
   };
 
+  /**
+   * Merge a partial RunStats update into the snapshot. Callers can pass any
+   * subset of fields — anything they omit keeps its prior value. Useful for
+   * incremental updates (e.g. tokens-in-context after every LLM call,
+   * costUSD only after we've resolved pricing).
+   */
+  updateRunStats = (patch: Partial<RunStats>): void => {
+    const next: RunStats = { ...this.runStatsSnapshot, ...patch };
+    // Bail out if nothing changed (cheap by-key check).
+    let changed = false;
+    for (const k of Object.keys(patch) as (keyof RunStats)[]) {
+      if (this.runStatsSnapshot[k] !== next[k]) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return;
+    this.runStatsSnapshot = next;
+    if (this.runStatsSetter) {
+      this.runStatsSetter(next);
+    }
+  };
+
   setCustomView = (_view: React.ReactNode | null): void => {};
 
   setInterruptHandler = (_handler: (() => void) | null): void => {};
@@ -171,6 +216,10 @@ export class UIStore {
     this.workingDirectorySetter = setter;
   }
 
+  registerRunStatsSetter(setter: (stats: RunStats) => void): void {
+    this.runStatsSetter = setter;
+  }
+
   registerCustomView(setter: (view: React.ReactNode | null) => void): void {
     this.setCustomView = setter;
   }
@@ -191,6 +240,10 @@ export class UIStore {
 
   getWorkingDirectorySnapshot(): string | null {
     return this.workingDirectorySnapshot;
+  }
+
+  getRunStatsSnapshot(): RunStats {
+    return this.runStatsSnapshot;
   }
 
   // ── Pending queue management ──────────────────────────────────────

@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
 
 /**
  * Configuration for context window management
@@ -18,6 +19,20 @@ export interface ContextWindowConfig {
    * Default: 2
    */
   readonly protectedRecentTurns?: number;
+
+  /**
+   * Optional token counter override. Defaults to DEFAULT_TOKEN_COUNTER which
+   * uses gpt-tokenizer for OpenAI families and per-model calibration for the
+   * rest. Tests can inject a fake to assert deterministic behavior.
+   */
+  readonly tokenCounter?: TokenCounter;
+
+  /**
+   * Optional model hint used for token counting. When omitted, counts fall
+   * back to the family-default ratio for an unknown family (≈ 4 chars/token).
+   * The agent runner provides this from the active provider+model.
+   */
+  readonly modelHint?: ModelHint;
 }
 
 /**
@@ -30,55 +45,29 @@ export interface TrimResult {
   readonly estimatedTokens: number;
 }
 
+/** Default model hint when the caller does not supply one (legacy callers). */
+const FALLBACK_MODEL_HINT: ModelHint = { provider: "", modelId: "" };
+
 /**
  * Manages conversation context window to prevent unbounded growth
  * while preserving message integrity (tool calls, system prompts, etc.)
  */
 export class ContextWindowManager {
-  private tokenCache = new WeakMap<ChatMessage, number>();
+  private readonly counter: TokenCounter;
+  private readonly modelHint: ModelHint;
 
-  constructor(private readonly config: ContextWindowConfig) {}
-
-  /**
-   * Estimate token count for a message (heuristic: ~4 chars per token)
-   */
-  private estimateTokens(message: ChatMessage): number {
-    let contentTokens = 0;
-    if (message.content) {
-      contentTokens = Math.ceil(message.content.length / 4);
-    }
-
-    let toolTokens = 0;
-    if (message.tool_calls) {
-      // Rough estimation for tool calls
-      toolTokens = Math.ceil(JSON.stringify(message.tool_calls).length / 4);
-    } else if (message.role === "tool" && message.tool_call_id) {
-      // Tool result tokens are covered by content, but add overhead
-      toolTokens = 10;
-    }
-
-    // Base overhead per message
-    return contentTokens + toolTokens + 4;
+  constructor(private readonly config: ContextWindowConfig) {
+    this.counter = config.tokenCounter ?? DEFAULT_TOKEN_COUNTER;
+    this.modelHint = config.modelHint ?? FALLBACK_MODEL_HINT;
   }
 
   /**
-   * Get cached token count for a message, computing if not cached.
-   * Uses WeakMap so messages removed during trimming are automatically cleaned up.
-   */
-  private estimateTokensCached(message: ChatMessage): number {
-    const cached = this.tokenCache.get(message);
-    if (cached !== undefined) return cached;
-
-    const tokens = this.estimateTokens(message);
-    this.tokenCache.set(message, tokens);
-    return tokens;
-  }
-
-  /**
-   * Calculate total estimated tokens for a list of messages
+   * Calculate total tokens for a list of messages, routed through the
+   * configured TokenCounter (provider-native tokenizer when available,
+   * calibrated heuristic otherwise).
    */
   calculateTotalTokens(messages: ChatMessage[]): number {
-    return messages.reduce((acc, msg) => acc + this.estimateTokensCached(msg), 0);
+    return this.counter.countMessages(messages, this.modelHint);
   }
 
   /**
@@ -148,12 +137,12 @@ export class ContextWindowManager {
     }
 
     // Step 3: Calculate tokens for system message and protected zone
-    const systemTokens = this.estimateTokensCached(messages[0]);
+    const systemTokens = this.counter.countMessage(messages[0], this.modelHint);
     let protectedTokens = 0;
     for (const idx of protectedIndices) {
       const msg = messages[idx];
       if (msg) {
-        protectedTokens += this.estimateTokensCached(msg);
+        protectedTokens += this.counter.countMessage(msg, this.modelHint);
       }
     }
 
@@ -165,7 +154,7 @@ export class ContextWindowManager {
       const msg = messages[i];
       if (!msg) continue;
 
-      const tokens = this.estimateTokensCached(msg);
+      const tokens = this.counter.countMessage(msg, this.modelHint);
 
       if (accumulatedTokens + tokens > this.config.maxTokens) {
         break;
