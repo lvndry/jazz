@@ -64,6 +64,10 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/models",
     defaultBaseUrl: "https://api.groq.com/openai/v1",
   },
+  llamacpp: {
+    type: "static",
+    models: STATIC_PROVIDER_MODELS.llamacpp,
+  },
   minimax: {
     type: "static",
     models: STATIC_PROVIDER_MODELS.minimax,
