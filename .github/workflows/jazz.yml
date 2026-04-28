@@ -411,6 +411,7 @@ jobs:
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           REQUEST: ${{ needs.resolve.outputs.request }}
           REPO: ${{ github.repository }}
+          WORKSPACE: ${{ github.workspace }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.jazz/agents" workflows/pr-assistant
@@ -424,6 +425,7 @@ jobs:
             '__PR_HEAD_SHA__': process.env.PR_HEAD_SHA,
             '__REQUEST__': process.env.REQUEST,
             '__REPO__': process.env.REPO,
+            '__WORKSPACE__': process.env.WORKSPACE,
           };
           let output = template;
           for (const [needle, value] of Object.entries(replacements)) {
@@ -449,21 +451,46 @@ jobs:
         if: always()
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const output = fs.readFileSync('/tmp/jazz-pr-assistant.txt', 'utf8');
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const runUrl = process.env.RUN_URL;
 
+            // Prefer the markdown block the agent is supposed to emit as its
+            // final answer (FOUR-backtick form, falling back to triple).
             let mdBlocks = [...output.matchAll(/````markdown\s*\n([\s\S]*?)````/g)];
             if (mdBlocks.length === 0) {
               mdBlocks = [...output.matchAll(/```markdown\s*\n([\s\S]*?)```/g)];
             }
 
-            const commentBody = mdBlocks.length > 0
-              ? mdBlocks[mdBlocks.length - 1][1].trim()
-              : (output.trim() || '_No output from Jazz assistant._');
+            let commentBody;
+            if (mdBlocks.length > 0) {
+              commentBody = mdBlocks[mdBlocks.length - 1][1].trim();
+            } else {
+              // No markdown block — the agent didn't follow the output contract,
+              // usually because it errored mid-run. Post a clean failure summary
+              // with a link to the workflow logs instead of dumping raw shell
+              // output (tool error transcripts, git usage text, etc.).
+              const lower = output.toLowerCase();
+              const looksLikeFailure =
+                lower.includes('llmrequesterror') ||
+                lower.includes('failed after') ||
+                lower.includes('git diff failed') ||
+                lower.includes('not a git repository') ||
+                lower.includes('error:');
+
+              if (looksLikeFailure) {
+                commentBody =
+                  `_The Jazz assistant didn't produce a usable answer. ` +
+                  `See the [workflow run](${runUrl}) for details._`;
+              } else {
+                commentBody = output.trim() || '_No output from Jazz assistant._';
+              }
+            }
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
