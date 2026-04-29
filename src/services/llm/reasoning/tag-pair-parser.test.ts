@@ -10,4 +10,13 @@ describe("TagPairParser", () => {
     expect(out.thinkingStarted).toBeUndefined();
     expect(out.thinkingEnded).toBeUndefined();
   });
+
+  it("splits a single complete <think>...</think> block in one feed", () => {
+    const parser = new TagPairParser();
+    const out = parser.feed("before<think>secret</think>after");
+    expect(out.visibleText).toBe("beforeafter");
+    expect(out.thinkingText).toBe("secret");
+    expect(out.thinkingStarted).toBe(true);
+    expect(out.thinkingEnded).toBe(true);
+  });
 });
