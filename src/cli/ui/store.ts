@@ -1,9 +1,15 @@
 import type React from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
+import type { StreamKind } from "./adapters/terminal-output-adapter";
 import type { OutputEntry, PromptState } from "./types";
 
 /** Accepts single entry or batch; returns first id when available. */
 type PrintOutputHandler = (entry: OutputEntry | readonly OutputEntry[]) => string;
+
+type StreamingHandler = {
+  appendStream: (kind: StreamKind, delta: string) => void;
+  finalizeStream: () => void;
+};
 
 const MAX_PENDING_OUTPUT_QUEUE = 2000;
 
@@ -39,6 +45,7 @@ export class UIStore {
   // Output handlers
   private printOutputHandler: PrintOutputHandler | null = null;
   private clearOutputsHandler: (() => void) | null = null;
+  private streamingHandler: StreamingHandler | null = null;
   private pendingOutputQueue: OutputEntry[] = [];
   private _pendingClear = false;
   private pendingOutputIdCounter = 0;
@@ -180,6 +187,21 @@ export class UIStore {
     this.expandableDiff = null;
   };
 
+  appendStream = (kind: StreamKind, delta: string): void => {
+    if (delta.length === 0) return;
+    // Streaming bypasses the printOutput batch — deltas go straight in.
+    // Flush any pending non-streaming batch first to preserve ordering.
+    this.flushOutputBatchNow();
+    if (!this.streamingHandler) return;
+    this.streamingHandler.appendStream(kind, delta);
+  };
+
+  finalizeStream = (): void => {
+    this.flushOutputBatchNow();
+    if (!this.streamingHandler) return;
+    this.streamingHandler.finalizeStream();
+  };
+
   clearOutputs = (): void => {
     // Discard any pending batched outputs to prevent race condition where
     // a queued microtask flushes after clear
@@ -198,6 +220,10 @@ export class UIStore {
 
   registerPrintOutput(handler: PrintOutputHandler): void {
     this.printOutputHandler = handler;
+  }
+
+  registerStreamingHandler(handler: StreamingHandler | null): void {
+    this.streamingHandler = handler;
   }
 
   registerClearOutputs(handler: () => void): void {
