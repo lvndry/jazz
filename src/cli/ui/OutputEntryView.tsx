@@ -63,7 +63,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     return (
       <Box
         marginTop={0}
-        marginBottom={1}
+        marginBottom={0}
         paddingLeft={PADDING.content}
       >
         <Text>{entry.message as string}</Text>
