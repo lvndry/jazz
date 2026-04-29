@@ -173,7 +173,27 @@ export class UIStore {
 
   setCustomView = (_view: React.ReactNode | null): void => {};
 
-  setInterruptHandler = (_handler: (() => void) | null): void => {};
+  /**
+   * Stack of active interrupt handlers, ordered oldest-first. Each call to
+   * `setInterruptHandler(handler)` with a non-null handler pushes; calling with
+   * null pops. The UI always observes the top of the stack as the active
+   * handler. This lets nested agent runs (a subagent invoked as a tool by a
+   * main agent) each register their own handler without overwriting the
+   * outer scope's: when the inner run finishes and pops, the outer run's
+   * handler is restored automatically.
+   */
+  private interruptHandlerStack: Array<() => void> = [];
+  private interruptHandlerSetter: ((handler: (() => void) | null) => void) | null = null;
+
+  setInterruptHandler = (handler: (() => void) | null): void => {
+    if (handler === null) {
+      this.interruptHandlerStack.pop();
+    } else {
+      this.interruptHandlerStack.push(handler);
+    }
+    const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
+    this.interruptHandlerSetter?.(top);
+  };
 
   setExpandableDiff = (fullDiff: string): void => {
     this.expandableDiff = { fullDiff, timestamp: Date.now() };
@@ -250,8 +270,12 @@ export class UIStore {
     this.setCustomView = setter;
   }
 
-  registerInterruptHandler(setter: (handler: (() => void) | null) => void): void {
-    this.setInterruptHandler = setter;
+  registerInterruptHandler(setter: ((handler: (() => void) | null) => void) | null): void {
+    this.interruptHandlerSetter = setter;
+    if (setter) {
+      const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
+      setter(top);
+    }
   }
 
   // ── Snapshot accessors (for hydrating late-registering components) ─

@@ -223,7 +223,7 @@ export function App(): React.ReactElement {
   useEffect(() => {
     return () => {
       store.registerCustomView(() => {});
-      store.registerInterruptHandler(() => {});
+      store.registerInterruptHandler(null);
     };
   }, []);
 

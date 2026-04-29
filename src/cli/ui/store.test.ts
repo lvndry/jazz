@@ -223,4 +223,43 @@ describe("UIStore", () => {
       expect(s.getExpandableDiff()).toBeNull();
     });
   });
+
+  describe("interrupt handler stack", () => {
+    test("nested setInterruptHandler restores outer handler when inner pops", () => {
+      const s = new UIStore();
+      const seen: Array<(() => void) | null> = [];
+      s.registerInterruptHandler((h) => seen.push(h));
+
+      const outer = (): void => {};
+      const inner = (): void => {};
+
+      s.setInterruptHandler(outer);
+      s.setInterruptHandler(inner);
+      s.setInterruptHandler(null);
+
+      const top = seen[seen.length - 1];
+      expect(top).toBe(outer);
+    });
+
+    test("popping below empty is a no-op (over-pop tolerated)", () => {
+      const s = new UIStore();
+      s.registerInterruptHandler(() => {});
+      expect(() => s.setInterruptHandler(null)).not.toThrow();
+    });
+
+    test("registerInterruptHandler(null) detaches the UI setter without dropping the stack", () => {
+      const s = new UIStore();
+      const seenA: Array<(() => void) | null> = [];
+      s.registerInterruptHandler((h) => seenA.push(h));
+
+      const handler = (): void => {};
+      s.setInterruptHandler(handler);
+
+      s.registerInterruptHandler(null);
+      // Re-attaching a fresh setter should observe the still-present handler.
+      const seenB: Array<(() => void) | null> = [];
+      s.registerInterruptHandler((h) => seenB.push(h));
+      expect(seenB[0]).toBe(handler);
+    });
+  });
 });
