@@ -16,7 +16,7 @@
  *
  */
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useReducer, useRef } from "react";
 import { findLastSafeSplitPoint } from "@/cli/presentation/markdown-split";
 import type { OutputEntry, OutputEntryWithId } from "../types";
 
@@ -204,23 +204,20 @@ export function useTerminalOutputAdapter(): ScrollbackHandle {
     [ensureIds],
   );
 
-  // Mirrors state.pending so appendStream can check for kind changes without
-  // reading state inside a useCallback closure (stale closure hazard).
-  const pendingRef = useRef<PendingStream | null>(null);
-  useEffect(() => {
-    pendingRef.current = state.pending;
-  }, [state.pending]);
-
+  // Always pass both `nextId` and `finalizeId` to the reducer. The reducer
+  // ignores `finalizeId` when no kind change occurs, so the spare counter
+  // slot is occasionally wasted — but that's strictly cheaper than reading
+  // state through a useEffect-mirrored ref, which can be stale when multiple
+  // appendStream calls happen in the same React tick before the effect runs.
   const appendStream = useCallback(
     (kind: StreamKind, delta: string): void => {
       if (delta.length === 0) return;
-      const needsFinalize = pendingRef.current !== null && pendingRef.current.kind !== kind;
       dispatch({
         type: "appendStream",
         kind,
         delta,
         nextId: nextId(),
-        ...(needsFinalize ? { finalizeId: nextId() } : {}),
+        finalizeId: nextId(),
       });
     },
     [nextId],
