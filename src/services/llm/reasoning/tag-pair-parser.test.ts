@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { TagPairParser } from "./tag-pair-parser";
+import { TagPairParser, TagPairParserFactory } from "./tag-pair-parser";
 
 describe("TagPairParser", () => {
   it("passes plain text through as visibleText", () => {
@@ -141,5 +141,63 @@ describe("TagPairParser", () => {
     expect(out.thinkingText).toBe("onetwo");
     expect(out.thinkingStarted).toBe(true);
     expect(out.thinkingEnded).toBe(true);
+  });
+});
+
+describe("TagPairParserFactory.canHandle", () => {
+  it("returns true when chatTemplate contains <think>", () => {
+    expect(
+      TagPairParserFactory.canHandle({
+        provider: "llamacpp",
+        modelId: "qwen3-4b",
+        chatTemplate: "...{% if reasoning %}<think>{% endif %}...",
+      }),
+    ).toBe(true);
+  });
+
+  it("returns true when chatTemplate contains <thinking>", () => {
+    expect(
+      TagPairParserFactory.canHandle({
+        provider: "llamacpp",
+        modelId: "custom",
+        chatTemplate: "<thinking>...</thinking>",
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for a Harmony-style chat template even if <think> appears elsewhere", () => {
+    expect(
+      TagPairParserFactory.canHandle({
+        provider: "llamacpp",
+        modelId: "gpt-oss-20b",
+        chatTemplate: "<|channel|>analysis<|message|>...<think>",
+      }),
+    ).toBe(false);
+  });
+
+  it("returns true when ollama capabilities include 'thinking'", () => {
+    expect(
+      TagPairParserFactory.canHandle({
+        provider: "ollama",
+        modelId: "qwen3:8b",
+        capabilities: ["completion", "tools", "thinking"],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for a model with no template and no thinking capability", () => {
+    expect(
+      TagPairParserFactory.canHandle({
+        provider: "ollama",
+        modelId: "llama3.1:8b",
+        capabilities: ["completion", "tools"],
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false for a cloud provider with no metadata", () => {
+    expect(
+      TagPairParserFactory.canHandle({ provider: "anthropic", modelId: "claude-sonnet-4-6" }),
+    ).toBe(false);
   });
 });
