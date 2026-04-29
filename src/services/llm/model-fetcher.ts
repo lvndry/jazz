@@ -86,9 +86,15 @@ type OllamaModel = {
  */
 type OllamaShowResponse = {
   model_info?: Record<string, unknown>;
-  details?: {
-    family?: string;
-  };
+  details?: { family?: string };
+  template?: string;
+  capabilities?: string[];
+};
+
+type OllamaShowExtras = {
+  contextWindow?: number;
+  template?: string;
+  capabilities?: readonly string[];
 };
 
 type LlamaCppModelEntry = { id: string };
@@ -141,27 +147,28 @@ function extractOllamaContextLength(
 
 /**
  * Fetch detailed model info from Ollama /api/show endpoint
- * Returns the context window size, or undefined if not available
+ * Returns context window, template, and capabilities when available
  */
 async function fetchOllamaModelDetails(
   baseUrl: string,
   modelName: string,
-): Promise<number | undefined> {
+): Promise<OllamaShowExtras> {
   try {
     const response = await fetch(`${baseUrl}/api/show`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: modelName }),
     });
-
-    if (!response.ok) {
-      return undefined;
-    }
-
+    if (!response.ok) return {};
     const data = (await response.json()) as OllamaShowResponse;
-    return extractOllamaContextLength(data.model_info);
+    const extras: OllamaShowExtras = {};
+    const ctx = extractOllamaContextLength(data.model_info);
+    if (ctx !== undefined) extras.contextWindow = ctx;
+    if (typeof data.template === "string") extras.template = data.template;
+    if (Array.isArray(data.capabilities)) extras.capabilities = data.capabilities;
+    return extras;
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -300,21 +307,25 @@ async function transformOllamaModels(
     const batch = models.slice(i, i + CONCURRENCY_LIMIT);
     const batchResults = await Promise.all(
       batch.map(async (model): Promise<ModelInfo> => {
-        const entry: RawModelEntry = {
-          id: model.name,
-          displayName: model.name,
-        };
+        const extras = await fetchOllamaModelDetails(baseUrl, model.name);
+        const entry: RawModelEntry = { id: model.name, displayName: model.name };
         const dev = getMetadataFromMap(modelsDevMap, model.name);
+        let base: ModelInfo;
         if (dev) {
-          return resolveToModelInfo(entry, modelsDevMap);
+          base = resolveToModelInfo(entry, modelsDevMap);
+        } else {
+          entry.fallback = {
+            contextWindow: extras.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+            supportsTools: ollamaToolSupportFromMetadata(model),
+            isReasoningModel: false, // Only models.dev knows reasoning; no Ollama manifest field for this
+          };
+          base = resolveToModelInfo(entry, null);
         }
-        const contextWindow = await fetchOllamaModelDetails(baseUrl, model.name);
-        entry.fallback = {
-          contextWindow: contextWindow ?? DEFAULT_CONTEXT_WINDOW,
-          supportsTools: ollamaToolSupportFromMetadata(model),
-          isReasoningModel: false, // Only models.dev knows reasoning; no Ollama manifest field for this
+        return {
+          ...base,
+          ...(extras.template ? { chatTemplate: extras.template } : {}),
+          ...(extras.capabilities ? { capabilities: extras.capabilities } : {}),
         };
-        return resolveToModelInfo(entry, null);
       }),
     );
     results.push(...batchResults);

@@ -161,6 +161,32 @@ describe("ModelFetcher", () => {
     }
   });
 
+  it("captures template and capabilities from ollama /api/show onto every ModelInfo", async () => {
+    const mockTagsResponse = {
+      models: [{ name: "qwen3:8b", details: { metadata: {} } }],
+    };
+    const mockShowResponse = {
+      model_info: { "qwen3.context_length": 32768 },
+      template: "{{ if .Thinking }}<think>{{ end }}",
+      capabilities: ["completion", "tools", "thinking"],
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/api/tags"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
+      if (url.endsWith("/api/show"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const result = await Effect.runPromise(program);
+
+    expect(result.length).toBe(1);
+    expect(result[0]!.chatTemplate).toBe("{{ if .Thinking }}<think>{{ end }}");
+    expect(result[0]!.capabilities).toEqual(["completion", "tools", "thinking"]);
+  });
+
   it("captures chat_template from llama.cpp /props onto every ModelInfo", async () => {
     const mockModelsResponse = { data: [{ id: "qwen3-4b" }] };
     const mockPropsResponse = {
