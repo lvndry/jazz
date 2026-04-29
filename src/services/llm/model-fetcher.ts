@@ -8,6 +8,7 @@ import {
   getModelsDevMap,
   type ModelsDevMetadata,
 } from "@/core/utils/models-dev-client";
+import { hasReasoningParser } from "./reasoning";
 
 /**
  * Model fetcher: models.dev as single source of metadata
@@ -317,7 +318,12 @@ async function transformOllamaModels(
           entry.fallback = {
             contextWindow: extras.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
             supportsTools: ollamaToolSupportFromMetadata(model),
-            isReasoningModel: false, // Only models.dev knows reasoning; no Ollama manifest field for this
+            isReasoningModel: hasReasoningParser({
+              provider: "ollama",
+              modelId: model.name,
+              ...(extras.template ? { chatTemplate: extras.template } : {}),
+              ...(extras.capabilities ? { capabilities: extras.capabilities } : {}),
+            }),
           };
           base = resolveToModelInfo(entry, null);
         }
@@ -357,6 +363,12 @@ async function transformLlamaCppModels(
   const supportsTools = caps["supports_tools"] === true && caps["supports_tool_calls"] === true;
   const chatTemplate = props?.chat_template;
 
+  const isReasoning = hasReasoningParser({
+    provider: "llamacpp",
+    modelId: "",
+    ...(chatTemplate ? { chatTemplate } : {}),
+  });
+
   return models.map((model) => {
     const entry: RawModelEntry = { id: model.id, displayName: model.id };
     const dev = getMetadataFromMap(modelsDevMap, model.id);
@@ -364,7 +376,7 @@ async function transformLlamaCppModels(
       entry.fallback = {
         contextWindow: ctx ?? DEFAULT_CONTEXT_WINDOW,
         supportsTools,
-        isReasoningModel: false,
+        isReasoningModel: isReasoning,
       };
     }
     const base = resolveToModelInfo(entry, dev ? modelsDevMap : null);

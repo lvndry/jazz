@@ -1,4 +1,9 @@
-import type { ParseChunk, ReasoningParser, ReasoningParserFactory, ParserSelectionContext } from "./types";
+import type {
+  ParseChunk,
+  ReasoningParser,
+  ReasoningParserFactory,
+  ParserSelectionContext,
+} from "./types";
 
 type State = "OUTSIDE" | "MAYBE_OPEN" | "INSIDE" | "MAYBE_CLOSE";
 
@@ -166,7 +171,12 @@ export class TagPairParser implements ReasoningParser {
     thinkingStarted: boolean,
     thinkingEnded: boolean,
   ): ParseChunk {
-    const chunk: { visibleText: string; thinkingText: string; thinkingStarted?: boolean; thinkingEnded?: boolean } = {
+    const chunk: {
+      visibleText: string;
+      thinkingText: string;
+      thinkingStarted?: boolean;
+      thinkingEnded?: boolean;
+    } = {
       visibleText,
       thinkingText,
     };

@@ -18,3 +18,13 @@ export function selectParser(ctx: ParserSelectionContext): ReasoningParser | nul
   }
   return null;
 }
+
+/**
+ * True when any registered parser would claim this model — i.e. the model
+ * emits in-band reasoning tags. Used by the model fetcher to derive
+ * `isReasoningModel` for local providers whose models aren't in models.dev.
+ * Auto-extends as new parser factories are added to PARSER_FACTORIES.
+ */
+export function hasReasoningParser(ctx: ParserSelectionContext): boolean {
+  return PARSER_FACTORIES.some((factory) => factory.canHandle(ctx));
+}

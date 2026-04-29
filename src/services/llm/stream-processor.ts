@@ -447,9 +447,7 @@ export class StreamProcessor {
   private emitVisibleText(textChunk: string): void {
     if (!this.state.hasStartedText) {
       const firstTokenLatency = Date.now() - this.config.startTime;
-      void this.logger.debug(
-        `[LLM Timing] 🎯 FIRST TOKEN arrived after ${firstTokenLatency}ms`,
-      );
+      void this.logger.debug(`[LLM Timing] 🎯 FIRST TOKEN arrived after ${firstTokenLatency}ms`);
       void this.emitEvent({ type: "text_start" });
       this.state.hasStartedText = true;
       this.recordFirstToken("text");
@@ -485,7 +483,11 @@ export class StreamProcessor {
     // gate. The reasoningStreamCompleted toggle is kept symmetric with that handler
     // for consistency, even though emitEvent is synchronous and re-entrancy isn't
     // possible here.
-    if (chunk.thinkingEnded && this.state.reasoningSequence > 0 && !this.state.reasoningStreamCompleted) {
+    if (
+      chunk.thinkingEnded &&
+      this.state.reasoningSequence > 0 &&
+      !this.state.reasoningStreamCompleted
+    ) {
       this.state.reasoningStreamCompleted = true;
       void this.emitEvent({
         type: "thinking_complete",
