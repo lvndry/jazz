@@ -2,7 +2,7 @@ name: Jazz
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, ready_for_review]
   workflow_dispatch:
     inputs:
       pull_request_number:
@@ -26,14 +26,13 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
 
 jobs:
-  # Resolve PR metadata first so that downstream jobs can gate on pr_head_repo_full_name.
-  # This job runs unconditionally; the security gate lives in each job's `if`.
   resolve:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      issues: write
     outputs:
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       base_sha: ${{ steps.resolve.outputs.base_sha }}
@@ -106,8 +105,7 @@ jobs:
         if: |
           github.event_name == 'issue_comment' &&
           github.event.issue.pull_request != null &&
-          contains(github.event.comment.body, '/jazz') &&
-          !contains(github.event.comment.body, '/jazz-review') && (
+          contains(github.event.comment.body, '/jazz') && (
             github.event.comment.author_association == 'OWNER' ||
             github.event.comment.author_association == 'MEMBER' ||
             github.event.comment.author_association == 'COLLABORATOR'
@@ -141,8 +139,11 @@ jobs:
   code-review:
     needs: resolve
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'code-review' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz-review') && (
         github.event.comment.author_association == 'OWNER' ||
@@ -156,25 +157,52 @@ jobs:
           ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v8.1.0
         with:
-          node-version: "22"
+          bun-version: latest
 
       - name: Install Jazz
-        run: npm install -g jazz-ai
+        run: bun install -g jazz-ai
 
       - name: Setup Jazz agent and workflow
         env:
           PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          WORKSPACE: ${{ github.workspace }}
         run: |
           mkdir -p "$HOME/.jazz/agents" workflows/code-review
           cp .github/jazz/agents/ci-reviewer.json "$HOME/.jazz/agents/"
-          sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" \
+          sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" -e "s|__WORKSPACE__|$WORKSPACE|g" \
             .github/jazz/workflows/code-review/WORKFLOW.md > workflows/code-review/WORKFLOW.md
           echo "--- Substituted workflow ---"
           cat workflows/code-review/WORKFLOW.md
+
+      - name: Snapshot PR context
+        # Pre-fetch PR metadata (title, body, labels, conversation comments,
+        # review summaries, inline review comments) into a static JSON file the
+        # agent reads via read_file. This avoids handing GITHUB_TOKEN to the
+        # agent or shell while still letting it answer "what does the PR claim
+        # to do? what's already been said in review?".
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          OUT=/tmp/jazz-pr-context.json
+          if gh pr view "$PR_NUMBER" --repo "$REPO" \
+               --json title,body,labels,comments,reviews \
+               > /tmp/pr-base.json \
+             && gh api "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
+                  > /tmp/pr-review-comments.json; then
+            jq -s '.[0] + {reviewComments: .[1]}' \
+              /tmp/pr-base.json /tmp/pr-review-comments.json > "$OUT"
+          else
+            echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$OUT"
+          fi
+          echo "--- PR context (first 200 lines) ---"
+          head -n 200 "$OUT"
 
       - name: Run code review
         env:
@@ -207,19 +235,29 @@ jobs:
               if (agent.model) modelLabel = `\n\n*Model: ${agent.model}*`;
             } catch (_) {}
 
-            // Parse JSON from agent output (quad backticks first, then triple)
-            let jsonBlocks = [...output.matchAll(/````json\s*\n([\s\S]*?)````/g)];
-            if (jsonBlocks.length === 0) {
-              jsonBlocks = [...output.matchAll(/```json\s*\n([\s\S]*?)```/g)];
-            }
+            // Prefer the agent's four-backtick fence; fall back to a
+            // last-occurrence scan of the three-backtick form so inner
+            // ```diff/```ts samples in `body` don't truncate the wrapper.
+            const extractFencedJson = (text) => {
+              const fourFence = text.match(/````json\s*\n([\s\S]*?)\n?````/);
+              if (fourFence) return fourFence[1].trim();
+
+              const open = text.lastIndexOf('```json');
+              if (open < 0) return null;
+              const after = text.slice(open + '```json'.length);
+              const close = after.lastIndexOf('```');
+              if (close < 0) return null;
+              return after.slice(0, close).trim();
+            };
 
             let comments = [];
-            try {
-              if (jsonBlocks.length > 0) {
-                comments = JSON.parse(jsonBlocks[jsonBlocks.length - 1][1].trim());
+            const jsonText = extractFencedJson(output);
+            if (jsonText) {
+              try {
+                comments = JSON.parse(jsonText);
+              } catch (e) {
+                console.log('Failed to parse JSON:', e.message);
               }
-            } catch (e) {
-              console.log('Failed to parse JSON:', e.message);
             }
 
             if (!Array.isArray(comments) || comments.length === 0) {
@@ -381,6 +419,10 @@ jobs:
   assistant:
     needs: resolve
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
     if: |
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'assistant' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz') &&
@@ -396,13 +438,13 @@ jobs:
           ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v8.1.0
         with:
-          node-version: "22"
+          bun-version: latest
 
       - name: Install Jazz
-        run: npm install -g jazz-ai
+        run: bun install -g jazz-ai
 
       - name: Setup Jazz agent and workflow
         env:
@@ -436,6 +478,27 @@ jobs:
           echo "--- Substituted workflow ---"
           cat workflows/pr-assistant/WORKFLOW.md
 
+      - name: Snapshot PR context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          OUT=/tmp/jazz-pr-context.json
+          if gh pr view "$PR_NUMBER" --repo "$REPO" \
+               --json title,body,labels,comments,reviews \
+               > /tmp/pr-base.json \
+             && gh api "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
+                  > /tmp/pr-review-comments.json; then
+            jq -s '.[0] + {reviewComments: .[1]}' \
+              /tmp/pr-base.json /tmp/pr-review-comments.json > "$OUT"
+          else
+            echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$OUT"
+          fi
+          echo "--- PR context (first 200 lines) ---"
+          head -n 200 "$OUT"
+
       - name: Run Jazz assistant
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -460,20 +523,45 @@ jobs:
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const runUrl = process.env.RUN_URL;
 
-            // The agent's contract is to emit its final answer wrapped in a
-            // FOUR-backtick `markdown` fence. Anything outside that fence is
-            // workflow/tool decoration and must not leak into the PR comment.
-            // The four-backtick form is required because nested ``` code
-            // fences inside the answer would otherwise close the wrapper
-            // early. If the agent doesn't honor the contract, post the
-            // failure message instead of guessing — we don't try to recover
-            // from malformed agent output here.
-            const mdMatch = output.match(/````markdown\s*\n([\s\S]*?)\n?````/);
+            // Three-tier extraction. Strict: four-backtick markdown fence
+            // (the contract). Lenient: three-backtick markdown via last-
+            // occurrence scan. Fallback: any final fenced block, posted
+            // with a header noting the agent broke the contract — better
+            // than dumping the failure stub when the agent produced real
+            // content but used the wrong language tag.
+            const extractAnswer = (text) => {
+              const fourMd = text.match(/````markdown\s*\n([\s\S]*?)\n?````/);
+              if (fourMd) return { body: fourMd[1].trim(), strict: true };
 
-            const commentBody = mdMatch
-              ? mdMatch[1].trim()
-              : `_The Jazz assistant didn't produce a usable answer. ` +
+              const open = text.lastIndexOf('```markdown');
+              if (open >= 0) {
+                const after = text.slice(open + '```markdown'.length);
+                const close = after.lastIndexOf('```');
+                if (close >= 0) return { body: after.slice(0, close).trim(), strict: true };
+              }
+
+              const fences = [...text.matchAll(/`{3,4}([a-zA-Z0-9_-]*)\n([\s\S]*?)\n`{3,4}/g)];
+              const last = fences.pop();
+              if (last) return { body: last[2].trim(), strict: false, lang: last[1] || 'unknown' };
+
+              return null;
+            };
+
+            const extracted = extractAnswer(output);
+            let commentBody;
+            if (!extracted) {
+              commentBody = `_The Jazz assistant didn't produce a usable answer. ` +
                 `See the [workflow run](${runUrl}) for details._`;
+            } else if (extracted.strict) {
+              commentBody = extracted.body;
+            } else {
+              commentBody =
+                `> _Heads up: the assistant didn't follow the markdown output ` +
+                `contract (emitted a \`${extracted.lang}\` block instead). ` +
+                `Surfacing the raw content below — see the ` +
+                `[workflow run](${runUrl}) for full transcript._\n\n` +
+                '```' + extracted.lang + '\n' + extracted.body + '\n```';
+            }
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,

@@ -208,7 +208,6 @@ A minimal `release-notes.json` agent config:
       "git_diff",
       "read_file",
       "find",
-      "find_path",
       "grep",
       "ls",
       "context_info",
