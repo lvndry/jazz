@@ -214,7 +214,15 @@ export class InkTerminalService implements TerminalService {
           // agent responses are pre-wrapped. The offset accounts for App paddingX=3
           // (6 chars) + the "›" icon + space (2 chars) = 8 chars total.
           const displayValue = isSecret ? "•".repeat(Math.min(inputValue.length, 8)) : inputValue;
-          const rawMessage = `${message} ${chalk.green(displayValue)}`;
+          // For chat-type prompts the visual "You:" prefix already comes from
+          // OutputEntryView's user-entry styling; including the prompt's own
+          // "You:" label here would double it up in scrollback. For non-chat
+          // prompts (API key entry, named fields, etc.) the label is genuine
+          // scrollback context, so keep it.
+          const rawMessage =
+            promptType === "chat"
+              ? chalk.green(displayValue)
+              : `${message} ${chalk.green(displayValue)}`;
           const available = getTerminalWidth() - 8;
           store.printOutput({
             type: "user",
