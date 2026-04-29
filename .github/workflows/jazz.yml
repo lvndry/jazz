@@ -31,7 +31,7 @@ jobs:
   resolve:
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: read
+      pull-requests: write
       issues: write
     outputs:
       pr_number: ${{ steps.resolve.outputs.pr_number }}
@@ -127,12 +127,19 @@ jobs:
                 content: 'eyes',
               });
             } catch (e) {
-              // Duplicate reaction (e.g. workflow re-run) returns 422
+              // The reaction is cosmetic — never fail the workflow because of it.
+              // 422 = duplicate reaction (workflow re-run). 403 = token missing
+              // issues/pull-requests write (e.g. repo Actions setting restricting
+              // GITHUB_TOKEN). Anything else: warn and continue.
               if (e.status === 422) {
-                core.info('Reaction already present or not applicable; continuing');
+                core.info('Reaction already present; continuing');
                 return;
               }
-              throw e;
+              if (e.status === 403) {
+                core.warning(`Could not react with eyes (403): ${e.message}`);
+                return;
+              }
+              core.warning(`Could not react with eyes: ${e.message}`);
             }
 
   # Automated code review — runs on PR open or when a trusted author comments /jazz-review.
