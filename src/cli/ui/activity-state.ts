@@ -39,6 +39,8 @@ export type ActivityState =
       agentName: string;
       provider: string;
       model: string;
+      /** Playful gerund-form predicate shown after the agent name (e.g. "is cooking"). */
+      label: string;
     }
   | {
       phase: "thinking";
@@ -79,7 +81,8 @@ export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
       return (
         a.agentName === (b as typeof a).agentName &&
         a.provider === (b as typeof a).provider &&
-        a.model === (b as typeof a).model
+        a.model === (b as typeof a).model &&
+        a.label === (b as typeof a).label
       );
 
     case "thinking":

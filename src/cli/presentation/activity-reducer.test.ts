@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
-import { createAccumulator, reduceEvent } from "./activity-reducer";
+import { AWAITING_LABELS, createAccumulator, reduceEvent } from "./activity-reducer";
 import type { ReducerAccumulator } from "./activity-reducer";
 
 /** Identity formatter — returns text unchanged so assertions are straightforward. */
@@ -81,6 +81,7 @@ describe("activity-reducer", () => {
         expect(result.activity.agentName).toBe("TestAgent");
         expect(result.activity.provider).toBe("openai");
         expect(result.activity.model).toBe("gpt-4");
+        expect(AWAITING_LABELS).toContain(result.activity.label);
       }
       expect(result.outputs).toHaveLength(1);
       expect(result.outputs[0]!.type).toBe("info");

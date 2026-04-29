@@ -137,7 +137,7 @@ export const ActivityView = React.memo(function ActivityView({
             >
               {activity.agentName}
             </Text>
-            <Text dimColor> is preparing</Text>
+            <Text dimColor> {activity.label}</Text>
             <AnimatedEllipsis
               label=""
               color={THEME.agent}
