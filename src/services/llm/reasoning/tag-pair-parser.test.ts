@@ -59,4 +59,31 @@ describe("TagPairParser", () => {
     const out = parser.feed("2 < 3 is true");
     expect(out.visibleText).toBe("2 < 3 is true");
   });
+
+  it("suppresses thinking events for an empty <think></think> block", () => {
+    const parser = new TagPairParser();
+    const out = parser.feed("a<think></think>b");
+    expect(out.visibleText).toBe("ab");
+    expect(out.thinkingText).toBe("");
+    expect(out.thinkingStarted).toBeUndefined();
+    expect(out.thinkingEnded).toBeUndefined();
+  });
+
+  it("suppresses thinking events for whitespace-only <think>\\n\\n</think>", () => {
+    const parser = new TagPairParser();
+    const out = parser.feed("a<think>\n\n</think>b");
+    expect(out.visibleText).toBe("ab");
+    expect(out.thinkingText).toBe("");
+    expect(out.thinkingStarted).toBeUndefined();
+    expect(out.thinkingEnded).toBeUndefined();
+  });
+
+  it("emits thinking events when first non-whitespace appears after leading whitespace", () => {
+    const parser = new TagPairParser();
+    const out = parser.feed("a<think>\n  reasoning</think>b");
+    expect(out.visibleText).toBe("ab");
+    expect(out.thinkingText).toBe("\n  reasoning");
+    expect(out.thinkingStarted).toBe(true);
+    expect(out.thinkingEnded).toBe(true);
+  });
 });
