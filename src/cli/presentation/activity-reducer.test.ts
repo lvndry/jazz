@@ -49,9 +49,6 @@ describe("activity-reducer", () => {
     test("initializes with correct defaults", () => {
       const a = createAccumulator("Agent");
       expect(a.agentName).toBe("Agent");
-      expect(a.liveText).toBe("");
-      expect(a.reasoningBuffer).toBe("");
-      expect(a.completedReasoning).toBe("");
       expect(a.isThinking).toBe(false);
       expect(a.lastAgentHeaderWritten).toBe(false);
       expect(a.lastAppliedTextSequence).toBe(-1);
@@ -112,14 +109,6 @@ describe("activity-reducer", () => {
       expect(result.activity!.phase).toBe("thinking");
     });
 
-    test("thinking_chunk appends to reasoning buffer", () => {
-      const a = acc({ isThinking: true });
-      reduceEvent(a, { type: "thinking_chunk", content: "Hello ", sequence: 0 }, identity, stubInk);
-      reduceEvent(a, { type: "thinking_chunk", content: "world", sequence: 1 }, identity, stubInk);
-
-      expect(a.reasoningBuffer).toBe("Hello world");
-    });
-
     test("thinking_chunk returns thinking phase without reasoning", () => {
       const a = acc({ isThinking: true });
       const result = reduceEvent(
@@ -136,39 +125,12 @@ describe("activity-reducer", () => {
       }
     });
 
-    test("thinking_complete accumulates completedReasoning without logging", () => {
-      const a = acc({ isThinking: true, reasoningBuffer: "some reasoning" });
+    test("thinking_complete transitions to thinking phase and emits no outputs", () => {
+      const a = acc({ isThinking: true });
       const result = reduceEvent(a, { type: "thinking_complete" }, identity, stubInk);
 
       expect(a.isThinking).toBe(false);
-      expect(a.reasoningBuffer).toBe("");
-      expect(a.completedReasoning).toBe("some reasoning");
       expect(result.outputs.length).toBe(0);
-    });
-
-    test("thinking_complete with empty buffer does not log", () => {
-      const a = acc({ isThinking: true, reasoningBuffer: "   " });
-      const result = reduceEvent(a, { type: "thinking_complete" }, identity, stubInk);
-
-      expect(result.outputs).toHaveLength(0);
-    });
-
-    test("multiple thinking sessions accumulate reasoning with separator", () => {
-      const a = acc();
-
-      // First session
-      a.isThinking = true;
-      a.reasoningBuffer = "first";
-      reduceEvent(a, { type: "thinking_complete" }, identity, stubInk);
-
-      // Second session
-      a.isThinking = true;
-      a.reasoningBuffer = "second";
-      reduceEvent(a, { type: "thinking_complete" }, identity, stubInk);
-
-      expect(a.completedReasoning).toContain("first");
-      expect(a.completedReasoning).toContain("---");
-      expect(a.completedReasoning).toContain("second");
     });
   });
 
@@ -177,26 +139,14 @@ describe("activity-reducer", () => {
   // -------------------------------------------------------------------------
 
   describe("text lifecycle", () => {
-    test("text_start resets liveText and sequence", () => {
-      const a = acc({ liveText: "old", lastAppliedTextSequence: 5 });
+    test("text_start resets sequence", () => {
+      const a = acc({ lastAppliedTextSequence: 5 });
       reduceEvent(a, { type: "text_start" }, identity, stubInk);
 
-      expect(a.liveText).toBe("");
       expect(a.lastAppliedTextSequence).toBe(-1);
     });
 
-    test("text_start enters streaming phase, emits reasoning separator when reasoning exists", () => {
-      const a = acc({ completedReasoning: "thought" });
-      const result = reduceEvent(a, { type: "text_start" }, identity, stubInk);
-
-      expect(result.activity).not.toBeNull();
-      expect(result.activity!.phase).toBe("streaming");
-      // Only the reasoning separator is emitted (no "is responding" header)
-      expect(result.outputs).toHaveLength(1);
-      expect(result.outputs[0]!.type).toBe("log");
-    });
-
-    test("text_start emits no outputs when no reasoning was produced", () => {
+    test("text_start enters streaming phase and emits no outputs", () => {
       const a = acc();
       const result = reduceEvent(a, { type: "text_start" }, identity, stubInk);
 
@@ -205,7 +155,7 @@ describe("activity-reducer", () => {
       expect(result.outputs).toHaveLength(0);
     });
 
-    test("text_chunk updates liveText and returns streaming activity without live text", () => {
+    test("text_chunk returns streaming activity without live text in activity", () => {
       const a = acc();
       reduceEvent(a, { type: "text_start" }, identity, stubInk);
       const result = reduceEvent(
@@ -215,7 +165,6 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      expect(a.liveText).toBe("Hi");
       expect(result.activity!.phase).toBe("streaming");
       // Streaming text is appended directly to output entries, not the activity area
       if (result.activity!.phase === "streaming") {
@@ -224,7 +173,7 @@ describe("activity-reducer", () => {
     });
 
     test("text_chunk ignores stale sequence", () => {
-      const a = acc({ liveText: "Hello", lastAppliedTextSequence: 3 });
+      const a = acc({ lastAppliedTextSequence: 3 });
       reduceEvent(
         a,
         { type: "text_chunk", delta: "H", accumulated: "H", sequence: 1 },
@@ -232,30 +181,7 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      expect(a.liveText).toBe("Hello");
       expect(a.lastAppliedTextSequence).toBe(3);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // text accumulation
-  // -------------------------------------------------------------------------
-
-  describe("text accumulation", () => {
-    test("liveText is bounded to latest 1M characters", () => {
-      const a = acc();
-      reduceEvent(a, { type: "text_start" }, identity, stubInk);
-
-      const bigText = "x".repeat(1_250_000);
-      reduceEvent(
-        a,
-        { type: "text_chunk", delta: bigText, accumulated: bigText, sequence: 0 },
-        identity,
-        stubInk,
-      );
-
-      expect(a.liveText.length).toBe(1_000_000);
-      expect(a.liveText).toBe(bigText.slice(-1_000_000));
     });
   });
 
@@ -535,84 +461,6 @@ describe("activity-reducer", () => {
       expect(result.activity).toEqual({ phase: "complete" });
       expect(result.outputs).toHaveLength(0);
     });
-
-    test("flushes completedReasoning to outputs when no text was streamed", () => {
-      // Reasoning-only response (e.g. llama.cpp --jinja routing the entire
-      // response into reasoning_content). The reducer should emit the
-      // reasoning text as a Static output entry so the user sees it instead
-      // of an empty live area being cleared.
-      const ink = createCapturingInk();
-      const a = acc({
-        completedReasoning: "let me think carefully about this answer",
-        liveText: "",
-      });
-
-      const result = reduceEvent(
-        a,
-        {
-          type: "complete",
-          response: { content: "", role: "assistant", usage: undefined, toolCalls: [] },
-          totalDurationMs: 100,
-        },
-        identity,
-        ink.render,
-      );
-
-      expect(result.activity).toEqual({ phase: "complete" });
-      expect(result.outputs).toHaveLength(1);
-      expect(result.outputs[0]!.type).toBe("log");
-      expect(extractText(ink.nodes[0])).toContain("let me think carefully about this answer");
-    });
-
-    test("does not flush reasoning when text content was already streamed", () => {
-      const ink = createCapturingInk();
-      const a = acc({
-        completedReasoning: "thinking",
-        liveText: "actual answer",
-      });
-
-      const result = reduceEvent(
-        a,
-        {
-          type: "complete",
-          response: {
-            content: "actual answer",
-            role: "assistant",
-            usage: undefined,
-            toolCalls: [],
-          },
-          totalDurationMs: 100,
-        },
-        identity,
-        ink.render,
-      );
-
-      expect(result.outputs).toHaveLength(0);
-      expect(ink.nodes).toHaveLength(0);
-    });
-
-    test("flushes a still-buffered reasoning chunk if reasoning-end did not fire", () => {
-      const ink = createCapturingInk();
-      const a = acc({
-        completedReasoning: "",
-        reasoningBuffer: "incomplete thought",
-        liveText: "",
-      });
-
-      const result = reduceEvent(
-        a,
-        {
-          type: "complete",
-          response: { content: "", role: "assistant", usage: undefined, toolCalls: [] },
-          totalDurationMs: 100,
-        },
-        identity,
-        ink.render,
-      );
-
-      expect(result.outputs).toHaveLength(1);
-      expect(extractText(ink.nodes[0])).toContain("incomplete thought");
-    });
   });
 
   // -------------------------------------------------------------------------
@@ -801,8 +649,8 @@ describe("activity-reducer", () => {
         expect(result.activity!.phase).toBe("streaming");
       }
 
-      // Final accumulated text should be in liveText
-      expect(a.liveText).toBe(accumulated);
+      // Final sequence should be 49 (last chunk)
+      expect(a.lastAppliedTextSequence).toBe(49);
     });
 
     test("text_chunk never produces streamContent output entries regardless of text size", () => {

@@ -18,7 +18,6 @@ import React from "react";
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
 import { formatToolArguments, formatToolResult } from "./format-utils";
-import { applyTextChunkOrdered } from "./stream-text-order";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
 import { PADDING, THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
@@ -76,12 +75,6 @@ function renderToolBadge(label: string): React.ReactElement {
 
 export interface ReducerAccumulator {
   agentName: string;
-  /** Full accumulated response text for the current LLM turn. */
-  liveText: string;
-  /** In-progress reasoning content (cleared on thinking_complete). */
-  reasoningBuffer: string;
-  /** All completed reasoning blocks concatenated (for display in live area). */
-  completedReasoning: string;
   isThinking: boolean;
   lastAgentHeaderWritten: boolean;
   /** Sequence number for ordering out-of-order text chunks from the stream. */
@@ -98,20 +91,11 @@ export interface ReducerAccumulator {
   cumulativeCostUSD: number;
   /** Last observed prompt-side token count (used for the footer's tokens-in-context). */
   lastPromptTokens: number;
-
-  // ── Markdown formatting cache ──────────────────────────────────────
-  /** Cached reasoning input */
-  _cachedReasoningInput: string;
-  /** Cached formatted result for reasoning */
-  _cachedReasoningOutput: string;
 }
 
 export function createAccumulator(agentName: string): ReducerAccumulator {
   return {
     agentName,
-    liveText: "",
-    reasoningBuffer: "",
-    completedReasoning: "",
     isThinking: false,
     lastAgentHeaderWritten: false,
     lastAppliedTextSequence: -1,
@@ -120,9 +104,6 @@ export function createAccumulator(agentName: string): ReducerAccumulator {
     currentModel: null,
     cumulativeCostUSD: 0,
     lastPromptTokens: 0,
-
-    _cachedReasoningInput: "",
-    _cachedReasoningOutput: "",
   };
 }
 
@@ -142,16 +123,14 @@ export interface ReducerResult {
 // ---------------------------------------------------------------------------
 
 function buildThinkingOrStreamingActivity(acc: ReducerAccumulator): ActivityState {
-  if (acc.liveText.length > 0) {
+  if (acc.lastAppliedTextSequence >= 0) {
     return {
       phase: "streaming",
       agentName: acc.agentName,
       reasoning: "",
-      // Streaming text is appended to output entries (not shown in activity).
       text: "",
     };
   }
-
   return {
     phase: "thinking",
     agentName: acc.agentName,
@@ -257,8 +236,6 @@ export function reduceEvent(
       acc.lastAgentHeaderWritten = true;
       acc.currentProvider = event.provider;
       acc.currentModel = event.model;
-      acc.reasoningBuffer = "";
-      acc.completedReasoning = "";
 
       outputs.push({
         type: "info",
@@ -287,7 +264,6 @@ export function reduceEvent(
     // ---- Thinking / Reasoning -------------------------------------------
 
     case "thinking_start": {
-      acc.reasoningBuffer = "";
       acc.isThinking = true;
       return {
         activity: buildThinkingOrStreamingActivity(acc),
@@ -296,7 +272,6 @@ export function reduceEvent(
     }
 
     case "thinking_chunk": {
-      acc.reasoningBuffer += event.content;
       return {
         activity: buildThinkingOrStreamingActivity(acc),
         outputs,
@@ -305,18 +280,6 @@ export function reduceEvent(
 
     case "thinking_complete": {
       acc.isThinking = false;
-
-      // Accumulate completed reasoning (used by text_start to decide separator)
-      const newReasoning = acc.reasoningBuffer.trim();
-      if (newReasoning.length > 0) {
-        if (acc.completedReasoning.trim().length > 0) {
-          acc.completedReasoning += "\n\n---\n\n" + newReasoning;
-        } else {
-          acc.completedReasoning = newReasoning;
-        }
-      }
-      acc.reasoningBuffer = "";
-
       return {
         activity: buildThinkingOrStreamingActivity(acc),
         outputs,
@@ -326,31 +289,12 @@ export function reduceEvent(
     // ---- Text content ---------------------------------------------------
 
     case "text_start": {
-      // If reasoning was produced, log a separator before the response
-      if (acc.completedReasoning.trim().length > 0) {
-        outputs.push({
-          type: "log",
-          message: inkRender(
-            React.createElement(
-              Box,
-              { flexDirection: "column", paddingLeft: PADDING.content },
-              React.createElement(Text, { dimColor: true }, "─".repeat(40)),
-              React.createElement(Text, { dimColor: true, italic: true }, "▸ Response"),
-            ),
-          ),
-          timestamp: new Date(),
-        });
-      }
-
-      acc.liveText = "";
       acc.lastAppliedTextSequence = -1;
 
       return {
         activity: {
           phase: "streaming",
           agentName: acc.agentName,
-          // Completed reasoning was already logged to Static output, so don't
-          // duplicate it in the live area.
           reasoning: "",
           text: "",
         },
@@ -359,17 +303,9 @@ export function reduceEvent(
     }
 
     case "text_chunk": {
-      const next = applyTextChunkOrdered(
-        {
-          liveText: acc.liveText,
-          lastAppliedSequence: acc.lastAppliedTextSequence,
-        },
-        { sequence: event.sequence, accumulated: event.accumulated },
-      );
-      acc.liveText = next.liveText;
-      acc.lastAppliedTextSequence = next.lastAppliedSequence;
-
-      // All text stays in the live area — no flushing to Static during streaming.
+      if (event.sequence > acc.lastAppliedTextSequence) {
+        acc.lastAppliedTextSequence = event.sequence;
+      }
       return {
         activity: buildThinkingOrStreamingActivity(acc),
         outputs,
@@ -536,33 +472,6 @@ export function reduceEvent(
     // ---- Complete -------------------------------------------------------
 
     case "complete": {
-      // If the model produced reasoning but no text content (common with
-      // OpenAI-compatible local servers like llama-server --jinja, where
-      // jinja templates route the entire response into reasoning_content),
-      // surface the reasoning as the visible response so the user sees it
-      // instead of nothing.
-      const pendingReasoning = acc.reasoningBuffer.trim();
-      const finalReasoning =
-        pendingReasoning.length > 0
-          ? acc.completedReasoning.trim().length > 0
-            ? `${acc.completedReasoning}\n\n---\n\n${pendingReasoning}`
-            : pendingReasoning
-          : acc.completedReasoning;
-
-      if (finalReasoning.trim().length > 0 && acc.liveText.length === 0) {
-        outputs.push({
-          type: "log",
-          message: inkRender(
-            React.createElement(
-              Box,
-              { flexDirection: "column", paddingLeft: PADDING.content },
-              React.createElement(Text, { color: THEME.reasoning, italic: true }, finalReasoning),
-            ),
-          ),
-          timestamp: new Date(),
-        });
-      }
-
       return { activity: { phase: "complete" }, outputs };
     }
   }
