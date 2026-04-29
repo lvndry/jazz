@@ -28,6 +28,10 @@ export interface ModelInfo {
   readonly supportsPdf?: boolean;
   /** Context window size in tokens. If not specified, defaults to 128000. */
   readonly contextWindow?: number;
+  /** Raw chat template string (Jinja for llama.cpp, Go-template for ollama). Used for reasoning-parser selection. */
+  readonly chatTemplate?: string;
+  /** Provider-reported capability tags (e.g. ["completion", "tools", "thinking"] from ollama). */
+  readonly capabilities?: readonly string[];
 }
 
 /**
