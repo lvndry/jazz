@@ -41,9 +41,10 @@ data/
 jazz.config.json
 jazz.config.*.json
 
-# IDE
+# AI agents
 CLAUDE.md
 .kiro/
 .agent/
 .history/
 .claude/
+superpowers/
