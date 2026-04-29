@@ -67,15 +67,20 @@ export function formatToolExecutionError(errorMessage: string, durationMs: numbe
 }
 
 /**
- * Dim formatted reasoning for the Static output stream. Nested markdown uses SGR 22
- * to end **bold**, which also clears faint/dim on common terminals — re-apply SGR 2
- * after each 22 so following text stays subdued within the same chunk.
+ * Style formatted reasoning for the Static output stream: dim + italic, so it
+ * reads as visually distinct from the response while keeping markdown
+ * structure intact. Nested markdown re-emits SGR 22 (end-bold, also clears
+ * dim) and SGR 23 (end-italic) — re-apply faint and italic after each so the
+ * outer styling carries through nested **bold** and *italic* runs.
  */
 export function dimReasoningMarkdownOutput(formatted: string): string {
   if (formatted.length === 0) return formatted;
+  let patched = formatted;
   // eslint-disable-next-line no-control-regex -- SGR 22 ends bold and clears dim; restore faint after each
-  const patched = formatted.replace(/\x1b\[22m/g, "\x1b[22m\x1b[2m");
-  return chalk.dim(patched);
+  patched = patched.replace(/\x1b\[22m/g, "\x1b[22m\x1b[2m");
+  // eslint-disable-next-line no-control-regex -- SGR 23 ends italic; restore italic after each
+  patched = patched.replace(/\x1b\[23m/g, "\x1b[23m\x1b[3m");
+  return chalk.dim.italic(patched);
 }
 
 export function formatToolsDetected(
