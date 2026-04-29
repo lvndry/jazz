@@ -1,10 +1,14 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { InkStreamingRenderer } from "./ink-presentation-service";
-import { MAX_LIVE_TEXT_CHARS } from "./stream-text-order";
 import type { ActivityState } from "../ui/activity-state";
 import { store } from "../ui/store";
 import type { OutputEntry } from "../ui/types";
+
+// Large-base-text size for the seenLength regression test below. The exact
+// value isn't load-bearing — anything large enough to make a delta-mismatch
+// regression visible if seenLength stops tracking accumulated length.
+const LARGE_BASE_CHARS = 100_000;
 
 describe("InkStreamingRenderer", () => {
   const setActivityCalls: ActivityState[] = [];
@@ -853,7 +857,7 @@ describe("InkStreamingRenderer", () => {
       }
     });
 
-    test("continues streaming correctly after front-trimming (seenLength tracks full accumulated)", () => {
+    test("seenLength tracks full accumulated length across very large chunks", () => {
       const appendedDeltas: string[] = [];
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
@@ -865,7 +869,7 @@ describe("InkStreamingRenderer", () => {
         emitStreamStart(renderer);
         Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
-        const base = `${"a".repeat(MAX_LIVE_TEXT_CHARS - 6)}\n`;
+        const base = `${"a".repeat(LARGE_BASE_CHARS - 6)}\n`;
         const marker = "MARKER1234567890\n";
         const accumulated1 = base;
         const accumulated2 = base + marker;
