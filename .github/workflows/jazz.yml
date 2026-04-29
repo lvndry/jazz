@@ -105,8 +105,7 @@ jobs:
         if: |
           github.event_name == 'issue_comment' &&
           github.event.issue.pull_request != null &&
-          contains(github.event.comment.body, '/jazz') &&
-          !contains(github.event.comment.body, '/jazz-review') && (
+          contains(github.event.comment.body, '/jazz') && (
             github.event.comment.author_association == 'OWNER' ||
             github.event.comment.author_association == 'MEMBER' ||
             github.event.comment.author_association == 'COLLABORATOR'
