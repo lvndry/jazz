@@ -38,6 +38,28 @@ describe("isActivityEqual", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // awaiting
+  // ---------------------------------------------------------------------------
+
+  test("awaiting states with same agent/provider/model are equal", () => {
+    expect(
+      isActivityEqual(
+        { phase: "awaiting", agentName: "A", provider: "llamacpp", model: "qwen3" },
+        { phase: "awaiting", agentName: "A", provider: "llamacpp", model: "qwen3" },
+      ),
+    ).toBe(true);
+  });
+
+  test("awaiting states differ by model", () => {
+    expect(
+      isActivityEqual(
+        { phase: "awaiting", agentName: "A", provider: "llamacpp", model: "qwen3" },
+        { phase: "awaiting", agentName: "A", provider: "llamacpp", model: "deepseek" },
+      ),
+    ).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
   // thinking
   // ---------------------------------------------------------------------------
 

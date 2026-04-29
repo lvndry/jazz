@@ -121,6 +121,35 @@ export const ActivityView = React.memo(function ActivityView({
     case "complete":
       return null;
 
+    case "awaiting":
+      return (
+        <Box
+          flexDirection="column"
+          marginTop={1}
+          paddingX={PADDING.content}
+        >
+          <Box>
+            <Text color={THEME.agent}>{G.bullet}</Text>
+            <Text> </Text>
+            <Text
+              bold
+              color={THEME.agent}
+            >
+              {activity.agentName}
+            </Text>
+            <Text dimColor> is preparing</Text>
+            <AnimatedEllipsis
+              label=""
+              color={THEME.agent}
+            />
+            <Text dimColor>
+              {" "}
+              ({activity.provider}/{activity.model})
+            </Text>
+          </Box>
+        </Box>
+      );
+
     case "thinking":
       return (
         <Box

@@ -232,7 +232,20 @@ export function reduceEvent(
         timestamp: new Date(),
       });
 
-      return { activity: null, outputs };
+      // Show an awaiting indicator until the first real event arrives.
+      // For local models with long prompt eval (llama.cpp, ollama with
+      // big contexts) this gap is otherwise visually silent, which looks
+      // like a hang. The next thinking_start/text_start/tool_call replaces
+      // this state automatically.
+      return {
+        activity: {
+          phase: "awaiting",
+          agentName: acc.agentName,
+          provider: event.provider,
+          model: event.model,
+        },
+        outputs,
+      };
     }
 
     // ---- Thinking / Reasoning -------------------------------------------
