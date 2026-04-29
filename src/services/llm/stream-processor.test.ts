@@ -146,4 +146,36 @@ describe("StreamProcessor", () => {
     expect(finalResponse.content).toBe("answer");
     expect(finalResponse.reasoning).toBe("deliberation");
   });
+
+  it("with no reasoningParser, text-delta events stream as today (regression)", async () => {
+    const events: any[] = [];
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      const chunk = Effect.runSync(eff);
+      events.push(...Chunk.toArray(chunk));
+    };
+
+    const processor = new StreamProcessor(
+      {
+        providerName: "anthropic",
+        modelName: "claude",
+        hasReasoningEnabled: false,
+        startTime: Date.now(),
+      },
+      emit,
+      mockLogger,
+    );
+
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "text-delta", text: "Hello" };
+        yield { type: "text-delta", text: " <think> not parsed </think> world" };
+        yield { type: "finish", finishReason: "stop" };
+      })(),
+      usage: Promise.resolve({ inputTokens: 5, outputTokens: 5, totalTokens: 10 }),
+    } as any;
+
+    const finalResponse = await processor.process(mockResult);
+    expect(finalResponse.content).toBe("Hello <think> not parsed </think> world");
+    expect(events.some((e) => e.type === "thinking_start")).toBe(false);
+  });
 });

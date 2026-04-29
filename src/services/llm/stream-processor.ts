@@ -14,6 +14,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@/core/types";
 import { type LLMError } from "@/core/types/errors";
 import type { ToolCall } from "@/core/types/tools";
+import type { ReasoningParser } from "./reasoning";
 
 /**
  * Type for AI SDK StreamText result
@@ -41,6 +42,13 @@ interface StreamProcessorConfig {
   readonly toolDefinitionChars?: number;
   /** Number of tool definitions sent to the LLM. */
   readonly toolDefinitionCount?: number;
+  /**
+   * Optional client-side parser for reasoning tags in text-delta content.
+   * When set, text-delta chunks flow through parser.feed() instead of being
+   * emitted directly. Used for local providers (llamacpp, sometimes ollama)
+   * where reasoning arrives inline rather than as structured events.
+   */
+  readonly reasoningParser?: ReasoningParser;
 }
 
 /**
