@@ -45,4 +45,18 @@ describe("TagPairParser", () => {
     expect(c.thinkingEnded).toBe(true);
     expect(c.visibleText).toBe("after");
   });
+
+  it("treats <table> and other non-reasoning tags as visible text", () => {
+    const parser = new TagPairParser();
+    const out = parser.feed("a<table>row</table>b");
+    expect(out.visibleText).toBe("a<table>row</table>b");
+    expect(out.thinkingText).toBe("");
+    expect(out.thinkingStarted).toBeUndefined();
+  });
+
+  it("emits an unmatched lone < as visible text", () => {
+    const parser = new TagPairParser();
+    const out = parser.feed("2 < 3 is true");
+    expect(out.visibleText).toBe("2 < 3 is true");
+  });
 });
