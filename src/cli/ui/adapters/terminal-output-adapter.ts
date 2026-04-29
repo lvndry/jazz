@@ -14,10 +14,6 @@
  * Every other entry — info/log/debug/error/warn/user/tool cards/headers/
  * metrics/cost — is settled at emit time and goes straight to Static.
  *
- * Backward-compatibility: `useTerminalOutputAdapter` still exposes a
- * legacy `addEntry` shim that routes through `appendStatic`. This is in place
- * to keep existing call sites in `InkStreamingRenderer` working until that
- * file is rewritten in a later task. The shim is dropped in Task 8.
  */
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
@@ -177,11 +173,6 @@ export interface ScrollbackHandle {
   finalizeStream: () => void;
   /** Reset the buffer (used by the /clear slash command). */
   clear: () => void;
-  /**
-   * Backward-compat shim. Routes through `appendStatic`. Returns the first
-   * entry's id. Will be removed in Task 8.
-   */
-  addEntry: (entry: OutputEntry | readonly OutputEntry[]) => string;
 }
 
 export function useTerminalOutputAdapter(): ScrollbackHandle {
@@ -244,15 +235,11 @@ export function useTerminalOutputAdapter(): ScrollbackHandle {
     dispatch({ type: "clear" });
   }, []);
 
-  // Compat shim — drops in Task 8.
-  const addEntry = appendStatic;
-
   return {
     state,
     appendStatic,
     appendStream,
     finalizeStream,
     clear,
-    addEntry,
   };
 }
