@@ -268,6 +268,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
 
     if (this.showMetrics && event.metrics) {
+      store.printOutput({ type: "log", message: "", timestamp: new Date() });
       this.printMetrics(event);
       this.printCost(event);
     }
