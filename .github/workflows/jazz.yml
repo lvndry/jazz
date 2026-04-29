@@ -24,16 +24,24 @@ on:
   issue_comment:
     types: [created]
 
+# Workflow-wide default. Each job below overrides with the narrower set of
+# scopes it actually needs (least-privilege per job). When a job sets its own
+# `permissions:` block it REPLACES this default rather than merging — so each
+# block is self-contained.
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
 
 jobs:
   # Resolve PR metadata first so that downstream jobs can gate on pr_head_repo_full_name.
   # This job runs unconditionally; the security gate lives in each job's `if`.
   resolve:
     runs-on: ubuntu-latest
+    # Reads PR data (pull-requests:read) and posts the eyes reaction
+    # (issues:write — reactions on a PR comment go through the issues API).
+    # No checkout, so no `contents` scope.
+    permissions:
+      pull-requests: read
+      issues: write
     outputs:
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       base_sha: ${{ steps.resolve.outputs.base_sha }}
@@ -141,6 +149,11 @@ jobs:
   code-review:
     needs: resolve
     runs-on: ubuntu-latest
+    # Checkout (contents:read), gh / gh api PR queries (pull-requests:read),
+    # and posting the inline review (pull-requests:write — supersedes :read).
+    permissions:
+      contents: read
+      pull-requests: write
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'code-review' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
@@ -408,6 +421,12 @@ jobs:
   assistant:
     needs: resolve
     runs-on: ubuntu-latest
+    # Checkout (contents:read), gh / gh api PR queries (pull-requests:read),
+    # and posting the response as an issue comment on the PR (issues:write).
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
     if: |
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'assistant' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz') &&
