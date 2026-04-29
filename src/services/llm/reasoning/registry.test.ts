@@ -20,16 +20,28 @@ describe("selectParser", () => {
     expect(parser).not.toBeNull();
   });
 
-  it("returns null for a cloud provider with no metadata", () => {
+  it("falls back to a defensive TagPairParser for a cloud provider with no metadata", () => {
+    // The fallback is safe: TagPairParser is a passthrough on plain text and
+    // only acts when it sees a <think>/<thinking> tag in the stream. Cloud
+    // models that never emit such a tag see no behavior change.
     const parser = selectParser({ provider: "anthropic", modelId: "claude-sonnet-4-6" });
-    expect(parser).toBeNull();
+    expect(parser).not.toBeNull();
   });
 
-  it("returns null when no factory matches", () => {
+  it("falls back to a defensive TagPairParser when no factory explicitly claims", () => {
     const parser = selectParser({
       provider: "llamacpp",
       modelId: "no-reasoning",
       chatTemplate: "no markers here",
+    });
+    expect(parser).not.toBeNull();
+  });
+
+  it("returns null for Harmony format (TagPairParser would mangle it)", () => {
+    const parser = selectParser({
+      provider: "llamacpp",
+      modelId: "gpt-oss",
+      chatTemplate: "messages with <|channel|>analysis<|message|>...",
     });
     expect(parser).toBeNull();
   });
