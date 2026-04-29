@@ -28,7 +28,7 @@ The requester said:
 
 ## Instructions
 
-1. Read the PR context snapshot first: `read_file` with `path: "/tmp/jazz-pr-context.json"`. The title, description, labels, and prior comments/reviews tell you what the PR is about and what's already been discussed.
+1. Read the PR context snapshot first: `read_file` with `path: "/tmp/jazz-pr-context.json"`. The title, description, labels, and prior comments/reviews tell you what the PR is about and what's already been discussed. **If the file is missing or contains `{"error": ...}`** (e.g. running on an older driver workflow that didn't pre-fetch context), proceed without it: continue with the diff inspection, note in your final answer that PR metadata wasn't available, and don't ask the user to retry — just answer with what you have.
 2. Inspect the pull request diff. Call `git_diff` with `path: "__WORKSPACE__"` and `commit: "__PR_BASE_SHA__...__PR_HEAD_SHA__"`. Do NOT call `git_diff` without `path` — the runner's default cwd is not the repository.
 3. Read surrounding code and tests for any touched areas. When using `read_file`, `ls`, `find`, or `grep` for source code, pass paths under `__WORKSPACE__/...`.
 4. Answer the request above. If the request is vague, infer the most helpful PR-focused action and say what you assumed. When the request references the PR description, comments, reviews, or labels, ground your answer in the snapshot.
