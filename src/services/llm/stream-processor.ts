@@ -206,8 +206,6 @@ export class StreamProcessor {
             if (typeof part.text === "string") {
               textChunk = part.text;
             } else if (Array.isArray(part.text)) {
-              // Extract text from structured content array
-              // e.g Mistral may return content as array of objects or strings
               const textArray = part.text as Array<unknown>;
               textChunk = textArray
                 .map((item: unknown) => {
@@ -217,7 +215,6 @@ export class StreamProcessor {
                       return String(itemData["text"]);
                     }
                     if (itemData["type"] === "reference") {
-                      // Skip reference items for now, could be enhanced to handle citations
                       return "";
                     }
                   }
@@ -225,30 +222,15 @@ export class StreamProcessor {
                 })
                 .join("");
             } else {
-              // Fallback: convert to string
               textChunk = String(part.text ?? "");
             }
 
-            // Emit text start on first chunk
-            if (!this.state.hasStartedText && textChunk.length > 0) {
-              const firstTokenLatency = Date.now() - this.config.startTime;
-              void this.logger.debug(
-                `[LLM Timing] 🎯 FIRST TOKEN arrived after ${firstTokenLatency}ms`,
-              );
-              void this.emitEvent({ type: "text_start" });
-              this.state.hasStartedText = true;
-              this.recordFirstToken("text");
-            }
+            if (textChunk.length === 0) break;
 
-            // Emit text chunk
-            if (textChunk.length > 0) {
-              this.state.accumulatedText += textChunk;
-              void this.emitEvent({
-                type: "text_chunk",
-                delta: textChunk,
-                accumulated: this.state.accumulatedText,
-                sequence: this.state.textSequence++,
-              });
+            if (this.config.reasoningParser) {
+              this.routeParsedChunk(this.config.reasoningParser.feed(textChunk));
+            } else {
+              this.emitVisibleText(textChunk);
             }
             break;
           }
@@ -454,6 +436,58 @@ export class StreamProcessor {
       throw error;
     } finally {
       this.resolveCompletion();
+    }
+  }
+
+  private emitVisibleText(textChunk: string): void {
+    if (!this.state.hasStartedText) {
+      const firstTokenLatency = Date.now() - this.config.startTime;
+      void this.logger.debug(
+        `[LLM Timing] 🎯 FIRST TOKEN arrived after ${firstTokenLatency}ms`,
+      );
+      void this.emitEvent({ type: "text_start" });
+      this.state.hasStartedText = true;
+      this.recordFirstToken("text");
+    }
+    this.state.accumulatedText += textChunk;
+    void this.emitEvent({
+      type: "text_chunk",
+      delta: textChunk,
+      accumulated: this.state.accumulatedText,
+      sequence: this.state.textSequence++,
+    });
+  }
+
+  private routeParsedChunk(chunk: import("./reasoning").ParseChunk): void {
+    if (chunk.thinkingStarted && this.state.reasoningSequence === 0) {
+      const firstReasoningLatency = Date.now() - this.config.startTime;
+      void this.logger.debug(
+        `[LLM Timing] 🧠 PARSER REASONING START after ${firstReasoningLatency}ms`,
+      );
+      void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+      this.recordFirstToken("reasoning");
+    }
+    if (chunk.thinkingText.length > 0) {
+      this.state.accumulatedReasoning += chunk.thinkingText;
+      void this.emitEvent({
+        type: "thinking_chunk",
+        content: chunk.thinkingText,
+        sequence: this.state.reasoningSequence++,
+      });
+    }
+    if (chunk.thinkingEnded && this.state.reasoningSequence > 0 && !this.state.reasoningStreamCompleted) {
+      this.state.reasoningStreamCompleted = true;
+      void this.emitEvent({
+        type: "thinking_complete",
+        ...(this.state.reasoningTokens !== undefined && {
+          totalTokens: this.state.reasoningTokens,
+        }),
+      });
+      this.state.reasoningSequence = 0;
+      this.state.reasoningStreamCompleted = false;
+    }
+    if (chunk.visibleText.length > 0) {
+      this.emitVisibleText(chunk.visibleText);
     }
   }
 

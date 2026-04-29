@@ -178,4 +178,81 @@ describe("StreamProcessor", () => {
     expect(finalResponse.content).toBe("Hello <think> not parsed </think> world");
     expect(events.some((e) => e.type === "thinking_start")).toBe(false);
   });
+
+  it("with reasoningParser, splits inline <think> content into thinking_* and text_chunk events", async () => {
+    const events: any[] = [];
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      const chunk = Effect.runSync(eff);
+      events.push(...Chunk.toArray(chunk));
+    };
+
+    const { TagPairParser } = await import("./reasoning/tag-pair-parser");
+
+    const processor = new StreamProcessor(
+      {
+        providerName: "llamacpp",
+        modelName: "qwen3-4b",
+        hasReasoningEnabled: true,
+        startTime: Date.now(),
+        reasoningParser: new TagPairParser(),
+      },
+      emit,
+      mockLogger,
+    );
+
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "text-delta", text: "<think>let me think</think>The answer is 4" };
+        yield { type: "finish", finishReason: "stop" };
+      })(),
+      usage: Promise.resolve({ inputTokens: 1, outputTokens: 5, totalTokens: 6 }),
+    } as any;
+
+    const finalResponse = await processor.process(mockResult);
+
+    expect(finalResponse.content).toBe("The answer is 4");
+
+    const thinkingStart = events.find((e) => e.type === "thinking_start");
+    const thinkingChunks = events.filter((e) => e.type === "thinking_chunk");
+    const thinkingComplete = events.find((e) => e.type === "thinking_complete");
+    const textChunks = events.filter((e) => e.type === "text_chunk");
+
+    expect(thinkingStart).toBeDefined();
+    expect(thinkingChunks.map((c) => c.content).join("")).toBe("let me think");
+    expect(thinkingComplete).toBeDefined();
+    expect(textChunks.map((c) => c.delta).join("")).toBe("The answer is 4");
+  });
+
+  it("with reasoningParser, suppresses thinking_start for whitespace-only blocks", async () => {
+    const events: any[] = [];
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      const chunk = Effect.runSync(eff);
+      events.push(...Chunk.toArray(chunk));
+    };
+    const { TagPairParser } = await import("./reasoning/tag-pair-parser");
+
+    const processor = new StreamProcessor(
+      {
+        providerName: "llamacpp",
+        modelName: "qwen3-4b",
+        hasReasoningEnabled: false,
+        startTime: Date.now(),
+        reasoningParser: new TagPairParser(),
+      },
+      emit,
+      mockLogger,
+    );
+
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "text-delta", text: "<think>\n\n</think>The answer is 4" };
+        yield { type: "finish", finishReason: "stop" };
+      })(),
+      usage: Promise.resolve({ inputTokens: 1, outputTokens: 5, totalTokens: 6 }),
+    } as any;
+
+    await processor.process(mockResult);
+    expect(events.some((e) => e.type === "thinking_start")).toBe(false);
+    expect(events.some((e) => e.type === "thinking_chunk")).toBe(false);
+  });
 });
