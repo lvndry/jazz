@@ -473,7 +473,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      # pull-requests must be `write`, not `read`: posting a comment to a PR
+      # via the issues/{number}/comments endpoint reads from the issues scope
+      # but writes require pull-requests:write when {number} is a PR. The
+      # x-accepted-github-permissions header on the 403 confirms this.
+      pull-requests: write
       issues: write
     if: |
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'assistant' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
