@@ -67,6 +67,7 @@ import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
 import { StreamProcessor } from "./stream-processor";
+import { selectParser } from "./reasoning";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 
 interface AISDKConfig {
@@ -1237,6 +1238,12 @@ class AISDKService implements LLMService {
                 );
 
                 const modelInfo = await this.resolveModelInfo(providerName, options.model);
+                const reasoningParser = selectParser({
+                  provider: providerName,
+                  modelId: options.model,
+                  ...(modelInfo?.chatTemplate ? { chatTemplate: modelInfo.chatTemplate } : {}),
+                  ...(modelInfo?.capabilities ? { capabilities: modelInfo.capabilities } : {}),
+                });
                 // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
                 // underlying models, so we assume tool support and pass tools through.
                 const isGatewayModel = OPENROUTER_GATEWAY_MODELS.has(options.model);
@@ -1285,6 +1292,7 @@ class AISDKService implements LLMService {
                     startTime: Date.now(),
                     toolsDisabled,
                     ...(providerNativeToolNames && { providerNativeToolNames }),
+                    ...(reasoningParser ? { reasoningParser } : {}),
                     ...(prepared
                       ? {
                           toolDefinitionChars: prepared.toolDefinitionChars,
