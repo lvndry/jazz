@@ -140,17 +140,42 @@ export class InkStreamingRenderer implements StreamingRenderer {
     });
   }
 
+  /**
+   * Events that should finalize the pending streaming buffer before the rest
+   * of `handleEvent` runs. Centralizes the settle-before-emit rule so any
+   * non-streaming event that may emit visible output cannot interleave with
+   * an open pending tail.
+   *
+   * Excluded from this list:
+   * - `text_chunk` / `thinking_chunk`: stream events; they extend pending in place.
+   * - `stream_start` / `thinking_start`: round/phase boundaries; pending is
+   *   expected to be null at these points (prior round's `complete`/`error`/
+   *   `flush` finalized it).
+   * - `complete`: settled inside `handleComplete`, where the surrounding
+   *   metrics/cost/idle work needs to come AFTER the finalize.
+   * - `usage_update`: no visible output; settling here would prematurely commit
+   *   the pending tail to scrollback when usage events fire mid-stream.
+   */
+  private static readonly SETTLE_BEFORE: ReadonlySet<StreamEvent["type"]> = new Set([
+    "thinking_complete",
+    "text_start",
+    "tools_detected",
+    "tool_execution_start",
+    "tool_execution_complete",
+    "error",
+  ]);
+
   handleEvent(event: StreamEvent): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (InkStreamingRenderer.SETTLE_BEFORE.has(event.type)) {
+        store.finalizeStream();
+      }
+
       if (event.type === "stream_start") {
         this.seenLength = 0;
         this.hasStreamedText = false;
         this.reasoningHeaderWrittenForRound = false;
         store.updateRunStats({ provider: event.provider, model: event.model });
-      }
-
-      if (event.type === "thinking_complete") {
-        store.finalizeStream(); // always settle, even if showThinking is false
       }
 
       if (this.displayConfig.showThinking) {
@@ -172,12 +197,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
         return;
       }
 
-      if (event.type === "tool_execution_start") {
-        // Settle any open stream before printing the tool card.
-        store.finalizeStream();
-        if (!event.longRunning) {
-          this.setupToolTimeout(event.toolCallId, event.toolName);
-        }
+      if (event.type === "tool_execution_start" && !event.longRunning) {
+        this.setupToolTimeout(event.toolCallId, event.toolName);
       }
       if (event.type === "tool_execution_complete") {
         this.clearToolTimeout(event.toolCallId);
@@ -185,9 +206,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
           this.acc.activeTools.get(event.toolCallId)?.toolName,
           event.result,
         );
-      }
-      if (event.type === "error") {
-        store.finalizeStream();
       }
 
       // Run the pure reducer for activity state + Static side-effects.
