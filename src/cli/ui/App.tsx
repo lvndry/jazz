@@ -3,7 +3,10 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import { ActivityView } from "./ActivityView";
 import { useTerminalOutputAdapter } from "./adapters/terminal-output-adapter";
+import type { PendingStream } from "./adapters/terminal-output-adapter";
 import ErrorBoundary from "./ErrorBoundary";
+import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
+import { formatMarkdown } from "../presentation/markdown-formatter";
 import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
@@ -123,51 +126,58 @@ const StatusFooterIsland = React.memo(StatusFooterIslandComponent);
 // Uses TerminalOutputAdapter for two-tier Static/live rendering.
 // ============================================================================
 
+function renderPendingStream(pending: PendingStream): string {
+  // The renderer's display config is wired up via store; for this island we
+  // default to formatMarkdown. If the user's display config is `hybrid`, the
+  // renderer will set its own pending text via store.appendStream — the buffer
+  // contains raw markdown either way. We always render with `formatMarkdown`
+  // here; the activity-island's display config doesn't change formatting
+  // semantics for the pending tail.
+  const formatted = formatMarkdown(pending.rawTail);
+  return pending.kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
+}
+
 function OutputIslandComponent(): React.ReactElement {
-  const { addEntry, clear, legacyState } = useTerminalOutputAdapter();
+  const { state, appendStatic, appendStream, finalizeStream, clear } = useTerminalOutputAdapter();
   const initializedRef = useRef(false);
 
   const printOutput = useCallback(
-    (entryOrBatch: Parameters<typeof addEntry>[0]) => addEntry(entryOrBatch),
-    [addEntry],
+    (entryOrBatch: Parameters<typeof appendStatic>[0]) => appendStatic(entryOrBatch),
+    [appendStatic],
   );
-
   const clearOutputs = useCallback(() => clear(), [clear]);
 
-  // Register store methods synchronously during render
   if (!initializedRef.current) {
     store.registerPrintOutput(printOutput);
     store.registerClearOutputs(clearOutputs);
+    store.registerStreamingHandler({ appendStream, finalizeStream });
     if (store.hasPendingClear()) {
       clearOutputs();
       store.consumePendingClear();
     }
     const queued = store.drainPendingOutputQueue();
-    for (const entry of queued) {
-      printOutput(entry);
-    }
+    for (const entry of queued) printOutput(entry);
     initializedRef.current = true;
   }
 
-  // Cleanup on unmount to prevent stale handler calls
   useEffect(() => {
     return () => {
       store.registerPrintOutput(() => "");
       store.registerClearOutputs(() => {});
+      store.registerStreamingHandler(null);
     };
   }, []);
 
+  const pending = state.pending;
+
   return (
     <Box flexDirection="column">
-      {/* Static tier: rendered once, never re-laid-out.
-          The key forces a remount on clearOutputs(), resetting Ink's
-          internal positional index so post-clear items render correctly. */}
       <Static
-        key={legacyState.staticGeneration}
-        items={legacyState.staticEntries}
+        key={state.staticGeneration}
+        items={state.staticEntries}
       >
         {(entry: OutputEntryWithId, index: number) => {
-          const prevEntry = index > 0 ? legacyState.staticEntries[index - 1] : null;
+          const prevEntry = index > 0 ? state.staticEntries[index - 1] : null;
           const addSpacing =
             entry.type === "user" || (entry.type === "info" && prevEntry?.type === "user");
           return (
@@ -180,25 +190,11 @@ function OutputIslandComponent(): React.ReactElement {
         }}
       </Static>
 
-      {/* Live tier: re-rendered on each frame, kept small for performance */}
-      {legacyState.liveEntries.map((entry, index) => {
-        // For spacing, check against the last static entry if this is the first live entry
-        const prevEntry =
-          index > 0
-            ? legacyState.liveEntries[index - 1]
-            : legacyState.staticEntries.length > 0
-              ? legacyState.staticEntries[legacyState.staticEntries.length - 1]
-              : null;
-        const addSpacing =
-          entry.type === "user" || (entry.type === "info" && prevEntry?.type === "user");
-        return (
-          <OutputEntryView
-            key={entry.id}
-            entry={entry}
-            addSpacing={addSpacing}
-          />
-        );
-      })}
+      {pending !== null && (
+        <Box paddingLeft={PADDING.content}>
+          <Text>{renderPendingStream(pending)}</Text>
+        </Box>
+      )}
     </Box>
   );
 }

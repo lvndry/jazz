@@ -182,15 +182,6 @@ export interface ScrollbackHandle {
    * entry's id. Will be removed in Task 8.
    */
   addEntry: (entry: OutputEntry | readonly OutputEntry[]) => string;
-  /**
-   * Temporary: keeps App.tsx compiling between Task 2 and Task 4.
-   * Removed in Task 4 alongside the App.tsx rewire.
-   */
-  legacyState: {
-    liveEntries: OutputEntryWithId[];
-    staticEntries: OutputEntryWithId[];
-    staticGeneration: number;
-  };
 }
 
 export function useTerminalOutputAdapter(): ScrollbackHandle {
@@ -263,12 +254,5 @@ export function useTerminalOutputAdapter(): ScrollbackHandle {
     finalizeStream,
     clear,
     addEntry,
-    // Temporary: keeps App.tsx compiling between Task 2 and Task 4.
-    // Removed in Task 4 alongside the App.tsx rewire.
-    legacyState: {
-      liveEntries: [] as OutputEntryWithId[],
-      staticEntries: state.staticEntries,
-      staticGeneration: state.staticGeneration,
-    },
   };
 }
