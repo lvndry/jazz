@@ -124,4 +124,22 @@ describe("TagPairParser", () => {
     expect(out.thinkingStarted).toBeUndefined();
     expect(out.thinkingEnded).toBeUndefined();
   });
+
+  it("recognises <THINK>, <Thinking>, and mixed-case close tags", () => {
+    const parser = new TagPairParser();
+    const out = parser.feed("a<THINK>x</Think>b<Thinking>y</THINKING>c");
+    expect(out.visibleText).toBe("abc");
+    expect(out.thinkingText).toBe("xy");
+    expect(out.thinkingStarted).toBe(true);
+    expect(out.thinkingEnded).toBe(true);
+  });
+
+  it("handles two thinking blocks in one feed", () => {
+    const parser = new TagPairParser();
+    const out = parser.feed("a<think>one</think>b<think>two</think>c");
+    expect(out.visibleText).toBe("abc");
+    expect(out.thinkingText).toBe("onetwo");
+    expect(out.thinkingStarted).toBe(true);
+    expect(out.thinkingEnded).toBe(true);
+  });
 });
