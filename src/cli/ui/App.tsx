@@ -124,7 +124,7 @@ const StatusFooterIsland = React.memo(StatusFooterIslandComponent);
 // ============================================================================
 
 function OutputIslandComponent(): React.ReactElement {
-  const { state, addEntry, clear } = useTerminalOutputAdapter();
+  const { addEntry, clear, legacyState } = useTerminalOutputAdapter();
   const initializedRef = useRef(false);
 
   const printOutput = useCallback(
@@ -163,11 +163,11 @@ function OutputIslandComponent(): React.ReactElement {
           The key forces a remount on clearOutputs(), resetting Ink's
           internal positional index so post-clear items render correctly. */}
       <Static
-        key={state.staticGeneration}
-        items={state.staticEntries}
+        key={legacyState.staticGeneration}
+        items={legacyState.staticEntries}
       >
         {(entry: OutputEntryWithId, index: number) => {
-          const prevEntry = index > 0 ? state.staticEntries[index - 1] : null;
+          const prevEntry = index > 0 ? legacyState.staticEntries[index - 1] : null;
           const addSpacing =
             entry.type === "user" || (entry.type === "info" && prevEntry?.type === "user");
           return (
@@ -181,13 +181,13 @@ function OutputIslandComponent(): React.ReactElement {
       </Static>
 
       {/* Live tier: re-rendered on each frame, kept small for performance */}
-      {state.liveEntries.map((entry, index) => {
+      {legacyState.liveEntries.map((entry, index) => {
         // For spacing, check against the last static entry if this is the first live entry
         const prevEntry =
           index > 0
-            ? state.liveEntries[index - 1]
-            : state.staticEntries.length > 0
-              ? state.staticEntries[state.staticEntries.length - 1]
+            ? legacyState.liveEntries[index - 1]
+            : legacyState.staticEntries.length > 0
+              ? legacyState.staticEntries[legacyState.staticEntries.length - 1]
               : null;
         const addSpacing =
           entry.type === "user" || (entry.type === "info" && prevEntry?.type === "user");
