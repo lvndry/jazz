@@ -167,6 +167,11 @@ export class StreamProcessor {
     void this.logger.debug(`[LLM Timing] 🔄 Starting to process fullStream...`);
     const streamProcessStart = Date.now();
     await this.processFullStream(result);
+
+    if (this.config.reasoningParser) {
+      this.routeParsedChunk(this.config.reasoningParser.flush());
+    }
+
     void this.logger.debug(
       `[LLM Timing] ✓ Stream processing completed in ${Date.now() - streamProcessStart}ms`,
     );

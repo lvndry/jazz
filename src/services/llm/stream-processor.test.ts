@@ -255,4 +255,41 @@ describe("StreamProcessor", () => {
     expect(events.some((e) => e.type === "thinking_start")).toBe(false);
     expect(events.some((e) => e.type === "thinking_chunk")).toBe(false);
   });
+
+  it("flushes the reasoningParser when the stream ends mid-thinking", async () => {
+    const events: any[] = [];
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      const chunk = Effect.runSync(eff);
+      events.push(...Chunk.toArray(chunk));
+    };
+    const { TagPairParser } = await import("./reasoning/tag-pair-parser");
+
+    const processor = new StreamProcessor(
+      {
+        providerName: "llamacpp",
+        modelName: "qwen3-4b",
+        hasReasoningEnabled: true,
+        startTime: Date.now(),
+        reasoningParser: new TagPairParser(),
+      },
+      emit,
+      mockLogger,
+    );
+
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "text-delta", text: "<think>truncated thought" };
+        yield { type: "finish", finishReason: "length" };
+      })(),
+      usage: Promise.resolve({ inputTokens: 1, outputTokens: 5, totalTokens: 6 }),
+    } as any;
+
+    await processor.process(mockResult);
+
+    const thinkingChunks = events.filter((e) => e.type === "thinking_chunk");
+    const thinkingComplete = events.find((e) => e.type === "thinking_complete");
+
+    expect(thinkingChunks.map((c) => c.content).join("")).toBe("truncated thought");
+    expect(thinkingComplete).toBeDefined();
+  });
 });
