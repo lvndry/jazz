@@ -294,6 +294,36 @@ describe("StreamProcessor", () => {
     expect(thinkingComplete).toBeDefined();
   });
 
+  it("synthesises thinking_complete when text-delta arrives with reasoning still open", async () => {
+    const events: any[] = [];
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      const chunk = Effect.runSync(eff);
+      events.push(...Chunk.toArray(chunk));
+    };
+    const processor = new StreamProcessor(
+      { providerName: "p1", modelName: "m1", hasReasoningEnabled: true, startTime: Date.now() },
+      emit,
+      mockLogger,
+    );
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "reasoning-start" };
+        yield { type: "reasoning-delta", text: "thoughts" };
+        // No reasoning-end — provider transitions straight to text-delta.
+        yield { type: "text-delta", text: "answer" };
+        yield { type: "finish", finishReason: "stop" };
+      })(),
+      usage: Promise.resolve({}),
+    } as any;
+
+    await processor.process(mockResult);
+
+    const thinkingCompleteIdx = events.findIndex((e) => e.type === "thinking_complete");
+    const firstTextChunkIdx = events.findIndex((e) => e.type === "text_chunk");
+    expect(thinkingCompleteIdx).toBeGreaterThanOrEqual(0);
+    expect(firstTextChunkIdx).toBeGreaterThan(thinkingCompleteIdx);
+  });
+
   // -------------------------------------------------------------------------
   // Integration: selectParser → StreamProcessor end-to-end routing
   //

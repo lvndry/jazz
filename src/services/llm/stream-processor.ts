@@ -207,6 +207,17 @@ export class StreamProcessor {
 
         switch (part.type) {
           case "text-delta": {
+            if (this.state.reasoningSequence > 0 && !this.state.reasoningStreamCompleted) {
+              this.state.reasoningStreamCompleted = true;
+              void this.emitEvent({
+                type: "thinking_complete",
+                ...(this.state.reasoningTokens !== undefined && {
+                  totalTokens: this.state.reasoningTokens,
+                }),
+              });
+              this.state.reasoningSequence = 0;
+              this.state.reasoningStreamCompleted = false;
+            }
             let textChunk: string;
             if (typeof part.text === "string") {
               textChunk = part.text;

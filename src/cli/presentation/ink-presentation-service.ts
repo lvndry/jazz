@@ -81,8 +81,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private seenLength = 0;
   /** True if any text delta was emitted in the current round (for handleComplete fallback). */
   private hasStreamedText = false;
-  /** Guards against emitting the reasoning header more than once per round. */
-  private reasoningHeaderWrittenForRound = false;
 
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000;
@@ -106,7 +104,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.acc.lastAppliedTextSequence = -1;
       this.seenLength = 0;
       this.hasStreamedText = false;
-      this.reasoningHeaderWrittenForRound = false;
       this.lastUpdateTime = 0;
       this.pendingActivity = null;
       if (this.updateTimeoutId) {
@@ -174,18 +171,16 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "stream_start") {
         this.seenLength = 0;
         this.hasStreamedText = false;
-        this.reasoningHeaderWrittenForRound = false;
         store.updateRunStats({ provider: event.provider, model: event.model });
       }
 
       if (this.displayConfig.showThinking) {
-        if (event.type === "thinking_start" && !this.reasoningHeaderWrittenForRound) {
+        if (event.type === "thinking_start") {
           store.printOutput({
             type: "streamContent",
             message: chalk.dim(chalk.italic("▸ Reasoning")),
             timestamp: new Date(),
           });
-          this.reasoningHeaderWrittenForRound = true;
         }
         if (event.type === "thinking_chunk") {
           store.appendStream("reasoning", event.content);
@@ -268,6 +263,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
 
     if (this.showMetrics && event.metrics) {
+      store.printOutput({ type: "log", message: "", timestamp: new Date() });
       this.printMetrics(event);
       this.printCost(event);
     }
