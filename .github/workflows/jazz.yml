@@ -2,7 +2,12 @@ name: Jazz
 
 on:
   pull_request:
-    types: [opened]
+    # `opened` fires for every newly created PR (including drafts).
+    # `ready_for_review` fires when a draft is marked ready. The job-level
+    # `if:` below filters drafts out of `opened` so the auto-review only
+    # runs on review-ready PRs, then runs again the moment a draft becomes
+    # ready. Manual `/jazz-review` still works on drafts via issue_comment.
+    types: [opened, ready_for_review]
   workflow_dispatch:
     inputs:
       pull_request_number:
@@ -155,7 +160,7 @@ jobs:
       contents: read
       pull-requests: write
     if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'code-review' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz-review') && (
         github.event.comment.author_association == 'OWNER' ||
