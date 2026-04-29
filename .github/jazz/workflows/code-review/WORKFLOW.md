@@ -39,7 +39,7 @@ Use the `code-review` skill for the full review checklist. This review is the si
 
 ## Project Context
 
-**Jazz** is an agentic automation CLI that empowers users to create, manage, and orchestrate autonomous AI agents for complex workflows. Think of it as your personal army of AI assistants that can handle everything from email management to code deployment.
+**Jazz** is an agentic automation CLI that empowers users to create, manage, and orchestrate autonomous AI agents for complex workflows. It runs in a terminal: a single user invokes `jazz`, types prompts, agents respond and call tools, the process exits when the user exits.
 
 ### Tech Stack
 
@@ -49,6 +49,19 @@ Use the `code-review` skill for the full review checklist. This review is the si
 - **Package Manager**: Bun
 - **Testing**: Bun's built-in test runner
 - **Build**: Custom build scripts using Bun
+
+### Runtime Model — read before flagging concurrency or "race" issues
+
+- **Single-threaded JavaScript event loop.** Bun runs the same JS execution model as Node: one OS thread executes user code, with cooperative concurrency via Promises / `async`/`await` / Effect fibers. There is no preemptive multithreading. Two synchronous functions cannot interleave with each other or with themselves. A "shared state + multiple methods" pattern is *not* a race condition.
+- **Where concurrency actually exists**: across `await` boundaries, `Promise.all`, `Effect.fork` / `Effect.race` / parallel combinators, MCP server I/O, HTTP requests to LLM providers, file-system reads. If a finding mentions a race / TOCTOU / deadlock, it must point to one of these — not to two synchronous methods that touch the same object.
+- **Single-user CLI process.** One TTY, one user, one in-memory state. There are no concurrent requests, no other tenants, no shared mutable state across processes. Patterns from server/web contexts (request-scoping, multi-tenant isolation, lock contention) generally do not apply.
+- **Effect-TS pipelines compose deterministically.** Sequential `Effect.gen` blocks run in declared order. `Effect.ensuring` cleanup runs in FILO scope order. If a finding requires two `Effect`s to interleave non-deterministically, the code must explicitly use a parallel combinator — verify before claiming.
+
+### Trust boundaries — read before flagging "missing validation" or "missing type guards"
+
+- **Boundaries where runtime validation belongs**: user keystrokes (the chat prompt), files read from disk, JSON parsed from LLM provider HTTP responses, MCP tool call inputs/results, env vars, CLI args, anything crossing process boundaries.
+- **Where TypeScript is the contract**: data flowing between modules in this codebase. State produced by a pure reducer in one file and consumed by the same module's hook in another file is type-checked. Adding a `isFoo(x)` guard there is dead code; suggest it only at an actual boundary.
+- **Effect Schema** (`@effect/schema`) is the validation tool of choice when you do need runtime validation at a boundary. Don't recommend it for module-internal types.
 
 ### Key Architecture Patterns
 
