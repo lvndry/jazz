@@ -25,7 +25,15 @@ Generate release notes for **__NEW_TAG__** by comparing commits since **__PREVIO
 
 ## Output Format
 
-You MUST output a single markdown fenced code block (use FOUR backticks) as the very last thing you write. Do NOT output anything after it.
+The very last thing you output MUST be a single markdown fenced block opened with **FOUR** backticks (` ````markdown `) and closed with four backticks. Four. Not three.
+
+Three backticks will collide with any inner ` ```ts ` / ` ```diff ` code samples in the body and the parser will truncate your release notes mid-sentence.
+
+| ✅ DO | ❌ DON'T |
+|---|---|
+| `` ` ` ` ` markdown `` …4 backticks… `` ` ` ` ` `` | `` ` ` ` markdown `` …3 backticks… `` ` ` ` `` |
+
+Inside the four-backtick wrapper, use normal three-backtick fences for any code samples — they nest cleanly. Do NOT output anything after the closing four-backtick fence.
 
 The content inside the block should follow this structure:
 

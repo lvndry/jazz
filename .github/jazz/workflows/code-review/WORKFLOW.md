@@ -107,11 +107,25 @@ In addition to the code-review checklist, pay special attention to:
 
 ## Output Format
 
-You MUST output ONLY a JSON array as the very last thing you write, wrapped in a ````json fenced code block (use FOUR backticks so triple backticks inside the body field don't break the fence).
-Do NOT output anything after the JSON block.
+### Wrapper rule — read this carefully
+
+The very last thing you output MUST be a JSON array wrapped in a **FOUR-backtick** ` ````json ` fenced block. Four. Not three.
+
+Three backticks will silently corrupt your output: your `body` fields will routinely contain triple-backtick code samples (` ```diff `, ` ```ts `, etc.), and a triple-backtick outer fence collides with them. The downstream parser truncates at the first inner ` ``` ` and you get "Unterminated string in JSON at position …" — your entire review is discarded.
+
+| ✅ DO (this is what works) | ❌ DON'T (this breaks parsing) |
+|---|---|
+| `` ` ` ` ` json `` …4 backticks… `` ` ` ` ` `` | `` ` ` ` json `` …3 backticks… `` ` ` ` `` |
+
+Inside the four-backtick wrapper, your `body` fields can use normal three-backtick fences for code — they nest cleanly. **Only the outer wrapper is four backticks.**
+
+Do NOT output anything after the closing four-backtick fence — no commentary, no "let me know if…", no summary. The fence is the end.
+
 When flagging issues, suggest concrete edits (code snippets or exact changes) when possible.
 
-Each element represents one review comment tied to a specific file and line(s):
+### Example
+
+Each element of the array is one review comment tied to a specific file and line(s). Note the outer fence is four backticks; the inner ` ```ts ` is three.
 
 ````json
 [
@@ -130,6 +144,14 @@ Each element represents one review comment tied to a specific file and line(s):
   }
 ]
 ````
+
+### Self-check before emitting
+
+Before you write your final block, verify:
+
+1. The outer fence opens with **four** backticks + `json` and closes with **four** backticks. Count them.
+2. There is **no text after** the closing four-backtick fence.
+3. If a `body` field contains a code sample, that inner fence uses **three** backticks (not one, not four). Three is correct for nested code.
 
 Rules:
 

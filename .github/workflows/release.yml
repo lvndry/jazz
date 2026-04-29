@@ -70,13 +70,13 @@ jobs:
           fetch-depth: 0
           ref: ${{ needs.tag.outputs.new_tag }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v8.1.0
         with:
-          node-version: "22"
+          bun-version: latest
 
       - name: Install Jazz
-        run: npm install -g jazz-ai
+        run: bun install -g jazz-ai
 
       - name: Setup Jazz agent and workflow
         env:
@@ -110,16 +110,22 @@ jobs:
             const fs = require('fs');
             const output = fs.readFileSync('/tmp/jazz-release-notes.txt', 'utf8');
 
-            // Extract markdown from fenced code blocks (quad backticks first, then triple)
-            let mdBlocks = [...output.matchAll(/````markdown\s*\n([\s\S]*?)````/g)];
-            if (mdBlocks.length === 0) {
-              mdBlocks = [...output.matchAll(/```markdown\s*\n([\s\S]*?)```/g)];
-            }
+            // Prefer the agent's four-backtick fence; fall back to a
+            // last-occurrence scan of the three-backtick form so inner
+            // code samples don't truncate the wrapper.
+            const extractFencedMarkdown = (text) => {
+              const fourFence = text.match(/````markdown\s*\n([\s\S]*?)\n?````/);
+              if (fourFence) return fourFence[1].trim();
 
-            let releaseBody;
-            if (mdBlocks.length > 0) {
-              releaseBody = mdBlocks[mdBlocks.length - 1][1].trim();
-            }
+              const open = text.lastIndexOf('```markdown');
+              if (open < 0) return null;
+              const after = text.slice(open + '```markdown'.length);
+              const close = after.lastIndexOf('```');
+              if (close < 0) return null;
+              return after.slice(0, close).trim();
+            };
+
+            let releaseBody = extractFencedMarkdown(output);
 
             if (!releaseBody) {
               console.log('Jazz release notes unavailable — falling back to GitHub auto-generated notes.');

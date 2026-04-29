@@ -2,11 +2,6 @@ name: Jazz
 
 on:
   pull_request:
-    # `opened` fires for every newly created PR (including drafts).
-    # `ready_for_review` fires when a draft is marked ready. The job-level
-    # `if:` below filters drafts out of `opened` so the auto-review only
-    # runs on review-ready PRs, then runs again the moment a draft becomes
-    # ready. Manual `/jazz-review` still works on drafts via issue_comment.
     types: [opened, ready_for_review]
   workflow_dispatch:
     inputs:
@@ -29,21 +24,12 @@ on:
   issue_comment:
     types: [created]
 
-# Workflow-wide default. Each job below overrides with the narrower set of
-# scopes it actually needs (least-privilege per job). When a job sets its own
-# `permissions:` block it REPLACES this default rather than merging — so each
-# block is self-contained.
 permissions:
   contents: read
 
 jobs:
-  # Resolve PR metadata first so that downstream jobs can gate on pr_head_repo_full_name.
-  # This job runs unconditionally; the security gate lives in each job's `if`.
   resolve:
     runs-on: ubuntu-latest
-    # Reads PR data (pull-requests:read) and posts the eyes reaction
-    # (issues:write — reactions on a PR comment go through the issues API).
-    # No checkout, so no `contents` scope.
     permissions:
       pull-requests: read
       issues: write
@@ -154,8 +140,6 @@ jobs:
   code-review:
     needs: resolve
     runs-on: ubuntu-latest
-    # Checkout (contents:read), gh / gh api PR queries (pull-requests:read),
-    # and posting the inline review (pull-requests:write — supersedes :read).
     permissions:
       contents: read
       pull-requests: write
@@ -174,13 +158,13 @@ jobs:
           ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v8.1.0
         with:
-          node-version: "22"
+          bun-version: latest
 
       - name: Install Jazz
-        run: npm install -g jazz-ai
+        run: bun install -g jazz-ai
 
       - name: Setup Jazz agent and workflow
         env:
@@ -252,19 +236,29 @@ jobs:
               if (agent.model) modelLabel = `\n\n*Model: ${agent.model}*`;
             } catch (_) {}
 
-            // Parse JSON from agent output (quad backticks first, then triple)
-            let jsonBlocks = [...output.matchAll(/````json\s*\n([\s\S]*?)````/g)];
-            if (jsonBlocks.length === 0) {
-              jsonBlocks = [...output.matchAll(/```json\s*\n([\s\S]*?)```/g)];
-            }
+            // Prefer the agent's four-backtick fence; fall back to a
+            // last-occurrence scan of the three-backtick form so inner
+            // ```diff/```ts samples in `body` don't truncate the wrapper.
+            const extractFencedJson = (text) => {
+              const fourFence = text.match(/````json\s*\n([\s\S]*?)\n?````/);
+              if (fourFence) return fourFence[1].trim();
+
+              const open = text.lastIndexOf('```json');
+              if (open < 0) return null;
+              const after = text.slice(open + '```json'.length);
+              const close = after.lastIndexOf('```');
+              if (close < 0) return null;
+              return after.slice(0, close).trim();
+            };
 
             let comments = [];
-            try {
-              if (jsonBlocks.length > 0) {
-                comments = JSON.parse(jsonBlocks[jsonBlocks.length - 1][1].trim());
+            const jsonText = extractFencedJson(output);
+            if (jsonText) {
+              try {
+                comments = JSON.parse(jsonText);
+              } catch (e) {
+                console.log('Failed to parse JSON:', e.message);
               }
-            } catch (e) {
-              console.log('Failed to parse JSON:', e.message);
             }
 
             if (!Array.isArray(comments) || comments.length === 0) {
@@ -426,8 +420,6 @@ jobs:
   assistant:
     needs: resolve
     runs-on: ubuntu-latest
-    # Checkout (contents:read), gh / gh api PR queries (pull-requests:read),
-    # and posting the response as an issue comment on the PR (issues:write).
     permissions:
       contents: read
       pull-requests: read
@@ -447,13 +439,13 @@ jobs:
           ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v8.1.0
         with:
-          node-version: "22"
+          bun-version: latest
 
       - name: Install Jazz
-        run: npm install -g jazz-ai
+        run: bun install -g jazz-ai
 
       - name: Setup Jazz agent and workflow
         env:
@@ -488,11 +480,6 @@ jobs:
           cat workflows/pr-assistant/WORKFLOW.md
 
       - name: Snapshot PR context
-        # Pre-fetch PR metadata (title, body, labels, conversation comments,
-        # review summaries, inline review comments) into a static JSON file the
-        # agent reads via read_file. This avoids handing GITHUB_TOKEN to the
-        # agent or shell while still letting it answer follow-ups like "what
-        # did reviewers ask for?" or "did anyone already flag this?".
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
@@ -537,18 +524,26 @@ jobs:
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const runUrl = process.env.RUN_URL;
 
-            // The agent's contract is to emit its final answer wrapped in a
-            // FOUR-backtick `markdown` fence. Anything outside that fence is
-            // workflow/tool decoration and must not leak into the PR comment.
-            // The four-backtick form is required because nested ``` code
-            // fences inside the answer would otherwise close the wrapper
-            // early. If the agent doesn't honor the contract, post the
-            // failure message instead of guessing — we don't try to recover
-            // from malformed agent output here.
-            const mdMatch = output.match(/````markdown\s*\n([\s\S]*?)\n?````/);
+            // Prefer the agent's four-backtick fence; fall back to a
+            // last-occurrence scan of the three-backtick form so inner
+            // code samples in the answer don't truncate the wrapper.
+            // No fence found → post a clean failure message (never dump
+            // raw shell output onto the PR).
+            const extractFencedMarkdown = (text) => {
+              const fourFence = text.match(/````markdown\s*\n([\s\S]*?)\n?````/);
+              if (fourFence) return fourFence[1].trim();
 
-            const commentBody = mdMatch
-              ? mdMatch[1].trim()
+              const open = text.lastIndexOf('```markdown');
+              if (open < 0) return null;
+              const after = text.slice(open + '```markdown'.length);
+              const close = after.lastIndexOf('```');
+              if (close < 0) return null;
+              return after.slice(0, close).trim();
+            };
+
+            const extracted = extractFencedMarkdown(output);
+            const commentBody = extracted
+              ? extracted
               : `_The Jazz assistant didn't produce a usable answer. ` +
                 `See the [workflow run](${runUrl}) for details._`;
 
