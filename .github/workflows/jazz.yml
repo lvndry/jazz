@@ -3,6 +3,12 @@ name: Jazz
 on:
   pull_request:
     types: [opened, ready_for_review]
+  # Re-run all jazz jobs when the workflow file itself changes, so a fix or
+  # tweak to jazz.yml gets exercised end-to-end against any open PR for the
+  # pushed branch (or just validated for direct pushes to default).
+  push:
+    paths:
+      - ".github/workflows/jazz.yml"
   workflow_dispatch:
     inputs:
       pull_request_number:
@@ -73,6 +79,44 @@ jobs:
               headSha = pr.head.sha;
               prHeadRepoFullName = pr.head.repo.full_name;
               request = String(context.payload.inputs.request ?? '').trim();
+            } else if (context.eventName === 'push') {
+              // push event: only fires when the workflow file itself changed
+              // (paths filter on the trigger). Look up the open PR for the
+              // pushed branch and use its context. If there is no open PR
+              // (e.g. direct push to the default branch), skip downstream
+              // jobs by leaving pr_number empty.
+              const ref = context.payload.ref ?? '';
+              const branch = ref.replace(/^refs\/heads\//, '');
+              const defaultBranch = context.payload.repository?.default_branch;
+              if (!branch || branch === defaultBranch) {
+                core.notice(`Push to ${branch || '(no branch)'}; no PR context, skipping jazz jobs.`);
+                core.setOutput('pr_number', '');
+                core.setOutput('base_sha', '');
+                core.setOutput('head_sha', context.payload.after ?? '');
+                core.setOutput('pr_head_repo_full_name', '');
+                core.setOutput('request', '');
+                return;
+              }
+              const { data: prs } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                head: `${context.repo.owner}:${branch}`,
+                state: 'open',
+              });
+              const pr = prs[0];
+              if (!pr) {
+                core.notice(`No open PR for branch ${branch}; skipping jazz jobs.`);
+                core.setOutput('pr_number', '');
+                core.setOutput('base_sha', '');
+                core.setOutput('head_sha', context.payload.after ?? '');
+                core.setOutput('pr_head_repo_full_name', '');
+                core.setOutput('request', '');
+                return;
+              }
+              prNumber = pr.number;
+              baseSha = pr.base.sha;
+              headSha = context.payload.after ?? pr.head.sha;
+              prHeadRepoFullName = pr.head.repo.full_name;
             } else {
               // issue_comment
               const issueNumber = context.payload.issue?.number;
@@ -156,7 +200,8 @@ jobs:
         github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR'
-      ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
+      ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
+      (github.event_name == 'push' && needs.resolve.outputs.pr_number != '' && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v4
@@ -437,7 +482,8 @@ jobs:
         github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR'
-      ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
+      ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
+      (github.event_name == 'push' && needs.resolve.outputs.pr_number != '' && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v4
