@@ -160,4 +160,101 @@ describe("ModelFetcher", () => {
       expect(msg).toMatch(/no models loaded|llama-server/i);
     }
   });
+
+  it("captures template and capabilities from ollama /api/show onto every ModelInfo", async () => {
+    const mockTagsResponse = {
+      models: [{ name: "qwen3:8b", details: { metadata: {} } }],
+    };
+    const mockShowResponse = {
+      model_info: { "qwen3.context_length": 32768 },
+      template: "{{ if .Thinking }}<think>{{ end }}",
+      capabilities: ["completion", "tools", "thinking"],
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/api/tags"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
+      if (url.endsWith("/api/show"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const result = await Effect.runPromise(program);
+
+    expect(result.length).toBe(1);
+    expect(result[0]!.chatTemplate).toBe("{{ if .Thinking }}<think>{{ end }}");
+    expect(result[0]!.capabilities).toEqual(["completion", "tools", "thinking"]);
+    expect(result[0]!.isReasoningModel).toBe(true);
+  });
+
+  it("sets isReasoningModel=false for ollama models without thinking capability or tag template", async () => {
+    const mockTagsResponse = {
+      models: [{ name: "llama3.1:8b", details: { metadata: {} } }],
+    };
+    const mockShowResponse = {
+      model_info: { "llama.context_length": 131072 },
+      template: "{{ .System }}{{ .Prompt }}",
+      capabilities: ["completion", "tools"],
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/api/tags"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
+      if (url.endsWith("/api/show"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const result = await Effect.runPromise(program);
+
+    expect(result[0]!.isReasoningModel).toBe(false);
+  });
+
+  it("captures chat_template from llama.cpp /props onto every ModelInfo", async () => {
+    const mockModelsResponse = { data: [{ id: "qwen3-4b" }] };
+    const mockPropsResponse = {
+      default_generation_settings: { n_ctx: 8192 },
+      chat_template_caps: { supports_tools: true, supports_tool_calls: true },
+      chat_template: "{% if reasoning %}<think>{% endif %}",
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockModelsResponse) });
+      if (url.endsWith("/props"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockPropsResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("llamacpp", "http://localhost:8080/v1", "/models");
+    const result = await Effect.runPromise(program);
+
+    expect(result.length).toBe(1);
+    expect(result[0]!.chatTemplate).toBe("{% if reasoning %}<think>{% endif %}");
+    expect(result[0]!.isReasoningModel).toBe(true);
+  });
+
+  it("sets isReasoningModel=false for llama.cpp models without reasoning markers in chat_template", async () => {
+    const mockModelsResponse = { data: [{ id: "llama-3.1-8b" }] };
+    const mockPropsResponse = {
+      default_generation_settings: { n_ctx: 8192 },
+      chat_template_caps: { supports_tools: true, supports_tool_calls: true },
+      chat_template: "{% for m in messages %}{{ m.content }}{% endfor %}",
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockModelsResponse) });
+      if (url.endsWith("/props"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockPropsResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("llamacpp", "http://localhost:8080/v1", "/models");
+    const result = await Effect.runPromise(program);
+
+    expect(result[0]!.isReasoningModel).toBe(false);
+  });
 });

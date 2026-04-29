@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
-import { createAccumulator, reduceEvent } from "./activity-reducer";
+import { AWAITING_LABELS, createAccumulator, reduceEvent } from "./activity-reducer";
 import type { ReducerAccumulator } from "./activity-reducer";
 
 /** Identity formatter — returns text unchanged so assertions are straightforward. */
@@ -66,7 +66,7 @@ describe("activity-reducer", () => {
   // -------------------------------------------------------------------------
 
   describe("stream_start", () => {
-    test("emits info log, stores provider/model, returns no activity", () => {
+    test("emits info log, stores provider/model, transitions to awaiting phase", () => {
       const a = acc();
       const result = reduceEvent(
         a,
@@ -75,7 +75,14 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      expect(result.activity).toBeNull();
+      expect(result.activity).not.toBeNull();
+      expect(result.activity!.phase).toBe("awaiting");
+      if (result.activity!.phase === "awaiting") {
+        expect(result.activity.agentName).toBe("TestAgent");
+        expect(result.activity.provider).toBe("openai");
+        expect(result.activity.model).toBe("gpt-4");
+        expect(AWAITING_LABELS).toContain(result.activity.label);
+      }
       expect(result.outputs).toHaveLength(1);
       expect(result.outputs[0]!.type).toBe("info");
       expect(result.outputs[0]!.message).toContain("TestAgent");
@@ -638,14 +645,14 @@ describe("activity-reducer", () => {
     test("thinking → text produces correct phase transitions", () => {
       const a = acc();
 
-      // stream_start
+      // stream_start → awaiting phase (visible while we wait for first event)
       const r1 = reduceEvent(
         a,
         { type: "stream_start", provider: "p", model: "m", timestamp: 0 },
         identity,
         stubInk,
       );
-      expect(r1.activity).toBeNull();
+      expect(r1.activity!.phase).toBe("awaiting");
 
       // thinking_start → thinking phase
       const r2 = reduceEvent(a, { type: "thinking_start", provider: "p" }, identity, stubInk);

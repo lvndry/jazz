@@ -19,6 +19,7 @@ export interface TodoSnapshotItem {
 
 export type ActivityPhase =
   | "idle"
+  | "awaiting"
   | "thinking"
   | "streaming"
   | "tool-execution"
@@ -27,6 +28,20 @@ export type ActivityPhase =
 
 export type ActivityState =
   | { phase: "idle" }
+  | {
+      /**
+       * Request has been sent to the LLM but the first stream event (reasoning,
+       * text, or tool) hasn't arrived yet. Visible during prompt eval and any
+       * network/queue latency, especially for slow local models. Replaced as
+       * soon as a real activity event arrives.
+       */
+      phase: "awaiting";
+      agentName: string;
+      provider: string;
+      model: string;
+      /** Playful gerund-form predicate shown after the agent name (e.g. "is cooking"). */
+      label: string;
+    }
   | {
       phase: "thinking";
       agentName: string;
@@ -61,6 +76,14 @@ export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
     case "idle":
     case "complete":
       return true;
+
+    case "awaiting":
+      return (
+        a.agentName === (b as typeof a).agentName &&
+        a.provider === (b as typeof a).provider &&
+        a.model === (b as typeof a).model &&
+        a.label === (b as typeof a).label
+      );
 
     case "thinking":
       return a.agentName === (b as typeof a).agentName && a.reasoning === (b as typeof a).reasoning;

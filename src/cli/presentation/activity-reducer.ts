@@ -28,6 +28,40 @@ interface TodoSnapshotItem {
   status: "pending" | "in_progress" | "completed" | "cancelled";
 }
 
+/**
+ * Playful gerund-form labels shown while waiting for the model's first stream
+ * event. Picked at random on each stream_start so the UX during prompt eval
+ * reads as deliberate-and-interesting rather than blank-and-broken.
+ *
+ * Each label is the full predicate so it composes as
+ * "{agentName} {label}…" in ActivityView, e.g. "Cassandra is cooking…".
+ */
+export const AWAITING_LABELS: readonly string[] = [
+  "is cooking",
+  "is brewing",
+  "is pondering",
+  "is noodling",
+  "is mulling",
+  "is ruminating",
+  "is concocting",
+  "is percolating",
+  "is conjuring",
+  "is simmering",
+  "is plotting",
+  "is hatching",
+  "is warming up",
+  "is gathering its wits",
+  "is consulting the oracle",
+  "is doing math",
+  "is reading tea leaves",
+  "is cracking knuckles",
+];
+
+function pickAwaitingLabel(): string {
+  const i = Math.floor(Math.random() * AWAITING_LABELS.length);
+  return AWAITING_LABELS[i] ?? "is cooking";
+}
+
 function renderToolBadge(label: string): React.ReactElement {
   return React.createElement(
     Box,
@@ -232,7 +266,22 @@ export function reduceEvent(
         timestamp: new Date(),
       });
 
-      return { activity: null, outputs };
+      // Show an awaiting indicator until the first real event arrives.
+      // For local models with long prompt eval (llama.cpp, ollama with
+      // big contexts) this gap is otherwise visually silent, which looks
+      // like a hang. The next thinking_start/text_start/tool_call replaces
+      // this state automatically. The label is picked at random per turn
+      // so long waits feel less like a hang and more like a personality.
+      return {
+        activity: {
+          phase: "awaiting",
+          agentName: acc.agentName,
+          provider: event.provider,
+          model: event.model,
+          label: pickAwaitingLabel(),
+        },
+        outputs,
+      };
     }
 
     // ---- Thinking / Reasoning -------------------------------------------

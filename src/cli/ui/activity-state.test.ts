@@ -38,6 +38,73 @@ describe("isActivityEqual", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // awaiting
+  // ---------------------------------------------------------------------------
+
+  test("awaiting states with same agent/provider/model/label are equal", () => {
+    expect(
+      isActivityEqual(
+        {
+          phase: "awaiting",
+          agentName: "A",
+          provider: "llamacpp",
+          model: "qwen3",
+          label: "is cooking",
+        },
+        {
+          phase: "awaiting",
+          agentName: "A",
+          provider: "llamacpp",
+          model: "qwen3",
+          label: "is cooking",
+        },
+      ),
+    ).toBe(true);
+  });
+
+  test("awaiting states differ by model", () => {
+    expect(
+      isActivityEqual(
+        {
+          phase: "awaiting",
+          agentName: "A",
+          provider: "llamacpp",
+          model: "qwen3",
+          label: "is cooking",
+        },
+        {
+          phase: "awaiting",
+          agentName: "A",
+          provider: "llamacpp",
+          model: "deepseek",
+          label: "is cooking",
+        },
+      ),
+    ).toBe(false);
+  });
+
+  test("awaiting states differ by label", () => {
+    expect(
+      isActivityEqual(
+        {
+          phase: "awaiting",
+          agentName: "A",
+          provider: "llamacpp",
+          model: "qwen3",
+          label: "is cooking",
+        },
+        {
+          phase: "awaiting",
+          agentName: "A",
+          provider: "llamacpp",
+          model: "qwen3",
+          label: "is brewing",
+        },
+      ),
+    ).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
   // thinking
   // ---------------------------------------------------------------------------
 
