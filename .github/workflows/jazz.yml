@@ -523,28 +523,45 @@ jobs:
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const runUrl = process.env.RUN_URL;
 
-            // Prefer the agent's four-backtick fence; fall back to a
-            // last-occurrence scan of the three-backtick form so inner
-            // code samples in the answer don't truncate the wrapper.
-            // No fence found → post a clean failure message (never dump
-            // raw shell output onto the PR).
-            const extractFencedMarkdown = (text) => {
-              const fourFence = text.match(/````markdown\s*\n([\s\S]*?)\n?````/);
-              if (fourFence) return fourFence[1].trim();
+            // Three-tier extraction. Strict: four-backtick markdown fence
+            // (the contract). Lenient: three-backtick markdown via last-
+            // occurrence scan. Fallback: any final fenced block, posted
+            // with a header noting the agent broke the contract — better
+            // than dumping the failure stub when the agent produced real
+            // content but used the wrong language tag.
+            const extractAnswer = (text) => {
+              const fourMd = text.match(/````markdown\s*\n([\s\S]*?)\n?````/);
+              if (fourMd) return { body: fourMd[1].trim(), strict: true };
 
               const open = text.lastIndexOf('```markdown');
-              if (open < 0) return null;
-              const after = text.slice(open + '```markdown'.length);
-              const close = after.lastIndexOf('```');
-              if (close < 0) return null;
-              return after.slice(0, close).trim();
+              if (open >= 0) {
+                const after = text.slice(open + '```markdown'.length);
+                const close = after.lastIndexOf('```');
+                if (close >= 0) return { body: after.slice(0, close).trim(), strict: true };
+              }
+
+              const fences = [...text.matchAll(/`{3,4}([a-zA-Z0-9_-]*)\n([\s\S]*?)\n`{3,4}/g)];
+              const last = fences.pop();
+              if (last) return { body: last[2].trim(), strict: false, lang: last[1] || 'unknown' };
+
+              return null;
             };
 
-            const extracted = extractFencedMarkdown(output);
-            const commentBody = extracted
-              ? extracted
-              : `_The Jazz assistant didn't produce a usable answer. ` +
+            const extracted = extractAnswer(output);
+            let commentBody;
+            if (!extracted) {
+              commentBody = `_The Jazz assistant didn't produce a usable answer. ` +
                 `See the [workflow run](${runUrl}) for details._`;
+            } else if (extracted.strict) {
+              commentBody = extracted.body;
+            } else {
+              commentBody =
+                `> _Heads up: the assistant didn't follow the markdown output ` +
+                `contract (emitted a \`${extracted.lang}\` block instead). ` +
+                `Surfacing the raw content below — see the ` +
+                `[workflow run](${runUrl}) for full transcript._\n\n` +
+                '```' + extracted.lang + '\n' + extracted.body + '\n```';
+            }
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
