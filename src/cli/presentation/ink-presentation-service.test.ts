@@ -1,11 +1,14 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { InkStreamingRenderer } from "./ink-presentation-service";
-import { stripAnsiCodes } from "./markdown-formatter";
-import { MAX_LIVE_TEXT_CHARS } from "./stream-text-order";
 import type { ActivityState } from "../ui/activity-state";
 import { store } from "../ui/store";
 import type { OutputEntry } from "../ui/types";
+
+// Large-base-text size for the seenLength regression test below. The exact
+// value isn't load-bearing — anything large enough to make a delta-mismatch
+// regression visible if seenLength stops tracking accumulated length.
+const LARGE_BASE_CHARS = 100_000;
 
 describe("InkStreamingRenderer", () => {
   const setActivityCalls: ActivityState[] = [];
@@ -57,6 +60,10 @@ describe("InkStreamingRenderer", () => {
     };
   });
 
+  // Note: store.appendStream / store.finalizeStream spies are installed and
+  // restored per-test via try/finally inside each test body (see the
+  // "single-pending-buffer invariants" describe block). This afterEach only
+  // restores the harness-level setActivity / printOutput spies.
   afterEach(() => {
     if (lastRenderer) {
       Effect.runSync(lastRenderer.reset());
@@ -68,77 +75,89 @@ describe("InkStreamingRenderer", () => {
 
   describe("out-of-order text_chunk events", () => {
     test("ignores stale chunks and keeps text from highest sequence", async () => {
-      const renderer = createRenderer();
-      emitStreamStart(renderer);
-      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+      const appendedDeltas: string[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") appendedDeltas.push(delta);
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
-      // Deliver text_chunk events out of order: seq 2, then 1, then 3
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "He",
-          accumulated: "He",
-          sequence: 2,
-        }),
-      );
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "H",
-          accumulated: "H",
-          sequence: 1,
-        }),
-      );
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "llo",
-          accumulated: "Hello",
-          sequence: 3,
-        }),
-      );
+        // Deliver text_chunk events out of order: seq 2, then 1, then 3
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "He",
+            accumulated: "He",
+            sequence: 2,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "H",
+            accumulated: "H",
+            sequence: 1,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "llo",
+            accumulated: "Hello",
+            sequence: 3,
+          }),
+        );
 
-      // Flush the streaming buffer to emit any buffered text
-      Effect.runSync(renderer.flush());
+        Effect.runSync(renderer.flush());
 
-      const streamed = printOutputCalls
-        .filter((e) => e.type === "streamContent")
-        .map((e) => (typeof e.message === "string" ? e.message : ""))
-        .join("");
-      expect(streamed).toContain("Hello");
+        const streamed = appendedDeltas.join("");
+        expect(streamed).toContain("Hello");
+      } finally {
+        store.appendStream = originalAppend;
+      }
     });
 
     test("never overwrites with older sequence when chunks arrive out of order", async () => {
-      const renderer = createRenderer();
-      emitStreamStart(renderer);
-      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+      const appendedDeltas: string[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") appendedDeltas.push(delta);
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
-      // Newer first, then older (stale) – should keep "Hel", not revert to "H"
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "Hel",
-          accumulated: "Hel",
-          sequence: 2,
-        }),
-      );
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "H",
-          accumulated: "H",
-          sequence: 1,
-        }),
-      );
+        // Newer first, then older (stale) – should keep "Hel", not revert to "H"
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "Hel",
+            accumulated: "Hel",
+            sequence: 2,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "H",
+            accumulated: "H",
+            sequence: 1,
+          }),
+        );
 
-      // Flush the streaming buffer to emit any buffered text
-      Effect.runSync(renderer.flush());
+        Effect.runSync(renderer.flush());
 
-      const streamed = printOutputCalls
-        .filter((e) => e.type === "streamContent")
-        .map((e) => (typeof e.message === "string" ? e.message : ""))
-        .join("");
-      expect(streamed).toContain("Hel");
+        const streamed = appendedDeltas.join("");
+        expect(streamed).toContain("Hel");
+      } finally {
+        store.appendStream = originalAppend;
+      }
     });
   });
 
@@ -154,23 +173,59 @@ describe("InkStreamingRenderer", () => {
       expect(thinking.length).toBeGreaterThan(0);
     });
 
-    test("thinking_chunk streams reasoning output", async () => {
-      const renderer = createRenderer();
-      emitStreamStart(renderer);
-
-      Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
-      Effect.runSync(
-        renderer.handleEvent({ type: "thinking_chunk", content: "let me think\n", sequence: 0 }),
+    test("when showThinking is false, the reasoning header is suppressed", () => {
+      const renderer = new InkStreamingRenderer(
+        "TestAgent",
+        false,
+        {
+          showThinking: false,
+          showToolExecution: true,
+          mode: "rendered",
+          colorProfile: "full",
+        },
+        undefined,
+        0,
       );
-      Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
-      await new Promise((r) => setTimeout(r, 0));
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "thinking_start" }));
+      const headerEntries = printOutputCalls.filter(
+        (e) =>
+          e.type === "streamContent" &&
+          typeof e.message === "string" &&
+          e.message.includes("Reasoning"),
+      );
+      expect(headerEntries).toHaveLength(0);
+    });
 
-      const streamed = printOutputCalls
-        .filter((e) => e.type === "streamContent")
-        .map((e) => (typeof e.message === "string" ? e.message : ""))
-        .join("");
-      expect(streamed).toContain("Reasoning");
-      expect(streamed).toContain("let me think");
+    test("thinking_chunk streams reasoning output", async () => {
+      const reasoningDeltas: string[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "reasoning") reasoningDeltas.push(delta);
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+
+        Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
+        Effect.runSync(
+          renderer.handleEvent({ type: "thinking_chunk", content: "let me think\n", sequence: 0 }),
+        );
+        Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
+        await new Promise((r) => setTimeout(r, 0));
+
+        // Reasoning header is emitted via printOutput (renderer, gated by showThinking)
+        const staticOutput = printOutputCalls
+          .filter((e) => e.type === "streamContent")
+          .map((e) => (typeof e.message === "string" ? e.message : ""))
+          .join("");
+        expect(staticOutput).toContain("Reasoning");
+        // Reasoning content goes through appendStream
+        expect(reasoningDeltas.join("")).toContain("let me think");
+      } finally {
+        store.appendStream = originalAppend;
+      }
     });
   });
 
@@ -300,44 +355,50 @@ describe("InkStreamingRenderer", () => {
 
   describe("throttle behavior", () => {
     test("latest activity wins when multiple arrive within throttle window", async () => {
-      const renderer = createRenderer();
-      emitStreamStart(renderer);
-      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+      const appendedDeltas: string[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") appendedDeltas.push(delta);
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
-      // Fire 3 text_chunks rapidly — all within 30ms throttle window
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "A",
-          accumulated: "A",
-          sequence: 0,
-        }),
-      );
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "B",
-          accumulated: "AB",
-          sequence: 1,
-        }),
-      );
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "C",
-          accumulated: "ABC",
-          sequence: 2,
-        }),
-      );
+        // Fire 3 text_chunks rapidly — all within 30ms throttle window
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "A",
+            accumulated: "A",
+            sequence: 0,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "B",
+            accumulated: "AB",
+            sequence: 1,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "C",
+            accumulated: "ABC",
+            sequence: 2,
+          }),
+        );
 
-      // Flush the streaming buffer to emit any buffered text
-      Effect.runSync(renderer.flush());
+        Effect.runSync(renderer.flush());
 
-      const streamed = printOutputCalls
-        .filter((e) => e.type === "streamContent")
-        .map((e) => (typeof e.message === "string" ? e.message : ""))
-        .join("");
-      expect(streamed).toContain("ABC");
+        const streamed = appendedDeltas.join("");
+        expect(streamed).toContain("ABC");
+      } finally {
+        store.appendStream = originalAppend;
+      }
     });
   });
 
@@ -396,6 +457,199 @@ describe("InkStreamingRenderer", () => {
     });
   });
 
+  describe("single-pending-buffer invariants", () => {
+    test("after complete, the renderer has emitted finalizeStream and pending is null", () => {
+      // Spy on store.appendStream / finalizeStream during the round and assert
+      // the final action is a finalizeStream.
+      const originalFinalize = store.finalizeStream;
+      let finalizeCount = 0;
+      store.finalizeStream = (): void => {
+        finalizeCount += 1;
+        originalFinalize();
+      };
+
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "Hello world\n",
+            accumulated: "Hello world\n",
+            sequence: 0,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "complete",
+            response: {
+              content: "Hello world\n",
+              role: "assistant",
+              usage: undefined,
+              toolCalls: [],
+            },
+            totalDurationMs: 50,
+          }),
+        );
+        expect(finalizeCount).toBeGreaterThan(0);
+      } finally {
+        store.finalizeStream = originalFinalize;
+      }
+    });
+
+    test("tool_execution_start mid-response calls finalizeStream then prints tool entry", () => {
+      const events: string[] = [];
+      const originalFinalize = store.finalizeStream;
+      const originalPrint = store.printOutput;
+      store.finalizeStream = (): void => {
+        events.push("finalize");
+        originalFinalize();
+      };
+      store.printOutput = (entry): string => {
+        if (entry.type === "info") events.push(`info:${entry.message as string}`);
+        return originalPrint(entry);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "in progress\n",
+            accumulated: "in progress\n",
+            sequence: 0,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "tool_execution_start",
+            toolCallId: "t1",
+            toolName: "execute_command",
+            arguments: { command: "ls" },
+            longRunning: false,
+          }),
+        );
+        const finalizeIdx = events.indexOf("finalize");
+        const infoIdx = events.findIndex(
+          (e) => e.startsWith("info:") && e.includes("execute_command"),
+        );
+        expect(finalizeIdx).toBeGreaterThanOrEqual(0);
+        expect(infoIdx).toBeGreaterThan(finalizeIdx);
+      } finally {
+        store.finalizeStream = originalFinalize;
+        store.printOutput = originalPrint;
+      }
+    });
+
+    test("reasoning → response transition finalizes reasoning and opens response", () => {
+      const calls: Array<{ kind?: string; finalize?: true }> = [];
+      const originalAppend = store.appendStream;
+      const originalFinalize = store.finalizeStream;
+      store.appendStream = (kind, delta): void => {
+        calls.push({ kind });
+        originalAppend(kind, delta);
+      };
+      store.finalizeStream = (): void => {
+        calls.push({ finalize: true });
+        originalFinalize();
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "thinking_start" }));
+        Effect.runSync(renderer.handleEvent({ type: "thinking_chunk", content: "think " }));
+        Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "answer",
+            accumulated: "answer",
+            sequence: 0,
+          }),
+        );
+        // Sequence: appendStream(reasoning) -> finalize -> appendStream(response).
+        const reasoningIdx = calls.findIndex((c) => c.kind === "reasoning");
+        const finalizeIdx = calls.findIndex((c, i) => i > reasoningIdx && c.finalize);
+        const responseIdx = calls.findIndex((c, i) => i > finalizeIdx && c.kind === "response");
+        expect(reasoningIdx).toBeGreaterThanOrEqual(0);
+        expect(finalizeIdx).toBeGreaterThan(reasoningIdx);
+        expect(responseIdx).toBeGreaterThan(finalizeIdx);
+      } finally {
+        store.appendStream = originalAppend;
+        store.finalizeStream = originalFinalize;
+      }
+    });
+
+    test("interrupt (flush) finalizes pending", () => {
+      let finalizeCount = 0;
+      const originalFinalize = store.finalizeStream;
+      store.finalizeStream = (): void => {
+        finalizeCount += 1;
+        originalFinalize();
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "partial",
+            accumulated: "partial",
+            sequence: 0,
+          }),
+        );
+        Effect.runSync(renderer.flush());
+        expect(finalizeCount).toBeGreaterThan(0);
+      } finally {
+        store.finalizeStream = originalFinalize;
+      }
+    });
+
+    test("error finalizes pending then appends error entry", () => {
+      const events: string[] = [];
+      const originalFinalize = store.finalizeStream;
+      const originalPrint = store.printOutput;
+      store.finalizeStream = (): void => {
+        events.push("finalize");
+        originalFinalize();
+      };
+      store.printOutput = (entry): string => {
+        if (entry.type === "error") events.push("error");
+        return originalPrint(entry);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "partial",
+            accumulated: "partial",
+            sequence: 0,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "error",
+            error: { code: "RATE_LIMIT", message: "boom" },
+          } as never),
+        );
+        const finalizeIdx = events.indexOf("finalize");
+        const errorIdx = events.indexOf("error");
+        expect(finalizeIdx).toBeGreaterThanOrEqual(0);
+        expect(errorIdx).toBeGreaterThan(finalizeIdx);
+      } finally {
+        store.finalizeStream = originalFinalize;
+        store.printOutput = originalPrint;
+      }
+    });
+  });
+
   describe("reset", () => {
     test("clears activity to idle", () => {
       const renderer = createRenderer();
@@ -408,67 +662,68 @@ describe("InkStreamingRenderer", () => {
   });
 
   describe("flush", () => {
-    test("flush() promotes unflushed text to Static and clears activity", () => {
-      const renderer = createRenderer();
-      emitStreamStart(renderer);
+    test("flush() calls finalizeStream and clears activity to idle", () => {
+      let finalizeCount = 0;
+      const originalFinalize = store.finalizeStream;
+      store.finalizeStream = (): void => {
+        finalizeCount += 1;
+        originalFinalize();
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
 
-      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "partial",
-          accumulated: "partial",
-          sequence: 0,
-        }),
-      );
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "partial",
+            accumulated: "partial",
+            sequence: 0,
+          }),
+        );
 
-      const beforeFlush = printOutputCalls.filter(
-        (e) =>
-          e.type === "streamContent" &&
-          typeof e.message === "string" &&
-          e.message.includes("partial"),
-      );
-      // No newline yet, so text should still be buffered
-      expect(beforeFlush).toHaveLength(0);
+        Effect.runSync(renderer.flush());
+        expect(finalizeCount).toBeGreaterThan(0);
 
-      // flush() clears activity and emits any remaining buffered text
-      Effect.runSync(renderer.flush());
-      const afterFlush = printOutputCalls.filter(
-        (e) =>
-          e.type === "streamContent" &&
-          typeof e.message === "string" &&
-          e.message.includes("partial"),
-      );
-      expect(afterFlush.length).toBeGreaterThan(0);
-
-      const last = setActivityCalls[setActivityCalls.length - 1];
-      expect(last!.phase).toBe("idle");
+        const last = setActivityCalls[setActivityCalls.length - 1];
+        expect(last!.phase).toBe("idle");
+      } finally {
+        store.finalizeStream = originalFinalize;
+      }
     });
   });
 
   describe("Static flush behavior", () => {
-    test("short text is appended to output during streaming", async () => {
-      const renderer = createRenderer();
-      emitStreamStart(renderer);
-      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+    test("short text is appended to appendStream during streaming", async () => {
+      const appendedDeltas: string[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") appendedDeltas.push(delta);
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
-      const longLine = "word ".repeat(40).trim() + "\n";
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: longLine,
-          accumulated: longLine,
-          sequence: 0,
-        }),
-      );
+        const longLine = "word ".repeat(40).trim() + "\n";
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: longLine,
+            accumulated: longLine,
+            sequence: 0,
+          }),
+        );
 
-      await new Promise((r) => setTimeout(r, 0));
+        await new Promise((r) => setTimeout(r, 0));
 
-      const streamed = printOutputCalls
-        .filter((e) => e.type === "streamContent")
-        .map((e) => (typeof e.message === "string" ? e.message : ""))
-        .join("");
-      expect(streamed).toContain("word");
+        const streamed = appendedDeltas.join("");
+        expect(streamed).toContain("word");
+      } finally {
+        store.appendStream = originalAppend;
+      }
     });
 
     test("streaming activity does not include response text", async () => {
@@ -528,131 +783,160 @@ describe("InkStreamingRenderer", () => {
   });
 
   describe("append-only streaming", () => {
-    test("streams chunks as output entries in order", async () => {
-      const renderer = createRenderer();
-      emitStreamStart(renderer);
-      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+    test("streams chunks as appendStream calls in order", async () => {
+      const appendedDeltas: string[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") appendedDeltas.push(delta);
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
-      let accumulated = "";
-      for (let i = 0; i < 5; i++) {
-        const token = `word${i}\n`;
-        accumulated += token;
-        Effect.runSync(
-          renderer.handleEvent({
-            type: "text_chunk",
-            delta: token,
-            accumulated,
-            sequence: i,
-          }),
-        );
+        let accumulated = "";
+        for (let i = 0; i < 5; i++) {
+          const token = `word${i}\n`;
+          accumulated += token;
+          Effect.runSync(
+            renderer.handleEvent({
+              type: "text_chunk",
+              delta: token,
+              accumulated,
+              sequence: i,
+            }),
+          );
+        }
+
+        await new Promise((r) => setTimeout(r, 0));
+
+        const streamed = appendedDeltas.join("");
+        expect(streamed).toContain("word0");
+        expect(streamed).toContain("word4");
+      } finally {
+        store.appendStream = originalAppend;
       }
-
-      await new Promise((r) => setTimeout(r, 0));
-
-      const streamed = printOutputCalls
-        .filter((e) => e.type === "streamContent")
-        .map((e) => (typeof e.message === "string" ? e.message : ""))
-        .join("");
-      expect(streamed).toContain("word0");
-      expect(streamed).toContain("word4");
     });
 
     test("does not duplicate content on complete when streaming already emitted", () => {
-      const renderer = createRenderer();
-      emitStreamStart(renderer);
-      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+      let appendCount = 0;
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") appendCount += 1;
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "done\n",
-          accumulated: "done\n",
-          sequence: 0,
-        }),
-      );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "done\n",
+            accumulated: "done\n",
+            sequence: 0,
+          }),
+        );
 
-      const beforeCount = printOutputCalls.filter((e) => e.type === "streamContent").length;
+        const beforeCount = appendCount;
 
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "complete",
-          response: { content: "done ", role: "assistant", usage: undefined, toolCalls: [] },
-          totalDurationMs: 100,
-        }),
-      );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "complete",
+            response: { content: "done ", role: "assistant", usage: undefined, toolCalls: [] },
+            totalDurationMs: 100,
+          }),
+        );
 
-      const afterCount = printOutputCalls.filter((e) => e.type === "streamContent").length;
-      expect(afterCount).toBe(beforeCount);
+        // No additional appendStream calls on complete when streaming was active
+        expect(appendCount).toBe(beforeCount);
+      } finally {
+        store.appendStream = originalAppend;
+      }
     });
 
-    test("continues streaming correctly after liveText front-trimming", () => {
-      const renderer = createRenderer();
-      emitStreamStart(renderer);
-      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+    test("seenLength tracks full accumulated length across very large chunks", () => {
+      const appendedDeltas: string[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") appendedDeltas.push(delta);
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
-      const base = `${"a".repeat(MAX_LIVE_TEXT_CHARS - 6)}\n`;
-      const marker = "MARKER1234567890\n";
-      const accumulated1 = base;
-      const accumulated2 = base + marker;
+        const base = `${"a".repeat(LARGE_BASE_CHARS - 6)}\n`;
+        const marker = "MARKER1234567890\n";
+        const accumulated1 = base;
+        const accumulated2 = base + marker;
 
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: accumulated1,
-          accumulated: accumulated1,
-          sequence: 0,
-        }),
-      );
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: marker,
-          accumulated: accumulated2,
-          sequence: 1,
-        }),
-      );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: accumulated1,
+            accumulated: accumulated1,
+            sequence: 0,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: marker,
+            accumulated: accumulated2,
+            sequence: 1,
+          }),
+        );
 
-      Effect.runSync(renderer.flush());
+        Effect.runSync(renderer.flush());
 
-      const streamed = printOutputCalls
-        .filter((e) => e.type === "streamContent")
-        .map((e) => (typeof e.message === "string" ? e.message : ""))
-        .join("");
-
-      expect(streamed).toContain("MARKER1234567890");
+        const streamed = appendedDeltas.join("");
+        expect(streamed).toContain("MARKER1234567890");
+      } finally {
+        store.appendStream = originalAppend;
+      }
     });
 
     test("formats inline markdown that closes across chunks", () => {
-      const renderer = createRenderer();
-      emitStreamStart(renderer);
-      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+      // In the new arch, raw (unformatted) text goes through appendStream.
+      // The buffer/adapter handles formatting. We verify raw text is sent.
+      const appendedDeltas: string[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") appendedDeltas.push(delta);
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "This is **bo",
-          accumulated: "This is **bo",
-          sequence: 0,
-        }),
-      );
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "text_chunk",
-          delta: "ld** text\n",
-          accumulated: "This is **bold** text\n",
-          sequence: 1,
-        }),
-      );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "This is **bo",
+            accumulated: "This is **bo",
+            sequence: 0,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "ld** text\n",
+            accumulated: "This is **bold** text\n",
+            sequence: 1,
+          }),
+        );
 
-      const streamed = printOutputCalls
-        .filter((e) => e.type === "streamContent")
-        .map((e) => (typeof e.message === "string" ? e.message : ""))
-        .join("");
-
-      // Strip ANSI codes for content check (the output contains bold formatting codes)
-      const stripped = stripAnsiCodes(streamed);
-      expect(stripped).toContain("This is bold text");
-      expect(stripped).not.toContain("**bold**");
+        const streamed = appendedDeltas.join("");
+        expect(streamed).toContain("This is **bo");
+        expect(streamed).toContain("ld** text");
+      } finally {
+        store.appendStream = originalAppend;
+      }
     });
 
     test("prints response when no streamed text was emitted", () => {

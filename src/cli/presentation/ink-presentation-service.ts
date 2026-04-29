@@ -23,7 +23,6 @@ import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/mod
 import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
-  dimReasoningMarkdownOutput,
   formatToolArguments,
   formatToolResult,
   formatCompletion,
@@ -78,18 +77,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private updateTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private readonly updateThrottleMs: number;
 
-  private streamBuffer = "";
-  private streamRaw = "";
-  private streamFormatted = "";
-  private lastPrintedLength = 0;
+  /** Cumulative chars of stream text already pushed into store.appendStream. */
+  private seenLength = 0;
+  /** True if any text delta was emitted in the current round (for handleComplete fallback). */
   private hasStreamedText = false;
-  private reasoningBuffer = "";
-  private reasoningRaw = "";
-  private reasoningFormatted = "";
-  private reasoningHeaderPrinted = false;
+  /** Guards against emitting the reasoning header more than once per round. */
+  private reasoningHeaderWrittenForRound = false;
 
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
-  private static readonly TOOL_WARNING_MS = 30_000; // 30 seconds
+  private static readonly TOOL_WARNING_MS = 30_000;
 
   constructor(
     private readonly agentName: string,
@@ -105,16 +101,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
   reset(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       this.acc.activeTools.clear();
-      this.acc.liveText = "";
-      this.acc.reasoningBuffer = "";
-      this.acc.completedReasoning = "";
       this.acc.isThinking = false;
       this.acc.lastAgentHeaderWritten = false;
       this.acc.lastAppliedTextSequence = -1;
-      this.acc._cachedReasoningInput = "";
-      this.acc._cachedReasoningOutput = "";
-      this.resetStreamingState();
-      this.resetReasoningState();
+      this.seenLength = 0;
+      this.hasStreamedText = false;
+      this.reasoningHeaderWrittenForRound = false;
       this.lastUpdateTime = 0;
       this.pendingActivity = null;
       if (this.updateTimeoutId) {
@@ -122,6 +114,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.updateTimeoutId = null;
       }
       this.clearAllToolTimeouts();
+      store.finalizeStream();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
     });
@@ -129,18 +122,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   flush(): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      // Clear any pending throttled update
       if (this.updateTimeoutId) {
         clearTimeout(this.updateTimeoutId);
         this.updateTimeoutId = null;
       }
       this.pendingActivity = null;
       this.clearAllToolTimeouts();
-
-      // Flush any buffered streaming text to output
-      this.flushStreamingBuffer(true);
-      this.flushReasoningBuffer(true);
-      this.acc.liveText = "";
+      store.finalizeStream();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
     });
@@ -152,46 +140,65 @@ export class InkStreamingRenderer implements StreamingRenderer {
     });
   }
 
+  /**
+   * Events that should finalize the pending streaming buffer before the rest
+   * of `handleEvent` runs. Centralizes the settle-before-emit rule so any
+   * non-streaming event that may emit visible output cannot interleave with
+   * an open pending tail.
+   *
+   * Excluded from this list:
+   * - `text_chunk` / `thinking_chunk`: stream events; they extend pending in place.
+   * - `stream_start` / `thinking_start`: round/phase boundaries; pending is
+   *   expected to be null at these points (prior round's `complete`/`error`/
+   *   `flush` finalized it).
+   * - `complete`: settled inside `handleComplete`, where the surrounding
+   *   metrics/cost/idle work needs to come AFTER the finalize.
+   * - `usage_update`: no visible output; settling here would prematurely commit
+   *   the pending tail to scrollback when usage events fire mid-stream.
+   */
+  private static readonly SETTLE_BEFORE: ReadonlySet<StreamEvent["type"]> = new Set([
+    "thinking_complete",
+    "text_start",
+    "tools_detected",
+    "tool_execution_start",
+    "tool_execution_complete",
+    "error",
+  ]);
+
   handleEvent(event: StreamEvent): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (InkStreamingRenderer.SETTLE_BEFORE.has(event.type)) {
+        store.finalizeStream();
+      }
+
       if (event.type === "stream_start") {
-        this.resetStreamingState();
-        this.resetReasoningState();
-        // Show the model in the footer the moment the stream starts —
-        // gives users feedback that "yes, the call went through" before
-        // any response text arrives.
+        this.seenLength = 0;
+        this.hasStreamedText = false;
+        this.reasoningHeaderWrittenForRound = false;
         store.updateRunStats({ provider: event.provider, model: event.model });
       }
 
       if (this.displayConfig.showThinking) {
-        if (event.type === "thinking_start") {
-          this.startReasoningStream();
-        }
-        if (event.type === "thinking_chunk") {
-          this.appendReasoningText(event.content);
-        }
-        if (event.type === "thinking_complete") {
-          this.flushReasoningBuffer(true);
-          // Add visual separation between reasoning block and main response.
+        if (event.type === "thinking_start" && !this.reasoningHeaderWrittenForRound) {
           store.printOutput({
             type: "streamContent",
-            message: "\n",
+            message: chalk.dim(chalk.italic("▸ Reasoning")),
             timestamp: new Date(),
           });
+          this.reasoningHeaderWrittenForRound = true;
+        }
+        if (event.type === "thinking_chunk") {
+          store.appendStream("reasoning", event.content);
         }
       }
 
-      // Handle "complete" specially — it has async cost-calculation + response card rendering
       if (event.type === "complete") {
         this.handleComplete(event);
         return;
       }
 
-      // Handle tool_execution_start/complete — need timeout management
-      if (event.type === "tool_execution_start") {
-        if (!event.longRunning) {
-          this.setupToolTimeout(event.toolCallId, event.toolName);
-        }
+      if (event.type === "tool_execution_start" && !event.longRunning) {
+        this.setupToolTimeout(event.toolCallId, event.toolName);
       }
       if (event.type === "tool_execution_complete") {
         this.clearToolTimeout(event.toolCallId);
@@ -201,30 +208,28 @@ export class InkStreamingRenderer implements StreamingRenderer {
         );
       }
 
-      // Run the pure reducer.
-      // Reasoning text uses a narrower pre-wrap width to match its display
-      // container. Uses PADDING_BUDGET from theme.ts for consistency.
+      // Run the pure reducer for activity state + Static side-effects.
       const result = reduceEvent(this.acc, event, (text) => this.formatReasoningText(text), ink);
 
-      // Flush output side-effects immediately
       for (const entry of result.outputs) {
         store.printOutput(entry);
       }
 
       if (event.type === "text_start") {
-        this.resetStreamingState();
+        // Reasoning was finalized by thinking_complete (or there was none).
+        // Reset stream-text bookkeeping for the new response stream.
+        this.seenLength = 0;
+        this.hasStreamedText = false;
       }
 
       if (event.type === "text_chunk") {
-        const delta = this.getStreamingDelta(event);
+        const delta = this.consumeTextDelta(event);
         if (delta.length > 0) {
-          this.appendStreamingText(delta);
+          store.appendStream("response", delta);
+          this.hasStreamedText = true;
         }
       }
 
-      // Throttle high-frequency activity updates (streaming text / thinking).
-      // Tool execution and other infrequent events are set immediately so the
-      // spinner appears without delay after tool-call approval.
       if (result.activity) {
         const phase = result.activity.phase;
         if (phase === "thinking" || phase === "streaming") {
@@ -250,15 +255,14 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   private handleComplete(event: Extract<StreamEvent, { type: "complete" }>): void {
-    // Cancel any pending throttled activity update so it doesn't fire after we clear
     if (this.updateTimeoutId) {
       clearTimeout(this.updateTimeoutId);
       this.updateTimeoutId = null;
       this.pendingActivity = null;
     }
 
-    this.flushStreamingBuffer(true);
-    this.flushReasoningBuffer(true);
+    store.finalizeStream();
+
     if (!this.hasStreamedText) {
       this.printFinalResponse(event);
     }
@@ -268,47 +272,37 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.printCost(event);
     }
 
-    // Clear the live area AFTER Static content is committed, so the user never
-    // sees a blank frame where the streamed content has disappeared.
-    // Keep the interrupt handler registered here; intermediate completions
-    // (e.g. tool-call iterations) should remain interruptible.
     store.setActivity({ phase: "idle" });
-
-    this.acc.liveText = "";
-    this.acc.reasoningBuffer = "";
-    this.acc.completedReasoning = "";
-    this.resetStreamingState();
-    this.resetReasoningState();
+    // Defensive reset so a reused renderer instance starts clean even if no
+    // text_start fires before the next text_chunk.
+    this.seenLength = 0;
+    this.hasStreamedText = false;
   }
 
-  /**
-   * Print the full response text to Static as a single entry.
-   *
-   * Prefer event.response.content when no streamed text was emitted.
-   * During streaming we append chunks directly to output, so liveText may be
-   * empty or partial and should not be used to re-print the response.
-   */
+  /** Compute the new portion of the accumulated stream text, based on seenLength. */
+  private consumeTextDelta(event: Extract<StreamEvent, { type: "text_chunk" }>): string {
+    if (event.sequence !== this.acc.lastAppliedTextSequence) return "";
+    const next = event.accumulated;
+    if (next.length <= this.seenLength) return "";
+    const delta = next.slice(this.seenLength);
+    this.seenLength = next.length;
+    return delta;
+  }
+
   private printFinalResponse(event: Extract<StreamEvent, { type: "complete" }>): void {
     const wasStreaming = this.acc.lastAgentHeaderWritten;
     const fullContent = event.response.content?.trim() ?? "";
-    const liveContent = this.acc.liveText.trim();
-    const finalText =
-      fullContent.length > 0 ? fullContent : liveContent.length > 0 ? liveContent : "";
-    const formattedFull = this.formatMarkdown(finalText);
-
+    if (fullContent.length === 0) return;
+    const formattedFull = this.formatMarkdownContent(fullContent);
     if (formattedFull.length === 0) return;
 
     if (wasStreaming) {
-      // Print the full formatted response as a single Static entry.
-      // No padding/wrapping baked in — handled by Ink paddingLeft on the Box.
       store.printOutput({
         type: "streamContent",
         message: formattedFull,
         timestamp: new Date(),
       });
     } else {
-      // Non-streaming fallback: show the full response card since nothing was
-      // displayed in the live area.
       store.printOutput({
         type: "info",
         message: this.agentName,
@@ -325,165 +319,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
         timestamp: new Date(),
       });
     }
-  }
-
-  private resetStreamingState(): void {
-    this.streamBuffer = "";
-    this.streamRaw = "";
-    this.streamFormatted = "";
-    this.lastPrintedLength = 0;
-    this.hasStreamedText = false;
-  }
-
-  private resetReasoningState(): void {
-    this.reasoningBuffer = "";
-    this.reasoningRaw = "";
-    this.reasoningFormatted = "";
-    this.reasoningHeaderPrinted = false;
-  }
-
-  private getStreamingDelta(event: Extract<StreamEvent, { type: "text_chunk" }>): string {
-    // Only stream for the chunk that was actually applied by the reducer.
-    if (event.sequence !== this.acc.lastAppliedTextSequence) {
-      return "";
-    }
-
-    // Use accumulated text length (not bounded liveText length) so front-trimming
-    // does not break incremental output.
-    const nextText = event.accumulated;
-    if (nextText.length <= this.lastPrintedLength) {
-      return "";
-    }
-
-    const delta = nextText.slice(this.lastPrintedLength);
-    this.lastPrintedLength = nextText.length;
-    return delta;
-  }
-
-  private appendStreamingText(delta: string): void {
-    if (!delta) return;
-    this.streamBuffer += delta;
-
-    let flushText = "";
-    const lastNewline = this.streamBuffer.lastIndexOf("\n");
-    if (lastNewline !== -1) {
-      flushText += this.streamBuffer.slice(0, lastNewline + 1);
-      this.streamBuffer = this.streamBuffer.slice(lastNewline + 1);
-    }
-
-    if (flushText.length > 0) {
-      this.emitStreamText(flushText);
-    }
-  }
-
-  private startReasoningStream(): void {
-    if (this.reasoningHeaderPrinted) return;
-    store.printOutput({
-      type: "streamContent",
-      message: chalk.dim(chalk.italic("▸ Reasoning")),
-      timestamp: new Date(),
-    });
-    this.reasoningHeaderPrinted = true;
-  }
-
-  private appendReasoningText(delta: string): void {
-    if (!delta) return;
-    this.reasoningBuffer += delta;
-
-    let flushText = "";
-    const lastNewline = this.reasoningBuffer.lastIndexOf("\n");
-    if (lastNewline !== -1) {
-      flushText += this.reasoningBuffer.slice(0, lastNewline + 1);
-      this.reasoningBuffer = this.reasoningBuffer.slice(lastNewline + 1);
-    }
-
-    if (flushText.length > 0) {
-      this.emitReasoningText(flushText);
-    }
-  }
-
-  private flushStreamingBuffer(force: boolean): void {
-    if (force && this.streamBuffer.length > 0) {
-      this.emitStreamText(this.streamBuffer);
-      this.streamBuffer = "";
-    }
-  }
-
-  private flushReasoningBuffer(force: boolean): void {
-    if (force && this.reasoningBuffer.length > 0) {
-      this.emitReasoningText(this.reasoningBuffer);
-      this.reasoningBuffer = "";
-    }
-  }
-
-  private emitStreamText(text: string): void {
-    // Accumulate raw text, format the FULL accumulated output, then diff
-    // against the previous formatted output.  No pre-wrapping — the terminal
-    // handles line wrapping natively so text reflows on resize.
-    this.streamRaw += text;
-    const formatted = this.formatStreamingAccumulated(this.streamRaw);
-    const delta = this.getFormattedDelta(this.streamFormatted, formatted);
-    this.streamFormatted = formatted;
-    if (delta.length === 0) return;
-    store.printOutput({
-      type: "streamContent",
-      message: delta,
-      timestamp: new Date(),
-    });
-    this.hasStreamedText = true;
-  }
-
-  private emitReasoningText(text: string): void {
-    if (!text) return;
-    // Same approach as emitStreamText: format the full accumulated reasoning
-    // text, diff, and emit.  No pre-wrapping — terminal handles reflow.
-    this.reasoningRaw += text;
-    const formatted = this.formatReasoningAccumulated(this.reasoningRaw);
-    const delta = this.getFormattedDelta(this.reasoningFormatted, formatted);
-    this.reasoningFormatted = formatted;
-    if (delta.length === 0) return;
-    store.printOutput({
-      type: "streamContent",
-      message: dimReasoningMarkdownOutput(delta),
-      timestamp: new Date(),
-    });
-  }
-
-  private getFormattedDelta(previous: string, next: string): string {
-    if (next.startsWith(previous)) {
-      return next.slice(previous.length);
-    }
-    // Fallback for rare non-prefix transitions (e.g. formatter reinterpretation).
-    // Emit only the changed suffix to minimize duplication in append-only output.
-    let commonPrefixLength = 0;
-    const maxPrefixLength = Math.min(previous.length, next.length);
-    while (
-      commonPrefixLength < maxPrefixLength &&
-      previous.charCodeAt(commonPrefixLength) === next.charCodeAt(commonPrefixLength)
-    ) {
-      commonPrefixLength += 1;
-    }
-    return next.slice(commonPrefixLength);
-  }
-
-  private formatStreamingAccumulated(text: string): string {
-    if (this.displayConfig.mode === "rendered") {
-      return formatMarkdown(text);
-    }
-    if (this.displayConfig.mode === "hybrid") {
-      return formatMarkdownHybrid(text);
-    }
-    return text;
-  }
-
-  private formatReasoningAccumulated(text: string): string {
-    if (this.displayConfig.mode === "rendered") {
-      return formatMarkdown(text);
-    }
-    if (this.displayConfig.mode === "hybrid") {
-      return formatMarkdownHybrid(text);
-    }
-    return text;
   }
 
   /** Print token usage metrics. */
@@ -668,17 +503,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
     this.pendingActivity = null;
     store.flushOutputBatchNow();
     store.setActivity(activity);
-  }
-
-  /**
-   * Format markdown content without pre-wrapping.
-   *
-   * No width-based wrapping is applied — the terminal handles line wrapping
-   * natively so text reflows correctly on resize.  Ink's paddingLeft on the
-   * output Box provides consistent left indentation.
-   */
-  private formatMarkdown(text: string): string {
-    return this.formatMarkdownContent(text);
   }
 
   /**

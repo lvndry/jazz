@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import { Chunk, Effect } from "effect";
+import { selectParser } from "./reasoning";
 import { StreamProcessor } from "./stream-processor";
 import { type LoggerService } from "../../core/interfaces/logger";
 
@@ -291,5 +292,140 @@ describe("StreamProcessor", () => {
 
     expect(thinkingChunks.map((c) => c.content).join("")).toBe("truncated thought");
     expect(thinkingComplete).toBeDefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Integration: selectParser → StreamProcessor end-to-end routing
+  //
+  // These tests cross the seam between the parser registry and the stream
+  // processor. They guard the bug-class where a local model emits
+  // <think>...</think> at runtime without surfacing any chat-template hint or
+  // "thinking" capability — and the strict-gate registry would have left the
+  // parser unwired, leaking reasoning into the response channel as literal
+  // tagged text. Per-component unit tests on either side miss this seam.
+  // -------------------------------------------------------------------------
+  describe("selectParser → StreamProcessor integration", () => {
+    function runWithParser(
+      parser: ReturnType<typeof selectParser>,
+      deltas: readonly string[],
+    ): Promise<{
+      events: any[];
+      finalContent: string;
+    }> {
+      const events: any[] = [];
+      const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>): void => {
+        const chunk = Effect.runSync(eff);
+        events.push(...Chunk.toArray(chunk));
+      };
+      const processor = new StreamProcessor(
+        {
+          providerName: "llamacpp",
+          modelName: "no-metadata-local-model",
+          hasReasoningEnabled: false,
+          startTime: Date.now(),
+          ...(parser ? { reasoningParser: parser } : {}),
+        },
+        emit,
+        mockLogger,
+      );
+      const mockResult = {
+        fullStream: (async function* () {
+          for (const delta of deltas) {
+            yield { type: "text-delta", text: delta };
+          }
+          yield { type: "finish", finishReason: "stop" };
+        })(),
+        usage: Promise.resolve({}),
+      } as any;
+      return processor
+        .process(mockResult)
+        .then((response) => ({ events, finalContent: response.content ?? "" }));
+    }
+
+    it("routes <think>…</think> to reasoning even when no chatTemplate or capability hints are set", async () => {
+      // The model declares no metadata that would tip off the registry. Before
+      // the selectParser fallback this returned null and reasoning leaked.
+      const parser = selectParser({
+        provider: "llamacpp",
+        modelId: "no-metadata-local-model",
+      });
+      expect(parser).not.toBeNull();
+
+      const { events, finalContent } = await runWithParser(parser, [
+        "<think>let me deliberate first</think>",
+        "actual answer",
+      ]);
+
+      const thinkingChunks = events.filter((e) => e.type === "thinking_chunk");
+      const textChunks = events.filter((e) => e.type === "text_chunk");
+
+      // Reasoning content lands on the reasoning channel.
+      expect(thinkingChunks.map((c) => c.content).join("")).toContain("let me deliberate first");
+      // The visible response never contains the raw tags or the deliberation.
+      expect(finalContent).toBe("actual answer");
+      expect(textChunks.every((c) => !String(c.delta).includes("<think>"))).toBe(true);
+      expect(textChunks.every((c) => !String(c.delta).includes("deliberate"))).toBe(true);
+      expect(events.some((e) => e.type === "thinking_start")).toBe(true);
+      expect(events.some((e) => e.type === "thinking_complete")).toBe(true);
+    });
+
+    it("passes through plain text untouched when the model emits no reasoning tags", async () => {
+      // Same no-metadata context — fallback parser is wired — but the stream
+      // is plain prose. The parser should be a complete no-op.
+      const parser = selectParser({
+        provider: "llamacpp",
+        modelId: "no-metadata-local-model",
+      });
+
+      const { events, finalContent } = await runWithParser(parser, [
+        "Hello",
+        " there, ",
+        "no reasoning here.",
+      ]);
+
+      expect(finalContent).toBe("Hello there, no reasoning here.");
+      expect(events.some((e) => e.type === "thinking_start")).toBe(false);
+      expect(events.some((e) => e.type === "thinking_chunk")).toBe(false);
+      expect(events.some((e) => e.type === "thinking_complete")).toBe(false);
+    });
+
+    it("does not wire a parser for Harmony format (would otherwise mangle delimiters)", async () => {
+      // Harmony explicitly returns null from selectParser. Any reasoning-style
+      // output from such a model leaks into the response — this is the known
+      // limitation pending a dedicated Harmony parser. The test pins the
+      // current behaviour so a future Harmony parser landing flips this case.
+      const parser = selectParser({
+        provider: "llamacpp",
+        modelId: "gpt-oss-style",
+        chatTemplate: "messages with <|channel|>analysis<|message|>...",
+      });
+      expect(parser).toBeNull();
+
+      const { events, finalContent } = await runWithParser(parser, [
+        "<|channel|>analysis<|message|>raw deliberation text",
+      ]);
+
+      expect(events.some((e) => e.type === "thinking_chunk")).toBe(false);
+      expect(finalContent).toContain("raw deliberation text");
+    });
+
+    it("handles tags split across multiple text-delta chunks", async () => {
+      // Real streams break tags across chunk boundaries — the parser must
+      // buffer the partial open/close and not emit until the tag resolves.
+      const parser = selectParser({
+        provider: "llamacpp",
+        modelId: "no-metadata-local-model",
+      });
+
+      const { events, finalContent } = await runWithParser(parser, [
+        "<thi",
+        "nk>partial",
+        " thought</think>visible",
+      ]);
+
+      const thinkingChunks = events.filter((e) => e.type === "thinking_chunk");
+      expect(thinkingChunks.map((c) => c.content).join("")).toContain("partial thought");
+      expect(finalContent).toBe("visible");
+    });
   });
 });

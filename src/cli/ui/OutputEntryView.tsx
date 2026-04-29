@@ -3,6 +3,8 @@ import React from "react";
 import { getGlyphs } from "./glyphs";
 import { PADDING, THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
+import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
+import { formatMarkdown } from "../presentation/markdown-formatter";
 
 // Icons routed through the glyph module so they degrade to ASCII when the
 // user's font/terminal don't render Unicode dingbats reliably. Computed
@@ -56,17 +58,21 @@ export const OutputEntryView = React.memo(function OutputEntryView({
   const color = COLORS[entry.type];
 
   if (entry.type === "streamContent") {
-    // marginBottom={1} so the LLM response is visually separated from any
-    // metrics / cost / approval prompt that immediately follows it. The
-    // streamContent block itself is the entire response (already wrapped &
-    // formatted) so we don't need internal spacing.
+    // streamContent slices are stored RAW by the scrollback buffer (so the
+    // markdown-aware split-point finder can operate on raw text). Format at
+    // render time. For reasoning slices, post-process with the dim styling so
+    // settled reasoning matches the live pending render.
+    const raw = entry.message as string;
+    const formatted = formatMarkdown(raw);
+    const kind = entry.meta?.["kind"];
+    const display = kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
     return (
       <Box
         marginTop={0}
-        marginBottom={1}
+        marginBottom={0}
         paddingLeft={PADDING.content}
       >
-        <Text>{entry.message as string}</Text>
+        <Text>{display}</Text>
       </Box>
     );
   }

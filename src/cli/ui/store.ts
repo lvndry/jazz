@@ -1,9 +1,15 @@
 import type React from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
+import type { StreamKind } from "./adapters/terminal-output-adapter";
 import type { OutputEntry, PromptState } from "./types";
 
 /** Accepts single entry or batch; returns first id when available. */
 type PrintOutputHandler = (entry: OutputEntry | readonly OutputEntry[]) => string;
+
+type StreamingHandler = {
+  appendStream: (kind: StreamKind, delta: string) => void;
+  finalizeStream: () => void;
+};
 
 const MAX_PENDING_OUTPUT_QUEUE = 2000;
 
@@ -39,6 +45,7 @@ export class UIStore {
   // Output handlers
   private printOutputHandler: PrintOutputHandler | null = null;
   private clearOutputsHandler: (() => void) | null = null;
+  private streamingHandler: StreamingHandler | null = null;
   private pendingOutputQueue: OutputEntry[] = [];
   private _pendingClear = false;
   private pendingOutputIdCounter = 0;
@@ -166,7 +173,27 @@ export class UIStore {
 
   setCustomView = (_view: React.ReactNode | null): void => {};
 
-  setInterruptHandler = (_handler: (() => void) | null): void => {};
+  /**
+   * Stack of active interrupt handlers, ordered oldest-first. Each call to
+   * `setInterruptHandler(handler)` with a non-null handler pushes; calling with
+   * null pops. The UI always observes the top of the stack as the active
+   * handler. This lets nested agent runs (a subagent invoked as a tool by a
+   * main agent) each register their own handler without overwriting the
+   * outer scope's: when the inner run finishes and pops, the outer run's
+   * handler is restored automatically.
+   */
+  private interruptHandlerStack: Array<() => void> = [];
+  private interruptHandlerSetter: ((handler: (() => void) | null) => void) | null = null;
+
+  setInterruptHandler = (handler: (() => void) | null): void => {
+    if (handler === null) {
+      this.interruptHandlerStack.pop();
+    } else {
+      this.interruptHandlerStack.push(handler);
+    }
+    const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
+    this.interruptHandlerSetter?.(top);
+  };
 
   setExpandableDiff = (fullDiff: string): void => {
     this.expandableDiff = { fullDiff, timestamp: Date.now() };
@@ -178,6 +205,21 @@ export class UIStore {
 
   clearExpandableDiff = (): void => {
     this.expandableDiff = null;
+  };
+
+  appendStream = (kind: StreamKind, delta: string): void => {
+    if (delta.length === 0) return;
+    // Streaming bypasses the printOutput batch — deltas go straight in.
+    // Flush any pending non-streaming batch first to preserve ordering.
+    this.flushOutputBatchNow();
+    if (!this.streamingHandler) return;
+    this.streamingHandler.appendStream(kind, delta);
+  };
+
+  finalizeStream = (): void => {
+    this.flushOutputBatchNow();
+    if (!this.streamingHandler) return;
+    this.streamingHandler.finalizeStream();
   };
 
   clearOutputs = (): void => {
@@ -198,6 +240,10 @@ export class UIStore {
 
   registerPrintOutput(handler: PrintOutputHandler): void {
     this.printOutputHandler = handler;
+  }
+
+  registerStreamingHandler(handler: StreamingHandler | null): void {
+    this.streamingHandler = handler;
   }
 
   registerClearOutputs(handler: () => void): void {
@@ -224,8 +270,12 @@ export class UIStore {
     this.setCustomView = setter;
   }
 
-  registerInterruptHandler(setter: (handler: (() => void) | null) => void): void {
-    this.setInterruptHandler = setter;
+  registerInterruptHandler(setter: ((handler: (() => void) | null) => void) | null): void {
+    this.interruptHandlerSetter = setter;
+    if (setter) {
+      const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
+      setter(top);
+    }
   }
 
   // ── Snapshot accessors (for hydrating late-registering components) ─

@@ -71,7 +71,7 @@ jobs:
           ref: ${{ needs.tag.outputs.new_tag }}
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v8.1.0
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 

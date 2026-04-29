@@ -920,7 +920,7 @@ function handleClearCommand(
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     // Use terminal.clear() which both clears the screen and resets the
-    // Ink output island state (staticEntries + liveEntries).
+    // Ink output island state (scrollback buffer: staticEntries + pending).
     yield* terminal.clear();
     yield* terminal.info(`Chat with ${agent.name} - Screen cleared`);
     yield* terminal.info("Type '/help' to see available commands.");
