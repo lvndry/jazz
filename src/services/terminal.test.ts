@@ -37,9 +37,12 @@ describe("maskSecret", () => {
     expect(maskSecret("short")).toBe("•••••");
   });
 
-  test("renders a minimum of 4 bullets even for very short input", () => {
+  test("renders a minimum of 4 bullets for very short non-empty input", () => {
     expect(maskSecret("ab")).toBe("••••");
-    expect(maskSecret("")).toBe("••••");
+  });
+
+  test("returns empty string for empty input so optional secret prompts read as empty", () => {
+    expect(maskSecret("")).toBe("");
   });
 
   test("input length at the threshold reveals the tail", () => {

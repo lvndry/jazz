@@ -470,10 +470,13 @@ export function editAgentCommand(
         editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
     };
 
-    // Build update object
+    // Build update object. The description guard uses !== undefined (not a
+    // truthy check) so a user clearing the description by submitting empty
+    // input actually clears the stored value; a truthy guard would silently
+    // ignore the submission and leave the previous description in place.
     const updates: Partial<Agent> = {
       ...(editAnswers.name && { name: editAnswers.name }),
-      ...(editAnswers.description && { description: editAnswers.description }),
+      ...(editAnswers.description !== undefined && { description: editAnswers.description }),
       config: updatedConfig,
     };
 

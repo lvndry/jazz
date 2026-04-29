@@ -42,6 +42,7 @@ export const INK_RENDER_OPTIONS = {
 export function maskSecret(value: string): string {
   const VISIBLE_TAIL = 4;
   const MIN_LENGTH_FOR_TAIL = 12;
+  if (value.length === 0) return "";
   if (value.length >= MIN_LENGTH_FOR_TAIL) {
     return "•".repeat(8) + value.slice(-VISIBLE_TAIL);
   }
