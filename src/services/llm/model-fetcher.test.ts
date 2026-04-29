@@ -160,4 +160,27 @@ describe("ModelFetcher", () => {
       expect(msg).toMatch(/no models loaded|llama-server/i);
     }
   });
+
+  it("captures chat_template from llama.cpp /props onto every ModelInfo", async () => {
+    const mockModelsResponse = { data: [{ id: "qwen3-4b" }] };
+    const mockPropsResponse = {
+      default_generation_settings: { n_ctx: 8192 },
+      chat_template_caps: { supports_tools: true, supports_tool_calls: true },
+      chat_template: "{% if reasoning %}<think>{% endif %}",
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockModelsResponse) });
+      if (url.endsWith("/props"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockPropsResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("llamacpp", "http://localhost:8080/v1", "/models");
+    const result = await Effect.runPromise(program);
+
+    expect(result.length).toBe(1);
+    expect(result[0]!.chatTemplate).toBe("{% if reasoning %}<think>{% endif %}");
+  });
 });

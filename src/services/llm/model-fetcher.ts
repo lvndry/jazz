@@ -96,6 +96,7 @@ type LlamaCppModelsResponse = { data?: LlamaCppModelEntry[] };
 type LlamaCppPropsResponse = {
   default_generation_settings?: { n_ctx?: number };
   chat_template_caps?: Record<string, boolean>;
+  chat_template?: string;
 };
 
 /**
@@ -343,17 +344,20 @@ async function transformLlamaCppModels(
   const ctx = props?.default_generation_settings?.n_ctx;
   const caps = props?.chat_template_caps ?? {};
   const supportsTools = caps["supports_tools"] === true && caps["supports_tool_calls"] === true;
+  const chatTemplate = props?.chat_template;
 
   return models.map((model) => {
     const entry: RawModelEntry = { id: model.id, displayName: model.id };
     const dev = getMetadataFromMap(modelsDevMap, model.id);
-    if (dev) return resolveToModelInfo(entry, modelsDevMap);
-    entry.fallback = {
-      contextWindow: ctx ?? DEFAULT_CONTEXT_WINDOW,
-      supportsTools,
-      isReasoningModel: false,
-    };
-    return resolveToModelInfo(entry, null);
+    if (!dev) {
+      entry.fallback = {
+        contextWindow: ctx ?? DEFAULT_CONTEXT_WINDOW,
+        supportsTools,
+        isReasoningModel: false,
+      };
+    }
+    const base = resolveToModelInfo(entry, dev ? modelsDevMap : null);
+    return chatTemplate ? { ...base, chatTemplate } : base;
   });
 }
 
