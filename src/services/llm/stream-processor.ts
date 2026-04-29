@@ -14,7 +14,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@/core/types";
 import { type LLMError } from "@/core/types/errors";
 import type { ToolCall } from "@/core/types/tools";
-import type { ReasoningParser } from "./reasoning";
+import type { ParseChunk, ReasoningParser } from "./reasoning";
 
 /**
  * Type for AI SDK StreamText result
@@ -463,7 +463,7 @@ export class StreamProcessor {
     });
   }
 
-  private routeParsedChunk(chunk: import("./reasoning").ParseChunk): void {
+  private routeParsedChunk(chunk: ParseChunk): void {
     if (chunk.thinkingStarted && this.state.reasoningSequence === 0) {
       const firstReasoningLatency = Date.now() - this.config.startTime;
       void this.logger.debug(
@@ -480,6 +480,11 @@ export class StreamProcessor {
         sequence: this.state.reasoningSequence++,
       });
     }
+    // Mirrors the reasoning-end handler above: reset reasoningSequence to 0 so a
+    // second thinking block in the same response can re-enter the thinking_start
+    // gate. The reasoningStreamCompleted toggle is kept symmetric with that handler
+    // for consistency, even though emitEvent is synchronous and re-entrancy isn't
+    // possible here.
     if (chunk.thinkingEnded && this.state.reasoningSequence > 0 && !this.state.reasoningStreamCompleted) {
       this.state.reasoningStreamCompleted = true;
       void this.emitEvent({
