@@ -86,4 +86,42 @@ describe("TagPairParser", () => {
     expect(out.thinkingStarted).toBe(true);
     expect(out.thinkingEnded).toBe(true);
   });
+
+  it("flushes a partial open-tag buffer as visible text", () => {
+    const parser = new TagPairParser();
+    const a = parser.feed("a<thi");
+    const b = parser.flush();
+    expect(a.visibleText).toBe("a");
+    expect(b.visibleText).toBe("<thi");
+    expect(b.thinkingText).toBe("");
+  });
+
+  it("flushes mid-thinking content with thinkingEnded set", () => {
+    const parser = new TagPairParser();
+    const a = parser.feed("a<think>partial");
+    const b = parser.flush();
+    expect(a.thinkingStarted).toBe(true);
+    expect(a.thinkingText).toBe("partial");
+    expect(b.thinkingEnded).toBe(true);
+  });
+
+  it("flushes mid-MAYBE_CLOSE buffer back into thinking text", () => {
+    const parser = new TagPairParser();
+    const a = parser.feed("a<think>secret</thi");
+    const b = parser.flush();
+    expect(a.thinkingStarted).toBe(true);
+    expect(a.thinkingText).toBe("secret");
+    expect(b.thinkingText).toBe("</thi");
+    expect(b.thinkingEnded).toBe(true);
+  });
+
+  it("returns empty chunks on flush after a clean stream", () => {
+    const parser = new TagPairParser();
+    parser.feed("a<think>x</think>b");
+    const out = parser.flush();
+    expect(out.visibleText).toBe("");
+    expect(out.thinkingText).toBe("");
+    expect(out.thinkingStarted).toBeUndefined();
+    expect(out.thinkingEnded).toBeUndefined();
+  });
 });
