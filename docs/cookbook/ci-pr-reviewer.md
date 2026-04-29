@@ -3,7 +3,7 @@
 **What it does:** On every opened PR (or on `/jazz-review` comment from a trusted user), runs a Jazz agent that reviews the diff and posts inline review comments on the actual changed lines.
 **Schedule:** Triggered by GitHub Actions.
 **Risk:** `autoApprove: true` inside the workflow — but the runner has only read tools and `write_file` to `/tmp`. The agent cannot push, comment, or merge. Posting comments is done by a downstream `actions/github-script` step parsing the agent's JSON output.
-**Tools used:** `git_diff`, `git_log`, `read_file`, `find`, `find_path`, `grep`, `ls`, `http_request`, `web_search`, `load_skill`, `write_file`.
+**Tools used:** `git_diff`, `git_log`, `read_file`, `find`, `grep`, `ls`, `http_request`, `web_search`, `load_skill`, `write_file`.
 
 ## Why this is useful
 
@@ -85,7 +85,6 @@ If there are no issues, output `[]`.
     "reasoningEffort": "medium",
     "tools": [
       "find",
-      "find_path",
       "grep",
       "ls",
       "read_file",

@@ -10,11 +10,15 @@ maxIterations: 100
 
 Generate release notes for **__NEW_TAG__** by comparing commits since **__PREVIOUS_TAG__**.
 
+## Context
+
+- Repository checkout path: `__WORKSPACE__` (the absolute path to the working tree on this runner — every git/file tool call MUST pass this as the `path` argument; the runner's default cwd is not the repository).
+
 ## Steps
 
-1. Use `git_log` to get all commits between `__PREVIOUS_TAG__` and `__NEW_TAG__`.
-2. Use `git_diff` with `commit` set to `__PREVIOUS_TAG__...__NEW_TAG__` to understand the scope of changes. If the diff is large, scope to individual files using the `path` parameter.
-3. Read relevant source files to understand the context of changes.
+1. Use `git_log` with `path: "__WORKSPACE__"` to get all commits between `__PREVIOUS_TAG__` and `__NEW_TAG__`.
+2. Use `git_diff` with `path: "__WORKSPACE__"` and `commit` set to `__PREVIOUS_TAG__...__NEW_TAG__` to understand the scope of changes. If the diff is large, scope to specific files via the `paths` parameter (an array of file paths, e.g. `paths: ["src/foo.ts", "src/bar.ts"]`).
+3. Read relevant source files to understand the context of changes. When using `read_file`, `ls`, `find`, or `grep`, pass paths under `__WORKSPACE__/...`.
 4. Group commits by **feature** — cluster related changes into cohesive product areas (e.g. "Agent workflows", "CLI experience", "Scheduler"). Each group = one feature or capability area.
 5. Write **funny, exciting, product- and UX-focused** descriptions. Explain what changed and **why it matters** to the user. No dry dev-speak — make it feel alive and clear.
 6. Skip trivial commits (version bump, merge commit).

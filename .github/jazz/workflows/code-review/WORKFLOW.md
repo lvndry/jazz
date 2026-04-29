@@ -20,11 +20,16 @@ Use a todo list if needed to keep track of where you're at and what's left
 
 The final output must include every issue across the entire diff. Partial reviews that stop early are not acceptable.
 
-To get the diff, use the `git_diff` tool with `commit` set to `__PR_BASE_SHA__...__PR_HEAD_SHA__`.
+## Context
+
+- Repository checkout path: `__WORKSPACE__` (the absolute path to the working tree on this runner — every git/file tool call MUST pass this as the `path` argument; the runner's default cwd is not the repository).
+- PR context snapshot: `/tmp/jazz-pr-context.json` — a JSON object with `title`, `body` (PR description), `labels`, `comments` (top-level conversation), `reviews` (review summaries with bodies and states), and `reviewComments` (inline per-line review comments). Read this with `read_file` BEFORE reviewing the diff so you (a) understand what the PR claims to do, (b) avoid re-flagging issues already raised by human reviewers, and (c) factor in any prior round of feedback.
 
 **Workflow for all PRs**:
-1. **Get the file list first**: Call `git_diff` with `commit` and `nameOnly: true`. This returns `paths` — the full list of changed files in the PR.
-2. **Get the diff content**: If the PR is small (few files, <~500 lines total), call `git_diff` with just `commit` to get the full diff. If large, call `git_diff` with `commit` and `paths` set to batches of 5–10 files at a time. Review each batch and aggregate your feedback.
+1. **Read the PR context snapshot**: `read_file` with `path: "/tmp/jazz-pr-context.json"`. Note the title, description, and any prior reviews/comments — they tell you the author's intent and what's already been discussed.
+2. **Get the file list**: Call `git_diff` with `path: "__WORKSPACE__"`, `commit: "__PR_BASE_SHA__...__PR_HEAD_SHA__"`, and `nameOnly: true`. This returns `paths` — the full list of changed files in the PR.
+3. **Get the diff content**: If the PR is small (few files, <~500 lines total), call `git_diff` with `path: "__WORKSPACE__"` and `commit: "__PR_BASE_SHA__...__PR_HEAD_SHA__"` to get the full diff. If large, also pass `paths` set to batches of 5–10 files at a time. Review each batch and aggregate your feedback.
+4. When using `read_file`, `ls`, `find`, or `grep` for source code, pass paths under `__WORKSPACE__/...`.
 
 Use the `code-review` skill for the full review checklist. This review is the single gate for PR quality—catch bugs (logic errors, null dereferences, race conditions, regressions), error-handling gaps, and security issues as part of your review.
 

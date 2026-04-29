@@ -168,13 +168,40 @@ jobs:
         env:
           PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          WORKSPACE: ${{ github.workspace }}
         run: |
           mkdir -p "$HOME/.jazz/agents" workflows/code-review
           cp .github/jazz/agents/ci-reviewer.json "$HOME/.jazz/agents/"
-          sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" \
+          sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" -e "s|__WORKSPACE__|$WORKSPACE|g" \
             .github/jazz/workflows/code-review/WORKFLOW.md > workflows/code-review/WORKFLOW.md
           echo "--- Substituted workflow ---"
           cat workflows/code-review/WORKFLOW.md
+
+      - name: Snapshot PR context
+        # Pre-fetch PR metadata (title, body, labels, conversation comments,
+        # review summaries, inline review comments) into a static JSON file the
+        # agent reads via read_file. This avoids handing GITHUB_TOKEN to the
+        # agent or shell while still letting it answer "what does the PR claim
+        # to do? what's already been said in review?".
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          OUT=/tmp/jazz-pr-context.json
+          if gh pr view "$PR_NUMBER" --repo "$REPO" \
+               --json title,body,labels,comments,reviews \
+               > /tmp/pr-base.json \
+             && gh api "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
+                  > /tmp/pr-review-comments.json; then
+            jq -s '.[0] + {reviewComments: .[1]}' \
+              /tmp/pr-base.json /tmp/pr-review-comments.json > "$OUT"
+          else
+            echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$OUT"
+          fi
+          echo "--- PR context (first 200 lines) ---"
+          head -n 200 "$OUT"
 
       - name: Run code review
         env:
@@ -435,6 +462,32 @@ jobs:
           NODE
           echo "--- Substituted workflow ---"
           cat workflows/pr-assistant/WORKFLOW.md
+
+      - name: Snapshot PR context
+        # Pre-fetch PR metadata (title, body, labels, conversation comments,
+        # review summaries, inline review comments) into a static JSON file the
+        # agent reads via read_file. This avoids handing GITHUB_TOKEN to the
+        # agent or shell while still letting it answer follow-ups like "what
+        # did reviewers ask for?" or "did anyone already flag this?".
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          OUT=/tmp/jazz-pr-context.json
+          if gh pr view "$PR_NUMBER" --repo "$REPO" \
+               --json title,body,labels,comments,reviews \
+               > /tmp/pr-base.json \
+             && gh api "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
+                  > /tmp/pr-review-comments.json; then
+            jq -s '.[0] + {reviewComments: .[1]}' \
+              /tmp/pr-base.json /tmp/pr-review-comments.json > "$OUT"
+          else
+            echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$OUT"
+          fi
+          echo "--- PR context (first 200 lines) ---"
+          head -n 200 "$OUT"
 
       - name: Run Jazz assistant
         env:

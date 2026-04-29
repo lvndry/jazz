@@ -10,7 +10,6 @@
     "reasoningEffort": "medium",
     "tools": [
       "find",
-      "find_path",
       "grep",
       "ls",
       "read_file",
