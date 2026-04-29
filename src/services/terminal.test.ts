@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { INK_RENDER_OPTIONS } from "./terminal";
+import { INK_RENDER_OPTIONS, maskSecret } from "./terminal";
 
 describe("INK_RENDER_OPTIONS", () => {
   /**
@@ -24,5 +24,28 @@ describe("INK_RENDER_OPTIONS", () => {
 
   test("must disable exitOnCtrlC so app handles SIGINT", () => {
     expect(INK_RENDER_OPTIONS.exitOnCtrlC).toBe(false);
+  });
+});
+
+describe("maskSecret", () => {
+  test("reveals the last 4 characters when input is long enough", () => {
+    const out = maskSecret("sk-anthropic-ABCDEF1234WXYZ");
+    expect(out).toBe("••••••••WXYZ");
+  });
+
+  test("masks the entire value when shorter than the safety threshold", () => {
+    expect(maskSecret("short")).toBe("•••••");
+  });
+
+  test("renders a minimum of 4 bullets for very short non-empty input", () => {
+    expect(maskSecret("ab")).toBe("••••");
+  });
+
+  test("returns empty string for empty input so optional secret prompts read as empty", () => {
+    expect(maskSecret("")).toBe("");
+  });
+
+  test("input length at the threshold reveals the tail", () => {
+    expect(maskSecret("abcdefghijkl")).toBe("••••••••ijkl");
   });
 });

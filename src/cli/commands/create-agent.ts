@@ -604,9 +604,6 @@ async function promptForAgentInfo(
           simple: boolean;
         } = {
           validate: (inputValue: string): boolean | string => {
-            if (!inputValue || inputValue.trim().length === 0) {
-              return "Agent description cannot be empty";
-            }
             if (inputValue.length > 500) {
               return "Agent description cannot exceed 500 characters";
             }

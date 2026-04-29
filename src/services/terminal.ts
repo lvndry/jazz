@@ -33,6 +33,23 @@ export const INK_RENDER_OPTIONS = {
 } as const;
 
 /**
+ * Render a secret for echo to terminal scrollback. Reveals the last few
+ * characters so the user can recognise the value they entered while keeping
+ * the bulk of it masked. Short inputs are masked entirely.
+ *
+ * Exported for testability.
+ */
+export function maskSecret(value: string): string {
+  const VISIBLE_TAIL = 4;
+  const MIN_LENGTH_FOR_TAIL = 12;
+  if (value.length === 0) return "";
+  if (value.length >= MIN_LENGTH_FOR_TAIL) {
+    return "•".repeat(8) + value.slice(-VISIBLE_TAIL);
+  }
+  return "•".repeat(Math.max(value.length, 4));
+}
+
+/**
  * Ink-based Terminal Service Implementation
  *
  * This service is a singleton - only one instance should exist at a time.
@@ -213,7 +230,7 @@ export class InkTerminalService implements TerminalService {
           // Pre-wrap user message to fit terminal width, consistent with how
           // agent responses are pre-wrapped. The offset accounts for App paddingX=3
           // (6 chars) + the "›" icon + space (2 chars) = 8 chars total.
-          const displayValue = isSecret ? "•".repeat(Math.min(inputValue.length, 8)) : inputValue;
+          const displayValue = isSecret ? maskSecret(inputValue) : inputValue;
           // For chat-type prompts the visual "You:" prefix already comes from
           // OutputEntryView's user-entry styling; including the prompt's own
           // "You:" label here would double it up in scrollback. For non-chat

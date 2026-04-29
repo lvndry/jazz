@@ -86,7 +86,7 @@ export function editAgentCommand(
 
     yield* terminal.heading(`📋 Current Agent: ${agent.name}`);
     yield* terminal.log(`   ID: ${agent.id}`);
-    yield* terminal.log(`   Description: ${agent.description}`);
+    yield* terminal.log(`   Description: ${agent.description || "N/A"}`);
     yield* terminal.log(`   Persona: ${agent.config.persona || "N/A"}`);
     yield* terminal.log(
       `   LLM Provider: ${formatProviderDisplayName(agent.config.llmProvider) || "N/A"}`,
@@ -470,10 +470,13 @@ export function editAgentCommand(
         editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
     };
 
-    // Build update object
+    // Build update object. The description guard uses !== undefined (not a
+    // truthy check) so a user clearing the description by submitting empty
+    // input actually clears the stored value; a truthy guard would silently
+    // ignore the submission and leave the previous description in place.
     const updates: Partial<Agent> = {
       ...(editAnswers.name && { name: editAnswers.name }),
-      ...(editAnswers.description && { description: editAnswers.description }),
+      ...(editAnswers.description !== undefined && { description: editAnswers.description }),
       config: updatedConfig,
     };
 
@@ -547,9 +550,6 @@ async function promptForAgentUpdates(
       terminal.ask("Enter new agent description:", {
         defaultValue: currentAgent.description || "",
         validate: (inputValue: string) => {
-          if (!inputValue.trim()) {
-            return "Agent description cannot be empty";
-          }
           if (inputValue.length > 500) {
             return "Agent description must be 500 characters or less";
           }
