@@ -86,7 +86,7 @@ export function editAgentCommand(
 
     yield* terminal.heading(`📋 Current Agent: ${agent.name}`);
     yield* terminal.log(`   ID: ${agent.id}`);
-    yield* terminal.log(`   Description: ${agent.description}`);
+    yield* terminal.log(`   Description: ${agent.description || "N/A"}`);
     yield* terminal.log(`   Persona: ${agent.config.persona || "N/A"}`);
     yield* terminal.log(
       `   LLM Provider: ${formatProviderDisplayName(agent.config.llmProvider) || "N/A"}`,
@@ -547,9 +547,6 @@ async function promptForAgentUpdates(
       terminal.ask("Enter new agent description:", {
         defaultValue: currentAgent.description || "",
         validate: (inputValue: string) => {
-          if (!inputValue.trim()) {
-            return "Agent description cannot be empty";
-          }
           if (inputValue.length > 500) {
             return "Agent description must be 500 characters or less";
           }
