@@ -8,28 +8,33 @@ import { PADDING, THEME } from "./theme";
 
 const G = getGlyphs();
 
-const PREVIEW_MAX_CHARS = 80;
+/** Per-entry truncation width — keeps the preview block bounded vertically. */
+const ENTRY_PREVIEW_MAX_CHARS = 80;
 
-function formatPreview(queue: string): string {
-  const firstLine = queue.split("\n")[0] ?? "";
-  if (firstLine.length <= PREVIEW_MAX_CHARS) {
-    return queue.includes("\n") ? `${firstLine}…` : firstLine;
-  }
-  return `${firstLine.slice(0, PREVIEW_MAX_CHARS)}…`;
+/** Show at most this many entries; older ones become a `+N more` line. */
+const MAX_VISIBLE_ENTRIES = 5;
+
+function truncateEntry(entry: string): string {
+  // Collapse newlines inside a single queued entry so each entry occupies one
+  // line in the preview. Multi-line entries are rare (paste) but possible.
+  const oneLine = entry.replace(/\n+/g, " ↵ ");
+  if (oneLine.length <= ENTRY_PREVIEW_MAX_CHARS) return oneLine;
+  return `${oneLine.slice(0, ENTRY_PREVIEW_MAX_CHARS)}…`;
 }
 
 /**
  * Chat input rendered while the agent is busy in chat mode.
  *
- * Pressing Enter appends the buffer to the in-memory message queue (joined
- * with newlines if non-empty); Ctrl-X clears the queue. The queue is drained
- * by chat-service the next time it's about to prompt for input.
+ * Each Enter appends a new entry to the in-memory message queue. The queue
+ * preview shows entries stacked one per line; on agent completion the chat
+ * loop drains the queue (joining with `\n`) and sends it as a single
+ * combined turn. `Ctrl-X` clears the queue when the input buffer is empty.
  */
 export function QueueInput({
   queue,
   workingDirectory,
 }: {
-  queue: string;
+  queue: readonly string[];
   workingDirectory: string | null;
 }): React.ReactElement {
   const handleSubmit = useCallback((val: string): void => {
@@ -54,7 +59,8 @@ export function QueueInput({
     }
   });
 
-  const previewVisible = queue.length > 0;
+  const visibleEntries = queue.slice(-MAX_VISIBLE_ENTRIES);
+  const overflowCount = queue.length - visibleEntries.length;
 
   return (
     <Box
@@ -69,9 +75,22 @@ export function QueueInput({
         </Box>
       )}
 
-      {previewVisible && (
-        <Box marginTop={1}>
-          <Text dimColor>Queued: {formatPreview(queue)} (Ctrl-X to clear)</Text>
+      {queue.length > 0 && (
+        <Box
+          marginTop={1}
+          flexDirection="column"
+        >
+          <Text dimColor>Queued ({queue.length}) · Ctrl-X to clear</Text>
+          {overflowCount > 0 && <Text dimColor> …and {overflowCount} earlier</Text>}
+          {visibleEntries.map((entry, index) => (
+            <Text
+              key={`${queue.length - visibleEntries.length + index}`}
+              dimColor
+            >
+              {"  • "}
+              {truncateEntry(entry)}
+            </Text>
+          ))}
         </Box>
       )}
 

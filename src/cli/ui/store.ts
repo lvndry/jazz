@@ -108,7 +108,7 @@ export class UIStore {
   private runStatsSnapshot: RunStats = {};
   private ephemeralRegionsSnapshot: readonly EphemeralRegion[] = [];
   private expandableReasoningSnapshot: ExpandableReasoning | null = null;
-  private messageQueueSnapshot: string = "";
+  private messageQueueSnapshot: readonly string[] = [];
   private chatBusySnapshot: boolean = false;
 
   // Insertion-ordered map of live ephemeral regions, keyed by id.
@@ -122,7 +122,7 @@ export class UIStore {
   private runStatsSetter: ((stats: RunStats) => void) | null = null;
   private ephemeralRegionsSetter: ((regions: readonly EphemeralRegion[]) => void) | null = null;
   private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
-  private messageQueueSetter: ((queue: string) => void) | null = null;
+  private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
   private chatBusySetter: ((busy: boolean) => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
@@ -252,33 +252,37 @@ export class UIStore {
   };
 
   /**
-   * Append text to the chat message queue. If the queue is non-empty, the new
-   * text is joined to the existing content with a single newline.
+   * Append a message to the chat message queue. Each call is one entry —
+   * the UI renders entries stacked, one per line. On flush they're joined
+   * with `\n` and sent to the agent as a single combined turn.
    */
   appendToQueue = (text: string): void => {
     if (text.length === 0) return;
-    const next =
-      this.messageQueueSnapshot.length === 0 ? text : `${this.messageQueueSnapshot}\n${text}`;
+    const next = [...this.messageQueueSnapshot, text];
     this.messageQueueSnapshot = next;
     this.messageQueueSetter?.(next);
   };
 
-  /** Read the queue contents without clearing. */
-  peekQueue = (): string => this.messageQueueSnapshot;
+  /**
+   * Read the joined queue contents without clearing. Entries are joined with
+   * `\n` so the result is the exact string that would be sent to the agent
+   * if this queue were drained right now.
+   */
+  peekQueue = (): string => this.messageQueueSnapshot.join("\n");
 
-  /** Read the queue and clear it. */
+  /** Read the queue (joined as a single string) and clear it. */
   takeQueue = (): string => {
-    const value = this.messageQueueSnapshot;
-    if (value.length === 0) return "";
-    this.messageQueueSnapshot = "";
-    this.messageQueueSetter?.("");
+    if (this.messageQueueSnapshot.length === 0) return "";
+    const value = this.messageQueueSnapshot.join("\n");
+    this.messageQueueSnapshot = [];
+    this.messageQueueSetter?.([]);
     return value;
   };
 
   clearQueue = (): void => {
     if (this.messageQueueSnapshot.length === 0) return;
-    this.messageQueueSnapshot = "";
-    this.messageQueueSetter?.("");
+    this.messageQueueSnapshot = [];
+    this.messageQueueSetter?.([]);
   };
 
   setChatBusy = (busy: boolean): void => {
@@ -473,7 +477,7 @@ export class UIStore {
     this.setCustomView = setter;
   }
 
-  registerMessageQueueSetter(setter: (queue: string) => void): void {
+  registerMessageQueueSetter(setter: (queue: readonly string[]) => void): void {
     this.messageQueueSetter = setter;
     setter(this.messageQueueSnapshot);
   }
@@ -527,7 +531,7 @@ export class UIStore {
     return this.expandableReasoningSnapshot;
   }
 
-  getMessageQueueSnapshot(): string {
+  getMessageQueueSnapshot(): readonly string[] {
     return this.messageQueueSnapshot;
   }
 

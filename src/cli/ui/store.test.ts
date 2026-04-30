@@ -430,13 +430,21 @@ describe("UIStore", () => {
   // -------------------------------------------------------------------------
 
   describe("message queue", () => {
-    test("appendToQueue accumulates with newline separator", () => {
+    test("appendToQueue stores each entry as its own array element", () => {
       const s = new UIStore();
       s.appendToQueue("first");
       s.appendToQueue("second");
       s.appendToQueue("third");
 
-      expect(s.peekQueue()).toBe("first\nsecond\nthird");
+      expect(s.getMessageQueueSnapshot()).toEqual(["first", "second", "third"]);
+    });
+
+    test("peekQueue joins entries with newlines for back-compat with the chat-loop drain", () => {
+      const s = new UIStore();
+      s.appendToQueue("first");
+      s.appendToQueue("second");
+
+      expect(s.peekQueue()).toBe("first\nsecond");
     });
 
     test("appendToQueue with empty string is a no-op", () => {
@@ -444,15 +452,16 @@ describe("UIStore", () => {
       s.appendToQueue("only");
       s.appendToQueue("");
 
-      expect(s.peekQueue()).toBe("only");
+      expect(s.getMessageQueueSnapshot()).toEqual(["only"]);
     });
 
-    test("takeQueue returns and clears", () => {
+    test("takeQueue returns the joined string and clears the array", () => {
       const s = new UIStore();
       s.appendToQueue("hello");
+      s.appendToQueue("world");
 
-      expect(s.takeQueue()).toBe("hello");
-      expect(s.peekQueue()).toBe("");
+      expect(s.takeQueue()).toBe("hello\nworld");
+      expect(s.getMessageQueueSnapshot()).toEqual([]);
     });
 
     test("takeQueue on empty queue returns empty string", () => {
@@ -460,19 +469,23 @@ describe("UIStore", () => {
       expect(s.takeQueue()).toBe("");
     });
 
-    test("clearQueue empties the queue", () => {
+    test("clearQueue empties the array", () => {
       const s = new UIStore();
       s.appendToQueue("a");
       s.appendToQueue("b");
       s.clearQueue();
 
-      expect(s.peekQueue()).toBe("");
+      expect(s.getMessageQueueSnapshot()).toEqual([]);
     });
 
-    test("setter is notified on append, clear, and take", () => {
+    test("setter receives the array on append, clear, and take", () => {
       const s = new UIStore();
-      const seen: string[] = [];
-      s.registerMessageQueueSetter((q) => seen.push(q));
+      // Mutable array of immutable snapshots — we accumulate snapshots,
+      // never mutate them in place.
+      const seen: (readonly string[])[] = [];
+      s.registerMessageQueueSetter((q) => {
+        seen.push([...q]);
+      });
 
       s.appendToQueue("a");
       s.appendToQueue("b");
@@ -480,13 +493,13 @@ describe("UIStore", () => {
       s.appendToQueue("c");
       s.clearQueue();
 
-      // First call is the hydration on register (empty), then each mutation.
-      expect(seen).toEqual(["", "a", "a\nb", "", "c", ""]);
+      // First call is the hydration on register (empty array), then each mutation.
+      expect(seen).toEqual([[], ["a"], ["a", "b"], [], ["c"], []]);
     });
 
     test("clearQueue when already empty does not notify setter", () => {
       const s = new UIStore();
-      const seen: string[] = [];
+      const seen: (readonly string[])[] = [];
       s.registerMessageQueueSetter((q) => seen.push(q));
       seen.length = 0; // discard hydration call
 
@@ -497,9 +510,9 @@ describe("UIStore", () => {
     test("snapshot accessor stays in sync", () => {
       const s = new UIStore();
       s.appendToQueue("x");
-      expect(s.getMessageQueueSnapshot()).toBe("x");
+      expect(s.getMessageQueueSnapshot()).toEqual(["x"]);
       s.takeQueue();
-      expect(s.getMessageQueueSnapshot()).toBe("");
+      expect(s.getMessageQueueSnapshot()).toEqual([]);
     });
   });
 
