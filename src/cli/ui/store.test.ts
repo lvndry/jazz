@@ -318,9 +318,11 @@ describe("UIStore", () => {
 
     test("setter receives the array on append, clear, and take", () => {
       const s = new UIStore();
-      const seen: readonly string[][] = [];
+      // Mutable array of immutable snapshots — we accumulate snapshots,
+      // never mutate them in place.
+      const seen: (readonly string[])[] = [];
       s.registerMessageQueueSetter((q) => {
-        (seen as string[][]).push([...q]);
+        seen.push([...q]);
       });
 
       s.appendToQueue("a");
