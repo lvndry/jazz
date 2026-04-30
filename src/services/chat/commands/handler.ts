@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { FileSystem } from "@effect/platform";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import * as fmt from "@/cli/utils/list-format";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
@@ -1036,11 +1036,7 @@ function handleResumeCommand(
   agent: CommandContext["agent"],
 ): Effect.Effect<CommandResult, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
-
     const history = yield* loadHistory(agent.id).pipe(
-      Effect.provide(fsLayer),
       Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
     );
 
