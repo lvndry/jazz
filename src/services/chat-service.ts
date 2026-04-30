@@ -121,13 +121,26 @@ export class ChatServiceImpl implements ChatService {
       // net so the between-turn array doesn't grow without limit.
       const MAX_CHAT_HISTORY_MESSAGES = 2000;
 
+      // True after a turn ended in a caught error. Decides whether queued
+      // text auto-flushes (clean-finish path) or seeds the next prompt for
+      // editing (error path).
+      let lastTurnErrored = false;
+
       while (chatActive) {
-        // Prompt for user input
-        const userMessage = yield* terminal
-          .ask("You:", {
+        let userMessage: string | undefined;
+        const queued = store.peekQueue();
+
+        if (queued.length > 0 && !lastTurnErrored) {
+          // Clean prior turn → drain the queue as the next user message
+          // without re-prompting.
+          store.takeQueue();
+          userMessage = queued;
+        } else {
+          const askOptions: { commandSuggestions: true; defaultValue?: string } = {
             commandSuggestions: true,
-          })
-          .pipe(
+            ...(queued.length > 0 ? { defaultValue: queued } : {}),
+          };
+          userMessage = yield* terminal.ask("You:", askOptions).pipe(
             Effect.catchAll((error: unknown) => {
               // Handle ExitPromptError from inquirer when user presses Ctrl+C
               if (
@@ -142,6 +155,12 @@ export class ChatServiceImpl implements ChatService {
               return Effect.fail(error instanceof Error ? error : new Error(String(error)));
             }),
           );
+          // Whatever the user submitted supersedes the seeded queue content.
+          if (queued.length > 0) {
+            store.clearQueue();
+          }
+        }
+        lastTurnErrored = false;
 
         const trimmedMessage = (userMessage ?? "").trim();
         const lowerMessage = trimmedMessage.toLowerCase();
@@ -311,9 +330,11 @@ export class ChatServiceImpl implements ChatService {
           };
 
           // Run the agent with proper error handling
+          store.setChatBusy(true);
           const response = yield* AgentRunner.run(runnerOptions).pipe(
             Effect.catchAll((error) =>
               Effect.gen(function* () {
+                lastTurnErrored = true;
                 // Stop the thinking spinner — the agent run failed before
                 // streaming started, so nothing else will reset the activity.
                 store.setActivity({ phase: "idle" });
@@ -381,6 +402,7 @@ export class ChatServiceImpl implements ChatService {
                 };
               }),
             ),
+            Effect.ensuring(Effect.sync(() => store.setChatBusy(false))),
           );
 
           // Store the conversation ID for continuity
