@@ -21,6 +21,7 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "mcp", description: "Show MCP server status and connections" },
   { name: "mode", description: "Switch between safe mode and yolo mode for tool approvals" },
   { name: "model", description: "Show or change model and reasoning effort" },
+  { name: "resume", description: "Browse and resume a past conversation" },
   { name: "new", description: "Start a new conversation (clear context)" },
   { name: "skills", description: "List and view available skills" },
   { name: "stats", description: "Show session statistics and usage summary" },
