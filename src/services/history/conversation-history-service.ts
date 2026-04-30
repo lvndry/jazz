@@ -7,8 +7,8 @@ import {
   FILE_LOCK_TIMEOUT_MS,
   MAX_CONVERSATION_HISTORY_PER_AGENT,
 } from "@/core/constants/agent";
-import { getHistoryDirectory } from "@/core/utils/runtime-detection";
 import type { ChatMessage } from "@/core/types/message";
+import { getHistoryDirectory } from "@/core/utils/runtime-detection";
 
 export interface ConversationRecord {
   readonly conversationId: string;
@@ -33,18 +33,14 @@ function getLockPath(agentId: string, dir?: string): string {
   return path.join(dir ?? getHistoryDirectory(), `${agentId}.lock`);
 }
 
-function acquireLock(
-  lockPath: string,
-): Effect.Effect<void, Error, FileSystem.FileSystem> {
+function acquireLock(lockPath: string): Effect.Effect<void, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     for (let attempt = 0; attempt < FILE_LOCK_MAX_RETRIES; attempt++) {
-      const acquired = yield* fs
-        .makeDirectory(lockPath, { recursive: false })
-        .pipe(
-          Effect.map(() => true),
-          Effect.catchAll(() => Effect.succeed(false)),
-        );
+      const acquired = yield* fs.makeDirectory(lockPath, { recursive: false }).pipe(
+        Effect.map(() => true),
+        Effect.catchAll(() => Effect.succeed(false)),
+      );
       if (acquired) return;
 
       const statResult = yield* fs.stat(lockPath).pipe(Effect.option);
@@ -91,23 +87,25 @@ function readHistory(
     const fs = yield* FileSystem.FileSystem;
     const filePath = getAgentHistoryPath(agentId, dir);
 
-    const content = yield* fs.readFileString(filePath).pipe(
-      Effect.catchAll((e) =>
-        e && typeof e === "object" && "_tag" in e &&
-        (e as { _tag: string })._tag === "SystemError" &&
-        (e as { reason?: string }).reason === "NotFound"
-          ? Effect.succeed("")
-          : Effect.fail(e instanceof Error ? e : new Error(String(e))),
-      ),
-    );
+    const content = yield* fs
+      .readFileString(filePath)
+      .pipe(
+        Effect.catchAll((e) =>
+          e &&
+          typeof e === "object" &&
+          "_tag" in e &&
+          (e as { _tag: string })._tag === "SystemError" &&
+          (e as { reason?: string }).reason === "NotFound"
+            ? Effect.succeed("")
+            : Effect.fail(e instanceof Error ? e : new Error(String(e))),
+        ),
+      );
 
     if (content === "") return { agentId, conversations: [] };
 
     try {
       const parsed = JSON.parse(content) as AgentConversationHistory;
-      return Array.isArray(parsed?.conversations)
-        ? parsed
-        : { agentId, conversations: [] };
+      return Array.isArray(parsed?.conversations) ? parsed : { agentId, conversations: [] };
     } catch {
       return { agentId, conversations: [] };
     }
