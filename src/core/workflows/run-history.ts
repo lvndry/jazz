@@ -230,14 +230,14 @@ export function getWorkflowHistory(
 }
 
 /**
- * Get the most recent runs (across all workflows).
+ * Get the most recent runs (across all workflows), ordered oldest to newest.
  */
 export function getRecentRuns(
   limit = 20,
 ): Effect.Effect<WorkflowRunRecord[], Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const history = yield* loadRunHistory();
-    return history.slice(-limit).reverse();
+    return history.slice(-limit);
   });
 }
 
