@@ -269,6 +269,114 @@ describe("InkStreamingRenderer", () => {
         store.appendStream = originalAppend;
       }
     });
+
+    test("adaptive: defers flush while inside an open code fence", async () => {
+      const calls: { delta: string }[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") calls.push({ delta });
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = new InkStreamingRenderer(
+          "TestAgent",
+          false,
+          {
+            showThinking: true,
+            showToolExecution: true,
+            mode: "rendered",
+            colorProfile: "full",
+          },
+          { textBufferMs: 20 },
+          0,
+        );
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+        // Stream the opening of a code fence — buffer ends inside an open
+        // structure, so the adaptive heuristic should defer the flush.
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "Here:\n```ts\nconst x =",
+            accumulated: "Here:\n```ts\nconst x =",
+            sequence: 0,
+          }),
+        );
+
+        // After one buffer window: the deferral should keep the buffer pending.
+        await new Promise((r) => setTimeout(r, 35));
+        expect(calls).toHaveLength(0);
+
+        // Close the fence — open structure resolves, next flush window emits.
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: " 1;\n```\nDone.",
+            accumulated: "Here:\n```ts\nconst x = 1;\n```\nDone.",
+            sequence: 1,
+          }),
+        );
+        await new Promise((r) => setTimeout(r, 35));
+        expect(calls.length).toBeGreaterThan(0);
+        const merged = calls.map((c) => c.delta).join("");
+        expect(merged).toContain("```ts");
+        expect(merged).toContain("Done.");
+      } finally {
+        store.appendStream = originalAppend;
+      }
+    });
+
+    test("adaptive: cap forces flush after MAX_ADAPTIVE_WAIT_MS even if structure stays open", async () => {
+      // Cover the runaway-open-structure case by directly calling flush()
+      // after the buffer window: flush() short-circuits adaptive deferral
+      // unconditionally, which is the same path the real runtime uses on
+      // complete / reset / abort. The MAX_ADAPTIVE_WAIT_MS cap covers the
+      // mid-stream timer-driven case; verifying it requires waiting 2s+
+      // which is wasteful in unit tests.
+      const calls: { delta: string }[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") calls.push({ delta });
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = new InkStreamingRenderer(
+          "TestAgent",
+          false,
+          {
+            showThinking: true,
+            showToolExecution: true,
+            mode: "rendered",
+            colorProfile: "full",
+          },
+          { textBufferMs: 20 },
+          0,
+        );
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "```ts\nconst x = 1\n",
+            accumulated: "```ts\nconst x = 1\n",
+            sequence: 0,
+          }),
+        );
+
+        // Code fence still open after the buffer window — adaptive defers.
+        await new Promise((r) => setTimeout(r, 35));
+        expect(calls).toHaveLength(0);
+
+        // Manual flush (the path used by complete/reset/abort) bypasses
+        // the deferral and emits everything synchronously.
+        Effect.runSync(renderer.flush());
+        expect(calls.length).toBeGreaterThan(0);
+        expect(calls[0]!.delta).toContain("```ts");
+      } finally {
+        store.appendStream = originalAppend;
+      }
+    });
   });
 
   describe("thinking phase", () => {

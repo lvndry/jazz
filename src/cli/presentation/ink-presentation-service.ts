@@ -38,6 +38,7 @@ import {
   wrapToWidth,
   getTerminalWidth,
 } from "./markdown-formatter";
+import { isInsideOpenStructure } from "./markdown-split";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/store";
 import { CHALK_THEME, PADDING, PADDING_BUDGET, THEME } from "../ui/theme";
@@ -102,6 +103,25 @@ export class InkStreamingRenderer implements StreamingRenderer {
   /** Default buffer cadence — visible "live typing" without burning CPU. */
   private static readonly DEFAULT_TEXT_BUFFER_MS = 80;
 
+  /**
+   * Cumulative response text seen this turn — used to detect whether the
+   * stream is currently "inside" an open markdown structure (code fence,
+   * table). When it is, the next live-area flush is deferred so partial
+   * tables and code blocks don't render with shifting column widths or
+   * recoloring. Reset on text_start / complete / reset / flush.
+   */
+  private cumulativeResponseText = "";
+
+  /**
+   * Wall-clock when adaptive deferral started for the current run of buffered
+   * deltas. Capped at MAX_ADAPTIVE_WAIT_MS so a long fenceless code block
+   * doesn't make the live area silent for many seconds.
+   */
+  private adaptiveDeferStartedAt: number | null = null;
+
+  /** Max time to defer the live-area flush while inside an open structure. */
+  private static readonly MAX_ADAPTIVE_WAIT_MS = 2000;
+
   constructor(
     private readonly agentName: string,
     private readonly showMetrics: boolean,
@@ -128,13 +148,49 @@ export class InkStreamingRenderer implements StreamingRenderer {
       return;
     }
 
+    if (kind === "response") {
+      this.cumulativeResponseText += delta;
+    }
+
     this.streamBuffer.push({ kind, delta });
     if (this.streamFlushTimeoutId !== null) return;
 
+    this.scheduleBufferFlush(this.textBufferMs);
+  }
+
+  /**
+   * Schedule a flush. The handler checks the open-structure heuristic before
+   * flushing: if we're mid-table or mid-code-fence (and within the adaptive
+   * wait cap), reschedule for another `textBufferMs` window so partial
+   * structured content doesn't render incrementally.
+   */
+  private scheduleBufferFlush(delayMs: number): void {
     this.streamFlushTimeoutId = setTimeout(() => {
       this.streamFlushTimeoutId = null;
+
+      if (this.shouldDeferForOpenStructure()) {
+        this.scheduleBufferFlush(this.textBufferMs);
+        return;
+      }
+
+      this.adaptiveDeferStartedAt = null;
       this.flushStreamBuffer();
-    }, this.textBufferMs);
+    }, delayMs);
+  }
+
+  /**
+   * True when the next flush should be deferred because the cumulative
+   * response text ends inside an open markdown structure. Capped by
+   * MAX_ADAPTIVE_WAIT_MS so a runaway open structure (e.g. a 200-line code
+   * block) doesn't keep the live area silent indefinitely.
+   */
+  private shouldDeferForOpenStructure(): boolean {
+    if (!isInsideOpenStructure(this.cumulativeResponseText)) return false;
+    if (this.adaptiveDeferStartedAt === null) {
+      this.adaptiveDeferStartedAt = Date.now();
+      return true;
+    }
+    return Date.now() - this.adaptiveDeferStartedAt < InkStreamingRenderer.MAX_ADAPTIVE_WAIT_MS;
   }
 
   /**
@@ -147,6 +203,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
       clearTimeout(this.streamFlushTimeoutId);
       this.streamFlushTimeoutId = null;
     }
+    // Manual flush short-circuits adaptive deferral — drop the wait timer.
+    this.adaptiveDeferStartedAt = null;
     if (this.streamBuffer.length === 0) return;
     const buffered = this.streamBuffer;
     this.streamBuffer = [];
@@ -182,6 +240,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.acc.lastAppliedTextSequence = -1;
       this.seenLength = 0;
       this.hasStreamedText = false;
+      this.cumulativeResponseText = "";
       this.lastUpdateTime = 0;
       this.pendingActivity = null;
       if (this.updateTimeoutId) {
@@ -298,6 +357,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
         // Reset stream-text bookkeeping for the new response stream.
         this.seenLength = 0;
         this.hasStreamedText = false;
+        // The cumulative response text only matters within a single
+        // response stream — drop it so the open-structure heuristic sees
+        // a clean buffer for the new turn.
+        this.cumulativeResponseText = "";
       }
 
       if (event.type === "text_chunk") {
@@ -357,6 +420,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     // text_start fires before the next text_chunk.
     this.seenLength = 0;
     this.hasStreamedText = false;
+    this.cumulativeResponseText = "";
   }
 
   /** Compute the new portion of the accumulated stream text, based on seenLength. */
