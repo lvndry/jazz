@@ -242,10 +242,34 @@ export function runWorkflowCommand(
     yield* terminal.heading(`🚀 Running workflow: ${workflowName}`);
     yield* terminal.log("");
 
+    // Record the run start as early as possible. Until this lands every
+    // failed scheduled run (e.g. agent not found) exited before reaching
+    // addRunRecord, so the run history showed nothing and the catch-up
+    // logic kept treating the slot as a missed run.
+    const startedAt = new Date().toISOString();
+    const triggeredBy = isSchedulerTriggered ? ("scheduled" as const) : ("manual" as const);
+    yield* addRunRecord({
+      workflowName,
+      startedAt,
+      status: "running",
+      triggeredBy,
+    }).pipe(Effect.catchAll(() => Effect.void));
+
+    // Helper: mark the just-opened "running" record as failed. Called on
+    // every early-exit error path so failures show up in `jazz workflow
+    // history` and the next-startup warning surfaces them to the user.
+    const markFailed = (errorMessage: string) =>
+      updateLatestRunRecord(workflowName, {
+        completedAt: new Date().toISOString(),
+        status: "failed",
+        error: errorMessage,
+      }).pipe(Effect.catchAll(() => Effect.void));
+
     // Load the workflow
     const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
+          yield* markFailed(`Workflow not found: ${workflowName}`);
           yield* terminal.error(`Workflow not found: ${workflowName}`);
           yield* terminal.info("Run 'jazz workflow list' to see available workflows.");
           return yield* Effect.fail(error);
@@ -266,24 +290,24 @@ export function runWorkflowCommand(
     } else {
       // In non-interactive mode (--auto-approve), fail immediately if agent not found
       if (isNonInteractive) {
+        const errorMessage = `Agent '${agentIdentifier}' not found. Scheduled workflows require a valid agent — update the workflow or re-schedule with an existing agent.`;
+        yield* markFailed(errorMessage);
         yield* terminal.error(`Agent '${agentIdentifier}' not found.`);
         yield* terminal.info(
           "Scheduled workflows require a valid agent. Update the workflow or create the agent.",
         );
-        return yield* Effect.fail(
-          new Error(`Agent '${agentIdentifier}' not found for non-interactive workflow execution`),
-        );
+        return yield* Effect.fail(new Error(errorMessage));
       }
 
       // Agent not found - list available agents and let user choose
       const allAgents = yield* listAllAgents();
 
       if (allAgents.length === 0) {
+        const errorMessage = "No agents available. Create an agent first with: jazz agent create";
+        yield* markFailed(errorMessage);
         yield* terminal.error("No agents available.");
         yield* terminal.info("Create an agent first with: jazz agent create");
-        return yield* Effect.fail(
-          new Error("No agents available. Create an agent first with: jazz agent create"),
-        );
+        return yield* Effect.fail(new Error(errorMessage));
       }
 
       if (agentIdentifier !== "default") {
@@ -299,6 +323,12 @@ export function runWorkflowCommand(
         "Select an agent to run this workflow:",
       );
       if (!selectedAgent) {
+        // User cancelled the picker. Mark the record skipped so it doesn't
+        // sit as a stale "running" entry forever.
+        yield* updateLatestRunRecord(workflowName, {
+          completedAt: new Date().toISOString(),
+          status: "skipped",
+        }).pipe(Effect.catchAll(() => Effect.void));
         yield* terminal.info("Workflow cancelled.");
         return;
       }
@@ -323,15 +353,6 @@ export function runWorkflowCommand(
       agent: agent.name,
       autoApprove: autoApprovePolicy,
     });
-
-    // Record the run start
-    const startedAt = new Date().toISOString();
-    yield* addRunRecord({
-      workflowName,
-      startedAt,
-      status: "running",
-      triggeredBy: isSchedulerTriggered ? "scheduled" : "manual",
-    }).pipe(Effect.catchAll(() => Effect.void)); // Don't fail if history tracking fails
 
     // Run the agent with the workflow prompt
     // maxIterations from workflow metadata is optional — omit for no limit
