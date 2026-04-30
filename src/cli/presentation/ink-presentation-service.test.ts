@@ -269,6 +269,114 @@ describe("InkStreamingRenderer", () => {
         store.appendStream = originalAppend;
       }
     });
+
+    test("adaptive: defers flush while inside an open code fence", async () => {
+      const calls: { delta: string }[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") calls.push({ delta });
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = new InkStreamingRenderer(
+          "TestAgent",
+          false,
+          {
+            showThinking: true,
+            showToolExecution: true,
+            mode: "rendered",
+            colorProfile: "full",
+          },
+          { textBufferMs: 20 },
+          0,
+        );
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+        // Stream the opening of a code fence — buffer ends inside an open
+        // structure, so the adaptive heuristic should defer the flush.
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "Here:\n```ts\nconst x =",
+            accumulated: "Here:\n```ts\nconst x =",
+            sequence: 0,
+          }),
+        );
+
+        // After one buffer window: the deferral should keep the buffer pending.
+        await new Promise((r) => setTimeout(r, 35));
+        expect(calls).toHaveLength(0);
+
+        // Close the fence — open structure resolves, next flush window emits.
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: " 1;\n```\nDone.",
+            accumulated: "Here:\n```ts\nconst x = 1;\n```\nDone.",
+            sequence: 1,
+          }),
+        );
+        await new Promise((r) => setTimeout(r, 35));
+        expect(calls.length).toBeGreaterThan(0);
+        const merged = calls.map((c) => c.delta).join("");
+        expect(merged).toContain("```ts");
+        expect(merged).toContain("Done.");
+      } finally {
+        store.appendStream = originalAppend;
+      }
+    });
+
+    test("adaptive: cap forces flush after MAX_ADAPTIVE_WAIT_MS even if structure stays open", async () => {
+      // Cover the runaway-open-structure case by directly calling flush()
+      // after the buffer window: flush() short-circuits adaptive deferral
+      // unconditionally, which is the same path the real runtime uses on
+      // complete / reset / abort. The MAX_ADAPTIVE_WAIT_MS cap covers the
+      // mid-stream timer-driven case; verifying it requires waiting 2s+
+      // which is wasteful in unit tests.
+      const calls: { delta: string }[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        if (kind === "response") calls.push({ delta });
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = new InkStreamingRenderer(
+          "TestAgent",
+          false,
+          {
+            showThinking: true,
+            showToolExecution: true,
+            mode: "rendered",
+            colorProfile: "full",
+          },
+          { textBufferMs: 20 },
+          0,
+        );
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "```ts\nconst x = 1\n",
+            accumulated: "```ts\nconst x = 1\n",
+            sequence: 0,
+          }),
+        );
+
+        // Code fence still open after the buffer window — adaptive defers.
+        await new Promise((r) => setTimeout(r, 35));
+        expect(calls).toHaveLength(0);
+
+        // Manual flush (the path used by complete/reset/abort) bypasses
+        // the deferral and emits everything synchronously.
+        Effect.runSync(renderer.flush());
+        expect(calls.length).toBeGreaterThan(0);
+        expect(calls[0]!.delta).toContain("```ts");
+      } finally {
+        store.appendStream = originalAppend;
+      }
+    });
   });
 
   describe("thinking phase", () => {
@@ -307,13 +415,27 @@ describe("InkStreamingRenderer", () => {
       expect(headerEntries).toHaveLength(0);
     });
 
-    test("thinking_chunk streams reasoning output", async () => {
-      const reasoningDeltas: string[] = [];
-      const originalAppend = store.appendStream;
-      store.appendStream = (kind, delta): void => {
-        if (kind === "reasoning") reasoningDeltas.push(delta);
-        originalAppend(kind, delta);
+    test("thinking events open a reasoning region, append to it, and collapse on complete", async () => {
+      const ephemeralAppends: string[] = [];
+      const originalOpen = store.openEphemeral;
+      const originalAppend = store.appendEphemeral;
+      const originalCollapse = store.collapseEphemeral;
+      let openedKind: string | null = null;
+      let collapsedFullText: string | undefined;
+
+      store.openEphemeral = (kind, label, maxLines) => {
+        openedKind = kind;
+        return originalOpen(kind, label, maxLines);
       };
+      store.appendEphemeral = (id, text) => {
+        ephemeralAppends.push(text);
+        originalAppend(id, text);
+      };
+      store.collapseEphemeral = (id, summary) => {
+        collapsedFullText = summary.fullText;
+        originalCollapse(id, summary);
+      };
+
       try {
         const renderer = createRenderer();
         emitStreamStart(renderer);
@@ -325,16 +447,13 @@ describe("InkStreamingRenderer", () => {
         Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
         await new Promise((r) => setTimeout(r, 0));
 
-        // Reasoning header is emitted via printOutput (renderer, gated by showThinking)
-        const staticOutput = printOutputCalls
-          .filter((e) => e.type === "streamContent")
-          .map((e) => (typeof e.message === "string" ? e.message : ""))
-          .join("");
-        expect(staticOutput).toContain("Reasoning");
-        // Reasoning content goes through appendStream
-        expect(reasoningDeltas.join("")).toContain("let me think");
+        expect(openedKind).toBe("reasoning");
+        expect(ephemeralAppends.join("")).toContain("let me think");
+        expect(collapsedFullText).toContain("let me think");
       } finally {
-        store.appendStream = originalAppend;
+        store.openEphemeral = originalOpen;
+        store.appendEphemeral = originalAppend;
+        store.collapseEphemeral = originalCollapse;
       }
     });
   });
@@ -653,18 +772,33 @@ describe("InkStreamingRenderer", () => {
       }
     });
 
-    test("reasoning → response transition finalizes reasoning and opens response", () => {
-      const calls: Array<{ kind?: string; finalize?: true }> = [];
-      const originalAppend = store.appendStream;
-      const originalFinalize = store.finalizeStream;
+    test("reasoning → response transition collapses the reasoning region and routes response to scrollback", () => {
+      const calls: Array<{
+        op: "openEphemeral" | "appendEphemeral" | "collapseEphemeral" | "appendStream";
+        kind?: string;
+      }> = [];
+      const originalOpen = store.openEphemeral;
+      const originalAppendEph = store.appendEphemeral;
+      const originalCollapse = store.collapseEphemeral;
+      const originalAppendStream = store.appendStream;
+
+      store.openEphemeral = (kind, label, maxLines) => {
+        calls.push({ op: "openEphemeral", kind });
+        return originalOpen(kind, label, maxLines);
+      };
+      store.appendEphemeral = (id, text) => {
+        calls.push({ op: "appendEphemeral" });
+        originalAppendEph(id, text);
+      };
+      store.collapseEphemeral = (id, summary) => {
+        calls.push({ op: "collapseEphemeral" });
+        originalCollapse(id, summary);
+      };
       store.appendStream = (kind, delta): void => {
-        calls.push({ kind });
-        originalAppend(kind, delta);
+        calls.push({ op: "appendStream", kind });
+        originalAppendStream(kind, delta);
       };
-      store.finalizeStream = (): void => {
-        calls.push({ finalize: true });
-        originalFinalize();
-      };
+
       try {
         const renderer = createRenderer();
         emitStreamStart(renderer);
@@ -680,16 +814,25 @@ describe("InkStreamingRenderer", () => {
             sequence: 0,
           }),
         );
-        // Sequence: appendStream(reasoning) -> finalize -> appendStream(response).
-        const reasoningIdx = calls.findIndex((c) => c.kind === "reasoning");
-        const finalizeIdx = calls.findIndex((c, i) => i > reasoningIdx && c.finalize);
-        const responseIdx = calls.findIndex((c, i) => i > finalizeIdx && c.kind === "response");
-        expect(reasoningIdx).toBeGreaterThanOrEqual(0);
-        expect(finalizeIdx).toBeGreaterThan(reasoningIdx);
-        expect(responseIdx).toBeGreaterThan(finalizeIdx);
+
+        const openIdx = calls.findIndex((c) => c.op === "openEphemeral" && c.kind === "reasoning");
+        const appendEphIdx = calls.findIndex((c, i) => i > openIdx && c.op === "appendEphemeral");
+        const collapseIdx = calls.findIndex(
+          (c, i) => i > appendEphIdx && c.op === "collapseEphemeral",
+        );
+        const responseIdx = calls.findIndex(
+          (c, i) => i > collapseIdx && c.op === "appendStream" && c.kind === "response",
+        );
+
+        expect(openIdx).toBeGreaterThanOrEqual(0);
+        expect(appendEphIdx).toBeGreaterThan(openIdx);
+        expect(collapseIdx).toBeGreaterThan(appendEphIdx);
+        expect(responseIdx).toBeGreaterThan(collapseIdx);
       } finally {
-        store.appendStream = originalAppend;
-        store.finalizeStream = originalFinalize;
+        store.openEphemeral = originalOpen;
+        store.appendEphemeral = originalAppendEph;
+        store.collapseEphemeral = originalCollapse;
+        store.appendStream = originalAppendStream;
       }
     });
 

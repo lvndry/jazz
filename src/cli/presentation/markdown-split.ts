@@ -83,6 +83,33 @@ export function findLastSafeSplitPoint(text: string): number {
 }
 
 /**
+ * True when the text is "still inside" a markdown structure that should be
+ * rendered as a unit (code fence, table) rather than progressively chunk-by-chunk.
+ *
+ * Used by the streaming renderer for adaptive buffering: when streamed text
+ * ends inside an open structure, the renderer defers the next live-area flush
+ * (up to a cap) so partial tables and code blocks don't render incrementally
+ * with shifting column widths or syntax-highlighting reflow.
+ *
+ * Conservative — false positives just mean the live area updates a beat later
+ * than the baseline cadence; false negatives let partial structures render.
+ */
+export function isInsideOpenStructure(text: string): boolean {
+  // Open fenced code block?
+  if (findLastUnmatchedFenceStart(text) !== null) return true;
+
+  // Open table: the last non-empty line looks like a table row (`| ... |`),
+  // and we haven't yet seen the next line (no trailing newline → row is in
+  // flight). Plain `|` characters in normal prose don't trip this — we
+  // require the line to *start* with a pipe.
+  const lastNewlineIndex = text.lastIndexOf("\n");
+  const lastLine = lastNewlineIndex === -1 ? text : text.slice(lastNewlineIndex + 1);
+  if (lastLine.trimStart().startsWith("|")) return true;
+
+  return false;
+}
+
+/**
  * Earliest offset still inside an unclosed structure. Split must be ≤ this.
  * For text with no open structures, returns text.length.
  */

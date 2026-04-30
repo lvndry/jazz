@@ -46,6 +46,13 @@ export interface AgentRunnerOptions {
    */
   readonly internal?: boolean;
   /**
+   * If set, the streaming renderer routes its reasoning + response deltas
+   * into the named ephemeral live region instead of the global scrollback
+   * pending buffer. Used by sub-agents so their output stays bounded inside
+   * the parent's live panel and never interleaves with the parent's response.
+   */
+  readonly ephemeralRegionId?: string;
+  /**
    * Maximum number of iterations (agent reasoning loops) allowed for this run.
    * Each iteration may involve tool calls and LLM responses.
    * If not specified, defaults to `DEFAULT_MAX_ITERATIONS` (80).

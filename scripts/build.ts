@@ -43,8 +43,6 @@ function main(): void {
     "ink-big-text",
     "--external",
     "pdf-parse",
-    "--external",
-    "js-tiktoken",
     "--banner",
     banner,
   ];

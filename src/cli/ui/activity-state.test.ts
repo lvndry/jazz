@@ -19,8 +19,8 @@ describe("isActivityEqual", () => {
     expect(isActivityEqual({ phase: "idle" }, { phase: "complete" })).toBe(false);
     expect(
       isActivityEqual(
-        { phase: "thinking", agentName: "A", reasoning: "" },
-        { phase: "streaming", agentName: "A", reasoning: "", text: "" },
+        { phase: "thinking", agentName: "A" },
+        { phase: "streaming", agentName: "A", text: "" },
       ),
     ).toBe(false);
   });
@@ -108,30 +108,18 @@ describe("isActivityEqual", () => {
   // thinking
   // ---------------------------------------------------------------------------
 
-  test("thinking states with same content are equal", () => {
+  test("thinking states with same agent are equal", () => {
     expect(
       isActivityEqual(
-        { phase: "thinking", agentName: "Agent", reasoning: "hmm" },
-        { phase: "thinking", agentName: "Agent", reasoning: "hmm" },
+        { phase: "thinking", agentName: "Agent" },
+        { phase: "thinking", agentName: "Agent" },
       ),
     ).toBe(true);
   });
 
   test("thinking states differ by agentName", () => {
     expect(
-      isActivityEqual(
-        { phase: "thinking", agentName: "A", reasoning: "" },
-        { phase: "thinking", agentName: "B", reasoning: "" },
-      ),
-    ).toBe(false);
-  });
-
-  test("thinking states differ by reasoning", () => {
-    expect(
-      isActivityEqual(
-        { phase: "thinking", agentName: "A", reasoning: "x" },
-        { phase: "thinking", agentName: "A", reasoning: "y" },
-      ),
+      isActivityEqual({ phase: "thinking", agentName: "A" }, { phase: "thinking", agentName: "B" }),
     ).toBe(false);
   });
 
@@ -142,8 +130,8 @@ describe("isActivityEqual", () => {
   test("streaming states with same content are equal", () => {
     expect(
       isActivityEqual(
-        { phase: "streaming", agentName: "A", reasoning: "r", text: "t" },
-        { phase: "streaming", agentName: "A", reasoning: "r", text: "t" },
+        { phase: "streaming", agentName: "A", text: "t" },
+        { phase: "streaming", agentName: "A", text: "t" },
       ),
     ).toBe(true);
   });
@@ -151,17 +139,8 @@ describe("isActivityEqual", () => {
   test("streaming states differ by text", () => {
     expect(
       isActivityEqual(
-        { phase: "streaming", agentName: "A", reasoning: "", text: "Hello" },
-        { phase: "streaming", agentName: "A", reasoning: "", text: "Hello w" },
-      ),
-    ).toBe(false);
-  });
-
-  test("streaming states differ by reasoning", () => {
-    expect(
-      isActivityEqual(
-        { phase: "streaming", agentName: "A", reasoning: "a", text: "t" },
-        { phase: "streaming", agentName: "A", reasoning: "b", text: "t" },
+        { phase: "streaming", agentName: "A", text: "Hello" },
+        { phase: "streaming", agentName: "A", text: "Hello w" },
       ),
     ).toBe(false);
   });

@@ -81,6 +81,9 @@ export function executeWithStreaming(
       showMetrics,
       agentName: agent.name,
       reasoningEffort,
+      ...(options.ephemeralRegionId !== undefined && {
+        streamTarget: { kind: "ephemeral", regionId: options.ephemeralRegionId },
+      }),
     });
 
     // Create interruption signal

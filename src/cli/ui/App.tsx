@@ -4,18 +4,21 @@ import { isActivityEqual, type ActivityState } from "./activity-state";
 import { ActivityView } from "./ActivityView";
 import { useTerminalOutputAdapter } from "./adapters/terminal-output-adapter";
 import type { PendingStream } from "./adapters/terminal-output-adapter";
+import { PreWrappedText } from "./components/PreWrappedText";
+import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
 import ErrorBoundary from "./ErrorBoundary";
-import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
-import { formatMarkdown } from "../presentation/markdown-formatter";
+import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
 import StatusFooter from "./StatusFooter";
 import { store, type RunStats } from "./store";
-import { PADDING, THEME } from "./theme";
+import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId, PromptState } from "./types";
+import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
 import { InputPriority, InputResults } from "../services/input-service";
+import { getTerminalWidth } from "../utils/string-utils";
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response
@@ -153,8 +156,16 @@ function renderPendingStream(pending: PendingStream): string {
   // contains raw markdown either way. We always render with `formatMarkdown`
   // here; the activity-island's display config doesn't change formatting
   // semantics for the pending tail.
+  //
+  // Pre-wrap to terminal width: under heavy live-area re-rendering Yoga can
+  // miscalculate the available width and degenerate into character-by-character
+  // wrapping. Hard-wrapping upstream + rendering with PreWrappedText
+  // (wrap="truncate") sidesteps that. Same pattern as formatReasoningText
+  // in ink-presentation-service.ts.
   const formatted = formatMarkdown(pending.rawTail);
-  return pending.kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
+  const dimmed = pending.kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
+  const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content);
+  return wrapToWidth(dimmed, width);
 }
 
 function OutputIslandComponent(): React.ReactElement {
@@ -212,7 +223,7 @@ function OutputIslandComponent(): React.ReactElement {
 
       {pending !== null && (
         <Box paddingLeft={PADDING.content}>
-          <Text>{renderPendingStream(pending)}</Text>
+          <PreWrappedText>{renderPendingStream(pending)}</PreWrappedText>
         </Box>
       )}
     </Box>
@@ -284,7 +295,10 @@ export function App(): React.ReactElement {
         clearTimeout(escapeHintTimerRef.current);
         escapeHintTimerRef.current = null;
       }
-      // User-initiated abort — drop any queued chat message too.
+      // User-initiated abort — drop any open ephemeral panels (subagents,
+      // reasoning) and any queued chat message so nothing gets stuck after
+      // the run is interrupted.
+      store.collapseAllEphemeral();
       store.clearQueue();
       interruptHandlerRef.current();
     } else {
@@ -299,6 +313,19 @@ export function App(): React.ReactElement {
         setShowEscapeHint(false);
         escapeHintTimerRef.current = null;
       }, DOUBLE_ESCAPE_WINDOW_MS);
+    }
+  });
+
+  // Ctrl-R — expand most recently collapsed reasoning into scrollback.
+  // Skipped while a reasoning panel is currently open (the live one IS the
+  // expanded view). No-op if no expandable reasoning is available.
+  useInput((input, key) => {
+    if (key.ctrl && (input === "r" || input === "\x12")) {
+      const hasOpenReasoning = store
+        .getEphemeralRegionsSnapshot()
+        .some((r) => r.kind === "reasoning");
+      if (hasOpenReasoning) return;
+      store.expandLastReasoning();
     }
   });
 
@@ -350,6 +377,12 @@ export function App(): React.ReactElement {
 
           <ErrorBoundary fallback={<Text color="red">Activity area error. Restart may help.</Text>}>
             <ActivityIsland />
+          </ErrorBoundary>
+
+          <ErrorBoundary
+            fallback={<Text color="red">Live panel area error. Restart may help.</Text>}
+          >
+            <EphemeralPanelIsland />
           </ErrorBoundary>
 
           {showEscapeHint && (
