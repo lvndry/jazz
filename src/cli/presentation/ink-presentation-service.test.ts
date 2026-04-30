@@ -18,6 +18,9 @@ describe("InkStreamingRenderer", () => {
   let lastRenderer: InkStreamingRenderer | null = null;
 
   function createRenderer() {
+    // textBufferMs: 0 disables stream-delta buffering so appendStream calls
+    // are synchronous, matching the assertions in this test file. Production
+    // uses ~80ms buffering by default.
     const renderer = new InkStreamingRenderer(
       "TestAgent",
       false,
@@ -27,7 +30,7 @@ describe("InkStreamingRenderer", () => {
         mode: "rendered",
         colorProfile: "full",
       },
-      undefined,
+      { textBufferMs: 0 },
       0,
     );
     lastRenderer = renderer;
@@ -161,6 +164,113 @@ describe("InkStreamingRenderer", () => {
     });
   });
 
+  describe("text buffering (textBufferMs)", () => {
+    test("text deltas are coalesced and flushed once per buffer window", async () => {
+      const calls: { kind: string; delta: string }[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        calls.push({ kind, delta });
+        originalAppend(kind, delta);
+      };
+      try {
+        // 30ms buffer keeps the test fast.
+        const renderer = new InkStreamingRenderer(
+          "TestAgent",
+          false,
+          {
+            showThinking: true,
+            showToolExecution: true,
+            mode: "rendered",
+            colorProfile: "full",
+          },
+          { textBufferMs: 30 },
+          0,
+        );
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+        // Three back-to-back chunks within one buffer window.
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "Hel",
+            accumulated: "Hel",
+            sequence: 0,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "lo, ",
+            accumulated: "Hello, ",
+            sequence: 1,
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "world",
+            accumulated: "Hello, world",
+            sequence: 2,
+          }),
+        );
+
+        // Before the timer fires, nothing has gone to appendStream.
+        expect(calls).toHaveLength(0);
+
+        // Wait past the buffer window for the flush.
+        await new Promise((r) => setTimeout(r, 50));
+
+        // All three chunks coalesced into a single appendStream call.
+        const responseCalls = calls.filter((c) => c.kind === "response");
+        expect(responseCalls).toHaveLength(1);
+        expect(responseCalls[0]!.delta).toBe("Hello, world");
+      } finally {
+        store.appendStream = originalAppend;
+      }
+    });
+
+    test("flush() drains buffered deltas synchronously", () => {
+      const calls: { kind: string; delta: string }[] = [];
+      const originalAppend = store.appendStream;
+      store.appendStream = (kind, delta): void => {
+        calls.push({ kind, delta });
+        originalAppend(kind, delta);
+      };
+      try {
+        const renderer = new InkStreamingRenderer(
+          "TestAgent",
+          false,
+          {
+            showThinking: true,
+            showToolExecution: true,
+            mode: "rendered",
+            colorProfile: "full",
+          },
+          { textBufferMs: 1000 }, // long window
+          0,
+        );
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "text_chunk",
+            delta: "buffered",
+            accumulated: "buffered",
+            sequence: 0,
+          }),
+        );
+
+        expect(calls).toHaveLength(0);
+        Effect.runSync(renderer.flush());
+        expect(calls).toHaveLength(1);
+        expect(calls[0]!.delta).toBe("buffered");
+      } finally {
+        store.appendStream = originalAppend;
+      }
+    });
+  });
+
   describe("thinking phase", () => {
     test("thinking_start transitions to thinking activity", async () => {
       const renderer = createRenderer();
@@ -183,7 +293,7 @@ describe("InkStreamingRenderer", () => {
           mode: "rendered",
           colorProfile: "full",
         },
-        undefined,
+        { textBufferMs: 0 },
         0,
       );
       emitStreamStart(renderer);
