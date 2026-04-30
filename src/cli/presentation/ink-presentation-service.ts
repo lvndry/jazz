@@ -11,6 +11,7 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  StreamTarget,
   UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
@@ -82,8 +83,20 @@ export class InkStreamingRenderer implements StreamingRenderer {
   /** True if any text delta was emitted in the current round (for handleComplete fallback). */
   private hasStreamedText = false;
 
+  /**
+   * Active reasoning ephemeral region id (null if none open). Reasoning is
+   * routed through a bounded live panel separate from scrollback so the
+   * user-facing response stream never has to share a buffer with planning text.
+   */
+  private reasoningRegionId: string | null = null;
+  /** Cumulative reasoning text for the active region — used as expand-on-Ctrl-R payload. */
+  private reasoningFullText = "";
+  /** Wall-clock start of the current reasoning region. */
+  private reasoningStartedAt = 0;
+
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000;
+  private static readonly REASONING_PANEL_LINES = 8;
 
   constructor(
     private readonly agentName: string,
@@ -91,6 +104,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     private readonly displayConfig: DisplayConfig,
     _streamingConfig?: { textBufferMs?: number },
     throttleMs?: number,
+    private readonly streamTarget: StreamTarget = { kind: "scrollback" },
   ) {
     this.updateThrottleMs = throttleMs ?? 60;
     this.acc = createAccumulator(agentName);
@@ -111,6 +125,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.updateTimeoutId = null;
       }
       this.clearAllToolTimeouts();
+      this.collapseReasoningRegion();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
@@ -125,6 +140,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
       this.pendingActivity = null;
       this.clearAllToolTimeouts();
+      this.collapseReasoningRegion();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
@@ -162,10 +178,55 @@ export class InkStreamingRenderer implements StreamingRenderer {
     "error",
   ]);
 
+  /**
+   * Events that should close any open reasoning panel. Once the model
+   * transitions out of reasoning (into response or tools), the panel
+   * collapses to a one-line summary. The full reasoning text is captured
+   * into the store's expandable-reasoning slot so Ctrl-R can re-emit it.
+   */
+  private static readonly COLLAPSE_REASONING_BEFORE: ReadonlySet<StreamEvent["type"]> = new Set([
+    "thinking_complete",
+    "text_start",
+    "tools_detected",
+    "tool_execution_start",
+    "error",
+  ]);
+
+  /** Collapse the active reasoning panel (if any) with a duration+token summary. */
+  private collapseReasoningRegion(tokens?: number): void {
+    if (this.reasoningRegionId === null) return;
+
+    const durationMs = Date.now() - this.reasoningStartedAt;
+    const seconds = (durationMs / 1000).toFixed(1);
+    const tokenSegment = tokens !== undefined ? ` · ${tokens} tokens` : "";
+    const line = chalk.dim(chalk.italic(`✓ Reasoning · ${seconds}s${tokenSegment}`));
+
+    store.collapseEphemeral(this.reasoningRegionId, {
+      line,
+      fullText: this.reasoningFullText,
+      durationMs,
+      ...(tokens !== undefined && { tokens }),
+    });
+
+    this.reasoningRegionId = null;
+    this.reasoningFullText = "";
+    this.reasoningStartedAt = 0;
+  }
+
   handleEvent(event: StreamEvent): Effect.Effect<void, never> {
     return Effect.sync(() => {
       if (InkStreamingRenderer.SETTLE_BEFORE.has(event.type)) {
         store.finalizeStream();
+      }
+
+      // Close any open reasoning panel before non-reasoning events. Tokens
+      // aren't available until usage_update / complete; collapse with a
+      // duration-only summary now and let later events refine if needed.
+      if (
+        this.streamTarget.kind === "scrollback" &&
+        InkStreamingRenderer.COLLAPSE_REASONING_BEFORE.has(event.type)
+      ) {
+        this.collapseReasoningRegion();
       }
 
       if (event.type === "stream_start") {
@@ -176,14 +237,36 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
       if (this.displayConfig.showThinking) {
         if (event.type === "thinking_start") {
-          store.printOutput({
-            type: "streamContent",
-            message: chalk.dim(chalk.italic("▸ Reasoning")),
-            timestamp: new Date(),
-          });
+          if (this.streamTarget.kind === "ephemeral") {
+            // Subagent reasoning lives in the subagent's own panel — no
+            // separate reasoning region.
+          } else if (this.reasoningRegionId === null) {
+            this.reasoningRegionId = store.openEphemeral(
+              "reasoning",
+              "Reasoning",
+              InkStreamingRenderer.REASONING_PANEL_LINES,
+            );
+            this.reasoningFullText = "";
+            this.reasoningStartedAt = Date.now();
+          }
         }
         if (event.type === "thinking_chunk") {
-          store.appendStream("reasoning", event.content);
+          if (this.streamTarget.kind === "ephemeral") {
+            store.appendEphemeral(this.streamTarget.regionId, event.content);
+          } else if (this.reasoningRegionId !== null) {
+            store.appendEphemeral(this.reasoningRegionId, event.content);
+            this.reasoningFullText += event.content;
+          } else {
+            // Defensive: chunk arrived without thinking_start. Open lazily.
+            this.reasoningRegionId = store.openEphemeral(
+              "reasoning",
+              "Reasoning",
+              InkStreamingRenderer.REASONING_PANEL_LINES,
+            );
+            this.reasoningStartedAt = Date.now();
+            store.appendEphemeral(this.reasoningRegionId, event.content);
+            this.reasoningFullText = event.content;
+          }
         }
       }
 
@@ -220,7 +303,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "text_chunk") {
         const delta = this.consumeTextDelta(event);
         if (delta.length > 0) {
-          store.appendStream("response", delta);
+          if (this.streamTarget.kind === "ephemeral") {
+            store.appendEphemeral(this.streamTarget.regionId, delta);
+          } else {
+            store.appendStream("response", delta);
+          }
           this.hasStreamedText = true;
         }
       }
@@ -671,6 +758,8 @@ class InkPresentationService implements PresentationService {
         config.showMetrics,
         config.displayConfig,
         config.streamingConfig,
+        undefined,
+        config.streamTarget ?? { kind: "scrollback" },
       );
     });
   }

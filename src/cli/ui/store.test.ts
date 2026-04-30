@@ -262,4 +262,166 @@ describe("UIStore", () => {
       expect(seenB[0]).toBe(handler);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Ephemeral live regions
+  // -------------------------------------------------------------------------
+
+  describe("ephemeral regions", () => {
+    test("openEphemeral returns unique ids and adds to snapshot", () => {
+      const s = new UIStore();
+      const a = s.openEphemeral("reasoning", "Reasoning", 8);
+      const b = s.openEphemeral("subagent", "Sub-Agent (researcher)", 12);
+
+      expect(a).not.toBe(b);
+      const regions = s.getEphemeralRegionsSnapshot();
+      expect(regions).toHaveLength(2);
+      expect(regions[0]!.id).toBe(a);
+      expect(regions[0]!.kind).toBe("reasoning");
+      expect(regions[1]!.id).toBe(b);
+      expect(regions[1]!.kind).toBe("subagent");
+    });
+
+    test("appendEphemeral splits, merges first chunk, trims to last N lines", () => {
+      const s = new UIStore();
+      const id = s.openEphemeral("reasoning", "Reasoning", 3);
+
+      s.appendEphemeral(id, "first ");
+      s.appendEphemeral(id, "line\nsecond\n");
+      s.appendEphemeral(id, "third\nfourth\nfifth");
+
+      const region = s.getEphemeralRegionsSnapshot()[0]!;
+      // Expected lines after merge+split:
+      //   "first line", "second", "", "third", "fourth", "fifth"
+      // Hmm — "second\n" leaves a trailing empty. Then "third" appends to that
+      // empty as the first chunk merge. So actual sequence:
+      //   ["first line", "second", "third", "fourth", "fifth"]
+      // Trimmed to last 3:
+      //   ["third", "fourth", "fifth"]
+      expect(region.tail).toEqual(["third", "fourth", "fifth"]);
+    });
+
+    test("appendEphemeral targets only the specified region", () => {
+      const s = new UIStore();
+      const a = s.openEphemeral("reasoning", "Reasoning", 8);
+      const b = s.openEphemeral("subagent", "Sub", 8);
+
+      s.appendEphemeral(a, "hello");
+      s.appendEphemeral(b, "world");
+
+      const regions = s.getEphemeralRegionsSnapshot();
+      expect(regions[0]!.tail).toEqual(["hello"]);
+      expect(regions[1]!.tail).toEqual(["world"]);
+    });
+
+    test("collapseEphemeral removes region and emits summary line", () => {
+      const s = new UIStore();
+      const received: OutputEntry[] = [];
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        received.push(...arr);
+        return arr[0]?.id ?? "id";
+      });
+
+      const id = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(id, {
+        line: "✓ Reasoning · 12s · 100 tokens",
+        durationMs: 12000,
+      });
+
+      expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
+      // Wait for batch microtask
+      return Promise.resolve().then(() => {
+        expect(received).toHaveLength(1);
+        expect(received[0]!.message).toBe("✓ Reasoning · 12s · 100 tokens");
+      });
+    });
+
+    test("collapseEphemeral with reasoning + fullText populates expandableReasoning", () => {
+      const s = new UIStore();
+      const id = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(id, {
+        durationMs: 5000,
+        tokens: 42,
+        fullText: "I was thinking about X then Y",
+      });
+
+      const expandable = s.getExpandableReasoningSnapshot();
+      expect(expandable).not.toBeNull();
+      expect(expandable!.fullText).toBe("I was thinking about X then Y");
+      expect(expandable!.durationMs).toBe(5000);
+      expect(expandable!.tokens).toBe(42);
+    });
+
+    test("subagent collapse does NOT populate expandableReasoning", () => {
+      const s = new UIStore();
+      const id = s.openEphemeral("subagent", "Sub-Agent", 12);
+      s.collapseEphemeral(id, {
+        durationMs: 1000,
+        fullText: "subagent body — should be ignored for expand",
+      });
+
+      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+    });
+
+    test("collapseAllEphemeral removes every open region without emitting summaries", () => {
+      const s = new UIStore();
+      const printed: OutputEntry[] = [];
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        printed.push(...arr);
+        return arr[0]?.id ?? "id";
+      });
+
+      s.openEphemeral("reasoning", "R", 8);
+      s.openEphemeral("subagent", "S1", 12);
+      s.openEphemeral("subagent", "S2", 12);
+
+      s.collapseAllEphemeral();
+
+      expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
+      return Promise.resolve().then(() => {
+        expect(printed).toHaveLength(0);
+      });
+    });
+
+    test("expandLastReasoning emits full text once and clears the slot", () => {
+      const s = new UIStore();
+      const printed: OutputEntry[] = [];
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        printed.push(...arr);
+        return arr[0]?.id ?? "id";
+      });
+
+      const id = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(id, {
+        durationMs: 1000,
+        fullText: "full reasoning body",
+      });
+
+      s.expandLastReasoning();
+      s.expandLastReasoning(); // second call is no-op
+
+      return Promise.resolve().then(() => {
+        expect(printed).toHaveLength(1);
+        expect(printed[0]!.type).toBe("streamContent");
+        expect(printed[0]!.message).toBe("full reasoning body");
+        expect(s.getExpandableReasoningSnapshot()).toBeNull();
+      });
+    });
+
+    test("setter is notified on open, append, and collapse", () => {
+      const s = new UIStore();
+      const seen: number[] = [];
+      s.registerEphemeralRegionsSetter((regions) => seen.push(regions.length));
+      seen.length = 0;
+
+      const id = s.openEphemeral("reasoning", "R", 8);
+      s.appendEphemeral(id, "x");
+      s.collapseEphemeral(id, { durationMs: 1, line: "✓ R" });
+
+      expect(seen).toEqual([1, 1, 0]);
+    });
+  });
 });

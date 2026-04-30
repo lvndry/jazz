@@ -1,5 +1,7 @@
+import chalk from "chalk";
 import { Effect } from "effect";
 import { z } from "zod";
+import { store } from "@/cli/ui/store";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
@@ -10,6 +12,8 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { AgentRunner } from "../agent-runner";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
+
+const SUBAGENT_PANEL_LINES = 12;
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -86,17 +90,16 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             parentAgentId: parentAgent.id,
           });
 
-          // Show sub-agent launch — header + task (output stays under this block, no streaming collision)
+          // Show sub-agent launch — header + task in a bounded live panel.
+          // The panel hosts the subagent's reasoning + response while it runs;
+          // when it finishes, the panel collapses and we emit the existing
+          // capped preview below.
           const taskPreview = args.task.length > 80 ? `...${args.task.slice(-77)}` : args.task;
           const subagentLabel = `Sub-Agent (${args.persona})`;
-          yield* presentation.writeOutput(`${subagentLabel} ⤵`);
-          yield* presentation.writeOutput(`     Task: ${taskPreview}`);
-          if (
-            parentAgent.config.reasoningEffort &&
-            parentAgent.config.reasoningEffort !== "disable"
-          ) {
-            yield* presentation.presentThinking(subagentLabel, true);
-          }
+          const startedAt = Date.now();
+
+          const regionId = store.openEphemeral("subagent", subagentLabel, SUBAGENT_PANEL_LINES);
+          store.appendEphemeral(regionId, `Task: ${taskPreview}`);
 
           // Create an ephemeral sub-agent with the parent's LLM config but a specific persona
           const subAgent: Agent = {
@@ -123,14 +126,27 @@ You are a sub-agent performing a delegated task for a parent agent. This is a ON
 TASK:
 ${args.task}`;
 
-          // Run without streaming so output stays under this block (no collision when multiple subagents)
+          // Stream into the subagent's own ephemeral region — never the
+          // parent's scrollback pending. This is the architectural fix for
+          // parent/subagent token interleaving. Effect.ensuring guarantees
+          // the panel collapses even if runRecursive errors.
           const response = yield* AgentRunner.runRecursive({
             agent: subAgent,
             userInput: wrappedTask,
             sessionId: context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
             maxIterations: SUBAGENT_MAX_ITERATIONS,
-          });
+            ephemeralRegionId: regionId,
+          }).pipe(
+            Effect.tapError(() =>
+              Effect.sync(() =>
+                store.collapseEphemeral(regionId, {
+                  line: chalk.dim(chalk.italic(`✗ ${subagentLabel} failed`)),
+                  durationMs: Date.now() - startedAt,
+                }),
+              ),
+            ),
+          );
 
           // If the sub-agent hit the iteration limit, response.content may be empty
           // (the last iteration was tool calls with no text). Extract useful content
@@ -152,13 +168,17 @@ ${args.task}`;
             }
           }
 
-          // Show a capped preview (last N lines, max chars) under the block
+          // Collapse the live panel and emit the durable summary + preview.
+          const durationMs = Date.now() - startedAt;
+          const seconds = (durationMs / 1000).toFixed(1);
+          const summaryLine = chalk.dim(chalk.italic(`✓ ${subagentLabel} completed · ${seconds}s`));
+          store.collapseEphemeral(regionId, { line: summaryLine, durationMs });
+
           const fullResult = result?.trim() || "No output";
           const maxLines = 10;
           const previewLines = fullResult.split("\n").slice(-maxLines).join("\n");
           const indentedLines = previewLines.split("\n").map((line) => `     ${line}`);
           yield* presentation.writeOutput(indentedLines.join("\n"));
-          yield* presentation.presentCompletion(subagentLabel);
 
           yield* logger.info("Sub-agent completed", {
             parentAgentId: parentAgent.id,

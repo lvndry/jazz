@@ -197,13 +197,27 @@ describe("InkStreamingRenderer", () => {
       expect(headerEntries).toHaveLength(0);
     });
 
-    test("thinking_chunk streams reasoning output", async () => {
-      const reasoningDeltas: string[] = [];
-      const originalAppend = store.appendStream;
-      store.appendStream = (kind, delta): void => {
-        if (kind === "reasoning") reasoningDeltas.push(delta);
-        originalAppend(kind, delta);
+    test("thinking events open a reasoning region, append to it, and collapse on complete", async () => {
+      const ephemeralAppends: string[] = [];
+      const originalOpen = store.openEphemeral;
+      const originalAppend = store.appendEphemeral;
+      const originalCollapse = store.collapseEphemeral;
+      let openedKind: string | null = null;
+      let collapsedFullText: string | undefined;
+
+      store.openEphemeral = (kind, label, maxLines) => {
+        openedKind = kind;
+        return originalOpen(kind, label, maxLines);
       };
+      store.appendEphemeral = (id, text) => {
+        ephemeralAppends.push(text);
+        originalAppend(id, text);
+      };
+      store.collapseEphemeral = (id, summary) => {
+        collapsedFullText = summary.fullText;
+        originalCollapse(id, summary);
+      };
+
       try {
         const renderer = createRenderer();
         emitStreamStart(renderer);
@@ -215,16 +229,13 @@ describe("InkStreamingRenderer", () => {
         Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
         await new Promise((r) => setTimeout(r, 0));
 
-        // Reasoning header is emitted via printOutput (renderer, gated by showThinking)
-        const staticOutput = printOutputCalls
-          .filter((e) => e.type === "streamContent")
-          .map((e) => (typeof e.message === "string" ? e.message : ""))
-          .join("");
-        expect(staticOutput).toContain("Reasoning");
-        // Reasoning content goes through appendStream
-        expect(reasoningDeltas.join("")).toContain("let me think");
+        expect(openedKind).toBe("reasoning");
+        expect(ephemeralAppends.join("")).toContain("let me think");
+        expect(collapsedFullText).toContain("let me think");
       } finally {
-        store.appendStream = originalAppend;
+        store.openEphemeral = originalOpen;
+        store.appendEphemeral = originalAppend;
+        store.collapseEphemeral = originalCollapse;
       }
     });
   });
@@ -543,18 +554,33 @@ describe("InkStreamingRenderer", () => {
       }
     });
 
-    test("reasoning → response transition finalizes reasoning and opens response", () => {
-      const calls: Array<{ kind?: string; finalize?: true }> = [];
-      const originalAppend = store.appendStream;
-      const originalFinalize = store.finalizeStream;
+    test("reasoning → response transition collapses the reasoning region and routes response to scrollback", () => {
+      const calls: Array<{
+        op: "openEphemeral" | "appendEphemeral" | "collapseEphemeral" | "appendStream";
+        kind?: string;
+      }> = [];
+      const originalOpen = store.openEphemeral;
+      const originalAppendEph = store.appendEphemeral;
+      const originalCollapse = store.collapseEphemeral;
+      const originalAppendStream = store.appendStream;
+
+      store.openEphemeral = (kind, label, maxLines) => {
+        calls.push({ op: "openEphemeral", kind });
+        return originalOpen(kind, label, maxLines);
+      };
+      store.appendEphemeral = (id, text) => {
+        calls.push({ op: "appendEphemeral" });
+        originalAppendEph(id, text);
+      };
+      store.collapseEphemeral = (id, summary) => {
+        calls.push({ op: "collapseEphemeral" });
+        originalCollapse(id, summary);
+      };
       store.appendStream = (kind, delta): void => {
-        calls.push({ kind });
-        originalAppend(kind, delta);
+        calls.push({ op: "appendStream", kind });
+        originalAppendStream(kind, delta);
       };
-      store.finalizeStream = (): void => {
-        calls.push({ finalize: true });
-        originalFinalize();
-      };
+
       try {
         const renderer = createRenderer();
         emitStreamStart(renderer);
@@ -570,16 +596,25 @@ describe("InkStreamingRenderer", () => {
             sequence: 0,
           }),
         );
-        // Sequence: appendStream(reasoning) -> finalize -> appendStream(response).
-        const reasoningIdx = calls.findIndex((c) => c.kind === "reasoning");
-        const finalizeIdx = calls.findIndex((c, i) => i > reasoningIdx && c.finalize);
-        const responseIdx = calls.findIndex((c, i) => i > finalizeIdx && c.kind === "response");
-        expect(reasoningIdx).toBeGreaterThanOrEqual(0);
-        expect(finalizeIdx).toBeGreaterThan(reasoningIdx);
-        expect(responseIdx).toBeGreaterThan(finalizeIdx);
+
+        const openIdx = calls.findIndex((c) => c.op === "openEphemeral" && c.kind === "reasoning");
+        const appendEphIdx = calls.findIndex((c, i) => i > openIdx && c.op === "appendEphemeral");
+        const collapseIdx = calls.findIndex(
+          (c, i) => i > appendEphIdx && c.op === "collapseEphemeral",
+        );
+        const responseIdx = calls.findIndex(
+          (c, i) => i > collapseIdx && c.op === "appendStream" && c.kind === "response",
+        );
+
+        expect(openIdx).toBeGreaterThanOrEqual(0);
+        expect(appendEphIdx).toBeGreaterThan(openIdx);
+        expect(collapseIdx).toBeGreaterThan(appendEphIdx);
+        expect(responseIdx).toBeGreaterThan(collapseIdx);
       } finally {
-        store.appendStream = originalAppend;
-        store.finalizeStream = originalFinalize;
+        store.openEphemeral = originalOpen;
+        store.appendEphemeral = originalAppendEph;
+        store.collapseEphemeral = originalCollapse;
+        store.appendStream = originalAppendStream;
       }
     });
 

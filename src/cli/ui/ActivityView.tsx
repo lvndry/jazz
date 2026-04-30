@@ -2,7 +2,6 @@ import { Box, Text } from "ink";
 import React from "react";
 import type { ActivityState } from "./activity-state";
 import { AnimatedEllipsis } from "./components/AnimatedEllipsis";
-import { TerminalText } from "./components/TerminalText";
 import { getGlyphs } from "./glyphs";
 import { PADDING, THEME } from "./theme";
 
@@ -68,45 +67,6 @@ function AgentHeader({
   );
 }
 
-function ReasoningSection({
-  reasoning,
-  isThinking,
-}: {
-  reasoning: string;
-  isThinking: boolean;
-}): React.ReactElement | null {
-  if (!reasoning && !isThinking) return null;
-
-  return (
-    <Box
-      marginTop={0}
-      paddingLeft={PADDING.content}
-      flexDirection="column"
-    >
-      <Box>
-        <Text color={THEME.reasoning}>{G.arrow} </Text>
-        <Text
-          color={THEME.reasoning}
-          italic
-        >
-          Reasoning
-        </Text>
-        {isThinking && (
-          <AnimatedEllipsis
-            label=""
-            color={THEME.reasoning}
-          />
-        )}
-      </Box>
-      {reasoning && (
-        <Box marginTop={0}>
-          <TerminalText color={THEME.reasoning}>{reasoning}</TerminalText>
-        </Box>
-      )}
-    </Box>
-  );
-}
-
 /**
  * ActivityView renders the current activity phase as a single live UI region.
  * Replaces the old StatusIsland + StreamIsland (LiveResponse) pair.
@@ -151,6 +111,9 @@ export const ActivityView = React.memo(function ActivityView({
       );
 
     case "thinking":
+      // The reasoning body itself is rendered by the dedicated ephemeral
+      // panel (see EphemeralPanel.tsx). Here we only show the "is thinking"
+      // status header so we don't duplicate the live content.
       return (
         <Box
           flexDirection="column"
@@ -161,10 +124,6 @@ export const ActivityView = React.memo(function ActivityView({
             agentName={activity.agentName}
             label="is thinking"
             animated
-          />
-          <ReasoningSection
-            reasoning={activity.reasoning}
-            isThinking={true}
           />
         </Box>
       );

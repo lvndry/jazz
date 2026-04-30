@@ -22,6 +22,50 @@ interface ExpandableDiffPayload {
 }
 
 /**
+ * Kinds of ephemeral live region. Each kind has its own UI label and default
+ * size; "reasoning" is the only kind that supports Ctrl-R expansion.
+ */
+export type EphemeralKind = "reasoning" | "subagent";
+
+export type EphemeralRegionId = string;
+
+/**
+ * A bounded live region rendered above the prompt while an in-flight activity
+ * (the model thinking, a subagent working) is producing output. The region
+ * shows only the last N lines of the activity; on completion it is removed
+ * and a one-line summary is emitted into scrollback.
+ */
+export interface EphemeralRegion {
+  readonly id: EphemeralRegionId;
+  readonly kind: EphemeralKind;
+  readonly label: string;
+  readonly startedAt: number;
+  readonly tail: readonly string[];
+  readonly maxLines: number;
+}
+
+/**
+ * Snapshot of the most recently collapsed reasoning, available for
+ * Ctrl-R expansion. Replaced on every new collapse; cleared once expanded.
+ */
+export interface ExpandableReasoning {
+  readonly fullText: string;
+  readonly label: string;
+  readonly durationMs: number;
+  readonly tokens?: number;
+}
+
+/** Caller-supplied summary when collapsing a region. */
+export interface CollapseEphemeralSummary {
+  /** One-line static entry to emit into scrollback (omit to skip). */
+  readonly line?: string;
+  /** Full text to keep around for Ctrl-R expansion (reasoning only). */
+  readonly fullText?: string;
+  readonly durationMs: number;
+  readonly tokens?: number;
+}
+
+/**
  * Persistent run-level stats surfaced in the status footer.
  *
  * All fields are optional so partial information renders gracefully —
@@ -62,12 +106,20 @@ export class UIStore {
   private activitySnapshot: ActivityState = { phase: "idle" };
   private workingDirectorySnapshot: string | null = null;
   private runStatsSnapshot: RunStats = {};
+  private ephemeralRegionsSnapshot: readonly EphemeralRegion[] = [];
+  private expandableReasoningSnapshot: ExpandableReasoning | null = null;
+
+  // Insertion-ordered map of live ephemeral regions, keyed by id.
+  private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
+  private ephemeralIdCounter = 0;
 
   // React state setters (registered by island components)
   private promptSetter: ((prompt: PromptState | null) => void) | null = null;
   private activitySetter: ((activity: ActivityState) => void) | null = null;
   private workingDirectorySetter: ((wd: string | null) => void) | null = null;
   private runStatsSetter: ((stats: RunStats) => void) | null = null;
+  private ephemeralRegionsSetter: ((regions: readonly EphemeralRegion[]) => void) | null = null;
+  private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
 
@@ -207,6 +259,117 @@ export class UIStore {
     this.expandableDiff = null;
   };
 
+  // ── Ephemeral live regions ────────────────────────────────────────
+
+  private publishEphemeralRegions(): void {
+    this.ephemeralRegionsSnapshot = Array.from(this.ephemeralRegions.values());
+    this.ephemeralRegionsSetter?.(this.ephemeralRegionsSnapshot);
+  }
+
+  private setExpandableReasoning(value: ExpandableReasoning | null): void {
+    this.expandableReasoningSnapshot = value;
+    this.expandableReasoningSetter?.(value);
+  }
+
+  /**
+   * Open a new ephemeral live region. Returns the region's id, which the
+   * caller must hold onto for subsequent appendEphemeral / collapseEphemeral
+   * calls. Multiple regions may be open at once (e.g. parallel subagents).
+   */
+  openEphemeral = (kind: EphemeralKind, label: string, maxLines: number): EphemeralRegionId => {
+    const id = `eph-${++this.ephemeralIdCounter}-${Date.now()}`;
+    this.ephemeralRegions.set(id, {
+      id,
+      kind,
+      label,
+      startedAt: Date.now(),
+      tail: [],
+      maxLines,
+    });
+    this.publishEphemeralRegions();
+    return id;
+  };
+
+  /**
+   * Append text to a live region. Splits incoming text on newlines, merges
+   * the first chunk into the previous line (for delta-style streaming), and
+   * keeps only the last `maxLines` lines.
+   */
+  appendEphemeral = (id: EphemeralRegionId, text: string): void => {
+    if (text.length === 0) return;
+    const region = this.ephemeralRegions.get(id);
+    if (!region) return;
+
+    const incoming = text.split("\n");
+    const merged = [...region.tail];
+    if (merged.length > 0 && incoming.length > 0) {
+      merged[merged.length - 1] = (merged[merged.length - 1] ?? "") + (incoming.shift() ?? "");
+    }
+    for (const line of incoming) merged.push(line);
+
+    const trimmed =
+      merged.length > region.maxLines ? merged.slice(merged.length - region.maxLines) : merged;
+
+    this.ephemeralRegions.set(id, { ...region, tail: trimmed });
+    this.publishEphemeralRegions();
+  };
+
+  /**
+   * Collapse a live region. Emits an optional one-line static entry into
+   * scrollback and removes the region. For reasoning regions, captures the
+   * full text into the expandableReasoning slot so Ctrl-R can re-emit it.
+   */
+  collapseEphemeral = (id: EphemeralRegionId, summary: CollapseEphemeralSummary): void => {
+    const region = this.ephemeralRegions.get(id);
+    if (!region) return;
+
+    this.ephemeralRegions.delete(id);
+    this.publishEphemeralRegions();
+
+    if (summary.line) {
+      this.printOutput({
+        type: "log",
+        message: summary.line,
+        timestamp: new Date(),
+      });
+    }
+
+    if (region.kind === "reasoning" && summary.fullText) {
+      this.setExpandableReasoning({
+        fullText: summary.fullText,
+        label: region.label,
+        durationMs: summary.durationMs,
+        ...(summary.tokens !== undefined && { tokens: summary.tokens }),
+      });
+    }
+  };
+
+  /**
+   * Collapse every open region — used on errors and /clear so panels don't
+   * get stuck. Emits no per-region summary; just removes them.
+   */
+  collapseAllEphemeral = (): void => {
+    if (this.ephemeralRegions.size === 0) return;
+    this.ephemeralRegions.clear();
+    this.publishEphemeralRegions();
+  };
+
+  /**
+   * If a most-recently-collapsed reasoning is available, emit it as a
+   * streamContent entry into scrollback and clear the slot. No-op otherwise.
+   */
+  expandLastReasoning = (): void => {
+    const value = this.expandableReasoningSnapshot;
+    if (!value) return;
+    this.printOutput({
+      type: "streamContent",
+      message: value.fullText,
+      meta: { kind: "reasoning" },
+      timestamp: new Date(),
+    });
+    this.setExpandableReasoning(null);
+  };
+
   appendStream = (kind: StreamKind, delta: string): void => {
     if (delta.length === 0) return;
     // Streaming bypasses the printOutput batch — deltas go straight in.
@@ -278,6 +441,16 @@ export class UIStore {
     }
   }
 
+  registerEphemeralRegionsSetter(setter: (regions: readonly EphemeralRegion[]) => void): void {
+    this.ephemeralRegionsSetter = setter;
+    setter(this.ephemeralRegionsSnapshot);
+  }
+
+  registerExpandableReasoningSetter(setter: (value: ExpandableReasoning | null) => void): void {
+    this.expandableReasoningSetter = setter;
+    setter(this.expandableReasoningSnapshot);
+  }
+
   // ── Snapshot accessors (for hydrating late-registering components) ─
 
   getActivitySnapshot(): ActivityState {
@@ -294,6 +467,14 @@ export class UIStore {
 
   getRunStatsSnapshot(): RunStats {
     return this.runStatsSnapshot;
+  }
+
+  getEphemeralRegionsSnapshot(): readonly EphemeralRegion[] {
+    return this.ephemeralRegionsSnapshot;
+  }
+
+  getExpandableReasoningSnapshot(): ExpandableReasoning | null {
+    return this.expandableReasoningSnapshot;
   }
 
   // ── Pending queue management ──────────────────────────────────────
