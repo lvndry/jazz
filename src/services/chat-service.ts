@@ -40,6 +40,7 @@ import {
   bumpPromotionThreshold,
   type CommandApprovalRecord,
 } from "./command-approval-tracker";
+import { saveConversation, type ConversationRecord } from "./history/conversation-history-service";
 
 /**
  * Chat service implementation for managing interactive chat sessions with AI agents
@@ -107,6 +108,8 @@ export class ChatServiceImpl implements ChatService {
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
+      const startedAt = sessionStartedAt.toISOString();
+      let conversationTitle: string | null = null;
 
       // Load persistent auto-approved commands from config
       const configService = yield* AgentConfigServiceTag;
@@ -200,6 +203,10 @@ export class ChatServiceImpl implements ChatService {
             "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
           );
           continue;
+        }
+
+        if (conversationTitle === null && trimmedMessage.length > 0 && !trimmedMessage.startsWith("/")) {
+          conversationTitle = trimmedMessage.slice(0, 80);
         }
 
         let messageForAgent = userMessage;
@@ -503,6 +510,25 @@ export class ChatServiceImpl implements ChatService {
             }
           }
         });
+      }
+
+      if (conversationTitle !== null && conversationHistory.length > 0) {
+        const record: ConversationRecord = {
+          conversationId,
+          title: conversationTitle,
+          agentId: agent.id,
+          startedAt,
+          endedAt: new Date().toISOString(),
+          messageCount: conversationHistory.length,
+          messages: conversationHistory,
+        };
+        const fs = yield* FileSystem.FileSystem;
+        const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
+        yield* saveConversation(record).pipe(
+          Effect.catchAll(() => Effect.void),
+          Effect.provide(fsLayer),
+          Effect.forkDaemon,
+        );
       }
     }).pipe(Effect.catchAll(() => Effect.void));
   }
