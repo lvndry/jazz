@@ -1,9 +1,6 @@
 import { FileSystem } from "@effect/platform";
-import chalk from "chalk";
 import { Effect, Layer } from "effect";
-import { wrapToWidth } from "@/cli/presentation/markdown-formatter";
 import { store } from "@/cli/ui/store";
-import { getTerminalWidth } from "@/cli/utils/string-utils";
 import { AgentRunner, type AgentRunnerOptions } from "@/core/agent/agent-runner";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
@@ -142,13 +139,8 @@ export class ChatServiceImpl implements ChatService {
           // queued message was actually popped (vs when the LLM started
           // responding to it). The interactive ask() path emits the same
           // echo from terminal.ts on resolve; this path bypasses ask, so we
-          // mirror the behavior here. Same width/colorization as ask().
-          const echoAvailableWidth = getTerminalWidth() - 8;
-          store.printOutput({
-            type: "user",
-            message: wrapToWidth(chalk.green(userMessage), echoAvailableWidth),
-            timestamp: new Date(),
-          });
+          // call terminal.user() — the shared helper that owns rendering.
+          yield* terminal.user(userMessage);
         } else {
           const askOptions: { commandSuggestions: true; defaultValue?: string } = {
             commandSuggestions: true,

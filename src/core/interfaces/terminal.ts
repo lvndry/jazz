@@ -58,6 +58,15 @@ export interface TerminalService {
   readonly log: (message: TerminalOutput) => Effect.Effect<string | undefined, never>;
 
   /**
+   * Echo a user-submitted message to scrollback as `You: <message>`.
+   *
+   * The interactive `ask("You:", ...)` flow already does this on resolve;
+   * other paths that bypass `ask` (e.g. queue drain in chat-service) call
+   * this directly so the visual output stays consistent.
+   */
+  readonly user: (message: string) => Effect.Effect<void, never>;
+
+  /**
    * Display a debug message (only shown in debug mode)
    */
   readonly debug: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;

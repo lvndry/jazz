@@ -50,6 +50,30 @@ export function maskSecret(value: string): string {
 }
 
 /**
+ * Width offset used when wrapping user-echo messages.
+ *
+ * Accounts for the App container's `paddingX={3}` (6 chars total) plus the
+ * "› " icon + space rendered by OutputEntryView's user-entry styling
+ * (2 chars). Centralized so the `ask("You:")` resolve path and the
+ * `user()` method stay visually consistent.
+ */
+const USER_ECHO_WIDTH_OFFSET = 8;
+
+/**
+ * Push a `You: <message>` entry into scrollback. Shared by the chat
+ * `ask()` resolve handler and by `terminalService.user()` so the visual
+ * styling stays in one place.
+ */
+function printUserMessage(message: string): void {
+  const wrapped = wrapToWidth(chalk.green(message), getTerminalWidth() - USER_ECHO_WIDTH_OFFSET);
+  store.printOutput({
+    type: "user",
+    message: wrapped,
+    timestamp: new Date(),
+  });
+}
+
+/**
  * Ink-based Terminal Service Implementation
  *
  * This service is a singleton - only one instance should exist at a time.
@@ -131,6 +155,10 @@ export class InkTerminalService implements TerminalService {
       const logId = store.printOutput(entry);
       return logId;
     });
+  }
+
+  user(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => printUserMessage(message));
   }
 
   debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
@@ -236,16 +264,16 @@ export class InkTerminalService implements TerminalService {
           // "You:" label here would double it up in scrollback. For non-chat
           // prompts (API key entry, named fields, etc.) the label is genuine
           // scrollback context, so keep it.
-          const rawMessage =
-            promptType === "chat"
-              ? chalk.green(displayValue)
-              : `${message} ${chalk.green(displayValue)}`;
-          const available = getTerminalWidth() - 8;
-          store.printOutput({
-            type: "user",
-            message: wrapToWidth(rawMessage, available),
-            timestamp: new Date(),
-          });
+          if (promptType === "chat") {
+            printUserMessage(displayValue);
+          } else {
+            const rawMessage = `${message} ${chalk.green(displayValue)}`;
+            store.printOutput({
+              type: "user",
+              message: wrapToWidth(rawMessage, getTerminalWidth() - USER_ECHO_WIDTH_OFFSET),
+              timestamp: new Date(),
+            });
+          }
           resume(Effect.succeed(inputValue));
         },
       };
@@ -494,6 +522,10 @@ export class PlainTerminalService implements TerminalService {
       // Ink nodes are silently ignored in plain terminal mode
       return undefined;
     });
+  }
+
+  user(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => this.write(`You: ${message}`));
   }
 
   debug(message: string, _meta?: Record<string, unknown>): Effect.Effect<void, never> {
