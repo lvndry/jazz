@@ -85,15 +85,93 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000;
 
+  /**
+   * Buffered streaming deltas, flushed at `textBufferMs` cadence. Without
+   * buffering, every token (~60–80/sec) triggers a React re-render of the
+   * live area; with it the live area updates at the buffer cadence
+   * (e.g. ~12 fps at 80ms), giving a "line-by-line" feel similar to
+   * claude.ai instead of a frantic chunk-by-chunk one.
+   *
+   * Stored as an in-order array so reasoning and response deltas keep their
+   * arrival order at flush time. Empty arrays bypass setTimeout overhead.
+   */
+  private streamBuffer: { kind: "response" | "reasoning"; delta: string }[] = [];
+  private streamFlushTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private readonly textBufferMs: number;
+
+  /** Default buffer cadence — visible "live typing" without burning CPU. */
+  private static readonly DEFAULT_TEXT_BUFFER_MS = 80;
+
   constructor(
     private readonly agentName: string,
     private readonly showMetrics: boolean,
     private readonly displayConfig: DisplayConfig,
-    _streamingConfig?: { textBufferMs?: number },
+    streamingConfig?: { textBufferMs?: number },
     throttleMs?: number,
   ) {
     this.updateThrottleMs = throttleMs ?? 60;
+    this.textBufferMs =
+      streamingConfig?.textBufferMs ?? InkStreamingRenderer.DEFAULT_TEXT_BUFFER_MS;
     this.acc = createAccumulator(agentName);
+  }
+
+  /**
+   * Append a streaming delta to the in-memory buffer. Schedules a flush
+   * within `textBufferMs` if one isn't already pending. With
+   * `textBufferMs: 0` the delta flushes synchronously, matching the
+   * pre-buffering behavior for callers that opt out.
+   */
+  private bufferStreamDelta(kind: "response" | "reasoning", delta: string): void {
+    if (delta.length === 0) return;
+    if (this.textBufferMs <= 0) {
+      store.appendStream(kind, delta);
+      return;
+    }
+
+    this.streamBuffer.push({ kind, delta });
+    if (this.streamFlushTimeoutId !== null) return;
+
+    this.streamFlushTimeoutId = setTimeout(() => {
+      this.streamFlushTimeoutId = null;
+      this.flushStreamBuffer();
+    }, this.textBufferMs);
+  }
+
+  /**
+   * Flush any buffered streaming deltas immediately. Called whenever we
+   * need on-screen content to be in sync (kind transitions, completion,
+   * abort, reset, etc.) so we never lose a tail.
+   */
+  private flushStreamBuffer(): void {
+    if (this.streamFlushTimeoutId !== null) {
+      clearTimeout(this.streamFlushTimeoutId);
+      this.streamFlushTimeoutId = null;
+    }
+    if (this.streamBuffer.length === 0) return;
+    const buffered = this.streamBuffer;
+    this.streamBuffer = [];
+
+    // Coalesce consecutive same-kind chunks into single appendStream calls
+    // so the scrollback adapter sees one append per kind-run instead of N.
+    let runKind: "response" | "reasoning" | null = null;
+    let runText = "";
+    for (const { kind, delta } of buffered) {
+      if (runKind === null) {
+        runKind = kind;
+        runText = delta;
+        continue;
+      }
+      if (kind === runKind) {
+        runText += delta;
+      } else {
+        store.appendStream(runKind, runText);
+        runKind = kind;
+        runText = delta;
+      }
+    }
+    if (runKind !== null && runText.length > 0) {
+      store.appendStream(runKind, runText);
+    }
   }
 
   reset(): Effect.Effect<void, never> {
@@ -111,6 +189,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.updateTimeoutId = null;
       }
       this.clearAllToolTimeouts();
+      this.flushStreamBuffer();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
@@ -125,6 +204,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
       this.pendingActivity = null;
       this.clearAllToolTimeouts();
+      this.flushStreamBuffer();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
@@ -165,6 +245,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
   handleEvent(event: StreamEvent): Effect.Effect<void, never> {
     return Effect.sync(() => {
       if (InkStreamingRenderer.SETTLE_BEFORE.has(event.type)) {
+        // Flush any in-flight buffered deltas BEFORE finalizing the stream
+        // so they land in the slice that's about to settle, not the next one.
+        this.flushStreamBuffer();
         store.finalizeStream();
       }
 
@@ -183,7 +266,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
           });
         }
         if (event.type === "thinking_chunk") {
-          store.appendStream("reasoning", event.content);
+          this.bufferStreamDelta("reasoning", event.content);
         }
       }
 
@@ -220,7 +303,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "text_chunk") {
         const delta = this.consumeTextDelta(event);
         if (delta.length > 0) {
-          store.appendStream("response", delta);
+          this.bufferStreamDelta("response", delta);
           this.hasStreamedText = true;
         }
       }
@@ -256,6 +339,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.pendingActivity = null;
     }
 
+    this.flushStreamBuffer();
     store.finalizeStream();
 
     if (!this.hasStreamedText) {
