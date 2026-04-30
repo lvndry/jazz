@@ -45,12 +45,10 @@ export type ActivityState =
   | {
       phase: "thinking";
       agentName: string;
-      reasoning: string;
     }
   | {
       phase: "streaming";
       agentName: string;
-      reasoning: string;
       text: string;
     }
   | {
@@ -86,14 +84,10 @@ export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
       );
 
     case "thinking":
-      return a.agentName === (b as typeof a).agentName && a.reasoning === (b as typeof a).reasoning;
+      return a.agentName === (b as typeof a).agentName;
 
     case "streaming":
-      return (
-        a.agentName === (b as typeof a).agentName &&
-        a.reasoning === (b as typeof a).reasoning &&
-        a.text === (b as typeof a).text
-      );
+      return a.agentName === (b as typeof a).agentName && a.text === (b as typeof a).text;
 
     case "tool-execution": {
       const bTools = (b as typeof a).tools;

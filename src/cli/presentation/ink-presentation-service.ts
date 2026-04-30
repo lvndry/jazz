@@ -11,6 +11,7 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  StreamTarget,
   UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
@@ -32,16 +33,11 @@ import {
   formatToolExecutionErrorEffect,
   formatToolsDetectedEffect,
 } from "./format-utils";
-import {
-  formatMarkdown,
-  formatMarkdownHybrid,
-  wrapToWidth,
-  getTerminalWidth,
-} from "./markdown-formatter";
+import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { isInsideOpenStructure } from "./markdown-split";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { store } from "../ui/store";
-import { CHALK_THEME, PADDING, PADDING_BUDGET, THEME } from "../ui/theme";
+import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
 
 /**
  * Bridges the pure activity reducer with Ink's rendering system.
@@ -68,6 +64,24 @@ import { CHALK_THEME, PADDING, PADDING_BUDGET, THEME } from "../ui/theme";
  * **Completion**: The full authoritative response (`event.response.content`)
  * is printed to Static as a single entry so it becomes fully scrollable.
  */
+
+/**
+ * One buffered streaming delta. Either targets the global scrollback pending
+ * buffer (via `store.appendStream`) or a specific ephemeral region (via
+ * `store.appendEphemeral`). The flush coalesces consecutive entries with
+ * the same target.
+ */
+type BufferedStreamDelta =
+  | { readonly target: "stream"; readonly kind: "response" | "reasoning"; readonly delta: string }
+  | { readonly target: "ephemeral"; readonly regionId: string; readonly delta: string };
+
+function sameBufferTarget(a: BufferedStreamDelta, b: BufferedStreamDelta): boolean {
+  if (a.target !== b.target) return false;
+  if (a.target === "stream" && b.target === "stream") return a.kind === b.kind;
+  if (a.target === "ephemeral" && b.target === "ephemeral") return a.regionId === b.regionId;
+  return false;
+}
+
 export class InkStreamingRenderer implements StreamingRenderer {
   private readonly acc;
   /** Timestamp of the last activity state push to the store. */
@@ -83,8 +97,20 @@ export class InkStreamingRenderer implements StreamingRenderer {
   /** True if any text delta was emitted in the current round (for handleComplete fallback). */
   private hasStreamedText = false;
 
+  /**
+   * Active reasoning ephemeral region id (null if none open). Reasoning is
+   * routed through a bounded live panel separate from scrollback so the
+   * user-facing response stream never has to share a buffer with planning text.
+   */
+  private reasoningRegionId: string | null = null;
+  /** Cumulative reasoning text for the active region — used as expand-on-Ctrl-R payload. */
+  private reasoningFullText = "";
+  /** Wall-clock start of the current reasoning region. */
+  private reasoningStartedAt = 0;
+
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000;
+  private static readonly REASONING_PANEL_LINES = 8;
 
   /**
    * Buffered streaming deltas, flushed at `textBufferMs` cadence. Without
@@ -93,10 +119,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * (e.g. ~12 fps at 80ms), giving a "line-by-line" feel similar to
    * claude.ai instead of a frantic chunk-by-chunk one.
    *
-   * Stored as an in-order array so reasoning and response deltas keep their
-   * arrival order at flush time. Empty arrays bypass setTimeout overhead.
+   * Stored as a discriminated-union in-order array so deltas keep their
+   * arrival order at flush time AND we can route to either the global
+   * scrollback `appendStream` (main agent's response) or to a specific
+   * ephemeral region's `appendEphemeral` (reasoning panel, sub-agent panel).
    */
-  private streamBuffer: { kind: "response" | "reasoning"; delta: string }[] = [];
+  private streamBuffer: BufferedStreamDelta[] = [];
   private streamFlushTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private readonly textBufferMs: number;
 
@@ -128,6 +156,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     private readonly displayConfig: DisplayConfig,
     streamingConfig?: { textBufferMs?: number },
     throttleMs?: number,
+    private readonly streamTarget: StreamTarget = { kind: "scrollback" },
   ) {
     this.updateThrottleMs = throttleMs ?? 60;
     this.textBufferMs =
@@ -136,23 +165,39 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   /**
+   * Dispatch a buffered delta to its target — `appendStream` for scrollback
+   * or `appendEphemeral` for a panel region.
+   */
+  private dispatchBufferedDelta(entry: BufferedStreamDelta): void {
+    if (entry.target === "stream") {
+      store.appendStream(entry.kind, entry.delta);
+    } else {
+      store.appendEphemeral(entry.regionId, entry.delta);
+    }
+  }
+
+  /**
    * Append a streaming delta to the in-memory buffer. Schedules a flush
    * within `textBufferMs` if one isn't already pending. With
    * `textBufferMs: 0` the delta flushes synchronously, matching the
    * pre-buffering behavior for callers that opt out.
    */
-  private bufferStreamDelta(kind: "response" | "reasoning", delta: string): void {
-    if (delta.length === 0) return;
+  private bufferStreamDelta(entry: BufferedStreamDelta): void {
+    if (entry.delta.length === 0) return;
     if (this.textBufferMs <= 0) {
-      store.appendStream(kind, delta);
+      this.dispatchBufferedDelta(entry);
       return;
     }
 
-    if (kind === "response") {
-      this.cumulativeResponseText += delta;
+    // Track cumulative response text for adaptive structure-aware buffering
+    // (#218). Only the main agent's response stream feeds the heuristic —
+    // ephemeral panels (reasoning, sub-agent) render in bounded regions
+    // where partial table/code rendering doesn't cause shifting layout.
+    if (entry.target === "stream" && entry.kind === "response") {
+      this.cumulativeResponseText += entry.delta;
     }
 
-    this.streamBuffer.push({ kind, delta });
+    this.streamBuffer.push(entry);
     if (this.streamFlushTimeoutId !== null) return;
 
     this.scheduleBufferFlush(this.textBufferMs);
@@ -197,6 +242,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * Flush any buffered streaming deltas immediately. Called whenever we
    * need on-screen content to be in sync (kind transitions, completion,
    * abort, reset, etc.) so we never lose a tail.
+   *
+   * Coalesces consecutive entries that target the same destination
+   * (same scrollback kind, or same ephemeral region id) into a single
+   * append call, so the underlying store sees one update per run instead
+   * of one per token.
    */
   private flushStreamBuffer(): void {
     if (this.streamFlushTimeoutId !== null) {
@@ -209,26 +259,21 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const buffered = this.streamBuffer;
     this.streamBuffer = [];
 
-    // Coalesce consecutive same-kind chunks into single appendStream calls
-    // so the scrollback adapter sees one append per kind-run instead of N.
-    let runKind: "response" | "reasoning" | null = null;
-    let runText = "";
-    for (const { kind, delta } of buffered) {
-      if (runKind === null) {
-        runKind = kind;
-        runText = delta;
+    let run: BufferedStreamDelta | null = null;
+    for (const entry of buffered) {
+      if (run === null) {
+        run = entry;
         continue;
       }
-      if (kind === runKind) {
-        runText += delta;
+      if (sameBufferTarget(run, entry)) {
+        run = { ...run, delta: run.delta + entry.delta } as BufferedStreamDelta;
       } else {
-        store.appendStream(runKind, runText);
-        runKind = kind;
-        runText = delta;
+        this.dispatchBufferedDelta(run);
+        run = entry;
       }
     }
-    if (runKind !== null && runText.length > 0) {
-      store.appendStream(runKind, runText);
+    if (run !== null && run.delta.length > 0) {
+      this.dispatchBufferedDelta(run);
     }
   }
 
@@ -248,7 +293,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.updateTimeoutId = null;
       }
       this.clearAllToolTimeouts();
+      // Flush buffered deltas BEFORE collapsing the reasoning region so any
+      // in-flight reasoning text lands in the panel before it collapses.
       this.flushStreamBuffer();
+      this.collapseReasoningRegion();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
@@ -263,7 +311,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
       this.pendingActivity = null;
       this.clearAllToolTimeouts();
+      // Flush buffered deltas BEFORE collapsing the reasoning region so any
+      // in-flight reasoning text lands in the panel before it collapses.
       this.flushStreamBuffer();
+      this.collapseReasoningRegion();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
@@ -301,6 +352,41 @@ export class InkStreamingRenderer implements StreamingRenderer {
     "error",
   ]);
 
+  /**
+   * Events that should close any open reasoning panel. Once the model
+   * transitions out of reasoning (into response or tools), the panel
+   * collapses to a one-line summary. The full reasoning text is captured
+   * into the store's expandable-reasoning slot so Ctrl-R can re-emit it.
+   */
+  private static readonly COLLAPSE_REASONING_BEFORE: ReadonlySet<StreamEvent["type"]> = new Set([
+    "thinking_complete",
+    "text_start",
+    "tools_detected",
+    "tool_execution_start",
+    "error",
+  ]);
+
+  /** Collapse the active reasoning panel (if any) with a duration+token summary. */
+  private collapseReasoningRegion(tokens?: number): void {
+    if (this.reasoningRegionId === null) return;
+
+    const durationMs = Date.now() - this.reasoningStartedAt;
+    const seconds = (durationMs / 1000).toFixed(1);
+    const tokenSegment = tokens !== undefined ? ` · ${tokens} tokens` : "";
+    const line = chalk.dim(chalk.italic(`✓ Reasoning · ${seconds}s${tokenSegment}`));
+
+    store.collapseEphemeral(this.reasoningRegionId, {
+      line,
+      fullText: this.reasoningFullText,
+      durationMs,
+      ...(tokens !== undefined && { tokens }),
+    });
+
+    this.reasoningRegionId = null;
+    this.reasoningFullText = "";
+    this.reasoningStartedAt = 0;
+  }
+
   handleEvent(event: StreamEvent): Effect.Effect<void, never> {
     return Effect.sync(() => {
       if (InkStreamingRenderer.SETTLE_BEFORE.has(event.type)) {
@@ -308,6 +394,16 @@ export class InkStreamingRenderer implements StreamingRenderer {
         // so they land in the slice that's about to settle, not the next one.
         this.flushStreamBuffer();
         store.finalizeStream();
+      }
+
+      // Close any open reasoning panel before non-reasoning events. Tokens
+      // aren't available until usage_update / complete; collapse with a
+      // duration-only summary now and let later events refine if needed.
+      if (
+        this.streamTarget.kind === "scrollback" &&
+        InkStreamingRenderer.COLLAPSE_REASONING_BEFORE.has(event.type)
+      ) {
+        this.collapseReasoningRegion();
       }
 
       if (event.type === "stream_start") {
@@ -318,14 +414,46 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
       if (this.displayConfig.showThinking) {
         if (event.type === "thinking_start") {
-          store.printOutput({
-            type: "streamContent",
-            message: chalk.dim(chalk.italic("▸ Reasoning")),
-            timestamp: new Date(),
-          });
+          if (this.streamTarget.kind === "ephemeral") {
+            // Subagent reasoning lives in the subagent's own panel — no
+            // separate reasoning region.
+          } else if (this.reasoningRegionId === null) {
+            this.reasoningRegionId = store.openEphemeral(
+              "reasoning",
+              "Reasoning",
+              InkStreamingRenderer.REASONING_PANEL_LINES,
+            );
+            this.reasoningFullText = "";
+            this.reasoningStartedAt = Date.now();
+          }
         }
         if (event.type === "thinking_chunk") {
-          this.bufferStreamDelta("reasoning", event.content);
+          if (this.streamTarget.kind === "ephemeral") {
+            // Sub-agent reasoning streams into the sub-agent's own panel.
+            this.bufferStreamDelta({
+              target: "ephemeral",
+              regionId: this.streamTarget.regionId,
+              delta: event.content,
+            });
+          } else {
+            // Main-agent reasoning streams into its own dedicated panel.
+            // Open lazily if a chunk somehow arrives without thinking_start.
+            if (this.reasoningRegionId === null) {
+              this.reasoningRegionId = store.openEphemeral(
+                "reasoning",
+                "Reasoning",
+                InkStreamingRenderer.REASONING_PANEL_LINES,
+              );
+              this.reasoningStartedAt = Date.now();
+              this.reasoningFullText = "";
+            }
+            this.reasoningFullText += event.content;
+            this.bufferStreamDelta({
+              target: "ephemeral",
+              regionId: this.reasoningRegionId,
+              delta: event.content,
+            });
+          }
         }
       }
 
@@ -346,7 +474,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
 
       // Run the pure reducer for activity state + Static side-effects.
-      const result = reduceEvent(this.acc, event, (text) => this.formatReasoningText(text), ink);
+      const result = reduceEvent(this.acc, event, ink);
 
       for (const entry of result.outputs) {
         store.printOutput(entry);
@@ -366,7 +494,17 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "text_chunk") {
         const delta = this.consumeTextDelta(event);
         if (delta.length > 0) {
-          this.bufferStreamDelta("response", delta);
+          if (this.streamTarget.kind === "ephemeral") {
+            // Sub-agent response streams into the sub-agent's own panel.
+            this.bufferStreamDelta({
+              target: "ephemeral",
+              regionId: this.streamTarget.regionId,
+              delta,
+            });
+          } else {
+            // Main-agent response streams into the global scrollback.
+            this.bufferStreamDelta({ target: "stream", kind: "response", delta });
+          }
           this.hasStreamedText = true;
         }
       }
@@ -402,7 +540,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.pendingActivity = null;
     }
 
+    // Drain buffered deltas + close any open reasoning panel before the
+    // turn settles, so neither leaves a hanging tail in scrollback.
     this.flushStreamBuffer();
+    this.collapseReasoningRegion();
     store.finalizeStream();
 
     if (!this.hasStreamedText) {
@@ -649,19 +790,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
     store.setActivity(activity);
   }
 
-  /**
-   * Format markdown and pre-wrap at terminal width for live-area reasoning.
-   *
-   * The live area is re-rendered frequently by Ink/Yoga, which can miscalculate
-   * available width. Pre-wrapping avoids that bug. Uses PADDING constants
-   * from theme.ts: page×2 + content + content (reasoning) = total budget.
-   */
-  private formatReasoningText(text: string): string {
-    const formatted = this.formatMarkdownContent(text);
-    const reasoningBudget = PADDING_BUDGET + PADDING.content;
-    return wrapToWidth(formatted, getTerminalWidth() - reasoningBudget);
-  }
-
   /** Apply markdown formatting based on display mode (no wrapping). */
   private formatMarkdownContent(text: string): string {
     if (this.displayConfig.mode === "rendered") {
@@ -729,7 +857,6 @@ class InkPresentationService implements PresentationService {
       store.setActivity({
         phase: "thinking",
         agentName,
-        reasoning: "",
       });
     });
   }
@@ -819,6 +946,8 @@ class InkPresentationService implements PresentationService {
         config.showMetrics,
         config.displayConfig,
         config.streamingConfig,
+        undefined,
+        config.streamTarget ?? { kind: "scrollback" },
       );
     });
   }

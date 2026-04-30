@@ -214,6 +214,18 @@ export interface PresentationService {
 }
 
 /**
+ * Where the renderer should write streamed reasoning + response deltas.
+ *
+ * - `scrollback` (default): the global pending streaming buffer in the
+ *   scrollback. Use for the main agent's user-facing response.
+ * - `ephemeral`: a bounded live region identified by `regionId`. Use for
+ *   subagent runs and (later) reasoning that should not occupy scrollback.
+ */
+export type StreamTarget =
+  | { readonly kind: "scrollback" }
+  | { readonly kind: "ephemeral"; readonly regionId: string };
+
+/**
  * Configuration for creating a streaming renderer
  */
 export interface StreamingRendererConfig {
@@ -222,6 +234,8 @@ export interface StreamingRendererConfig {
   readonly showMetrics: boolean;
   readonly agentName: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high" | undefined;
+  /** Optional override of where streamed deltas are routed. Default: scrollback. */
+  readonly streamTarget?: StreamTarget;
 }
 
 /**
