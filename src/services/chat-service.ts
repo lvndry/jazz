@@ -205,7 +205,11 @@ export class ChatServiceImpl implements ChatService {
           continue;
         }
 
-        if (conversationTitle === null && trimmedMessage.length > 0 && !trimmedMessage.startsWith("/")) {
+        if (
+          conversationTitle === null &&
+          trimmedMessage.length > 0 &&
+          !trimmedMessage.startsWith("/")
+        ) {
           conversationTitle = trimmedMessage.slice(0, 80);
         }
 
@@ -247,6 +251,7 @@ export class ChatServiceImpl implements ChatService {
 
             if (commandResult.newConversationId !== undefined) {
               conversationId = commandResult.newConversationId;
+              conversationTitle = null;
               sessionUsage = { promptTokens: 0, completionTokens: 0 };
               // Initialize the new conversation
               const fileSystemContext = yield* FileSystemContextServiceTag;
