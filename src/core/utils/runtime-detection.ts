@@ -78,6 +78,16 @@ export function getGlobalUserDataDirectory(): string {
 }
 
 /**
+ * Get the directory where Jazz stores per-agent conversation history.
+ *
+ * - Global install: ~/.jazz/history
+ * - Development:    ./.jazz/history
+ */
+export function getHistoryDirectory(): string {
+  return path.join(getUserDataDirectory(), "history");
+}
+
+/**
  * Get the jazz-ai package's root directory (where package.json lives).
  *
  * This is used to locate built-in assets (skills, templates, etc.) that ship

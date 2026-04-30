@@ -10,6 +10,9 @@ export const TOOL_TIMEOUT_MS = 3 * 60 * 1000;
 /** Maximum number of workflow run history records to keep */
 export const MAX_RUN_HISTORY_RECORDS = 100;
 
+/** Maximum number of conversation history records to keep per agent */
+export const MAX_CONVERSATION_HISTORY_PER_AGENT = 5;
+
 /** Default maximum age for workflow catch-up runs in seconds (24 hours) */
 export const DEFAULT_MAX_CATCH_UP_AGE_SECONDS = 60 * 60 * 24;
 
