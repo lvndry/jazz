@@ -10,6 +10,7 @@ import { formatMarkdown } from "../presentation/markdown-formatter";
 import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
+import { QueueInput } from "./QueueInput";
 import StatusFooter from "./StatusFooter";
 import { store, type RunStats } from "./store";
 import { PADDING, THEME } from "./theme";
@@ -54,14 +55,20 @@ const ActivityIsland = React.memo(ActivityIslandComponent);
 function PromptIslandComponent(): React.ReactElement | null {
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [messageQueue, setMessageQueue] = useState("");
   const initializedRef = useRef(false);
 
   // Register setters synchronously during render
   if (!initializedRef.current) {
     store.registerPromptSetter(setPrompt);
     store.registerWorkingDirectorySetter(setWorkingDirectory);
+    store.registerChatBusySetter(setChatBusy);
+    store.registerMessageQueueSetter(setMessageQueue);
     setPrompt(store.getPromptSnapshot());
     setWorkingDirectory(store.getWorkingDirectorySnapshot());
+    setChatBusy(store.getChatBusySnapshot());
+    setMessageQueue(store.getMessageQueueSnapshot());
     initializedRef.current = true;
   }
 
@@ -70,17 +77,30 @@ function PromptIslandComponent(): React.ReactElement | null {
     return () => {
       store.registerPromptSetter(() => {});
       store.registerWorkingDirectorySetter(() => {});
+      store.registerChatBusySetter(() => {});
+      store.registerMessageQueueSetter(() => {});
     };
   }, []);
 
-  if (!prompt) return null;
+  if (prompt) {
+    return (
+      <Prompt
+        prompt={prompt}
+        workingDirectory={workingDirectory}
+      />
+    );
+  }
 
-  return (
-    <Prompt
-      prompt={prompt}
-      workingDirectory={workingDirectory}
-    />
-  );
+  if (chatBusy) {
+    return (
+      <QueueInput
+        queue={messageQueue}
+        workingDirectory={workingDirectory}
+      />
+    );
+  }
+
+  return null;
 }
 
 const PromptIsland = React.memo(PromptIslandComponent);
@@ -264,6 +284,8 @@ export function App(): React.ReactElement {
         clearTimeout(escapeHintTimerRef.current);
         escapeHintTimerRef.current = null;
       }
+      // User-initiated abort — drop any queued chat message too.
+      store.clearQueue();
       interruptHandlerRef.current();
     } else {
       // First press — show hint, auto-dismiss after timeout

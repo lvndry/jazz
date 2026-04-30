@@ -161,14 +161,34 @@ function PromptComponent({
     deps: [commandSuggestionsEnabled, suggestionsVisible],
   });
 
-  useEffect(() => {
-    // React can batch `setPrompt(null)` + `setPrompt(nextPrompt)`, so this component
-    // may not unmount between prompts. Ensure the input is reset for each new prompt.
-    const rawDefaultValue = prompt.options?.["defaultValue"];
-    const defaultValue =
-      prompt.type === "chat" && typeof rawDefaultValue === "string" ? rawDefaultValue : "";
+  // Track the previous prompt's type so we only reset the input buffer when
+  // the prompt's *kind* changes (e.g. confirm → chat) rather than on every
+  // prompt change. Without this, anything the user typed into QueueInput
+  // while the agent was busy would be wiped the instant the next chat prompt
+  // arrives, since this Prompt component remounts and the effect fires.
+  const previousPromptTypeRef = useRef<string | null>(null);
 
-    setValue(defaultValue, defaultValue.length);
+  useEffect(() => {
+    const rawDefaultValue = prompt.options?.["defaultValue"];
+    const hasExplicitDefault = prompt.type === "chat" && typeof rawDefaultValue === "string";
+    const previousType = previousPromptTypeRef.current;
+    const typeChanged = previousType !== null && previousType !== prompt.type;
+
+    if (hasExplicitDefault) {
+      // Caller explicitly seeded the input — honor it.
+      const defaultValue = rawDefaultValue;
+      setValue(defaultValue, defaultValue.length);
+    } else if (typeChanged) {
+      // Prompt kind changed (e.g. confirm → chat) without unmount: clear so
+      // any leftover state from the previous prompt's input semantics doesn't
+      // bleed into the new one.
+      setValue("", 0);
+    }
+    // Otherwise: same prompt type as before, or first mount of this Prompt.
+    // Preserve whatever's already in the shared text-input buffer — it may
+    // hold text the user typed in QueueInput during the busy phase.
+
+    previousPromptTypeRef.current = prompt.type;
     setValidationError(null);
     setSelectedSuggestionIndex(0);
   }, [prompt, setValue]);
