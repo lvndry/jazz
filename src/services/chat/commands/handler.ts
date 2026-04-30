@@ -184,6 +184,7 @@ function handleNewCommand(
       shouldContinue: true,
       newConversationId: generateConversationId(),
       newHistory: [],
+      saveCurrentHistory: true,
     };
   });
 }
@@ -232,6 +233,7 @@ function handleForkCommand(
       shouldContinue: true,
       newConversationId: generateConversationId(),
       newHistory,
+      saveCurrentHistory: true,
     };
   });
 }
@@ -1090,7 +1092,7 @@ function handleResumeCommand(
 
     yield* terminal.success(`Resumed: ${selected.title}`);
     yield* terminal.log("");
-    return { shouldContinue: true, newHistory };
+    return { shouldContinue: true, newHistory, saveCurrentHistory: true };
   });
 }
 

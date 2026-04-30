@@ -108,7 +108,7 @@ export class ChatServiceImpl implements ChatService {
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
-      const startedAt = sessionStartedAt.toISOString();
+      let startedAt = sessionStartedAt.toISOString();
       let conversationTitle: string | null = null;
 
       // Load persistent auto-approved commands from config
@@ -249,9 +249,27 @@ export class ChatServiceImpl implements ChatService {
               context,
             );
 
+            if (
+              commandResult.saveCurrentHistory &&
+              conversationTitle !== null &&
+              conversationHistory.length > 0
+            ) {
+              const record: ConversationRecord = {
+                conversationId,
+                title: conversationTitle,
+                agentId: agent.id,
+                startedAt,
+                endedAt: new Date().toISOString(),
+                messageCount: conversationHistory.length,
+                messages: conversationHistory,
+              };
+              yield* saveConversation(record).pipe(Effect.catchAll(() => Effect.void));
+            }
+
             if (commandResult.newConversationId !== undefined) {
               conversationId = commandResult.newConversationId;
               conversationTitle = null;
+              startedAt = new Date().toISOString();
               sessionUsage = { promptTokens: 0, completionTokens: 0 };
               // Initialize the new conversation
               const fileSystemContext = yield* FileSystemContextServiceTag;
@@ -528,13 +546,7 @@ export class ChatServiceImpl implements ChatService {
           messageCount: conversationHistory.length,
           messages: conversationHistory,
         };
-        const fs = yield* FileSystem.FileSystem;
-        const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
-        yield* saveConversation(record).pipe(
-          Effect.catchAll(() => Effect.void),
-          Effect.provide(fsLayer),
-          Effect.forkDaemon,
-        );
+        yield* saveConversation(record).pipe(Effect.catchAll(() => Effect.void));
       }
     }).pipe(Effect.catchAll(() => Effect.void));
   }

@@ -53,6 +53,8 @@ export interface CommandResult {
   addAutoApprovedCommand?: string;
   /** Command prefix to remove from auto-approved commands list */
   removeAutoApprovedCommand?: string;
+  /** Save current conversation history before resetting state */
+  saveCurrentHistory?: boolean;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */
