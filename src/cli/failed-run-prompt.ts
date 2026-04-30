@@ -40,13 +40,17 @@ export function promptFailedRunsWarning() {
 
     const scheduledNames = new Set(scheduled.map((s) => s.workflowName));
 
-    // Find the latest record (by completedAt ?? startedAt) for each scheduled
-    // workflow, and keep only those whose latest is "failed".
+    // Find the latest *attempt* per scheduled workflow, and keep only those
+    // whose latest attempt failed. We sort on `startedAt` (not completedAt)
+    // because runs can overlap — e.g. a long-running catch-up that finishes
+    // after a quick failure that started later. Sorting on completedAt would
+    // pick the long-running one as "latest" even though a more recent
+    // attempt exists.
     type Latest = { record: WorkflowRunRecord; ts: number };
     const latestByWorkflow = new Map<string, Latest>();
     for (const record of history) {
       if (!scheduledNames.has(record.workflowName)) continue;
-      const ts = Date.parse(record.completedAt ?? record.startedAt);
+      const ts = Date.parse(record.startedAt);
       if (!Number.isFinite(ts)) continue;
       const existing = latestByWorkflow.get(record.workflowName);
       if (!existing || ts > existing.ts) {
