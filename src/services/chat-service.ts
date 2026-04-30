@@ -285,6 +285,7 @@ export class ChatServiceImpl implements ChatService {
               conversationHistory = commandResult.newHistory;
               // Reset logged message count when history is cleared (e.g., /new command)
               loggedMessageCount = 0;
+              conversationTitle = null;
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
               autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;
