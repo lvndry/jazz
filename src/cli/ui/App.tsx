@@ -56,7 +56,7 @@ function PromptIslandComponent(): React.ReactElement | null {
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
   const [chatBusy, setChatBusy] = useState(false);
-  const [messageQueue, setMessageQueue] = useState("");
+  const [messageQueue, setMessageQueue] = useState<readonly string[]>([]);
   const initializedRef = useRef(false);
 
   // Register setters synchronously during render
