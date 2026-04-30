@@ -127,14 +127,12 @@ function buildThinkingOrStreamingActivity(acc: ReducerAccumulator): ActivityStat
     return {
       phase: "streaming",
       agentName: acc.agentName,
-      reasoning: "",
       text: "",
     };
   }
   return {
     phase: "thinking",
     agentName: acc.agentName,
-    reasoning: "",
   };
 }
 
@@ -224,7 +222,6 @@ function formatTodoSnapshotForOutput(todoSnapshot: TodoSnapshotItem[]): string {
 export function reduceEvent(
   acc: ReducerAccumulator,
   event: StreamEvent,
-  _formatMarkdown: (text: string) => string,
   inkRender: (node: unknown) => TerminalOutput,
 ): ReducerResult {
   const outputs: OutputEntry[] = [];
@@ -295,7 +292,6 @@ export function reduceEvent(
         activity: {
           phase: "streaming",
           agentName: acc.agentName,
-          reasoning: "",
           text: "",
         },
         outputs,

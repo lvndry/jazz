@@ -108,6 +108,8 @@ export class UIStore {
   private runStatsSnapshot: RunStats = {};
   private ephemeralRegionsSnapshot: readonly EphemeralRegion[] = [];
   private expandableReasoningSnapshot: ExpandableReasoning | null = null;
+  private messageQueueSnapshot: string = "";
+  private chatBusySnapshot: boolean = false;
 
   // Insertion-ordered map of live ephemeral regions, keyed by id.
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
@@ -120,6 +122,8 @@ export class UIStore {
   private runStatsSetter: ((stats: RunStats) => void) | null = null;
   private ephemeralRegionsSetter: ((regions: readonly EphemeralRegion[]) => void) | null = null;
   private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
+  private messageQueueSetter: ((queue: string) => void) | null = null;
+  private chatBusySetter: ((busy: boolean) => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
 
@@ -245,6 +249,42 @@ export class UIStore {
     }
     const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
     this.interruptHandlerSetter?.(top);
+  };
+
+  /**
+   * Append text to the chat message queue. If the queue is non-empty, the new
+   * text is joined to the existing content with a single newline.
+   */
+  appendToQueue = (text: string): void => {
+    if (text.length === 0) return;
+    const next =
+      this.messageQueueSnapshot.length === 0 ? text : `${this.messageQueueSnapshot}\n${text}`;
+    this.messageQueueSnapshot = next;
+    this.messageQueueSetter?.(next);
+  };
+
+  /** Read the queue contents without clearing. */
+  peekQueue = (): string => this.messageQueueSnapshot;
+
+  /** Read the queue and clear it. */
+  takeQueue = (): string => {
+    const value = this.messageQueueSnapshot;
+    if (value.length === 0) return "";
+    this.messageQueueSnapshot = "";
+    this.messageQueueSetter?.("");
+    return value;
+  };
+
+  clearQueue = (): void => {
+    if (this.messageQueueSnapshot.length === 0) return;
+    this.messageQueueSnapshot = "";
+    this.messageQueueSetter?.("");
+  };
+
+  setChatBusy = (busy: boolean): void => {
+    if (this.chatBusySnapshot === busy) return;
+    this.chatBusySnapshot = busy;
+    this.chatBusySetter?.(busy);
   };
 
   setExpandableDiff = (fullDiff: string): void => {
@@ -433,6 +473,16 @@ export class UIStore {
     this.setCustomView = setter;
   }
 
+  registerMessageQueueSetter(setter: (queue: string) => void): void {
+    this.messageQueueSetter = setter;
+    setter(this.messageQueueSnapshot);
+  }
+
+  registerChatBusySetter(setter: (busy: boolean) => void): void {
+    this.chatBusySetter = setter;
+    setter(this.chatBusySnapshot);
+  }
+
   registerInterruptHandler(setter: ((handler: (() => void) | null) => void) | null): void {
     this.interruptHandlerSetter = setter;
     if (setter) {
@@ -475,6 +525,14 @@ export class UIStore {
 
   getExpandableReasoningSnapshot(): ExpandableReasoning | null {
     return this.expandableReasoningSnapshot;
+  }
+
+  getMessageQueueSnapshot(): string {
+    return this.messageQueueSnapshot;
+  }
+
+  getChatBusySnapshot(): boolean {
+    return this.chatBusySnapshot;
   }
 
   // ── Pending queue management ──────────────────────────────────────

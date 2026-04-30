@@ -3,6 +3,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { Cause, Duration, Effect, Exit, Fiber, Layer, Option } from "effect";
 import { autoCheckForUpdate } from "./cli/auto-update";
 import { promptInteractiveCatchUp } from "./cli/catch-up-prompt";
+import { promptFailedRunsWarning } from "./cli/failed-run-prompt";
 import { CLIPresentationServiceLayer } from "./cli/presentation/cli-presentation-service";
 import { InkPresentationServiceLayer } from "./cli/presentation/ink-presentation-service";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
@@ -236,6 +237,11 @@ export function runCliEffect<R, E extends JazzError | Error>(
       // Interactive prompt for catch-up - asks user if they want to run missed workflows
       // Runs selected workflows in background, then continues with the original command
       yield* promptInteractiveCatchUp();
+
+      // Surface scheduled workflows whose most recent run ended in failure
+      // (agent missing, quota exceeded, network error, etc.). One-shot info
+      // line — does not block the command.
+      yield* promptFailedRunsWarning();
     }
 
     const fiber = yield* Effect.fork(autoCheckForUpdate().pipe(Effect.zipRight(effect)));

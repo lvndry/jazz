@@ -3,9 +3,6 @@ import React from "react";
 import { AWAITING_LABELS, createAccumulator, reduceEvent } from "./activity-reducer";
 import type { ReducerAccumulator } from "./activity-reducer";
 
-/** Identity formatter — returns text unchanged so assertions are straightforward. */
-const identity = (s: string) => s;
-
 /** Stub ink renderer — returns the string tag for assertions. */
 const stubInk = (node: unknown) => `[ink:${typeof node}]`;
 
@@ -68,7 +65,6 @@ describe("activity-reducer", () => {
       const result = reduceEvent(
         a,
         { type: "stream_start", provider: "openai", model: "gpt-4", timestamp: Date.now() },
-        identity,
         stubInk,
       );
 
@@ -97,37 +93,28 @@ describe("activity-reducer", () => {
   describe("thinking lifecycle", () => {
     test("thinking_start sets phase to thinking", () => {
       const a = acc();
-      const result = reduceEvent(
-        a,
-        { type: "thinking_start", provider: "test" },
-        identity,
-        stubInk,
-      );
+      const result = reduceEvent(a, { type: "thinking_start", provider: "test" }, stubInk);
 
       expect(a.isThinking).toBe(true);
       expect(result.activity).not.toBeNull();
       expect(result.activity!.phase).toBe("thinking");
     });
 
-    test("thinking_chunk returns thinking phase without reasoning", () => {
+    test("thinking_chunk returns thinking phase", () => {
       const a = acc({ isThinking: true });
       const result = reduceEvent(
         a,
         { type: "thinking_chunk", content: "deep thought", sequence: 0 },
-        identity,
         stubInk,
       );
 
       expect(result.activity).not.toBeNull();
       expect(result.activity!.phase).toBe("thinking");
-      if (result.activity!.phase === "thinking") {
-        expect(result.activity!.reasoning).toBe("");
-      }
     });
 
     test("thinking_complete transitions to thinking phase and emits no outputs", () => {
       const a = acc({ isThinking: true });
-      const result = reduceEvent(a, { type: "thinking_complete" }, identity, stubInk);
+      const result = reduceEvent(a, { type: "thinking_complete" }, stubInk);
 
       expect(a.isThinking).toBe(false);
       expect(result.outputs.length).toBe(0);
@@ -141,14 +128,14 @@ describe("activity-reducer", () => {
   describe("text lifecycle", () => {
     test("text_start resets sequence", () => {
       const a = acc({ lastAppliedTextSequence: 5 });
-      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      reduceEvent(a, { type: "text_start" }, stubInk);
 
       expect(a.lastAppliedTextSequence).toBe(-1);
     });
 
     test("text_start enters streaming phase and emits no outputs", () => {
       const a = acc();
-      const result = reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      const result = reduceEvent(a, { type: "text_start" }, stubInk);
 
       expect(result.activity).not.toBeNull();
       expect(result.activity!.phase).toBe("streaming");
@@ -157,11 +144,10 @@ describe("activity-reducer", () => {
 
     test("text_chunk returns streaming activity without live text in activity", () => {
       const a = acc();
-      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      reduceEvent(a, { type: "text_start" }, stubInk);
       const result = reduceEvent(
         a,
         { type: "text_chunk", delta: "Hi", accumulated: "Hi", sequence: 0 },
-        identity,
         stubInk,
       );
 
@@ -174,12 +160,7 @@ describe("activity-reducer", () => {
 
     test("text_chunk ignores stale sequence", () => {
       const a = acc({ lastAppliedTextSequence: 3 });
-      reduceEvent(
-        a,
-        { type: "text_chunk", delta: "H", accumulated: "H", sequence: 1 },
-        identity,
-        stubInk,
-      );
+      reduceEvent(a, { type: "text_chunk", delta: "H", accumulated: "H", sequence: 1 }, stubInk);
 
       expect(a.lastAppliedTextSequence).toBe(3);
     });
@@ -200,7 +181,6 @@ describe("activity-reducer", () => {
           toolCallId: "tc-1",
           arguments: { command: "ls" },
         },
-        identity,
         stubInk,
       );
 
@@ -226,7 +206,6 @@ describe("activity-reducer", () => {
           arguments: { query: "effect typescript" },
           metadata: { provider: "builtin" },
         },
-        identity,
         stubInk,
       );
 
@@ -248,7 +227,6 @@ describe("activity-reducer", () => {
           result: "ok",
           durationMs: 42,
         },
-        identity,
         stubInk,
       );
 
@@ -271,7 +249,6 @@ describe("activity-reducer", () => {
           result: "ok",
           durationMs: 10,
         },
-        identity,
         stubInk,
       );
 
@@ -292,7 +269,6 @@ describe("activity-reducer", () => {
           result: JSON.stringify(skillBody),
           durationMs: 2,
         },
-        identity,
         render,
       );
       expect(result.outputs[0]!.type).toBe("log");
@@ -315,7 +291,6 @@ describe("activity-reducer", () => {
           durationMs: 10,
           summary: "line1\nline2",
         },
-        identity,
         render,
       );
 
@@ -343,7 +318,6 @@ describe("activity-reducer", () => {
             ],
           },
         },
-        identity,
         stubInk,
       );
 
@@ -376,7 +350,6 @@ describe("activity-reducer", () => {
           result: JSON.stringify({ ok: true }),
           durationMs: 10,
         },
-        identity,
         render,
       );
 
@@ -404,7 +377,6 @@ describe("activity-reducer", () => {
           toolsRequiringApproval: ["bash"],
           agentName: "TestAgent",
         },
-        identity,
         stubInk,
       );
 
@@ -424,12 +396,7 @@ describe("activity-reducer", () => {
     test("transitions to error phase and emits error log", () => {
       const a = acc();
       const error = { _tag: "LLMError" as const, message: "rate limited", name: "LLMError" };
-      const result = reduceEvent(
-        a,
-        { type: "error", error, recoverable: false },
-        identity,
-        stubInk,
-      );
+      const result = reduceEvent(a, { type: "error", error, recoverable: false }, stubInk);
 
       expect(result.activity!.phase).toBe("error");
       if (result.activity!.phase === "error") {
@@ -454,7 +421,6 @@ describe("activity-reducer", () => {
           response: { content: "", role: "assistant", usage: undefined, toolCalls: [] },
           totalDurationMs: 100,
         },
-        identity,
         stubInk,
       );
 
@@ -476,7 +442,6 @@ describe("activity-reducer", () => {
           type: "usage_update",
           usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
         },
-        identity,
         stubInk,
       );
 
@@ -497,37 +462,32 @@ describe("activity-reducer", () => {
       const r1 = reduceEvent(
         a,
         { type: "stream_start", provider: "p", model: "m", timestamp: 0 },
-        identity,
         stubInk,
       );
       expect(r1.activity!.phase).toBe("awaiting");
 
       // thinking_start → thinking phase
-      const r2 = reduceEvent(a, { type: "thinking_start", provider: "p" }, identity, stubInk);
+      const r2 = reduceEvent(a, { type: "thinking_start", provider: "p" }, stubInk);
       expect(r2.activity!.phase).toBe("thinking");
 
       // thinking_chunk
-      reduceEvent(a, { type: "thinking_chunk", content: "hmm", sequence: 0 }, identity, stubInk);
+      reduceEvent(a, { type: "thinking_chunk", content: "hmm", sequence: 0 }, stubInk);
 
       // thinking_complete
-      reduceEvent(a, { type: "thinking_complete" }, identity, stubInk);
+      reduceEvent(a, { type: "thinking_complete" }, stubInk);
 
       // text_start — now enters streaming immediately (even before first chunk)
-      const r5 = reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      const r5 = reduceEvent(a, { type: "text_start" }, stubInk);
       expect(r5.activity!.phase).toBe("streaming");
       // text_chunk → streaming (response text is not shown in activity)
       const r6 = reduceEvent(
         a,
         { type: "text_chunk", delta: "Hi", accumulated: "Hi", sequence: 0 },
-        identity,
         stubInk,
       );
       expect(r6.activity!.phase).toBe("streaming");
       if (r6.activity!.phase === "streaming") {
         expect(r6.activity!.text).toBe("");
-        // Completed reasoning was already logged to Static output, so it is
-        // NOT carried into the streaming activity (avoids on-screen duplication).
-        expect(r6.activity!.reasoning).toBe("");
       }
 
       // complete
@@ -538,7 +498,6 @@ describe("activity-reducer", () => {
           response: { content: "Hi", role: "assistant", usage: undefined, toolCalls: [] },
           totalDurationMs: 50,
         },
-        identity,
         stubInk,
       );
       expect(r7.activity!.phase).toBe("complete");
@@ -550,14 +509,13 @@ describe("activity-reducer", () => {
     test("long text does not appear in activity state during streaming", () => {
       const { render } = createCapturingInk();
       const a = acc();
-      reduceEvent(a, { type: "text_start" }, identity, render);
+      reduceEvent(a, { type: "text_start" }, render);
 
       // Even very long text should NOT appear in activity state
       const longText = "A".repeat(5000) + "\n\n" + "B".repeat(100);
       const r2 = reduceEvent(
         a,
         { type: "text_chunk", delta: longText, accumulated: longText, sequence: 0 },
-        identity,
         render,
       );
 
@@ -575,11 +533,10 @@ describe("activity-reducer", () => {
 
     test("short streaming text does not appear in activity.text", () => {
       const a = acc();
-      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      reduceEvent(a, { type: "text_start" }, stubInk);
       const result = reduceEvent(
         a,
         { type: "text_chunk", delta: "Hello world", accumulated: "Hello world", sequence: 0 },
-        identity,
         stubInk,
       );
 
@@ -601,11 +558,10 @@ describe("activity-reducer", () => {
   describe("streaming text never produces output entries", () => {
     test("text_chunk produces zero output entries (short text)", () => {
       const a = acc();
-      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      reduceEvent(a, { type: "text_start" }, stubInk);
       const result = reduceEvent(
         a,
         { type: "text_chunk", delta: "Hello", accumulated: "Hello", sequence: 0 },
-        identity,
         stubInk,
       );
 
@@ -614,12 +570,11 @@ describe("activity-reducer", () => {
 
     test("text_chunk produces zero output entries (long text)", () => {
       const a = acc();
-      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      reduceEvent(a, { type: "text_start" }, stubInk);
       const longText = "word ".repeat(1000).trim();
       const result = reduceEvent(
         a,
         { type: "text_chunk", delta: longText, accumulated: longText, sequence: 0 },
-        identity,
         stubInk,
       );
 
@@ -628,7 +583,7 @@ describe("activity-reducer", () => {
 
     test("many sequential text_chunks all produce zero output entries", () => {
       const a = acc();
-      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      reduceEvent(a, { type: "text_start" }, stubInk);
 
       // Simulate 50 tokens arriving one at a time (real streaming)
       let accumulated = "";
@@ -638,7 +593,6 @@ describe("activity-reducer", () => {
         const result = reduceEvent(
           a,
           { type: "text_chunk", delta: token, accumulated, sequence: i },
-          identity,
           stubInk,
         );
 
@@ -655,7 +609,7 @@ describe("activity-reducer", () => {
 
     test("text_chunk never produces streamContent output entries regardless of text size", () => {
       const a = acc();
-      reduceEvent(a, { type: "text_start" }, identity, stubInk);
+      reduceEvent(a, { type: "text_start" }, stubInk);
 
       // Try various sizes that might previously have triggered flush thresholds
       const sizes = [100, 500, 2000, 4000, 5000, 10000, 50000];
@@ -664,7 +618,6 @@ describe("activity-reducer", () => {
         const result = reduceEvent(
           a,
           { type: "text_chunk", delta: text, accumulated: text, sequence: size },
-          identity,
           stubInk,
         );
 

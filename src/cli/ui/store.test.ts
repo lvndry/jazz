@@ -180,8 +180,8 @@ describe("UIStore", () => {
       const s = new UIStore();
       expect(s.getActivitySnapshot()).toEqual({ phase: "idle" });
 
-      s.setActivity({ phase: "thinking", agentName: "A", reasoning: "" });
-      expect(s.getActivitySnapshot()).toEqual({ phase: "thinking", agentName: "A", reasoning: "" });
+      s.setActivity({ phase: "thinking", agentName: "A" });
+      expect(s.getActivitySnapshot()).toEqual({ phase: "thinking", agentName: "A" });
     });
 
     test("forwards activity to registered setter", () => {
@@ -189,7 +189,7 @@ describe("UIStore", () => {
       const calls: unknown[] = [];
       s.registerActivitySetter((a) => calls.push(a));
 
-      s.setActivity({ phase: "thinking", agentName: "A", reasoning: "" });
+      s.setActivity({ phase: "thinking", agentName: "A" });
       expect(calls).toHaveLength(1);
     });
   });
@@ -422,6 +422,109 @@ describe("UIStore", () => {
       s.collapseEphemeral(id, { durationMs: 1, line: "✓ R" });
 
       expect(seen).toEqual([1, 1, 0]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Message queue (chat busy-mode buffering)
+  // -------------------------------------------------------------------------
+
+  describe("message queue", () => {
+    test("appendToQueue accumulates with newline separator", () => {
+      const s = new UIStore();
+      s.appendToQueue("first");
+      s.appendToQueue("second");
+      s.appendToQueue("third");
+
+      expect(s.peekQueue()).toBe("first\nsecond\nthird");
+    });
+
+    test("appendToQueue with empty string is a no-op", () => {
+      const s = new UIStore();
+      s.appendToQueue("only");
+      s.appendToQueue("");
+
+      expect(s.peekQueue()).toBe("only");
+    });
+
+    test("takeQueue returns and clears", () => {
+      const s = new UIStore();
+      s.appendToQueue("hello");
+
+      expect(s.takeQueue()).toBe("hello");
+      expect(s.peekQueue()).toBe("");
+    });
+
+    test("takeQueue on empty queue returns empty string", () => {
+      const s = new UIStore();
+      expect(s.takeQueue()).toBe("");
+    });
+
+    test("clearQueue empties the queue", () => {
+      const s = new UIStore();
+      s.appendToQueue("a");
+      s.appendToQueue("b");
+      s.clearQueue();
+
+      expect(s.peekQueue()).toBe("");
+    });
+
+    test("setter is notified on append, clear, and take", () => {
+      const s = new UIStore();
+      const seen: string[] = [];
+      s.registerMessageQueueSetter((q) => seen.push(q));
+
+      s.appendToQueue("a");
+      s.appendToQueue("b");
+      s.takeQueue();
+      s.appendToQueue("c");
+      s.clearQueue();
+
+      // First call is the hydration on register (empty), then each mutation.
+      expect(seen).toEqual(["", "a", "a\nb", "", "c", ""]);
+    });
+
+    test("clearQueue when already empty does not notify setter", () => {
+      const s = new UIStore();
+      const seen: string[] = [];
+      s.registerMessageQueueSetter((q) => seen.push(q));
+      seen.length = 0; // discard hydration call
+
+      s.clearQueue();
+      expect(seen).toEqual([]);
+    });
+
+    test("snapshot accessor stays in sync", () => {
+      const s = new UIStore();
+      s.appendToQueue("x");
+      expect(s.getMessageQueueSnapshot()).toBe("x");
+      s.takeQueue();
+      expect(s.getMessageQueueSnapshot()).toBe("");
+    });
+  });
+
+  describe("chatBusy", () => {
+    test("setChatBusy toggles snapshot", () => {
+      const s = new UIStore();
+      expect(s.getChatBusySnapshot()).toBe(false);
+      s.setChatBusy(true);
+      expect(s.getChatBusySnapshot()).toBe(true);
+      s.setChatBusy(false);
+      expect(s.getChatBusySnapshot()).toBe(false);
+    });
+
+    test("setter is notified on change but not on no-op", () => {
+      const s = new UIStore();
+      const seen: boolean[] = [];
+      s.registerChatBusySetter((b) => seen.push(b));
+      seen.length = 0; // discard hydration
+
+      s.setChatBusy(true);
+      s.setChatBusy(true); // no-op
+      s.setChatBusy(false);
+      s.setChatBusy(false); // no-op
+
+      expect(seen).toEqual([true, false]);
     });
   });
 });
