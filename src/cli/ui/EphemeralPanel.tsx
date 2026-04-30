@@ -4,7 +4,7 @@ import { PreWrappedText } from "./components/PreWrappedText";
 import { getGlyphs } from "./glyphs";
 import type { EphemeralRegion } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
-import { wrapToWidth } from "../presentation/markdown-formatter";
+import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
 
 const G = getGlyphs();
@@ -28,7 +28,13 @@ export function EphemeralPanel({ region }: { region: EphemeralRegion }): React.R
   const tailColor = region.kind === "reasoning" ? THEME.reasoning : "white";
 
   const availableWidth = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content);
-  const wrappedTail = region.tail.map((line) => wrapToWidth(line, availableWidth)).join("\n");
+  // Format markdown for reasoning panels so inline code, bold, lists etc.
+  // render the same way they do in the main response stream. Subagent panels
+  // already get raw output (their content can be anything — JSON, search
+  // results, code) so we leave that untouched.
+  const rawTail = region.tail.join("\n");
+  const formattedTail = region.kind === "reasoning" ? formatMarkdown(rawTail) : rawTail;
+  const wrappedTail = wrapToWidth(formattedTail, availableWidth);
 
   return (
     <Box

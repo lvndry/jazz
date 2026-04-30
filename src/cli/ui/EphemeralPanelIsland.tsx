@@ -16,8 +16,9 @@ function EphemeralPanelIslandComponent(): React.ReactElement | null {
   const initializedRef = useRef(false);
 
   if (!initializedRef.current) {
+    // registerEphemeralRegionsSetter already hydrates the setter with the
+    // current snapshot, so no separate setRegions(snapshot) call is needed.
     store.registerEphemeralRegionsSetter(setRegions);
-    setRegions(store.getEphemeralRegionsSnapshot());
     initializedRef.current = true;
   }
 
