@@ -135,6 +135,12 @@ export class ChatServiceImpl implements ChatService {
           // without re-prompting.
           store.takeQueue();
           userMessage = queued;
+          // Echo "You: <prompt>" to scrollback so the user can see when their
+          // queued message was actually popped (vs when the LLM started
+          // responding to it). The interactive ask() path emits the same
+          // echo from terminal.ts on resolve; this path bypasses ask, so we
+          // call terminal.user() — the shared helper that owns rendering.
+          yield* terminal.user(userMessage);
         } else {
           const askOptions: { commandSuggestions: true; defaultValue?: string } = {
             commandSuggestions: true,
