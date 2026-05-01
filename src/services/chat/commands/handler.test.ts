@@ -100,9 +100,7 @@ describe("handleSpecialCommand resume", () => {
     };
 
     const result = await Effect.runPromise(
-      handleSpecialCommand({ type: "resume", args: [] }, context).pipe(
-        Effect.provide(testLayer),
-      ),
+      handleSpecialCommand({ type: "resume", args: [] }, context).pipe(Effect.provide(testLayer)),
     );
 
     expect(result.resetStartedAt).toBe(true);

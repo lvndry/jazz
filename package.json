@@ -50,6 +50,7 @@
     "dev": "bun --watch src/main.ts",
     "start": "bun dist/main.js",
     "cli": "bun src/main.ts",
+    "prepare": "git config core.hooksPath .githooks || true",
     "lint": "bun eslint src --cache",
     "lint:fix": "bun eslint src --fix --cache",
     "format": "bun prettier --write src",
