@@ -309,6 +309,9 @@ export class ChatServiceImpl implements ChatService {
               loggedMessageCount = 0;
               conversationTitle = null;
             }
+            if (commandResult.resetStartedAt) {
+              startedAt = new Date().toISOString();
+            }
             if (commandResult.newAutoApprovePolicy !== undefined) {
               autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;
             }

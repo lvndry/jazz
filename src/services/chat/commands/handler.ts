@@ -1092,7 +1092,7 @@ function handleResumeCommand(
 
     yield* terminal.success(`Resumed: ${selected.title}`);
     yield* terminal.log("");
-    return { shouldContinue: true, newHistory, saveCurrentHistory: true };
+    return { shouldContinue: true, newHistory, saveCurrentHistory: true, resetStartedAt: true };
   });
 }
 

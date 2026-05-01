@@ -55,6 +55,8 @@ export interface CommandResult {
   removeAutoApprovedCommand?: string;
   /** Save current conversation history before resetting state */
   saveCurrentHistory?: boolean;
+  /** Reset the startedAt timestamp to now (used when resuming a saved conversation) */
+  resetStartedAt?: boolean;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */
