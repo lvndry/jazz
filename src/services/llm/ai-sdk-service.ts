@@ -1231,6 +1231,7 @@ class AISDKService implements LLMService {
             ) => void,
           ) => {
             void (async (): Promise<void> => {
+              let streamTextResult: Awaited<ReturnType<typeof streamText>> | undefined;
               try {
                 const streamTextStart = Date.now();
                 void this.logger.debug(
@@ -1263,7 +1264,7 @@ class AISDKService implements LLMService {
                   );
                 }
 
-                const result = streamText({
+                streamTextResult = streamText({
                   model,
                   messages: coreMessages,
                   ...(typeof options.temperature === "number"
@@ -1275,6 +1276,7 @@ class AISDKService implements LLMService {
                   abortSignal: abortController.signal,
                   stopWhen: stepCountIs(DEFAULT_MAX_ITERATIONS),
                 });
+                const result = streamTextResult;
 
                 void this.logger.debug(
                   `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
@@ -1314,6 +1316,17 @@ class AISDKService implements LLMService {
                 // Close the stream
                 processor.close();
               } catch (error) {
+                // Suppress unhandled rejections on the AI SDK's internal
+                // DelayedPromise properties (usage, finishReason, steps).
+                // When the stream fails these all reject, but we only await
+                // them in the success path, so they'd otherwise surface as
+                // Bun unhandled-rejection dumps.
+                if (streamTextResult) {
+                  void Promise.resolve(streamTextResult.usage).catch(() => {});
+                  void Promise.resolve(streamTextResult.finishReason).catch(() => {});
+                  void Promise.resolve(streamTextResult.steps).catch(() => {});
+                }
+
                 const llmError = convertToLLMError(error, providerName);
 
                 const errorDetails: Record<string, unknown> = {

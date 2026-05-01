@@ -135,25 +135,40 @@ If a comment doesn't pass all five, drop it. Volume is not the goal; signal is.
 
 ## Output Format
 
-### Wrapper rule — read this carefully
+**STOP — read this before writing any output.**
 
-The very last thing you output MUST be a JSON array wrapped in a **FOUR-backtick** ` ````json ` fenced block. Four. Not three.
+Your output MUST contain exactly two fenced blocks in this order. Missing either block causes the review to silently fail. No exceptions.
 
-Three backticks will silently corrupt your output: your `body` fields will routinely contain triple-backtick code samples (` ```diff `, ` ```ts `, etc.), and a triple-backtick outer fence collides with them. The downstream parser truncates at the first inner ` ``` ` and you get "Unterminated string in JSON at position …" — your entire review is discarded.
+1. A **`````markdown`** summary block — **always required, never empty**, even when there are no issues
+2. A **`````json`** inline-comments block — **always required**, may be `[]`
 
-| ✅ DO (this is what works) | ❌ DON'T (this breaks parsing) |
+### Block 1 — Markdown summary (always required)
+
+Write a human-readable review summary. This is posted as the top-level PR comment regardless of whether inline comments exist. It must never be empty.
+
+Include:
+- Which files you reviewed (a brief list or count)
+- Overall verdict: what looks good, what was changed and why it's correct, or what issues were found
+- If no inline issues: say so clearly and briefly explain what you checked
+
+### Block 2 — Inline comments (always required, may be `[]`)
+
+A JSON array of per-line review comments. Use `[]` when there are no inline findings — but Block 1 must still explain the review.
+
+**Four-backtick rule for both blocks.** Three backticks will corrupt your output: `body` fields routinely contain triple-backtick code samples, and a triple-backtick outer fence collides with them. Use four backticks for both outer wrappers.
+
+| ✅ DO | ❌ DON'T |
 |---|---|
-| `` ` ` ` ` json `` …4 backticks… `` ` ` ` ` `` | `` ` ` ` json `` …3 backticks… `` ` ` ` `` |
-
-Inside the four-backtick wrapper, your `body` fields can use normal three-backtick fences for code — they nest cleanly. **Only the outer wrapper is four backticks.**
-
-Do NOT output anything after the closing four-backtick fence — no commentary, no "let me know if…", no summary. The fence is the end.
+| `` ` ` ` ` markdown `` …summary… `` ` ` ` ` `` then `` ` ` ` ` json `` …array… `` ` ` ` ` `` | `` ` ` ` json `` …3 backticks… `` ` ` ` `` |
+| Inner code fences inside `body` use **three** backticks | Output anything after the closing JSON fence |
 
 When flagging issues, suggest concrete edits (code snippets or exact changes) when possible.
 
-### Example
+### Example (issues found)
 
-Each element of the array is one review comment tied to a specific file and line(s). Note the outer fence is four backticks; the inner ` ```ts ` is three.
+````markdown
+Reviewed 3 files. Found 2 issues: one null-dereference in `src/example.ts` and a suggestion in `src/utils.ts`.
+````
 
 ````json
 [
@@ -173,32 +188,40 @@ Each element of the array is one review comment tied to a specific file and line
 ]
 ````
 
+### Example (no issues)
+
+````markdown
+Reviewed 5 files (`src/cli/ui/store.ts`, `src/services/chat-service.ts`, and 3 others).
+
+Changes look correct: the `resetRunStats` call properly clears stale session data, the queue injection follows the existing tool-call loop pattern, and the AI SDK promise suppression is well-scoped to the error path only. No logic errors, type gaps, or edge cases missed.
+````
+
+````json
+[]
+````
+
 ### Self-check before emitting
 
-Before you write your final block, verify:
+1. Did you emit a `````markdown` block first? It must be non-empty.
+2. Did you emit a `````json` block second? The array may be `[]` but the block must be present.
+3. Both outer fences use **four** backticks. Count them.
+4. Inner code fences inside `body` use **three** backticks.
+5. Nothing after the closing JSON fence.
 
-1. The outer fence opens with **four** backticks + `json` and closes with **four** backticks. Count them.
-2. There is **no text after** the closing four-backtick fence.
-3. If a `body` field contains a code sample, that inner fence uses **three** backticks (not one, not four). Three is correct for nested code.
-
-Rules:
+### Inline comment field rules
 
 - `path`: relative file path from repo root (must exist in the diff)
 - `line`: line number; use the NEW version (RIGHT side) for added/modified files, or the OLD version (LEFT side) for deleted files
 - `start_line`: (optional) start line for multi-line block comments; omit for single-line
-- `side`: "RIGHT" for added/modified files (comment on new code); use "LEFT" or omit for deleted files (the CI workflow auto-detects removed files and uses LEFT)
-- `body`: markdown comment — include severity (Critical/Suggestion/Nice-to-have), explanation, and a concrete fix when possible
+- `side`: "RIGHT" for added/modified files; "LEFT" for deleted files
+- `body`: markdown — include severity (Critical/Suggestion/Nice-to-have), explanation, and a concrete fix when possible
 
 **CRITICAL — Line number accuracy:**
 
-The `line` field MUST reference a line that actually appears in the diff output. The GitHub API will reject comments on lines that are outside the diff hunks (changed lines + context lines). Before emitting a comment:
+The `line` field MUST reference a line that actually appears in the diff output. The GitHub API will reject comments on lines outside the diff hunks.
 
-1. **Verify the line is in the diff** — only comment on lines you can see in the `git_diff` output. If a line number does not appear in the diff hunks, do NOT use it.
-2. **Do NOT guess or extrapolate line numbers** — if the relevant code is not visible in the diff, either find the nearest diff line that provides enough context, or omit the comment entirely.
-3. **Prefer changed lines** — comment on added/modified lines (prefixed with `+` in the diff) whenever possible, as these are always valid targets.
-4. **Context lines are also valid** — unchanged lines shown in the diff hunk (no `+` or `-` prefix) can also be commented on.
-5. **Lines outside the diff are NOT valid** — even if the file is in the PR, lines that fall outside any hunk range will cause a "Line could not be resolved" API error.
-
-If you want to comment on code that is not in the diff (e.g., a pre-existing issue near the changed code), mention it in the `body` of a comment attached to the nearest valid diff line instead.
-
-If there are no issues, output an empty array: `[]`
+1. **Verify the line is in the diff** — only comment on lines visible in `git_diff` output.
+2. **Do NOT guess or extrapolate line numbers** — if the relevant code is not in the diff, attach the comment to the nearest valid diff line.
+3. **Prefer changed lines** — lines prefixed with `+` in the diff are always valid targets.
+4. **Context lines are also valid** — unchanged lines shown in the diff hunk can be commented on.
+5. **Lines outside the diff are NOT valid** — they cause a "Line could not be resolved" API error.

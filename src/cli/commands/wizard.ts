@@ -5,7 +5,9 @@ import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { ChatServiceTag } from "@/core/interfaces/chat-service";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/index";
+import type { ChatMessage } from "@/core/types/message";
 import { sortAgents } from "@/core/utils/agent-sort";
+import { loadHistory } from "@/services/history/conversation-history-service";
 import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
@@ -19,6 +21,7 @@ import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
 type MenuAction =
   | "continue"
   | "new-conversation"
+  | "resume-conversation"
   | "create-agent"
   | "edit-agent"
   | "list-agents"
@@ -62,6 +65,18 @@ export function wizardCommand() {
         }
       }
 
+      // Check if any agent has saved conversation history
+      let hasConversationHistory = false;
+      for (const agent of agents) {
+        const history = yield* loadHistory(agent.id).pipe(
+          Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+        );
+        if (history.conversations.length > 0) {
+          hasConversationHistory = true;
+          break;
+        }
+      }
+
       // Build menu options dynamically
       const menuOptions: WizardMenuOption[] = [];
 
@@ -76,6 +91,13 @@ export function wizardCommand() {
         menuOptions.push({
           label: "New conversation",
           value: "new-conversation",
+        });
+      }
+
+      if (hasConversationHistory) {
+        menuOptions.push({
+          label: "Resume conversation",
+          value: "resume-conversation",
         });
       }
 
@@ -119,6 +141,12 @@ export function wizardCommand() {
             yield* startChatWithAgent(selectedAgent, configService);
             yield* terminal.clear();
           }
+          break;
+        }
+
+        case "resume-conversation": {
+          yield* resumeConversation(agents, terminal, configService);
+          yield* terminal.clear();
           break;
         }
 
@@ -305,7 +333,11 @@ function selectAgent(
 /**
  * Start a chat session with an agent and save as last used
  */
-function startChatWithAgent(agent: Agent, configService: AgentConfigService) {
+function startChatWithAgent(
+  agent: Agent,
+  configService: AgentConfigService,
+  options?: { initialHistory?: ChatMessage[]; initialConversationTitle?: string },
+) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
 
@@ -329,13 +361,76 @@ function startChatWithAgent(agent: Agent, configService: AgentConfigService) {
 
     // Start the chat session
     const chatService = yield* ChatServiceTag;
-    yield* chatService.startChatSession(agent).pipe(
+    yield* chatService.startChatSession(agent, options).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           yield* terminal.error(`Chat session error: ${String(error)}`);
         }),
       ),
     );
+  });
+}
+
+/**
+ * Load all saved conversations across agents, show a selector, and resume the chosen one
+ */
+function resumeConversation(
+  agents: readonly Agent[],
+  terminal: TerminalService,
+  configService: AgentConfigService,
+) {
+  return Effect.gen(function* () {
+    type ConversationEntry = {
+      agent: Agent;
+      conversationId: string;
+      title: string;
+      startedAt: string;
+      messageCount: number;
+      messages: ChatMessage[];
+    };
+    const entries: ConversationEntry[] = [];
+
+    for (const agent of agents) {
+      const history = yield* loadHistory(agent.id).pipe(
+        Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+      );
+      for (const conv of history.conversations) {
+        entries.push({
+          agent,
+          conversationId: conv.conversationId,
+          title: conv.title,
+          startedAt: conv.startedAt,
+          messageCount: conv.messageCount,
+          messages: conv.messages,
+        });
+      }
+    }
+
+    if (entries.length === 0) {
+      yield* terminal.warn("No saved conversations found.");
+      return;
+    }
+
+    // Sort newest first
+    entries.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+
+    const choices = entries.map((entry, idx) => ({
+      name: `${entry.title} · ${entry.agent.model}`,
+      value: String(idx),
+    }));
+
+    const selectedIdx = yield* terminal.select<string>("Select a conversation to resume:", {
+      choices,
+    });
+    if (selectedIdx === null || selectedIdx === undefined) return;
+
+    const selected = entries[Number(selectedIdx)];
+    if (!selected) return;
+
+    yield* startChatWithAgent(selected.agent, configService, {
+      initialHistory: selected.messages,
+      initialConversationTitle: selected.title,
+    });
   });
 }
 

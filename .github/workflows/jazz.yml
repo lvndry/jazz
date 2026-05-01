@@ -287,8 +287,19 @@ jobs:
               if (agent.model) modelLabel = `\n\n*Model: ${agent.model}*`;
             } catch (_) {}
 
-            // Prefer the agent's four-backtick fence; fall back to a
-            // last-occurrence scan of the three-backtick form so inner
+            // Extract the markdown summary block (Block 1).
+            // Prefer four-backtick fence; fall back to three-backtick so weaker
+            // models that ignore the four-backtick rule still produce a summary.
+            const extractFencedMarkdown = (text) => {
+              const fourFence = text.match(/````markdown\s*\n([\s\S]*?)\n?````/);
+              if (fourFence) return fourFence[1].trim();
+              const threeFence = text.match(/```markdown\s*\n([\s\S]*?)\n?```/);
+              if (threeFence) return threeFence[1].trim();
+              return null;
+            };
+
+            // Extract the JSON inline-comments block (Block 2). Prefer four-backtick fence;
+            // fall back to last-occurrence scan of three-backtick form so inner
             // ```diff/```ts samples in `body` don't truncate the wrapper.
             const extractFencedJson = (text) => {
               const fourFence = text.match(/````json\s*\n([\s\S]*?)\n?````/);
@@ -302,6 +313,8 @@ jobs:
               return after.slice(0, close).trim();
             };
 
+            const markdownSummary = extractFencedMarkdown(output);
+
             let comments = [];
             const jsonText = extractFencedJson(output);
             if (jsonText) {
@@ -312,14 +325,19 @@ jobs:
               }
             }
 
+            // Build the review body from the agent's markdown summary when available.
+            // Fall back to a generated summary so the comment is never empty.
+            const summarySection = markdownSummary
+              || (Array.isArray(comments) && comments.length > 0
+                ? `Found ${comments.length} issue(s). See inline comments below.`
+                : 'No issues found.');
+
             if (!Array.isArray(comments) || comments.length === 0) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
-                body: comments.length === 0
-                  ? `## Jazz Code Review\n\nNo issues found.${modelLabel}`
-                  : `## Jazz Code Review\n\n${output.slice(-60000) || '_No output from review._'}`
+                body: `## Jazz Code Review\n\n${summarySection}${modelLabel}`,
               });
               return;
             }
@@ -342,7 +360,7 @@ jobs:
 
             // Any comments that couldn't be posted inline become part of the review body
             const invalidComments = sanitized.filter(c => !validComments.includes(c));
-            let reviewBody = `## Jazz Code Review\n\nFound ${comments.length} comment(s).${modelLabel}`;
+            let reviewBody = `## Jazz Code Review\n\n${summarySection}${modelLabel}`;
             if (invalidComments.length > 0) {
               reviewBody += '\n\n### General Comments\n\n';
               reviewBody += invalidComments.map(c => `- ${c.body}`).join('\n');
@@ -602,7 +620,7 @@ jobs:
 
             const extracted = extractAnswer(output);
             let commentBody;
-            if (!extracted) {
+            if (!extracted || !extracted.body.trim()) {
               commentBody = `_The Jazz assistant didn't produce a usable answer. ` +
                 `See the [workflow run](${runUrl}) for details._`;
             } else if (extracted.strict) {

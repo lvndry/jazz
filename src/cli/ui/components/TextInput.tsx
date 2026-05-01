@@ -57,6 +57,7 @@ export const TextInput = React.memo(function TextInput({
   const onSubmitRef = useRef(onSubmit);
   const validateRef = useRef(validate);
   const onCancelRef = useRef(onCancel);
+  const valueWhenValidationFailedRef = useRef<string | null>(null);
 
   // Keep refs up to date
   onSubmitRef.current = onSubmit;
@@ -69,10 +70,12 @@ export const TextInput = React.memo(function TextInput({
       const result = validateRef.current(val);
       if (result !== true) {
         setValidationError(typeof result === "string" ? result : "Invalid input");
+        valueWhenValidationFailedRef.current = val;
         return;
       }
     }
     setValidationError(null);
+    valueWhenValidationFailedRef.current = null;
     onSubmitRef.current(val);
   }, []);
 
@@ -104,10 +107,14 @@ export const TextInput = React.memo(function TextInput({
     }
   });
 
-  // Clear validation error when user types
   useEffect(() => {
-    if (validationError && value !== "") {
+    const snapshot = valueWhenValidationFailedRef.current;
+    if (validationError === null || snapshot === null) {
+      return;
+    }
+    if (value !== snapshot) {
       setValidationError(null);
+      valueWhenValidationFailedRef.current = null;
     }
   }, [value, validationError]);
 

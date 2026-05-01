@@ -40,6 +40,7 @@ import {
   bumpPromotionThreshold,
   type CommandApprovalRecord,
 } from "./command-approval-tracker";
+import { saveConversation, type ConversationRecord } from "./history/conversation-history-service";
 
 /**
  * Chat service implementation for managing interactive chat sessions with AI agents
@@ -49,6 +50,8 @@ export class ChatServiceImpl implements ChatService {
     agent: Agent,
     options?: {
       stream?: boolean;
+      initialHistory?: ChatMessage[];
+      initialConversationTitle?: string;
     },
   ): Effect.Effect<
     void,
@@ -99,14 +102,18 @@ export class ChatServiceImpl implements ChatService {
       // Errors are handled gracefully inside setupAgent - conversation continues even if some MCPs fail
       yield* setupAgent(agent, sessionId);
 
+      store.resetRunStats({ provider: agent.config.llmProvider, model: agent.config.llmModel });
+
       let chatActive = true;
-      let conversationHistory: ChatMessage[] = [];
+      let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
+      let startedAt = sessionStartedAt.toISOString();
+      let conversationTitle: string | null = options?.initialConversationTitle ?? null;
 
       // Load persistent auto-approved commands from config
       const configService = yield* AgentConfigServiceTag;
@@ -202,6 +209,14 @@ export class ChatServiceImpl implements ChatService {
           continue;
         }
 
+        if (
+          conversationTitle === null &&
+          trimmedMessage.length > 0 &&
+          !trimmedMessage.startsWith("/")
+        ) {
+          conversationTitle = trimmedMessage.slice(0, 80);
+        }
+
         let messageForAgent = userMessage;
 
         if (trimmedMessage.startsWith("/")) {
@@ -238,8 +253,27 @@ export class ChatServiceImpl implements ChatService {
               context,
             );
 
+            if (
+              commandResult.saveCurrentHistory &&
+              conversationTitle !== null &&
+              conversationHistory.length > 0
+            ) {
+              const record: ConversationRecord = {
+                conversationId,
+                title: conversationTitle,
+                agentId: agent.id,
+                startedAt,
+                endedAt: new Date().toISOString(),
+                messageCount: conversationHistory.length,
+                messages: conversationHistory,
+              };
+              yield* saveConversation(record).pipe(Effect.catchAll(() => Effect.void));
+            }
+
             if (commandResult.newConversationId !== undefined) {
               conversationId = commandResult.newConversationId;
+              conversationTitle = null;
+              startedAt = new Date().toISOString();
               sessionUsage = { promptTokens: 0, completionTokens: 0 };
               // Initialize the new conversation
               const fileSystemContext = yield* FileSystemContextServiceTag;
@@ -273,6 +307,10 @@ export class ChatServiceImpl implements ChatService {
               conversationHistory = commandResult.newHistory;
               // Reset logged message count when history is cleared (e.g., /new command)
               loggedMessageCount = 0;
+              conversationTitle = null;
+            }
+            if (commandResult.resetStartedAt) {
+              startedAt = new Date().toISOString();
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
               autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;
@@ -332,6 +370,10 @@ export class ChatServiceImpl implements ChatService {
               if (!autoApprovedTools.includes(toolName)) {
                 autoApprovedTools.push(toolName);
               }
+            },
+            checkQueuedMessage: () => {
+              const queued = store.takeQueue();
+              return queued.length > 0 ? queued : undefined;
             },
           };
 
@@ -503,6 +545,19 @@ export class ChatServiceImpl implements ChatService {
             }
           }
         });
+      }
+
+      if (conversationTitle !== null && conversationHistory.length > 0) {
+        const record: ConversationRecord = {
+          conversationId,
+          title: conversationTitle,
+          agentId: agent.id,
+          startedAt,
+          endedAt: new Date().toISOString(),
+          messageCount: conversationHistory.length,
+          messages: conversationHistory,
+        };
+        yield* saveConversation(record).pipe(Effect.catchAll(() => Effect.void));
       }
     }).pipe(Effect.catchAll(() => Effect.void));
   }

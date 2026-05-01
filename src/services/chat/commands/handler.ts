@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import * as fmt from "@/cli/utils/list-format";
 import { AgentRunner } from "@/core/agent/agent-runner";
@@ -35,6 +36,7 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
 import type { WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { groupWorkflows } from "@/core/workflows/workflow-utils";
+import { loadHistory } from "@/services/history/conversation-history-service";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
@@ -61,6 +63,7 @@ export function handleSpecialCommand(
   | SkillService
   | WorkflowService
   | MCPServerManager
+  | FileSystem.FileSystem
 > {
   const { agent, conversationId, conversationHistory, sessionId } = context;
 
@@ -132,6 +135,9 @@ export function handleSpecialCommand(
           context.autoApprovedTools,
         );
 
+      case "resume":
+        return yield* handleResumeCommand(terminal, agent);
+
       case "clear":
         return yield* handleClearCommand(terminal, agent);
 
@@ -178,6 +184,7 @@ function handleNewCommand(
       shouldContinue: true,
       newConversationId: generateConversationId(),
       newHistory: [],
+      saveCurrentHistory: true,
     };
   });
 }
@@ -226,6 +233,7 @@ function handleForkCommand(
       shouldContinue: true,
       newConversationId: generateConversationId(),
       newHistory,
+      saveCurrentHistory: true,
     };
   });
 }
@@ -255,6 +263,7 @@ function handleHelpCommand(terminal: TerminalService): Effect.Effect<CommandResu
         fmt.commandRow("/stats", "Show session statistics"),
         fmt.commandRow("/mcp", "Show MCP server status"),
         fmt.commandRow("/mode", "Switch approval modes"),
+        fmt.commandRow("/resume", "Browse and resume a past conversation"),
         fmt.commandRow("/help", "Show this help message"),
         fmt.commandRow("/exit", "Exit the chat"),
       ].join("\n"),
@@ -1021,6 +1030,69 @@ function handleUnknownCommand(
     yield* terminal.info("Type '/help' to see available commands.");
     yield* terminal.log("");
     return { shouldContinue: true };
+  });
+}
+
+function handleResumeCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+): Effect.Effect<CommandResult, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const history = yield* loadHistory(agent.id).pipe(
+      Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+    );
+
+    if (history.conversations.length === 0) {
+      yield* terminal.info("No past conversations found for this agent.");
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    const choices = history.conversations.map((conv) => {
+      const date = new Date(conv.startedAt);
+      const dateStr = date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      return {
+        name: `${conv.title}  (${dateStr}, ${conv.messageCount} messages)`,
+        value: conv.conversationId,
+      };
+    });
+
+    const selectedId = yield* terminal.select<string>("Select a conversation to resume:", {
+      choices,
+    });
+
+    if (!selectedId) {
+      yield* terminal.log("Resume cancelled");
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    const selected = history.conversations.find((c) => c.conversationId === selectedId);
+    if (!selected) {
+      return { shouldContinue: true };
+    }
+
+    const resumeSystemMessage = {
+      role: "system" as const,
+      content: `Resuming conversation from ${new Date(selected.startedAt).toLocaleString()}: ${selected.title}`,
+    };
+
+    const systemMessage = selected.messages.find((m) => m.role === "system");
+    const otherMessages = selected.messages.filter((m) => m.role !== "system");
+    const newHistory = [
+      ...(systemMessage ? [systemMessage] : []),
+      resumeSystemMessage,
+      ...otherMessages,
+    ];
+
+    yield* terminal.success(`Resumed: ${selected.title}`);
+    yield* terminal.log("");
+    return { shouldContinue: true, newHistory, saveCurrentHistory: true, resetStartedAt: true };
   });
 }
 

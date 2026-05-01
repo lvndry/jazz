@@ -2,6 +2,7 @@ import type { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type { SkillService } from "@/core/skills/skill-service";
 import type { Agent } from "@/core/types/index";
+import type { ChatMessage } from "@/core/types/message";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { AgentConfigServiceTag } from "./agent-config";
 import type { AgentService } from "./agent-service";
@@ -33,6 +34,8 @@ export interface ChatService {
     agent: Agent,
     options?: {
       stream?: boolean;
+      initialHistory?: ChatMessage[];
+      initialConversationTitle?: string;
     },
   ) => Effect.Effect<
     void,

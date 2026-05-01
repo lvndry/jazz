@@ -24,6 +24,7 @@ export type CommandType =
   | "stats"
   | "mcp"
   | "mode"
+  | "resume"
   | "unknown";
 
 /**
@@ -52,6 +53,10 @@ export interface CommandResult {
   addAutoApprovedCommand?: string;
   /** Command prefix to remove from auto-approved commands list */
   removeAutoApprovedCommand?: string;
+  /** Save current conversation history before resetting state */
+  saveCurrentHistory?: boolean;
+  /** Reset the startedAt timestamp to now (used when resuming a saved conversation) */
+  resetStartedAt?: boolean;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */
