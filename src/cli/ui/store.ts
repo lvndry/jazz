@@ -210,9 +210,15 @@ export class UIStore {
    * incremental updates (e.g. tokens-in-context after every LLM call,
    * costUSD only after we've resolved pricing).
    */
+  resetRunStats = (initial: RunStats = {}): void => {
+    this.runStatsSnapshot = initial;
+    if (this.runStatsSetter) {
+      this.runStatsSetter(initial);
+    }
+  };
+
   updateRunStats = (patch: Partial<RunStats>): void => {
     const next: RunStats = { ...this.runStatsSnapshot, ...patch };
-    // Bail out if nothing changed (cheap by-key check).
     let changed = false;
     for (const k of Object.keys(patch) as (keyof RunStats)[]) {
       if (this.runStatsSnapshot[k] !== next[k]) {

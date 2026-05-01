@@ -406,6 +406,11 @@ export function executeAgentLoop(
                 toolCalls: completion.toolCalls,
                 toolResults: Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
               };
+
+              const queuedMessage = options.checkQueuedMessage?.();
+              if (queuedMessage) {
+                currentMessages.push({ role: "user", content: queuedMessage });
+              }
               continue;
             }
 

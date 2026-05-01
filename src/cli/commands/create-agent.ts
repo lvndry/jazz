@@ -619,6 +619,7 @@ async function promptForAgentInfo(
         const result = await Effect.runPromise(
           terminal.ask(`Describe what this agent will do ${hint}:`, {
             ...descOptions,
+            placeholder: "(optional, press Enter to skip)",
           }),
         );
 

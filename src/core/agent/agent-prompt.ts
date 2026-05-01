@@ -6,6 +6,21 @@ import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { DEFAULT_PROMPT } from "./prompts/default/system";
 import { SKILLS_INSTRUCTIONS } from "./prompts/shared";
 
+function formatUtcOffsetLabel(date: Date): string {
+  const offsetMinutes = -date.getTimezoneOffset();
+  if (offsetMinutes === 0) {
+    return "UTC";
+  }
+  const sign = offsetMinutes > 0 ? "+" : "-";
+  const absoluteMinutes = Math.abs(offsetMinutes);
+  const hours = Math.floor(absoluteMinutes / 60);
+  const minutes = absoluteMinutes % 60;
+  if (minutes === 0) {
+    return `UTC${sign}${hours}`;
+  }
+  return `UTC${sign}${hours}:${String(minutes).padStart(2, "0")}`;
+}
+
 export interface AgentPersona {
   readonly name: string;
   readonly description: string;
@@ -91,12 +106,14 @@ export class AgentPromptBuilder {
   > {
     return Effect.sync(() => {
       const now = new Date();
-      const currentDate = now.toLocaleDateString("en-US", {
+      const calendarDate = now.toLocaleDateString("en-US", {
         weekday: "long",
         year: "numeric",
         month: "long",
         day: "numeric",
       });
+      const timeZoneId = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const currentDate = `${calendarDate} (${formatUtcOffsetLabel(now)}, ${timeZoneId})`;
       const platform = os.platform();
       const release = os.release();
       const machine = os.machine();

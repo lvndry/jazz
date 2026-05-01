@@ -102,6 +102,8 @@ export class ChatServiceImpl implements ChatService {
       // Errors are handled gracefully inside setupAgent - conversation continues even if some MCPs fail
       yield* setupAgent(agent, sessionId);
 
+      store.resetRunStats({ provider: agent.config.llmProvider, model: agent.config.llmModel });
+
       let chatActive = true;
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
       let loggedMessageCount = 0;
@@ -365,6 +367,10 @@ export class ChatServiceImpl implements ChatService {
               if (!autoApprovedTools.includes(toolName)) {
                 autoApprovedTools.push(toolName);
               }
+            },
+            checkQueuedMessage: () => {
+              const queued = store.takeQueue();
+              return queued.length > 0 ? queued : undefined;
             },
           };
 

@@ -98,6 +98,14 @@ export interface AgentRunnerOptions {
    * from the approval prompt.
    */
   readonly onAutoApproveTool?: (toolName: string) => void;
+  /**
+   * Optional callback polled between tool-call batches (before the next LLM
+   * call) to inject a queued user message into the running conversation.
+   * When it returns a non-empty string, that string is appended as a user
+   * message so the agent can incorporate mid-run guidance immediately.
+   * Not called for internal (sub-agent) runs.
+   */
+  readonly checkQueuedMessage?: () => string | undefined;
 }
 
 /**
