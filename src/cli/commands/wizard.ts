@@ -414,13 +414,10 @@ function resumeConversation(
     // Sort newest first
     entries.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
 
-    const choices = entries.map((entry, idx) => {
-      const date = new Date(entry.startedAt).toLocaleDateString();
-      return {
-        name: `[${entry.agent.name}] ${entry.title} (${date}, ${entry.messageCount} msgs)`,
-        value: String(idx),
-      };
-    });
+    const choices = entries.map((entry, idx) => ({
+      name: `${entry.title} · ${entry.agent.model}`,
+      value: String(idx),
+    }));
 
     const selectedIdx = yield* terminal.select<string>("Select a conversation to resume:", {
       choices,
