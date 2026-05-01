@@ -39,6 +39,16 @@ function makeRecord(overrides: Partial<ConversationRecord> = {}): ConversationRe
 }
 
 describe("saveConversation", () => {
+  test("creates history directory and file when neither exists yet", async () => {
+    const nonExistentDir = path.join(tmpDir, "nested", "history");
+    const record = makeRecord();
+    await runEffect(saveConversation(record, nonExistentDir));
+    const historyPath = path.join(nonExistentDir, `${record.agentId}.json`);
+    expect(fs.existsSync(historyPath)).toBe(true);
+    const data = JSON.parse(fs.readFileSync(historyPath, "utf-8"));
+    expect(data.conversations).toHaveLength(1);
+  });
+
   test("creates history file on first save", async () => {
     const record = makeRecord();
     await runEffect(saveConversation(record, tmpDir));
