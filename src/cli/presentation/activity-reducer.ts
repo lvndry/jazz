@@ -233,6 +233,8 @@ export function reduceEvent(
       acc.lastAgentHeaderWritten = true;
       acc.currentProvider = event.provider;
       acc.currentModel = event.model;
+      acc.lastAppliedTextSequence = -1;
+      acc.isThinking = false;
 
       outputs.push({
         type: "info",

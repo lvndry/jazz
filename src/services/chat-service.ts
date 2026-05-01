@@ -50,6 +50,8 @@ export class ChatServiceImpl implements ChatService {
     agent: Agent,
     options?: {
       stream?: boolean;
+      initialHistory?: ChatMessage[];
+      initialConversationTitle?: string;
     },
   ): Effect.Effect<
     void,
@@ -101,7 +103,7 @@ export class ChatServiceImpl implements ChatService {
       yield* setupAgent(agent, sessionId);
 
       let chatActive = true;
-      let conversationHistory: ChatMessage[] = [];
+      let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
@@ -109,7 +111,7 @@ export class ChatServiceImpl implements ChatService {
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
       let startedAt = sessionStartedAt.toISOString();
-      let conversationTitle: string | null = null;
+      let conversationTitle: string | null = options?.initialConversationTitle ?? null;
 
       // Load persistent auto-approved commands from config
       const configService = yield* AgentConfigServiceTag;
