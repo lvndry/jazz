@@ -3,7 +3,6 @@
     "editorconfig.editorconfig",
     "dbaeumer.vscode-eslint",
     "eamodio.gitlens",
-    "esbenp.prettier-vscode",
-    "mike-co.import-sorter"
+    "esbenp.prettier-vscode"
   ]
 }
