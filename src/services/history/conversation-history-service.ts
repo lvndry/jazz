@@ -142,18 +142,25 @@ export function saveConversation(
   record: ConversationRecord,
   dir?: string,
 ): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  return withLock(
-    record.agentId,
-    dir,
-    Effect.gen(function* () {
-      const history = yield* readHistory(record.agentId, dir);
-      const updated = [record, ...history.conversations].slice(
-        0,
-        MAX_CONVERSATION_HISTORY_PER_AGENT,
-      );
-      yield* writeHistory({ agentId: record.agentId, conversations: updated }, dir);
-    }),
-  );
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const historyDir = dir ?? getHistoryDirectory();
+    yield* fs
+      .makeDirectory(historyDir, { recursive: true })
+      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+    yield* withLock(
+      record.agentId,
+      dir,
+      Effect.gen(function* () {
+        const history = yield* readHistory(record.agentId, dir);
+        const updated = [record, ...history.conversations].slice(
+          0,
+          MAX_CONVERSATION_HISTORY_PER_AGENT,
+        );
+        yield* writeHistory({ agentId: record.agentId, conversations: updated }, dir);
+      }),
+    );
+  });
 }
 
 export function loadHistory(
