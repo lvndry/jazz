@@ -2,11 +2,11 @@
   "id": "ci-reviewer",
   "name": "ci-reviewer",
   "description": "CI code review agent",
-  "model": "openrouter/free",
+  "model": "openai/gpt-oss-120b:free",
   "config": {
     "persona": "coder",
     "llmProvider": "openrouter",
-    "llmModel": "openrouter/free",
+    "llmModel": "openai/gpt-oss-120b:free",
     "reasoningEffort": "medium",
     "tools": [
       "find",
