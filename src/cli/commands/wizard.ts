@@ -65,6 +65,18 @@ export function wizardCommand() {
         }
       }
 
+      // Check if any agent has saved conversation history
+      let hasConversationHistory = false;
+      for (const agent of agents) {
+        const history = yield* loadHistory(agent.id).pipe(
+          Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+        );
+        if (history.conversations.length > 0) {
+          hasConversationHistory = true;
+          break;
+        }
+      }
+
       // Build menu options dynamically
       const menuOptions: WizardMenuOption[] = [];
 
@@ -80,6 +92,9 @@ export function wizardCommand() {
           label: "New conversation",
           value: "new-conversation",
         });
+      }
+
+      if (hasConversationHistory) {
         menuOptions.push({
           label: "Resume conversation",
           value: "resume-conversation",
@@ -410,7 +425,7 @@ function resumeConversation(
     const selectedIdx = yield* terminal.select<string>("Select a conversation to resume:", {
       choices,
     });
-    if (!selectedIdx && selectedIdx !== "0") return;
+    if (selectedIdx === null || selectedIdx === undefined) return;
 
     const selected = entries[Number(selectedIdx)];
     if (!selected) return;
