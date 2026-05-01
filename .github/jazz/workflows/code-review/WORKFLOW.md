@@ -135,10 +135,12 @@ If a comment doesn't pass all five, drop it. Volume is not the goal; signal is.
 
 ## Output Format
 
-Your output has **two mandatory blocks**, in this order:
+**STOP — read this before writing any output.**
 
-1. A **`````markdown`** summary block — always required, never empty
-2. A **`````json`** inline-comments block — always required, may be `[]`
+Your output MUST contain exactly two fenced blocks in this order. Missing either block causes the review to silently fail. No exceptions.
+
+1. A **`````markdown`** summary block — **always required, never empty**, even when there are no issues
+2. A **`````json`** inline-comments block — **always required**, may be `[]`
 
 ### Block 1 — Markdown summary (always required)
 

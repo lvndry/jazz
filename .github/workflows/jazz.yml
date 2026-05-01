@@ -287,10 +287,15 @@ jobs:
               if (agent.model) modelLabel = `\n\n*Model: ${agent.model}*`;
             } catch (_) {}
 
-            // Extract the markdown summary block (Block 1) — always present per the workflow contract.
+            // Extract the markdown summary block (Block 1).
+            // Prefer four-backtick fence; fall back to three-backtick so weaker
+            // models that ignore the four-backtick rule still produce a summary.
             const extractFencedMarkdown = (text) => {
               const fourFence = text.match(/````markdown\s*\n([\s\S]*?)\n?````/);
-              return fourFence ? fourFence[1].trim() : null;
+              if (fourFence) return fourFence[1].trim();
+              const threeFence = text.match(/```markdown\s*\n([\s\S]*?)\n?```/);
+              if (threeFence) return threeFence[1].trim();
+              return null;
             };
 
             // Extract the JSON inline-comments block (Block 2). Prefer four-backtick fence;
@@ -320,11 +325,12 @@ jobs:
               }
             }
 
-            // Build the review body from the agent's markdown summary when available,
-            // falling back to a generic message only when the agent produced nothing.
+            // Build the review body from the agent's markdown summary when available.
+            // Fall back to a generated summary so the comment is never empty.
             const summarySection = markdownSummary
-              ? markdownSummary
-              : '_No review summary produced._';
+              || (Array.isArray(comments) && comments.length > 0
+                ? `Found ${comments.length} issue(s). See inline comments below.`
+                : 'No issues found.');
 
             if (!Array.isArray(comments) || comments.length === 0) {
               await github.rest.issues.createComment({
