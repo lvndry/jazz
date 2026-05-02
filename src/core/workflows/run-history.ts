@@ -19,6 +19,8 @@ export interface WorkflowRunRecord {
   readonly status: "running" | "completed" | "failed" | "skipped";
   readonly error?: string;
   readonly triggeredBy: "manual" | "scheduled";
+  readonly costUSD?: number;
+  readonly tokenUsage?: { readonly promptTokens: number; readonly completionTokens: number };
 }
 
 /**
