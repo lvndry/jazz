@@ -315,7 +315,7 @@ function selectAgent(
 
     const choices = sorted.map((agent) => {
       return {
-        name: `${agent.name} - ${agent.description || agent.config.persona || "default"}`,
+        name: `${agent.name} - ${agent.model} - ${agent.description || agent.config.persona || "default"}`,
         value: agent.id,
       };
     });

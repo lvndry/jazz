@@ -31,7 +31,7 @@ export interface WebSearchResult {
   readonly totalResults: number;
   readonly query: string;
   readonly timestamp: string;
-  readonly provider: "exa" | "parallel" | "tavily" | "brave" | "perplexity";
+  readonly provider: WebSearchProviderName;
 }
 
 /**
@@ -49,6 +49,30 @@ export const WEB_SEARCH_PROVIDERS = [
 export const DEFAULT_MAX_RESULTS = 50;
 
 export type WebSearchProviderName = (typeof WEB_SEARCH_PROVIDERS)[number]["value"];
+
+const PROVIDER_ENV_VARS: Record<WebSearchProviderName, string> = {
+  brave: "BRAVE_API_KEY",
+  tavily: "TAVILY_API_KEY",
+  exa: "EXA_API_KEY",
+  parallel: "PARALLEL_API_KEY",
+  perplexity: "PERPLEXITY_API_KEY",
+};
+
+const PROVIDER_DETECTION_ORDER: WebSearchProviderName[] = [
+  "brave",
+  "tavily",
+  "exa",
+  "parallel",
+  "perplexity",
+];
+
+function detectProviderFromEnv(): { provider: WebSearchProviderName; apiKey: string } | null {
+  for (const provider of PROVIDER_DETECTION_ORDER) {
+    const apiKey = process.env[PROVIDER_ENV_VARS[provider]];
+    if (apiKey) return { provider, apiKey };
+  }
+  return null;
+}
 
 export function createWebSearchTool(): ReturnType<
   typeof defineTool<AgentConfigService | LoggerService, WebSearchArgs>
@@ -121,41 +145,40 @@ export function createWebSearchTool(): ReturnType<
         // Get web search config
         const appConfig = yield* config.appConfig;
         const webSearchConfig: WebSearchConfig | undefined = appConfig.web_search;
-        const selectedProvider = webSearchConfig?.provider;
+        let selectedProvider = webSearchConfig?.provider;
+        let apiKey: string | undefined;
 
-        // If no external provider is configured, the AI SDK service will handle
-        // using the provider-native web search (if available). This tool handler
-        // should only execute when an external provider (Parallel, Exa, Tavily) is selected.
-        if (!selectedProvider) {
-          return {
-            success: false,
-            result: null,
-            error:
-              "No external web search provider configured. If your LLM provider supports built-in web search, it will be used automatically. Otherwise, please configure an external provider (Parallel, Exa, Tavily, Brave, or Perplexity) in settings.",
-          };
-        }
-
-        const getApiKey = (
-          providerName: string,
-        ): Effect.Effect<string, never, AgentConfigService> =>
-          Effect.gen(function* () {
-            return yield* config.getOrElse(`web_search.${providerName}.api_key`, "");
-          });
-
-        // Get API key for the selected provider
-        const apiKey = yield* getApiKey(selectedProvider);
-
-        if (!apiKey) {
-          return {
-            success: false,
-            result: null,
-            error: `No API key configured for ${selectedProvider}. Please configure 'web_search.${selectedProvider}.api_key' in settings.`,
-          };
+        if (selectedProvider) {
+          apiKey = yield* config.getOrElse(`web_search.${selectedProvider}.api_key`, "");
+          if (!apiKey) {
+            const envKey = process.env[PROVIDER_ENV_VARS[selectedProvider]];
+            if (envKey) {
+              apiKey = envKey;
+            } else {
+              return {
+                success: false,
+                result: null,
+                error: `No API key configured for ${selectedProvider}. Set 'web_search.${selectedProvider}.api_key' in settings or the ${PROVIDER_ENV_VARS[selectedProvider]} environment variable.`,
+              };
+            }
+          }
+        } else {
+          const detected = detectProviderFromEnv();
+          if (!detected) {
+            const envVarList = Object.values(PROVIDER_ENV_VARS).join(", ");
+            return {
+              success: false,
+              result: null,
+              error: `No web search provider configured. Set one of: ${envVarList} as an environment variable, or configure a provider in settings.`,
+            };
+          }
+          selectedProvider = detected.provider;
+          apiKey = detected.apiKey;
         }
 
         // Map provider name to execution function
         const executorMap: Record<
-          "exa" | "parallel" | "tavily" | "brave" | "perplexity",
+          WebSearchProviderName,
           (
             args: WebSearchArgs,
             apiKey: string,
