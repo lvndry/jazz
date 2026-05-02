@@ -81,8 +81,6 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
         maxDepth: number,
       ): Effect.Effect<{ results: readonly string[]; warnings?: readonly string[] }, Error, never> {
         return Effect.gen(function* () {
-          // Use system find command for efficiency
-          const command = `find ${escapeForShell(startPath)} -maxdepth ${maxDepth} -type d -iname "*${targetName}*"`;
           const result = yield* Effect.promise<{
             stdout: string;
             stderr: string;
@@ -90,10 +88,14 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
           }>(
             () =>
               new Promise((resolve, reject) => {
-                const child = spawn("sh", ["-c", command], {
-                  stdio: ["ignore", "pipe", "pipe"],
-                  timeout: 10_000,
-                });
+                const child = spawn(
+                  "find",
+                  [startPath, "-maxdepth", String(maxDepth), "-type", "d", "-iname", `*${targetName}*`],
+                  {
+                    stdio: ["ignore", "pipe", "pipe"],
+                    timeout: 10_000,
+                  },
+                );
 
                 let stdout = "";
                 let stderr = "";
