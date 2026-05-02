@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { getUserDataDirectory } from "@/core/utils/runtime-detection";
-import { checkForUpdate, fetchReleaseNotesSince } from "./commands/update";
+import { checkForUpdate } from "./commands/update";
 import { getGlyphs } from "./ui/glyphs";
 
 const UPDATE_CHECK_INTERVAL_DAYS = 3;
@@ -91,25 +91,7 @@ export function autoCheckForUpdate(): Effect.Effect<
       yield* terminal.log(`${g.boxV}${blank}${g.boxV}`);
       yield* terminal.log(`${g.boxBL}${horiz}${g.boxBR}`);
 
-      // Fetch and display release notes since current version
-      const releaseNotes = yield* fetchReleaseNotesSince(result.currentVersion).pipe(
-        Effect.timeout(3000), // 3 seconds timeout for release notes
-        Effect.catchAll(() => Effect.succeed(null)),
-      );
-
-      if (releaseNotes && releaseNotes.length > 0) {
-        yield* terminal.log("");
-        yield* terminal.log("📋 What's new:");
-        for (const release of releaseNotes) {
-          yield* terminal.log("");
-          yield* terminal.log(`   v${release.version}:`);
-          // Indent each line of the release notes
-          for (const line of release.summary.split("\n")) {
-            yield* terminal.log(`      ${line}`);
-          }
-        }
-      }
-
+      yield* terminal.log("  See what's new: https://github.com/lvndry/jazz/releases");
       yield* terminal.log("");
     }
   });
