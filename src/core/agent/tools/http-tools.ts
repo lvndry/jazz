@@ -375,6 +375,26 @@ export function createHttpRequestTool(): Tool<never> {
           } satisfies ToolExecutionResult;
         }
 
+        const BLOCKED_HOSTS = [
+          /^localhost$/i,
+          /^.*\.localhost$/i,
+          /^127\.\d+\.\d+\.\d+$/,
+          /^169\.254\.\d+\.\d+$/,
+          /^10\.\d+\.\d+\.\d+$/,
+          /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
+          /^192\.168\.\d+\.\d+$/,
+          /^0\.0\.0\.0$/,
+          /^::1$/,
+          /^fc[0-9a-f]{2}:/i,
+        ];
+        if (BLOCKED_HOSTS.some((pattern) => pattern.test(urlInstance.hostname))) {
+          return {
+            success: false,
+            result: null,
+            error: "Requests to private or internal addresses are not allowed.",
+          } satisfies ToolExecutionResult;
+        }
+
         const formattedQuery = formatQuery(args.query);
         if (formattedQuery) {
           for (const [key, value] of Object.entries(formattedQuery)) {
