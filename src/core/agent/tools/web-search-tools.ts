@@ -31,7 +31,7 @@ export interface WebSearchResult {
   readonly totalResults: number;
   readonly query: string;
   readonly timestamp: string;
-  readonly provider: "exa" | "parallel" | "tavily" | "brave" | "perplexity";
+  readonly provider: WebSearchProviderName;
 }
 
 /**
@@ -146,16 +146,14 @@ export function createWebSearchTool(): ReturnType<
         const appConfig = yield* config.appConfig;
         const webSearchConfig: WebSearchConfig | undefined = appConfig.web_search;
         let selectedProvider = webSearchConfig?.provider;
-        let resolvedApiKey: string | undefined;
+        let apiKey: string | undefined;
 
         if (selectedProvider) {
-          resolvedApiKey = yield* Effect.gen(function* () {
-            return yield* config.getOrElse(`web_search.${selectedProvider}.api_key`, "");
-          });
-          if (!resolvedApiKey) {
+          apiKey = yield* config.getOrElse(`web_search.${selectedProvider}.api_key`, "");
+          if (!apiKey) {
             const envKey = process.env[PROVIDER_ENV_VARS[selectedProvider]];
             if (envKey) {
-              resolvedApiKey = envKey;
+              apiKey = envKey;
             } else {
               return {
                 success: false,
@@ -167,22 +165,20 @@ export function createWebSearchTool(): ReturnType<
         } else {
           const detected = detectProviderFromEnv();
           if (!detected) {
+            const envVarList = Object.values(PROVIDER_ENV_VARS).join(", ");
             return {
               success: false,
               result: null,
-              error:
-                "No web search provider configured. Set one of: BRAVE_API_KEY, TAVILY_API_KEY, EXA_API_KEY, PARALLEL_API_KEY, or PERPLEXITY_API_KEY as an environment variable, or configure a provider in settings.",
+              error: `No web search provider configured. Set one of: ${envVarList} as an environment variable, or configure a provider in settings.`,
             };
           }
           selectedProvider = detected.provider;
-          resolvedApiKey = detected.apiKey;
+          apiKey = detected.apiKey;
         }
-
-        const apiKey = resolvedApiKey;
 
         // Map provider name to execution function
         const executorMap: Record<
-          "exa" | "parallel" | "tavily" | "brave" | "perplexity",
+          WebSearchProviderName,
           (
             args: WebSearchArgs,
             apiKey: string,
