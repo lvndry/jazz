@@ -370,8 +370,7 @@ export function runWorkflowCommand(
         updateLatestRunRecord(workflowName, {
           completedAt: new Date().toISOString(),
           status: "completed",
-          ...(result.costUSD !== undefined ? { costUSD: result.costUSD } : {}),
-          ...(result.usage !== undefined ? { tokenUsage: result.usage } : {}),
+          ...runCostFields(result),
         }).pipe(Effect.catchAll(() => Effect.void)),
       ),
       Effect.tapError((error) =>
@@ -387,11 +386,7 @@ export function runWorkflowCommand(
     yield* terminal.success(`Workflow completed: ${workflowName}`);
 
     if (isNonInteractive) {
-      const summary = {
-        workflow: workflowName,
-        ...(runResult.costUSD !== undefined ? { costUSD: runResult.costUSD } : {}),
-        ...(runResult.usage !== undefined ? { tokenUsage: runResult.usage } : {}),
-      };
+      const summary = { workflow: workflowName, ...runCostFields(runResult) };
       yield* terminal.log(`[JAZZ_SUMMARY] ${JSON.stringify(summary)}`);
     }
   });
@@ -736,6 +731,16 @@ export function workflowHistoryCommand(workflowName?: string) {
 
     yield* terminal.info(`Showing ${filteredRuns.length} most recent run(s)`);
   });
+}
+
+function runCostFields(result: {
+  costUSD?: number;
+  usage?: { promptTokens: number; completionTokens: number };
+}) {
+  return {
+    ...(result.costUSD !== undefined ? { costUSD: result.costUSD } : {}),
+    ...(result.usage !== undefined ? { tokenUsage: result.usage } : {}),
+  };
 }
 
 /**

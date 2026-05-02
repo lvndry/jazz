@@ -483,8 +483,12 @@ export function executeAgentLoop(
         const outputPrice = modelMetadata?.outputPricePerMillion ?? 0;
         const costUSD =
           inputPrice > 0 || outputPrice > 0
-            ? (runMetrics.totalPromptTokens / 1_000_000) * inputPrice +
-              (runMetrics.totalCompletionTokens / 1_000_000) * outputPrice
+            ? parseFloat(
+                (
+                  (runMetrics.totalPromptTokens / 1_000_000) * inputPrice +
+                  (runMetrics.totalCompletionTokens / 1_000_000) * outputPrice
+                ).toFixed(8),
+              )
             : undefined;
 
         return {
