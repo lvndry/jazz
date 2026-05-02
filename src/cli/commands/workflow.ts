@@ -356,7 +356,7 @@ export function runWorkflowCommand(
 
     // Run the agent with the workflow prompt
     // maxIterations from workflow metadata is optional — omit for no limit
-    yield* AgentRunner.run({
+    const runResult = yield* AgentRunner.run({
       agent,
       userInput: workflow.prompt,
       sessionId: `workflow-${workflowName}-${Date.now()}`,
@@ -366,10 +366,12 @@ export function runWorkflowCommand(
         : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
     }).pipe(
-      Effect.tap(() =>
+      Effect.tap((result) =>
         updateLatestRunRecord(workflowName, {
           completedAt: new Date().toISOString(),
           status: "completed",
+          ...(result.costUSD !== undefined ? { costUSD: result.costUSD } : {}),
+          ...(result.usage !== undefined ? { tokenUsage: result.usage } : {}),
         }).pipe(Effect.catchAll(() => Effect.void)),
       ),
       Effect.tapError((error) =>
@@ -383,6 +385,15 @@ export function runWorkflowCommand(
 
     yield* terminal.log("");
     yield* terminal.success(`Workflow completed: ${workflowName}`);
+
+    if (isNonInteractive) {
+      const summary = {
+        workflow: workflowName,
+        ...(runResult.costUSD !== undefined ? { costUSD: runResult.costUSD } : {}),
+        ...(runResult.usage !== undefined ? { tokenUsage: runResult.usage } : {}),
+      };
+      yield* terminal.log(`[JAZZ_SUMMARY] ${JSON.stringify(summary)}`);
+    }
   });
 }
 

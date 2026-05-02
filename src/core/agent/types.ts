@@ -173,6 +173,8 @@ export interface AgentResponse {
    * Used by the chat session to accumulate session cost for /cost.
    */
   readonly usage?: { readonly promptTokens: number; readonly completionTokens: number };
+  /** Total estimated cost for the full run in USD. Populated when model pricing is available. */
+  readonly costUSD?: number;
 }
 
 /**

@@ -479,6 +479,14 @@ export function executeAgentLoop(
         );
         yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
 
+        const inputPrice = modelMetadata?.inputPricePerMillion ?? 0;
+        const outputPrice = modelMetadata?.outputPricePerMillion ?? 0;
+        const costUSD =
+          inputPrice > 0 || outputPrice > 0
+            ? (runMetrics.totalPromptTokens / 1_000_000) * inputPrice +
+              (runMetrics.totalCompletionTokens / 1_000_000) * outputPrice
+            : undefined;
+
         return {
           ...response,
           messages: currentMessages,
@@ -486,6 +494,7 @@ export function executeAgentLoop(
             promptTokens: runMetrics.totalPromptTokens,
             completionTokens: runMetrics.totalCompletionTokens,
           },
+          ...(costUSD !== undefined ? { costUSD } : {}),
         };
       }),
     // Release: cleanup
