@@ -1,19 +1,17 @@
 <div align="center">
 
-# Jazz 🎷
+# Jazz
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![npm version](https://img.shields.io/npm/v/jazz-ai.svg)](https://www.npmjs.com/package/jazz-ai)
 
 ### Your terminal. Your agent. Your rules.
-
-![Jazz Demo](assets/jazz_demo_800.gif)
 
 Jazz is an AI agent that lives in your terminal and actually does things.
 Not a chatbot. Not a wrapper around an API. A personal assistant you control,
 that reads your files, manages your git, searches the web, handles your email,
 and automates the workflows you're tired of doing by hand.
 
-[Quick Start](#-quick-start) · [What Can It Do?](#-what-can-it-do) · [Workflows](#-workflows-automate-everything) · [CI/CD](#-cicd-jazz-in-your-pipelines) · [Docs](docs/README.md) · [Discord](https://discord.gg/yBDbS2NZju)
+[Quick Start](#quick-start) · [What Can It Do?](#what-can-it-do) · [Workflows](#workflows-automate-everything) · [CI/CD](#we-use-jazz-to-build-jazz) · [Docs](docs/README.md) · [Discord](https://discord.gg/yBDbS2NZju)
 
 </div>
 
@@ -31,7 +29,7 @@ You describe what you want. Jazz figures out how to do it.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Install
@@ -56,7 +54,7 @@ jazz update
 
 ---
 
-## 🎯 What Can It Do?
+## What Can It Do?
 
 ### The short answer: almost anything you can describe.
 
@@ -88,7 +86,7 @@ Jazz understands your filesystem, your git history, your shell, HTTP APIs, the w
 > analyze this PDF report and extract the key financial metrics
 ```
 
-**Research & Knowledge Management**
+**Knowledge Management**
 
 ```
 > do deep research on the Three-Body Problem and write it in my Obsidian vault
@@ -104,7 +102,7 @@ OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Groq, Cerebras, Fireworks, To
 
 Jazz speaks [Model Context Protocol](https://modelcontextprotocol.io/). One config block, and your agent can talk to any MCP-compatible service:
 
-Simply run `jazz mcp add` add input the MCP configuration:
+Simply run `jazz mcp add` and input the MCP configuration:
 
 ```json
 {
@@ -129,7 +127,7 @@ Jazz ships with **20+ built-in skills**—code review, deep research, email, cal
 
 ---
 
-## ⏰ Workflows: Automate Everything
+## Workflows: Automate Everything
 
 A workflow is a Markdown file that describes what your agent should do, when it should do it, and how much autonomy it gets. Schedule them with cron, run them headless, and let Jazz handle the boring parts of your day.
 
@@ -186,7 +184,7 @@ Control how much autonomy each workflow gets:
 
 ---
 
-## 🔁 We use Jazz to build Jazz.
+## We use Jazz to build Jazz.
 
 Jazz isn't just a local tool. It runs in CI/CD pipelines with `--output raw` and `--auto-approve` flags, purpose-built for automation.
 
@@ -206,7 +204,7 @@ Every pull request to Jazz gets reviewed by a Jazz agent. The [`jazz.yml`](.gith
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 ```
 
-Comment `@jazz <request>` on a pull request to invoke the PR assistant on demand. If you just say `@jazz` with no extra text, Jazz defaults to a PR review pass.
+Comment `/jazz-review` on a pull request to trigger a review on demand, or `/jazz <request>` to ask the PR assistant anything.
 The review agent checks for correctness, security issues, TypeScript best practices, Effect-TS patterns, and performance concerns. Real reviews, on real code, every PR.
 
 ### Automated Release Notes
@@ -247,7 +245,7 @@ See [`.github/jazz/`](.github/jazz/) for the full agent configs and workflow tem
 
 ---
 
-## 🔒 You Stay in Control
+## You Stay in Control
 
 Jazz is powerful, but it never acts without your say-so.
 
@@ -260,28 +258,57 @@ Credentials are stored securely (OAuth2 for Gmail, API keys in config). Nothing 
 
 ---
 
-## 📋 Command Reference
+## Command Reference
 
-| Command                         | Description                                  |
-| ------------------------------- | -------------------------------------------- |
-| `jazz`                          | Start chatting (interactive agent selection) |
-| `jazz agent create`             | Create a new agent                           |
-| `jazz agent chat <name>`        | Chat with a specific agent                   |
-| `jazz agent list`               | List all agents                              |
-| `jazz workflow list`            | List available workflows                     |
-| `jazz workflow run <name>`      | Run a workflow                               |
-| `jazz workflow schedule <name>` | Schedule a workflow                          |
-| `jazz mcp add`                  | Add an MCP server                            |
-| `jazz mcp list`                 | List MCP servers                             |
-| `jazz config show`              | View configuration                           |
-| `jazz auth gmail login`         | Authenticate with Gmail                      |
-| `jazz update`                   | Update to latest version                     |
+**Agents**
+
+| Command                       | Description                |
+| ----------------------------- | -------------------------- |
+| `jazz`                        | Start chatting             |
+| `jazz agent create`           | Create a new agent         |
+| `jazz agent list`             | List all agents            |
+| `jazz agent show <id>`        | Show agent details         |
+| `jazz agent edit <id>`        | Edit an agent              |
+| `jazz agent delete <id>`      | Delete an agent            |
+| `jazz agent chat <name>`      | Chat with a specific agent |
+
+**Workflows**
+
+| Command                           | Description                    |
+| --------------------------------- | ------------------------------ |
+| `jazz workflow list`              | List available workflows       |
+| `jazz workflow show <name>`       | Show workflow details          |
+| `jazz workflow run <name>`        | Run a workflow                 |
+| `jazz workflow schedule <name>`   | Schedule a workflow            |
+| `jazz workflow unschedule <name>` | Remove a workflow schedule     |
+| `jazz workflow scheduled`         | List scheduled workflows       |
+| `jazz workflow catchup`           | Run missed scheduled workflows |
+| `jazz workflow history [name]`    | View workflow run history      |
+
+**MCP, Personas & Config**
+
+| Command                    | Description            |
+| -------------------------- | ---------------------- |
+| `jazz mcp add`             | Add an MCP server      |
+| `jazz mcp list`            | List MCP servers       |
+| `jazz mcp remove`          | Remove an MCP server   |
+| `jazz mcp enable`          | Enable an MCP server   |
+| `jazz mcp disable`         | Disable an MCP server  |
+| `jazz persona create`      | Create a persona       |
+| `jazz persona list`        | List personas          |
+| `jazz persona show <id>`   | Show persona details   |
+| `jazz persona edit <id>`   | Edit a persona         |
+| `jazz persona delete <id>` | Delete a persona       |
+| `jazz config show`         | View configuration     |
+| `jazz config get <key>`    | Get a config value     |
+| `jazz config set <key>`    | Set a config value     |
+| `jazz update`              | Update to latest version |
 
 **In-chat commands:** `/tools`, `/skills`, `/model`, `/mode`, `/cost`, `/context`, `/compact`, `/switch`, `/workflows`, and more. Type `/help` during chat.
 
 ---
 
-## 🏗️ Built to Be Reliable
+## Built to Be Reliable
 
 Jazz is 100% TypeScript with [Effect-TS](https://effect.website/) under the hood. That means every error has a recovery path, every side effect is tracked, and nothing silently fails.
 
@@ -289,7 +316,7 @@ It manages its own context window (auto-summarizes when things get long), delega
 
 ---
 
-## 📖 Documentation & Community
+## Documentation & Community
 
 |                        |                                                                  |
 | ---------------------- | ---------------------------------------------------------------- |
@@ -304,7 +331,7 @@ It manages its own context window (auto-summarizes when things get long), delega
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions -- bug fixes, docs, tests, features, and ideas.
 
@@ -312,7 +339,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the contributor guide.
 
 ---
 
-## 📄 License
+## License
 
 MIT -- see [`LICENSE`](LICENSE).
 
@@ -326,6 +353,6 @@ MIT -- see [`LICENSE`](LICENSE).
 npm install -g jazz-ai && jazz
 ```
 
-[Back to top](#jazz-)
+[Back to top](#jazz)
 
 </div>
