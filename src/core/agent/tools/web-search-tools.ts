@@ -89,9 +89,7 @@ export function createWebSearchTool(): ReturnType<
           .string()
           .min(1, "query cannot be empty")
           .max(5000, "query cannot be longer than 5000 characters")
-          .describe(
-            "The research goal or search query. Be specific — include context, constraints, and freshness requirements.",
-          ),
+          .describe("What to search for. Be specific — include context and constraints."),
         searchQueries: z
           .array(
             z
@@ -104,7 +102,7 @@ export function createWebSearchTool(): ReturnType<
           .max(5)
           .optional()
           .describe(
-            'Up to 5 concise keyword phrases (3-6 words each) covering different angles of the goal. When provided, queries are run in parallel for broader coverage. Example: ["France election 2026 results", "France presidential candidates polling"].',
+            "Up to 5 keyword phrases covering different angles of the goal, run in parallel for broader coverage.",
           ),
         depth: z
           .enum(["standard", "deep"])
