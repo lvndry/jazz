@@ -5,6 +5,7 @@ import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 const DEFAULT_MAX_CONTENT_LENGTH = 50_000;
+const USER_AGENT = "Mozilla/5.0 (compatible; Jazz CLI)";
 
 const SUPPORTED_CONTENT_TYPES = [
   "text/html",
@@ -50,7 +51,7 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
         const response = yield* Effect.tryPromise({
           try: (signal) =>
             fetch(args.url, {
-              headers: { "User-Agent": "Mozilla/5.0 (compatible; Jazz CLI)" },
+              headers: { "User-Agent": USER_AGENT },
               signal,
             }),
           catch: (error) =>
