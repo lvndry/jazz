@@ -23,6 +23,7 @@
         "@effect/platform-node": "^0.96.1",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@openrouter/ai-sdk-provider": "^2.2.3",
+        "@perplexity-ai/perplexity_ai": "^0.27.0",
         "@tavily/core": "^0.7.3",
         "@toon-format/toon": "^2.1.0",
         "ai": "^6.0.78",
@@ -234,6 +235,8 @@
     "@parcel/watcher-win32-ia32": ["@parcel/watcher-win32-ia32@2.5.4", "", { "os": "win32", "cpu": "ia32" }, "sha512-vQN+KIReG0a2ZDpVv8cgddlf67J8hk1WfZMMP7sMeZmJRSmEax5xNDNWKdgqSe2brOKTQQAs3aCCUal2qBHAyg=="],
 
     "@parcel/watcher-win32-x64": ["@parcel/watcher-win32-x64@2.5.4", "", { "os": "win32", "cpu": "x64" }, "sha512-3A6efb6BOKwyw7yk9ro2vus2YTt2nvcd56AuzxdMiVOxL9umDyN5PKkKfZ/gZ9row41SjVmTVQNWQhaRRGpOKw=="],
+
+    "@perplexity-ai/perplexity_ai": ["@perplexity-ai/perplexity_ai@0.27.0", "", {}, "sha512-iavFLkvSjuja81lSat6+Ewq1aDcxi5kierzhfcet9t2sKlsAXS208Nf+JcXzskquZlHkana3Impn69oMNYpg/w=="],
 
     "@pkgr/core": ["@pkgr/core@0.2.9", "", {}, "sha512-QNqXyfVS2wm9hweSYD2O7F0G06uurj9kZ96TRQE5Y9hU7+tgdZwIkbAKc5Ocy1HxEY2kuDQa6cQ1WRs/O5LFKA=="],
 

@@ -2,6 +2,7 @@ import { tavily } from "@tavily/core";
 import { Effect } from "effect";
 import Exa from "exa-js";
 import Parallel from "parallel-web";
+import Perplexity from "@perplexity-ai/perplexity_ai";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -249,6 +250,7 @@ export function createWebSearchTool(): ReturnType<
 let cachedExaClient: Exa | null = null;
 let cachedParallelClient: Parallel | null = null;
 let cachedTavilyClient: ReturnType<typeof tavily> | null = null;
+let cachedPerplexityClient: Perplexity | null = null;
 
 /**
  * Execute an Exa search
@@ -265,22 +267,27 @@ function executeExaSearch(
     }
 
     const exa = cachedExaClient;
+    const isDeep = args.depth === "deep";
+    const searchQuery = args.searchQueries?.[0] ?? args.query;
 
     yield* logger.info(
       `Executing Exa search for query: "${args.query}" with depth: ${args.depth || "standard"}`,
     );
 
+    const exaContents = {
+      text: { maxCharacters: 2000, includeHtmlTags: false as const },
+      highlights: { query: args.query, maxCharacters: 500 },
+      filterEmptyResults: true as const,
+      ...(isDeep ? { summary: { query: args.query }, livecrawl: "preferred" as const } : {}),
+    };
+
     const response = yield* Effect.tryPromise({
       try: () =>
-        exa.search(args.query, {
+        exa.search(searchQuery, {
           type: "auto",
           useAutoprompt: true,
           numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
-          contents: {
-            text: { maxCharacters: 2000, includeHtmlTags: false },
-            highlights: { query: args.query, maxCharacters: 500 },
-            filterEmptyResults: true,
-          },
+          contents: exaContents,
           ...(args.fromDate ? { startPublishedDate: args.fromDate } : {}),
           ...(args.toDate ? { endPublishedDate: args.toDate } : {}),
         }),
@@ -382,6 +389,7 @@ function executeTavilySearch(
 
     const client = cachedTavilyClient;
     const isDeep = args.depth === "deep";
+    const searchQuery = args.searchQueries?.[0] ?? args.query;
 
     yield* logger.info(
       `Executing Tavily search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
@@ -389,11 +397,11 @@ function executeTavilySearch(
 
     const response = yield* Effect.tryPromise({
       try: () =>
-        client.search(args.query, {
+        client.search(searchQuery, {
           searchDepth: isDeep ? "advanced" : "basic",
           maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
           includeRawContent: isDeep ? "markdown" : false,
-          ...(isDeep ? { chunksPerSource: 3 } : {}),
+          ...(isDeep ? { chunksPerSource: 3, includeAnswer: "advanced" } : {}),
           ...(args.fromDate ? { startDate: args.fromDate } : {}),
           ...(args.toDate ? { endDate: args.toDate } : {}),
         }),
@@ -403,14 +411,19 @@ function executeTavilySearch(
         ),
     });
 
-    const results: WebSearchItem[] = (response.results || []).map((result) => ({
-      title: result.title || "",
-      url: result.url || "",
-      snippet: result.rawContent || result.content || "",
-      ...(result.publishedDate ? { publishedDate: result.publishedDate } : {}),
-      source: "tavily",
-      ...(result.score !== undefined ? { metadata: { score: result.score } } : {}),
-    }));
+    const results: WebSearchItem[] = [
+      ...(response.answer && isDeep
+        ? [{ title: "Tavily Answer", url: "", snippet: response.answer, source: "tavily" as const }]
+        : []),
+      ...(response.results || []).map((result) => ({
+        title: result.title || "",
+        url: result.url || "",
+        snippet: result.rawContent || result.content || "",
+        ...(result.publishedDate ? { publishedDate: result.publishedDate } : {}),
+        source: "tavily" as const,
+        ...(result.score !== undefined ? { metadata: { score: result.score } } : {}),
+      })),
+    ];
 
     yield* logger.info(`Tavily search found ${results.length} results`);
 
@@ -423,8 +436,6 @@ function executeTavilySearch(
     };
   });
 }
-
-const BRAVE_MAX_COUNT = 20;
 
 function executeBraveSearch(
   args: WebSearchArgs,
@@ -441,10 +452,7 @@ function executeBraveSearch(
       try: async () => {
         const url = new URL("https://api.search.brave.com/res/v1/web/search");
         url.searchParams.append("q", args.query);
-        url.searchParams.append(
-          "count",
-          Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, BRAVE_MAX_COUNT).toString(),
-        );
+        url.searchParams.append("count", (args.maxResults ?? DEFAULT_MAX_RESULTS).toString());
         url.searchParams.append("extra_snippets", "true");
         if (args.fromDate) {
           const to = args.toDate ?? new Date().toISOString().slice(0, 10);
@@ -499,6 +507,13 @@ function executeBraveSearch(
   });
 }
 
+const PERPLEXITY_MAX_RESULTS = 20;
+
+function toPerplexityDate(isoDate: string): string {
+  const [year = "", month = "", day = ""] = isoDate.split("-");
+  return `${parseInt(month, 10)}/${parseInt(day, 10)}/${year}`;
+}
+
 function executePerplexitySearch(
   args: WebSearchArgs,
   apiKey: string,
@@ -506,66 +521,35 @@ function executePerplexitySearch(
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
 
-    const model = args.depth === "deep" ? "sonar-pro" : "sonar";
+    if (!cachedPerplexityClient) {
+      cachedPerplexityClient = new Perplexity({ apiKey });
+    }
 
-    yield* logger.info(
-      `Executing Perplexity search for query: "${args.query}" using model: ${model}`,
-    );
+    const client = cachedPerplexityClient;
+
+    yield* logger.info(`Executing Perplexity search for query: "${args.query}"`);
 
     const response = yield* Effect.tryPromise({
-      try: async () => {
-        const res = await fetch("https://api.perplexity.ai/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model,
-            messages: [{ role: "user", content: args.query }],
-            return_images: false,
-            return_related_questions: false,
-          }),
-        });
-
-        if (!res.ok) {
-          throw new Error(`Perplexity search failed: ${res.statusText}`);
-        }
-
-        return (await res.json()) as {
-          choices?: Array<{ message: { content: string } }>;
-          citations?: string[];
-          search_results?: Array<{ title?: string; url: string; date?: string }>;
-        };
-      },
+      try: () =>
+        client.search.create({
+          query: args.searchQueries ?? args.query,
+          max_results: Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, PERPLEXITY_MAX_RESULTS),
+          ...(args.fromDate ? { search_after_date_filter: toPerplexityDate(args.fromDate) } : {}),
+          ...(args.toDate ? { search_before_date_filter: toPerplexityDate(args.toDate) } : {}),
+        }),
       catch: (error) =>
         new Error(
           `Perplexity search failed: ${error instanceof Error ? error.message : String(error)}`,
         ),
     });
 
-    const answer = response.choices?.[0]?.message?.content ?? "";
-    const searchResults = response.search_results ?? [];
-
-    const results: WebSearchItem[] = [
-      ...(answer
-        ? [
-            {
-              title: "Perplexity Answer",
-              url: response.citations?.[0] ?? "",
-              snippet: answer,
-              source: "perplexity" as const,
-            },
-          ]
-        : []),
-      ...searchResults.map((sr) => ({
-        title: sr.title ?? "",
-        url: sr.url,
-        snippet: "",
-        ...(sr.date ? { publishedDate: sr.date } : {}),
-        source: "perplexity" as const,
-      })),
-    ];
+    const results: WebSearchItem[] = (response.results ?? []).map((result) => ({
+      title: result.title,
+      url: result.url,
+      snippet: result.snippet,
+      ...(result.date ? { publishedDate: result.date } : {}),
+      source: "perplexity" as const,
+    }));
 
     yield* logger.info(`Perplexity search found ${results.length} results`);
 
