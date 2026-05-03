@@ -1,8 +1,8 @@
+import Perplexity from "@perplexity-ai/perplexity_ai";
 import { tavily } from "@tavily/core";
 import { Effect } from "effect";
 import Exa from "exa-js";
 import Parallel from "parallel-web";
-import Perplexity from "@perplexity-ai/perplexity_ai";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -437,6 +437,8 @@ function executeTavilySearch(
   });
 }
 
+const BRAVE_MAX_COUNT = 20;
+
 function executeBraveSearch(
   args: WebSearchArgs,
   apiKey: string,
@@ -452,7 +454,10 @@ function executeBraveSearch(
       try: async () => {
         const url = new URL("https://api.search.brave.com/res/v1/web/search");
         url.searchParams.append("q", args.query);
-        url.searchParams.append("count", (args.maxResults ?? DEFAULT_MAX_RESULTS).toString());
+        url.searchParams.append(
+          "count",
+          Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, BRAVE_MAX_COUNT).toString(),
+        );
         url.searchParams.append("extra_snippets", "true");
         if (args.fromDate) {
           const to = args.toDate ?? new Date().toISOString().slice(0, 10);

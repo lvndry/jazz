@@ -15,6 +15,16 @@ mock.module("exa-js", () => {
   };
 });
 
+// Mock @perplexity-ai/perplexity_ai
+const mockPerplexitySearchCreate = mock();
+mock.module("@perplexity-ai/perplexity_ai", () => {
+  return {
+    default: class {
+      search = { create: mockPerplexitySearchCreate };
+    },
+  };
+});
+
 describe("WebSearchTool", () => {
   afterAll(() => {
     mock.restore();
@@ -81,6 +91,7 @@ describe("WebSearchTool", () => {
 
     const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
     expect(schema._def.shape).toHaveProperty("query");
+    expect(schema._def.shape).toHaveProperty("searchQueries");
     expect(schema._def.shape).toHaveProperty("depth");
     expect(schema._def.shape).toHaveProperty("fromDate");
     expect(schema._def.shape).toHaveProperty("toDate");
@@ -133,7 +144,7 @@ describe("WebSearchTool", () => {
           const lastCall = (global.fetch as any).mock.calls[0][0];
           const url = new URL(lastCall);
           expect(url.searchParams.get("count")).toBe(
-            (args.maxResults ?? DEFAULT_MAX_RESULTS).toString(),
+            Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, 20).toString(),
           );
         },
       },
@@ -141,22 +152,23 @@ describe("WebSearchTool", () => {
         name: "perplexity",
         apiKey: "pplx-key",
         setupMock: () => {
-          (global.fetch as any).mockResolvedValue({
-            ok: true,
-            json: async () => ({
-              results: [
-                {
-                  title: "Perplexity Result",
-                  url: "https://perplexity.ai",
-                  snippet: "Pplx snippet",
-                },
-              ],
-            }),
+          mockPerplexitySearchCreate.mockResolvedValue({
+            id: "test-id",
+            results: [
+              {
+                title: "Perplexity Result",
+                url: "https://perplexity.ai",
+                snippet: "Pplx snippet",
+              },
+            ],
           });
         },
         verifyMock: (args: WebSearchArgs) => {
-          const lastCallBody = JSON.parse((global.fetch as any).mock.calls[0][1].body);
-          expect(lastCallBody.max_results).toBe(args.maxResults ?? DEFAULT_MAX_RESULTS);
+          expect(mockPerplexitySearchCreate).toHaveBeenCalledWith(
+            expect.objectContaining({
+              max_results: Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, 20),
+            }),
+          );
         },
       },
     ];
