@@ -89,7 +89,9 @@ export function createWebSearchTool(): ReturnType<
           .string()
           .min(1, "query cannot be empty")
           .max(5000, "query cannot be longer than 5000 characters")
-          .describe("What to search for. Be specific — include context and constraints."),
+          .describe(
+            'Natural-language description of the web research goal, including source or freshness guidance and broader context from the task. Use highly specific queries for more targeted results. For example, instead of searching for "AI", use a detailed query like "artificial intelligence machine learning healthcare applications 2024".',
+          ),
         searchQueries: z
           .array(
             z
@@ -102,7 +104,7 @@ export function createWebSearchTool(): ReturnType<
           .max(5)
           .optional()
           .describe(
-            "Up to 5 keyword phrases covering different angles of the goal, run in parallel for broader coverage.",
+            "Up to 5 keyword phrases covering different angles of the goal. Enables parallel multi-query search for broader coverage.",
           ),
         depth: z
           .enum(["standard", "deep"])
