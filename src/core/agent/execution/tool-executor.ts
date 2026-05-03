@@ -72,14 +72,18 @@ export class ToolExecutor {
               duration: timeoutMs,
               onTimeout: () => {
                 const timeoutMinutes = Math.round(timeoutMs / 60000);
-                return new Error(
-                  `Tool '${name}' timed out after ${timeoutMinutes} minutes. The operation took too long to complete.`,
-                );
+                return new Error(`Operation timed out after '${timeoutMinutes}m'`);
               },
             }),
             Effect.catchAll((error) => {
-              if (error instanceof Error && error.message.includes("timed out")) {
-                void logger.warn(`Tool timeout: ${error.message}`);
+              const message = error instanceof Error ? error.message : String(error);
+              if (message.includes("timed out")) {
+                void logger.warn(`Tool timeout: ${name}: ${message}`);
+                return Effect.succeed({
+                  success: false,
+                  result: null,
+                  error: message,
+                } satisfies ToolExecutionResult);
               }
               return Effect.fail(error);
             }),

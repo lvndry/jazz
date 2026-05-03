@@ -22,6 +22,7 @@ import { createSkillTools } from "./skill-tools";
 import { createSubagentTools } from "./subagent-tools";
 import { createListTodosTool, createManageTodosTool } from "./todo-tools";
 import { userInteractionTools } from "./user-interaction-tools";
+import { createWebFetchTool } from "./web-fetch-tools";
 import { createWebSearchTool } from "./web-search-tools";
 
 /**
@@ -646,9 +647,8 @@ export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> 
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(WEB_SEARCH_CATEGORY);
 
-    const webSearchTool = createWebSearchTool();
-
-    yield* registerTool(webSearchTool);
+    yield* registerTool(createWebSearchTool());
+    yield* registerTool(createWebFetchTool());
   });
 }
 
