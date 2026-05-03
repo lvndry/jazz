@@ -30,3 +30,5 @@ export const DEFAULT_MAX_LLM_RETRIES = 3;
 
 /** Maximum delay between LLM retry attempts in seconds (caps exponential backoff) */
 export const MAX_RETRY_DELAY_SECONDS = 30;
+
+export const HTTP_USER_AGENT = "Jazz/1.0 (https://github.com/lvndry/jazz)";

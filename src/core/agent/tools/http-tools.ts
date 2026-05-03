@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
+import { HTTP_USER_AGENT } from "@/core/constants/agent";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool } from "./base-tool";
@@ -391,7 +392,7 @@ export function createHttpRequestTool(): Tool<never> {
           } satisfies ToolExecutionResult;
         }
 
-        ensureHeader(headerMap, "User-Agent", "Jazz/1.0 (https://github.com/lvndry/jazz)");
+        ensureHeader(headerMap, "User-Agent", HTTP_USER_AGENT);
         ensureHeader(
           headerMap,
           "Accept",

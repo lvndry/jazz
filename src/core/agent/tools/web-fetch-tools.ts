@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import { z } from "zod";
+import { HTTP_USER_AGENT } from "@/core/constants/agent";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 const DEFAULT_MAX_CONTENT_LENGTH = 50_000;
-const USER_AGENT = "Mozilla/5.0 (compatible; Jazz CLI)";
 
 const SUPPORTED_CONTENT_TYPES = [
   "text/html",
@@ -51,7 +51,7 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
         const response = yield* Effect.tryPromise({
           try: (signal) =>
             fetch(args.url, {
-              headers: { "User-Agent": USER_AGENT },
+              headers: { "User-Agent": HTTP_USER_AGENT },
               signal,
             }),
           catch: (error) =>
