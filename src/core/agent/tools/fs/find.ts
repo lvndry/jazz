@@ -492,6 +492,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, FindArgs>({
     name: "find",
+    aliases: ["glob"],
     description:
       "Find files/directories by name, glob, or regex. Searches names/paths, NOT file contents (use grep for that). Supports type, size, mtime filters. Default 200 results, cap 2000.",
     tags: ["filesystem", "search"],

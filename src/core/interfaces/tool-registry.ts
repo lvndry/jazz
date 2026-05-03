@@ -49,6 +49,8 @@ export interface Tool<R = never> {
   readonly name: string;
   readonly description: string;
   readonly tags?: readonly string[];
+  /** Alternative names the LLM may use to call this tool. Resolved transparently at execution time. */
+  readonly aliases?: readonly string[];
   readonly parameters: z.ZodTypeAny;
   /** If true, this tool is hidden from UI listings (but still usable programmatically). */
   readonly hidden: boolean;

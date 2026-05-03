@@ -72,6 +72,33 @@ describe("ToolRegistry", () => {
     expect(result).not.toContain("tool2");
   });
 
+  it("should resolve tool aliases to the primary tool", async () => {
+    const mockTool: Tool<ToolRequirements> = {
+      name: "primary-tool",
+      description: "A tool with aliases",
+      aliases: ["alias-one", "alias-two"],
+      parameters: z.object({}),
+      hidden: false,
+      riskLevel: "read-only",
+      execute: mock(() => Effect.succeed({ success: true, result: "ok" })),
+      createSummary: undefined,
+    };
+
+    const program = Effect.gen(function* () {
+      const registry = yield* ToolRegistryTag;
+      yield* registry.registerTool(mockTool);
+      const byPrimary = yield* registry.getTool("primary-tool");
+      const byAlias1 = yield* registry.getTool("alias-one");
+      const byAlias2 = yield* registry.getTool("alias-two");
+      return { byPrimary, byAlias1, byAlias2 };
+    });
+
+    const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
+    expect(result.byPrimary.name).toBe("primary-tool");
+    expect(result.byAlias1.name).toBe("primary-tool");
+    expect(result.byAlias2.name).toBe("primary-tool");
+  });
+
   it("should manage tool categories", async () => {
     const category = { id: "cat1", displayName: "Category 1" };
     const tool: Tool<ToolRequirements> = {
