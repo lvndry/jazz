@@ -56,15 +56,21 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
         }
 
         const contentType = response.headers.get("content-type") ?? "";
-        if (!contentType.includes("text/html") && !contentType.includes("text/plain")) {
+        const isSupported =
+          contentType.includes("text/html") ||
+          contentType.includes("text/plain") ||
+          contentType.includes("application/json") ||
+          contentType.includes("application/xml") ||
+          contentType.includes("text/xml");
+        if (!isSupported) {
           return {
             success: false,
             result: null,
-            error: `Unsupported content type "${contentType}" for ${args.url} — only text/html and text/plain are supported`,
+            error: `Unsupported content type "${contentType}" for ${args.url}`,
           } satisfies ToolExecutionResult;
         }
 
-        const html = yield* Effect.tryPromise({
+        const body = yield* Effect.tryPromise({
           try: () => response.text(),
           catch: (error) =>
             new Error(
@@ -72,20 +78,26 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
             ),
         });
 
-        const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-        const title = titleMatch?.[1]?.trim() ?? "";
+        const isHtml = contentType.includes("text/html");
+        let title = "";
+        let content: string;
 
-        const text = html
-          .replace(/<script\b[^<]*(?:(?!<\/script\s*>)<[^<]*)*<\/script\s*>/gi, " ")
-          .replace(/<style\b[^<]*(?:(?!<\/style\s*>)<[^<]*)*<\/style\s*>/gi, " ")
-          .replace(/<[^>]+>/g, " ")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, maxLength);
+        if (isHtml) {
+          title = body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+          content = body
+            .replace(/<script\b[^<]*(?:(?!<\/script\b[^>]*>)<[^<]*)*<\/script\b[^>]*>/gi, " ")
+            .replace(/<style\b[^<]*(?:(?!<\/style\b[^>]*>)<[^<]*)*<\/style\b[^>]*>/gi, " ")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, maxLength);
+        } else {
+          content = body.slice(0, maxLength);
+        }
 
         return {
           success: true,
-          result: { url: args.url, title, content: text },
+          result: { url: args.url, title, content },
         } satisfies ToolExecutionResult;
       }),
     createSummary: (result: ToolExecutionResult) => {
