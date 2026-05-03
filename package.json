@@ -79,7 +79,7 @@
     "@effect/platform": "^0.90.10",
     "@effect/platform-node": "^0.96.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@openrouter/ai-sdk-provider": "^2.2.3",
+    "@openrouter/ai-sdk-provider": "^2.9.0",
     "@perplexity-ai/perplexity_ai": "^0.27.0",
     "@tavily/core": "^0.7.3",
     "@toon-format/toon": "^2.1.0",

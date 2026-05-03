@@ -40,9 +40,11 @@ import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import { minimax } from "vercel-minimax-ai-provider";
 import {
   createOpenRouter,
+  openrouter as openrouterDefaultInstance,
   type OpenRouterProviderOptions,
   type OpenRouterProviderSettings,
 } from "@openrouter/ai-sdk-provider";
+import { createProviderToolFactory } from "@ai-sdk/provider-utils";
 import {
   gateway,
   generateText,
@@ -324,6 +326,12 @@ function getProviderNativeWebSearchTool(
         }
         return null;
       }
+      case "openrouter": {
+        if (typeof openrouterDefaultInstance.tools?.webSearch === "function") {
+          return openrouterDefaultInstance.tools.webSearch({}) as unknown as ToolSet[string];
+        }
+        return null;
+      }
       default:
         return null;
     }
@@ -335,6 +343,22 @@ function getProviderNativeWebSearchTool(
     }
     return null;
   }
+}
+
+const openrouterWebFetchTool = createProviderToolFactory<unknown, { url?: string }>({
+  id: "openrouter.web_fetch",
+  inputSchema: z.object({ url: z.string().optional() }),
+});
+
+/**
+ * Get provider-native web fetch tool if supported by the provider.
+ * Currently only OpenRouter supports server-side web fetch.
+ */
+function getProviderNativeWebFetchTool(providerName: ProviderName): ToolSet[string] | null {
+  if (providerName.toLowerCase() === "openrouter") {
+    return openrouterWebFetchTool({}) as unknown as ToolSet[string];
+  }
+  return null;
 }
 
 /**
@@ -959,6 +983,19 @@ class AISDKService implements LLMService {
           `[Web Search] web_search tool available but may fail: provider ${providerName} has no native support and no external provider configured`,
         );
         // Keep Jazz's web_search tool but it will return an error when called
+      }
+    }
+
+    // Handle the special case for web_fetch.
+    const hasWebFetch = requestedTools.some((t) => t.function.name === "web_fetch");
+    if (hasWebFetch) {
+      const providerNativeWebFetch = getProviderNativeWebFetchTool(providerName);
+      if (providerNativeWebFetch) {
+        void this.logger.debug(
+          `[Web Fetch] Using provider-native web fetch tool for ${providerName}`,
+        );
+        tools["web_fetch"] = providerNativeWebFetch;
+        providerNativeToolNames.add("web_fetch");
       }
     }
 
