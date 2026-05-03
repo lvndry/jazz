@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import { HTTP_USER_AGENT } from "@/core/constants/agent";
+import { WEB_FETCH_USER_AGENT } from "@/core/constants/agent";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "./base-tool";
@@ -51,7 +51,7 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
         const response = yield* Effect.tryPromise({
           try: (signal) =>
             fetch(args.url, {
-              headers: { "User-Agent": HTTP_USER_AGENT },
+              headers: { "User-Agent": WEB_FETCH_USER_AGENT },
               signal,
             }),
           catch: (error) =>
