@@ -1,6 +1,6 @@
 import Perplexity from "@perplexity-ai/perplexity_ai";
 import { tavily } from "@tavily/core";
-import { Effect } from "effect";
+import { Effect, Schedule } from "effect";
 import Exa from "exa-js";
 import Parallel from "parallel-web";
 import { z } from "zod";
@@ -247,6 +247,11 @@ export function createWebSearchTool(): ReturnType<
   });
 }
 
+const SEARCH_RETRY_POLICY = Schedule.intersect(
+  Schedule.recurs(3),
+  Schedule.jittered(Schedule.exponential("1 second")),
+);
+
 let cachedExaClient: Exa | null = null;
 let cachedParallelClient: Parallel | null = null;
 let cachedTavilyClient: ReturnType<typeof tavily> | null = null;
@@ -280,19 +285,22 @@ function executeExaSearch(
       ...(isDeep ? { summary: { query: args.query }, livecrawl: "preferred" as const } : {}),
     };
 
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        exa.search(args.query, {
-          type: "auto",
-          useAutoprompt: true,
-          numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
-          contents: exaContents,
-          ...(args.fromDate ? { startPublishedDate: args.fromDate } : {}),
-          ...(args.toDate ? { endPublishedDate: args.toDate } : {}),
-        }),
-      catch: (error) =>
-        new Error(`Exa search failed: ${error instanceof Error ? error.message : String(error)}`),
-    });
+    const response = yield* Effect.retry(
+      Effect.tryPromise({
+        try: () =>
+          exa.search(args.query, {
+            type: "auto",
+            useAutoprompt: true,
+            numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
+            contents: exaContents,
+            ...(args.fromDate ? { startPublishedDate: args.fromDate } : {}),
+            ...(args.toDate ? { endPublishedDate: args.toDate } : {}),
+          }),
+        catch: (error) =>
+          new Error(`Exa search failed: ${error instanceof Error ? error.message : String(error)}`),
+      }),
+      SEARCH_RETRY_POLICY,
+    );
 
     const results: WebSearchItem[] = (response.results || []).map((result) => ({
       title: result.title || "",
@@ -335,25 +343,27 @@ function executeParallelSearch(
       `Executing Parallel search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
     );
 
-    const response = yield* Effect.tryPromise({
-      try: async () => {
-        return await parallel.search({
-          search_queries: args.searchQueries ?? [args.query],
-          objective: args.query,
-          mode: "advanced",
-          ...(clientModel ? { client_model: clientModel } : {}),
-          ...(sessionId ? { session_id: sessionId } : {}),
-          advanced_settings: {
-            max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
-            ...(args.fromDate ? { source_policy: { after_date: args.fromDate } } : {}),
-          },
-        });
-      },
-      catch: (error) =>
-        new Error(
-          `Parallel search failed: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-    });
+    const response = yield* Effect.retry(
+      Effect.tryPromise({
+        try: () =>
+          parallel.search({
+            search_queries: args.searchQueries ?? [args.query],
+            objective: args.query,
+            mode: "advanced",
+            ...(clientModel ? { client_model: clientModel } : {}),
+            ...(sessionId ? { session_id: sessionId } : {}),
+            advanced_settings: {
+              max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
+              ...(args.fromDate ? { source_policy: { after_date: args.fromDate } } : {}),
+            },
+          }),
+        catch: (error) =>
+          new Error(
+            `Parallel search failed: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      }),
+      SEARCH_RETRY_POLICY,
+    );
 
     const results: WebSearchItem[] = (response.results || []).map((result) => ({
       title: result.title || "",
@@ -393,21 +403,24 @@ function executeTavilySearch(
       `Executing Tavily search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
     );
 
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        client.search(args.query, {
-          searchDepth: isDeep ? "advanced" : "basic",
-          maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
-          includeRawContent: isDeep ? "markdown" : false,
-          ...(isDeep ? { chunksPerSource: 3, includeAnswer: "advanced" } : {}),
-          ...(args.fromDate ? { startDate: args.fromDate } : {}),
-          ...(args.toDate ? { endDate: args.toDate } : {}),
-        }),
-      catch: (error) =>
-        new Error(
-          `Tavily search failed: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-    });
+    const response = yield* Effect.retry(
+      Effect.tryPromise({
+        try: () =>
+          client.search(args.query, {
+            searchDepth: isDeep ? "advanced" : "basic",
+            maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
+            includeRawContent: isDeep ? "markdown" : false,
+            ...(isDeep ? { chunksPerSource: 3, includeAnswer: "advanced" } : {}),
+            ...(args.fromDate ? { startDate: args.fromDate } : {}),
+            ...(args.toDate ? { endDate: args.toDate } : {}),
+          }),
+        catch: (error) =>
+          new Error(
+            `Tavily search failed: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      }),
+      SEARCH_RETRY_POLICY,
+    );
 
     const results: WebSearchItem[] = [
       ...(response.answer && isDeep
@@ -448,46 +461,51 @@ function executeBraveSearch(
       `Executing Brave search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
     );
 
-    const response = yield* Effect.tryPromise({
-      try: async () => {
-        const url = new URL("https://api.search.brave.com/res/v1/web/search");
-        url.searchParams.append("q", args.query);
-        url.searchParams.append(
-          "count",
-          Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, BRAVE_MAX_COUNT).toString(),
-        );
-        url.searchParams.append("extra_snippets", "true");
-        if (args.fromDate) {
-          const to = args.toDate ?? new Date().toISOString().slice(0, 10);
-          url.searchParams.append("freshness", `${args.fromDate}to${to}`);
-        }
+    const response = yield* Effect.retry(
+      Effect.tryPromise({
+        try: async () => {
+          const url = new URL("https://api.search.brave.com/res/v1/web/search");
+          url.searchParams.append("q", args.query);
+          url.searchParams.append(
+            "count",
+            Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, BRAVE_MAX_COUNT).toString(),
+          );
+          url.searchParams.append("extra_snippets", "true");
+          if (args.fromDate) {
+            const to = args.toDate ?? new Date().toISOString().slice(0, 10);
+            url.searchParams.append("freshness", `${args.fromDate}to${to}`);
+          }
 
-        const res = await fetch(url.toString(), {
-          headers: {
-            Accept: "application/json",
-            "X-Subscription-Token": apiKey,
-          },
-        });
+          const res = await fetch(url.toString(), {
+            headers: {
+              Accept: "application/json",
+              "X-Subscription-Token": apiKey,
+            },
+          });
 
-        if (!res.ok) {
-          throw new Error(`Brave search failed: ${res.statusText}`);
-        }
+          if (!res.ok) {
+            throw new Error(`Brave search failed: ${res.statusText}`);
+          }
 
-        return (await res.json()) as {
-          web?: {
-            results?: Array<{
-              title: string;
-              url: string;
-              description: string;
-              extra_snippets?: string[];
-              page_age?: string;
-            }>;
+          return (await res.json()) as {
+            web?: {
+              results?: Array<{
+                title: string;
+                url: string;
+                description: string;
+                extra_snippets?: string[];
+                page_age?: string;
+              }>;
+            };
           };
-        };
-      },
-      catch: (error) =>
-        new Error(`Brave search failed: ${error instanceof Error ? error.message : String(error)}`),
-    });
+        },
+        catch: (error) =>
+          new Error(
+            `Brave search failed: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      }),
+      SEARCH_RETRY_POLICY,
+    );
 
     const results: WebSearchItem[] = (response.web?.results || []).map((result) => ({
       title: result.title || "",
@@ -531,19 +549,22 @@ function executePerplexitySearch(
 
     yield* logger.info(`Executing Perplexity search for query: "${args.query}"`);
 
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        client.search.create({
-          query: args.searchQueries ?? args.query,
-          max_results: Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, PERPLEXITY_MAX_RESULTS),
-          ...(args.fromDate ? { search_after_date_filter: toPerplexityDate(args.fromDate) } : {}),
-          ...(args.toDate ? { search_before_date_filter: toPerplexityDate(args.toDate) } : {}),
-        }),
-      catch: (error) =>
-        new Error(
-          `Perplexity search failed: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-    });
+    const response = yield* Effect.retry(
+      Effect.tryPromise({
+        try: () =>
+          client.search.create({
+            query: args.searchQueries ?? args.query,
+            max_results: Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, PERPLEXITY_MAX_RESULTS),
+            ...(args.fromDate ? { search_after_date_filter: toPerplexityDate(args.fromDate) } : {}),
+            ...(args.toDate ? { search_before_date_filter: toPerplexityDate(args.toDate) } : {}),
+          }),
+        catch: (error) =>
+          new Error(
+            `Perplexity search failed: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      }),
+      SEARCH_RETRY_POLICY,
+    );
 
     const results: WebSearchItem[] = (response.results ?? []).map((result) => ({
       title: result.title,
