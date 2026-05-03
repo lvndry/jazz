@@ -66,8 +66,8 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
         const title = titleMatch?.[1]?.trim() ?? "";
 
         const text = html
-          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
-          .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ")
+          .replace(/<script\b[^<]*(?:(?!<\/script\s*>)<[^<]*)*<\/script\s*>/gi, " ")
+          .replace(/<style\b[^<]*(?:(?!<\/style\s*>)<[^<]*)*<\/style\s*>/gi, " ")
           .replace(/<[^>]+>/g, " ")
           .replace(/\s+/g, " ")
           .trim()
