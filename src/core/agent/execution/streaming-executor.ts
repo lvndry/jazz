@@ -10,7 +10,11 @@ import {
   Schedule,
   Stream,
 } from "effect";
-import { DEFAULT_MAX_LLM_RETRIES, MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
+import {
+  DEFAULT_MAX_LLM_RETRIES,
+  MAX_RETRY_DELAY_SECONDS,
+  MIN_LLM_REQUEST_TIMEOUT_SECONDS,
+} from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -145,7 +149,12 @@ export function executeWithStreaming(
             ),
           ).pipe(
             Effect.timeout(
-              Duration.seconds(Math.max(120, maxRetries * MAX_RETRY_DELAY_SECONDS + 30)),
+              Duration.seconds(
+                Math.max(
+                  MIN_LLM_REQUEST_TIMEOUT_SECONDS,
+                  maxRetries * MAX_RETRY_DELAY_SECONDS + 30,
+                ),
+              ),
             ),
             Effect.catchAll((error) =>
               Effect.gen(function* () {
