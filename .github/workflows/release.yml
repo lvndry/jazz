@@ -46,6 +46,15 @@ jobs:
           PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
           echo "tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Check for commits since last release
+        run: |
+          COMMIT_COUNT=$(git rev-list ${{ steps.prev_tag.outputs.tag }}..HEAD --count)
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "No commits since ${{ steps.prev_tag.outputs.tag }}, nothing to release."
+            exit 1
+          fi
+          echo "$COMMIT_COUNT commit(s) since ${{ steps.prev_tag.outputs.tag }}"
+
       - name: Bump version
         id: bump
         run: |
