@@ -462,7 +462,6 @@ function executeBraveSearch(
         const res = await fetch(url.toString(), {
           headers: {
             Accept: "application/json",
-            "Accept-Encoding": "gzip",
             "X-Subscription-Token": apiKey,
           },
         });
