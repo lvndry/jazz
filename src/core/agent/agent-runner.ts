@@ -210,6 +210,7 @@ function initializeAgentRun(
       agentId: agent.id,
       sessionId: options.sessionId,
       conversationId: actualConversationId,
+      model,
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }
         : {}),

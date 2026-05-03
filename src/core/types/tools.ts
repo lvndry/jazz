@@ -157,6 +157,7 @@ export interface ToolExecutionContext {
   readonly agentId: string;
   readonly sessionId?: string;
   readonly conversationId?: string;
+  readonly model?: string;
   /**
    * Auto-approve policy for this execution context.
    * When set, tools matching the policy will be auto-approved without user interaction.

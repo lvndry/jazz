@@ -1,0 +1,21 @@
+repos:
+  - repo: local
+    hooks:
+      - id: prettier
+        name: Prettier
+        entry: bun prettier --write --log-level warn
+        language: system
+        types_or: [ts, tsx]
+
+      - id: eslint
+        name: ESLint
+        entry: bun eslint --cache
+        language: system
+        types_or: [ts, tsx]
+
+      - id: typecheck
+        name: TypeScript
+        entry: bun run typecheck
+        language: system
+        pass_filenames: false
+        types_or: [ts, tsx]
