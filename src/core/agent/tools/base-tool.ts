@@ -31,6 +31,8 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    * Optional array of tags for categorizing and organizing tools.
    */
   readonly tags?: readonly string[];
+  /** Alternative names the LLM may use to call this tool. */
+  readonly aliases?: readonly string[];
   /**
    * Zod schema defining the structure and validation rules for tool arguments.
    */
@@ -91,6 +93,7 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     name: config.name,
     description: config.description,
     tags: config.tags ?? [],
+    ...(config.aliases ? { aliases: config.aliases } : {}),
     parameters: config.parameters,
     hidden: config.hidden === true,
     riskLevel: config.riskLevel ?? defaultRiskLevel,

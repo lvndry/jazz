@@ -29,18 +29,25 @@ class DefaultToolRegistry implements ToolRegistry {
   private tools: Map<string, Tool<ToolRequirements>>;
   private toolCategories: Map<string, string>; // tool name -> category id
   private categories: Map<string, ToolCategory>; // category id -> ToolCategory object
+  private aliasMap: Map<string, string>; // alias -> primary tool name
   private cachedDefinitions: readonly ToolDefinition[] | null = null;
 
   constructor() {
     this.tools = new Map<string, Tool<ToolRequirements>>();
     this.toolCategories = new Map<string, string>();
     this.categories = new Map<string, ToolCategory>();
+    this.aliasMap = new Map<string, string>();
   }
 
   registerTool(tool: Tool<ToolRequirements>, category?: ToolCategory): Effect.Effect<void, never> {
     return Effect.sync(() => {
       this.tools.set(tool.name, tool);
       this.cachedDefinitions = null; // Invalidate cache on registration
+      if (tool.aliases) {
+        for (const alias of tool.aliases) {
+          this.aliasMap.set(alias, tool.name);
+        }
+      }
       if (category) {
         this.toolCategories.set(tool.name, category.id);
 
@@ -58,7 +65,8 @@ class DefaultToolRegistry implements ToolRegistry {
   }
 
   getTool(name: string): Effect.Effect<Tool<ToolRequirements>, ToolNotFoundError> {
-    return Effect.sync(() => this.tools.get(name)).pipe(
+    const resolvedName = this.aliasMap.get(name) ?? name;
+    return Effect.sync(() => this.tools.get(resolvedName)).pipe(
       Effect.flatMap((tool) =>
         tool
           ? Effect.succeed(tool)
