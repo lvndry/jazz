@@ -24,3 +24,9 @@ export const FILE_LOCK_MAX_RETRIES = 10;
 
 /** File lock retry delay in milliseconds */
 export const FILE_LOCK_RETRY_DELAY_MS = 100;
+
+/** Default maximum number of LLM API retries on transient failures */
+export const DEFAULT_MAX_LLM_RETRIES = 3;
+
+/** Maximum delay between LLM retry attempts in seconds (caps exponential backoff) */
+export const MAX_RETRY_DELAY_SECONDS = 30;

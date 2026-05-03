@@ -17,6 +17,8 @@ export interface AppConfig {
   readonly notifications?: NotificationsConfig;
   readonly autoApprovedCommands?: readonly string[];
   readonly telemetry?: TelemetryConfig;
+  /** Maximum number of retries for transient LLM API failures. Defaults to 3. */
+  readonly maxRetries?: number;
 }
 
 export interface NotificationsConfig {
