@@ -10,6 +10,7 @@ import {
   Schedule,
   Stream,
 } from "effect";
+import { DEFAULT_MAX_LLM_RETRIES, MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -32,8 +33,6 @@ import type { RecursiveRunner } from "../context/summarizer";
 import { recordFirstTokenLatency, recordLLMRetry } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
-const MAX_RETRIES = 3;
-const STREAM_CREATION_TIMEOUT = Duration.minutes(2);
 const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
 
 /**
@@ -63,6 +62,7 @@ export function executeWithStreaming(
     const notificationServiceOption = yield* Effect.serviceOption(NotificationServiceTag);
     const { agent } = options;
     const { runMetrics, provider, model, actualConversationId } = runContext;
+    const maxRetries = runContext.maxRetries ?? DEFAULT_MAX_LLM_RETRIES;
 
     const reasoningEffort = agent.config.reasoningEffort ?? "disable";
     const shouldShowThinking = displayConfig.showThinking && reasoningEffort !== "disable";
@@ -139,11 +139,14 @@ export function executeWithStreaming(
               }
             }),
             Schedule.exponential("1 second").pipe(
-              Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
+              Schedule.union(Schedule.spaced(Duration.seconds(MAX_RETRY_DELAY_SECONDS))),
+              Schedule.intersect(Schedule.recurs(maxRetries)),
               Schedule.whileInput((error: unknown) => isRetryableLLMError(error)),
             ),
           ).pipe(
-            Effect.timeout(STREAM_CREATION_TIMEOUT),
+            Effect.timeout(
+              Duration.seconds(Math.max(120, maxRetries * MAX_RETRY_DELAY_SECONDS + 30)),
+            ),
             Effect.catchAll((error) =>
               Effect.gen(function* () {
                 if (
@@ -168,7 +171,21 @@ export function executeWithStreaming(
                     conversationId: actualConversationId,
                   });
                 }
-                const fallback = yield* llmService.createChatCompletion(provider, llmOptions);
+                const fallback = yield* Effect.retry(
+                  Effect.gen(function* () {
+                    try {
+                      return yield* llmService.createChatCompletion(provider, llmOptions);
+                    } catch (error) {
+                      recordLLMRetry(runMetrics, error);
+                      throw error;
+                    }
+                  }),
+                  Schedule.exponential("1 second").pipe(
+                    Schedule.union(Schedule.spaced(Duration.seconds(MAX_RETRY_DELAY_SECONDS))),
+                    Schedule.intersect(Schedule.recurs(maxRetries)),
+                    Schedule.whileInput((error: unknown) => isRetryableLLMError(error)),
+                  ),
+                );
                 return {
                   stream: Stream.empty,
                   response: Effect.succeed(fallback),
