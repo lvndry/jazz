@@ -13,7 +13,6 @@ import { defineTool } from "./base-tool";
 export interface WebSearchArgs extends Record<string, unknown> {
   readonly query: string;
   readonly searchQueries?: string[];
-  readonly depth?: "standard" | "deep";
   readonly maxResults?: number;
   readonly fromDate?: string;
   readonly toDate?: string;
@@ -81,7 +80,7 @@ export function createWebSearchTool(): ReturnType<
 > {
   return defineTool<AgentConfigService | LoggerService, WebSearchArgs>({
     name: "web_search",
-    description: "Search the web for real-time information. Supports standard/deep depth.",
+    description: "Search the web for real-time information.",
     tags: ["web", "search"],
     parameters: z
       .object({
@@ -90,7 +89,7 @@ export function createWebSearchTool(): ReturnType<
           .min(1, "query cannot be empty")
           .max(5000, "query cannot be longer than 5000 characters")
           .describe(
-            'Natural-language description of the web research goal, including source or freshness guidance and broader context from the task. Use highly specific queries for more targeted results. For example, instead of searching for "AI", use a detailed query like "artificial intelligence machine learning healthcare applications 2024".',
+            "Natural-language description of the web research goal, including source or freshness guidance and broader context from the task. Use highly specific queries for more targeted results.",
           ),
         searchQueries: z
           .array(
@@ -103,13 +102,7 @@ export function createWebSearchTool(): ReturnType<
           .min(1)
           .max(5)
           .optional()
-          .describe(
-            "Up to 5 keyword phrases covering different angles of the goal. Enables parallel multi-query search for broader coverage.",
-          ),
-        depth: z
-          .enum(["standard", "deep"])
-          .optional()
-          .describe("'standard' (default) or 'deep' for comprehensive search"),
+          .describe("Concise keyword search queries (3-6 words each)."),
         fromDate: z
           .string()
           .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
@@ -135,7 +128,6 @@ export function createWebSearchTool(): ReturnType<
           .object({
             query: z.string().min(1),
             searchQueries: z.array(z.string().min(1).max(200)).min(1).max(5).optional(),
-            depth: z.enum(["standard", "deep"]).optional(),
             fromDate: z
               .string()
               .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
@@ -272,17 +264,13 @@ function executeExaSearch(
     }
 
     const exa = cachedExaClient;
-    const isDeep = args.depth === "deep";
 
-    yield* logger.info(
-      `Executing Exa search for query: "${args.query}" with depth: ${args.depth || "standard"}`,
-    );
+    yield* logger.info(`Executing Exa search for query: "${args.query}"`);
 
     const exaContents = {
       text: { maxCharacters: 2000, includeHtmlTags: false as const },
       highlights: { query: args.query, maxCharacters: 500 },
       filterEmptyResults: true as const,
-      ...(isDeep ? { summary: { query: args.query }, livecrawl: "preferred" as const } : {}),
     };
 
     const response = yield* Effect.retry(
@@ -339,9 +327,7 @@ function executeParallelSearch(
     const clientModel = yield* config.getOrElse<string>("runtime.active_model", "");
     const sessionId = yield* config.getOrElse<string>("runtime.conversation_id", "");
 
-    yield* logger.info(
-      `Executing Parallel search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
-    );
+    yield* logger.info(`Executing Parallel search for query: "${args.query}"`);
 
     const response = yield* Effect.retry(
       Effect.tryPromise({
@@ -397,20 +383,16 @@ function executeTavilySearch(
     }
 
     const client = cachedTavilyClient;
-    const isDeep = args.depth === "deep";
 
-    yield* logger.info(
-      `Executing Tavily search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
-    );
+    yield* logger.info(`Executing Tavily search for query: "${args.query}"`);
 
     const response = yield* Effect.retry(
       Effect.tryPromise({
         try: () =>
           client.search(args.query, {
-            searchDepth: isDeep ? "advanced" : "basic",
+            searchDepth: "basic",
             maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
-            includeRawContent: isDeep ? "markdown" : false,
-            ...(isDeep ? { chunksPerSource: 3, includeAnswer: "advanced" } : {}),
+            includeRawContent: false,
             ...(args.fromDate ? { startDate: args.fromDate } : {}),
             ...(args.toDate ? { endDate: args.toDate } : {}),
           }),
@@ -422,19 +404,14 @@ function executeTavilySearch(
       SEARCH_RETRY_POLICY,
     );
 
-    const results: WebSearchItem[] = [
-      ...(response.answer && isDeep
-        ? [{ title: "Tavily Answer", url: "", snippet: response.answer, source: "tavily" as const }]
-        : []),
-      ...(response.results || []).map((result) => ({
-        title: result.title || "",
-        url: result.url || "",
-        snippet: result.rawContent || result.content || "",
-        ...(result.publishedDate ? { publishedDate: result.publishedDate } : {}),
-        source: "tavily" as const,
-        ...(result.score !== undefined ? { metadata: { score: result.score } } : {}),
-      })),
-    ];
+    const results: WebSearchItem[] = (response.results || []).map((result) => ({
+      title: result.title || "",
+      url: result.url || "",
+      snippet: result.rawContent || result.content || "",
+      ...(result.publishedDate ? { publishedDate: result.publishedDate } : {}),
+      source: "tavily" as const,
+      ...(result.score !== undefined ? { metadata: { score: result.score } } : {}),
+    }));
 
     yield* logger.info(`Tavily search found ${results.length} results`);
 
@@ -457,9 +434,7 @@ function executeBraveSearch(
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
 
-    yield* logger.info(
-      `Executing Brave search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
-    );
+    yield* logger.info(`Executing Brave search for query: "${args.query}"`);
 
     const response = yield* Effect.retry(
       Effect.tryPromise({
