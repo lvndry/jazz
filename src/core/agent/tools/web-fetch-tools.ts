@@ -6,6 +6,18 @@ import { defineTool, makeZodValidator } from "./base-tool";
 
 const DEFAULT_MAX_CONTENT_LENGTH = 50_000;
 
+const SUPPORTED_CONTENT_TYPES = [
+  "text/html",
+  "text/plain",
+  "application/json",
+  "application/xml",
+  "text/xml",
+] as const;
+
+function isSupportedContentType(contentType: string): boolean {
+  return SUPPORTED_CONTENT_TYPES.some((type) => contentType.includes(type));
+}
+
 const webFetchSchema = z
   .object({
     url: z.string().url().describe("The URL to fetch content from"),
@@ -56,13 +68,7 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
         }
 
         const contentType = response.headers.get("content-type") ?? "";
-        const isSupported =
-          contentType.includes("text/html") ||
-          contentType.includes("text/plain") ||
-          contentType.includes("application/json") ||
-          contentType.includes("application/xml") ||
-          contentType.includes("text/xml");
-        if (!isSupported) {
+        if (!isSupportedContentType(contentType)) {
           return {
             success: false,
             result: null,
