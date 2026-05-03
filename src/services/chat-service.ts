@@ -38,7 +38,7 @@ import {
   recordCommandApproval,
   removeCommandApproval,
   bumpPromotionThreshold,
-  type CommandApprovalRecord,
+  type CommandApprovals,
 } from "./command-approval-tracker";
 import { saveConversation, type ConversationRecord } from "./history/conversation-history-service";
 
@@ -518,8 +518,9 @@ export class ChatServiceImpl implements ChatService {
           // Check for commands ready to promote to persistent config
           const currentConfig = yield* configService.appConfig;
           const persistedSet = new Set(currentConfig.autoApprovedCommands ?? []);
+          const emptyApprovals: CommandApprovals = {};
           const approvals = yield* loadCommandApprovals().pipe(
-            Effect.catchAll(() => Effect.succeed({} as Record<string, CommandApprovalRecord>)),
+            Effect.catchAll(() => Effect.succeed(emptyApprovals)),
           );
 
           for (const cmd of autoApprovedCommands) {

@@ -91,7 +91,7 @@ function selectSummarizerModel(
 
     // Priority 1: OpenRouter free tier if configured
     if (llmConfig?.openrouter?.api_key) {
-      return { provider: "openrouter" as ProviderName, model: "openrouter/free" };
+      return { provider: "openrouter", model: "openrouter/free" };
     }
 
     // Get parent provider

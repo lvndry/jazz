@@ -196,7 +196,7 @@ export class PersonaServiceImpl implements PersonaService {
         ...(toolProfile !== undefined && { toolProfile }),
         createdAt: isNaN(createdAt.getTime()) ? now : createdAt,
         updatedAt: isNaN(updatedAt.getTime()) ? now : updatedAt,
-      } as Persona;
+      };
     });
   }
 

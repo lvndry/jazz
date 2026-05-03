@@ -289,7 +289,7 @@ function showWizardMenu(options: WizardMenuOption[]): Effect.Effect<MenuAction, 
       React.createElement(WizardHome, {
         options,
         onSelect: (value: string) => safeResume(value as MenuAction),
-        onExit: () => safeResume("exit" as MenuAction),
+        onExit: () => safeResume("exit"),
       }),
     );
   });

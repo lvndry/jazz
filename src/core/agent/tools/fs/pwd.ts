@@ -19,7 +19,7 @@ export function createPwdTool(): Tool<FileSystemContextService> {
     validate: (args) => {
       const params = parameters.safeParse(args);
       return params.success
-        ? { valid: true, value: params.data as unknown as Record<string, never> }
+        ? { valid: true, value: params.data }
         : { valid: false, errors: params.error.issues.map((i) => i.message) };
     },
     handler: (_args, context) =>

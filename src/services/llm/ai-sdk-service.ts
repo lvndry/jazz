@@ -51,14 +51,13 @@ import {
   stepCountIs,
   streamText,
   tool,
-  type AssistantModelMessage,
   type LanguageModel,
   type ModelMessage,
   type SystemModelMessage,
+  type ToolCallPart,
   type ToolModelMessage,
   type ToolSet,
   type TypedToolCall,
-  type UserModelMessage,
 } from "ai";
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
@@ -175,22 +174,13 @@ function toCoreMessages(
 
     if (role === "user") {
       return {
-        role: "user",
+        role: "user" as const,
         content,
-      } as UserModelMessage;
+      };
     }
 
     if (role === "assistant") {
-      const contentParts: Array<
-        | { type: "text"; text: string }
-        | {
-            type: "tool-call";
-            toolCallId: string;
-            toolName: string;
-            input: unknown;
-            thoughtSignature?: string;
-          }
-      > = [];
+      const contentParts: Array<{ type: "text"; text: string } | ToolCallPart> = [];
 
       if (content && content.length > 0) {
         contentParts.push({ type: "text", text: content });
@@ -199,13 +189,7 @@ function toCoreMessages(
       if (m.tool_calls && m.tool_calls.length > 0) {
         for (const tc of m.tool_calls) {
           const toolArgs = sanitize(tc.function.arguments);
-          const toolCallPart: {
-            type: "tool-call";
-            toolCallId: string;
-            toolName: string;
-            input: unknown;
-            providerOptions?: { google?: { thoughtSignature?: string } };
-          } = {
+          const toolCallPart: ToolCallPart = {
             type: "tool-call",
             toolCallId: tc.id,
             toolName: tc.function.name,
@@ -226,7 +210,7 @@ function toCoreMessages(
         }
       }
 
-      return { role: "assistant", content: contentParts } as AssistantModelMessage;
+      return { role: "assistant" as const, content: contentParts };
     }
 
     if (role === "tool") {
@@ -239,7 +223,7 @@ function toCoreMessages(
         output: { type: "text", value: content },
       });
 
-      return { role: "tool", content: contentParts } as ToolModelMessage;
+      return { role: "tool" as const, content: contentParts };
     }
 
     // Fallback - should not reach here
@@ -328,7 +312,7 @@ function getProviderNativeWebSearchTool(
       }
       case "openrouter": {
         if (typeof openrouterDefaultInstance.tools?.webSearch === "function") {
-          return openrouterDefaultInstance.tools.webSearch({}) as unknown as ToolSet[string];
+          return openrouterDefaultInstance.tools.webSearch({});
         }
         return null;
       }
@@ -356,7 +340,7 @@ const openrouterWebFetchTool = createProviderToolFactory<unknown, Record<string,
  */
 function getProviderNativeWebFetchTool(providerName: ProviderName): ToolSet[string] | null {
   if (providerName.toLowerCase() === "openrouter") {
-    return openrouterWebFetchTool({}) as unknown as ToolSet[string];
+    return openrouterWebFetchTool({});
   }
   return null;
 }
@@ -890,7 +874,7 @@ class AISDKService implements LLMService {
           supportedModels: models.map((model) => model),
           defaultModel: models[0]?.id ?? "",
           authenticate: () => {
-            const providerConfig = this.config.llmConfig?.[providerName as keyof LLMConfig];
+            const providerConfig = this.config.llmConfig?.[providerName];
             const apiKey = providerConfig?.api_key;
 
             if (!apiKey) {
@@ -948,7 +932,7 @@ class AISDKService implements LLMService {
     for (const toolDef of requestedTools) {
       tools[toolDef.function.name] = tool({
         description: toolDef.function.description,
-        inputSchema: toolDef.function.parameters as unknown as z.ZodTypeAny,
+        inputSchema: toolDef.function.parameters,
       });
     }
 

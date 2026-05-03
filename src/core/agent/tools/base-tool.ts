@@ -279,7 +279,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
             executeArgs: args as Record<string, unknown>,
           },
           error: errorMessage,
-        } as ToolExecutionResult;
+        };
       }),
   });
 

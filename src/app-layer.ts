@@ -51,7 +51,7 @@ type StdoutShape = { isTTY?: boolean; rows?: number };
 
 export function getPresentationConfig(
   env: EnvShape = process.env as EnvShape,
-  stdout: StdoutShape = process.stdout as StdoutShape,
+  stdout: StdoutShape = process.stdout,
 ): PresentationConfig {
   const isQuiet = env.JAZZ_OUTPUT_MODE === "quiet";
   const forceNoTUI = env.JAZZ_NO_TUI === "1" || (stdout.isTTY === true && (stdout.rows ?? 24) < 10);

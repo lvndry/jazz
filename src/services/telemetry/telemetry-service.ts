@@ -119,7 +119,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly toolCalls: number;
     readonly toolErrors: number;
   }): Effect.Effect<void, TelemetryError> {
-    return this.appendEvent("agent_run_completed", data as unknown as Record<string, unknown>, {
+    return this.appendEvent("agent_run_completed", data, {
       agentId: data.agentId,
       sessionId: data.conversationId,
     });
@@ -133,7 +133,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly error: string;
     readonly durationMs: number;
   }): Effect.Effect<void, TelemetryError> {
-    return this.appendEvent("agent_run_failed", data as unknown as Record<string, unknown>, {
+    return this.appendEvent("agent_run_failed", data, {
       agentId: data.agentId,
       sessionId: data.conversationId,
     });
@@ -150,7 +150,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     const opts: { agentId?: string; sessionId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
     if (data.sessionId !== undefined) opts.sessionId = data.sessionId;
-    return this.appendEvent("llm_usage", data as unknown as Record<string, unknown>, opts);
+    return this.appendEvent("llm_usage", data, opts);
   }
 
   recordLLMRetry(data: {
@@ -162,7 +162,7 @@ export class TelemetryServiceImpl implements TelemetryService {
   }): Effect.Effect<void, TelemetryError> {
     const opts: { agentId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
-    return this.appendEvent("llm_retry", data as unknown as Record<string, unknown>, opts);
+    return this.appendEvent("llm_retry", data, opts);
   }
 
   recordToolInvocation(data: {
@@ -177,7 +177,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     const opts: { agentId?: string; sessionId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
     if (data.sessionId !== undefined) opts.sessionId = data.sessionId;
-    return this.appendEvent(eventType, data as unknown as Record<string, unknown>, opts);
+    return this.appendEvent(eventType, data, opts);
   }
 
   recordCommandExecuted(data: {
@@ -187,7 +187,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly success: boolean;
     readonly error?: string;
   }): Effect.Effect<void, TelemetryError> {
-    return this.appendEvent("command_executed", data as unknown as Record<string, unknown>);
+    return this.appendEvent("command_executed", data);
   }
 
   recordEvent(
