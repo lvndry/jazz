@@ -1,4 +1,5 @@
 import { Effect, Option } from "effect";
+import { DEFAULT_MAX_LLM_RETRIES } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -57,6 +58,8 @@ function initializeAgentRun(
     const { agent, userInput, conversationId } = options;
     const toolRegistry = yield* ToolRegistryTag;
     const skillService = yield* SkillServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
 
     const actualConversationId = conversationId || `${Date.now()}`;
     const history: ChatMessage[] = options.conversationHistory || [];
@@ -243,6 +246,7 @@ function initializeAgentRun(
       provider,
       model,
       connectedMCPServers,
+      maxRetries: Math.max(0, Math.floor(appConfig.maxRetries ?? DEFAULT_MAX_LLM_RETRIES)),
       knownSkills: relevantSkills,
     };
   });

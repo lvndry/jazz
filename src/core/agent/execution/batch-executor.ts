@@ -1,4 +1,5 @@
-import { Effect, Schedule } from "effect";
+import { Duration, Effect, Schedule } from "effect";
+import { DEFAULT_MAX_LLM_RETRIES, MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -13,8 +14,6 @@ import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import type { RecursiveRunner } from "../context/summarizer";
 import { recordLLMRetry } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
-
-const MAX_RETRIES = 3;
 
 /**
  * Non-streaming implementation that waits for complete LLM responses before rendering.
@@ -41,6 +40,7 @@ export function executeWithoutStreaming(
     const presentationService = yield* PresentationServiceTag;
     const { agent } = options;
     const { runMetrics, provider, model } = runContext;
+    const maxRetries = runContext.maxRetries ?? DEFAULT_MAX_LLM_RETRIES;
 
     const reasoningEffort = agent.config.reasoningEffort ?? "disable";
     const shouldShowThinking = displayConfig.showThinking && reasoningEffort !== "disable";
@@ -68,8 +68,13 @@ export function executeWithoutStreaming(
               }
             }),
             Schedule.exponential("1 second").pipe(
-              Schedule.intersect(Schedule.recurs(MAX_RETRIES)),
+              Schedule.union(Schedule.spaced(Duration.seconds(MAX_RETRY_DELAY_SECONDS))),
+              Schedule.intersect(Schedule.recurs(maxRetries)),
               Schedule.whileInput((error: unknown) => isRetryableLLMError(error)),
+            ),
+          ).pipe(
+            Effect.timeout(
+              Duration.seconds(Math.max(120, maxRetries * MAX_RETRY_DELAY_SECONDS + 30)),
             ),
           );
 
