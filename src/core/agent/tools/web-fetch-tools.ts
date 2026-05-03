@@ -36,9 +36,10 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
         yield* logger.debug(`[Web Fetch] Fetching ${args.url}`);
 
         const response = yield* Effect.tryPromise({
-          try: () =>
+          try: (signal) =>
             fetch(args.url, {
               headers: { "User-Agent": "Mozilla/5.0 (compatible; Jazz CLI)" },
+              signal,
             }),
           catch: (error) =>
             new Error(
@@ -51,6 +52,15 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
             success: false,
             result: null,
             error: `HTTP ${response.status} ${response.statusText} for ${args.url}`,
+          } satisfies ToolExecutionResult;
+        }
+
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!contentType.includes("text/html") && !contentType.includes("text/plain")) {
+          return {
+            success: false,
+            result: null,
+            error: `Unsupported content type "${contentType}" for ${args.url} — only text/html and text/plain are supported`,
           } satisfies ToolExecutionResult;
         }
 

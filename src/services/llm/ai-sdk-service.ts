@@ -345,9 +345,9 @@ function getProviderNativeWebSearchTool(
   }
 }
 
-const openrouterWebFetchTool = createProviderToolFactory<unknown, { url?: string }>({
+const openrouterWebFetchTool = createProviderToolFactory<unknown, Record<string, never>>({
   id: "openrouter.web_fetch",
-  inputSchema: z.object({ url: z.string().optional() }),
+  inputSchema: z.object({ url: z.string().url().describe("The URL to fetch content from") }),
 });
 
 /**
