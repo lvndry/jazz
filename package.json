@@ -112,6 +112,7 @@
     "pdf-parse": "^2.4.5",
     "plist": "^3.1.1",
     "react": "^19.2.5",
+    "semver": "^7.7.4",
     "short-uuid": "^5.2.0",
     "vercel-minimax-ai-provider": "^0.0.2",
     "wrap-ansi": "^9.0.2",

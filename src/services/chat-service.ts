@@ -518,9 +518,9 @@ export class ChatServiceImpl implements ChatService {
           // Check for commands ready to promote to persistent config
           const currentConfig = yield* configService.appConfig;
           const persistedSet = new Set(currentConfig.autoApprovedCommands ?? []);
+          const emptyApprovals: CommandApprovals = {};
           const approvals = yield* loadCommandApprovals().pipe(
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-            Effect.catchAll(() => Effect.succeed({} as CommandApprovals)),
+            Effect.catchAll(() => Effect.succeed(emptyApprovals)),
           );
 
           for (const cmd of autoApprovedCommands) {

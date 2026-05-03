@@ -571,11 +571,10 @@ export class ToolExecutor {
  * Check if a command is auto-approved via the per-command allowlist.
  * Only applies to `execute_command` tools; returns false for all others.
  *
- * Approval keys are subcommand-level (e.g. "git diff", "npm test") so we
- * extract the key from the incoming command and check if any allowed key
- * is a prefix of it. This correctly matches "git diff --stat" against an
- * approved key of "git diff" even when flags appear between the binary
- * and the positional argument.
+ * Compares the extracted approval key (binary + first subcommand token) against
+ * the allowlist using exact or word-boundary matching only — never raw prefix
+ * matching on the full command string, which would allow "git status && rm -rf /"
+ * to match an approved "git status" entry.
  */
 function isCommandAutoApproved(
   toolName: string,
@@ -588,7 +587,7 @@ function isCommandAutoApproved(
   if (typeof command !== "string") return false;
   const commandKey = extractCommandApprovalKey(command);
   return allowedCommands.some(
-    (allowed) => commandKey.startsWith(allowed) || command.startsWith(allowed),
+    (allowed) => commandKey === allowed || commandKey.startsWith(allowed + " "),
   );
 }
 
