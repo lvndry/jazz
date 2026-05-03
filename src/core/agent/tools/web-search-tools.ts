@@ -90,7 +90,7 @@ export function createWebSearchTool(): ReturnType<
           .min(1, "query cannot be empty")
           .max(5000, "query cannot be longer than 5000 characters")
           .describe(
-            "The search query. Used as the actual search term for Exa, Tavily, and Brave, and as the objective for Parallel. Be specific — include context, constraints, and freshness requirements.",
+            "The research goal or search query. Be specific — include context, constraints, and freshness requirements.",
           ),
         searchQueries: z
           .array(
@@ -104,7 +104,7 @@ export function createWebSearchTool(): ReturnType<
           .max(5)
           .optional()
           .describe(
-            'Up to 5 concise keyword phrases (3-6 words each) covering different angles of the goal. Only used by Parallel (run as parallel searches) and Perplexity (expand query coverage). Has no effect on Exa, Tavily, or Brave. Example: ["France election 2026 results", "France presidential candidates polling"].',
+            'Up to 5 concise keyword phrases (3-6 words each) covering different angles of the goal. When provided, queries are run in parallel for broader coverage. Example: ["France election 2026 results", "France presidential candidates polling"].',
           ),
         depth: z
           .enum(["standard", "deep"])
