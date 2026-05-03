@@ -90,7 +90,15 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
               new Promise((resolve, reject) => {
                 const child = spawn(
                   "find",
-                  [startPath, "-maxdepth", String(maxDepth), "-type", "d", "-iname", `*${targetName}*`],
+                  [
+                    startPath,
+                    "-maxdepth",
+                    String(maxDepth),
+                    "-type",
+                    "d",
+                    "-iname",
+                    `*${targetName}*`,
+                  ],
                   {
                     stdio: ["ignore", "pipe", "pipe"],
                     timeout: 10_000,
