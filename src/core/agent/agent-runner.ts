@@ -67,9 +67,6 @@ function initializeAgentRun(
     const provider: ProviderName = agent.config.llmProvider;
     const model = agent.config.llmModel;
 
-    yield* configService.set("runtime.active_model", model);
-    yield* configService.set("runtime.conversation_id", actualConversationId);
-
     // Resolve persona service early so we can read the persona's tool profile
     // before building the tool set. Falls back gracefully if the service is
     // not provided (e.g. some test layers omit it).
@@ -213,6 +210,7 @@ function initializeAgentRun(
       agentId: agent.id,
       sessionId: options.sessionId,
       conversationId: actualConversationId,
+      model,
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }
         : {}),

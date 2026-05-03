@@ -6,7 +6,7 @@ import Parallel from "parallel-web";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import type { ToolExecutionResult } from "@/core/types";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import type { WebSearchConfig } from "@/core/types/config";
 import { defineTool } from "./base-tool";
 
@@ -148,6 +148,7 @@ export function createWebSearchTool(): ReturnType<
     },
     handler: function webSearchHandler(
       args: WebSearchArgs,
+      context: ToolExecutionContext,
     ): Effect.Effect<ToolExecutionResult, Error, AgentConfigService | LoggerService> {
       return Effect.gen(function* () {
         const config = yield* AgentConfigServiceTag;
@@ -192,10 +193,11 @@ export function createWebSearchTool(): ReturnType<
           (
             args: WebSearchArgs,
             apiKey: string,
-          ) => Effect.Effect<WebSearchResult, Error, AgentConfigService | LoggerService>
+          ) => Effect.Effect<WebSearchResult, Error, LoggerService>
         > = {
           exa: executeExaSearch,
-          parallel: executeParallelSearch,
+          parallel: (args, apiKey) =>
+            executeParallelSearch(args, apiKey, context.model ?? "", context.conversationId ?? ""),
           tavily: executeTavilySearch,
           brave: executeBraveSearch,
           perplexity: executePerplexitySearch,
@@ -313,19 +315,17 @@ function executeExaSearch(
 function executeParallelSearch(
   args: WebSearchArgs,
   apiKey: string,
-): Effect.Effect<WebSearchResult, Error, AgentConfigService | LoggerService> {
+  clientModel: string,
+  sessionId: string,
+): Effect.Effect<WebSearchResult, Error, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const config = yield* AgentConfigServiceTag;
 
     if (!cachedParallelClient) {
       cachedParallelClient = new Parallel({ apiKey });
     }
 
     const parallel = cachedParallelClient;
-
-    const clientModel = yield* config.getOrElse<string>("runtime.active_model", "");
-    const sessionId = yield* config.getOrElse<string>("runtime.conversation_id", "");
 
     yield* logger.info(`Executing Parallel search for query: "${args.query}"`);
 
