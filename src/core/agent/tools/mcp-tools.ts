@@ -201,7 +201,7 @@ function executeMCPToolWithLazyConnection(
             success: false,
             result: null,
             error: errorMessage,
-          } as ToolExecutionResult;
+          };
         }),
       ),
     );

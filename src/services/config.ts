@@ -23,7 +23,7 @@ function extractMcpOverride(entry: unknown): MCPServerOverride | undefined {
   if (!entry || typeof entry !== "object") return undefined;
   const entryData = entry as Record<string, unknown>;
   if (typeof entryData["enabled"] !== "boolean") return undefined;
-  return { enabled: entryData["enabled"] } as MCPServerOverride;
+  return { enabled: entryData["enabled"] };
 }
 
 /**
@@ -128,7 +128,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
       deepSet(this.currentConfig as unknown as Record<string, unknown>, key, {
         ...cfg,
         ...val,
-      } as unknown);
+      });
     } else {
       // set("mcpServers.X.enabled", value)
       const prop = rest.slice(dotIndex + 1);
@@ -148,7 +148,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
       function* (this: AgentConfigServiceImpl) {
         const handled = yield* this.setMcpOverride(key, value);
         if (!handled) {
-          deepSet(this.currentConfig as unknown as Record<string, unknown>, key, value as unknown);
+          deepSet(this.currentConfig as unknown as Record<string, unknown>, key, value);
         }
 
         // Persist to file
@@ -184,7 +184,7 @@ function mergeMcpServers(
     merged[name] = {
       ...cfg,
       ...(ov?.enabled !== undefined ? { enabled: ov.enabled } : {}),
-    } as MCPServerConfig;
+    };
   }
   return merged;
 }
@@ -220,7 +220,7 @@ export function createConfigLayer(
               ...fileConfig?.logging,
               level: "debug",
             },
-          } as Partial<AppConfig>)
+          })
         : mergeConfig(baseConfig, fileConfigWithoutMcp);
 
       // Load MCP definitions from .agents/mcp.json
@@ -480,7 +480,7 @@ function loadAgentsMcpServers(
       for (const [name, cfg] of Object.entries(servers)) {
         // Only include entries that look like server configs (must be objects)
         if (cfg && typeof cfg === "object") {
-          merged[name] = cfg as unknown;
+          merged[name] = cfg;
         }
       }
     }
@@ -652,7 +652,7 @@ function deepSet(obj: Record<string, unknown>, path: string, value: unknown): vo
     } else {
       const next = cur[key];
       if (!next || typeof next !== "object") {
-        cur[key] = {} as unknown;
+        cur[key] = {};
       }
       cur = cur[key] as Record<string, unknown>;
     }

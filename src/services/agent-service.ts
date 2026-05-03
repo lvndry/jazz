@@ -139,7 +139,7 @@ export class AgentServiceImpl implements AgentService {
         const { tools: _existingTools, ...configWithoutTools } = mergedConfig;
         void _existingTools;
 
-        const baseConfig: AgentConfig = configWithoutTools as AgentConfig;
+        const baseConfig: AgentConfig = configWithoutTools;
         const updatedConfig: AgentConfig =
           normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
 

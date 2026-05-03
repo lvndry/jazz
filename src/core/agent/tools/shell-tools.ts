@@ -240,7 +240,7 @@ This command will be executed on your system. Only approve commands you trust.`;
             success: false,
             result: null,
             error: "Command cannot be empty",
-          } as ToolExecutionResult;
+          };
         }
 
         const isDangerous = FORBIDDEN_COMMANDS.some((pattern) => pattern.test(command));
@@ -250,7 +250,7 @@ This command will be executed on your system. Only approve commands you trust.`;
             result: null,
             error:
               "Command appears to be potentially dangerous and was blocked for safety. If you need to run this command, please execute it manually.",
-          } as ToolExecutionResult;
+          };
         }
 
         try {
@@ -352,7 +352,7 @@ This command will be executed on your system. Only approve commands you trust.`;
               success: false,
               result: null,
               error: result.error,
-            } as ToolExecutionResult;
+            };
           }
 
           const exitMsg = `Command executed. Exit code: ${result.exitCode}`;
@@ -372,14 +372,14 @@ This command will be executed on your system. Only approve commands you trust.`;
               stderr: result.stderr,
               success: result.exitCode === 0,
             },
-          } as ToolExecutionResult;
+          };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           return {
             success: false,
             result: null,
             error: `Command execution failed: ${errorMessage}`,
-          } as ToolExecutionResult;
+          };
         }
       }),
 

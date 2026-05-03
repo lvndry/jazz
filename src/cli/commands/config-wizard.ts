@@ -87,7 +87,7 @@ function showConfigMenu(
         },
         onExit: () => {
           store.setCustomView(null);
-          resume(Effect.succeed("back" as ConfigMenuAction));
+          resume(Effect.succeed("back"));
         },
       }),
     );
@@ -162,7 +162,7 @@ function configureWebSearchProviders() {
           const hasKey = !!config.web_search?.[p.value]?.api_key;
           return {
             name: `${p.name} API Key ${hasKey ? "(configured)" : ""}`,
-            value: p.value as string,
+            value: p.value,
           };
         }),
         { name: "Back", value: "back" },

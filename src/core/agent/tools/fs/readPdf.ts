@@ -153,11 +153,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
                 try: () => pdfParser.getTable(parseParams as { partial?: number[] }),
                 catch: (error) => (error instanceof Error ? error : new Error(String(error))),
               });
-              const built = buildTablesSection(
-                tableResult as {
-                  pages?: Array<{ num?: number; tables?: (readonly (readonly string[])[])[] }>;
-                },
-              );
+              const built = buildTablesSection(tableResult);
               tablesSection = built.section;
               extractedTables = built.tables;
             } catch (tableError) {

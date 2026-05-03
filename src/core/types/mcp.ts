@@ -74,7 +74,7 @@ export function isMCPTool(value: unknown): value is MCPTool {
     typeof value === "object" &&
     value !== null &&
     "name" in value &&
-    typeof (value as { name: unknown }).name === "string" &&
+    typeof value.name === "string" &&
     "execute" in value &&
     typeof (value as { execute: unknown }).execute === "function"
   );
@@ -88,7 +88,7 @@ export function isMCPClient(value: unknown): value is MCPClient {
     typeof value === "object" &&
     value !== null &&
     "tools" in value &&
-    typeof (value as { tools: unknown }).tools === "function"
+    typeof value.tools === "function"
   );
 }
 
@@ -190,7 +190,7 @@ export function normalizeMCPToolRegistry(registry: MCPToolRegistry): readonly MC
             ...(typeof toolObj.description === "string" && { description: toolObj.description }),
             ...(toolObj.inputSchema !== undefined &&
               toolObj.inputSchema !== null && {
-                inputSchema: toolObj.inputSchema as MCPJSONSchema,
+                inputSchema: toolObj.inputSchema,
               }),
           };
 
@@ -215,7 +215,7 @@ export function normalizeMCPToolRegistry(registry: MCPToolRegistry): readonly MC
             ...(typeof toolObj.description === "string" && { description: toolObj.description }),
             ...(toolObj.inputSchema !== undefined &&
               toolObj.inputSchema !== null && {
-                inputSchema: toolObj.inputSchema as MCPJSONSchema,
+                inputSchema: toolObj.inputSchema,
               }),
           };
 

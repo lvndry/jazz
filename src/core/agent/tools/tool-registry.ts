@@ -283,7 +283,7 @@ class DefaultToolRegistry implements ToolRegistry {
             success: false,
             result: null,
             error: errorMessage,
-          } as ToolExecutionResult;
+          };
         });
       }),
     );

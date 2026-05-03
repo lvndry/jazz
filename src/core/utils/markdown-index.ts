@@ -62,7 +62,7 @@ export function scanMarkdownIndex<T>(
         });
         const { data } = matter(content);
 
-        const parsed = options.parse(data as Record<string, unknown>, path.dirname(match));
+        const parsed = options.parse(data, path.dirname(match));
         if (parsed) {
           items.push(parsed);
         }

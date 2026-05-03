@@ -266,7 +266,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         continue;
       }
       if (sameBufferTarget(run, entry)) {
-        run = { ...run, delta: run.delta + entry.delta } as BufferedStreamDelta;
+        run = { ...run, delta: run.delta + entry.delta };
       } else {
         this.dispatchBufferedDelta(run);
         run = entry;

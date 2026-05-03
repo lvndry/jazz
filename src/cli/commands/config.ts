@@ -58,7 +58,7 @@ export function getConfigCommand(
     const config = yield* configService.appConfig;
 
     const parts = key.split(".");
-    let value: unknown = config as unknown;
+    let value: unknown = config;
 
     for (const part of parts) {
       if (value && typeof value === "object" && part in (value as Record<string, unknown>)) {
@@ -132,7 +132,7 @@ export function setConfigCommand(
         const provider =
           targetKey.split(".")[1] ||
           (yield* terminal.select<string>("Select web search provider:", {
-            choices: WEB_SEARCH_PROVIDERS.map((p) => ({ name: p.name, value: p.value as string })),
+            choices: WEB_SEARCH_PROVIDERS.map((p) => ({ name: p.name, value: p.value })),
           }));
 
         yield* terminal.info(`Configuring ${provider}...`);

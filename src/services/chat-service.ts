@@ -38,7 +38,7 @@ import {
   recordCommandApproval,
   removeCommandApproval,
   bumpPromotionThreshold,
-  type CommandApprovalRecord,
+  type CommandApprovals,
 } from "./command-approval-tracker";
 import { saveConversation, type ConversationRecord } from "./history/conversation-history-service";
 
@@ -519,7 +519,8 @@ export class ChatServiceImpl implements ChatService {
           const currentConfig = yield* configService.appConfig;
           const persistedSet = new Set(currentConfig.autoApprovedCommands ?? []);
           const approvals = yield* loadCommandApprovals().pipe(
-            Effect.catchAll(() => Effect.succeed({} as Record<string, CommandApprovalRecord>)),
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+            Effect.catchAll(() => Effect.succeed({} as CommandApprovals)),
           );
 
           for (const cmd of autoApprovedCommands) {
