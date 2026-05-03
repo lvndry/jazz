@@ -90,7 +90,7 @@ export function createWebSearchTool(): ReturnType<
           .min(1, "query cannot be empty")
           .max(5000, "query cannot be longer than 5000 characters")
           .describe(
-            "Natural-language description of the research goal, including context, source preferences, and freshness requirements. Used as the objective sent to the search provider.",
+            "The search query. Used as the actual search term for Exa, Tavily, and Brave, and as the objective for Parallel. Be specific — include context, constraints, and freshness requirements.",
           ),
         searchQueries: z
           .array(
@@ -104,7 +104,7 @@ export function createWebSearchTool(): ReturnType<
           .max(5)
           .optional()
           .describe(
-            'Up to 5 keyword search queries (3-6 words each) covering different angles of the research goal. Provide as many as relevant for best results — e.g. ["France election 2026 results", "France presidential candidates polling"]. Falls back to a single query derived from the `query` field when omitted.',
+            'Up to 5 concise keyword phrases (3-6 words each) covering different angles of the goal. Only used by Parallel (run as parallel searches) and Perplexity (expand query coverage). Has no effect on Exa, Tavily, or Brave. Example: ["France election 2026 results", "France presidential candidates polling"].',
           ),
         depth: z
           .enum(["standard", "deep"])
@@ -268,7 +268,6 @@ function executeExaSearch(
 
     const exa = cachedExaClient;
     const isDeep = args.depth === "deep";
-    const searchQuery = args.searchQueries?.[0] ?? args.query;
 
     yield* logger.info(
       `Executing Exa search for query: "${args.query}" with depth: ${args.depth || "standard"}`,
@@ -283,7 +282,7 @@ function executeExaSearch(
 
     const response = yield* Effect.tryPromise({
       try: () =>
-        exa.search(searchQuery, {
+        exa.search(args.query, {
           type: "auto",
           useAutoprompt: true,
           numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
@@ -389,7 +388,6 @@ function executeTavilySearch(
 
     const client = cachedTavilyClient;
     const isDeep = args.depth === "deep";
-    const searchQuery = args.searchQueries?.[0] ?? args.query;
 
     yield* logger.info(
       `Executing Tavily search for query: "${args.query}" with depth: ${args.depth ?? "standard"}`,
@@ -397,7 +395,7 @@ function executeTavilySearch(
 
     const response = yield* Effect.tryPromise({
       try: () =>
-        client.search(searchQuery, {
+        client.search(args.query, {
           searchDepth: isDeep ? "advanced" : "basic",
           maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
           includeRawContent: isDeep ? "markdown" : false,
