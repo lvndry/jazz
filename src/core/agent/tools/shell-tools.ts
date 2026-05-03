@@ -64,7 +64,7 @@ export const FORBIDDEN_COMMANDS: readonly RegExp[] = [
   /\beval\s+/, // eval ... (anything)
 
   // Process manipulation
-  /\bkill\s+-9\b/,
+  /\bkill\s+(?:-9|-KILL|-SIGKILL)\b/,
   /\bpkill\b/,
   /\bkillall\b/,
 
@@ -77,6 +77,8 @@ export const FORBIDDEN_COMMANDS: readonly RegExp[] = [
 
   // Permission widening
   /\bchmod\s+(?:0?777|a\+rwx|a=rwx|ugo\+rwx)\b/,
+  /\bchmod\s+[ugoa]*[+=][rwxst]*s/, // setuid / setgid via symbolic mode
+  /\bchmod\s+[246][0-7]{3}\b/, // setuid (4xxx) / setgid (2xxx) via numeric mode
   /\bchown\s+(?:root|0)\b/,
 
   // Filesystem mounting
@@ -88,12 +90,52 @@ export const FORBIDDEN_COMMANDS: readonly RegExp[] = [
   /\bnftables\b/,
   /\bufw\s+/,
 
-  // Sensitive file disclosure — match common readers (cat/less/more/head/tail/
-  // awk/grep/strings/od/xxd) targeting /etc/passwd or /etc/shadow.
-  /\b(?:cat|less|more|head|tail|awk|grep|strings|od|xxd|nl|cut|sed)\s+[^|;&]*\/etc\/(?:passwd|shadow)\b/,
+  // Sensitive file disclosure — common readers targeting /etc/passwd, /etc/shadow, /etc/sudoers.
+  /\b(?:cat|tac|less|more|head|tail|awk|grep|strings|od|xxd|nl|cut|sed)\s+[^|;&]*\/etc\/(?:passwd|shadow|sudoers)\b/,
 
-  // Crypto-key disclosure — same readers targeting common private-key paths.
-  /\b(?:cat|less|more|head|tail|awk|grep|strings|od|xxd|nl)\s+[^|;&]*(?:\.ssh\/id_(?:rsa|ed25519|ecdsa|dsa)|\.aws\/credentials|\.gnupg\/private-keys-v1\.d)\b/,
+  // Crypto-key disclosure — readers targeting private-key paths.
+  /\b(?:cat|tac|less|more|head|tail|awk|grep|strings|od|xxd|nl)\s+[^|;&]*(?:\.ssh\/(?:id_(?:rsa|ed25519|ecdsa|dsa)|authorized_keys|known_hosts)|\.aws\/credentials|\.gnupg\/private-keys-v1\.d)\b/,
+
+  // Sensitive file copying / exfiltration
+  /\bcp\b[^|;&]*\/etc\/(?:passwd|shadow|sudoers)\b/,
+  /\b(?:scp|rsync)\b[^|;&]*(?:\/etc\/(?:passwd|shadow|sudoers)|\.ssh\/(?:id_(?:rsa|ed25519|ecdsa|dsa)|authorized_keys)|\.aws\/credentials)\b/,
+
+  // Writing backdoors into SSH authorized_keys
+  /\b(?:echo|printf)\b[^|;&]*>>?\s*~\/\.ssh\/authorized_keys/,
+  /\btee\b[^|;&]*~\/\.ssh\/authorized_keys/, // tee uses -a flag, not >>
+
+  // rm safety bypass
+  /\brm\b.*--no-preserve-root/,
+
+  // Secure file wiping (unrecoverable)
+  /\bshred\b/,
+  /\btruncate\b/,
+  /\bwipefs\b/,
+  /\bblkdiscard\b/,
+  /\bhdparm\b.*--security-erase\b/,
+
+  // Reverse shells via netcat / socat
+  /\bnc(?:at)?\b.*-[ec]\b/i,
+  /\bsocat\b.*\bEXEC:/i,
+
+  // Remote fetch then execute (two-step, without pipe — the pipe form is above)
+  /\bcurl\b.*&&\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
+  /\bwget\b.*&&\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
+
+  // Crontab manipulation (persistence / destruction)
+  /\bcrontab\s+-[er]\b/,
+
+  // Shell history wiping (cover-your-tracks)
+  /\bhistory\s+-[cwda]\b/,
+
+  // User account management — backdoor creation or account destruction
+  /\b(?:useradd|userdel|usermod|groupadd|groupdel|groupmod)\b/,
+
+  // Password changes on other accounts
+  /\bpasswd\s+\S/,
+
+  // sudoers editor
+  /\bvisudo\b/,
 ];
 
 /**
