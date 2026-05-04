@@ -1054,6 +1054,7 @@ class AISDKService implements LLMService {
         const result = await generateText({
           model,
           messages: coreMessages,
+          allowSystemInMessages: true,
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(tools ? { tools } : {}),
           ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
@@ -1288,6 +1289,7 @@ class AISDKService implements LLMService {
                 streamTextResult = streamText({
                   model,
                   messages: coreMessages,
+                  allowSystemInMessages: true,
                   ...(typeof options.temperature === "number"
                     ? { temperature: options.temperature }
                     : {}),
