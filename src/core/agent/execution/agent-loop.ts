@@ -1,4 +1,4 @@
-import { Effect, Fiber, Option, Ref } from "effect";
+import { Cause, Effect, Fiber, Option, Ref } from "effect";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -213,8 +213,36 @@ export function executeAgentLoop(
               lastUserMessage: lastUserContent,
             });
 
-            // Get completion via strategy
-            const result = yield* strategy.getCompletion(currentMessages, i);
+            // Get completion via strategy — catch LLM request timeouts and inject a
+            // recovery prompt so the agent can write partial results instead of crashing.
+            const maybeResult = yield* strategy.getCompletion(currentMessages, i).pipe(
+              Effect.map(Option.some),
+              Effect.catchAll((error) =>
+                Cause.isTimeoutException(error)
+                  ? Effect.succeed(Option.none())
+                  : Effect.fail(error),
+              ),
+            );
+
+            if (Option.isNone(maybeResult)) {
+              yield* logger.warn("LLM request timed out — injecting recovery prompt", {
+                agentId: agent.id,
+                conversationId: actualConversationId,
+                iteration: i + 1,
+              });
+              yield* presentationService.presentWarning(
+                agent.name,
+                "LLM request timed out — injecting recovery prompt",
+              );
+              currentMessages.push({
+                role: "user",
+                content:
+                  "The previous LLM request timed out. Please provide the best response you can based on what you have gathered so far.",
+              });
+              continue;
+            }
+
+            const result = maybeResult.value;
 
             if (result.interrupted) {
               const completion = result.completion;
