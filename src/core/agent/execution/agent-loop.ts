@@ -213,8 +213,6 @@ export function executeAgentLoop(
               lastUserMessage: lastUserContent,
             });
 
-            // Get completion via strategy — catch LLM request timeouts and inject a
-            // recovery prompt so the agent can write partial results instead of crashing.
             const maybeResult = yield* strategy.getCompletion(currentMessages, i).pipe(
               Effect.map(Option.some),
               Effect.catchAll((error) =>
@@ -225,15 +223,12 @@ export function executeAgentLoop(
             );
 
             if (Option.isNone(maybeResult)) {
-              yield* logger.warn("LLM request timed out — injecting recovery prompt", {
+              yield* logger.warn("LLM request timed out", {
                 agentId: agent.id,
                 conversationId: actualConversationId,
                 iteration: i + 1,
               });
-              yield* presentationService.presentWarning(
-                agent.name,
-                "LLM request timed out — injecting recovery prompt",
-              );
+              yield* presentationService.presentWarning(agent.name, "LLM request timed out");
               currentMessages.push({
                 role: "user",
                 content:
