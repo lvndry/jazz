@@ -1,20 +1,5 @@
-import {
-  Cause,
-  Deferred,
-  Duration,
-  Effect,
-  Exit,
-  Fiber,
-  Option,
-  Ref,
-  Schedule,
-  Stream,
-} from "effect";
-import {
-  DEFAULT_MAX_LLM_RETRIES,
-  MAX_RETRY_DELAY_SECONDS,
-  MIN_LLM_REQUEST_TIMEOUT_SECONDS,
-} from "@/core/constants/agent";
+import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Ref, Stream } from "effect";
+import { DEFAULT_MAX_LLM_RETRIES, LLM_TIMEOUT_SECONDS } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -31,7 +16,7 @@ import {
   LLMRequestError,
 } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
-import { isRetryableLLMError } from "@/core/utils/llm-error";
+import { isRetryableLLMError, makeLLMRetrySchedule } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import type { RecursiveRunner } from "../context/summarizer";
 import { recordFirstTokenLatency, recordLLMRetry } from "../metrics/agent-run-metrics";
@@ -142,27 +127,13 @@ export function executeWithStreaming(
                 throw error;
               }
             }),
-            Schedule.exponential("1 second").pipe(
-              Schedule.union(Schedule.spaced(Duration.seconds(MAX_RETRY_DELAY_SECONDS))),
-              Schedule.intersect(Schedule.recurs(maxRetries)),
-              Schedule.whileInput((error: unknown) => isRetryableLLMError(error)),
-            ),
+            makeLLMRetrySchedule(maxRetries),
           ).pipe(
-            Effect.timeout(
-              Duration.seconds(
-                Math.max(
-                  MIN_LLM_REQUEST_TIMEOUT_SECONDS,
-                  maxRetries * MAX_RETRY_DELAY_SECONDS + 30,
-                ),
-              ),
-            ),
-            Effect.catchAll((error) =>
-              Effect.gen(function* () {
-                if (
-                  error instanceof LLMRequestError ||
-                  error instanceof LLMRateLimitError ||
-                  error instanceof LLMAuthenticationError
-                ) {
+            Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
+            Effect.catchIf(
+              (error): error is LLMRequestError | LLMRateLimitError => isRetryableLLMError(error),
+              (error) =>
+                Effect.gen(function* () {
                   yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
                     provider,
                     model: agent.config.llmModel,
@@ -171,36 +142,23 @@ export function executeWithStreaming(
                     agentId: agent.id,
                     conversationId: actualConversationId,
                   });
-                } else {
-                  yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
-                    provider,
-                    model: agent.config.llmModel,
-                    error: error instanceof Error ? error.message : String(error),
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                  });
-                }
-                const fallback = yield* Effect.retry(
-                  Effect.gen(function* () {
-                    try {
-                      return yield* llmService.createChatCompletion(provider, llmOptions);
-                    } catch (error) {
-                      recordLLMRetry(runMetrics, error);
-                      throw error;
-                    }
-                  }),
-                  Schedule.exponential("1 second").pipe(
-                    Schedule.union(Schedule.spaced(Duration.seconds(MAX_RETRY_DELAY_SECONDS))),
-                    Schedule.intersect(Schedule.recurs(maxRetries)),
-                    Schedule.whileInput((error: unknown) => isRetryableLLMError(error)),
-                  ),
-                );
-                return {
-                  stream: Stream.empty,
-                  response: Effect.succeed(fallback),
-                  cancel: Effect.void,
-                };
-              }),
+                  const fallback = yield* Effect.retry(
+                    Effect.gen(function* () {
+                      try {
+                        return yield* llmService.createChatCompletion(provider, llmOptions);
+                      } catch (innerError) {
+                        recordLLMRetry(runMetrics, innerError);
+                        throw innerError;
+                      }
+                    }),
+                    makeLLMRetrySchedule(maxRetries),
+                  ).pipe(Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)));
+                  return {
+                    stream: Stream.empty,
+                    response: Effect.succeed(fallback),
+                    cancel: Effect.void,
+                  };
+                }),
             ),
           );
 

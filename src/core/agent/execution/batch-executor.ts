@@ -1,9 +1,5 @@
-import { Duration, Effect, Schedule } from "effect";
-import {
-  DEFAULT_MAX_LLM_RETRIES,
-  MAX_RETRY_DELAY_SECONDS,
-  MIN_LLM_REQUEST_TIMEOUT_SECONDS,
-} from "@/core/constants/agent";
+import { Duration, Effect } from "effect";
+import { DEFAULT_MAX_LLM_RETRIES, LLM_TIMEOUT_SECONDS } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -13,7 +9,7 @@ import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-regi
 import type { ConversationMessages } from "@/core/types";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
-import { isRetryableLLMError } from "@/core/utils/llm-error";
+import { makeLLMRetrySchedule } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import type { RecursiveRunner } from "../context/summarizer";
 import { recordLLMRetry } from "../metrics/agent-run-metrics";
@@ -71,21 +67,8 @@ export function executeWithoutStreaming(
                 throw error;
               }
             }),
-            Schedule.exponential("1 second").pipe(
-              Schedule.union(Schedule.spaced(Duration.seconds(MAX_RETRY_DELAY_SECONDS))),
-              Schedule.intersect(Schedule.recurs(maxRetries)),
-              Schedule.whileInput((error: unknown) => isRetryableLLMError(error)),
-            ),
-          ).pipe(
-            Effect.timeout(
-              Duration.seconds(
-                Math.max(
-                  MIN_LLM_REQUEST_TIMEOUT_SECONDS,
-                  maxRetries * MAX_RETRY_DELAY_SECONDS + 30,
-                ),
-              ),
-            ),
-          );
+            makeLLMRetrySchedule(maxRetries),
+          ).pipe(Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)));
 
           return { completion, interrupted: false };
         });

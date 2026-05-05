@@ -1,4 +1,6 @@
 import { APICallError } from "ai";
+import { Duration, Schedule } from "effect";
+import { MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import {
   LLMAuthenticationError,
@@ -255,4 +257,18 @@ export function isRetryableLLMError(error: unknown): boolean {
     return error.statusCode === undefined || error.statusCode >= 500;
   }
   return false;
+}
+
+/**
+ * Exponential backoff schedule for LLM retries, delay capped at MAX_RETRY_DELAY_SECONDS.
+ * Only retries on transient errors (rate limits, connection failures, 5xx).
+ */
+export function makeLLMRetrySchedule(maxRetries: number) {
+  return Schedule.exponential("1 second").pipe(
+    Schedule.modifyDelay((_, delay) =>
+      Duration.min(delay, Duration.seconds(MAX_RETRY_DELAY_SECONDS)),
+    ),
+    Schedule.intersect(Schedule.recurs(maxRetries)),
+    Schedule.whileInput((error: unknown) => isRetryableLLMError(error)),
+  );
 }
