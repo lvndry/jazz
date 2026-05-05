@@ -31,8 +31,8 @@ export const DEFAULT_MAX_LLM_RETRIES = 10;
 /** Maximum delay between LLM retry attempts in seconds (caps exponential backoff) */
 export const MAX_RETRY_DELAY_SECONDS = 30;
 
-/** Minimum total timeout for an LLM request+retry cycle in seconds (10 min covers slow reasoning models) */
-export const MIN_LLM_REQUEST_TIMEOUT_SECONDS = 600;
+/** Total timeout for an LLM completion call, including all retries and backoff delays (15 min covers slow reasoning models) */
+export const LLM_TIMEOUT_SECONDS = 900;
 
 export const HTTP_USER_AGENT = "Jazz/1.0 (https://github.com/lvndry/jazz)";
 export const WEB_FETCH_USER_AGENT =
