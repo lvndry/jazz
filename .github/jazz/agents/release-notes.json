@@ -2,11 +2,11 @@
   "id": "release-notes",
   "name": "release-notes",
   "description": "Release notes generator agent",
-  "model": "openai/gpt-oss-120b:free",
+  "model": "minimax/minimax-m2.5:free",
   "config": {
     "persona": "coder",
     "llmProvider": "openrouter",
-    "llmModel": "openai/gpt-oss-120b:free",
+    "llmModel": "minimax/minimax-m2.5:free",
     "reasoningEffort": "medium",
     "tools": [
       "find",
