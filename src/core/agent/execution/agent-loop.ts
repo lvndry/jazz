@@ -172,6 +172,7 @@ export function executeAgentLoop(
         let finished = false;
         let interrupted = false;
         let iterationsUsed = 0;
+        let consecutiveTimeouts = 0;
 
         for (let i = 0; i < maxIterations; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
@@ -223,12 +224,25 @@ export function executeAgentLoop(
             );
 
             if (Option.isNone(maybeResult)) {
-              yield* logger.warn("LLM request timed out", {
+              consecutiveTimeouts++;
+              yield* logger.warn("LLM request timed out — injecting recovery prompt", {
                 agentId: agent.id,
                 conversationId: actualConversationId,
                 iteration: i + 1,
+                consecutiveTimeouts,
               });
-              yield* presentationService.presentWarning(agent.name, "LLM request timed out");
+              if (consecutiveTimeouts > 1) {
+                yield* presentationService.presentWarning(
+                  agent.name,
+                  "LLM request timed out twice in a row — stopping",
+                );
+                finished = true;
+                break;
+              }
+              yield* presentationService.presentWarning(
+                agent.name,
+                "LLM request timed out — injecting recovery prompt",
+              );
               currentMessages.push({
                 role: "user",
                 content:
@@ -236,6 +250,8 @@ export function executeAgentLoop(
               });
               continue;
             }
+
+            consecutiveTimeouts = 0;
 
             const result = maybeResult.value;
 
