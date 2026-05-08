@@ -4,7 +4,7 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineTool } from "../base-tool";
+import { defineTool, makeZodValidator } from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
@@ -33,12 +33,7 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
     description: "Show commit history. Default 20 commits, cap 50.",
     tags: ["git", "history"],
     parameters,
-    validate: (args) => {
-      const params = parameters.safeParse(args);
-      return params.success
-        ? ({ valid: true, value: params.data } as const)
-        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
-    },
+    validate: makeZodValidator(parameters),
     handler: (args: GitLogArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;

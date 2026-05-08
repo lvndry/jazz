@@ -3,7 +3,12 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
@@ -34,13 +39,7 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
       "Copy a file or directory. Equivalent to shell cp/cp -r. Directories are copied recursively.",
     tags: ["filesystem", "write"],
     parameters: cpParameters,
-    validate: (args) => {
-      const result = cpParameters.safeParse(args);
-      if (result.success) {
-        return { valid: true, value: result.data };
-      }
-      return { valid: false, errors: result.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(cpParameters),
 
     approvalMessage: (args: CpArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

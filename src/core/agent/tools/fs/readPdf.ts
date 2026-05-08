@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import { defineTool } from "../base-tool";
+import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
@@ -79,15 +79,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
       "Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.",
     tags: ["filesystem", "read", "pdf"],
     parameters,
-    validate: (args) => {
-      const params = parameters.safeParse(args);
-      return params.success
-        ? {
-            valid: true,
-            value: params.data,
-          }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(parameters),
     handler: (args, context) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;

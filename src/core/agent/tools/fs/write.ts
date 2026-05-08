@@ -4,20 +4,18 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff-utils";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
  * Write file tool - writes content to a file.
  * Uses defineApprovalTool to create approval + execution pair.
  */
-
-export type WriteFileArgs = {
-  path: string;
-  content: string;
-  encoding?: string;
-  createDirs?: boolean;
-};
 
 const writeFileParameters = z
   .object({
@@ -31,6 +29,8 @@ const writeFileParameters = z
   })
   .strict();
 
+export type WriteFileArgs = z.infer<typeof writeFileParameters>;
+
 type WriteFileDeps = FileSystem.FileSystem | FileSystemContextService;
 
 /**
@@ -43,12 +43,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
     description: "Write content to a file, creating it if needed. Replaces entire file content.",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
-    validate: (args) => {
-      const result = writeFileParameters.safeParse(args);
-      return result.success
-        ? { valid: true, value: result.data as WriteFileArgs }
-        : { valid: false, errors: result.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(writeFileParameters),
 
     approvalMessage: (args: WriteFileArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

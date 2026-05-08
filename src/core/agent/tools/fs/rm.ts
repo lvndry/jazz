@@ -3,19 +3,18 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
  * Remove files or directories tool
  * Uses defineApprovalTool to create approval + execution pair.
  */
-
-type RmArgs = {
-  path: string;
-  recursive?: boolean;
-  force?: boolean;
-};
 
 const rmParameters = z
   .object({
@@ -25,6 +24,7 @@ const rmParameters = z
   })
   .strict();
 
+type RmArgs = z.infer<typeof rmParameters>;
 type RmDeps = FileSystem.FileSystem | FileSystemContextService;
 
 /**
@@ -36,12 +36,7 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
     description: "Remove a file or directory. May be irreversible.",
     tags: ["filesystem", "destructive"],
     parameters: rmParameters,
-    validate: (args) => {
-      const result = rmParameters.safeParse(args);
-      return result.success
-        ? { valid: true, value: result.data as RmArgs }
-        : { valid: false, errors: result.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(rmParameters),
 
     approvalMessage: (args: RmArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

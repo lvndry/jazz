@@ -4,13 +4,13 @@ description: Review pull request changes for quality, security, and correctness
 autoApprove: true
 agent: ci-reviewer
 maxIterations: 100
-skills:
-  - code-review
 ---
 
 # Pull Request Code Review
 
 Review the changes in this pull request.
+
+**Do not describe the PR. Review it.** If your first sentence is "This PR adds X" or "This PR introduces Y" — stop. That is documentation, not a review. A review answers: what could break? what was missed? what's risky? Describe findings, not features.
 
 **Accuracy beats volume.** A short, true review is better than a long one full of speculative concerns. Reviewers and authors lose trust in this agent fast if it raises false alarms — and ignoring its real findings later is the cost. Returning an empty array `[]` is a perfectly valid outcome when the diff is sound. Do NOT pad the output to feel thorough.
 
@@ -18,7 +18,7 @@ Review the changes in this pull request.
 
 **Cover the whole diff.** Read every changed file. Don't stop at the first issue you find — accumulate findings across the entire PR before emitting. But "cover" means *consider*; it does not mean every file must produce a comment.
 
-**Write to a file**: Use write_file to accumulate issues in a scratch file. **Always write to /tmp only**—e.g. `/tmp/jazz-review-issues.md`. Never write to the repo workspace. The runner has `mktemp` available; you can use a path like `/tmp/jazz-review-issues.md` (each job runs in isolation, so this is safe). You can only write in this path and should never try to write or edit the codebase.
+**Scratch file (optional)**: You may use `write_file` to accumulate notes as you review, e.g. `/tmp/jazz-review-issues.md`. This is for your own bookkeeping only — the runner reads your **stdout output** (the two fenced blocks below), not the scratch file. Your final output MUST be written to stdout as the two fenced blocks described in the Output Format section — not to any file.
 
 **Large PRs — spawn_subagent**: If the PR has many files (10+ changed) or 500+ lines, spawn subagents to review batches of files in parallel. Each subagent returns issues for its batch. Aggregate all subagent results into one combined JSON array.
 
@@ -96,30 +96,30 @@ In addition to the code-review checklist, pay special attention to:
 
 ## Review Guidelines
 
-### What To Do (✅)
+### What To Do
 
-- ✅ **Verify the tech stack** - Check `package.json` scripts and dependencies before flagging tool mismatches
-- ✅ **Understand the environment** - CI workflows (`.github/workflows/`) may intentionally use different tooling than local dev. Check what dependencies are explicitly installed in the workflow (e.g., Node.js for `npm version`)
-- ✅ **Focus on real bugs** - Logic errors, null/undefined dereferences, race conditions, off-by-one errors, incorrect error handling
-- ✅ **DO check security vulnerabilities** - path traversal, command injection, insecure credential storage, exposed secrets
-- ✅ **Verify Effect-TS patterns** - Proper use of Effect.gen, Layer composition, Schema validation, tagged errors
-- ✅ **Flag performance issues** - N+1 queries, unnecessary loops, inefficient algorithms, missing caching, memory leaks
-- ✅ **Check error handling** - All Effect operations have proper error paths, user-facing errors are actionable, no silent failures
-- ✅ **Verify type safety** - No `any` types, proper union/intersection types, correct discriminated unions, strict null checks
-- ✅ **Check for regressions** - Does this change break existing functionality? Are edge cases handled? Are tests updated?
-- ✅ **Verify user experience** - CLI output is clear and helpful, error messages are actionable, agent workflows make sense
-- ✅ **Check resource cleanup** - File handles closed, connections released, Effect resources properly scoped, no dangling promises
-- ✅ **Validate inputs** - User inputs validated with Schema, boundary conditions checked, sanitization applied
-- ✅ **Check concurrency issues** - Proper use of Effect concurrency primitives, no race conditions, atomicity guaranteed where needed
-- ✅ **Verify documentation** - Public APIs documented, complex logic explained, TODOs addressed, outdated comments removed
-- ✅ **Check code quality and maintainability** - Look for opportunities to simplify the code, make it easier to maintain, and flag overall code quality issues
+- **Verify the tech stack** - Check `package.json` scripts and dependencies before flagging tool mismatches
+- **Understand the environment** - CI workflows (`.github/workflows/`) may intentionally use different tooling than local dev. Check what dependencies are explicitly installed in the workflow (e.g., Node.js for `npm version`)
+- **Focus on real bugs** - Logic errors, null/undefined dereferences, race conditions, off-by-one errors, incorrect error handling
+- **DO check security vulnerabilities** - path traversal, command injection, insecure credential storage, exposed secrets
+- **Verify Effect-TS patterns** - Proper use of Effect.gen, Layer composition, Schema validation, tagged errors
+- **Flag performance issues** - N+1 queries, unnecessary loops, inefficient algorithms, missing caching, memory leaks
+- **Check error handling** - All Effect operations have proper error paths, user-facing errors are actionable, no silent failures
+- **Verify type safety** - No `any` types, proper union/intersection types, correct discriminated unions, strict null checks
+- **Check for regressions** - Does this change break existing functionality? Are edge cases handled? Are tests updated?
+- **Verify user experience** - CLI output is clear and helpful, error messages are actionable, agent workflows make sense
+- **Check resource cleanup** - File handles closed, connections released, Effect resources properly scoped, no dangling promises
+- **Validate inputs** - User inputs validated with Schema, boundary conditions checked, sanitization applied
+- **Check concurrency issues** - Proper use of Effect concurrency primitives, no race conditions, atomicity guaranteed where needed
+- **Verify documentation** - Public APIs documented, complex logic explained, TODOs addressed, outdated comments removed
+- **Check code quality and maintainability** - Look for opportunities to simplify the code, make it easier to maintain, and flag overall code quality issues
 
-### What NOT To Do (❌)
+### What NOT To Do
 
-- ❌ **DON'T bikeshed formatting** - Focus on correctness, not formatting preferences (that's what Prettier is for)
-- ❌ **DON'T flag intentional design** - If the code follows established patterns in the codebase, don't suggest arbitrary alternatives unless there's a strong reason to
-- ❌ **DON'T make assumptions** - Read surrounding code, check imports, understand context before commenting
-- ❌ **DON'T invent concerns to fill the output** - An empty `[]` is correct when nothing is wrong. If you find yourself reaching for a concern, that's the signal to stop, not to push harder.
+- **DON'T bikeshed formatting** - Focus on correctness, not formatting preferences (that's what Prettier is for)
+- **DON'T flag intentional design** - If the code follows established patterns in the codebase, don't suggest arbitrary alternatives unless there's a strong reason to
+- **DON'T make assumptions** - Read surrounding code, check imports, understand context before commenting
+- **DON'T invent concerns to fill the output** - An empty `[]` is correct when nothing is wrong. If you find yourself reaching for a concern, that's the signal to stop, not to push harder.
 
 **Tests every comment must pass before you emit it:**
 
@@ -135,21 +135,21 @@ If a comment doesn't pass all five, drop it. Volume is not the goal; signal is.
 
 ## Output Format
 
-**STOP — read this before writing any output.**
-
 Your output MUST contain exactly two fenced blocks in this order. Missing either block causes the review to silently fail. No exceptions.
 
-1. A **`````markdown`** summary block — **always required, never empty**, even when there are no issues
-2. A **`````json`** inline-comments block — **always required**, may be `[]`
+1. A four-backtick **markdown** summary block — **always required, never empty**, even when there are no issues
+2. A four-backtick **json** inline-comments block — **always required**, may be `[]`
 
 ### Block 1 — Markdown summary (always required)
 
-Write a human-readable review summary. This is posted as the top-level PR comment regardless of whether inline comments exist. It must never be empty.
+Write a human-readable **review verdict** — not a PR summary. This is posted as the top-level PR comment regardless of whether inline comments exist. It must never be empty.
 
 Include:
 - Which files you reviewed (a brief list or count)
-- Overall verdict: what looks good, what was changed and why it's correct, or what issues were found
-- If no inline issues: say so clearly and briefly explain what you checked
+- What you found: bugs, gaps, risks — or a clear statement that the diff looks sound and why
+- If no inline issues: explain what you checked and why you found nothing — do not just describe what the PR does
+
+**Anti-pattern:** "This PR adds a detectMeltdown() function that prevents infinite loops by analyzing the last 10 tool calls..." — this is a description of the PR, not a review verdict. Never open with what the PR does. Open with what you found (or didn't find).
 
 ### Block 2 — Inline comments (always required, may be `[]`)
 
@@ -157,10 +157,10 @@ A JSON array of per-line review comments. Use `[]` when there are no inline find
 
 **Four-backtick rule for both blocks.** Three backticks will corrupt your output: `body` fields routinely contain triple-backtick code samples, and a triple-backtick outer fence collides with them. Use four backticks for both outer wrappers.
 
-| ✅ DO | ❌ DON'T |
-|---|---|
-| `` ` ` ` ` markdown `` …summary… `` ` ` ` ` `` then `` ` ` ` ` json `` …array… `` ` ` ` ` `` | `` ` ` ` json `` …3 backticks… `` ` ` ` `` |
-| Inner code fences inside `body` use **three** backticks | Output anything after the closing JSON fence |
+| DO                                                                                           | DON'T                                        |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `` ` ` ` ` markdown `` …summary… `` ` ` ` ` `` then `` ` ` ` ` json `` …array… `` ` ` ` ` `` | `` ` ` ` json `` …3 backticks… `` ` ` ` ``   |
+| Inner code fences inside `body` use **three** backticks                                      | Output anything after the closing JSON fence |
 
 When flagging issues, suggest concrete edits (code snippets or exact changes) when possible.
 

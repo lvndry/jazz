@@ -1,12 +1,10 @@
 import { Effect } from "effect";
 import React from "react";
-import {
-  WEB_SEARCH_PROVIDERS,
-  type WebSearchProviderName,
-} from "@/core/agent/tools/web-search-tools";
+import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
+import type { WebSearchProviderName } from "@/core/types/config";
 import type { ColorProfile, OutputMode } from "@/core/types/output";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { formatProviderDisplayName } from "@/core/utils/string";

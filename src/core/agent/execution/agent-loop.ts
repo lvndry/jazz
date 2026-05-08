@@ -32,6 +32,56 @@ import {
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 /**
+ * Returns an ephemeral budget pressure message at 70%/90% iteration thresholds.
+ * Returns null below 70%. Must NOT be pushed to currentMessages — pass ephemerally only.
+ */
+export function buildBudgetPressureMessage(
+  iteration: number,
+  maxIterations: number,
+): { role: "user"; content: string } | null {
+  const pct = iteration / maxIterations;
+  if (pct >= 0.9) {
+    return {
+      role: "user",
+      content: `[BUDGET CRITICAL: Iteration ${iteration}/${maxIterations} (${Math.round(pct * 100)}%). Write your final output NOW. No further research or subagent spawning. Use what you have collected so far.]`,
+    };
+  }
+  if (pct >= 0.7) {
+    return {
+      role: "user",
+      content: `[BUDGET WARNING: Iteration ${iteration}/${maxIterations} (${Math.round(pct * 100)}%). Begin consolidating results. Stop spawning new research subagents. Move to consolidation and output phases.]`,
+    };
+  }
+  return null;
+}
+
+export interface TrackedToolCall {
+  name: string;
+  arguments: string;
+}
+
+export const MELTDOWN_WINDOW_SIZE = 10;
+
+/**
+ * Returns true when recent tool calls show low diversity — the agent is stuck in a loop.
+ *
+ * Uniqueness is measured on the composite key `name:arguments` so that two tools
+ * alternating with *different* arguments (e.g. web_search → web_fetch → web_search on
+ * a new query) are correctly treated as productive. Only identical name+argument pairs
+ * repeated across the window trigger the 40% threshold.
+ */
+export function detectMeltdown(
+  recentToolCalls: TrackedToolCall[],
+  windowSize = MELTDOWN_WINDOW_SIZE,
+): boolean {
+  if (recentToolCalls.length < windowSize) return false;
+  const window = recentToolCalls.slice(-windowSize);
+  const keys = window.map((tc) => `${tc.name}:${tc.arguments}`);
+  const uniqueness = new Set(keys).size / windowSize;
+  return uniqueness < 0.4;
+}
+
+/**
  * Strategy interface for obtaining and presenting completions.
  * Implementations differ for streaming vs batch mode.
  */
@@ -118,7 +168,6 @@ export function executeAgentLoop(
   | ToolRequirements
 > {
   return Effect.acquireUseRelease(
-    // Acquire: setup logger, refs
     Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
       yield* logger.setSessionId(options.sessionId);
@@ -144,10 +193,6 @@ export function executeAgentLoop(
 
         const contextWindowMaxTokens = modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
 
-        // Per-run ContextWindowManager carrying the active model hint so the
-        // token counter can pick the right tokenizer (gpt-tokenizer for
-        // OpenAI families) and apply this model's calibrated ratio. The
-        // budget stays at the singleton's default; we only override the hint.
         const trimBudgetTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
         const protectedRecentTurns =
           DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().protectedRecentTurns;
@@ -172,16 +217,15 @@ export function executeAgentLoop(
         let finished = false;
         let interrupted = false;
         let iterationsUsed = 0;
+        const recentToolCalls: TrackedToolCall[] = [];
 
         for (let i = 0; i < maxIterations; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
-            // Show thinking indicator
             if (!options.internal && strategy.shouldShowThinking) {
               yield* presentationService.presentThinking(agent.name, i === 0);
             }
 
-            // Proactively compact context if approaching token limit
             currentMessages = yield* Summarizer.compactIfNeeded(
               currentMessages,
               agent,
@@ -191,8 +235,6 @@ export function executeAgentLoop(
               contextWindowMaxTokens,
             );
 
-            // Log LLM request details
-            // Find last user message by scanning backwards (avoids O(n) filter+slice)
             let lastUserContent: string | undefined;
             for (let j = currentMessages.length - 1; j >= 0; j--) {
               if (currentMessages[j]?.role === "user") {
@@ -213,8 +255,12 @@ export function executeAgentLoop(
               lastUserMessage: lastUserContent,
             });
 
-            // Get completion via strategy
-            const result = yield* strategy.getCompletion(currentMessages, i);
+            const budgetMsg = buildBudgetPressureMessage(i + 1, maxIterations);
+            const messagesForLLM = budgetMsg
+              ? ([...currentMessages, budgetMsg] as typeof currentMessages)
+              : currentMessages;
+
+            const result = yield* strategy.getCompletion(messagesForLLM, i);
 
             if (result.interrupted) {
               const completion = result.completion;
@@ -223,7 +269,7 @@ export function executeAgentLoop(
                 content: completion.content,
                 ...(completion.toolCalls ? { toolCalls: completion.toolCalls } : {}),
               };
-              // Add partial response to history so the model has context on next turn
+
               if (completion.content.length > 0) {
                 currentMessages.push({
                   role: "assistant",
@@ -252,9 +298,7 @@ export function executeAgentLoop(
 
             if (completion.usage) {
               recordLLMUsage(runMetrics, completion.usage);
-              // Calibrate the token counter so subsequent pre-call estimates
-              // converge on this model's actual chars/token ratio. The
-              // messages passed are exactly what produced this usage report.
+
               calibrateTokenCounter({
                 authoritativePromptTokens: completion.usage.promptTokens,
                 messagesAtCallTime: currentMessages,
@@ -263,7 +307,6 @@ export function executeAgentLoop(
               });
             }
 
-            // Record tool definition telemetry
             if (completion.toolDefinitionChars != null) {
               recordToolDefinitionTokens(
                 runMetrics,
@@ -276,7 +319,6 @@ export function executeAgentLoop(
               response = { ...response, toolsDisabled: true };
             }
 
-            // Add assistant response to conversation
             const assistantMessage = {
               role: "assistant" as const,
               content: completion.content,
@@ -302,7 +344,6 @@ export function executeAgentLoop(
             );
             currentMessages = trimUpdate.messages;
 
-            // Handle tool calls
             if (completion.toolCalls && completion.toolCalls.length > 0) {
               yield* logger.info("Agent decided to use tools", {
                 agentId: agent.id,
@@ -312,6 +353,32 @@ export function executeAgentLoop(
                 reasoning: completion.content,
               });
 
+              for (const toolCall of completion.toolCalls) {
+                if (toolCall.type === "function") {
+                  recentToolCalls.push({
+                    name: toolCall.function.name,
+                    arguments: toolCall.function.arguments,
+                  });
+                }
+              }
+
+              if (recentToolCalls.length > MELTDOWN_WINDOW_SIZE) {
+                recentToolCalls.splice(0, recentToolCalls.length - MELTDOWN_WINDOW_SIZE);
+              }
+
+              if (detectMeltdown(recentToolCalls)) {
+                yield* logger.warn("Meltdown detected — injecting recovery signal", {
+                  agentId: agent.id,
+                  recentTools: recentToolCalls.slice(-10).map((tc) => tc.name),
+                });
+                currentMessages.push({
+                  role: "user",
+                  content:
+                    "[MELTDOWN DETECTED: You have been repeating the same tool calls without progress. Stop the current approach. Summarize what you have found so far, identify what is still missing, and either proceed directly to output or try a fundamentally different search strategy. Do not repeat your last action.]",
+                });
+                recentToolCalls.length = 0;
+              }
+
               const contextWithTokenStats = {
                 ...context,
                 tokenStats: {
@@ -320,6 +387,7 @@ export function executeAgentLoop(
                 },
                 conversationMessages: currentMessages,
                 parentAgent: agent,
+                parentMaxIterations: maxIterations,
                 compactConversation: (compacted: readonly ChatMessage[]) => {
                   currentMessages = [
                     currentMessages[0],

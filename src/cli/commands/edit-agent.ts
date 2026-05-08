@@ -26,6 +26,7 @@ import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/person
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent, AgentConfig, LLMProvider } from "@/core/types";
+import type { WebSearchProviderName } from "@/core/types/config";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -51,6 +52,7 @@ interface AgentEditAnswers {
   llmModel?: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
   tools?: string[];
+  webSearchProvider?: WebSearchProviderName;
 }
 
 /**
@@ -468,6 +470,7 @@ export function editAgentCommand(
       ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
       ...(editAnswers.tools &&
         editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
+      ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
     };
 
     // Build update object. The description guard uses !== undefined (not a
@@ -775,21 +778,23 @@ async function promptForAgentUpdates(
         }),
       );
 
-      // If Search is selected, verify configuration
       if (selectedCategories.includes(searchCategoryName)) {
-        // Use current agent's provider since we are editing tools, not provider (unless provider was updated in same flow? No, fieldToUpdate is single selection)
-        // Actually, if we allow multi-field edit later this assumption might break, but for now it's single field.
         const providerName = currentAgent.config.llmProvider;
         if (providerName) {
-          const configured = await Effect.runPromise(
+          const webSearchProvider = await Effect.runPromise(
             handleWebSearchConfiguration(terminal, configService, llmService, providerName),
           );
 
-          if (!configured) {
-            // User wants to go back
+          if (webSearchProvider === false) {
             selectedCategories = selectedCategories.filter((c) => c !== searchCategoryName);
-            await Effect.runPromise(terminal.log("")); // Spacing
+            await Effect.runPromise(terminal.log(""));
             continue;
+          }
+
+          if (webSearchProvider === "builtin") {
+            selectedCategories = selectedCategories.filter((c) => c !== searchCategoryName);
+          } else {
+            answers.webSearchProvider = webSearchProvider;
           }
         }
       }

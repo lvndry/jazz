@@ -1,7 +1,13 @@
 import { FileSystem } from "@effect/platform";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
-import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
+import {
+  buildBudgetPressureMessage,
+  detectMeltdown,
+  executeAgentLoop,
+  type CompletionStrategy,
+  type TrackedToolCall,
+} from "./agent-loop";
 import { ToolExecutor } from "./tool-executor";
 import { SkillServiceTag } from "../../../core/skills/skill-service";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
@@ -484,5 +490,95 @@ describe("executeAgentLoop", () => {
     );
 
     expect(result.toolsDisabled).toBe(true);
+  });
+});
+
+describe("buildBudgetPressureMessage", () => {
+  it("returns null below 70%", () => {
+    expect(buildBudgetPressureMessage(10, 60)).toBeNull();
+    expect(buildBudgetPressureMessage(41, 60)).toBeNull();
+  });
+
+  it("returns caution message at 70%", () => {
+    const msg = buildBudgetPressureMessage(42, 60);
+    expect(msg).not.toBeNull();
+    expect(msg?.content).toContain("70%");
+    expect(msg?.content).toContain("consolidat");
+  });
+
+  it("returns critical message at 90%", () => {
+    const msg = buildBudgetPressureMessage(54, 60);
+    expect(msg).not.toBeNull();
+    expect(msg?.content).toContain("CRITICAL");
+    expect(msg?.content).toContain("NOW");
+  });
+
+  it("returns critical at exact 90% boundary", () => {
+    const msg = buildBudgetPressureMessage(54, 60);
+    expect(msg?.content).toContain("CRITICAL");
+  });
+});
+
+function tc(name: string, args: Record<string, unknown> = {}): TrackedToolCall {
+  return { name, arguments: JSON.stringify(args) };
+}
+
+describe("detectMeltdown", () => {
+  it("returns false with fewer than 10 calls", () => {
+    const calls = Array.from({ length: 3 }, () => tc("web_search", { query: "foo" }));
+    expect(detectMeltdown(calls)).toBe(false);
+  });
+
+  it("returns false with diverse tool names and arguments", () => {
+    const calls: TrackedToolCall[] = [
+      tc("web_search", { query: "topic A" }),
+      tc("web_fetch", { url: "https://a.com" }),
+      tc("web_search", { query: "topic B" }),
+      tc("web_fetch", { url: "https://b.com" }),
+      tc("write_file", { path: "out.txt" }),
+      tc("web_search", { query: "topic C" }),
+      tc("web_fetch", { url: "https://c.com" }),
+      tc("spawn_subagent", { task: "summarise" }),
+      tc("web_search", { query: "topic D" }),
+      tc("web_fetch", { url: "https://d.com" }),
+    ];
+    expect(detectMeltdown(calls)).toBe(false);
+  });
+
+  it("returns false for two tools alternating with different arguments each time", () => {
+    // Simulates a legitimate web_search → web_fetch research loop where every
+    // call has unique arguments — previously a false positive under name-only check.
+    const calls: TrackedToolCall[] = Array.from({ length: 10 }, (_, i) =>
+      i % 2 === 0
+        ? tc("web_search", { query: `query ${i}` })
+        : tc("web_fetch", { url: `https://example.com/${i}` }),
+    );
+    expect(detectMeltdown(calls)).toBe(false);
+  });
+
+  it("returns true when the same name+arguments pair is repeated throughout the window", () => {
+    const calls: TrackedToolCall[] = [
+      ...Array(9).fill(tc("web_search", { query: "same query" })),
+      tc("web_fetch", { url: "https://example.com" }),
+    ];
+    expect(detectMeltdown(calls)).toBe(true);
+  });
+
+  it("returns true when two tools alternate with identical arguments each time", () => {
+    // The agent alternates but is making the exact same calls — genuine loop.
+    const calls: TrackedToolCall[] = Array.from({ length: 10 }, (_, i) =>
+      i % 2 === 0
+        ? tc("web_search", { query: "stuck query" })
+        : tc("web_fetch", { url: "https://stuck.com" }),
+    );
+    expect(detectMeltdown(calls)).toBe(true);
+  });
+
+  it("uses only the last 10 calls for the window", () => {
+    const diverse = Array.from({ length: 20 }, (_, i) =>
+      tc("web_search", { query: `unique ${i}` }),
+    );
+    const meltdown = Array(10).fill(tc("web_search", { query: "stuck" })) as TrackedToolCall[];
+    expect(detectMeltdown([...diverse, ...meltdown])).toBe(true);
   });
 });

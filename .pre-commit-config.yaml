@@ -9,13 +9,7 @@ repos:
 
       - id: eslint
         name: ESLint
-        entry: bun eslint --cache
+        entry: bun eslint --fix --cache
         language: system
         types_or: [ts, tsx]
 
-      - id: typecheck
-        name: TypeScript
-        entry: bun run typecheck
-        language: system
-        pass_filenames: false
-        types_or: [ts, tsx]

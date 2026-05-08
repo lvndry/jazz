@@ -7,6 +7,7 @@ import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import {
   defineApprovalTool,
   defineTool,
+  makeZodValidator,
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
@@ -37,12 +38,7 @@ export function createGitTagListTool(): Tool<GitDeps> {
     description: "List all Git tags, newest first.",
     tags: ["git", "tag", "list"],
     parameters,
-    validate: (args) => {
-      const params = parameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(parameters),
     handler: (args: GitTagListArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
@@ -123,15 +119,6 @@ export function createGitTagListTool(): Tool<GitDeps> {
 /**
  * Git tag create/delete tools - require approval
  */
-type GitTagArgs = {
-  path?: string;
-  create?: string;
-  message?: string;
-  commit?: string;
-  delete?: string;
-  force?: boolean;
-};
-
 const gitTagParameters = z
   .object({
     path: z.string().optional().describe("Repository path (defaults to cwd)"),
@@ -143,18 +130,15 @@ const gitTagParameters = z
   })
   .strict();
 
+type GitTagArgs = z.infer<typeof gitTagParameters>;
+
 export function createGitTagTools(): ApprovalToolPair<GitDeps> {
   const config: ApprovalToolConfig<GitDeps, GitTagArgs> = {
     name: "git_tag",
     description: "Create or delete Git tags. Supports lightweight and annotated.",
     tags: ["git", "tag"],
     parameters: gitTagParameters,
-    validate: (args) => {
-      const params = gitTagParameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data as GitTagArgs }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(gitTagParameters),
 
     approvalMessage: (args: GitTagArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

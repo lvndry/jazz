@@ -3,19 +3,17 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
  * Git pull tools (approval + execution)
  */
-
-type GitPullArgs = {
-  path?: string;
-  remote?: string;
-  branch?: string;
-  rebase?: boolean;
-};
 
 const gitPullParameters = z
   .object({
@@ -26,6 +24,8 @@ const gitPullParameters = z
   })
   .strict();
 
+type GitPullArgs = z.infer<typeof gitPullParameters>;
+
 type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 
 export function createGitPullTools(): ApprovalToolPair<GitDeps> {
@@ -34,12 +34,7 @@ export function createGitPullTools(): ApprovalToolPair<GitDeps> {
     description: "Pull changes from a remote. Supports rebase mode.",
     tags: ["git", "pull"],
     parameters: gitPullParameters,
-    validate: (args) => {
-      const params = gitPullParameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data as GitPullArgs }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(gitPullParameters),
 
     approvalMessage: (args: GitPullArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

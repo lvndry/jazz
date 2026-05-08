@@ -24,6 +24,7 @@ import { MCPServerManagerTag, type MCPServerManager } from "@/core/interfaces/mc
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
+import type { WebSearchProviderName } from "@/core/types/config";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -92,6 +93,7 @@ interface AIAgentCreationAnswers {
   llmModel: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
   tools: string[];
+  webSearchProvider?: WebSearchProviderName;
 }
 
 /**
@@ -299,6 +301,7 @@ export function createAgentCommand(): Effect.Effect<
       llmModel: selectedModel,
       ...(agentAnswers.reasoningEffort && { reasoningEffort: agentAnswers.reasoningEffort }),
       ...(uniqueToolNames.length > 0 && { tools: uniqueToolNames }),
+      ...(agentAnswers.webSearchProvider && { webSearchProvider: agentAnswers.webSearchProvider }),
     };
 
     const agentService = yield* AgentServiceTag;
@@ -355,6 +358,7 @@ interface WizardState {
   name?: string;
   description?: string;
   tools?: string[];
+  webSearchProvider?: WebSearchProviderName;
   // Cached data
   allProviders?: readonly LLMProviderListItem[];
   providerInfo?: LLMProvider;
@@ -732,18 +736,26 @@ async function promptForAgentInfo(
             }
           }
 
+          let resolvedTools = [...selectedTools];
+
           if (selectedTools.includes(WEB_SEARCH_CATEGORY.displayName)) {
-            const configured = await Effect.runPromise(
+            const webSearchProvider = await Effect.runPromise(
               handleWebSearchConfiguration(terminal, configService, llmService, state.llmProvider!),
             );
 
-            if (!configured) {
+            if (webSearchProvider === false) {
               await Effect.runPromise(terminal.log(""));
               continue;
             }
+
+            if (webSearchProvider === "builtin") {
+              resolvedTools = resolvedTools.filter((t) => t !== WEB_SEARCH_CATEGORY.displayName);
+            } else {
+              state.webSearchProvider = webSearchProvider;
+            }
           }
 
-          state.tools = [...selectedTools];
+          state.tools = resolvedTools;
           break;
         }
 
@@ -776,5 +788,6 @@ async function promptForAgentInfo(
     name: state.name!,
     ...(state.description && { description: state.description }),
     tools: finalTools,
+    ...(state.webSearchProvider && { webSearchProvider: state.webSearchProvider }),
   };
 }

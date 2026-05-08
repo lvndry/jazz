@@ -292,15 +292,8 @@ function getProviderNativeWebSearchTool(
         }
         return null;
       }
-      case "xai": {
-        const xaiWithTools = xai as typeof xai & {
-          tools?: { webSearch?: (config?: Record<string, unknown>) => ToolSet[string] };
-        };
-        if (typeof xaiWithTools.tools?.webSearch === "function") {
-          return xaiWithTools.tools.webSearch({});
-        }
+      case "xai":
         return null;
-      }
       case "groq": {
         const groqWithTools = groq as typeof groq & {
           tools?: { browserSearch?: (config?: Record<string, unknown>) => ToolSet[string] };
@@ -353,6 +346,7 @@ function checkProviderNativeWebSearchSupport(
   providerName: ProviderName,
   logger?: LoggerService,
 ): boolean {
+  if (providerName.toLowerCase() === "xai") return true;
   return getProviderNativeWebSearchTool(providerName, logger) !== null;
 }
 
@@ -588,6 +582,7 @@ function selectModel(
 function buildProviderOptions(
   providerName: ProviderName,
   options: ChatCompletionOptions,
+  webSearchConfig?: WebSearchConfig,
 ): ProviderOptions | undefined {
   const normalizedProvider = providerName.toLowerCase();
 
@@ -637,13 +632,28 @@ function buildProviderOptions(
       break;
     }
     case "xai": {
+      const xaiOptions: XaiProviderOptions = {};
+
       const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
-        return {
-          xai: {
-            reasoningEffort: reasoningEffort === "medium" ? "low" : reasoningEffort,
-          } satisfies XaiProviderOptions,
+        xaiOptions.reasoningEffort = reasoningEffort === "medium" ? "low" : reasoningEffort;
+      }
+
+      const hasWebSearch = options.tools?.some((t) => t.function.name === "web_search");
+      const selectedExternalProvider = webSearchConfig?.provider;
+      const hasExternalKey = selectedExternalProvider
+        ? !!webSearchConfig?.[selectedExternalProvider]?.api_key
+        : false;
+      if (hasWebSearch && !selectedExternalProvider && !hasExternalKey) {
+        xaiOptions.searchParameters = {
+          mode: "auto",
+          returnCitations: true,
+          sources: [{ type: "web" }, { type: "news" }],
         };
+      }
+
+      if (Object.keys(xaiOptions).length > 0) {
+        return { xai: xaiOptions };
       }
       break;
     }
@@ -936,8 +946,7 @@ class AISDKService implements LLMService {
       });
     }
 
-    // Now, handle the special case for web_search.
-    const hasWebSearch = requestedTools.some((t) => t.function.name === "web_search");
+    const hasWebSearch = requestedTools.some((toolDef) => toolDef.function.name === "web_search");
     if (hasWebSearch) {
       const providerNativeWebSearch = getProviderNativeWebSearchTool(providerName, this.logger);
       // Check if user explicitly selected an external provider (vs "none"/undefined for builtin)
@@ -946,12 +955,24 @@ class AISDKService implements LLMService {
         ? !!this.config.webSearchConfig?.[selectedExternalProvider]?.api_key
         : false;
 
+      const isXaiLiveSearch =
+        providerName.toLowerCase() === "xai" &&
+        !selectedExternalProvider &&
+        !hasSelectedProviderKey;
+      if (isXaiLiveSearch) {
+        void this.logger.debug(
+          `[Web Search] Using xAI Live Search (searchParameters) for ${providerName}`,
+        );
+        delete tools["web_search"];
+        providerNativeToolNames.add("web_search");
+      }
+
       // Use native if: no external provider selected AND native is available
       // Use external if: external provider is selected AND has API key
       const shouldUseProviderNative = !selectedExternalProvider && providerNativeWebSearch;
       const shouldUseExternal = selectedExternalProvider && hasSelectedProviderKey;
 
-      if (shouldUseProviderNative) {
+      if (!isXaiLiveSearch && shouldUseProviderNative) {
         void this.logger.debug(
           `[Web Search] Using provider-native web search tool for ${providerName} (builtin selected, no external provider configured)`,
         );
@@ -962,7 +983,7 @@ class AISDKService implements LLMService {
           `[Web Search] Using Jazz web_search tool with external provider: ${selectedExternalProvider}`,
         );
         // Keep Jazz's web_search tool - it will route to the external provider
-      } else if (!providerNativeWebSearch && !shouldUseExternal) {
+      } else if (!isXaiLiveSearch && !providerNativeWebSearch && !shouldUseExternal) {
         void this.logger.debug(
           `[Web Search] web_search tool available but may fail: provider ${providerName} has no native support and no external provider configured`,
         );
@@ -1041,7 +1062,11 @@ class AISDKService implements LLMService {
         const tools = prepared?.tools;
         const providerNativeToolNames = prepared?.providerNativeToolNames ?? new Set<string>();
 
-        const providerOptions = buildProviderOptions(providerName, options);
+        const providerOptions = buildProviderOptions(
+          providerName,
+          options,
+          this.config.webSearchConfig,
+        );
 
         const messageConversionStart = Date.now();
         const coreMessages = toCoreMessages(options.messages, providerName);
@@ -1227,7 +1252,11 @@ class AISDKService implements LLMService {
           `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
         );
 
-        const providerOptions = buildProviderOptions(providerName, options);
+        const providerOptions = buildProviderOptions(
+          providerName,
+          options,
+          this.config.webSearchConfig,
+        );
 
         // Message conversion timing
         const messageConversionStart = Date.now();

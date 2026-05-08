@@ -3,18 +3,17 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
  * Git commit tools (approval + execution)
  */
-
-type GitCommitArgs = {
-  path?: string;
-  message: string;
-  all?: boolean;
-};
 
 const gitCommitParameters = z
   .object({
@@ -27,6 +26,8 @@ const gitCommitParameters = z
   })
   .strict();
 
+type GitCommitArgs = z.infer<typeof gitCommitParameters>;
+
 type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 
 export function createGitCommitTools(): ApprovalToolPair<GitDeps> {
@@ -35,12 +36,7 @@ export function createGitCommitTools(): ApprovalToolPair<GitDeps> {
     description: "Create a commit from staged changes. Use git_add first to stage files.",
     tags: ["git", "commit"],
     parameters: gitCommitParameters,
-    validate: (args) => {
-      const params = gitCommitParameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data as GitCommitArgs }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(gitCommitParameters),
 
     approvalMessage: (args: GitCommitArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

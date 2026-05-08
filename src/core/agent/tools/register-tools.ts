@@ -419,6 +419,7 @@ export const SHELL_COMMANDS_CATEGORY: ToolCategory = {
 };
 export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
 export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Web Search" };
+export const WEB_FETCH_CATEGORY: ToolCategory = { id: "web_fetch", displayName: "Web Fetch" };
 export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
 export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Context" };
 export const SUBAGENT_CATEGORY: ToolCategory = { id: "subagent", displayName: "Sub Agents" };
@@ -479,6 +480,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   GIT_CATEGORY,
   HTTP_CATEGORY,
   WEB_SEARCH_CATEGORY,
+  WEB_FETCH_CATEGORY,
   SKILLS_CATEGORY,
   TODO_CATEGORY,
   CONTEXT_CATEGORY,
@@ -495,6 +497,7 @@ export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
   SUBAGENT_CATEGORY,
   USER_INTERACTION_CATEGORY,
   CONTEXT_CATEGORY,
+  WEB_FETCH_CATEGORY,
 ] as const;
 
 /**
@@ -645,10 +648,11 @@ export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
 export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory(WEB_SEARCH_CATEGORY);
+    const registerSearchTool = registry.registerForCategory(WEB_SEARCH_CATEGORY);
+    const registerFetchTool = registry.registerForCategory(WEB_FETCH_CATEGORY);
 
-    yield* registerTool(createWebSearchTool());
-    yield* registerTool(createWebFetchTool());
+    yield* registerSearchTool(createWebSearchTool());
+    yield* registerFetchTool(createWebFetchTool());
   });
 }
 

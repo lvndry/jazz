@@ -165,7 +165,7 @@ describe("WebSearchTool", () => {
         verifyMock: (args: WebSearchArgs) => {
           expect(mockPerplexitySearchCreate).toHaveBeenCalledWith(
             expect.objectContaining({
-              max_results: Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, 20),
+              max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
             }),
           );
         },

@@ -3,7 +3,12 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
@@ -33,13 +38,7 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
     description: "Move or rename a file or directory. Equivalent to shell mv.",
     tags: ["filesystem", "write"],
     parameters: mvParameters,
-    validate: (args) => {
-      const result = mvParameters.safeParse(args);
-      if (result.success) {
-        return { valid: true, value: result.data };
-      }
-      return { valid: false, errors: result.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(mvParameters),
 
     approvalMessage: (args: MvArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

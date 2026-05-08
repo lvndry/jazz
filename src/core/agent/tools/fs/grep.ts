@@ -4,7 +4,7 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { createSanitizedEnv } from "@/core/utils/env-utils";
-import { defineTool } from "../base-tool";
+import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { checkExternalTool, spawnCollect } from "./utils";
 
@@ -335,12 +335,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       "Search file contents for text patterns (ripgrep with grep fallback). Supports regex, file filters, context lines. outputMode: content/files/count. Default 200 results, cap 2000.",
     tags: ["search", "text"],
     parameters,
-    validate: (args) => {
-      const params = parameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(parameters),
     handler: (args, context) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;

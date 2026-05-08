@@ -4,7 +4,7 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineTool } from "../base-tool";
+import { defineTool, makeZodValidator } from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
@@ -30,12 +30,7 @@ export function createGitBlameTool(): Tool<FileSystem.FileSystem | FileSystemCon
     description: "Show revision and author for each line of a file. Supports line ranges.",
     tags: ["git", "blame", "history"],
     parameters,
-    validate: (args) => {
-      const params = parameters.safeParse(args);
-      return params.success
-        ? ({ valid: true, value: params.data } as const)
-        : ({ valid: false, errors: params.error.issues.map((i) => i.message) } as const);
-    },
+    validate: makeZodValidator(parameters),
     handler: (args: GitBlameArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;

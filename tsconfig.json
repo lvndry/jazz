@@ -41,6 +41,9 @@
     "allowJs": false,
     "checkJs": false,
 
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo",
+
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "jsx": "react-jsx"

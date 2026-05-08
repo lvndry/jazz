@@ -7,7 +7,12 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { createSanitizedEnv } from "@/core/utils/env-utils";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "./base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 
 /**
@@ -148,13 +153,6 @@ export function isDangerousCommand(command: string): boolean {
   return FORBIDDEN_COMMANDS.some((pattern) => pattern.test(command));
 }
 
-type ExecuteCommandArgs = {
-  command: string;
-  description: string;
-  workingDirectory?: string;
-  timeout?: number;
-};
-
 const executeCommandParameters = z
   .object({
     command: z.string().min(1, "command cannot be empty").describe("Shell command to execute"),
@@ -172,6 +170,8 @@ const executeCommandParameters = z
       .describe("Timeout in ms (default: 900000 = 15 min)"),
   })
   .strict();
+
+type ExecuteCommandArgs = z.infer<typeof executeCommandParameters>;
 
 type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService | LoggerService;
 
@@ -192,12 +192,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
     tags: ["shell", "execution"],
     timeoutMs: 15 * 60 * 1000, // 15 minutes — executor cap so long-running commands can complete
     parameters: executeCommandParameters,
-    validate: (args) => {
-      const result = executeCommandParameters.safeParse(args);
-      return result.success
-        ? { valid: true, value: result.data as ExecuteCommandArgs }
-        : { valid: false, errors: result.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(executeCommandParameters),
 
     approvalMessage: (args: ExecuteCommandArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
