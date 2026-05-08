@@ -21,7 +21,7 @@ const SUBAGENT_PANEL_LINES = 12;
 const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** Maximum iterations for sub-agent execution before returning partial results */
-const SUBAGENT_MAX_ITERATIONS = 20;
+const SUBAGENT_MAX_ITERATIONS = 40;
 
 /** Monotonic counter for unique sub-agent IDs within this process */
 let subagentCounter = 0;
