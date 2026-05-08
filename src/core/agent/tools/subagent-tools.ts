@@ -35,7 +35,7 @@ const spawnSubagentSchema = z.object({
     .optional()
     .default("default")
     .describe(
-      "'coder' for code/git tasks, 'researcher' for deep research tasks, 'default' for general (default: 'default')",
+      "'coder' for code/git tasks, 'researcher' for research tasks, 'default' for general (default: 'default')",
     ),
 });
 
@@ -109,21 +109,29 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             updatedAt: new Date(),
           };
 
-          // Wrap the task with sub-agent instructions to ensure one-shot completion
+          const personaHints: Record<string, string> = {
+            coder: "You are a coding specialist. Focus on reading, writing, and modifying code.",
+            researcher:
+              "You are a research specialist. Focus on gathering, synthesising, and summarising information.",
+          };
+          const personaHint = personaHints[args.persona ?? ""] ?? "";
+
           const wrappedTask = `[SUB-AGENT TASK]
-You are a sub-agent performing a delegated task for a parent agent. This is a ONE-SHOT task:
-- Complete the task and produce a FINAL ANSWER in your response
+You are a sub-agent performing a delegated task for a parent agent. This is a ONE-SHOT task.
+${personaHint ? `\n${personaHint}\n` : ""}
+Rules:
+- Complete the task and produce a answer
 - Do NOT ask follow-up questions or wait for user input
-- Do NOT continue searching indefinitely — gather enough information, then synthesize and respond
+- Do NOT continue searching indefinitely — gather enough information, then synthesise and respond
+- If the task is ambiguous, state your assumptions briefly and proceed
+- If you cannot complete the task fully, return what you found and explain why
+- Stay within the scope of the task — do not take unrequested side actions
+- Be concise; the parent agent needs the output, not background narration
 - Your response will be returned directly to the parent agent
 
 TASK:
 ${args.task}`;
 
-          // Stream into the subagent's own ephemeral region — never the
-          // parent's scrollback pending. This is the architectural fix for
-          // parent/subagent token interleaving. Effect.ensuring guarantees
-          // the panel collapses even if runRecursive errors.
           const response = yield* AgentRunner.runRecursive({
             agent: subAgent,
             userInput: wrappedTask,
@@ -142,9 +150,6 @@ ${args.task}`;
             ),
           );
 
-          // If the sub-agent hit the iteration limit, response.content may be empty
-          // (the last iteration was tool calls with no text). Extract useful content
-          // from the conversation messages so the parent gets intermediate results.
           let result = response.content;
           if (!result?.trim() && response.messages?.length) {
             const parts: string[] = [];
@@ -162,7 +167,6 @@ ${args.task}`;
             }
           }
 
-          // Collapse the live panel and emit the durable summary + preview.
           const durationMs = Date.now() - startedAt;
           const seconds = (durationMs / 1000).toFixed(1);
           const summaryLine = chalk.dim(chalk.italic(`✓ ${subagentLabel} completed · ${seconds}s`));
@@ -239,9 +243,6 @@ ${args.task}`;
 
           const contextWindowMaxTokens = modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
 
-          // Split messages into system, older (to summarize), and recent (to keep verbatim).
-          // Unlike compactIfNeeded (which checks a threshold first), the tool always
-          // compacts when explicitly called — the agent knows best when to clear context.
           const { systemMessage, messagesToSummarize, sanitizedRecentMessages } =
             Summarizer.splitMessages(
               [...conversationMessages] as unknown as ConversationMessages,
@@ -267,7 +268,6 @@ ${args.task}`;
             runRecursive,
           );
 
-          // Rebuild: [system, summary, ...recent]
           const compacted = [
             systemMessage,
             summaryMessage,
