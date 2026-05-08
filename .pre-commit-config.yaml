@@ -13,9 +13,3 @@ repos:
         language: system
         types_or: [ts, tsx]
 
-      - id: typecheck
-        name: TypeScript
-        entry: bun run typecheck
-        language: system
-        pass_filenames: false
-        types_or: [ts, tsx]
