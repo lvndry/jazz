@@ -10,20 +10,27 @@ import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import type { WebSearchConfig } from "@/core/types/config";
 import { defineTool } from "./base-tool";
 
+export type ExaSearchType = "auto" | "fast" | "instant" | "deep-lite" | "deep" | "deep-reasoning";
+
+export type ExaCategory =
+  | "company"
+  | "research paper"
+  | "news"
+  | "pdf"
+  | "personal site"
+  | "financial report"
+  | "people";
+
+const NO_DATE_FILTER_CATEGORIES = new Set<ExaCategory>(["company", "people"]);
+
 export interface WebSearchArgs extends Record<string, unknown> {
   readonly query: string;
   readonly searchQueries?: string[];
   readonly maxResults?: number;
   readonly fromDate?: string;
   readonly toDate?: string;
-  readonly category?:
-    | "company"
-    | "research paper"
-    | "news"
-    | "pdf"
-    | "personal site"
-    | "financial report"
-    | "people";
+  readonly category?: ExaCategory;
+  readonly searchType?: ExaSearchType;
 }
 
 export interface WebSearchItem {
@@ -139,7 +146,15 @@ export function createWebSearchTool(): ReturnType<
             "people",
           ])
           .optional()
-          .describe("Content category filter"),
+          .describe(
+            "Content category filter for Exa. Note: 'company' and 'people' do not support date filters.",
+          ),
+        searchType: z
+          .enum(["auto", "fast", "instant", "deep-lite", "deep", "deep-reasoning"])
+          .optional()
+          .describe(
+            "Exa search method (default: 'auto'). Use 'fast'/'instant' for low-latency lookups, 'deep'/'deep-reasoning' for complex multi-step queries.",
+          ),
       })
       .strict(),
     validate: (args) => {
@@ -167,6 +182,9 @@ export function createWebSearchTool(): ReturnType<
                 "financial report",
                 "people",
               ])
+              .optional(),
+            searchType: z
+              .enum(["auto", "fast", "instant", "deep-lite", "deep", "deep-reasoning"])
               .optional(),
           })
           .strict() as z.ZodType<WebSearchArgs>
@@ -304,12 +322,16 @@ function executeExaSearch(
       Effect.tryPromise({
         try: () =>
           exa.search(args.query, {
-            type: "deep",
+            type: args.searchType ?? "auto",
             numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
             ...(args.category ? { category: args.category } : {}),
             contents: { highlights: true },
-            ...(args.fromDate ? { startPublishedDate: args.fromDate } : {}),
-            ...(args.toDate ? { endPublishedDate: args.toDate } : {}),
+            ...(args.category && NO_DATE_FILTER_CATEGORIES.has(args.category)
+              ? {}
+              : {
+                  ...(args.fromDate ? { startPublishedDate: args.fromDate } : {}),
+                  ...(args.toDate ? { endPublishedDate: args.toDate } : {}),
+                }),
           }),
         catch: (error) =>
           new Error(`Exa search failed: ${error instanceof Error ? error.message : String(error)}`),
