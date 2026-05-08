@@ -51,7 +51,7 @@
         "node-emoji": "^2.2.0",
         "node-notifier": "^10.0.1",
         "ollama-ai-provider-v2": "^2.0.0",
-        "parallel-web": "^0.4.1",
+        "parallel-web": "^0.5.0",
         "pdf-parse": "^2.4.5",
         "plist": "^3.1.1",
         "react": "^19.2.5",
@@ -876,7 +876,7 @@
 
     "p-locate": ["p-locate@5.0.0", "", { "dependencies": { "p-limit": "^3.0.2" } }, "sha512-LaNjtRWUBY++zB5nE/NwcaoMylSPk+S+ZHNB1TzdbMJMny6dynpAGt7X/tl/QYq3TIeE6nxHppbo2LGymrG5Pw=="],
 
-    "parallel-web": ["parallel-web@0.4.1", "", {}, "sha512-kcBwdJxgT+m2D65P5AQ2EtdbmjrA8djoqRT4wr0WCMYnpIEzadTzwJ9zS2N/BT7wTk5rComkQ/2faSUtgZwWCg=="],
+    "parallel-web": ["parallel-web@0.5.0", "", {}, "sha512-p3JR9ENwbXtQJFTn4rWrraYKzHISkG2lwoRmVQceEqepgMtpuE6v/BEMi4yAmGum6ejK2F4DDKLkcqeFxnqztg=="],
 
     "parent-module": ["parent-module@1.0.1", "", { "dependencies": { "callsites": "^3.0.0" } }, "sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g=="],
 

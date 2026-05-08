@@ -3,7 +3,12 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
@@ -11,17 +16,14 @@ import { buildKeyFromContext } from "../context-utils";
  * Uses defineApprovalTool to create approval + execution pair.
  */
 
-type MkdirArgs = {
-  path: string;
-  recursive?: boolean;
-};
-
 const mkdirParameters = z
   .object({
     path: z.string().min(1).describe("Directory path to create"),
     recursive: z.boolean().optional().describe("Create parent directories (default: true)"),
   })
   .strict();
+
+type MkdirArgs = z.infer<typeof mkdirParameters>;
 
 type MkdirDeps = FileSystem.FileSystem | FileSystemContextService;
 
@@ -34,12 +36,7 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
     description: "Create a directory. Parents created automatically by default.",
     tags: ["filesystem", "write"],
     parameters: mkdirParameters,
-    validate: (args) => {
-      const result = mkdirParameters.safeParse(args);
-      return result.success
-        ? { valid: true, value: result.data as MkdirArgs }
-        : { valid: false, errors: result.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(mkdirParameters),
 
     approvalMessage: (args: MkdirArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

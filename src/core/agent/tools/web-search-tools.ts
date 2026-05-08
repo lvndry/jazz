@@ -7,8 +7,8 @@ import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import type { WebSearchConfig, WebSearchProviderName } from "@/core/types/config";
-import { defineTool } from "./base-tool";
+import type { WebSearchProviderName } from "@/core/types/config";
+import { defineTool, makeZodValidator } from "./base-tool";
 
 export type SearchDepth = "fast" | "standard" | "deep";
 
@@ -29,7 +29,6 @@ export interface WebSearchItem {
   readonly url: string;
   readonly snippet: string;
   readonly publishedDate?: string;
-  readonly source?: string;
   readonly metadata?: Record<string, unknown>;
 }
 
@@ -37,7 +36,7 @@ export interface WebSearchResult {
   readonly results: readonly WebSearchItem[];
   readonly totalResults: number;
   readonly query: string;
-  readonly timestamp: string;
+  readonly completedAt: string;
   readonly provider: WebSearchProviderName;
 }
 
@@ -53,7 +52,61 @@ export const WEB_SEARCH_PROVIDERS = [
   { name: "Tavily", value: "tavily" },
 ] as const;
 
+/** Maximum number of results to return. */
 export const DEFAULT_MAX_RESULTS = 30;
+
+const webSearchSchema = z
+  .object({
+    query: z
+      .string()
+      .min(1, "query cannot be empty")
+      .max(5000, "query cannot be longer than 5000 characters")
+      .describe(
+        "Natural-language description of the web research goal, including source or freshness guidance and broader context. Use highly specific queries for more targeted results.",
+      ),
+    searchQueries: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(200, "each search query must be 200 characters or less")
+          .describe("Concise keyword phrase, 3-6 words"),
+      )
+      .min(1)
+      .max(5)
+      .optional()
+      .describe("Concise keyword search queries (3-6 words each)."),
+    searchDepth: z
+      .enum(["fast", "standard", "deep"])
+      .optional()
+      .describe(
+        "Search quality vs latency: 'fast' for quick lookups, 'standard' for balanced results (default), 'deep' for thorough multi-step research.",
+      ),
+    fromDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
+      .optional()
+      .describe("From date filter (YYYY-MM-DD)"),
+    toDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
+      .optional()
+      .describe("To date filter (YYYY-MM-DD)"),
+    maxResults: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .optional()
+      .describe(`Max results (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
+    sourceType: z
+      .enum(["web", "news", "academic", "company", "people", "pdf", "financial"])
+      .optional()
+      .describe(
+        "Source type filter: 'news' for news articles, 'academic' for research papers, 'company' for company pages, 'people' for people profiles, 'pdf' for PDF documents, 'financial' for financial reports/filings, 'web' for general web (default).",
+      ),
+  })
+  .strict() as z.ZodType<WebSearchArgs>;
 
 export function createWebSearchTool(): ReturnType<
   typeof defineTool<AgentConfigService | LoggerService, WebSearchArgs>
@@ -62,86 +115,8 @@ export function createWebSearchTool(): ReturnType<
     name: "web_search",
     description: "Search the web for real-time information.",
     tags: ["web", "search"],
-    parameters: z
-      .object({
-        query: z
-          .string()
-          .min(1, "query cannot be empty")
-          .max(5000, "query cannot be longer than 5000 characters")
-          .describe(
-            "Natural-language description of the web research goal, including source or freshness guidance and broader context from the task. Use highly specific queries for more targeted results.",
-          ),
-        searchQueries: z
-          .array(
-            z
-              .string()
-              .min(1)
-              .max(200, "each search query must be 200 characters or less")
-              .describe("Concise keyword phrase, 3-6 words"),
-          )
-          .min(1)
-          .max(5)
-          .optional()
-          .describe("Concise keyword search queries (3-6 words each)."),
-        fromDate: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
-          .optional()
-          .describe("Start date filter (YYYY-MM-DD)"),
-        toDate: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
-          .optional()
-          .describe("End date filter (YYYY-MM-DD)"),
-        maxResults: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe(`Max results (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
-        sourceType: z
-          .enum(["web", "news", "academic", "company", "people", "pdf", "financial"])
-          .optional()
-          .describe(
-            "Source type filter: 'news' for news articles, 'academic' for research papers, 'company' for company pages, 'people' for people profiles, 'pdf' for PDF documents, 'financial' for financial reports/filings, 'web' for general web (default).",
-          ),
-        searchDepth: z
-          .enum(["fast", "standard", "deep"])
-          .optional()
-          .describe(
-            "Search quality vs latency: 'fast' for quick lookups, 'standard' for balanced results (default), 'deep' for thorough multi-step research.",
-          ),
-      })
-      .strict(),
-    validate: (args) => {
-      const params = (
-        z
-          .object({
-            query: z.string().min(1),
-            searchQueries: z.array(z.string().min(1).max(200)).min(1).max(5).optional(),
-            fromDate: z
-              .string()
-              .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
-              .optional(),
-            toDate: z
-              .string()
-              .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
-              .optional(),
-            maxResults: z.number().int().min(1).max(100).optional(),
-            sourceType: z
-              .enum(["web", "news", "academic", "company", "people", "pdf", "financial"])
-              .optional(),
-            searchDepth: z.enum(["fast", "standard", "deep"]).optional(),
-          })
-          .strict() as z.ZodType<WebSearchArgs>
-      ).safeParse(args);
-
-      if (!params.success) {
-        return { valid: false, errors: params.error.issues.map((i) => i.message) };
-      }
-      return { valid: true, value: params.data };
-    },
+    parameters: webSearchSchema,
+    validate: makeZodValidator(webSearchSchema),
     handler: function webSearchHandler(
       args: WebSearchArgs,
       context: ToolExecutionContext,
@@ -153,9 +128,8 @@ export function createWebSearchTool(): ReturnType<
         // Resolve provider: per-agent setting takes priority over global config.
         const agentProvider = context.parentAgent?.config.webSearchProvider;
         const appConfig = yield* config.appConfig;
-        const webSearchConfig: WebSearchConfig | undefined = appConfig.web_search;
         const selectedProvider: WebSearchProviderName | undefined =
-          agentProvider ?? webSearchConfig?.provider;
+          agentProvider ?? appConfig.web_search?.provider;
 
         if (!selectedProvider) {
           return {
@@ -193,29 +167,20 @@ export function createWebSearchTool(): ReturnType<
 
         yield* logger.info(`Executing search with ${selectedProvider} provider...`);
 
-        const result = yield* executor(args, apiKey).pipe(
-          Effect.catchAll((error) => {
-            return Effect.gen(function* () {
-              yield* logger.error(
-                `${selectedProvider} search failed: ${error instanceof Error ? error.message : String(error)}`,
-              );
-              return null as WebSearchResult | null;
-            });
-          }),
+        return yield* executor(args, apiKey).pipe(
+          Effect.map((result) => ({ success: true as const, result })),
+          Effect.catchAll((error) =>
+            Effect.gen(function* () {
+              const message = error instanceof Error ? error.message : String(error);
+              yield* logger.error(`${selectedProvider} search failed: ${message}`);
+              return {
+                success: false as const,
+                result: null,
+                error: `${selectedProvider} search failed: ${message}`,
+              };
+            }),
+          ),
         );
-
-        if (result) {
-          return {
-            success: true,
-            result,
-          };
-        }
-
-        return {
-          success: false,
-          result: null,
-          error: `Search with ${selectedProvider} provider failed. Please check your configuration or try a different provider.`,
-        };
       });
     },
     createSummary: function createSearchSummary(result: ToolExecutionResult): string | undefined {
@@ -311,7 +276,6 @@ function executeExaSearch(
       url: result.url || "",
       snippet: Array.isArray(result.highlights) ? result.highlights.join("\n\n") : "",
       ...(result.publishedDate ? { publishedDate: result.publishedDate } : {}),
-      source: "exa",
     }));
 
     yield* logger.info(`Exa search found ${results.length} results`);
@@ -320,7 +284,7 @@ function executeExaSearch(
       results,
       totalResults: results.length,
       query: args.query,
-      timestamp: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
       provider: "exa" as const,
     };
   });
@@ -332,6 +296,12 @@ function executeParallelSearch(
   clientModel: string,
   sessionId: string,
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
+  const searchDepthToMode: Record<SearchDepth, "basic" | "advanced"> = {
+    fast: "basic",
+    standard: "advanced",
+    deep: "advanced",
+  };
+
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
 
@@ -349,7 +319,7 @@ function executeParallelSearch(
           parallel.search({
             search_queries: args.searchQueries ?? [args.query],
             objective: args.query,
-            mode: "advanced",
+            mode: searchDepthToMode[args.searchDepth ?? "standard"],
             ...(clientModel ? { client_model: clientModel } : {}),
             ...(sessionId ? { session_id: sessionId } : {}),
             advanced_settings: {
@@ -370,7 +340,6 @@ function executeParallelSearch(
       url: result.url || "",
       snippet: result.excerpts?.join(" ") || "",
       ...(result.publish_date ? { publishedDate: result.publish_date } : {}),
-      source: "parallel",
     }));
 
     yield* logger.info(`Parallel search found ${results.length} results`);
@@ -379,7 +348,7 @@ function executeParallelSearch(
       results,
       totalResults: results.length,
       query: args.query,
-      timestamp: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
       provider: "parallel" as const,
     };
   });
@@ -423,7 +392,6 @@ function executeTavilySearch(
       url: result.url || "",
       snippet: result.rawContent || result.content || "",
       ...(result.publishedDate ? { publishedDate: result.publishedDate } : {}),
-      source: "tavily" as const,
       ...(result.score !== undefined ? { metadata: { score: result.score } } : {}),
     }));
 
@@ -433,7 +401,7 @@ function executeTavilySearch(
       results,
       totalResults: results.length,
       query: args.query,
-      timestamp: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
       provider: "tavily" as const,
     };
   });
@@ -501,7 +469,6 @@ function executeBraveSearch(
       url: result.url || "",
       snippet: [result.description, ...(result.extra_snippets ?? [])].filter(Boolean).join("\n\n"),
       ...(result.page_age ? { publishedDate: result.page_age } : {}),
-      source: "brave",
     }));
 
     yield* logger.info(`Brave search found ${results.length} results`);
@@ -510,13 +477,11 @@ function executeBraveSearch(
       results,
       totalResults: results.length,
       query: args.query,
-      timestamp: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
       provider: "brave" as const,
     };
   });
 }
-
-const PERPLEXITY_MAX_RESULTS = 20;
 
 function toPerplexityDate(isoDate: string): string {
   const [year = "", month = "", day = ""] = isoDate.split("-");
@@ -543,7 +508,7 @@ function executePerplexitySearch(
         try: () =>
           client.search.create({
             query: args.searchQueries ?? args.query,
-            max_results: Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, PERPLEXITY_MAX_RESULTS),
+            max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
             ...(args.fromDate ? { search_after_date_filter: toPerplexityDate(args.fromDate) } : {}),
             ...(args.toDate ? { search_before_date_filter: toPerplexityDate(args.toDate) } : {}),
           }),
@@ -560,7 +525,6 @@ function executePerplexitySearch(
       url: result.url,
       snippet: result.snippet,
       ...(result.date ? { publishedDate: result.date } : {}),
-      source: "perplexity" as const,
     }));
 
     yield* logger.info(`Perplexity search found ${results.length} results`);
@@ -569,7 +533,7 @@ function executePerplexitySearch(
       results,
       totalResults: results.length,
       query: args.query,
-      timestamp: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
       provider: "perplexity" as const,
     };
   });

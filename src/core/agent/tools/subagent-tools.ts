@@ -88,10 +88,6 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             parentAgentId: parentAgent.id,
           });
 
-          // Show sub-agent launch — header + task in a bounded live panel.
-          // The panel hosts the subagent's reasoning + response while it runs;
-          // when it finishes, the panel collapses and we emit the existing
-          // capped preview below.
           const taskPreview = args.task.length > 80 ? `...${args.task.slice(-77)}` : args.task;
           const subagentLabel = `Sub-Agent (${args.persona})`;
           const startedAt = Date.now();

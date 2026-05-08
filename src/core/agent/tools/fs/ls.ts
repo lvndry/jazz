@@ -4,7 +4,7 @@ import glob from "fast-glob";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import { defineTool } from "../base-tool";
+import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { normalizeFilterPattern, readGitignorePatterns } from "./utils";
 
@@ -42,12 +42,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
       "List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, cap 2000.",
     tags: ["filesystem", "listing"],
     parameters,
-    validate: (args) => {
-      const params = parameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(parameters),
     handler: (args, context) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;

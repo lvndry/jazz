@@ -3,22 +3,17 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
  * Git merge tools (approval + execution)
  */
-
-type GitMergeArgs = {
-  path?: string;
-  branch: string;
-  message?: string;
-  noFastForward?: boolean;
-  squash?: boolean;
-  abort?: boolean;
-  strategy?: "resolve" | "recursive" | "octopus" | "ours" | "subtree";
-};
 
 const gitMergeParameters = z
   .object({
@@ -35,6 +30,8 @@ const gitMergeParameters = z
   })
   .strict();
 
+type GitMergeArgs = z.infer<typeof gitMergeParameters>;
+
 type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 
 export function createGitMergeTools(): ApprovalToolPair<GitDeps> {
@@ -43,12 +40,7 @@ export function createGitMergeTools(): ApprovalToolPair<GitDeps> {
     description: "Merge a branch into the current branch. Supports squash, no-ff, and abort.",
     tags: ["git", "merge"],
     parameters: gitMergeParameters,
-    validate: (args) => {
-      const params = gitMergeParameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data as GitMergeArgs }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(gitMergeParameters),
 
     approvalMessage: (args: GitMergeArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

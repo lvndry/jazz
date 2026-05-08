@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import { defineTool } from "../base-tool";
+import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
@@ -25,15 +25,7 @@ export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
       "Change the working directory for this session. Persists across subsequent tool calls.",
     tags: ["filesystem", "navigation"],
     parameters,
-    validate: (args) => {
-      const params = parameters.safeParse(args);
-      return params.success
-        ? {
-            valid: true,
-            value: params.data,
-          }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(parameters),
     handler: (args, context) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;

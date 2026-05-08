@@ -3,7 +3,7 @@ import { z } from "zod";
 import { HTTP_USER_AGENT } from "@/core/constants/agent";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineTool } from "./base-tool";
+import { defineTool, makeZodValidator } from "./base-tool";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 
@@ -91,7 +91,10 @@ const HttpBodySchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("form"),
-      value: z.record(z.string(), z.string()).describe("Form fields (URL-encoded)"),
+      value: z
+        .record(z.string(), z.string())
+        .refine((v) => Object.keys(v).length > 0, "Form body requires at least one field")
+        .describe("Form fields (URL-encoded)"),
     })
     .strict(),
 ]);
@@ -333,26 +336,7 @@ export function createHttpRequestTool(): Tool<never> {
       "Send HTTP requests. Supports all methods, headers, query params, and body formats.",
     tags: ["http", "network", "api"],
     parameters: HttpRequestSchema,
-    validate: (args) => {
-      const params = HttpRequestSchema.safeParse(args);
-      if (!params.success) {
-        return {
-          valid: false,
-          errors: params.error.issues.map((issue) => issue.message),
-        };
-      }
-      const parsed = params.data;
-      if (parsed.body?.type === "form" && Object.keys(parsed.body.value).length === 0) {
-        return {
-          valid: false,
-          errors: ["Form body requires at least one field"],
-        };
-      }
-      return {
-        valid: true,
-        value: parsed,
-      };
-    },
+    validate: makeZodValidator(HttpRequestSchema),
     handler: (args: HttpRequestArgs, _context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const method = args.method;

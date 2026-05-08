@@ -3,19 +3,17 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
  * Git push tools (approval + execution)
  */
-
-type GitPushArgs = {
-  path?: string;
-  remote?: string;
-  branch?: string;
-  force?: boolean;
-};
 
 const gitPushParameters = z
   .object({
@@ -26,6 +24,8 @@ const gitPushParameters = z
   })
   .strict();
 
+type GitPushArgs = z.infer<typeof gitPushParameters>;
+
 type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 
 export function createGitPushTools(): ApprovalToolPair<GitDeps> {
@@ -34,12 +34,7 @@ export function createGitPushTools(): ApprovalToolPair<GitDeps> {
     description: "Push commits to a remote. Supports force push.",
     tags: ["git", "push"],
     parameters: gitPushParameters,
-    validate: (args) => {
-      const params = gitPushParameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data as GitPushArgs }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(gitPushParameters),
 
     approvalMessage: (args: GitPushArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

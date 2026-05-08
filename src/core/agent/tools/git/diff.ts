@@ -4,7 +4,7 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineTool } from "../base-tool";
+import { defineTool, makeZodValidator } from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
@@ -45,12 +45,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
       "Show differences between commits, branches, or working tree. Default 500 lines, cap 2000.",
     tags: ["git", "diff"],
     parameters,
-    validate: (args) => {
-      const result = parameters.safeParse(args);
-      return result.success
-        ? ({ valid: true, value: result.data } as const)
-        : ({ valid: false, errors: result.error.issues.map((i) => i.message) } as const);
-    },
+    validate: makeZodValidator(parameters),
     handler: (args: GitDiffArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;

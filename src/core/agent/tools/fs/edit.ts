@@ -4,7 +4,12 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff-utils";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { normalizeFilterPattern } from "./utils";
 
@@ -145,36 +150,6 @@ export class FileWriteError extends Data.TaggedError("FileWriteError")<{
   }
 }
 
-export type EditOperation =
-  | {
-      type: "replace_lines";
-      startLine: number;
-      endLine: number;
-      content: string;
-    }
-  | {
-      type: "replace_pattern";
-      pattern: string;
-      replacement: string;
-      count?: number;
-    }
-  | {
-      type: "insert";
-      line: number;
-      content: string;
-    }
-  | {
-      type: "delete_lines";
-      startLine: number;
-      endLine: number;
-    };
-
-export type EditFileArgs = {
-  path: string;
-  edits: EditOperation[];
-  encoding?: string;
-};
-
 const editOperationSchema = z.discriminatedUnion("type", [
   z
     .object({
@@ -234,6 +209,9 @@ const editFileParameters = z
     encoding: z.string().optional().describe("Text encoding (default: utf-8)"),
   })
   .strict();
+
+export type EditOperation = z.infer<typeof editOperationSchema>;
+export type EditFileArgs = z.infer<typeof editFileParameters>;
 
 type EditFileDeps = FileSystem.FileSystem | FileSystemContextService;
 
@@ -501,12 +479,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
       "replace_pattern defaults to first match only; use count:-1 for all.",
     tags: ["filesystem", "write", "edit"],
     parameters: editFileParameters,
-    validate: (args) => {
-      const result = editFileParameters.safeParse(args);
-      return result.success
-        ? { valid: true, value: result.data as unknown as EditFileArgs }
-        : { valid: false, errors: result.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(editFileParameters),
 
     approvalMessage: (args: EditFileArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

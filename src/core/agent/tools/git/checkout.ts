@@ -3,19 +3,17 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
  * Git checkout tools (approval + execution)
  */
-
-type GitCheckoutArgs = {
-  path?: string;
-  branch: string;
-  create?: boolean;
-  force?: boolean;
-};
 
 const gitCheckoutParameters = z
   .object({
@@ -26,6 +24,8 @@ const gitCheckoutParameters = z
   })
   .strict();
 
+type GitCheckoutArgs = z.infer<typeof gitCheckoutParameters>;
+
 type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 
 export function createGitCheckoutTools(): ApprovalToolPair<GitDeps> {
@@ -35,12 +35,7 @@ export function createGitCheckoutTools(): ApprovalToolPair<GitDeps> {
       "Switch branches or create a new branch (create:true). force discards uncommitted changes.",
     tags: ["git", "checkout"],
     parameters: gitCheckoutParameters,
-    validate: (args) => {
-      const params = gitCheckoutParameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data as GitCheckoutArgs }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(gitCheckoutParameters),
 
     approvalMessage: (args: GitCheckoutArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

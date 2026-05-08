@@ -3,20 +3,17 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
  * Git rm tools (approval + execution)
  */
-
-type GitRmArgs = {
-  path?: string;
-  files: string[];
-  cached?: boolean;
-  recursive?: boolean;
-  force?: boolean;
-};
 
 const gitRmParameters = z
   .object({
@@ -28,6 +25,8 @@ const gitRmParameters = z
   })
   .strict();
 
+type GitRmArgs = z.infer<typeof gitRmParameters>;
+
 type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 
 export function createGitRmTools(): ApprovalToolPair<GitDeps> {
@@ -37,12 +36,7 @@ export function createGitRmTools(): ApprovalToolPair<GitDeps> {
       "Remove files from Git tracking. Supports cached (index only), recursive, and force.",
     tags: ["git", "remove"],
     parameters: gitRmParameters,
-    validate: (args) => {
-      const params = gitRmParameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data as GitRmArgs }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(gitRmParameters),
 
     approvalMessage: (args: GitRmArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

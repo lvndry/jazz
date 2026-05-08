@@ -3,18 +3,17 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { defineApprovalTool, type ApprovalToolConfig, type ApprovalToolPair } from "../base-tool";
+import {
+  defineApprovalTool,
+  makeZodValidator,
+  type ApprovalToolConfig,
+  type ApprovalToolPair,
+} from "../base-tool";
 import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 /**
  * Git add tools (approval + execution)
  */
-
-type GitAddArgs = {
-  path?: string;
-  files: string[];
-  all?: boolean;
-};
 
 const gitAddParameters = z
   .object({
@@ -24,6 +23,8 @@ const gitAddParameters = z
   })
   .strict();
 
+type GitAddArgs = z.infer<typeof gitAddParameters>;
+
 type GitDeps = FileSystem.FileSystem | FileSystemContextService;
 
 export function createGitAddTools(): ApprovalToolPair<GitDeps> {
@@ -32,12 +33,7 @@ export function createGitAddTools(): ApprovalToolPair<GitDeps> {
     description: "Stage files for the next commit. Specify files or use all:true.",
     tags: ["git", "index"],
     parameters: gitAddParameters,
-    validate: (args) => {
-      const params = gitAddParameters.safeParse(args);
-      return params.success
-        ? { valid: true, value: params.data as GitAddArgs }
-        : { valid: false, errors: params.error.issues.map((i) => i.message) };
-    },
+    validate: makeZodValidator(gitAddParameters),
 
     approvalMessage: (args: GitAddArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
