@@ -182,6 +182,11 @@ export interface ToolExecutionContext {
    */
   readonly parentAgent?: Agent;
   /**
+   * The iteration budget of the parent agent.
+   * Subagents inherit this so they run with the same cap as their parent.
+   */
+  readonly parentMaxIterations?: number;
+  /**
    * Callback to replace conversation messages with compacted versions.
    * Used by summarize_context to actually update the executor's message array.
    */

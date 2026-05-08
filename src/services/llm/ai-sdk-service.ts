@@ -293,10 +293,6 @@ function getProviderNativeWebSearchTool(
         return null;
       }
       case "xai":
-        // xAI Live Search is enabled via providerOptions.searchParameters, not as an SDK tool.
-        // The Responses API tool (xai.tools.webSearch) only works with xai.responses(), which
-        // Jazz doesn't use. Returning null here causes the Live Search path in prepareTools
-        // and buildProviderOptions to handle it instead.
         return null;
       case "groq": {
         const groqWithTools = groq as typeof groq & {
@@ -350,8 +346,6 @@ function checkProviderNativeWebSearchSupport(
   providerName: ProviderName,
   logger?: LoggerService,
 ): boolean {
-  // xAI uses Live Search (searchParameters in providerOptions) rather than an SDK tool,
-  // so getProviderNativeWebSearchTool returns null for it — handle that case explicitly.
   if (providerName.toLowerCase() === "xai") return true;
   return getProviderNativeWebSearchTool(providerName, logger) !== null;
 }
@@ -952,8 +946,7 @@ class AISDKService implements LLMService {
       });
     }
 
-    // Now, handle the special case for web_search.
-    const hasWebSearch = requestedTools.some((t) => t.function.name === "web_search");
+    const hasWebSearch = requestedTools.some((toolDef) => toolDef.function.name === "web_search");
     if (hasWebSearch) {
       const providerNativeWebSearch = getProviderNativeWebSearchTool(providerName, this.logger);
       // Check if user explicitly selected an external provider (vs "none"/undefined for builtin)
@@ -962,9 +955,6 @@ class AISDKService implements LLMService {
         ? !!this.config.webSearchConfig?.[selectedExternalProvider]?.api_key
         : false;
 
-      // xAI Live Search is handled via providerOptions.searchParameters rather than as a tool.
-      // Remove the web_search function tool so the model doesn't receive a duplicate definition,
-      // and mark it as native so StreamProcessor knows not to execute the call locally.
       const isXaiLiveSearch =
         providerName.toLowerCase() === "xai" &&
         !selectedExternalProvider &&

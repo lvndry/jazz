@@ -1,11 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { Effect, Layer } from "effect";
-import {
-  createWebSearchTool,
-  DEFAULT_MAX_RESULTS,
-  rrf,
-  type WebSearchArgs,
-} from "./web-search-tools";
+import { createWebSearchTool, DEFAULT_MAX_RESULTS, type WebSearchArgs } from "./web-search-tools";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import type { AppConfig } from "../../types";
@@ -248,35 +243,5 @@ describe("WebSearchTool", () => {
         'Found 1 results for "fallback test" using web_search',
       );
     });
-  });
-});
-
-describe("rrf", () => {
-  it("scores a doc appearing in one list in rank order", () => {
-    const scores = rrf([["url-a", "url-b", "url-c"]]);
-    expect(scores.get("url-a")!).toBeGreaterThan(scores.get("url-b")!);
-    expect(scores.get("url-b")!).toBeGreaterThan(scores.get("url-c")!);
-  });
-
-  it("boosts a doc appearing in two lists above one-list docs", () => {
-    const scores = rrf([
-      ["url-a", "url-b"],
-      ["url-b", "url-c"],
-    ]);
-    expect(scores.get("url-b")!).toBeGreaterThan(scores.get("url-a")!);
-  });
-
-  it("handles empty lists without throwing", () => {
-    const scores = rrf([[], ["url-a"]]);
-    expect(scores.get("url-a")!).toBeGreaterThan(0);
-  });
-
-  it("returns entries sorted highest score first", () => {
-    const scores = rrf([
-      ["url-a", "url-b"],
-      ["url-a", "url-c"],
-    ]);
-    const entries = [...scores.entries()];
-    expect(entries[0]?.[0]).toBe("url-a");
   });
 });

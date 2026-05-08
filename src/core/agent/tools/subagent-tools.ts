@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { Effect } from "effect";
 import { z } from "zod";
 import { store } from "@/cli/ui/store";
+import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
@@ -19,9 +20,6 @@ const SUBAGENT_PANEL_LINES = 12;
 
 /** Sub-agent execution timeout: 30 minutes */
 const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
-
-/** Maximum iterations for sub-agent execution before returning partial results */
-const SUBAGENT_MAX_ITERATIONS = 40;
 
 /** Monotonic counter for unique sub-agent IDs within this process */
 let subagentCounter = 0;
@@ -135,7 +133,7 @@ ${args.task}`;
             userInput: wrappedTask,
             sessionId: context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
-            maxIterations: SUBAGENT_MAX_ITERATIONS,
+            maxIterations: context.parentMaxIterations ?? DEFAULT_MAX_ITERATIONS,
             ephemeralRegionId: regionId,
           }).pipe(
             Effect.tapError(() =>

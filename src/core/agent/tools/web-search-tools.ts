@@ -16,6 +16,7 @@ export interface WebSearchArgs extends Record<string, unknown> {
   readonly maxResults?: number;
   readonly fromDate?: string;
   readonly toDate?: string;
+  readonly category?: string;
 }
 
 export interface WebSearchItem {
@@ -48,20 +49,6 @@ export const WEB_SEARCH_PROVIDERS = [
 ] as const;
 
 export const DEFAULT_MAX_RESULTS = 30;
-
-/**
- * Reciprocal Rank Fusion: combines ranked result lists from multiple providers.
- * k=60 is empirically optimal. Returns a Map of URL → RRF score, sorted descending.
- */
-export function rrf(rankedLists: string[][], k = 60): Map<string, number> {
-  const scores = new Map<string, number>();
-  for (const list of rankedLists) {
-    list.forEach((url, index) => {
-      scores.set(url, (scores.get(url) ?? 0) + 1 / (k + index + 1));
-    });
-  }
-  return new Map([...scores.entries()].sort((a, b) => b[1] - a[1]));
-}
 
 export type WebSearchProviderName = (typeof WEB_SEARCH_PROVIDERS)[number]["value"];
 
@@ -134,6 +121,12 @@ export function createWebSearchTool(): ReturnType<
           .max(100)
           .optional()
           .describe(`Max results (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
+        category: z
+          .string()
+          .optional()
+          .describe(
+            "Content category filter for providers that support it (e.g. 'news', 'research paper', 'github', 'company', 'tweet'). Only applies to Exa.",
+          ),
       })
       .strict(),
     validate: (args) => {
@@ -151,6 +144,7 @@ export function createWebSearchTool(): ReturnType<
               .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
               .optional(),
             maxResults: z.number().int().min(1).max(100).optional(),
+            category: z.string().optional(),
           })
           .strict() as z.ZodType<WebSearchArgs>
       ).safeParse(args);
@@ -200,64 +194,6 @@ export function createWebSearchTool(): ReturnType<
           }
           selectedProvider = detected.provider;
           apiKey = detected.apiKey;
-        }
-
-        // Multi-provider RRF mode: if both Exa and Brave keys are available, fan out and fuse
-        const exaKey =
-          (yield* config.getOrElse("web_search.exa.api_key", "")) ||
-          process.env["EXA_API_KEY"] ||
-          (selectedProvider === "exa" ? apiKey : undefined);
-        const braveKey =
-          (yield* config.getOrElse("web_search.brave.api_key", "")) ||
-          process.env["BRAVE_API_KEY"] ||
-          (selectedProvider === "brave" ? apiKey : undefined);
-
-        if (exaKey && braveKey) {
-          yield* logger.info("Using multi-provider RRF mode (Exa deep + Brave News)");
-
-          const [exaResult, braveResult] = yield* Effect.all(
-            [
-              executeExaSearch(args, exaKey).pipe(Effect.orElse(() => Effect.succeed(null))),
-              executeBraveNewsSearch(args, braveKey).pipe(
-                Effect.orElse(() => Effect.succeed(null)),
-              ),
-            ],
-            { concurrency: 2 },
-          );
-
-          const allResults = new Map<string, WebSearchItem>();
-          const exaUrls: string[] = [];
-          const braveUrls: string[] = [];
-
-          for (const item of exaResult?.results ?? []) {
-            if (item.url) {
-              allResults.set(item.url, item);
-              exaUrls.push(item.url);
-            }
-          }
-          for (const item of braveResult?.results ?? []) {
-            if (item.url && !allResults.has(item.url)) {
-              allResults.set(item.url, item);
-            }
-            if (item.url) braveUrls.push(item.url);
-          }
-
-          const rrfScores = rrf([exaUrls, braveUrls]);
-          const fusedResults: WebSearchItem[] = [...rrfScores.keys()]
-            .map((url) => allResults.get(url))
-            .filter((item): item is WebSearchItem => item !== undefined)
-            .slice(0, args.maxResults ?? DEFAULT_MAX_RESULTS);
-
-          return {
-            success: true,
-            result: {
-              results: fusedResults,
-              totalResults: fusedResults.length,
-              query: args.query,
-              timestamp: new Date().toISOString(),
-              provider: "exa" as const,
-            },
-          };
         }
 
         const executorMap: Record<
@@ -347,7 +283,18 @@ function executeExaSearch(
           exa.search(args.query, {
             type: "deep",
             numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
-            category: "news",
+            ...(args.category
+              ? {
+                  category: args.category as
+                    | "company"
+                    | "research paper"
+                    | "news"
+                    | "pdf"
+                    | "personal site"
+                    | "financial report"
+                    | "people",
+                }
+              : {}),
             contents: { highlights: true },
             ...(args.fromDate ? { startPublishedDate: args.fromDate } : {}),
             ...(args.toDate ? { endPublishedDate: args.toDate } : {}),
@@ -557,69 +504,6 @@ function executeBraveSearch(
     }));
 
     yield* logger.info(`Brave search found ${results.length} results`);
-
-    return {
-      results,
-      totalResults: results.length,
-      query: args.query,
-      timestamp: new Date().toISOString(),
-      provider: "brave" as const,
-    };
-  });
-}
-
-function executeBraveNewsSearch(
-  args: WebSearchArgs,
-  apiKey: string,
-): Effect.Effect<WebSearchResult, Error, LoggerService> {
-  return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
-
-    yield* logger.info(`Executing Brave News search for query: "${args.query}"`);
-
-    const params = new URLSearchParams({
-      q: args.query,
-      count: String(Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, 20)),
-      freshness: "pd",
-    });
-
-    const response = yield* Effect.retry(
-      Effect.tryPromise({
-        try: () =>
-          fetch(`https://api.search.brave.com/res/v1/news/search?${params.toString()}`, {
-            headers: {
-              "X-Subscription-Token": apiKey,
-              Accept: "application/json",
-            },
-            signal: AbortSignal.timeout(15_000),
-          }).then(async (res) => {
-            if (!res.ok) throw new Error(`Brave News returned ${res.status}`);
-            return res.json() as Promise<{
-              results?: Array<{
-                title?: string;
-                url?: string;
-                description?: string;
-                page_age?: string;
-              }>;
-            }>;
-          }),
-        catch: (error) =>
-          new Error(
-            `Brave News search failed: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-      }),
-      SEARCH_RETRY_POLICY,
-    );
-
-    const results: WebSearchItem[] = (response.results || []).map((result) => ({
-      title: result.title || "",
-      url: result.url || "",
-      snippet: result.description || "",
-      ...(result.page_age ? { publishedDate: result.page_age } : {}),
-      source: "brave",
-    }));
-
-    yield* logger.info(`Brave News search found ${results.length} results`);
 
     return {
       results,
