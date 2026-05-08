@@ -16,13 +16,9 @@
       "git_tag_list",
       "grep",
       "http_request",
-      "load_skill",
-      "load_skill_section",
       "ls",
       "read_file",
-      "spawn_subagent",
-      "summarize_context",
-      "web_fetch"
+      "summarize_context"
     ]
   }
 }

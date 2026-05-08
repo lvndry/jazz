@@ -39,12 +39,12 @@ The requester said:
 
 Your final answer is posted directly as a GitHub PR comment. The downstream parser looks for **exactly one fenced block** opened with **FOUR backticks** and the language tag **`markdown`**, as the last thing in your output.
 
-| ✅ DO | ❌ DON'T |
-|---|---|
-| `` ` ` ` ` markdown `` …content… `` ` ` ` ` `` (four backticks, `markdown` tag) | `` ` ` ` markdown `` …content… `` ` ` ` `` (three backticks) |
+| DO                                                                                                                                                                                                              | DON'T                                                                                                                              |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `` ` ` ` ` markdown `` …content… `` ` ` ` ` `` (four backticks, `markdown` tag)                                                                                                                                 | `` ` ` ` markdown `` …content… `` ` ` ` `` (three backticks)                                                                       |
 | Put GitHub-flavored markdown inside the wrapper — headings (`###` and below), bullets, ` ```ts `/` ```diff ` code samples (three backticks for the inner), inline ``code``, file refs like `path/to/file.ts:42` | Emit a `json` block. Emit any structured object. **You are not the code-review agent.** The PR comment is for humans, not parsers. |
-| Inner code fences inside the body use **three** backticks — they nest cleanly inside the four-backtick wrapper | Use four-backtick fences anywhere else in your response |
-| Output ends with the closing four-backtick fence | Output anything after the closing fence (no "let me know if…", no summary, no signoff) |
+| Inner code fences inside the body use **three** backticks — they nest cleanly inside the four-backtick wrapper                                                                                                  | Use four-backtick fences anywhere else in your response                                                                            |
+| Output ends with the closing four-backtick fence                                                                                                                                                                | Output anything after the closing fence (no "let me know if…", no summary, no signoff)                                             |
 
 If you find yourself about to emit JSON, stop: the assistant always returns prose markdown. JSON is for the *code-review* agent only, and only when it's posting inline review comments — that is not what you are doing.
 
