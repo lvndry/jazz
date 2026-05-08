@@ -257,7 +257,7 @@ function executeExaSearch(
             type: searchDepthToType[args.searchDepth ?? "standard"],
             numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
             ...(exaCategory ? { category: exaCategory } : {}),
-            contents: { highlights: true },
+            contents: { highlights: true, text: true },
             ...(suppressDateFilters
               ? {}
               : {
@@ -276,6 +276,9 @@ function executeExaSearch(
       url: result.url || "",
       snippet: Array.isArray(result.highlights) ? result.highlights.join("\n\n") : "",
       ...(result.publishedDate ? { publishedDate: result.publishedDate } : {}),
+      metadata: {
+        text: result.text,
+      },
     }));
 
     yield* logger.info(`Exa search found ${results.length} results`);
