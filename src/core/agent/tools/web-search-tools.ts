@@ -53,7 +53,7 @@ export const WEB_SEARCH_PROVIDERS = [
 ] as const;
 
 /** Maximum number of results to return. */
-export const DEFAULT_MAX_RESULTS = 30;
+export const DEFAULT_MAX_RESULTS = 20;
 
 const webSearchSchema = z
   .object({
