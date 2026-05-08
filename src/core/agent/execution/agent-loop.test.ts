@@ -6,6 +6,7 @@ import {
   detectMeltdown,
   executeAgentLoop,
   type CompletionStrategy,
+  type TrackedToolCall,
 } from "./agent-loop";
 import { ToolExecutor } from "./tool-executor";
 import { SkillServiceTag } from "../../../core/skills/skill-service";
@@ -518,48 +519,66 @@ describe("buildBudgetPressureMessage", () => {
   });
 });
 
+function tc(name: string, args: Record<string, unknown> = {}): TrackedToolCall {
+  return { name, arguments: JSON.stringify(args) };
+}
+
 describe("detectMeltdown", () => {
   it("returns false with fewer than 10 calls", () => {
-    expect(detectMeltdown(["web_search", "web_search", "web_search"])).toBe(false);
+    const calls = Array.from({ length: 3 }, () => tc("web_search", { query: "foo" }));
+    expect(detectMeltdown(calls)).toBe(false);
   });
 
-  it("returns false with diverse tool calls", () => {
-    const calls = [
-      "web_search",
-      "web_fetch",
-      "web_search",
-      "web_fetch",
-      "write_file",
-      "web_search",
-      "web_fetch",
-      "spawn_subagent",
-      "web_search",
-      "web_fetch",
+  it("returns false with diverse tool names and arguments", () => {
+    const calls: TrackedToolCall[] = [
+      tc("web_search", { query: "topic A" }),
+      tc("web_fetch", { url: "https://a.com" }),
+      tc("web_search", { query: "topic B" }),
+      tc("web_fetch", { url: "https://b.com" }),
+      tc("write_file", { path: "out.txt" }),
+      tc("web_search", { query: "topic C" }),
+      tc("web_fetch", { url: "https://c.com" }),
+      tc("spawn_subagent", { task: "summarise" }),
+      tc("web_search", { query: "topic D" }),
+      tc("web_fetch", { url: "https://d.com" }),
     ];
     expect(detectMeltdown(calls)).toBe(false);
   });
 
-  it("returns true when same tool repeated 8+ times in window of 10", () => {
-    const calls = [
-      "web_search",
-      "web_search",
-      "web_search",
-      "web_search",
-      "web_search",
-      "web_search",
-      "web_search",
-      "web_search",
-      "web_search",
-      "web_fetch",
+  it("returns false for two tools alternating with different arguments each time", () => {
+    // Simulates a legitimate web_search → web_fetch research loop where every
+    // call has unique arguments — previously a false positive under name-only check.
+    const calls: TrackedToolCall[] = Array.from({ length: 10 }, (_, i) =>
+      i % 2 === 0
+        ? tc("web_search", { query: `query ${i}` })
+        : tc("web_fetch", { url: `https://example.com/${i}` }),
+    );
+    expect(detectMeltdown(calls)).toBe(false);
+  });
+
+  it("returns true when the same name+arguments pair is repeated throughout the window", () => {
+    const calls: TrackedToolCall[] = [
+      ...Array(9).fill(tc("web_search", { query: "same query" })),
+      tc("web_fetch", { url: "https://example.com" }),
     ];
     expect(detectMeltdown(calls)).toBe(true);
   });
 
-  it("uses only last 10 calls for window", () => {
-    const diverse = Array.from({ length: 20 }, (_, index) =>
-      index % 2 === 0 ? "web_search" : "web_fetch",
+  it("returns true when two tools alternate with identical arguments each time", () => {
+    // The agent alternates but is making the exact same calls — genuine loop.
+    const calls: TrackedToolCall[] = Array.from({ length: 10 }, (_, i) =>
+      i % 2 === 0
+        ? tc("web_search", { query: "stuck query" })
+        : tc("web_fetch", { url: "https://stuck.com" }),
     );
-    const meltdown = Array(10).fill("web_search") as string[];
+    expect(detectMeltdown(calls)).toBe(true);
+  });
+
+  it("uses only the last 10 calls for the window", () => {
+    const diverse = Array.from({ length: 20 }, (_, i) =>
+      tc("web_search", { query: `unique ${i}` }),
+    );
+    const meltdown = Array(10).fill(tc("web_search", { query: "stuck" })) as TrackedToolCall[];
     expect(detectMeltdown([...diverse, ...meltdown])).toBe(true);
   });
 });
