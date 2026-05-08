@@ -1,7 +1,12 @@
 import { FileSystem } from "@effect/platform";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
-import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
+import {
+  buildBudgetPressureMessage,
+  detectMeltdown,
+  executeAgentLoop,
+  type CompletionStrategy,
+} from "./agent-loop";
 import { ToolExecutor } from "./tool-executor";
 import { SkillServiceTag } from "../../../core/skills/skill-service";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
@@ -484,5 +489,77 @@ describe("executeAgentLoop", () => {
     );
 
     expect(result.toolsDisabled).toBe(true);
+  });
+});
+
+describe("buildBudgetPressureMessage", () => {
+  it("returns null below 70%", () => {
+    expect(buildBudgetPressureMessage(10, 60)).toBeNull();
+    expect(buildBudgetPressureMessage(41, 60)).toBeNull();
+  });
+
+  it("returns caution message at 70%", () => {
+    const msg = buildBudgetPressureMessage(42, 60);
+    expect(msg).not.toBeNull();
+    expect(msg?.content).toContain("70%");
+    expect(msg?.content).toContain("consolidat");
+  });
+
+  it("returns critical message at 90%", () => {
+    const msg = buildBudgetPressureMessage(54, 60);
+    expect(msg).not.toBeNull();
+    expect(msg?.content).toContain("CRITICAL");
+    expect(msg?.content).toContain("NOW");
+  });
+
+  it("returns critical at exact 90% boundary", () => {
+    const msg = buildBudgetPressureMessage(54, 60);
+    expect(msg?.content).toContain("CRITICAL");
+  });
+});
+
+describe("detectMeltdown", () => {
+  it("returns false with fewer than 10 calls", () => {
+    expect(detectMeltdown(["web_search", "web_search", "web_search"])).toBe(false);
+  });
+
+  it("returns false with diverse tool calls", () => {
+    const calls = [
+      "web_search",
+      "web_fetch",
+      "web_search",
+      "web_fetch",
+      "write_file",
+      "web_search",
+      "web_fetch",
+      "spawn_subagent",
+      "web_search",
+      "web_fetch",
+    ];
+    expect(detectMeltdown(calls)).toBe(false);
+  });
+
+  it("returns true when same tool repeated 8+ times in window of 10", () => {
+    const calls = [
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_fetch",
+    ];
+    expect(detectMeltdown(calls)).toBe(true);
+  });
+
+  it("uses only last 10 calls for window", () => {
+    const diverse = Array.from({ length: 20 }, (_, index) =>
+      index % 2 === 0 ? "web_search" : "web_fetch",
+    );
+    const meltdown = Array(10).fill("web_search") as string[];
+    expect(detectMeltdown([...diverse, ...meltdown])).toBe(true);
   });
 });

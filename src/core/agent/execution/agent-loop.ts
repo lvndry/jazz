@@ -32,6 +32,41 @@ import {
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 /**
+ * Returns an ephemeral budget pressure message at 70%/90% iteration thresholds.
+ * Returns null below 70%. Must NOT be pushed to currentMessages — pass ephemerally only.
+ */
+export function buildBudgetPressureMessage(
+  iteration: number,
+  maxIterations: number,
+): { role: "user"; content: string } | null {
+  const pct = iteration / maxIterations;
+  if (pct >= 0.9) {
+    return {
+      role: "user",
+      content: `[BUDGET CRITICAL: Iteration ${iteration}/${maxIterations} (${Math.round(pct * 100)}%). Write your final output NOW using the Phase 8 formatting subagent. No further research or subagent spawning. Use what you have collected so far.]`,
+    };
+  }
+  if (pct >= 0.7) {
+    return {
+      role: "user",
+      content: `[BUDGET WARNING: Iteration ${iteration}/${maxIterations} (${Math.round(pct * 100)}%). Begin consolidating results. Stop spawning new research subagents. Move to consolidation and output phases.]`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Returns true when recent tool calls show low diversity — the agent is stuck in a loop.
+ * Uses a 10-call sliding window; uniqueness below 40% triggers meltdown detection.
+ */
+export function detectMeltdown(recentToolCalls: string[], windowSize = 10): boolean {
+  if (recentToolCalls.length < windowSize) return false;
+  const window = recentToolCalls.slice(-windowSize);
+  const uniqueness = new Set(window).size / windowSize;
+  return uniqueness < 0.4;
+}
+
+/**
  * Strategy interface for obtaining and presenting completions.
  * Implementations differ for streaming vs batch mode.
  */
@@ -172,6 +207,7 @@ export function executeAgentLoop(
         let finished = false;
         let interrupted = false;
         let iterationsUsed = 0;
+        const recentToolNames: string[] = [];
 
         for (let i = 0; i < maxIterations; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
@@ -213,8 +249,14 @@ export function executeAgentLoop(
               lastUserMessage: lastUserContent,
             });
 
+            // Inject ephemeral budget pressure without persisting to history
+            const budgetMsg = buildBudgetPressureMessage(i + 1, maxIterations);
+            const messagesForLLM = budgetMsg
+              ? ([...currentMessages, budgetMsg] as typeof currentMessages)
+              : currentMessages;
+
             // Get completion via strategy
-            const result = yield* strategy.getCompletion(currentMessages, i);
+            const result = yield* strategy.getCompletion(messagesForLLM, i);
 
             if (result.interrupted) {
               const completion = result.completion;
@@ -311,6 +353,25 @@ export function executeAgentLoop(
                 toolsChosen: completion.toolCalls.map((tc) => tc.function.name),
                 reasoning: completion.content,
               });
+
+              // Track tool names and inject meltdown recovery if stuck in a loop
+              for (const toolCall of completion.toolCalls) {
+                if (toolCall.type === "function") {
+                  recentToolNames.push(toolCall.function.name);
+                }
+              }
+              if (detectMeltdown(recentToolNames)) {
+                yield* logger.warn("Meltdown detected — injecting recovery signal", {
+                  agentId: agent.id,
+                  recentTools: recentToolNames.slice(-10),
+                });
+                currentMessages.push({
+                  role: "user",
+                  content:
+                    "[MELTDOWN DETECTED: You have been repeating the same tool calls without progress. Stop the current approach. Summarize what you have found so far, identify what is still missing, and either proceed directly to output or try a fundamentally different search strategy. Do not repeat your last action.]",
+                });
+                recentToolNames.length = 0;
+              }
 
               const contextWithTokenStats = {
                 ...context,
