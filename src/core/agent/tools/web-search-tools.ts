@@ -10,9 +10,23 @@ import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import type { WebSearchConfig } from "@/core/types/config";
 import { defineTool } from "./base-tool";
 
-export type ExaSearchType = "auto" | "fast" | "instant" | "deep-lite" | "deep" | "deep-reasoning";
+export type SearchDepth = "fast" | "standard" | "deep";
 
-export type ExaCategory =
+export type ContentType = "web" | "news" | "academic" | "company" | "people";
+
+export interface WebSearchArgs extends Record<string, unknown> {
+  readonly query: string;
+  readonly searchQueries?: string[];
+  readonly maxResults?: number;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly contentType?: ContentType;
+  readonly searchDepth?: SearchDepth;
+}
+
+// ─── Exa-specific mappings ──────────────────────────────────────────────────
+
+type ExaCategory =
   | "company"
   | "research paper"
   | "news"
@@ -21,17 +35,22 @@ export type ExaCategory =
   | "financial report"
   | "people";
 
-const NO_DATE_FILTER_CATEGORIES = new Set<ExaCategory>(["company", "people"]);
+type ExaSearchType = "auto" | "fast" | "instant" | "deep-lite" | "deep" | "deep-reasoning";
 
-export interface WebSearchArgs extends Record<string, unknown> {
-  readonly query: string;
-  readonly searchQueries?: string[];
-  readonly maxResults?: number;
-  readonly fromDate?: string;
-  readonly toDate?: string;
-  readonly category?: ExaCategory;
-  readonly searchType?: ExaSearchType;
-}
+const CONTENT_TYPE_TO_EXA_CATEGORY: Partial<Record<ContentType, ExaCategory>> = {
+  news: "news",
+  academic: "research paper",
+  company: "company",
+  people: "people",
+};
+
+const SEARCH_DEPTH_TO_EXA_TYPE: Record<SearchDepth, ExaSearchType> = {
+  fast: "fast",
+  standard: "auto",
+  deep: "deep",
+};
+
+const EXA_CATEGORIES_WITHOUT_DATE_FILTER = new Set<ExaCategory>(["company", "people"]);
 
 export interface WebSearchItem {
   readonly title: string;
@@ -135,25 +154,17 @@ export function createWebSearchTool(): ReturnType<
           .max(100)
           .optional()
           .describe(`Max results (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
-        category: z
-          .enum([
-            "company",
-            "research paper",
-            "news",
-            "pdf",
-            "personal site",
-            "financial report",
-            "people",
-          ])
+        contentType: z
+          .enum(["web", "news", "academic", "company", "people"])
           .optional()
           .describe(
-            "Content category filter for Exa. Note: 'company' and 'people' do not support date filters.",
+            "Content type filter: 'news' for current events, 'academic' for research papers, 'company' for company pages, 'people' for people profiles, 'web' for general (default).",
           ),
-        searchType: z
-          .enum(["auto", "fast", "instant", "deep-lite", "deep", "deep-reasoning"])
+        searchDepth: z
+          .enum(["fast", "standard", "deep"])
           .optional()
           .describe(
-            "Exa search method (default: 'auto'). Use 'fast'/'instant' for low-latency lookups, 'deep'/'deep-reasoning' for complex multi-step queries.",
+            "Search quality vs latency: 'fast' for quick lookups, 'standard' for balanced results (default), 'deep' for thorough multi-step research.",
           ),
       })
       .strict(),
@@ -172,20 +183,8 @@ export function createWebSearchTool(): ReturnType<
               .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
               .optional(),
             maxResults: z.number().int().min(1).max(100).optional(),
-            category: z
-              .enum([
-                "company",
-                "research paper",
-                "news",
-                "pdf",
-                "personal site",
-                "financial report",
-                "people",
-              ])
-              .optional(),
-            searchType: z
-              .enum(["auto", "fast", "instant", "deep-lite", "deep", "deep-reasoning"])
-              .optional(),
+            contentType: z.enum(["web", "news", "academic", "company", "people"]).optional(),
+            searchDepth: z.enum(["fast", "standard", "deep"]).optional(),
           })
           .strict() as z.ZodType<WebSearchArgs>
       ).safeParse(args);
@@ -322,11 +321,16 @@ function executeExaSearch(
       Effect.tryPromise({
         try: () =>
           exa.search(args.query, {
-            type: args.searchType ?? "auto",
+            type: SEARCH_DEPTH_TO_EXA_TYPE[args.searchDepth ?? "standard"],
             numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
-            ...(args.category ? { category: args.category } : {}),
+            ...(args.contentType
+              ? { category: CONTENT_TYPE_TO_EXA_CATEGORY[args.contentType] }
+              : {}),
             contents: { highlights: true },
-            ...(args.category && NO_DATE_FILTER_CATEGORIES.has(args.category)
+            ...(args.contentType &&
+            EXA_CATEGORIES_WITHOUT_DATE_FILTER.has(
+              CONTENT_TYPE_TO_EXA_CATEGORY[args.contentType] as ExaCategory,
+            )
               ? {}
               : {
                   ...(args.fromDate ? { startPublishedDate: args.fromDate } : {}),
