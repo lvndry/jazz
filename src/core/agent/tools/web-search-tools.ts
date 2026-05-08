@@ -7,7 +7,7 @@ import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import type { WebSearchConfig } from "@/core/types/config";
+import type { WebSearchConfig, WebSearchProviderName } from "@/core/types/config";
 import { defineTool } from "./base-tool";
 
 export type SearchDepth = "fast" | "standard" | "deep";
@@ -54,32 +54,6 @@ export const WEB_SEARCH_PROVIDERS = [
 ] as const;
 
 export const DEFAULT_MAX_RESULTS = 30;
-
-export type WebSearchProviderName = (typeof WEB_SEARCH_PROVIDERS)[number]["value"];
-
-const PROVIDER_ENV_VARS: Record<WebSearchProviderName, string> = {
-  brave: "BRAVE_API_KEY",
-  tavily: "TAVILY_API_KEY",
-  exa: "EXA_API_KEY",
-  parallel: "PARALLEL_API_KEY",
-  perplexity: "PERPLEXITY_API_KEY",
-};
-
-const PROVIDER_DETECTION_ORDER: WebSearchProviderName[] = [
-  "brave",
-  "tavily",
-  "exa",
-  "parallel",
-  "perplexity",
-];
-
-function detectProviderFromEnv(): { provider: WebSearchProviderName; apiKey: string } | null {
-  for (const provider of PROVIDER_DETECTION_ORDER) {
-    const apiKey = process.env[PROVIDER_ENV_VARS[provider]];
-    if (apiKey) return { provider, apiKey };
-  }
-  return null;
-}
 
 export function createWebSearchTool(): ReturnType<
   typeof defineTool<AgentConfigService | LoggerService, WebSearchArgs>
@@ -176,38 +150,28 @@ export function createWebSearchTool(): ReturnType<
         const config = yield* AgentConfigServiceTag;
         const logger = yield* LoggerServiceTag;
 
-        // Get web search config
+        // Resolve provider: per-agent setting takes priority over global config.
+        const agentProvider = context.parentAgent?.config.webSearchProvider;
         const appConfig = yield* config.appConfig;
         const webSearchConfig: WebSearchConfig | undefined = appConfig.web_search;
-        let selectedProvider = webSearchConfig?.provider;
-        let apiKey: string | undefined;
+        const selectedProvider: WebSearchProviderName | undefined =
+          agentProvider ?? webSearchConfig?.provider;
 
-        if (selectedProvider) {
-          apiKey = yield* config.getOrElse(`web_search.${selectedProvider}.api_key`, "");
-          if (!apiKey) {
-            const envKey = process.env[PROVIDER_ENV_VARS[selectedProvider]];
-            if (envKey) {
-              apiKey = envKey;
-            } else {
-              return {
-                success: false,
-                result: null,
-                error: `No API key configured for ${selectedProvider}. Set 'web_search.${selectedProvider}.api_key' in settings or the ${PROVIDER_ENV_VARS[selectedProvider]} environment variable.`,
-              };
-            }
-          }
-        } else {
-          const detected = detectProviderFromEnv();
-          if (!detected) {
-            const envVarList = Object.values(PROVIDER_ENV_VARS).join(", ");
-            return {
-              success: false,
-              result: null,
-              error: `No web search provider configured. Set one of: ${envVarList} as an environment variable, or configure a provider in settings.`,
-            };
-          }
-          selectedProvider = detected.provider;
-          apiKey = detected.apiKey;
+        if (!selectedProvider) {
+          return {
+            success: false,
+            result: null,
+            error: `No web search provider configured. Set 'webSearchProvider' in the agent config or 'web_search.provider' in your Jazz config.`,
+          };
+        }
+
+        const apiKey = yield* config.getOrElse(`web_search.${selectedProvider}.api_key`, "");
+        if (!apiKey) {
+          return {
+            success: false,
+            result: null,
+            error: `No API key configured for ${selectedProvider}. Set 'web_search.${selectedProvider}.api_key' in your Jazz config.`,
+          };
         }
 
         const executorMap: Record<

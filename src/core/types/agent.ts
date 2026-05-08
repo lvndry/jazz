@@ -11,6 +11,7 @@
  */
 
 import type { ProviderName } from "@/core/constants/models";
+import type { WebSearchProviderName } from "@/core/types/config";
 
 /**
  * Core Agent entity representing an AI agent configuration
@@ -53,4 +54,5 @@ export interface AgentConfig {
   readonly llmModel: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   readonly tools?: readonly string[];
+  readonly webSearchProvider?: WebSearchProviderName;
 }

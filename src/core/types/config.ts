@@ -102,6 +102,8 @@ export interface LLMConfig {
   readonly xai?: LLMProviderConfig;
 }
 
+export type WebSearchProviderName = "exa" | "parallel" | "tavily" | "brave" | "perplexity";
+
 export interface WebSearchProviderConfig {
   readonly api_key: string;
 }
@@ -112,5 +114,5 @@ export interface WebSearchConfig {
   readonly tavily?: WebSearchProviderConfig;
   readonly brave?: WebSearchProviderConfig;
   readonly perplexity?: WebSearchProviderConfig;
-  readonly provider?: "exa" | "parallel" | "tavily" | "brave" | "perplexity";
+  readonly provider?: WebSearchProviderName;
 }
