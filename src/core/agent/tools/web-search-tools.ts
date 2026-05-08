@@ -16,7 +16,14 @@ export interface WebSearchArgs extends Record<string, unknown> {
   readonly maxResults?: number;
   readonly fromDate?: string;
   readonly toDate?: string;
-  readonly category?: string;
+  readonly category?:
+    | "company"
+    | "research paper"
+    | "news"
+    | "pdf"
+    | "personal site"
+    | "financial report"
+    | "people";
 }
 
 export interface WebSearchItem {
@@ -122,11 +129,17 @@ export function createWebSearchTool(): ReturnType<
           .optional()
           .describe(`Max results (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
         category: z
-          .string()
+          .enum([
+            "company",
+            "research paper",
+            "news",
+            "pdf",
+            "personal site",
+            "financial report",
+            "people",
+          ])
           .optional()
-          .describe(
-            "Content category filter for providers that support it (e.g. 'news', 'research paper', 'github', 'company', 'tweet'). Only applies to Exa.",
-          ),
+          .describe("Content category filter"),
       })
       .strict(),
     validate: (args) => {
@@ -144,7 +157,17 @@ export function createWebSearchTool(): ReturnType<
               .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
               .optional(),
             maxResults: z.number().int().min(1).max(100).optional(),
-            category: z.string().optional(),
+            category: z
+              .enum([
+                "company",
+                "research paper",
+                "news",
+                "pdf",
+                "personal site",
+                "financial report",
+                "people",
+              ])
+              .optional(),
           })
           .strict() as z.ZodType<WebSearchArgs>
       ).safeParse(args);
@@ -283,18 +306,7 @@ function executeExaSearch(
           exa.search(args.query, {
             type: "deep",
             numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
-            ...(args.category
-              ? {
-                  category: args.category as
-                    | "company"
-                    | "research paper"
-                    | "news"
-                    | "pdf"
-                    | "personal site"
-                    | "financial report"
-                    | "people",
-                }
-              : {}),
+            ...(args.category ? { category: args.category } : {}),
             contents: { highlights: true },
             ...(args.fromDate ? { startPublishedDate: args.fromDate } : {}),
             ...(args.toDate ? { endPublishedDate: args.toDate } : {}),
