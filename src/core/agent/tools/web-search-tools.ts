@@ -12,7 +12,7 @@ import { defineTool } from "./base-tool";
 
 export type SearchDepth = "fast" | "standard" | "deep";
 
-export type ContentType = "web" | "news" | "academic" | "company" | "people";
+export type SourceType = "web" | "news" | "academic" | "company" | "people" | "pdf" | "financial";
 
 export interface WebSearchArgs extends Record<string, unknown> {
   readonly query: string;
@@ -20,37 +20,9 @@ export interface WebSearchArgs extends Record<string, unknown> {
   readonly maxResults?: number;
   readonly fromDate?: string;
   readonly toDate?: string;
-  readonly contentType?: ContentType;
+  readonly sourceType?: SourceType;
   readonly searchDepth?: SearchDepth;
 }
-
-// ─── Exa-specific mappings ──────────────────────────────────────────────────
-
-type ExaCategory =
-  | "company"
-  | "research paper"
-  | "news"
-  | "pdf"
-  | "personal site"
-  | "financial report"
-  | "people";
-
-type ExaSearchType = "auto" | "fast" | "instant" | "deep-lite" | "deep" | "deep-reasoning";
-
-const CONTENT_TYPE_TO_EXA_CATEGORY: Partial<Record<ContentType, ExaCategory>> = {
-  news: "news",
-  academic: "research paper",
-  company: "company",
-  people: "people",
-};
-
-const SEARCH_DEPTH_TO_EXA_TYPE: Record<SearchDepth, ExaSearchType> = {
-  fast: "fast",
-  standard: "auto",
-  deep: "deep",
-};
-
-const EXA_CATEGORIES_WITHOUT_DATE_FILTER = new Set<ExaCategory>(["company", "people"]);
 
 export interface WebSearchItem {
   readonly title: string;
@@ -154,11 +126,11 @@ export function createWebSearchTool(): ReturnType<
           .max(100)
           .optional()
           .describe(`Max results (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
-        contentType: z
-          .enum(["web", "news", "academic", "company", "people"])
+        sourceType: z
+          .enum(["web", "news", "academic", "company", "people", "pdf", "financial"])
           .optional()
           .describe(
-            "Content type filter: 'news' for current events, 'academic' for research papers, 'company' for company pages, 'people' for people profiles, 'web' for general (default).",
+            "Source type filter: 'news' for news articles, 'academic' for research papers, 'company' for company pages, 'people' for people profiles, 'pdf' for PDF documents, 'financial' for financial reports/filings, 'web' for general web (default).",
           ),
         searchDepth: z
           .enum(["fast", "standard", "deep"])
@@ -183,7 +155,9 @@ export function createWebSearchTool(): ReturnType<
               .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
               .optional(),
             maxResults: z.number().int().min(1).max(100).optional(),
-            contentType: z.enum(["web", "news", "academic", "company", "people"]).optional(),
+            sourceType: z
+              .enum(["web", "news", "academic", "company", "people", "pdf", "financial"])
+              .optional(),
             searchDepth: z.enum(["fast", "standard", "deep"]).optional(),
           })
           .strict() as z.ZodType<WebSearchArgs>
@@ -306,6 +280,33 @@ function executeExaSearch(
   args: WebSearchArgs,
   apiKey: string,
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
+  type ExaCategory =
+    | "company"
+    | "research paper"
+    | "news"
+    | "pdf"
+    | "personal site"
+    | "financial report"
+    | "people";
+  type ExaSearchType = "auto" | "fast" | "instant" | "deep-lite" | "deep" | "deep-reasoning";
+
+  const sourceTypeToCategory: Partial<Record<SourceType, ExaCategory>> = {
+    news: "news",
+    academic: "research paper",
+    company: "company",
+    people: "people",
+    pdf: "pdf",
+    financial: "financial report",
+  };
+
+  const searchDepthToType: Record<SearchDepth, ExaSearchType> = {
+    fast: "fast",
+    standard: "auto",
+    deep: "deep",
+  };
+
+  const noDateFilterCategories = new Set<ExaCategory>(["company", "people"]);
+
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
 
@@ -317,20 +318,18 @@ function executeExaSearch(
 
     yield* logger.info(`Executing Exa search for query: "${args.query}"`);
 
+    const exaCategory = args.sourceType ? sourceTypeToCategory[args.sourceType] : undefined;
+    const suppressDateFilters = exaCategory ? noDateFilterCategories.has(exaCategory) : false;
+
     const response = yield* Effect.retry(
       Effect.tryPromise({
         try: () =>
           exa.search(args.query, {
-            type: SEARCH_DEPTH_TO_EXA_TYPE[args.searchDepth ?? "standard"],
+            type: searchDepthToType[args.searchDepth ?? "standard"],
             numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
-            ...(args.contentType
-              ? { category: CONTENT_TYPE_TO_EXA_CATEGORY[args.contentType] }
-              : {}),
+            ...(exaCategory ? { category: exaCategory } : {}),
             contents: { highlights: true },
-            ...(args.contentType &&
-            EXA_CATEGORIES_WITHOUT_DATE_FILTER.has(
-              CONTENT_TYPE_TO_EXA_CATEGORY[args.contentType] as ExaCategory,
-            )
+            ...(suppressDateFilters
               ? {}
               : {
                   ...(args.fromDate ? { startPublishedDate: args.fromDate } : {}),
