@@ -21,7 +21,8 @@
       "load_skill_section",
       "context_info",
       "summarize_context",
-      "spawn_subagent"
+      "spawn_subagent",
+      "web_fetch"
     ]
   }
 }

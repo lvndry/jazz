@@ -1,2 +1,12 @@
 #!/bin/sh
 pre-commit run --hook-stage pre-commit
+exit_code=$?
+
+# If hooks modified files (exit 1 from prettier/eslint fixes), re-stage them and retry
+if [ $exit_code -ne 0 ]; then
+  git diff --name-only | xargs -r git add
+  pre-commit run --hook-stage pre-commit
+  exit_code=$?
+fi
+
+exit $exit_code

@@ -9,7 +9,7 @@ repos:
 
       - id: eslint
         name: ESLint
-        entry: bun eslint --cache
+        entry: bun eslint --fix --cache
         language: system
         types_or: [ts, tsx]
 
