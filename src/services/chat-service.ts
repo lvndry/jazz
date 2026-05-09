@@ -132,11 +132,7 @@ export class ChatServiceImpl implements ChatService {
             mode === "yolo"
               ? "🚀 Switched to yolo mode — all tool calls auto-approved"
               : "🛡️ Switched to safe mode — all tool calls require approval";
-          store.printOutput({
-            type: "info",
-            message,
-            timestamp: new Date(),
-          });
+          store.showModeToast(message);
         }
       });
 

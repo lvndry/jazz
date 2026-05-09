@@ -132,6 +132,7 @@ export class UIStore {
   private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
   private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
   private chatBusySetter: ((busy: boolean) => void) | null = null;
+  private modeToastSetter: ((message: string | null) => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
 
@@ -340,6 +341,14 @@ export class UIStore {
   };
 
   getModeIsYolo = (): boolean => this.currentModeIsYolo;
+
+  registerModeToastSetter = (setter: ((message: string | null) => void) | null): void => {
+    this.modeToastSetter = setter;
+  };
+
+  showModeToast = (message: string): void => {
+    this.modeToastSetter?.(message);
+  };
 
   // ── Ephemeral live regions ────────────────────────────────────────
 
