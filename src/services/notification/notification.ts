@@ -1,5 +1,5 @@
+import { execFile } from "node:child_process";
 import { Effect, Layer, Option } from "effect";
-import notifier, { type Notification } from "node-notifier";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import {
   NotificationServiceTag,
@@ -7,24 +7,30 @@ import {
   type NotificationOptions,
 } from "@/core/interfaces/notification";
 
-/**
- * Detect the macOS bundle ID for the current terminal emulator.
- * Returns undefined on non-macOS platforms or unrecognized terminals.
- */
-function getTerminalBundleId(): string | undefined {
-  if (process.platform !== "darwin") return undefined;
+function escapeForAppleScript(str: string): string {
+  return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
 
-  const termProgram = process.env["TERM_PROGRAM"];
-  const term = process.env["TERM"];
+function sendNativeNotification(
+  title: string,
+  message: string,
+  subtitle?: string,
+  sound?: boolean,
+): void {
+  if (process.platform === "darwin") {
+    const soundPart = sound ? ' sound name "Blow"' : "";
+    const subtitlePart = subtitle ? ` subtitle "${escapeForAppleScript(subtitle)}"` : "";
+    const script = `display notification "${escapeForAppleScript(message)}" with title "${escapeForAppleScript(title)}"${subtitlePart}${soundPart}`;
+    execFile("osascript", ["-e", script]);
+    return;
+  }
 
-  if (termProgram === "WarpTerminal") return "dev.warp.Warp-Stable";
-  if (termProgram === "iTerm.app") return "com.googlecode.iterm2";
-  if (termProgram === "Apple_Terminal") return "com.apple.Terminal";
-  if (termProgram === "vscode") return "com.microsoft.VSCode";
-  if (process.env["KITTY_WINDOW_ID"]) return "net.kovidgoyal.kitty";
-  if (term?.includes("alacritty")) return "org.alacritty";
-
-  return undefined;
+  if (process.platform === "linux") {
+    const args = [title, message];
+    if (sound) args.push("--urgency=normal");
+    execFile("notify-send", args);
+    return;
+  }
 }
 
 export class NotificationServiceImpl implements NotificationService {
@@ -34,29 +40,16 @@ export class NotificationServiceImpl implements NotificationService {
       const appConfig = Option.isSome(configService) ? yield* configService.value.appConfig : null;
       const notificationsConfig = appConfig?.notifications;
 
-      // Check if notifications are explicitly disabled in config
       if (notificationsConfig?.enabled === false) {
         return;
       }
 
       const title = options?.title ?? "🎷 Jazz";
       const sound = options?.sound ?? notificationsConfig?.sound ?? true;
-      const soundValue = sound ? (process.platform === "darwin" ? "Blow" : true) : false;
 
       try {
-        const bundleId = getTerminalBundleId();
-        const notifyOptions = {
-          title: String(title),
-          message: String(message),
-          subtitle: options?.subtitle ? String(options.subtitle) : undefined,
-          sound: soundValue,
-          icon: options?.icon ? String(options.icon) : undefined,
-          wait: !!(options?.wait ?? false),
-          ...(bundleId && { activate: bundleId }),
-        };
-        notifier.notify(notifyOptions as Notification);
+        sendNativeNotification(title, message, options?.subtitle, sound);
       } catch (error) {
-        // Log error but don't fail - notifications are non-critical
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error(`[Notification] Failed to send notification: ${errorMessage}`);
       }
