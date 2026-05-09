@@ -77,8 +77,10 @@ export interface AgentRunnerOptions {
    * - `"low-risk"`: Auto-approve read-only and low-risk tools
    * - `"read-only"`: Auto-approve only read-only tools
    * - `undefined`: Always prompt for approval (default)
+   *
+   * Can also be a getter function for real-time policy updates (e.g., Shift+Tab toggle).
    */
-  readonly autoApprovePolicy?: AutoApprovePolicy;
+  readonly autoApprovePolicy?: AutoApprovePolicy | (() => AutoApprovePolicy | undefined);
   /**
    * Shell commands to auto-approve for execute_command tool (prefix match).
    */

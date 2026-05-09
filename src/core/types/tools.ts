@@ -159,10 +159,11 @@ export interface ToolExecutionContext {
   readonly conversationId?: string;
   readonly model?: string;
   /**
-   * Auto-approve policy for this execution context.
+   * Auto-approve policy getter for this execution context.
+   * Returns the current policy, which may change mid-run via Shift+Tab toggle.
    * When set, tools matching the policy will be auto-approved without user interaction.
    */
-  readonly autoApprovePolicy?: AutoApprovePolicy;
+  readonly getAutoApprovePolicy?: () => AutoApprovePolicy | undefined;
   /**
    * Token usage statistics for context budget awareness.
    * Allows tools like context_info to report on current context usage.

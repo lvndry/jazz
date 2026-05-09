@@ -365,6 +365,9 @@ export class ChatServiceImpl implements ChatService {
           const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
 
           // Create runner options
+          // Use a getter for autoApprovePolicy to support real-time mode switches via Shift+Tab
+          const getCurrentAutoApprovePolicy = () => autoApprovePolicy;
+
           const runnerOptions: AgentRunnerOptions = {
             agent,
             userInput: messageForAgent,
@@ -372,7 +375,9 @@ export class ChatServiceImpl implements ChatService {
             sessionId, // Pass the sessionId for logging
             conversationHistory,
             ...(options?.stream !== undefined ? { stream: options.stream } : {}),
-            ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+            ...(autoApprovePolicy !== undefined
+              ? { autoApprovePolicy: getCurrentAutoApprovePolicy }
+              : {}),
             autoApprovedCommands,
             autoApprovedTools,
             onAutoApproveCommand: (command: string) =>
