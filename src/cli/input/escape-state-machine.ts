@@ -44,6 +44,7 @@ export type ParsedInput =
   | { readonly type: "submit" }
   | { readonly type: "escape" }
   | { readonly type: "tab" }
+  | { readonly type: "shift-tab" }
   | { readonly type: "expand-diff" }
   | { readonly type: "char"; readonly char: string }
   | { readonly type: "ignore" };
@@ -200,6 +201,11 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
     }
     if (buffer === "" && char === "B") {
       return { _tag: "Complete", action: { type: "down" } };
+    }
+
+    // Check for Shift+Tab: ESC [ Z
+    if (buffer === "" && char === "Z") {
+      return { _tag: "Complete", action: { type: "shift-tab" } };
     }
 
     // Check for Home/End keys
@@ -495,6 +501,10 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
         }
 
         if (key.tab) {
+          // Shift+Tab detection via Ink's key.shift flag
+          if (key.shift) {
+            return { type: "shift-tab" };
+          }
           return { type: "tab" };
         }
 

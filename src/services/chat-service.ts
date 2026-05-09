@@ -122,6 +122,24 @@ export class ChatServiceImpl implements ChatService {
         autoApprovedCommands = [...appConfig.autoApprovedCommands];
       }
 
+      // Register mode switch handler for Shift+Tab toggle
+      store.registerModeSwitchHandler((mode) => {
+        const newPolicy = mode === "yolo";
+        if (autoApprovePolicy !== newPolicy) {
+          autoApprovePolicy = newPolicy;
+          store.setModeIsYolo(newPolicy);
+          const message =
+            mode === "yolo"
+              ? "🚀 Switched to yolo mode — all tool calls auto-approved"
+              : "🛡️ Switched to safe mode — all tool calls require approval";
+          store.printOutput({
+            type: "info",
+            message,
+            timestamp: new Date(),
+          });
+        }
+      });
+
       // Bound conversation history to prevent unbounded memory growth.
       // The agent's own ContextWindowManager (50K tokens) handles per-turn
       // trimming with tool-call integrity; this outer cap is a simple safety

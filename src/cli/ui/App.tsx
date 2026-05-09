@@ -359,6 +359,21 @@ export function App(): React.ReactElement {
     deps: [],
   });
 
+  // Handle Shift+Tab mode toggle (safe <-> yolo)
+  useInputHandler({
+    id: "mode-toggle-handler",
+    priority: InputPriority.GLOBAL_SHORTCUT,
+    onInput: (action) => {
+      if (action.type !== "shift-tab") {
+        return InputResults.ignored();
+      }
+
+      store.toggleMode();
+      return InputResults.consumed();
+    },
+    deps: [],
+  });
+
   return (
     <ErrorBoundary>
       {customView}

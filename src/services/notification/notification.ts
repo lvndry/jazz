@@ -17,18 +17,25 @@ function sendNativeNotification(
   subtitle?: string,
   sound?: boolean,
 ): void {
+  const callback = (error: Error | null) => {
+    if (error) {
+      console.error(`[Notification] Failed to send native notification: ${error.message}`);
+    }
+  };
+
   if (process.platform === "darwin") {
     const soundPart = sound ? ' sound name "Blow"' : "";
     const subtitlePart = subtitle ? ` subtitle "${escapeForAppleScript(subtitle)}"` : "";
     const script = `display notification "${escapeForAppleScript(message)}" with title "${escapeForAppleScript(title)}"${subtitlePart}${soundPart}`;
-    execFile("osascript", ["-e", script]);
+    execFile("osascript", ["-e", script], callback);
     return;
   }
 
   if (process.platform === "linux") {
-    const args = [title, message];
+    const args: string[] = [];
     if (sound) args.push("--urgency=normal");
-    execFile("notify-send", args);
+    args.push(title, message);
+    execFile("notify-send", args, callback);
     return;
   }
 }
@@ -47,12 +54,7 @@ export class NotificationServiceImpl implements NotificationService {
       const title = options?.title ?? "🎷 Jazz";
       const sound = options?.sound ?? notificationsConfig?.sound ?? true;
 
-      try {
-        sendNativeNotification(title, message, options?.subtitle, sound);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`[Notification] Failed to send notification: ${errorMessage}`);
-      }
+      sendNativeNotification(title, message, options?.subtitle, sound);
     });
   }
 }
