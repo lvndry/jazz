@@ -198,8 +198,8 @@ export class ChatServiceImpl implements ChatService {
         if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
           yield* terminal.info("👋 Goodbye!");
 
-          // Cleanup: Disconnect all MCP servers before exiting
-          // This ensures child processes are properly terminated
+          // Cleanup: Disconnect all MCP servers and unregister mode handler before exiting
+          store.registerModeSwitchHandler(null);
           try {
             const mcpManager = yield* MCPServerManagerTag;
             yield* mcpManager.disconnectAllServers().pipe(
@@ -332,7 +332,10 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
               autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;
+              // Sync mode state with store for Shift+Tab toggle
+              store.setModeIsYolo(autoApprovePolicy === true || autoApprovePolicy === "high-risk");
             }
+
             if (commandResult.addAutoApprovedCommand) {
               if (!autoApprovedCommands.includes(commandResult.addAutoApprovedCommand)) {
                 autoApprovedCommands.push(commandResult.addAutoApprovedCommand);
