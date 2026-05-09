@@ -733,7 +733,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   private storeExpandableDiff(toolName: string | undefined, result: string): void {
-    if (toolName !== "execute_edit_file" && toolName !== "execute_write_file") {
+    if (
+      toolName !== "edit_file" &&
+      toolName !== "execute_edit_file" &&
+      toolName !== "write_file" &&
+      toolName !== "execute_write_file"
+    ) {
       return;
     }
     try {

@@ -122,7 +122,10 @@ export const TextInput = React.memo(function TextInput({
   const renderValue = () => {
     if (value.length === 0 && placeholder.length > 0) {
       return (
-        <Text color="gray">
+        <Text
+          color="gray"
+          wrap="wrap"
+        >
           <Text inverse>{placeholder[0] || " "}</Text>
           {placeholder.slice(1)}
         </Text>
@@ -136,16 +139,16 @@ export const TextInput = React.memo(function TextInput({
     const afterCursor = cursor < displayValue.length ? displayValue.slice(cursor + 1) : "";
 
     return (
-      <>
-        {beforeCursor && <Text>{beforeCursor}</Text>}
+      <Text wrap="wrap">
+        {beforeCursor}
         <Text
           inverse
           color={THEME.primary}
         >
           {cursorChar}
         </Text>
-        {afterCursor && <Text>{afterCursor}</Text>}
-      </>
+        {afterCursor}
+      </Text>
     );
   };
 

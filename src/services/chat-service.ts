@@ -399,7 +399,9 @@ export class ChatServiceImpl implements ChatService {
             },
             checkQueuedMessage: () => {
               const queued = store.takeQueue();
-              return queued.length > 0 ? queued : undefined;
+              if (queued.length === 0) return undefined;
+              Effect.runSync(terminal.user(queued));
+              return queued;
             },
           };
 

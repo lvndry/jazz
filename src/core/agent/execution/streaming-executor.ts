@@ -313,6 +313,10 @@ export function executeWithStreaming(
       getRenderer() {
         return renderer;
       },
+
+      getInterruptSignal() {
+        return Deferred.await(interruptDeferred);
+      },
     };
 
     const response = yield* executeAgentLoop(

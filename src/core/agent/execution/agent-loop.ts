@@ -405,6 +405,7 @@ export function executeAgentLoop(
                 agent.id,
                 actualConversationId,
                 agent.name,
+                strategy.getInterruptSignal?.(),
               );
 
               // Validate all tool calls have results

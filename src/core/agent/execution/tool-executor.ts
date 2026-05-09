@@ -282,14 +282,14 @@ export class ToolExecutor {
               if (renderer) {
                 yield* renderer.handleEvent({
                   type: "tool_execution_start",
-                  toolName: approvalResult.executeToolName,
+                  toolName: name,
                   toolCallId: toolCall.id,
                   arguments: approvalResult.executeArgs,
                   ...(executeMetadata ? { metadata: executeMetadata } : {}),
                 });
               } else {
                 const message = yield* presentationService.formatToolExecutionStart(
-                  approvalResult.executeToolName,
+                  name,
                   approvalResult.executeArgs,
                   executeMetadata ? { metadata: executeMetadata } : undefined,
                 );
