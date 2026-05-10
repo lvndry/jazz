@@ -1,4 +1,8 @@
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Ref, Stream } from "effect";
+import {
+  makeUserVisibleLlmRetrySchedule,
+  withLongRunningLlmNotice,
+} from "@/core/agent/execution/llm-retry-present";
 import { DEFAULT_MAX_LLM_RETRIES, LLM_TIMEOUT_SECONDS } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -16,7 +20,7 @@ import {
   LLMRequestError,
 } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
-import { isRetryableLLMError, makeLLMRetrySchedule } from "@/core/utils/llm-error";
+import { isRetryableLLMError } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import type { RecursiveRunner } from "../context/summarizer";
 import { recordFirstTokenLatency, recordLLMRetry } from "../metrics/agent-run-metrics";
@@ -104,32 +108,58 @@ export function executeWithStreaming(
             reasoning_effort: reasoningEffort,
           };
 
+          const showAgentStatus = (
+            message: string,
+            level: "info" | "success" | "warning" | "error" | "progress",
+          ) => presentationService.presentStatus(message, level);
+
+          const retryAttemptRef = yield* Ref.make(0);
+          yield* Ref.set(retryAttemptRef, 0);
+          const streamingRetrySchedule = makeUserVisibleLlmRetrySchedule(
+            maxRetries,
+            agent.name,
+            showAgentStatus,
+            retryAttemptRef,
+          );
+
           const streamingResult = yield* Effect.retry(
-            Effect.gen(function* () {
-              try {
-                return yield* llmService.createStreamingChatCompletion(provider, llmOptions);
-              } catch (error) {
-                recordLLMRetry(runMetrics, error);
-                if (
-                  error instanceof LLMRequestError ||
-                  error instanceof LLMRateLimitError ||
-                  error instanceof LLMAuthenticationError
-                ) {
-                  yield* logger.error("LLM request error", {
-                    provider,
-                    model: agent.config.llmModel,
-                    errorType: error._tag,
-                    message: error.message,
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                  });
+            withLongRunningLlmNotice(
+              agent.name,
+              showAgentStatus,
+              Effect.gen(function* () {
+                try {
+                  return yield* llmService.createStreamingChatCompletion(provider, llmOptions);
+                } catch (error) {
+                  recordLLMRetry(runMetrics, error);
+                  if (
+                    error instanceof LLMRequestError ||
+                    error instanceof LLMRateLimitError ||
+                    error instanceof LLMAuthenticationError
+                  ) {
+                    yield* logger.error("LLM request error", {
+                      provider,
+                      model: agent.config.llmModel,
+                      errorType: error._tag,
+                      message: error.message,
+                      agentId: agent.id,
+                      conversationId: actualConversationId,
+                    });
+                  }
+                  throw error;
                 }
-                throw error;
-              }
-            }),
-            makeLLMRetrySchedule(maxRetries),
+              }),
+            ),
+            streamingRetrySchedule,
           ).pipe(
             Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
+            Effect.tapError((error) =>
+              Cause.isTimeoutException(error)
+                ? showAgentStatus(
+                    `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
+                    "warning",
+                  )
+                : Effect.void,
+            ),
             Effect.catchIf(
               (error): error is LLMRequestError | LLMRateLimitError => isRetryableLLMError(error),
               (error) =>
@@ -142,17 +172,39 @@ export function executeWithStreaming(
                     agentId: agent.id,
                     conversationId: actualConversationId,
                   });
+                  const fallbackAttemptRef = yield* Ref.make(0);
+                  yield* Ref.set(fallbackAttemptRef, 0);
+                  const fallbackRetrySchedule = makeUserVisibleLlmRetrySchedule(
+                    maxRetries,
+                    agent.name,
+                    showAgentStatus,
+                    fallbackAttemptRef,
+                  );
                   const fallback = yield* Effect.retry(
-                    Effect.gen(function* () {
-                      try {
-                        return yield* llmService.createChatCompletion(provider, llmOptions);
-                      } catch (innerError) {
-                        recordLLMRetry(runMetrics, innerError);
-                        throw innerError;
-                      }
-                    }),
-                    makeLLMRetrySchedule(maxRetries),
-                  ).pipe(Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)));
+                    withLongRunningLlmNotice(
+                      agent.name,
+                      showAgentStatus,
+                      Effect.gen(function* () {
+                        try {
+                          return yield* llmService.createChatCompletion(provider, llmOptions);
+                        } catch (innerError) {
+                          recordLLMRetry(runMetrics, innerError);
+                          throw innerError;
+                        }
+                      }),
+                    ),
+                    fallbackRetrySchedule,
+                  ).pipe(
+                    Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
+                    Effect.tapError((innerError) =>
+                      Cause.isTimeoutException(innerError)
+                        ? showAgentStatus(
+                            `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
+                            "warning",
+                          )
+                        : Effect.void,
+                    ),
+                  );
                   return {
                     stream: Stream.empty,
                     response: Effect.succeed(fallback),

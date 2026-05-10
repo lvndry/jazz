@@ -1,4 +1,8 @@
-import { Duration, Effect } from "effect";
+import { Cause, Duration, Effect, Ref } from "effect";
+import {
+  makeUserVisibleLlmRetrySchedule,
+  withLongRunningLlmNotice,
+} from "@/core/agent/execution/llm-retry-present";
 import { DEFAULT_MAX_LLM_RETRIES, LLM_TIMEOUT_SECONDS } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -9,7 +13,6 @@ import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-regi
 import type { ConversationMessages } from "@/core/types";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
-import { makeLLMRetrySchedule } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import type { RecursiveRunner } from "../context/summarizer";
 import { recordLLMRetry } from "../metrics/agent-run-metrics";
@@ -58,17 +61,45 @@ export function executeWithoutStreaming(
             reasoning_effort: reasoningEffort,
           };
 
+          const showAgentStatus = (
+            message: string,
+            level: "info" | "success" | "warning" | "error" | "progress",
+          ) => presentationService.presentStatus(message, level);
+
+          const retryAttemptRef = yield* Ref.make(0);
+          yield* Ref.set(retryAttemptRef, 0);
+          const batchRetrySchedule = makeUserVisibleLlmRetrySchedule(
+            maxRetries,
+            agent.name,
+            showAgentStatus,
+            retryAttemptRef,
+          );
+
           const completion = yield* Effect.retry(
-            Effect.gen(function* () {
-              try {
-                return yield* llmService.createChatCompletion(provider, llmOptions);
-              } catch (error) {
-                recordLLMRetry(runMetrics, error);
-                throw error;
-              }
-            }),
-            makeLLMRetrySchedule(maxRetries),
-          ).pipe(Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)));
+            withLongRunningLlmNotice(
+              agent.name,
+              showAgentStatus,
+              Effect.gen(function* () {
+                try {
+                  return yield* llmService.createChatCompletion(provider, llmOptions);
+                } catch (error) {
+                  recordLLMRetry(runMetrics, error);
+                  throw error;
+                }
+              }),
+            ),
+            batchRetrySchedule,
+          ).pipe(
+            Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
+            Effect.tapError((error) =>
+              Cause.isTimeoutException(error)
+                ? showAgentStatus(
+                    `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
+                    "warning",
+                  )
+                : Effect.void,
+            ),
+          );
 
           return { completion, interrupted: false };
         });
