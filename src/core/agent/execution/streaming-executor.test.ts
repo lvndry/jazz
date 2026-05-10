@@ -56,6 +56,7 @@ const mockPresentationService = {
   formatCompletion: () => Effect.succeed(""),
   formatWarning: () => Effect.succeed(""),
   formatAgentResponse: () => Effect.succeed(""),
+  presentStatus: () => Effect.void,
 } as any;
 
 const mockToolRegistry = {
