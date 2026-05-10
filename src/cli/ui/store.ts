@@ -11,6 +11,9 @@ type StreamingHandler = {
   finalizeStream: () => void;
 };
 
+/** Handler for mode switch requests (e.g., Shift+Tab toggles safe/yolo) */
+type ModeSwitchHandler = (mode: "safe" | "yolo") => void;
+
 const MAX_PENDING_OUTPUT_QUEUE = 2000;
 
 /** Set when we've logged the queue-full warning once to avoid spam */
@@ -101,6 +104,11 @@ export class UIStore {
   // Expandable diff for Ctrl+O expansion
   private expandableDiff: ExpandableDiffPayload | null = null;
 
+  // Mode switch handler (set by chat service)
+  private modeSwitchHandler: ModeSwitchHandler | null = null;
+  // Track current mode for toggle behavior (safe = false, yolo = true)
+  private currentModeIsYolo = false;
+
   // Snapshots (kept in sync so late-registering components can hydrate)
   private promptSnapshot: PromptState | null = null;
   private activitySnapshot: ActivityState = { phase: "idle" };
@@ -124,6 +132,7 @@ export class UIStore {
   private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
   private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
   private chatBusySetter: ((busy: boolean) => void) | null = null;
+  private modeToastSetter: ((message: string | null) => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
 
@@ -307,6 +316,38 @@ export class UIStore {
 
   clearExpandableDiff = (): void => {
     this.expandableDiff = null;
+  };
+
+  // ── Mode switching ─────────────────────────────────────────────
+
+  registerModeSwitchHandler = (handler: ModeSwitchHandler | null): void => {
+    this.modeSwitchHandler = handler;
+  };
+
+  requestModeSwitch = (mode: "safe" | "yolo"): void => {
+    if (this.modeSwitchHandler) {
+      this.modeSwitchHandler(mode);
+    }
+  };
+
+  toggleMode = (): void => {
+    const nextMode = this.currentModeIsYolo ? "safe" : "yolo";
+    this.currentModeIsYolo = !this.currentModeIsYolo;
+    this.requestModeSwitch(nextMode);
+  };
+
+  setModeIsYolo = (isYolo: boolean): void => {
+    this.currentModeIsYolo = isYolo;
+  };
+
+  getModeIsYolo = (): boolean => this.currentModeIsYolo;
+
+  registerModeToastSetter = (setter: ((message: string | null) => void) | null): void => {
+    this.modeToastSetter = setter;
+  };
+
+  showModeToast = (message: string): void => {
+    this.modeToastSetter?.(message);
   };
 
   // ── Ephemeral live regions ────────────────────────────────────────

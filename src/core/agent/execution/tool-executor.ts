@@ -197,14 +197,19 @@ export class ToolExecutor {
             .getTool(name)
             .pipe(Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })));
           const riskLevel = toolInfo.riskLevel;
-          const autoApprovePolicy = context.autoApprovePolicy;
+
+          // Get current policy via getter for real-time updates (e.g., Shift+Tab toggle)
+          const getCurrentPolicy = () => context.getAutoApprovePolicy?.();
+          const autoApprovePolicy = getCurrentPolicy();
 
           // Check if auto-approve policy allows this tool, per-tool session allowlist,
           // or per-command prefix allowlist matches
-          const isAutoApproved =
-            shouldAutoApprove(riskLevel, autoApprovePolicy) ||
+          const checkAutoApproved = () =>
+            shouldAutoApprove(riskLevel, getCurrentPolicy()) ||
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
+
+          const isAutoApproved = checkAutoApproved();
 
           if (isAutoApproved) {
             yield* logger.info("Tool auto-approved by policy", {
@@ -226,6 +231,7 @@ export class ToolExecutor {
           // Pass an isAutoApproved callback so the approval queue can re-check
           // at dequeue time — a parallel tool's "always approve" may have
           // updated the shared allowlists while this request was queued.
+          // Also re-checks current policy for real-time mode switches.
           const outcome = isAutoApproved
             ? { approved: true as const }
             : yield* presentationService.requestApproval({
@@ -234,14 +240,7 @@ export class ToolExecutor {
                 executeToolName: approvalResult.executeToolName,
                 executeArgs: approvalResult.executeArgs,
                 ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
-                isAutoApproved: () =>
-                  shouldAutoApprove(riskLevel, autoApprovePolicy) ||
-                  isToolNameAutoApproved(name, context.autoApprovedTools) ||
-                  isCommandAutoApproved(
-                    name,
-                    approvalResult.executeArgs,
-                    context.autoApprovedCommands,
-                  ),
+                isAutoApproved: checkAutoApproved,
               });
 
           if (outcome.approved) {
@@ -283,14 +282,14 @@ export class ToolExecutor {
               if (renderer) {
                 yield* renderer.handleEvent({
                   type: "tool_execution_start",
-                  toolName: approvalResult.executeToolName,
+                  toolName: name,
                   toolCallId: toolCall.id,
                   arguments: approvalResult.executeArgs,
                   ...(executeMetadata ? { metadata: executeMetadata } : {}),
                 });
               } else {
                 const message = yield* presentationService.formatToolExecutionStart(
-                  approvalResult.executeToolName,
+                  name,
                   approvalResult.executeArgs,
                   executeMetadata ? { metadata: executeMetadata } : undefined,
                 );

@@ -347,4 +347,35 @@ describe("EscapeStateMachine", () => {
       expect(result.type).toBe("word-right");
     });
   });
+
+  describe("Shift+Tab Mode Toggle", () => {
+    test("ESC [ Z → shift-tab", () => {
+      const result = process(machine, "\x1b[Z");
+      expect(result.type).toBe("shift-tab");
+    });
+
+    test("ESC [ Z processed character by character", () => {
+      // First, send ESC
+      const r1 = process(machine, "\x1b", { ...mockKey, escape: true });
+      expect(r1.type).toBe("ignore");
+
+      // Then [
+      const r2 = process(machine, "[");
+      expect(r2.type).toBe("ignore");
+
+      // Finally Z completes the sequence
+      const r3 = process(machine, "Z");
+      expect(r3.type).toBe("shift-tab");
+    });
+
+    test("key.shift + key.tab → shift-tab", () => {
+      const result = process(machine, "", { ...mockKey, shift: true, tab: true });
+      expect(result.type).toBe("shift-tab");
+    });
+
+    test("plain tab without shift → tab", () => {
+      const result = process(machine, "", { ...mockKey, tab: true });
+      expect(result.type).toBe("tab");
+    });
+  });
 });

@@ -122,6 +122,20 @@ export class ChatServiceImpl implements ChatService {
         autoApprovedCommands = [...appConfig.autoApprovedCommands];
       }
 
+      // Register mode switch handler for Shift+Tab toggle
+      store.registerModeSwitchHandler((mode) => {
+        const newPolicy = mode === "yolo";
+        if (autoApprovePolicy !== newPolicy) {
+          autoApprovePolicy = newPolicy;
+          store.setModeIsYolo(newPolicy);
+          const message =
+            mode === "yolo"
+              ? "🚀 Switched to yolo mode — all tool calls auto-approved"
+              : "🛡️ Switched to safe mode — all tool calls require approval";
+          store.showModeToast(message);
+        }
+      });
+
       // Bound conversation history to prevent unbounded memory growth.
       // The agent's own ContextWindowManager (50K tokens) handles per-turn
       // trimming with tool-call integrity; this outer cap is a simple safety
@@ -180,8 +194,8 @@ export class ChatServiceImpl implements ChatService {
         if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
           yield* terminal.info("👋 Goodbye!");
 
-          // Cleanup: Disconnect all MCP servers before exiting
-          // This ensures child processes are properly terminated
+          // Cleanup: Disconnect all MCP servers and unregister mode handler before exiting
+          store.registerModeSwitchHandler(null);
           try {
             const mcpManager = yield* MCPServerManagerTag;
             yield* mcpManager.disconnectAllServers().pipe(
@@ -314,7 +328,10 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
               autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;
+              // Sync mode state with store for Shift+Tab toggle
+              store.setModeIsYolo(autoApprovePolicy === true || autoApprovePolicy === "high-risk");
             }
+
             if (commandResult.addAutoApprovedCommand) {
               if (!autoApprovedCommands.includes(commandResult.addAutoApprovedCommand)) {
                 autoApprovedCommands.push(commandResult.addAutoApprovedCommand);
@@ -344,6 +361,9 @@ export class ChatServiceImpl implements ChatService {
           const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
 
           // Create runner options
+          // Use a getter for autoApprovePolicy to support real-time mode switches via Shift+Tab
+          const getCurrentAutoApprovePolicy = () => autoApprovePolicy;
+
           const runnerOptions: AgentRunnerOptions = {
             agent,
             userInput: messageForAgent,
@@ -351,7 +371,9 @@ export class ChatServiceImpl implements ChatService {
             sessionId, // Pass the sessionId for logging
             conversationHistory,
             ...(options?.stream !== undefined ? { stream: options.stream } : {}),
-            ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+            ...(autoApprovePolicy !== undefined
+              ? { autoApprovePolicy: getCurrentAutoApprovePolicy }
+              : {}),
             autoApprovedCommands,
             autoApprovedTools,
             onAutoApproveCommand: (command: string) =>
@@ -373,7 +395,9 @@ export class ChatServiceImpl implements ChatService {
             },
             checkQueuedMessage: () => {
               const queued = store.takeQueue();
-              return queued.length > 0 ? queued : undefined;
+              if (queued.length === 0) return undefined;
+              Effect.runSync(terminal.user(queued));
+              return queued;
             },
           };
 

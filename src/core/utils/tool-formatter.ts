@@ -150,11 +150,8 @@ export function formatToolArguments(
       return formatParts(parts);
     }
     case "write_file":
-    case "execute_write_file": {
-      const path = safeString(args["path"] || args["filePath"]);
-      if (!path) return "";
-      return usePlain ? `{ file: ${path} }` : formatKeyValue("file", path);
-    }
+    case "execute_write_file":
+    case "edit_file":
     case "execute_edit_file": {
       const path = safeString(args["path"] || args["filePath"]);
       if (!path) return "";
@@ -594,7 +591,9 @@ export function formatToolResult(toolName: string, result: string): string {
         }
         return "";
       }
+      case "edit_file":
       case "execute_edit_file":
+      case "write_file":
       case "execute_write_file": {
         // Check for diff in the result
         const diff = parsedResult["diff"];

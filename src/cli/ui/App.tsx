@@ -240,6 +240,8 @@ export function App(): React.ReactElement {
   const [customView, setCustomView] = useState<React.ReactNode | null>(null);
   const interruptHandlerRef = useRef<(() => void) | null>(null);
   const initializedRef = useRef(false);
+  const [modeToast, setModeToast] = useState<string | null>(null);
+  const modeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Setup store methods synchronously during render
   if (!initializedRef.current) {
@@ -249,6 +251,28 @@ export function App(): React.ReactElement {
     });
     initializedRef.current = true;
   }
+
+  useEffect(() => {
+    store.registerModeToastSetter((message) => {
+      if (modeToastTimerRef.current) {
+        clearTimeout(modeToastTimerRef.current);
+      }
+      setModeToast(message);
+      if (message !== null) {
+        modeToastTimerRef.current = setTimeout(() => {
+          setModeToast(null);
+          modeToastTimerRef.current = null;
+        }, 2000);
+      }
+    });
+    return () => {
+      store.registerModeToastSetter(null);
+      if (modeToastTimerRef.current) {
+        clearTimeout(modeToastTimerRef.current);
+        modeToastTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Cleanup on unmount to prevent stale handler calls
   useEffect(() => {
@@ -359,6 +383,21 @@ export function App(): React.ReactElement {
     deps: [],
   });
 
+  // Handle Shift+Tab mode toggle (safe <-> yolo)
+  useInputHandler({
+    id: "mode-toggle-handler",
+    priority: InputPriority.GLOBAL_SHORTCUT,
+    onInput: (action) => {
+      if (action.type !== "shift-tab") {
+        return InputResults.ignored();
+      }
+
+      store.toggleMode();
+      return InputResults.consumed();
+    },
+    deps: [],
+  });
+
   return (
     <ErrorBoundary>
       {customView}
@@ -391,6 +430,15 @@ export function App(): React.ReactElement {
               paddingX={PADDING.content}
             >
               <Text color={THEME.error}>Press Esc again to interrupt generation</Text>
+            </Box>
+          )}
+
+          {modeToast && (
+            <Box
+              marginTop={1}
+              paddingX={PADDING.content}
+            >
+              <Text color={THEME.primary}>{modeToast}</Text>
             </Box>
           )}
 

@@ -21,7 +21,7 @@ import {
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
-import type { ToolExecutionContext } from "@/core/types/tools";
+import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import type { ConversationMessages, StreamingConfig } from "../types";
@@ -206,14 +206,20 @@ function initializeAgentRun(
       ? (options.autoApprovedTools as string[])
       : [];
 
+    // Support both static policy values and getter functions for real-time updates
+    const getAutoApprovePolicy =
+      options.autoApprovePolicy !== undefined
+        ? typeof options.autoApprovePolicy === "function"
+          ? options.autoApprovePolicy
+          : () => options.autoApprovePolicy as AutoApprovePolicy
+        : undefined;
+
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
       sessionId: options.sessionId,
       conversationId: actualConversationId,
       model,
-      ...(options.autoApprovePolicy !== undefined
-        ? { autoApprovePolicy: options.autoApprovePolicy }
-        : {}),
+      ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
       // Always pass arrays by reference so that in-place mutations via
       // onAutoApproveCommand/onAutoApproveTool callbacks are visible to
       // subsequent isAutoApproved checks within the same agent run.
