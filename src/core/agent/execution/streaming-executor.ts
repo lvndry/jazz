@@ -114,7 +114,6 @@ export function executeWithStreaming(
           ) => presentationService.presentStatus(message, level);
 
           const retryAttemptRef = yield* Ref.make(0);
-          yield* Ref.set(retryAttemptRef, 0);
           const streamingRetrySchedule = makeUserVisibleLlmRetrySchedule(
             maxRetries,
             agent.name,
@@ -173,7 +172,6 @@ export function executeWithStreaming(
                     conversationId: actualConversationId,
                   });
                   const fallbackAttemptRef = yield* Ref.make(0);
-                  yield* Ref.set(fallbackAttemptRef, 0);
                   const fallbackRetrySchedule = makeUserVisibleLlmRetrySchedule(
                     maxRetries,
                     agent.name,

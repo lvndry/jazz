@@ -67,7 +67,6 @@ export function executeWithoutStreaming(
           ) => presentationService.presentStatus(message, level);
 
           const retryAttemptRef = yield* Ref.make(0);
-          yield* Ref.set(retryAttemptRef, 0);
           const batchRetrySchedule = makeUserVisibleLlmRetrySchedule(
             maxRetries,
             agent.name,

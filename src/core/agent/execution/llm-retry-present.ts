@@ -24,9 +24,7 @@ export function withLongRunningLlmNotice<A, E, R>(
         ),
       ),
     );
-    return yield* body.pipe(
-      Effect.ensuring(Fiber.interrupt(noticeFiber).pipe(Effect.catchAll(() => Effect.void))),
-    );
+    return yield* body.pipe(Effect.ensuring(Fiber.interrupt(noticeFiber)));
   });
 }
 
@@ -40,8 +38,7 @@ export function makeUserVisibleLlmRetrySchedule(
     Schedule.tapInput((error: unknown) =>
       isRetryableLLMError(error)
         ? Effect.gen(function* () {
-            yield* Ref.update(attemptRef, (count) => count + 1);
-            const attempt = yield* Ref.get(attemptRef);
+            const attempt = yield* Ref.updateAndGet(attemptRef, (count) => count + 1);
             yield* presentStatus(
               `${agentName} hit a temporary network or model issue. Trying again (attempt ${attempt} of up to ${maxRetries})…`,
               "progress",
