@@ -267,6 +267,10 @@ export function App(): React.ReactElement {
     });
     return () => {
       store.registerModeToastSetter(null);
+      if (modeToastTimerRef.current) {
+        clearTimeout(modeToastTimerRef.current);
+        modeToastTimerRef.current = null;
+      }
     };
   }, []);
 
