@@ -200,12 +200,6 @@ const SEARCH_RETRY_POLICY = Schedule.intersect(
   Schedule.jittered(Schedule.exponential("1 second")),
 );
 
-let cachedExaClient: Exa | null = null;
-let cachedParallelClient: Parallel | null = null;
-let cachedTavilyClient: ReturnType<typeof tavily> | null = null;
-let cachedPerplexityClient: Perplexity | null = null;
-let cachedLinkupClient: LinkupClient | null = null;
-
 /**
  * Execute an Exa search
  */
@@ -242,12 +236,7 @@ function executeExaSearch(
 
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-
-    if (!cachedExaClient) {
-      cachedExaClient = new Exa(apiKey);
-    }
-
-    const exa = cachedExaClient;
+    const exa = new Exa(apiKey);
 
     yield* logger.info(`Executing Exa search for query: "${args.query}"`);
 
@@ -311,12 +300,7 @@ function executeParallelSearch(
 
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-
-    if (!cachedParallelClient) {
-      cachedParallelClient = new Parallel({ apiKey });
-    }
-
-    const parallel = cachedParallelClient;
+    const parallel = new Parallel({ apiKey });
 
     yield* logger.info(`Executing Parallel search for query: "${args.query}"`);
 
@@ -367,12 +351,7 @@ function executeTavilySearch(
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-
-    if (!cachedTavilyClient) {
-      cachedTavilyClient = tavily({ apiKey });
-    }
-
-    const client = cachedTavilyClient;
+    const client = tavily({ apiKey });
 
     yield* logger.info(`Executing Tavily search for query: "${args.query}"`);
 
@@ -501,12 +480,7 @@ function executePerplexitySearch(
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-
-    if (!cachedPerplexityClient) {
-      cachedPerplexityClient = new Perplexity({ apiKey });
-    }
-
-    const client = cachedPerplexityClient;
+    const client = new Perplexity({ apiKey });
 
     yield* logger.info(`Executing Perplexity search for query: "${args.query}"`);
 
@@ -558,12 +532,7 @@ function executeLinkupSearch(
 
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-
-    if (!cachedLinkupClient) {
-      cachedLinkupClient = new LinkupClient({ apiKey });
-    }
-
-    const client = cachedLinkupClient;
+    const client = new LinkupClient({ apiKey });
 
     yield* logger.info(`Executing Linkup search for query: "${args.query}"`);
 
