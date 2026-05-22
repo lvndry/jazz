@@ -2,6 +2,7 @@ import Perplexity from "@perplexity-ai/perplexity_ai";
 import { tavily } from "@tavily/core";
 import { Effect, Schedule } from "effect";
 import Exa from "exa-js";
+import { LinkupClient } from "linkup-sdk";
 import Parallel from "parallel-web";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -50,6 +51,7 @@ export const WEB_SEARCH_PROVIDERS = [
   { name: "Parallel", value: "parallel" },
   { name: "Exa", value: "exa" },
   { name: "Tavily", value: "tavily" },
+  { name: "Linkup", value: "linkup" },
 ] as const;
 
 /** Maximum number of results to return. */
@@ -161,6 +163,7 @@ export function createWebSearchTool(): ReturnType<
           tavily: executeTavilySearch,
           brave: executeBraveSearch,
           perplexity: executePerplexitySearch,
+          linkup: executeLinkupSearch,
         };
 
         const executor = executorMap[selectedProvider];
@@ -196,11 +199,6 @@ const SEARCH_RETRY_POLICY = Schedule.intersect(
   Schedule.recurs(3),
   Schedule.jittered(Schedule.exponential("1 second")),
 );
-
-let cachedExaClient: Exa | null = null;
-let cachedParallelClient: Parallel | null = null;
-let cachedTavilyClient: ReturnType<typeof tavily> | null = null;
-let cachedPerplexityClient: Perplexity | null = null;
 
 /**
  * Execute an Exa search
@@ -238,12 +236,7 @@ function executeExaSearch(
 
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-
-    if (!cachedExaClient) {
-      cachedExaClient = new Exa(apiKey);
-    }
-
-    const exa = cachedExaClient;
+    const exa = new Exa(apiKey);
 
     yield* logger.info(`Executing Exa search for query: "${args.query}"`);
 
@@ -307,12 +300,7 @@ function executeParallelSearch(
 
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-
-    if (!cachedParallelClient) {
-      cachedParallelClient = new Parallel({ apiKey });
-    }
-
-    const parallel = cachedParallelClient;
+    const parallel = new Parallel({ apiKey });
 
     yield* logger.info(`Executing Parallel search for query: "${args.query}"`);
 
@@ -363,12 +351,7 @@ function executeTavilySearch(
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-
-    if (!cachedTavilyClient) {
-      cachedTavilyClient = tavily({ apiKey });
-    }
-
-    const client = cachedTavilyClient;
+    const client = tavily({ apiKey });
 
     yield* logger.info(`Executing Tavily search for query: "${args.query}"`);
 
@@ -497,12 +480,7 @@ function executePerplexitySearch(
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-
-    if (!cachedPerplexityClient) {
-      cachedPerplexityClient = new Perplexity({ apiKey });
-    }
-
-    const client = cachedPerplexityClient;
+    const client = new Perplexity({ apiKey });
 
     yield* logger.info(`Executing Perplexity search for query: "${args.query}"`);
 
@@ -538,6 +516,64 @@ function executePerplexitySearch(
       query: args.query,
       completedAt: new Date().toISOString(),
       provider: "perplexity" as const,
+    };
+  });
+}
+
+function executeLinkupSearch(
+  args: WebSearchArgs,
+  apiKey: string,
+): Effect.Effect<WebSearchResult, Error, LoggerService> {
+  const searchDepthToLinkup: Record<SearchDepth, "fast" | "standard" | "deep"> = {
+    fast: "fast",
+    standard: "standard",
+    deep: "deep",
+  };
+
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+    const client = new LinkupClient({ apiKey });
+
+    yield* logger.info(`Executing Linkup search for query: "${args.query}"`);
+
+    const response = yield* Effect.retry(
+      Effect.tryPromise({
+        try: () =>
+          client.search({
+            query: args.query,
+            depth: searchDepthToLinkup[args.searchDepth ?? "standard"],
+            outputType: "searchResults",
+            includeImages: false,
+            maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
+            ...(args.fromDate ? { fromDate: new Date(args.fromDate) } : {}),
+            ...(args.toDate ? { toDate: new Date(args.toDate) } : {}),
+          }),
+        catch: (error) =>
+          new Error(
+            `Linkup search failed: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      }),
+      SEARCH_RETRY_POLICY,
+    );
+
+    const results: WebSearchItem[] = [];
+    for (const result of response.results ?? []) {
+      if (result.type !== "text") continue;
+      results.push({
+        title: result.name,
+        url: result.url,
+        snippet: result.content,
+      });
+    }
+
+    yield* logger.info(`Linkup search found ${results.length} results`);
+
+    return {
+      results,
+      totalResults: results.length,
+      query: args.query,
+      completedAt: new Date().toISOString(),
+      provider: "linkup" as const,
     };
   });
 }

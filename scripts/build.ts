@@ -43,6 +43,8 @@ function main(): void {
     "ink-big-text",
     "--external",
     "pdf-parse",
+    "--external",
+    "@x402/core/http",
     "--banner",
     banner,
   ];
