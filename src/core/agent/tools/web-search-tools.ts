@@ -574,9 +574,8 @@ function executeLinkupSearch(
             query: args.query,
             depth: searchDepthToLinkup[args.searchDepth ?? "standard"],
             outputType: "searchResults",
-            ...(args.maxResults
-              ? { maxResults: args.maxResults }
-              : { maxResults: DEFAULT_MAX_RESULTS }),
+            includeImages: false,
+            maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
             ...(args.fromDate ? { fromDate: new Date(args.fromDate) } : {}),
             ...(args.toDate ? { toDate: new Date(args.toDate) } : {}),
           }),
@@ -588,23 +587,15 @@ function executeLinkupSearch(
       SEARCH_RETRY_POLICY,
     );
 
-    const results: WebSearchItem[] = (response.results ?? [])
-      .filter(
-        (
-          result,
-        ): result is {
-          type: "text";
-          name: string;
-          url: string;
-          content: string;
-          favicon: string;
-        } => result.type === "text",
-      )
-      .map((result) => ({
-        title: result.name || "",
-        url: result.url || "",
-        snippet: result.content || "",
-      }));
+    const results: WebSearchItem[] = [];
+    for (const result of response.results ?? []) {
+      if (result.type !== "text") continue;
+      results.push({
+        title: result.name,
+        url: result.url,
+        snippet: result.content,
+      });
+    }
 
     yield* logger.info(`Linkup search found ${results.length} results`);
 
