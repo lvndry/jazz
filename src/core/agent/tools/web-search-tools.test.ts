@@ -25,6 +25,16 @@ mock.module("@perplexity-ai/perplexity_ai", () => {
   };
 });
 
+// Mock linkup-sdk
+const mockLinkupSearch = mock();
+mock.module("linkup-sdk", () => {
+  return {
+    LinkupClient: class {
+      search = mockLinkupSearch;
+    },
+  };
+});
+
 describe("WebSearchTool", () => {
   afterAll(() => {
     mock.restore();
@@ -166,6 +176,31 @@ describe("WebSearchTool", () => {
           expect(mockPerplexitySearchCreate).toHaveBeenCalledWith(
             expect.objectContaining({
               max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
+            }),
+          );
+        },
+      },
+      {
+        name: "linkup",
+        apiKey: "linkup-key",
+        setupMock: () => {
+          mockLinkupSearch.mockResolvedValue({
+            results: [
+              {
+                type: "text",
+                name: "Linkup Result",
+                url: "https://linkup.so",
+                content: "Linkup snippet",
+                favicon: "",
+              },
+            ],
+          });
+        },
+        verifyMock: (args: WebSearchArgs) => {
+          expect(mockLinkupSearch).toHaveBeenCalledWith(
+            expect.objectContaining({
+              maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
+              outputType: "searchResults",
             }),
           );
         },
