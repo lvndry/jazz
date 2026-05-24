@@ -509,8 +509,7 @@ function selectModel(
   cache?: Map<string, LanguageModel>,
 ): LanguageModel {
   // Check cache first
-  const providerConfigSignature = JSON.stringify(llmConfig?.[providerName] ?? {});
-  const cacheKey = `${providerName}:${modelId}:${providerConfigSignature}`;
+  const cacheKey = `${providerName}:${modelId}:${buildProviderCacheFingerprint(providerName, llmConfig)}`;
   if (cache?.has(cacheKey)) {
     return cache.get(cacheKey)!;
   }
@@ -638,6 +637,25 @@ function selectModel(
   // Store in cache
   cache?.set(cacheKey, model);
   return model;
+}
+
+function buildProviderCacheFingerprint(providerName: ProviderName, llmConfig?: LLMConfig): string {
+  if (!llmConfig) return "";
+
+  switch (providerName) {
+    case "ollama": {
+      const cfg = llmConfig.ollama;
+      return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}`;
+    }
+    case "llamacpp": {
+      const cfg = llmConfig.llamacpp;
+      return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}`;
+    }
+    default: {
+      const apiKey = llmConfig[providerName]?.api_key;
+      return apiKey ?? "";
+    }
+  }
 }
 
 function buildProviderOptions(
