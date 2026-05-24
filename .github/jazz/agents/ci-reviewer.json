@@ -1,13 +1,13 @@
 {
   "id": "ci-reviewer",
   "name": "ci-reviewer",
-  "description": "CI code review agent",
+  "description": "CI code review agent focused on intent, behavior, and risk",
   "model": "minimax/minimax-m2.5:free",
   "config": {
     "persona": "coder",
     "llmProvider": "openrouter",
     "llmModel": "minimax/minimax-m2.5:free",
-    "reasoningEffort": "medium",
+    "reasoningEffort": "high",
     "tools": [
       "context_info",
       "find",
