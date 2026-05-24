@@ -1,3 +1,4 @@
+import type { ProviderName } from "@/core/constants/models";
 import type { ChatMessage } from "./message";
 import type { ToolCall, ToolDefinition } from "./tools";
 
@@ -37,4 +38,6 @@ export interface ChatCompletionOptions {
   toolChoice?: "auto" | "none" | { type: "function"; function: { name: string } };
   stream?: boolean;
   reasoning_effort?: "disable" | "low" | "medium" | "high";
+  /** Optional per-request API key overrides by provider (typically from agent config). */
+  providerApiKeys?: Partial<Record<ProviderName, string>>;
 }

@@ -106,6 +106,7 @@ export function executeWithStreaming(
             tools: runContext.tools,
             toolChoice: "auto" as const,
             reasoning_effort: reasoningEffort,
+            ...(agent.config.llmApiKeys ? { providerApiKeys: agent.config.llmApiKeys } : {}),
           };
 
           const showAgentStatus = (

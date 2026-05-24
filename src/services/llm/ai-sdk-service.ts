@@ -76,6 +76,30 @@ interface AISDKConfig {
   webSearchConfig?: WebSearchConfig;
 }
 
+function mergeProviderApiKeysIntoLLMConfig(
+  baseLLMConfig: LLMConfig | undefined,
+  providerApiKeys: ChatCompletionOptions["providerApiKeys"] | undefined,
+): LLMConfig | undefined {
+  if (!providerApiKeys || Object.keys(providerApiKeys).length === 0) {
+    return baseLLMConfig;
+  }
+
+  const merged: Record<string, unknown> = { ...(baseLLMConfig ?? {}) };
+  for (const [provider, apiKey] of Object.entries(providerApiKeys)) {
+    if (typeof apiKey !== "string" || apiKey.length === 0) continue;
+    const existingProviderConfig =
+      merged[provider] && typeof merged[provider] === "object"
+        ? (merged[provider] as Record<string, unknown>)
+        : {};
+    merged[provider] = {
+      ...existingProviderConfig,
+      api_key: apiKey,
+    };
+  }
+
+  return merged;
+}
+
 function parseToolArguments(input: string): Record<string, unknown> {
   const parsed = safeParseJson<Record<string, unknown>>(input);
   return Option.match(parsed, {
@@ -477,7 +501,8 @@ function selectModel(
   cache?: Map<string, LanguageModel>,
 ): LanguageModel {
   // Check cache first
-  const cacheKey = `${providerName}:${modelId}`;
+  const providerConfigSignature = JSON.stringify(llmConfig?.[providerName] ?? {});
+  const cacheKey = `${providerName}:${modelId}:${providerConfigSignature}`;
   if (cache?.has(cacheKey)) {
     return cache.get(cacheKey)!;
   }
@@ -764,39 +789,71 @@ class AISDKService implements LLMService {
   private config: AISDKConfig;
   private readonly providerModels = PROVIDER_MODELS;
   private readonly modelFetcher: ModelFetcherService;
+  private readonly configService: AgentConfigService;
+  private llmConfigSnapshot = "";
+  private webSearchConfigSnapshot = "";
   // Model instance cache: key = "provider:modelId"
   private readonly modelCache = new Map<string, LanguageModel>();
   private readonly modelInfoCache = new Map<ProviderName, readonly ModelInfo[]>();
 
   constructor(
     config: AISDKConfig,
+    configService: AgentConfigService,
     private readonly logger: LoggerService,
   ) {
     this.config = config;
+    this.configService = configService;
     this.modelFetcher = createModelFetcher();
-
-    if (this.config.llmConfig) {
-      const providers = getConfiguredProviders(this.config.llmConfig);
-
-      providers.forEach(({ name, apiKey }) => {
-        if (name === "google") {
-          // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
-          process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
-        } else if (name === "moonshotai") {
-          // @ai-sdk/moonshotai expects MOONSHOT_API_KEY (not MOONSHOTAI_API_KEY)
-          process.env["MOONSHOT_API_KEY"] = apiKey;
-        } else if (name === "togetherai") {
-          // @ai-sdk/togetherai expects TOGETHER_AI_API_KEY (not TOGETHERAI_API_KEY)
-          process.env["TOGETHER_AI_API_KEY"] = apiKey;
-        } else {
-          process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
-        }
-      });
-    }
+    this.llmConfigSnapshot = JSON.stringify(this.config.llmConfig ?? {});
+    this.webSearchConfigSnapshot = JSON.stringify(this.config.webSearchConfig ?? {});
+    this.applyProviderEnvFromConfig(this.config.llmConfig);
   }
 
   private isProviderName(name: string): name is ProviderName {
     return Object.hasOwn(this.providerModels, name);
+  }
+
+  private applyProviderEnvFromConfig(llmConfig?: LLMConfig): void {
+    if (!llmConfig) return;
+    const providers = getConfiguredProviders(llmConfig);
+
+    providers.forEach(({ name, apiKey }) => {
+      if (name === "google") {
+        // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
+        process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
+      } else if (name === "moonshotai") {
+        // @ai-sdk/moonshotai expects MOONSHOT_API_KEY (not MOONSHOTAI_API_KEY)
+        process.env["MOONSHOT_API_KEY"] = apiKey;
+      } else if (name === "togetherai") {
+        // @ai-sdk/togetherai expects TOGETHER_AI_API_KEY (not TOGETHERAI_API_KEY)
+        process.env["TOGETHER_AI_API_KEY"] = apiKey;
+      } else {
+        process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
+      }
+    });
+  }
+
+  private async refreshRuntimeConfigIfChanged(): Promise<void> {
+    const latest = await Effect.runPromise(this.configService.appConfig);
+    const latestLLMSnapshot = JSON.stringify(latest.llm ?? {});
+    const latestWebSearchSnapshot = JSON.stringify(latest.web_search ?? {});
+    const llmChanged = latestLLMSnapshot !== this.llmConfigSnapshot;
+    const webSearchChanged = latestWebSearchSnapshot !== this.webSearchConfigSnapshot;
+
+    if (!llmChanged && !webSearchChanged) return;
+
+    this.config = {
+      ...(latest.llm ? { llmConfig: latest.llm } : {}),
+      ...(latest.web_search ? { webSearchConfig: latest.web_search } : {}),
+    };
+    this.llmConfigSnapshot = latestLLMSnapshot;
+    this.webSearchConfigSnapshot = latestWebSearchSnapshot;
+
+    if (llmChanged) {
+      // Provider instances may capture API keys, so invalidate cached models on key/config changes.
+      this.modelCache.clear();
+      this.applyProviderEnvFromConfig(latest.llm);
+    }
   }
 
   private getProviderModels(
@@ -1029,18 +1086,19 @@ class AISDKService implements LLMService {
   ): Effect.Effect<ChatCompletionResponse, LLMError> {
     return Effect.tryPromise({
       try: async () => {
+        await this.refreshRuntimeConfigIfChanged();
+        const effectiveLLMConfig = mergeProviderApiKeysIntoLLMConfig(
+          this.config.llmConfig,
+          options.providerApiKeys,
+        );
+        this.applyProviderEnvFromConfig(effectiveLLMConfig);
         const timingStart = Date.now();
         void this.logger.debug(
           `[LLM Timing] Starting non-streaming completion for ${providerName}:${options.model}`,
         );
 
         const modelSelectStart = Date.now();
-        const model = selectModel(
-          providerName,
-          options.model,
-          this.config.llmConfig,
-          this.modelCache,
-        );
+        const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
         void this.logger.debug(
           `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
         );
@@ -1234,20 +1292,21 @@ class AISDKService implements LLMService {
     providerName: ProviderName,
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
-    return Effect.try({
-      try: () => {
+    return Effect.tryPromise({
+      try: async () => {
+        await this.refreshRuntimeConfigIfChanged();
+        const effectiveLLMConfig = mergeProviderApiKeysIntoLLMConfig(
+          this.config.llmConfig,
+          options.providerApiKeys,
+        );
+        this.applyProviderEnvFromConfig(effectiveLLMConfig);
         const timingStart = Date.now();
         void this.logger.debug(
           `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
         );
 
         const modelSelectStart = Date.now();
-        const model = selectModel(
-          providerName,
-          options.model,
-          this.config.llmConfig,
-          this.modelCache,
-        );
+        const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
         void this.logger.debug(
           `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
         );
@@ -1478,7 +1537,7 @@ export function createAISDKServiceLayer(): Layer.Layer<
         ...(appConfig.llm ? { llmConfig: appConfig.llm } : {}),
         ...(appConfig.web_search ? { webSearchConfig: appConfig.web_search } : {}),
       };
-      return new AISDKService(cfg, logger);
+      return new AISDKService(cfg, configService, logger);
     }),
   );
 }
