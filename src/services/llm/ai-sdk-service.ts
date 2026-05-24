@@ -25,18 +25,26 @@ import {
   truncateRequestBodyValues,
 } from "@/core/utils/llm-error";
 import { createDeferred } from "@/core/utils/promise";
-import { alibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
-import { anthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
-import { cerebras } from "@ai-sdk/cerebras";
-import { deepseek } from "@ai-sdk/deepseek";
-import { fireworks, type FireworksLanguageModelOptions } from "@ai-sdk/fireworks";
-import { google, type GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
+import { alibaba, createAlibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
+import { anthropic, createAnthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
+import { cerebras, createCerebras } from "@ai-sdk/cerebras";
+import { createDeepSeek, deepseek } from "@ai-sdk/deepseek";
+import { createFireworks, fireworks, type FireworksLanguageModelOptions } from "@ai-sdk/fireworks";
+import {
+  createGoogleGenerativeAI,
+  google,
+  type GoogleGenerativeAIProviderOptions,
+} from "@ai-sdk/google";
 import { groq } from "@ai-sdk/groq";
-import { mistral } from "@ai-sdk/mistral";
-import { moonshotai, type MoonshotAILanguageModelOptions } from "@ai-sdk/moonshotai";
-import { openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
-import { togetherai } from "@ai-sdk/togetherai";
-import { xai, type XaiProviderOptions } from "@ai-sdk/xai";
+import { createMistral, mistral } from "@ai-sdk/mistral";
+import {
+  createMoonshotAI,
+  moonshotai,
+  type MoonshotAILanguageModelOptions,
+} from "@ai-sdk/moonshotai";
+import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
+import { createTogetherAI, togetherai } from "@ai-sdk/togetherai";
+import { createXai, xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import { minimax } from "vercel-minimax-ai-provider";
 import {
   createOpenRouter,
@@ -508,44 +516,72 @@ function selectModel(
   }
 
   let model: LanguageModel;
+  const resolveApiKey = (provider: ProviderName): string | undefined => {
+    const envVar = PROVIDER_ENV_VARS[provider];
+    return llmConfig?.[provider]?.api_key ?? (envVar ? process.env[envVar] : undefined);
+  };
 
   switch (providerName.toLowerCase()) {
-    case "openai":
-      model = openai(modelId);
+    case "openai": {
+      const apiKey = resolveApiKey("openai");
+      model = apiKey ? createOpenAI({ apiKey })(modelId) : openai(modelId);
       break;
-    case "anthropic":
-      model = anthropic(modelId);
+    }
+    case "anthropic": {
+      const apiKey = resolveApiKey("anthropic");
+      model = apiKey ? createAnthropic({ apiKey })(modelId) : anthropic(modelId);
       break;
-    case "google":
-      model = google(modelId);
+    }
+    case "google": {
+      const apiKey = resolveApiKey("google");
+      model = apiKey ? createGoogleGenerativeAI({ apiKey })(modelId) : google(modelId);
       break;
-    case "mistral":
-      model = mistral(modelId);
+    }
+    case "mistral": {
+      const apiKey = resolveApiKey("mistral");
+      model = apiKey ? createMistral({ apiKey })(modelId) : mistral(modelId);
       break;
-    case "xai":
-      model = xai(modelId);
+    }
+    case "xai": {
+      const apiKey = resolveApiKey("xai");
+      model = apiKey ? createXai({ apiKey })(modelId) : xai(modelId);
       break;
-    case "deepseek":
-      model = (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+    }
+    case "deepseek": {
+      const apiKey = resolveApiKey("deepseek");
+      model = apiKey
+        ? createDeepSeek({ apiKey })(modelId)
+        : (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
       break;
-    case "moonshotai":
-      model = moonshotai(modelId);
+    }
+    case "moonshotai": {
+      const apiKey = resolveApiKey("moonshotai");
+      model = apiKey ? createMoonshotAI({ apiKey })(modelId) : moonshotai(modelId);
       break;
+    }
     case "minimax":
       model = minimax(modelId);
       break;
-    case "alibaba":
-      model = alibaba(modelId);
+    case "alibaba": {
+      const apiKey = resolveApiKey("alibaba");
+      model = apiKey ? createAlibaba({ apiKey })(modelId) : alibaba(modelId);
       break;
-    case "cerebras":
-      model = cerebras(modelId);
+    }
+    case "cerebras": {
+      const apiKey = resolveApiKey("cerebras");
+      model = apiKey ? createCerebras({ apiKey })(modelId) : cerebras(modelId);
       break;
-    case "fireworks":
-      model = fireworks(modelId);
+    }
+    case "fireworks": {
+      const apiKey = resolveApiKey("fireworks");
+      model = apiKey ? createFireworks({ apiKey })(modelId) : fireworks(modelId);
       break;
-    case "togetherai":
-      model = togetherai(modelId);
+    }
+    case "togetherai": {
+      const apiKey = resolveApiKey("togetherai");
+      model = apiKey ? createTogetherAI({ apiKey })(modelId) : togetherai(modelId);
       break;
+    }
     case "ollama": {
       const headers = llmConfig?.ollama?.api_key
         ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` }
@@ -806,31 +842,10 @@ class AISDKService implements LLMService {
     this.modelFetcher = createModelFetcher();
     this.llmConfigSnapshot = JSON.stringify(this.config.llmConfig ?? {});
     this.webSearchConfigSnapshot = JSON.stringify(this.config.webSearchConfig ?? {});
-    this.applyProviderEnvFromConfig(this.config.llmConfig);
   }
 
   private isProviderName(name: string): name is ProviderName {
     return Object.hasOwn(this.providerModels, name);
-  }
-
-  private applyProviderEnvFromConfig(llmConfig?: LLMConfig): void {
-    if (!llmConfig) return;
-    const providers = getConfiguredProviders(llmConfig);
-
-    providers.forEach(({ name, apiKey }) => {
-      if (name === "google") {
-        // ai-sdk default API key env variable for Google is GOOGLE_GENERATIVE_AI_API_KEY
-        process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = apiKey;
-      } else if (name === "moonshotai") {
-        // @ai-sdk/moonshotai expects MOONSHOT_API_KEY (not MOONSHOTAI_API_KEY)
-        process.env["MOONSHOT_API_KEY"] = apiKey;
-      } else if (name === "togetherai") {
-        // @ai-sdk/togetherai expects TOGETHER_AI_API_KEY (not TOGETHERAI_API_KEY)
-        process.env["TOGETHER_AI_API_KEY"] = apiKey;
-      } else {
-        process.env[`${name.toUpperCase()}_API_KEY`] = apiKey;
-      }
-    });
   }
 
   private async refreshRuntimeConfigIfChanged(): Promise<void> {
@@ -852,7 +867,6 @@ class AISDKService implements LLMService {
     if (llmChanged) {
       // Provider instances may capture API keys, so invalidate cached models on key/config changes.
       this.modelCache.clear();
-      this.applyProviderEnvFromConfig(latest.llm);
     }
   }
 
@@ -1091,7 +1105,6 @@ class AISDKService implements LLMService {
           this.config.llmConfig,
           options.providerApiKeys,
         );
-        this.applyProviderEnvFromConfig(effectiveLLMConfig);
         const timingStart = Date.now();
         void this.logger.debug(
           `[LLM Timing] Starting non-streaming completion for ${providerName}:${options.model}`,
@@ -1299,7 +1312,6 @@ class AISDKService implements LLMService {
           this.config.llmConfig,
           options.providerApiKeys,
         );
-        this.applyProviderEnvFromConfig(effectiveLLMConfig);
         const timingStart = Date.now();
         void this.logger.debug(
           `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
