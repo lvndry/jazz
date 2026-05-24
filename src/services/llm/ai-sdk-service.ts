@@ -826,8 +826,7 @@ class AISDKService implements LLMService {
   private readonly providerModels = PROVIDER_MODELS;
   private readonly modelFetcher: ModelFetcherService;
   private readonly configService: AgentConfigService;
-  private llmConfigSnapshot = "";
-  private webSearchConfigSnapshot = "";
+  private lastSeenConfigRevision = -1;
   // Model instance cache: key = "provider:modelId"
   private readonly modelCache = new Map<string, LanguageModel>();
   private readonly modelInfoCache = new Map<ProviderName, readonly ModelInfo[]>();
@@ -840,8 +839,6 @@ class AISDKService implements LLMService {
     this.config = config;
     this.configService = configService;
     this.modelFetcher = createModelFetcher();
-    this.llmConfigSnapshot = JSON.stringify(this.config.llmConfig ?? {});
-    this.webSearchConfigSnapshot = JSON.stringify(this.config.webSearchConfig ?? {});
   }
 
   private isProviderName(name: string): name is ProviderName {
@@ -849,20 +846,18 @@ class AISDKService implements LLMService {
   }
 
   private async refreshRuntimeConfigIfChanged(): Promise<void> {
-    const latest = await Effect.runPromise(this.configService.appConfig);
-    const latestLLMSnapshot = JSON.stringify(latest.llm ?? {});
-    const latestWebSearchSnapshot = JSON.stringify(latest.web_search ?? {});
-    const llmChanged = latestLLMSnapshot !== this.llmConfigSnapshot;
-    const webSearchChanged = latestWebSearchSnapshot !== this.webSearchConfigSnapshot;
+    const latestRevision = Effect.runSync(this.configService.revision);
+    if (latestRevision === this.lastSeenConfigRevision) return;
 
-    if (!llmChanged && !webSearchChanged) return;
+    const latest = await Effect.runPromise(this.configService.appConfig);
+    const llmChanged =
+      JSON.stringify(latest.llm ?? {}) !== JSON.stringify(this.config.llmConfig ?? {});
 
     this.config = {
       ...(latest.llm ? { llmConfig: latest.llm } : {}),
       ...(latest.web_search ? { webSearchConfig: latest.web_search } : {}),
     };
-    this.llmConfigSnapshot = latestLLMSnapshot;
-    this.webSearchConfigSnapshot = latestWebSearchSnapshot;
+    this.lastSeenConfigRevision = latestRevision;
 
     if (llmChanged) {
       // Provider instances may capture API keys, so invalidate cached models on key/config changes.

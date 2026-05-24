@@ -47,6 +47,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   private mcpOverrides: Record<string, MCPServerOverride>;
   private configPath: string | undefined;
   private fs: FileSystem.FileSystem;
+  private currentRevision: number;
 
   constructor(
     initialConfig: AppConfig,
@@ -58,6 +59,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
     this.mcpOverrides = mcpOverrides;
     this.configPath = configPath;
     this.fs = fs;
+    this.currentRevision = 0;
   }
 
   get<A>(key: string): Effect.Effect<A, never> {
@@ -165,8 +167,13 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         yield* this.fs
           .writeFileString(path, JSON.stringify(toWrite, null, 2))
           .pipe(Effect.catchAll(() => Effect.void));
+        this.currentRevision += 1;
       }.bind(this),
     ).pipe(Effect.catchAll(() => Effect.void));
+  }
+
+  get revision(): Effect.Effect<number, never> {
+    return Effect.succeed(this.currentRevision);
   }
 
   get appConfig(): Effect.Effect<AppConfig, never> {
