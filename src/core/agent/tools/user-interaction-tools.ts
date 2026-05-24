@@ -2,8 +2,8 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
   PresentationServiceTag,
-  type UserInputRequest,
   type FilePickerRequest,
+  type UserInputRequest,
 } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "./base-tool";
@@ -21,11 +21,6 @@ const askUserSchema = z.object({
     .min(2)
     .default([])
     .describe("At least 2 selectable response options"),
-  allow_custom: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe("Allow custom text input (default: true)"),
   allow_multiple: z
     .boolean()
     .optional()
@@ -69,7 +64,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
         const request: UserInputRequest = {
           question: args.question,
           suggestions: args.suggested_responses,
-          allowCustom: args.allow_custom !== false,
+          allowCustom: true,
           allowMultiple: args.allow_multiple === true,
         };
 
