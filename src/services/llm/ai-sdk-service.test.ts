@@ -5,8 +5,8 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { APICallError } from "ai";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Stream } from "effect";
-import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
 import type { ProviderName } from "../../core/constants/models";
+import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
 import type { AgentConfigService } from "../../core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
@@ -352,7 +352,7 @@ describe("AI SDK Service - Unit Tests", () => {
     });
   });
 
-  describe("Environment Variable Export", () => {
+  describe("Environment Variable Isolation", () => {
     beforeEach(() => {
       // Clean up environment variables before each test
       delete process.env["OPENAI_API_KEY"];
@@ -361,7 +361,7 @@ describe("AI SDK Service - Unit Tests", () => {
       delete process.env["GOOGLE_GENERATIVE_AI_API_KEY"];
     });
 
-    it("should export OpenAI API key to environment", async () => {
+    it("should not export OpenAI API key to environment", async () => {
       const testEffect = Effect.gen(function* () {
         yield* LLMServiceTag;
         return process.env["OPENAI_API_KEY"];
@@ -373,10 +373,10 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const result = await runWithTestLayers(testEffect, configLayer);
 
-      expect(result).toBe("sk-openai-test");
+      expect(result).toBeUndefined();
     });
 
-    it("should export OpenRouter API key to environment", async () => {
+    it("should not export OpenRouter API key to environment", async () => {
       const testEffect = Effect.gen(function* () {
         yield* LLMServiceTag;
         return process.env["OPENROUTER_API_KEY"];
@@ -388,10 +388,10 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const result = await runWithTestLayers(testEffect, configLayer);
 
-      expect(result).toBe("sk-or-test");
+      expect(result).toBeUndefined();
     });
 
-    it("should export Google API key with special env variable name", async () => {
+    it("should not export Google API key with special env variable name", async () => {
       const testEffect = Effect.gen(function* () {
         yield* LLMServiceTag;
         return process.env["GOOGLE_GENERATIVE_AI_API_KEY"];
@@ -403,10 +403,10 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const result = await runWithTestLayers(testEffect, configLayer);
 
-      expect(result).toBe("sk-google-test");
+      expect(result).toBeUndefined();
     });
 
-    it("should export multiple provider API keys", async () => {
+    it("should not export multiple provider API keys", async () => {
       const testEffect = Effect.gen(function* () {
         yield* LLMServiceTag;
         return {
@@ -426,10 +426,10 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const result = await runWithTestLayers(testEffect, configLayer);
 
-      expect(result.openai).toBe("sk-openai");
-      expect(result.openrouter).toBe("sk-openrouter");
-      expect(result.anthropic).toBe("sk-anthropic");
-      expect(result.google).toBe("sk-google");
+      expect(result.openai).toBeUndefined();
+      expect(result.openrouter).toBeUndefined();
+      expect(result.anthropic).toBeUndefined();
+      expect(result.google).toBeUndefined();
     });
   });
 
