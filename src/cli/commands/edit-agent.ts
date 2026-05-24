@@ -14,6 +14,7 @@ import {
   WEB_SEARCH_CATEGORY,
 } from "@/core/agent/tools/register-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
+import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
@@ -50,6 +51,8 @@ interface AgentEditAnswers {
   persona?: string;
   llmProvider?: ProviderName;
   llmModel?: string;
+  llmApiKeyProvider?: ProviderName;
+  llmApiKeyValue?: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
   tools?: string[];
   webSearchProvider?: WebSearchProviderName;
@@ -160,6 +163,7 @@ export function editAgentCommand(
         { name: "Persona", value: "persona" },
         { name: "LLM Provider", value: "llmProvider" },
         { name: "LLM Model", value: "llmModel" },
+        { name: "LLM API Key (Agent Override)", value: "llmApiKey" },
         {
           name: currentModelIsReasoning
             ? "Reasoning Effort"
@@ -462,7 +466,7 @@ export function editAgentCommand(
     }
 
     // Build updated configuration
-    const updatedConfig: AgentConfig = {
+    let updatedConfig: AgentConfig = {
       ...agent.config,
       ...(editAnswers.persona && { persona: editAnswers.persona }),
       ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
@@ -472,6 +476,13 @@ export function editAgentCommand(
         editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
       ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
     };
+    if (editAnswers.llmApiKeyProvider) {
+      updatedConfig = setAgentApiKeyOverride(
+        updatedConfig,
+        editAnswers.llmApiKeyProvider,
+        editAnswers.llmApiKeyValue,
+      );
+    }
 
     // Build update object. The description guard uses !== undefined (not a
     // truthy check) so a user clearing the description by submitting empty
@@ -711,6 +722,56 @@ async function promptForAgentUpdates(
     }
   }
 
+  if (fieldToUpdate === "llmApiKey") {
+    const provider = await Effect.runPromise(
+      terminal.select<ProviderName>("Select provider for agent API key override:", {
+        choices: AVAILABLE_PROVIDERS.map((p) => ({ name: formatProviderDisplayName(p), value: p })),
+        default: currentAgent.config.llmProvider,
+      }),
+    );
+    if (!provider) {
+      throw new Error("Edit cancelled");
+    }
+
+    const existingAgentOverride = currentAgent.config.llmApiKeys?.[provider];
+    const isOptional = provider === "ollama" || provider === "llamacpp";
+    if (existingAgentOverride) {
+      await Effect.runPromise(
+        terminal.info(
+          `Agent override exists for ${formatProviderDisplayName(provider)}. Submit empty value to clear and use global/env fallback.`,
+        ),
+      );
+    }
+
+    const apiKey = await Effect.runPromise(
+      terminal.ask(
+        `Enter ${formatProviderDisplayName(provider)} API key override (leave empty to clear override):`,
+        {
+          simple: true,
+          secret: true,
+          placeholder: "Paste your API key...",
+          validate: (inputValue: string): boolean | string => {
+            if (!isOptional && inputValue.trim().length === 0) {
+              return true; // empty means clear override
+            }
+            return true;
+          },
+        },
+      ),
+    );
+
+    if (apiKey === undefined) {
+      throw new Error("Edit cancelled");
+    }
+
+    answers.llmApiKeyProvider = provider;
+    if (apiKey.trim()) {
+      answers.llmApiKeyValue = apiKey;
+    } else {
+      delete answers.llmApiKeyValue;
+    }
+  }
+
   // Update tools
   if (fieldToUpdate === "tools") {
     // Get current agent's tool names
@@ -811,6 +872,27 @@ async function promptForAgentUpdates(
   }
 
   return answers;
+}
+
+function setAgentApiKeyOverride(
+  config: AgentConfig,
+  provider: ProviderName,
+  apiKey: string | undefined,
+): AgentConfig {
+  const nextMap = { ...(config.llmApiKeys ?? {}) };
+  if (apiKey && apiKey.length > 0) {
+    nextMap[provider] = apiKey;
+  } else {
+    delete nextMap[provider];
+  }
+
+  if (Object.keys(nextMap).length === 0) {
+    const { llmApiKeys: _unused, ...rest } = config;
+    void _unused;
+    return rest;
+  }
+
+  return { ...config, llmApiKeys: nextMap };
 }
 
 async function promptForReasoningEffort(

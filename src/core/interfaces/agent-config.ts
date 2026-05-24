@@ -12,6 +12,8 @@ export interface AgentConfigService {
   readonly has: (key: string) => Effect.Effect<boolean, never>;
   /** Sets a config value for the given key. */
   readonly set: <A>(key: string, value: A) => Effect.Effect<void, never>;
+  /** Monotonic config revision. Increments on each successful mutation. */
+  readonly revision: Effect.Effect<number, never>;
   /** Gets the complete application configuration. */
   readonly appConfig: Effect.Effect<AppConfig, never>;
 }

@@ -52,6 +52,8 @@ export interface AgentConfig {
   readonly persona: string;
   readonly llmProvider: ProviderName;
   readonly llmModel: string;
+  /** Optional per-agent API key overrides by provider. Falls back to global config, then env vars. */
+  readonly llmApiKeys?: Partial<Record<ProviderName, string>>;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   readonly tools?: readonly string[];
   readonly webSearchProvider?: WebSearchProviderName;

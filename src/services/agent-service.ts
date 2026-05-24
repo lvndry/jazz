@@ -167,6 +167,21 @@ export class AgentServiceImpl implements AgentService {
 
   validateAgentConfig(config: AgentConfig): Effect.Effect<void, AgentConfigurationError> {
     return Effect.gen(function* (this: AgentServiceImpl) {
+      if (config.llmApiKeys) {
+        for (const [provider, apiKey] of Object.entries(config.llmApiKeys)) {
+          if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: `config.llmApiKeys.${provider}`,
+                message: "LLM API key overrides must be non-empty strings",
+                suggestion: "Set a valid API key string or remove the provider override.",
+              }),
+            );
+          }
+        }
+      }
+
       // Validate tools
       if (config.tools) {
         if (!Array.isArray(config.tools)) {
