@@ -263,12 +263,18 @@ export function isRetryableLLMError(error: unknown): boolean {
  * Exponential backoff schedule for LLM retries, delay capped at MAX_RETRY_DELAY_SECONDS.
  * Only retries on transient errors (rate limits, connection failures, 5xx).
  */
-export function makeLLMRetrySchedule(maxRetries: number) {
-  return Schedule.exponential("1 second").pipe(
+export function makeLLMRetrySchedule(maxRetries: number, unlimited: boolean = false) {
+  const base = Schedule.exponential("1 second").pipe(
     Schedule.modifyDelay((_, delay) =>
       Duration.min(delay, Duration.seconds(MAX_RETRY_DELAY_SECONDS)),
     ),
-    Schedule.intersect(Schedule.recurs(maxRetries)),
     Schedule.whileInput((error: unknown) => isRetryableLLMError(error)),
+  );
+  if (unlimited) {
+    return base;
+  }
+  return base.pipe(
+    Schedule.intersect(Schedule.recurs(maxRetries)),
+    Schedule.map(([delay]) => delay),
   );
 }

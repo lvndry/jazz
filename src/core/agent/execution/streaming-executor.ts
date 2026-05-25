@@ -120,6 +120,7 @@ export function executeWithStreaming(
             agent.name,
             showAgentStatus,
             retryAttemptRef,
+            runContext.unlimited ?? false,
           );
 
           const streamingResult = yield* Effect.retry(
@@ -178,6 +179,7 @@ export function executeWithStreaming(
                     agent.name,
                     showAgentStatus,
                     fallbackAttemptRef,
+                    runContext.unlimited ?? false,
                   );
                   const fallback = yield* Effect.retry(
                     withLongRunningLlmNotice(

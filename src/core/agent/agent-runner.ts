@@ -254,6 +254,7 @@ function initializeAgentRun(
       model,
       connectedMCPServers,
       maxRetries: Math.max(0, Math.floor(appConfig.maxRetries ?? DEFAULT_MAX_LLM_RETRIES)),
+      unlimited: options.unlimited ?? false,
       knownSkills: relevantSkills,
     };
   });

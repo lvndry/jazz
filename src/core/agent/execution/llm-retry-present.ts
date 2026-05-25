@@ -33,14 +33,16 @@ export function makeUserVisibleLlmRetrySchedule(
   agentName: string,
   presentStatus: PresentStatusFn,
   attemptRef: Ref.Ref<number>,
+  unlimited: boolean = false,
 ) {
-  return makeLLMRetrySchedule(maxRetries).pipe(
+  return makeLLMRetrySchedule(maxRetries, unlimited).pipe(
     Schedule.tapInput((error: unknown) =>
       isRetryableLLMError(error)
         ? Effect.gen(function* () {
             const attempt = yield* Ref.updateAndGet(attemptRef, (count) => count + 1);
+            const tail = unlimited ? "" : ` of up to ${maxRetries}`;
             yield* presentStatus(
-              `${agentName} hit a temporary network or model issue. Trying again (attempt ${attempt} of up to ${maxRetries})…`,
+              `${agentName} hit a temporary network or model issue. Trying again (attempt ${attempt}${tail})…`,
               "progress",
             );
           })
