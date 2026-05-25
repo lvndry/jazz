@@ -659,4 +659,64 @@ describe("executeAgentLoop with unlimited", () => {
       ToolExecutor.executeToolCalls = originalExecute;
     }
   });
+
+  it("sets parentUnlimited on the tool execution context when unlimited is true", async () => {
+    let capturedContext: any = null;
+    let iteration = 0;
+
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: () => {
+        iteration++;
+        if (iteration === 1) {
+          return Effect.succeed({
+            completion: {
+              id: "c1",
+              model: "gpt-4",
+              content: "",
+              toolCalls: [
+                {
+                  id: "call_1",
+                  type: "function" as const,
+                  function: { name: "test_tool", arguments: "{}" },
+                },
+              ],
+            },
+            interrupted: false,
+          });
+        }
+        return Effect.succeed({
+          completion: { id: "c2", model: "gpt-4", content: "Done" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const originalExecute = ToolExecutor.executeToolCalls;
+    try {
+      ToolExecutor.executeToolCalls = mock((_toolCalls: any[], context: any) => {
+        capturedContext = context;
+        return Effect.succeed([
+          { toolCallId: "call_1", name: "test_tool", result: "ok", success: true },
+        ]);
+      });
+
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ unlimited: true }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+
+      expect(capturedContext?.parentUnlimited).toBe(true);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
 });

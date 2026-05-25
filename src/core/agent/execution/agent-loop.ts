@@ -390,6 +390,7 @@ export function executeAgentLoop(
                 conversationMessages: currentMessages,
                 parentAgent: agent,
                 parentMaxIterations: maxIterations,
+                parentUnlimited: unlimited,
                 compactConversation: (compacted: readonly ChatMessage[]) => {
                   currentMessages = [
                     currentMessages[0],

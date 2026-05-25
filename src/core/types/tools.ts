@@ -188,6 +188,11 @@ export interface ToolExecutionContext {
    */
   readonly parentMaxIterations?: number;
   /**
+   * Whether the parent agent is in unlimited mode. Subagents inherit this so
+   * every guardrail (iteration cap, retries, timeouts) is lifted for them too.
+   */
+  readonly parentUnlimited?: boolean;
+  /**
    * Callback to replace conversation messages with compacted versions.
    * Used by summarize_context to actually update the executor's message array.
    */

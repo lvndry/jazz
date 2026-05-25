@@ -138,6 +138,7 @@ ${args.task}`;
             sessionId: context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
             maxIterations: context.parentMaxIterations ?? DEFAULT_MAX_ITERATIONS,
+            unlimited: context.parentUnlimited ?? false,
             ephemeralRegionId: regionId,
           }).pipe(
             Effect.tapError(() =>
