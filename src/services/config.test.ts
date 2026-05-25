@@ -1,7 +1,8 @@
-import { type FileSystem } from "@effect/platform/FileSystem";
+import { FileSystem } from "@effect/platform";
 import { describe, expect, it, mock } from "bun:test";
-import { Effect } from "effect";
-import { AgentConfigServiceImpl } from "./config";
+import { Effect, Layer } from "effect";
+import { AgentConfigServiceImpl, createConfigLayer } from "./config";
+import { AgentConfigServiceTag } from "../core/interfaces/agent-config";
 import { type AppConfig } from "../core/types/index";
 
 // Mock FileSystem
@@ -35,7 +36,7 @@ const mockFS = {
   truncate: mock(() => Effect.void),
   utimes: mock(() => Effect.void),
   writeFile: mock(() => Effect.void),
-} as unknown as FileSystem;
+} as unknown as FileSystem.FileSystem;
 
 describe("AgentConfigService", () => {
   const initialConfig: AppConfig = {
@@ -112,7 +113,7 @@ describe("AgentConfigService", () => {
         return Effect.void;
       }),
       readFileString: mock(() => Effect.succeed(written)),
-    } as unknown as FileSystem;
+    } as unknown as FileSystem.FileSystem;
 
     const configPath = "/tmp/jazz-unlimited-test.json";
     const configWithUnlimited: AppConfig = {
@@ -123,7 +124,34 @@ describe("AgentConfigService", () => {
 
     await Effect.runPromise(service.set("unlimited", true));
 
+    expect(JSON.parse(written).unlimited).toBe(true);
+
     const reloaded = await Effect.runPromise(service.get<boolean>("unlimited"));
     expect(reloaded).toBe(true);
+  });
+
+  it("should load unlimited flag from config file via mergeConfig", async () => {
+    const configPath = "/tmp/jazz-unlimited-load-test.json";
+    const fileContent = JSON.stringify({ unlimited: true });
+
+    const loadFS = {
+      ...mockFS,
+      exists: mock((path: string) => Effect.succeed(path === configPath)),
+      readFileString: mock((path: string) =>
+        path === configPath ? Effect.succeed(fileContent) : Effect.succeed(""),
+      ),
+    } as unknown as FileSystem.FileSystem;
+
+    const fsLayer = Layer.succeed(FileSystem.FileSystem, loadFS);
+    const configLayer = createConfigLayer(false, configPath);
+
+    const unlimitedValue = await Effect.runPromise(
+      Effect.gen(function* () {
+        const config = yield* AgentConfigServiceTag;
+        return yield* config.get<boolean>("unlimited");
+      }).pipe(Effect.provide(configLayer), Effect.provide(fsLayer)),
+    );
+
+    expect(unlimitedValue).toBe(true);
   });
 });

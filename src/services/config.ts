@@ -326,6 +326,7 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     ...(override.autoApprovedCommands && {
       autoApprovedCommands: override.autoApprovedCommands,
     }),
+    ...(override.unlimited !== undefined && { unlimited: override.unlimited }),
   };
 }
 
