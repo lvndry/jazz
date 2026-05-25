@@ -262,6 +262,50 @@ describe("ToolExecutor.executeToolCall", () => {
   });
 });
 
+describe("ToolExecutor.executeTool unlimited mode", () => {
+  it("does not apply a timeout when unlimited is true", async () => {
+    const mockToolRegistry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "slow_tool",
+          timeoutMs: 50,
+          longRunning: false,
+          approvalExecuteToolName: undefined,
+        }),
+      executeTool: () =>
+        Effect.sleep("200 millis").pipe(
+          Effect.as({ success: true, result: { data: "completed" } }),
+        ),
+    } as unknown as ToolRegistry;
+
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, mockPresentationService),
+      Layer.succeed(ToolRegistryTag, mockToolRegistry),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(LLMServiceTag, emptyLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
+    );
+
+    const result = await Effect.runPromise(
+      ToolExecutor.executeTool(
+        "slow_tool",
+        {},
+        { agentId: "agent-1", conversationId: "conv-123", sessionId: "sess-1" },
+        undefined,
+        true,
+      ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, unknown, never>,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.result).toEqual({ data: "completed" });
+  });
+});
+
 describe("ToolExecutor.executeToolCalls", () => {
   it("should execute multiple tool calls", async () => {
     const mockToolRegistry = {

@@ -42,6 +42,7 @@ export class ToolExecutor {
     args: Record<string, unknown>,
     context: ToolExecutionContext,
     overrideTimeoutMs?: number,
+    unlimited: boolean = false,
   ): Effect.Effect<
     ToolExecutionResult,
     ToolNotFoundError | Error,
@@ -63,6 +64,10 @@ export class ToolExecutor {
         if (timeoutMs === undefined && !toolMeta?.longRunning) {
           timeoutMs = TOOL_TIMEOUT_MS;
         }
+      }
+
+      if (unlimited) {
+        timeoutMs = undefined;
       }
 
       const execution = registry.executeTool(name, args, context);
@@ -106,6 +111,7 @@ export class ToolExecutor {
     agentId: string,
     conversationId: string,
     toolsRequiringApproval: ReadonlySet<string>,
+    unlimited: boolean = false,
   ): Effect.Effect<
     { toolCallId: string; result: unknown; success: boolean; name: string },
     Error,
@@ -182,7 +188,13 @@ export class ToolExecutor {
         }
 
         // Execute tool — pass pre-fetched timeout to avoid redundant getTool lookup
-        let result = yield* ToolExecutor.executeTool(name, args, context, toolMeta?.timeoutMs);
+        let result = yield* ToolExecutor.executeTool(
+          name,
+          args,
+          context,
+          toolMeta?.timeoutMs,
+          unlimited,
+        );
         let toolDuration = Date.now() - toolStartTime;
         let finalToolName = name;
 
@@ -306,6 +318,8 @@ export class ToolExecutor {
               approvalResult.executeToolName,
               approvalResult.executeArgs,
               context,
+              undefined,
+              unlimited,
             );
             toolDuration = Date.now() - executeStartTime;
             finalToolName = approvalResult.executeToolName;
@@ -442,6 +456,7 @@ export class ToolExecutor {
     conversationId: string,
     agentName: string,
     interruptSignal?: Effect.Effect<void, never>,
+    unlimited: boolean = false,
   ): Effect.Effect<
     Array<{ toolCallId: string; result: unknown; name: string; success: boolean }>,
     Error,
@@ -531,6 +546,7 @@ export class ToolExecutor {
               agentId,
               conversationId,
               approvalSet,
+              unlimited,
             ),
           ),
         ),
