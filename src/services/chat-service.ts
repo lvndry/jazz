@@ -110,6 +110,7 @@ export class ChatServiceImpl implements ChatService {
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
+      let unlimited: boolean = options?.unlimited ?? false;
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
@@ -256,6 +257,7 @@ export class ChatServiceImpl implements ChatService {
               sessionId,
               sessionUsage,
               sessionStartedAt,
+              unlimited,
               ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
               ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
               ...(latestConfig.autoApprovedCommands?.length
@@ -332,6 +334,10 @@ export class ChatServiceImpl implements ChatService {
               // Sync mode state with store for Shift+Tab toggle
               store.setModeIsYolo(autoApprovePolicy === true || autoApprovePolicy === "high-risk");
             }
+            if (commandResult.newUnlimited !== undefined) {
+              unlimited = commandResult.newUnlimited;
+              // Store sync (store.setUnlimitedActive) is added in Task 12.
+            }
 
             if (commandResult.addAutoApprovedCommand) {
               if (!autoApprovedCommands.includes(commandResult.addAutoApprovedCommand)) {
@@ -371,6 +377,7 @@ export class ChatServiceImpl implements ChatService {
             conversationId,
             sessionId, // Pass the sessionId for logging
             conversationHistory,
+            unlimited,
             ...(options?.stream !== undefined ? { stream: options.stream } : {}),
             ...(autoApprovePolicy !== undefined
               ? { autoApprovePolicy: getCurrentAutoApprovePolicy }
