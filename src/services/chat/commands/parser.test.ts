@@ -74,6 +74,24 @@ describe("parseSpecialCommand", () => {
       expect(result.type).toBe("mcp");
       expect(result.args).toEqual([]);
     });
+
+    it("should parse /unlimited command", () => {
+      const result = parseSpecialCommand("/unlimited");
+      expect(result.type).toBe("unlimited");
+      expect(result.args).toEqual([]);
+    });
+
+    it("should parse /unlimited on", () => {
+      const result = parseSpecialCommand("/unlimited on");
+      expect(result.type).toBe("unlimited");
+      expect(result.args).toEqual(["on"]);
+    });
+
+    it("should parse /unlimited off", () => {
+      const result = parseSpecialCommand("/unlimited off");
+      expect(result.type).toBe("unlimited");
+      expect(result.args).toEqual(["off"]);
+    });
   });
 
   describe("commands with arguments", () => {

@@ -25,6 +25,7 @@ export type CommandType =
   | "mcp"
   | "mode"
   | "resume"
+  | "unlimited"
   | "unknown";
 
 /**
@@ -57,6 +58,8 @@ export interface CommandResult {
   saveCurrentHistory?: boolean;
   /** Reset the startedAt timestamp to now (used when resuming a saved conversation) */
   resetStartedAt?: boolean;
+  /** New unlimited state set by /unlimited command (true/false to set; undefined to leave unchanged). */
+  newUnlimited?: boolean;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */
@@ -85,4 +88,6 @@ export interface CommandContext {
   persistedAutoApprovedCommands?: readonly string[];
   /** Currently auto-approved tool names for this session (for /mode display). */
   autoApprovedTools?: readonly string[];
+  /** Current unlimited mode state (for /unlimited display). */
+  unlimited?: boolean;
 }

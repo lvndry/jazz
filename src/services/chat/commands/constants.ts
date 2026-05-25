@@ -27,6 +27,10 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "stats", description: "Show session statistics and usage summary" },
   { name: "switch", description: "Switch to a different agent in the same conversation" },
   { name: "tools", description: "List all agent tools by category" },
+  {
+    name: "unlimited",
+    description: "Toggle unlimited mode (no iteration, retry, or timeout caps) for this session",
+  },
   { name: "workflows", description: "List workflows or send action (e.g. create) to the agent" },
 ] as const;
 
