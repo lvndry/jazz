@@ -38,7 +38,9 @@ import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../type
 export function buildBudgetPressureMessage(
   iteration: number,
   maxIterations: number,
+  unlimited: boolean = false,
 ): { role: "user"; content: string } | null {
+  if (unlimited) return null;
   const pct = iteration / maxIterations;
   if (pct >= 0.9) {
     return {
@@ -179,7 +181,7 @@ export function executeAgentLoop(
     // Use: main loop
     ({ logger, finalizeFiberRef }) =>
       Effect.gen(function* () {
-        const { agent, maxIterations: maxIter } = options;
+        const { agent, maxIterations: maxIter, unlimited = false } = options;
         const maxIterations = maxIter ?? DEFAULT_MAX_ITERATIONS;
         const presentationService = yield* PresentationServiceTag;
         const { actualConversationId, context, tools, messages, runMetrics, provider, model } =
@@ -219,7 +221,7 @@ export function executeAgentLoop(
         let iterationsUsed = 0;
         const recentToolCalls: TrackedToolCall[] = [];
 
-        for (let i = 0; i < maxIterations; i++) {
+        for (let i = 0; unlimited || i < maxIterations; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
             if (!options.internal && strategy.shouldShowThinking) {
@@ -255,7 +257,7 @@ export function executeAgentLoop(
               lastUserMessage: lastUserContent,
             });
 
-            const budgetMsg = buildBudgetPressureMessage(i + 1, maxIterations);
+            const budgetMsg = buildBudgetPressureMessage(i + 1, maxIterations, unlimited);
             const messagesForLLM = budgetMsg
               ? ([...currentMessages, budgetMsg] as typeof currentMessages)
               : currentMessages;
@@ -366,7 +368,7 @@ export function executeAgentLoop(
                 recentToolCalls.splice(0, recentToolCalls.length - MELTDOWN_WINDOW_SIZE);
               }
 
-              if (detectMeltdown(recentToolCalls)) {
+              if (!unlimited && detectMeltdown(recentToolCalls)) {
                 yield* logger.warn("Meltdown detected — injecting recovery signal", {
                   agentId: agent.id,
                   recentTools: recentToolCalls.slice(-10).map((tc) => tc.name),

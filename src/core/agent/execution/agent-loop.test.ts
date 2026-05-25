@@ -582,3 +582,79 @@ describe("detectMeltdown", () => {
     expect(detectMeltdown([...diverse, ...meltdown])).toBe(true);
   });
 });
+
+describe("buildBudgetPressureMessage with unlimited", () => {
+  it("returns null at every threshold when unlimited is true", () => {
+    expect(buildBudgetPressureMessage(700, 1000, true)).toBeNull();
+    expect(buildBudgetPressureMessage(950, 1000, true)).toBeNull();
+    expect(buildBudgetPressureMessage(999, 1000, true)).toBeNull();
+  });
+
+  it("still emits pressure messages when unlimited is false", () => {
+    expect(buildBudgetPressureMessage(70, 100, false)?.content).toContain("WARNING");
+    expect(buildBudgetPressureMessage(95, 100, false)?.content).toContain("CRITICAL");
+  });
+});
+
+describe("executeAgentLoop with unlimited", () => {
+  it("ignores maxIterations when unlimited is true", async () => {
+    let callCount = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: () => {
+        callCount++;
+        if (callCount <= 3) {
+          return Effect.succeed({
+            completion: {
+              id: `c${callCount}`,
+              model: "gpt-4",
+              content: "",
+              toolCalls: [
+                {
+                  id: `call_${callCount}`,
+                  type: "function" as const,
+                  function: { name: "test_tool", arguments: "{}" },
+                },
+              ],
+            },
+            interrupted: false,
+          });
+        }
+        return Effect.succeed({
+          completion: { id: "c-final", model: "gpt-4", content: "Done beyond limit" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock((toolCalls: any[]) =>
+      Effect.succeed(
+        toolCalls.map((tc: any) => ({
+          toolCallId: tc.id,
+          name: tc.function.name,
+          result: "ok",
+          success: true,
+        })),
+      ),
+    );
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 2, unlimited: true }),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(result.content).toBe("Done beyond limit");
+    expect(callCount).toBeGreaterThanOrEqual(4);
+
+    ToolExecutor.executeToolCalls = originalExecute;
+  });
+});
