@@ -631,30 +631,32 @@ describe("executeAgentLoop with unlimited", () => {
     };
 
     const originalExecute = ToolExecutor.executeToolCalls;
-    ToolExecutor.executeToolCalls = mock((toolCalls: any[]) =>
-      Effect.succeed(
-        toolCalls.map((tc: any) => ({
-          toolCallId: tc.id,
-          name: tc.function.name,
-          result: "ok",
-          success: true,
-        })),
-      ),
-    );
+    try {
+      ToolExecutor.executeToolCalls = mock((toolCalls: any[]) =>
+        Effect.succeed(
+          toolCalls.map((tc: any) => ({
+            toolCallId: tc.id,
+            name: tc.function.name,
+            result: "ok",
+            success: true,
+          })),
+        ),
+      );
 
-    const result = await Effect.runPromise(
-      executeAgentLoop(
-        makeOptions({ maxIterations: 2, unlimited: true }),
-        makeRunContext(),
-        displayConfig,
-        strategy,
-        runRecursive,
-      ).pipe(Effect.provide(TestLayer)),
-    );
+      const result = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 2, unlimited: true }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
 
-    expect(result.content).toBe("Done beyond limit");
-    expect(callCount).toBeGreaterThanOrEqual(4);
-
-    ToolExecutor.executeToolCalls = originalExecute;
+      expect(result.content).toBe("Done beyond limit");
+      expect(callCount).toBe(4);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
   });
 });
