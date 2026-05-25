@@ -6,6 +6,7 @@ import { store } from "@/cli/ui/store";
 import { THEME } from "@/cli/ui/theme";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/agent";
@@ -199,6 +200,8 @@ export function runWorkflowCommand(
     const terminal = yield* TerminalServiceTag;
     const workflowService = yield* WorkflowServiceTag;
     const logger = yield* LoggerServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
 
     const isNonInteractive = options?.autoApprove === true;
     const isSchedulerTriggered = options?.scheduled === true;
@@ -354,16 +357,17 @@ export function runWorkflowCommand(
       autoApprove: autoApprovePolicy,
     });
 
-    // Run the agent with the workflow prompt
-    // maxIterations from workflow metadata is optional — omit for no limit
+    // maxIterations from workflow metadata is honored unless appConfig.unlimited is on
+    const unlimitedMode = appConfig.unlimited ?? false;
     const runResult = yield* AgentRunner.run({
       agent,
       userInput: workflow.prompt,
       sessionId: `workflow-${workflowName}-${Date.now()}`,
       conversationId: `workflow-${workflowName}-${Date.now()}`,
-      ...(workflow.metadata.maxIterations != null
+      ...(workflow.metadata.maxIterations != null && !unlimitedMode
         ? { maxIterations: workflow.metadata.maxIterations }
         : {}),
+      unlimited: unlimitedMode,
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
     }).pipe(
       Effect.tap((result) =>

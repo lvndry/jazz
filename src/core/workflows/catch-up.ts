@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { DEFAULT_MAX_CATCH_UP_AGE_SECONDS } from "@/core/constants/agent";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { normalizeCronExpression } from "@/core/utils/cron-utils";
 import {
@@ -188,6 +189,9 @@ export function runCatchUpForWorkflows(
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const workflowService = yield* WorkflowServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const unlimitedMode = appConfig.unlimited ?? false;
     const now = new Date();
 
     // Only load history and re-check decisions when records were not pre-created.
@@ -267,7 +271,10 @@ export function runCatchUpForWorkflows(
         userInput: workflowContent.prompt,
         sessionId: runId,
         conversationId: runId,
-        ...(workflow.maxIterations != null ? { maxIterations: workflow.maxIterations } : {}),
+        ...(workflow.maxIterations != null && !unlimitedMode
+          ? { maxIterations: workflow.maxIterations }
+          : {}),
+        unlimited: unlimitedMode,
         ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       }).pipe(
         Effect.tap(() =>
