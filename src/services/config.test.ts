@@ -102,4 +102,28 @@ describe("AgentConfigService", () => {
     expect(parsed.mcpServers.testServer).toEqual({ enabled: false });
     expect(parsed.mcpServers.testServer.command).toBeUndefined();
   });
+
+  it("should round-trip unlimited flag through save and load", async () => {
+    let written = "";
+    const capturingFS = {
+      ...mockFS,
+      writeFileString: mock((_path: string, content: string) => {
+        written = content;
+        return Effect.void;
+      }),
+      readFileString: mock(() => Effect.succeed(written)),
+    } as unknown as FileSystem;
+
+    const configPath = "/tmp/jazz-unlimited-test.json";
+    const configWithUnlimited: AppConfig = {
+      ...initialConfig,
+      unlimited: true,
+    };
+    const service = new AgentConfigServiceImpl(configWithUnlimited, {}, configPath, capturingFS);
+
+    await Effect.runPromise(service.set("unlimited", true));
+
+    const reloaded = await Effect.runPromise(service.get<boolean>("unlimited"));
+    expect(reloaded).toBe(true);
+  });
 });
