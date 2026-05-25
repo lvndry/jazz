@@ -135,6 +135,9 @@ export function handleSpecialCommand(
           context.autoApprovedTools,
         );
 
+      case "unlimited":
+        return yield* handleUnlimitedCommand(terminal, command.args, context.unlimited);
+
       case "resume":
         return yield* handleResumeCommand(terminal, agent);
 
@@ -1725,6 +1728,41 @@ function handleCostCommand(
     }
 
     yield* terminal.log(fmt.blank());
+    return { shouldContinue: true };
+  });
+}
+
+function handleUnlimitedCommand(
+  terminal: TerminalService,
+  args: string[],
+  currentUnlimited?: boolean,
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    const arg = args[0]?.toLowerCase();
+
+    if (arg === "on") {
+      yield* terminal.success("Unlimited mode ENABLED — no iteration, retry, or timeout caps");
+      yield* terminal.log("");
+      return { shouldContinue: true, newUnlimited: true };
+    }
+
+    if (arg === "off") {
+      yield* terminal.success("Unlimited mode DISABLED — standard guardrails restored");
+      yield* terminal.log("");
+      return { shouldContinue: true, newUnlimited: false };
+    }
+
+    if (arg) {
+      yield* terminal.error(`Unknown argument: ${arg}`);
+      yield* terminal.info("Usage: /unlimited [on|off]");
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    const state = currentUnlimited ? "ON" : "OFF";
+    yield* terminal.info(`Unlimited mode: ${state}`);
+    yield* terminal.info("Usage: /unlimited on  |  /unlimited off");
+    yield* terminal.log("");
     return { shouldContinue: true };
   });
 }

@@ -73,6 +73,91 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+describe("/unlimited", () => {
+  function makeUnlimitedContext(unlimited?: boolean): CommandContext {
+    return {
+      agent: testAgent,
+      conversationId: "current-conv-id",
+      conversationHistory: [],
+      sessionId: "test-session",
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionStartedAt: new Date(),
+      unlimited,
+    };
+  }
+
+  function makeTerminalLayer() {
+    const mockTerminal: Partial<TerminalService> = {
+      success: mock(() => Effect.void),
+      info: mock(() => Effect.void),
+      error: mock(() => Effect.void),
+      log: mock(() => Effect.succeed(undefined)),
+    };
+    return {
+      layer: Layer.merge(
+        Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
+        NodeFileSystem.layer,
+      ),
+    };
+  }
+
+  test("reports OFF when current state is false and no args given", async () => {
+    const context = makeUnlimitedContext(false);
+    const { layer } = makeTerminalLayer();
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "unlimited", args: [] }, context).pipe(Effect.provide(layer)),
+    );
+    expect(result.shouldContinue).toBe(true);
+    expect(result.newUnlimited).toBeUndefined();
+  });
+
+  test("reports ON when current state is true and no args given", async () => {
+    const context = makeUnlimitedContext(true);
+    const { layer } = makeTerminalLayer();
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "unlimited", args: [] }, context).pipe(Effect.provide(layer)),
+    );
+    expect(result.shouldContinue).toBe(true);
+    expect(result.newUnlimited).toBeUndefined();
+  });
+
+  test("enables unlimited mode with /unlimited on", async () => {
+    const context = makeUnlimitedContext(false);
+    const { layer } = makeTerminalLayer();
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "unlimited", args: ["on"] }, context).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    expect(result.shouldContinue).toBe(true);
+    expect(result.newUnlimited).toBe(true);
+  });
+
+  test("disables unlimited mode with /unlimited off", async () => {
+    const context = makeUnlimitedContext(true);
+    const { layer } = makeTerminalLayer();
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "unlimited", args: ["off"] }, context).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    expect(result.shouldContinue).toBe(true);
+    expect(result.newUnlimited).toBe(false);
+  });
+
+  test("rejects unknown arguments without changing state", async () => {
+    const context = makeUnlimitedContext(false);
+    const { layer } = makeTerminalLayer();
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "unlimited", args: ["maybe"] }, context).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    expect(result.shouldContinue).toBe(true);
+    expect(result.newUnlimited).toBeUndefined();
+  });
+});
+
 describe("handleSpecialCommand resume", () => {
   test("sets resetStartedAt on the result when a conversation is successfully resumed", async () => {
     await runEffect(saveConversation(testRecord, tmpDir));
