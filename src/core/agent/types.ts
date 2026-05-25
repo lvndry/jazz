@@ -59,6 +59,12 @@ export interface AgentRunnerOptions {
    */
   readonly maxIterations?: number;
   /**
+   * If true, every per-run guardrail is lifted: iteration cap, budget-pressure
+   * nudges, meltdown detection, tool timeouts, LLM retry cap. Propagates to
+   * spawned subagents. Default false.
+   */
+  readonly unlimited?: boolean;
+  /**
    * Full conversation history to date, including prior assistant, user, and tool messages.
    * Use this to preserve context across turns (e.g., approval flows, multi-step tasks).
    */
@@ -203,6 +209,7 @@ export interface AgentRunContext {
   readonly model: string;
   readonly connectedMCPServers: readonly string[];
   readonly maxRetries?: number;
+  readonly unlimited?: boolean;
   readonly knownSkills: readonly {
     readonly name: string;
     readonly description: string;
