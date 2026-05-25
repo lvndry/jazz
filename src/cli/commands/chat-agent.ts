@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { ChatServiceTag } from "@/core/interfaces/chat-service";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
@@ -22,9 +23,13 @@ export function chatWithAIAgentCommand(
   agentIdentifier: string,
   options?: {
     stream?: boolean;
+    unlimitedOverride?: boolean;
   },
 ) {
   return Effect.gen(function* () {
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const resolvedUnlimited = options?.unlimitedOverride ?? appConfig.unlimited ?? false;
     const normalizedIdentifier = agentIdentifier.trim();
 
     if (normalizedIdentifier.length === 0) {
@@ -81,7 +86,7 @@ export function chatWithAIAgentCommand(
 
     // Start the chat session using the chat service
     const chatService = yield* ChatServiceTag;
-    yield* chatService.startChatSession(agent, options).pipe(
+    yield* chatService.startChatSession(agent, { ...options, unlimited: resolvedUnlimited }).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;

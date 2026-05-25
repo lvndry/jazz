@@ -127,22 +127,31 @@ function registerAgentCommands(program: Command): void {
     .description("Start a chat with an AI agent by ID or name")
     .option("--stream", "Force streaming mode (real-time output)")
     .option("--no-stream", "Disable streaming mode")
+    .option(
+      "--unlimited",
+      "Lift all per-run guardrails (iteration cap, retries, timeouts) for this run",
+    )
+    .option("--no-unlimited", "Force unlimited mode off for this run, even if enabled in config")
     .action(
       (
         agentIdentifier: string,
         options: {
           stream?: boolean;
           noStream?: boolean;
+          unlimited?: boolean;
+          noUnlimited?: boolean;
         },
       ) => {
         const opts = program.opts<CliOptions>();
         const streamOption =
           options.noStream === true ? false : options.stream === true ? true : undefined;
+        const unlimitedOverride =
+          options.noUnlimited === true ? false : options.unlimited === true ? true : undefined;
         runCliEffect(
-          chatWithAIAgentCommand(
-            agentIdentifier,
-            streamOption !== undefined ? { stream: streamOption } : {},
-          ),
+          chatWithAIAgentCommand(agentIdentifier, {
+            ...(streamOption !== undefined ? { stream: streamOption } : {}),
+            ...(unlimitedOverride !== undefined ? { unlimitedOverride } : {}),
+          }),
           {
             verbose: opts.verbose,
             debug: opts.debug,
@@ -344,17 +353,30 @@ function registerWorkflowCommands(program: Command): void {
       "--scheduled",
       "Indicates this run was triggered by the system scheduler (launchd/cron)",
     )
+    .option("--unlimited", "Lift all per-run guardrails for this run")
+    .option("--no-unlimited", "Force unlimited mode off for this run")
     .action(
       (
         name: string,
-        options: { autoApprove?: boolean; agent?: string; scheduled?: boolean },
+        options: {
+          autoApprove?: boolean;
+          agent?: string;
+          scheduled?: boolean;
+          unlimited?: boolean;
+          noUnlimited?: boolean;
+        },
         command: Command,
       ) => {
         const opts = program.opts<CliOptions>();
         const isWorkflowRunCommand =
           command.name() === "run" && command.parent?.name() === "workflow";
+        const unlimitedOverride =
+          options.noUnlimited === true ? false : options.unlimited === true ? true : undefined;
         runCliEffect(
-          runWorkflowCommand(name, options),
+          runWorkflowCommand(name, {
+            ...options,
+            ...(unlimitedOverride !== undefined ? { unlimitedOverride } : {}),
+          }),
           {
             verbose: opts.verbose,
             debug: opts.debug,
@@ -404,13 +426,20 @@ function registerWorkflowCommands(program: Command): void {
   workflowCommand
     .command("catchup")
     .description("List workflows that missed a scheduled run, select which to run, then run them")
-    .action(() => {
+    .option("--unlimited", "Lift all per-run guardrails for this run")
+    .option("--no-unlimited", "Force unlimited mode off for this run")
+    .action((options: { unlimited?: boolean; noUnlimited?: boolean }) => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(catchupWorkflowCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
+      const unlimitedOverride =
+        options.noUnlimited === true ? false : options.unlimited === true ? true : undefined;
+      runCliEffect(
+        catchupWorkflowCommand(unlimitedOverride !== undefined ? { unlimitedOverride } : {}),
+        {
+          verbose: opts.verbose,
+          debug: opts.debug,
+          configPath: opts.config,
+        },
+      );
     });
 
   workflowCommand

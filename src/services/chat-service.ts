@@ -50,6 +50,7 @@ export class ChatServiceImpl implements ChatService {
     agent: Agent,
     options?: {
       stream?: boolean;
+      unlimited?: boolean;
       initialHistory?: ChatMessage[];
       initialConversationTitle?: string;
     },

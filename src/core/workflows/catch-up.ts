@@ -172,6 +172,11 @@ interface RunCatchUpOptions {
    * are written, which would cause the catch-up prompt to reappear.
    */
   readonly recordsPreCreated?: boolean;
+  /**
+   * CLI-level override for unlimited mode. When set, takes precedence over
+   * appConfig.unlimited. Undefined means fall back to appConfig.unlimited.
+   */
+  readonly unlimitedOverride?: boolean;
 }
 
 /**
@@ -191,7 +196,7 @@ export function runCatchUpForWorkflows(
     const workflowService = yield* WorkflowServiceTag;
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
-    const unlimitedMode = appConfig.unlimited ?? false;
+    const unlimitedMode = options.unlimitedOverride ?? appConfig.unlimited ?? false;
     const now = new Date();
 
     // Only load history and re-check decisions when records were not pre-created.

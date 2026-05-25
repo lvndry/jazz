@@ -194,6 +194,7 @@ export function runWorkflowCommand(
     autoApprove?: boolean;
     agent?: string;
     scheduled?: boolean;
+    unlimitedOverride?: boolean;
   },
 ) {
   return Effect.gen(function* () {
@@ -357,8 +358,8 @@ export function runWorkflowCommand(
       autoApprove: autoApprovePolicy,
     });
 
-    // maxIterations from workflow metadata is honored unless appConfig.unlimited is on
-    const unlimitedMode = appConfig.unlimited ?? false;
+    // maxIterations from workflow metadata is honored unless unlimited mode is on
+    const unlimitedMode = options?.unlimitedOverride ?? appConfig.unlimited ?? false;
     const runResult = yield* AgentRunner.run({
       agent,
       userInput: workflow.prompt,
@@ -564,7 +565,7 @@ export function unscheduleWorkflowCommand(workflowName: string) {
 /**
  * List workflows that need catch-up, let user select which to run, then run them.
  */
-export function catchupWorkflowCommand() {
+export function catchupWorkflowCommand(options: { unlimitedOverride?: boolean } = {}) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
 
@@ -624,7 +625,11 @@ export function catchupWorkflowCommand() {
     yield* terminal.info(`Running catch-up for ${entriesToRun.length} workflow(s)...`);
     yield* terminal.log("");
 
-    yield* runCatchUpForWorkflows(entriesToRun);
+    yield* runCatchUpForWorkflows(entriesToRun, {
+      ...(options.unlimitedOverride !== undefined
+        ? { unlimitedOverride: options.unlimitedOverride }
+        : {}),
+    });
 
     yield* terminal.log("");
     yield* terminal.success("Catch-up finished.");

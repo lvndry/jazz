@@ -34,6 +34,7 @@ export interface ChatService {
     agent: Agent,
     options?: {
       stream?: boolean;
+      unlimited?: boolean;
       initialHistory?: ChatMessage[];
       initialConversationTitle?: string;
     },
