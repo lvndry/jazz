@@ -13,6 +13,17 @@ import { ConfigCard } from "../ui/ConfigCard";
  */
 
 /**
+ * Coerces string values from CLI/terminal input to their proper types.
+ * Needed because argv and terminal.ask always yield strings, so "false" would
+ * otherwise be stored as the truthy string "false" instead of the boolean false.
+ */
+export function coerceConfigValue(raw: string): string | boolean | number {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return raw;
+}
+
+/**
  * List all configuration values
  */
 export function listConfigCommand(): Effect.Effect<
@@ -155,9 +166,11 @@ export function setConfigCommand(
       }
 
       const answer = yield* terminal.ask(`Enter value for ${targetKey}:`);
-      yield* terminal.info(`Setting config: ${targetKey} = ${answer}`);
-      yield* configService.set(targetKey, answer);
-      yield* terminal.success(`Config set: ${targetKey} = ${answer}`);
+      if (answer === undefined) return;
+      const coercedAnswer = coerceConfigValue(answer);
+      yield* terminal.info(`Setting config: ${targetKey} = ${coercedAnswer}`);
+      yield* configService.set(targetKey, coercedAnswer);
+      yield* terminal.success(`Config set: ${targetKey} = ${coercedAnswer}`);
       return;
     }
 
@@ -179,8 +192,9 @@ export function setConfigCommand(
       );
     }
 
-    yield* terminal.info(`Setting config: ${targetKey} = ${value}`);
-    yield* configService.set(targetKey, value);
-    yield* terminal.success(`Config set: ${targetKey} = ${value}`);
+    const coercedValue = coerceConfigValue(value);
+    yield* terminal.info(`Setting config: ${targetKey} = ${coercedValue}`);
+    yield* configService.set(targetKey, coercedValue);
+    yield* terminal.success(`Config set: ${targetKey} = ${coercedValue}`);
   });
 }
