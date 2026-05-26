@@ -20,6 +20,7 @@ type ConfigMenuAction =
   | "output-display"
   | "logging"
   | "notifications"
+  | "unlimited"
   | "back";
 
 /**
@@ -36,6 +37,7 @@ export function configWizardCommand() {
         { label: "Output & Display", value: "output-display" },
         { label: "Logging", value: "logging" },
         { label: "Notifications", value: "notifications" },
+        { label: "Unlimited Mode", value: "unlimited" },
         { label: "Back to Main Menu", value: "back" },
       ];
 
@@ -60,6 +62,10 @@ export function configWizardCommand() {
         }
         case "notifications": {
           yield* configureNotifications();
+          break;
+        }
+        case "unlimited": {
+          yield* configureUnlimited();
           break;
         }
         case "back": {
@@ -368,6 +374,24 @@ function configureNotifications() {
 
       yield* terminal.log("");
     }
+  });
+}
+
+function configureUnlimited() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const current = appConfig.unlimited ?? false;
+
+    const nextValue = yield* terminal.confirm(
+      "Enable unlimited mode by default? (no iteration, retry, or timeout caps — recommended only for trusted long-running setups)",
+      current,
+    );
+
+    yield* configService.set("unlimited", nextValue);
+    yield* terminal.success(`Unlimited mode ${nextValue ? "enabled" : "disabled"}.`);
+    yield* terminal.log("");
   });
 }
 
