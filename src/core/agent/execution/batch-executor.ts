@@ -76,7 +76,7 @@ export function executeWithoutStreaming(
             runContext.unlimited ?? false,
           );
 
-          const completion = yield* Effect.retry(
+          const batchCall = Effect.retry(
             withLongRunningLlmNotice(
               agent.name,
               showAgentStatus,
@@ -90,17 +90,21 @@ export function executeWithoutStreaming(
               }),
             ),
             batchRetrySchedule,
-          ).pipe(
-            Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
-            Effect.tapError((error) =>
-              Cause.isTimeoutException(error)
-                ? showAgentStatus(
-                    `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
-                    "warning",
-                  )
-                : Effect.void,
-            ),
           );
+          const batchCallWithTimeout = runContext.unlimited
+            ? batchCall
+            : batchCall.pipe(
+                Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
+                Effect.tapError((error) =>
+                  Cause.isTimeoutException(error)
+                    ? showAgentStatus(
+                        `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
+                        "warning",
+                      )
+                    : Effect.void,
+                ),
+              );
+          const completion = yield* batchCallWithTimeout;
 
           return { completion, interrupted: false };
         });

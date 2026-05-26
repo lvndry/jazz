@@ -60,8 +60,8 @@ export interface AgentRunnerOptions {
   readonly maxIterations?: number;
   /**
    * If true, every per-run guardrail is lifted: iteration cap, budget-pressure
-   * nudges, meltdown detection, tool timeouts, LLM retry cap. Propagates to
-   * spawned subagents. Default false.
+   * nudges, meltdown detection, tool timeouts, LLM retry cap, and per-call LLM
+   * timeout. Propagates to spawned subagents. Default false.
    */
   readonly unlimited?: boolean;
   /**

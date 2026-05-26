@@ -21,9 +21,9 @@ export interface AppConfig {
   readonly maxRetries?: number;
   /**
    * If true, every per-run guardrail is lifted: iteration cap, budget-pressure
-   * nudges, meltdown detection, tool timeouts, LLM retry cap, and workflow
-   * `maxIterations` metadata are all ignored. Intended for trusted long-running
-   * setups. Default false.
+   * nudges, meltdown detection, tool timeouts, LLM retry cap, per-call LLM
+   * timeout, and workflow `maxIterations` metadata are all ignored. Intended
+   * for trusted long-running setups. Default false.
    */
   readonly unlimited?: boolean;
 }

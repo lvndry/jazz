@@ -123,7 +123,7 @@ export function executeWithStreaming(
             runContext.unlimited ?? false,
           );
 
-          const streamingResult = yield* Effect.retry(
+          const streamingCall = Effect.retry(
             withLongRunningLlmNotice(
               agent.name,
               showAgentStatus,
@@ -151,16 +151,21 @@ export function executeWithStreaming(
               }),
             ),
             streamingRetrySchedule,
-          ).pipe(
-            Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
-            Effect.tapError((error) =>
-              Cause.isTimeoutException(error)
-                ? showAgentStatus(
-                    `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
-                    "warning",
-                  )
-                : Effect.void,
-            ),
+          );
+          const streamingCallWithTimeout = runContext.unlimited
+            ? streamingCall
+            : streamingCall.pipe(
+                Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
+                Effect.tapError((error) =>
+                  Cause.isTimeoutException(error)
+                    ? showAgentStatus(
+                        `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
+                        "warning",
+                      )
+                    : Effect.void,
+                ),
+              );
+          const streamingResult = yield* streamingCallWithTimeout.pipe(
             Effect.catchIf(
               (error): error is LLMRequestError | LLMRateLimitError => isRetryableLLMError(error),
               (error) =>
@@ -181,7 +186,7 @@ export function executeWithStreaming(
                     fallbackAttemptRef,
                     runContext.unlimited ?? false,
                   );
-                  const fallback = yield* Effect.retry(
+                  const fallbackCall = Effect.retry(
                     withLongRunningLlmNotice(
                       agent.name,
                       showAgentStatus,
@@ -195,17 +200,21 @@ export function executeWithStreaming(
                       }),
                     ),
                     fallbackRetrySchedule,
-                  ).pipe(
-                    Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
-                    Effect.tapError((innerError) =>
-                      Cause.isTimeoutException(innerError)
-                        ? showAgentStatus(
-                            `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
-                            "warning",
-                          )
-                        : Effect.void,
-                    ),
                   );
+                  const fallbackCallWithTimeout = runContext.unlimited
+                    ? fallbackCall
+                    : fallbackCall.pipe(
+                        Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
+                        Effect.tapError((innerError) =>
+                          Cause.isTimeoutException(innerError)
+                            ? showAgentStatus(
+                                `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
+                                "warning",
+                              )
+                            : Effect.void,
+                        ),
+                      );
+                  const fallback = yield* fallbackCallWithTimeout;
                   return {
                     stream: Stream.empty,
                     response: Effect.succeed(fallback),

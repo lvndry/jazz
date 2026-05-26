@@ -139,14 +139,13 @@ function registerAgentCommands(program: Command): void {
           stream?: boolean;
           noStream?: boolean;
           unlimited?: boolean;
-          noUnlimited?: boolean;
         },
       ) => {
         const opts = program.opts<CliOptions>();
         const streamOption =
           options.noStream === true ? false : options.stream === true ? true : undefined;
         const unlimitedOverride =
-          options.noUnlimited === true ? false : options.unlimited === true ? true : undefined;
+          options.unlimited === false ? false : options.unlimited === true ? true : undefined;
         runCliEffect(
           chatWithAIAgentCommand(agentIdentifier, {
             ...(streamOption !== undefined ? { stream: streamOption } : {}),
@@ -363,7 +362,6 @@ function registerWorkflowCommands(program: Command): void {
           agent?: string;
           scheduled?: boolean;
           unlimited?: boolean;
-          noUnlimited?: boolean;
         },
         command: Command,
       ) => {
@@ -371,7 +369,7 @@ function registerWorkflowCommands(program: Command): void {
         const isWorkflowRunCommand =
           command.name() === "run" && command.parent?.name() === "workflow";
         const unlimitedOverride =
-          options.noUnlimited === true ? false : options.unlimited === true ? true : undefined;
+          options.unlimited === false ? false : options.unlimited === true ? true : undefined;
         runCliEffect(
           runWorkflowCommand(name, {
             ...options,
@@ -428,10 +426,10 @@ function registerWorkflowCommands(program: Command): void {
     .description("List workflows that missed a scheduled run, select which to run, then run them")
     .option("--unlimited", "Lift all per-run guardrails for this run")
     .option("--no-unlimited", "Force unlimited mode off for this run")
-    .action((options: { unlimited?: boolean; noUnlimited?: boolean }) => {
+    .action((options: { unlimited?: boolean }) => {
       const opts = program.opts<CliOptions>();
       const unlimitedOverride =
-        options.noUnlimited === true ? false : options.unlimited === true ? true : undefined;
+        options.unlimited === false ? false : options.unlimited === true ? true : undefined;
       runCliEffect(
         catchupWorkflowCommand(unlimitedOverride !== undefined ? { unlimitedOverride } : {}),
         {
