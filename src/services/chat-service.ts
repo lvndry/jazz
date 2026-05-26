@@ -111,6 +111,7 @@ export class ChatServiceImpl implements ChatService {
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
       let unlimited: boolean = options?.unlimited ?? false;
+      store.setUnlimitedActive(unlimited);
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
@@ -336,7 +337,7 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newUnlimited !== undefined) {
               unlimited = commandResult.newUnlimited;
-              // Store sync (store.setUnlimitedActive) is added in Task 12.
+              store.setUnlimitedActive(unlimited);
             }
 
             if (commandResult.addAutoApprovedCommand) {

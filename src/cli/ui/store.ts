@@ -108,6 +108,7 @@ export class UIStore {
   private modeSwitchHandler: ModeSwitchHandler | null = null;
   // Track current mode for toggle behavior (safe = false, yolo = true)
   private currentModeIsYolo = false;
+  private currentUnlimitedActive = false;
 
   // Snapshots (kept in sync so late-registering components can hydrate)
   private promptSnapshot: PromptState | null = null;
@@ -133,6 +134,7 @@ export class UIStore {
   private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
   private chatBusySetter: ((busy: boolean) => void) | null = null;
   private modeToastSetter: ((message: string | null) => void) | null = null;
+  private unlimitedSetter: ((active: boolean) => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
 
@@ -349,6 +351,20 @@ export class UIStore {
   showModeToast = (message: string): void => {
     this.modeToastSetter?.(message);
   };
+
+  // ── Unlimited mode indicator ─────────────────────────────────────────────
+
+  registerUnlimitedSetter = (setter: ((active: boolean) => void) | null): void => {
+    this.unlimitedSetter = setter;
+    if (setter) setter(this.currentUnlimitedActive);
+  };
+
+  setUnlimitedActive = (active: boolean): void => {
+    this.currentUnlimitedActive = active;
+    this.unlimitedSetter?.(active);
+  };
+
+  getUnlimitedActive = (): boolean => this.currentUnlimitedActive;
 
   // ── Ephemeral live regions ────────────────────────────────────────
 

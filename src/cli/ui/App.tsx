@@ -113,15 +113,13 @@ const PromptIsland = React.memo(PromptIslandComponent);
 // ============================================================================
 
 function StatusFooterIslandComponent(): React.ReactElement | null {
-  // RunStats is the footer's primary content — model · tokens · cost.
-  // The working directory is rendered by the prompt island already, so
-  // we don't duplicate it here (avoids conflicting with the prompt's
-  // single-slot wd setter).
   const [runStats, setRunStats] = React.useState<RunStats>({});
+  const [unlimited, setUnlimited] = React.useState<boolean>(store.getUnlimitedActive());
   const initializedRef = useRef(false);
 
   if (!initializedRef.current) {
     store.registerRunStatsSetter(setRunStats);
+    store.registerUnlimitedSetter(setUnlimited);
     setRunStats(store.getRunStatsSnapshot());
     initializedRef.current = true;
   }
@@ -129,6 +127,7 @@ function StatusFooterIslandComponent(): React.ReactElement | null {
   useEffect(() => {
     return () => {
       store.registerRunStatsSetter(() => {});
+      store.registerUnlimitedSetter(null);
     };
   }, []);
 
@@ -137,6 +136,7 @@ function StatusFooterIslandComponent(): React.ReactElement | null {
       status={null}
       workingDirectory={null}
       runStats={runStats}
+      unlimited={unlimited}
     />
   );
 }

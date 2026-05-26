@@ -67,16 +67,18 @@ function StatusFooter({
   status,
   workingDirectory,
   runStats,
+  unlimited,
 }: {
   status: string | null;
   workingDirectory: string | null;
   runStats: RunStats;
+  unlimited: boolean;
 }) {
   const hasRunStats =
     runStats.model !== undefined ||
     runStats.tokensInContext !== undefined ||
     runStats.costUSD !== undefined;
-  const hasContent = status || workingDirectory || hasRunStats;
+  const hasContent = status || workingDirectory || hasRunStats || unlimited;
   if (!hasContent) return null;
 
   const homeDir = process.env["HOME"];
@@ -110,6 +112,7 @@ function StatusFooter({
       width="100%"
     >
       <Box flexShrink={1}>
+        {unlimited && <Text color={THEME.warning}>[unlimited] </Text>}
         {status ? (
           <AnimatedEllipsis
             label={status}
