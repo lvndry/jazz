@@ -221,6 +221,13 @@ export function runCliEffect<R, E extends JazzError | Error>(
      * doesn't also trigger catch-up execution for scheduled workflows.
      */
     readonly skipCatchUp?: boolean | undefined;
+    /**
+     * Skip the periodic "update available" notice on startup.
+     *
+     * Intended for machine-readable commands like `jazz run`, where the notice
+     * box would otherwise corrupt the clean stdout payload.
+     */
+    readonly skipUpdateCheck?: boolean | undefined;
   } = {},
 ): void {
   const cliOptionsLayer = Layer.succeed(CLIOptionsTag, {
@@ -244,7 +251,10 @@ export function runCliEffect<R, E extends JazzError | Error>(
       yield* promptFailedRunsWarning();
     }
 
-    const fiber = yield* Effect.fork(autoCheckForUpdate().pipe(Effect.zipRight(effect)));
+    const shouldSkipUpdateCheck =
+      process.env["JAZZ_DISABLE_UPDATE_CHECK"] === "1" || options.skipUpdateCheck === true;
+    const startupCheck = shouldSkipUpdateCheck ? Effect.void : autoCheckForUpdate();
+    const fiber = yield* Effect.fork(startupCheck.pipe(Effect.zipRight(effect)));
     let signalCount = 0;
     type SignalName = "SIGINT" | "SIGTERM";
 

@@ -22,6 +22,7 @@ export function chatWithAIAgentCommand(
   agentIdentifier: string,
   options?: {
     stream?: boolean;
+    maxIterations?: number;
   },
 ) {
   return Effect.gen(function* () {
