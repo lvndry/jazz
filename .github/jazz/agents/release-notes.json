@@ -2,11 +2,11 @@
   "id": "release-notes",
   "name": "release-notes",
   "description": "Release notes generator agent",
-  "model": "minimax/minimax-m2.5:free",
+  "model": "openrouter/owl-alpha",
   "config": {
     "persona": "coder",
     "llmProvider": "openrouter",
-    "llmModel": "minimax/minimax-m2.5:free",
+    "llmModel": "openrouter/owl-alpha",
     "reasoningEffort": "medium",
     "tools": [
       "context_info",

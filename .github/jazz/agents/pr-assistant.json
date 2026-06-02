@@ -2,11 +2,11 @@
   "id": "pr-assistant",
   "name": "pr-assistant",
   "description": "Pull request assistant agent for /jazz PR comments",
-  "model": "minimax/minimax-m2.5:free",
+  "model": "openrouter/owl-alpha",
   "config": {
     "persona": "coder",
     "llmProvider": "openrouter",
-    "llmModel": "minimax/minimax-m2.5:free",
+    "llmModel": "openrouter/owl-alpha",
     "reasoningEffort": "medium",
     "tools": [
       "context_info",
