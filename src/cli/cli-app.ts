@@ -25,6 +25,7 @@ import {
   editPersonaCommand,
   deletePersonaCommand,
 } from "./commands/persona";
+import { isApprovalPolicyFlag, runAgentOnceCommand } from "./commands/run-agent";
 import { updateCommand } from "./commands/update";
 import { wizardCommand } from "./commands/wizard";
 import {
@@ -51,6 +52,100 @@ interface CliOptions {
   config?: string;
   output?: string;
   tui?: boolean;
+}
+
+function parsePositiveInt(label: string) {
+  return (raw: string): number => {
+    const value = Number.parseInt(raw, 10);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`${label} must be a positive integer (got "${raw}").`);
+    }
+    return value;
+  };
+}
+
+/**
+ * Register the one-shot `run` command — non-interactive agent invocation for
+ * scripts and webhook handlers.
+ */
+function registerRunCommand(program: Command): void {
+  program
+    .command("run [prompt]")
+    .description(
+      "Run an agent once non-interactively (for scripts/webhooks). Prompt comes from the argument or piped stdin; the answer goes to stdout, all chatter to stderr.",
+    )
+    .requiredOption("--agent <agentId>", "Agent ID or name to run")
+    .option("--json", "Emit a single JSON envelope { ok, answer, costUSD, tokenUsage, toolCalls }")
+    .option(
+      "--approval-policy <policy>",
+      "Auto-approve tools up to a risk level: read-only | low-risk | high-risk (high-risk approves everything). Tools above the level are declined.",
+    )
+    .option(
+      "--timeout <ms>",
+      "Abort the run after this many milliseconds",
+      parsePositiveInt("--timeout"),
+    )
+    .option(
+      "--max-iterations <n>",
+      "Maximum agent reasoning iterations for this run",
+      parsePositiveInt("--max-iterations"),
+    )
+    .option("--unlimited", "Lift all per-run guardrails (iteration cap, retries, timeouts)")
+    .option("--no-unlimited", "Force unlimited mode off for this run, even if enabled in config")
+    .action(
+      (
+        prompt: string | undefined,
+        options: {
+          agent: string;
+          json?: boolean;
+          approvalPolicy?: string;
+          timeout?: number;
+          maxIterations?: number;
+          unlimited?: boolean;
+        },
+      ) => {
+        const opts = program.opts<CliOptions>();
+        const json = options.json === true;
+
+        if (options.approvalPolicy !== undefined && !isApprovalPolicyFlag(options.approvalPolicy)) {
+          const message = `Invalid --approval-policy "${options.approvalPolicy}". Expected read-only, low-risk, or high-risk.`;
+          if (json) {
+            process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
+          } else {
+            process.stderr.write(`${message}\n`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        // Force plain terminal so Ink never mounts and writes to stdout; the
+        // one-shot presentation layer keeps stdout clean for the payload.
+        process.env["JAZZ_NO_TUI"] = "1";
+
+        const unlimitedOverride =
+          options.unlimited === false ? false : options.unlimited === true ? true : undefined;
+
+        runCliEffect(
+          runAgentOnceCommand(options.agent, prompt, {
+            json,
+            ...(options.approvalPolicy !== undefined && isApprovalPolicyFlag(options.approvalPolicy)
+              ? { approvalPolicy: options.approvalPolicy }
+              : {}),
+            ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
+            ...(options.maxIterations !== undefined
+              ? { maxIterations: options.maxIterations }
+              : {}),
+            ...(unlimitedOverride !== undefined ? { unlimitedOverride } : {}),
+          }),
+          {
+            verbose: opts.verbose,
+            debug: opts.debug,
+            configPath: opts.config,
+          },
+          { skipCatchUp: true, skipUpdateCheck: true },
+        );
+      },
+    );
 }
 
 /**
@@ -501,6 +596,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     });
 
     // Register all commands
+    registerRunCommand(program);
     registerAgentCommands(program);
     registerPersonaCommands(program);
     registerConfigCommands(program);

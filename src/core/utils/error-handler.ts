@@ -494,6 +494,21 @@ export function formatError(error: JazzError): string {
 }
 
 /**
+ * Extract a concise, single-line human message from any error.
+ *
+ * JazzError types carry their detail in structured fields (often with an empty
+ * `.message`), so fall back to the suggestion engine's message for those.
+ * Useful for machine-readable surfaces (e.g. `jazz run --json`) that need a
+ * meaningful string without the full decorated multi-line output.
+ */
+export function getErrorMessage(error: JazzError | Error): string {
+  if ("_tag" in error && typeof (error as { _tag: unknown })._tag === "string") {
+    return generateSuggestions(error).message;
+  }
+  return error instanceof Error && error.message ? error.message : String(error);
+}
+
+/**
  * Enhanced error handler that provides actionable suggestions
  *
  * Handles both JazzError types (with structured suggestions) and generic Error objects.
