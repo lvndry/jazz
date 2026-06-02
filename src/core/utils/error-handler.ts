@@ -502,7 +502,12 @@ export function formatError(error: JazzError): string {
  * meaningful string without the full decorated multi-line output.
  */
 export function getErrorMessage(error: JazzError | Error): string {
-  if ("_tag" in error && typeof (error as { _tag: unknown })._tag === "string") {
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    "_tag" in error &&
+    typeof (error as { _tag: unknown })._tag === "string"
+  ) {
     return generateSuggestions(error).message;
   }
   return error instanceof Error && error.message ? error.message : String(error);

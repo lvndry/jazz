@@ -88,6 +88,11 @@ export interface RunAgentOnceOptions {
 }
 
 function readStdin(): Promise<string> {
+  // If stdin already ended, the "end" event has fired and won't fire again —
+  // registering a new listener would hang forever.
+  if (process.stdin.readableEnded) {
+    return Promise.resolve("");
+  }
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     process.stdin.on("data", (chunk) => chunks.push(chunk));
@@ -186,8 +191,8 @@ export function runAgentOnceCommand(
     const completionTokens = runResult.usage?.completionTokens ?? 0;
     const toolCalls = (runResult.toolCalls ?? []).map((toolCall) => ({
       id: toolCall.id,
-      name: toolCall.function.name,
-      arguments: toolCall.function.arguments,
+      name: toolCall.function?.name ?? "",
+      arguments: toolCall.function?.arguments ?? "",
     }));
 
     yield* writeStdout(

@@ -9,8 +9,9 @@ describe("parsePositiveInt", () => {
     expect(parse("1")).toBe(1);
   });
 
-  it("ignores trailing non-numeric characters like parseInt", () => {
-    expect(parse("30s")).toBe(30);
+  it("rejects trailing non-numeric characters instead of silently truncating", () => {
+    expect(() => parse("30s")).toThrow('--timeout must be a positive integer (got "30s").');
+    expect(() => parse("10.5")).toThrow("--timeout must be a positive integer");
   });
 
   it("throws on zero, negatives, and non-numeric input", () => {

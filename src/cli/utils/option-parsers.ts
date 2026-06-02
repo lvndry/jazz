@@ -13,8 +13,13 @@
  */
 export function parsePositiveInt(label: string) {
   return (raw: string): number => {
+    // Reject trailing non-digits — Number.parseInt would silently accept "30s"
+    // as 30, which is a dangerous footgun for flags like --timeout.
+    if (!/^\d+$/.test(raw)) {
+      throw new Error(`${label} must be a positive integer (got "${raw}").`);
+    }
     const value = Number.parseInt(raw, 10);
-    if (!Number.isFinite(value) || value <= 0) {
+    if (value <= 0) {
       throw new Error(`${label} must be a positive integer (got "${raw}").`);
     }
     return value;
