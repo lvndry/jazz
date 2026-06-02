@@ -52,6 +52,7 @@ export class ChatServiceImpl implements ChatService {
       stream?: boolean;
       initialHistory?: ChatMessage[];
       initialConversationTitle?: string;
+      maxIterations?: number;
     },
   ): Effect.Effect<
     void,
@@ -371,6 +372,9 @@ export class ChatServiceImpl implements ChatService {
             sessionId, // Pass the sessionId for logging
             conversationHistory,
             ...(options?.stream !== undefined ? { stream: options.stream } : {}),
+            ...(options?.maxIterations !== undefined
+              ? { maxIterations: options.maxIterations }
+              : {}),
             ...(autoApprovePolicy !== undefined
               ? { autoApprovePolicy: getCurrentAutoApprovePolicy }
               : {}),

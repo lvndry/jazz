@@ -192,6 +192,7 @@ export function runWorkflowCommand(
   options?: {
     autoApprove?: boolean;
     agent?: string;
+    maxIterations?: number;
     scheduled?: boolean;
   },
 ) {
@@ -354,16 +355,15 @@ export function runWorkflowCommand(
       autoApprove: autoApprovePolicy,
     });
 
-    // Run the agent with the workflow prompt
-    // maxIterations from workflow metadata is optional — omit for no limit
+    // Run the agent with the workflow prompt. Iteration cap precedence:
+    // CLI --max-iterations flag > workflow metadata > default (omitted here).
+    const resolvedMaxIterations = options?.maxIterations ?? workflow.metadata.maxIterations;
     const runResult = yield* AgentRunner.run({
       agent,
       userInput: workflow.prompt,
       sessionId: `workflow-${workflowName}-${Date.now()}`,
       conversationId: `workflow-${workflowName}-${Date.now()}`,
-      ...(workflow.metadata.maxIterations != null
-        ? { maxIterations: workflow.metadata.maxIterations }
-        : {}),
+      ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
     }).pipe(
       Effect.tap((result) =>

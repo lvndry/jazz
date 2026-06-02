@@ -25,6 +25,7 @@ import {
   editPersonaCommand,
   deletePersonaCommand,
 } from "./commands/persona";
+import { isApprovalPolicyFlag, runAgentOnceCommand } from "./commands/run-agent";
 import { updateCommand } from "./commands/update";
 import { wizardCommand } from "./commands/wizard";
 import {
@@ -37,6 +38,7 @@ import {
   catchupWorkflowCommand,
   workflowHistoryCommand,
 } from "./commands/workflow";
+import { parsePositiveInt } from "./utils/option-parsers";
 
 /**
  * CLI Application setup and command registration
@@ -51,6 +53,83 @@ interface CliOptions {
   config?: string;
   output?: string;
   tui?: boolean;
+}
+
+/**
+ * Register the one-shot `run` command — non-interactive agent invocation for
+ * scripts and webhook handlers.
+ */
+function registerRunCommand(program: Command): void {
+  program
+    .command("run [prompt]")
+    .description(
+      "Run an agent once non-interactively (for scripts/webhooks). Prompt comes from the argument or piped stdin; the answer goes to stdout, all chatter to stderr.",
+    )
+    .requiredOption("--agent <agentId>", "Agent ID or name to run")
+    .option("--json", "Emit a single JSON envelope { ok, answer, costUSD, tokenUsage, toolCalls }")
+    .option(
+      "--approval-policy <policy>",
+      "Auto-approve tools up to a risk level: read-only | low-risk | high-risk (high-risk approves everything). Tools above the level are declined.",
+    )
+    .option(
+      "--timeout <ms>",
+      "Abort the run after this many milliseconds",
+      parsePositiveInt("--timeout"),
+    )
+    .option(
+      "--max-iterations <n>",
+      "Maximum agent reasoning iterations for this run",
+      parsePositiveInt("--max-iterations"),
+    )
+    .action(
+      (
+        prompt: string | undefined,
+        options: {
+          agent: string;
+          json?: boolean;
+          approvalPolicy?: string;
+          timeout?: number;
+          maxIterations?: number;
+        },
+      ) => {
+        const opts = program.opts<CliOptions>();
+        const json = options.json === true;
+
+        if (options.approvalPolicy !== undefined && !isApprovalPolicyFlag(options.approvalPolicy)) {
+          const message = `Invalid --approval-policy "${options.approvalPolicy}". Expected read-only, low-risk, or high-risk.`;
+          if (json) {
+            process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
+          } else {
+            process.stderr.write(`${message}\n`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        // Force plain terminal so Ink never mounts and writes to stdout; the
+        // one-shot presentation layer keeps stdout clean for the payload.
+        process.env["JAZZ_NO_TUI"] = "1";
+
+        runCliEffect(
+          runAgentOnceCommand(options.agent, prompt, {
+            json,
+            ...(options.approvalPolicy !== undefined && isApprovalPolicyFlag(options.approvalPolicy)
+              ? { approvalPolicy: options.approvalPolicy }
+              : {}),
+            ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
+            ...(options.maxIterations !== undefined
+              ? { maxIterations: options.maxIterations }
+              : {}),
+          }),
+          {
+            verbose: opts.verbose,
+            debug: opts.debug,
+            configPath: opts.config,
+          },
+          { skipCatchUp: true, skipUpdateCheck: true },
+        );
+      },
+    );
 }
 
 /**
@@ -127,22 +206,30 @@ function registerAgentCommands(program: Command): void {
     .description("Start a chat with an AI agent by ID or name")
     .option("--stream", "Force streaming mode (real-time output)")
     .option("--no-stream", "Disable streaming mode")
+    .option(
+      "--max-iterations <n>",
+      "Maximum agent reasoning iterations per turn (default 80)",
+      parsePositiveInt("--max-iterations"),
+    )
     .action(
       (
         agentIdentifier: string,
         options: {
           stream?: boolean;
           noStream?: boolean;
+          maxIterations?: number;
         },
       ) => {
         const opts = program.opts<CliOptions>();
         const streamOption =
           options.noStream === true ? false : options.stream === true ? true : undefined;
         runCliEffect(
-          chatWithAIAgentCommand(
-            agentIdentifier,
-            streamOption !== undefined ? { stream: streamOption } : {},
-          ),
+          chatWithAIAgentCommand(agentIdentifier, {
+            ...(streamOption !== undefined ? { stream: streamOption } : {}),
+            ...(options.maxIterations !== undefined
+              ? { maxIterations: options.maxIterations }
+              : {}),
+          }),
           {
             verbose: opts.verbose,
             debug: opts.debug,
@@ -341,13 +428,23 @@ function registerWorkflowCommands(program: Command): void {
     .option("--auto-approve", "Auto-approve tool executions based on workflow policy")
     .option("--agent <agentId>", "Agent ID or name to use for this workflow run")
     .option(
+      "--max-iterations <n>",
+      "Maximum agent reasoning iterations (overrides the workflow's own setting)",
+      parsePositiveInt("--max-iterations"),
+    )
+    .option(
       "--scheduled",
       "Indicates this run was triggered by the system scheduler (launchd/cron)",
     )
     .action(
       (
         name: string,
-        options: { autoApprove?: boolean; agent?: string; scheduled?: boolean },
+        options: {
+          autoApprove?: boolean;
+          agent?: string;
+          maxIterations?: number;
+          scheduled?: boolean;
+        },
         command: Command,
       ) => {
         const opts = program.opts<CliOptions>();
@@ -474,6 +571,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     });
 
     // Register all commands
+    registerRunCommand(program);
     registerAgentCommands(program);
     registerPersonaCommands(program);
     registerConfigCommands(program);

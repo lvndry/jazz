@@ -36,6 +36,7 @@ export interface ChatService {
       stream?: boolean;
       initialHistory?: ChatMessage[];
       initialConversationTitle?: string;
+      maxIterations?: number;
     },
   ) => Effect.Effect<
     void,
