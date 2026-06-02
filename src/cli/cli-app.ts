@@ -38,6 +38,7 @@ import {
   catchupWorkflowCommand,
   workflowHistoryCommand,
 } from "./commands/workflow";
+import { parsePositiveInt } from "./utils/option-parsers";
 
 /**
  * CLI Application setup and command registration
@@ -52,16 +53,6 @@ interface CliOptions {
   config?: string;
   output?: string;
   tui?: boolean;
-}
-
-function parsePositiveInt(label: string) {
-  return (raw: string): number => {
-    const value = Number.parseInt(raw, 10);
-    if (!Number.isFinite(value) || value <= 0) {
-      throw new Error(`${label} must be a positive integer (got "${raw}").`);
-    }
-    return value;
-  };
 }
 
 /**
