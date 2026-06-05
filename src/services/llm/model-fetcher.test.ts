@@ -237,6 +237,29 @@ describe("ModelFetcher", () => {
     expect(result[0]!.supportsTools).toBe(false);
   });
 
+  it("trusts capabilities over legacy metadata: capabilities without tools wins even if metadata claims supports_tools", async () => {
+    const mockTagsResponse = {
+      models: [{ name: "embeddinggemma:300m", details: { metadata: { supports_tools: true } } }],
+    };
+    const mockShowResponse = {
+      model_info: { "gemma3.context_length": 2048 },
+      capabilities: ["completion"],
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/api/tags"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
+      if (url.endsWith("/api/show"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const result = await Effect.runPromise(program);
+
+    expect(result[0]!.supportsTools).toBe(false);
+  });
+
   it("sets isReasoningModel=false for ollama models without thinking capability or tag template", async () => {
     const mockTagsResponse = {
       models: [{ name: "llama3.1:8b", details: { metadata: {} } }],

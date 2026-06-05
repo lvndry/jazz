@@ -333,9 +333,12 @@ async function transformOllamaModels(
         } else {
           entry.fallback = {
             contextWindow: extras.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+            // Trust /api/show capabilities authoritatively when present (it's the source of truth for
+            // tool support); only fall back to the legacy manifest metadata when capabilities is absent.
             supportsTools:
-              ollamaToolSupportFromCapabilities(extras.capabilities) ||
-              ollamaToolSupportFromMetadata(model),
+              extras.capabilities !== undefined
+                ? ollamaToolSupportFromCapabilities(extras.capabilities)
+                : ollamaToolSupportFromMetadata(model),
             isReasoningModel: hasReasoningParser({
               provider: "ollama",
               modelId: model.name,
