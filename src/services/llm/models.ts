@@ -62,23 +62,45 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
 } as const;
 
 /**
+ * Canonicalize an Ollama base URL to its REST API root (ending in `/api`).
+ *
+ * Ollama's REST endpoints (`/tags`, `/show`) and the ai-sdk provider all treat the base URL as the
+ * `/api` root. A config/env value may be written with or without `/api` (or a trailing slash), so
+ * normalize it here — the single place every consumer resolves the URL — to guarantee consistency
+ * and avoid mistakes like a doubled `/api/api`.
+ */
+function toOllamaApiRoot(url: string): string {
+  const trimmed = url.replace(/\/+$/, "");
+  if (trimmed.length === 0) return trimmed;
+  return /\/api$/.test(trimmed) ? trimmed : `${trimmed}/api`;
+}
+
+/**
  * Resolve the base URL for a local-server provider. Precedence:
  *   1. llmConfig.<provider>.base_url
  *   2. <PROVIDER>_BASE_URL env var
  *   3. PROVIDER_MODELS[<provider>].defaultBaseUrl
+ *
+ * For Ollama the result is canonicalized to the `/api` root so every consumer agrees on the base.
  */
 export function resolveLocalProviderBaseUrl(
   provider: "llamacpp" | "ollama",
   llmConfig?: LLMConfig,
 ): string {
   const fromConfig = llmConfig?.[provider]?.base_url;
-  if (fromConfig && fromConfig.length > 0) return fromConfig;
-
   const envVar = provider === "llamacpp" ? "LLAMACPP_BASE_URL" : "OLLAMA_BASE_URL";
   const fromEnv = process.env[envVar];
-  if (fromEnv && fromEnv.length > 0) return fromEnv;
-
   const source = PROVIDER_MODELS[provider];
   const fallback = source.type === "dynamic" ? source.defaultBaseUrl : undefined;
-  return fallback ?? "";
+
+  let resolved: string;
+  if (fromConfig && fromConfig.length > 0) {
+    resolved = fromConfig;
+  } else if (fromEnv && fromEnv.length > 0) {
+    resolved = fromEnv;
+  } else {
+    resolved = fallback ?? "";
+  }
+
+  return provider === "ollama" ? toOllamaApiRoot(resolved) : resolved;
 }

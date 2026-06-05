@@ -9,6 +9,28 @@ mock.module("@/core/utils/models-dev-client", () => ({
   getMetadataFromMap: mock(() => null),
 }));
 
+/**
+ * Install a `global.fetch` mock for an ollama model fetch: `/api/tags` → `tags`,
+ * `/api/show` → `show` (200), anything else → 404. Returns the array of requested
+ * URLs (populated as fetch is invoked) so callers can assert which URLs were hit.
+ */
+function mockOllamaFetch(responses: { tags: unknown; show: unknown }): string[] {
+  const requestedUrls: string[] = [];
+  global.fetch = mock((url: string) => {
+    requestedUrls.push(url);
+    if (url.endsWith("/api/tags"))
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(responses.tags) });
+    if (url.endsWith("/api/show"))
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(responses.show),
+      });
+    return Promise.resolve({ ok: false, status: 404, statusText: "Not Found" });
+  }) as unknown as typeof fetch;
+  return requestedUrls;
+}
+
 describe("ModelFetcher", () => {
   const fetcher = createModelFetcher();
 
@@ -56,7 +78,7 @@ describe("ModelFetcher", () => {
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
-    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags");
     const result = await Effect.runPromise(program);
 
     expect(result.length).toBe(1);
@@ -180,7 +202,7 @@ describe("ModelFetcher", () => {
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
-    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags");
     const result = await Effect.runPromise(program);
 
     expect(result.length).toBe(1);
@@ -207,11 +229,35 @@ describe("ModelFetcher", () => {
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
-    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags");
     const result = await Effect.runPromise(program);
 
     expect(result.length).toBe(1);
     expect(result[0]!.isReasoningModel).toBe(true);
+    expect(result[0]!.supportsTools).toBe(true);
+  });
+
+  // Base-URL canonicalization (bare host → /api root) lives in resolveLocalProviderBaseUrl and is
+  // covered in base-url-resolver.test.ts. Here the base is already the canonical /api root, so this
+  // asserts the endpoints append correctly: /show (not /api/api/show) and /tags.
+  it("reaches /api/show (not /api/api/show) from the canonical /api-root base URL", async () => {
+    const requestedUrls = mockOllamaFetch({
+      tags: { models: [{ name: "qwen3.6:27b", details: { metadata: {} } }] },
+      show: {
+        model_info: { "qwen3.context_length": 262144 },
+        template: "{{ if .Thinking }}<think>{{ end }}",
+        capabilities: ["completion", "vision", "tools", "thinking"],
+      },
+    });
+
+    const result = await Effect.runPromise(
+      fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags"),
+    );
+
+    expect(requestedUrls).toContain("http://localhost:11434/api/show");
+    expect(requestedUrls.some((url) => url.includes("/api/api/"))).toBe(false);
+    expect(result.length).toBe(1);
+    expect(result[0]!.capabilities).toEqual(["completion", "vision", "tools", "thinking"]);
     expect(result[0]!.supportsTools).toBe(true);
   });
 
@@ -232,7 +278,7 @@ describe("ModelFetcher", () => {
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
-    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags");
     const result = await Effect.runPromise(program);
 
     expect(result[0]!.supportsTools).toBe(false);
@@ -255,7 +301,7 @@ describe("ModelFetcher", () => {
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
-    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags");
     const result = await Effect.runPromise(program);
 
     expect(result[0]!.supportsTools).toBe(false);
@@ -279,7 +325,7 @@ describe("ModelFetcher", () => {
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
-    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags");
     const result = await Effect.runPromise(program);
 
     expect(result[0]!.isReasoningModel).toBe(false);
@@ -348,7 +394,7 @@ describe("ModelFetcher", () => {
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
-    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags");
     const result = await Effect.runPromise(program);
 
     expect(result.length).toBe(1);
@@ -372,7 +418,7 @@ describe("ModelFetcher", () => {
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
-    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags");
     const result = await Effect.runPromise(program);
 
     expect(result[0]!.supportsTools).toBe(false);
