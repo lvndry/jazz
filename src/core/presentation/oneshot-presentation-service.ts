@@ -11,6 +11,35 @@ import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 
+const MAX_EVENT_STRING_LENGTH = 200;
+
+function truncateString(value: string): string {
+  return value.length > MAX_EVENT_STRING_LENGTH
+    ? `${value.slice(0, MAX_EVENT_STRING_LENGTH)}…`
+    : value;
+}
+
+/**
+ * JSON replacer that caps any long string value so a single tool result or file
+ * payload cannot gush megabytes onto stderr, and serializes `Error` instances to
+ * a plain object (their `message`/`stack` are non-enumerable and would otherwise
+ * stringify to `{}`). Bounds NDJSON line size to keep the live-progress stream
+ * cheap to parse downstream.
+ */
+function truncateLongStrings(_key: string, value: unknown): unknown {
+  if (typeof value === "string") {
+    return truncateString(value);
+  }
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: truncateString(value.message),
+      ...(value.stack !== undefined ? { stack: truncateString(value.stack) } : {}),
+    };
+  }
+  return value;
+}
+
 /**
  * Presentation service for headless, one-shot agent runs (`jazz run`).
  *
@@ -26,8 +55,11 @@ import { resolveDisplayConfig } from "@/core/utils/display-config";
  * This differs from QuietPresentationService, which blanket-approves every tool
  * and is meant for trusted background runs.
  */
-class OneShotPresentationService implements PresentationService {
-  constructor(_displayConfig = DEFAULT_DISPLAY_CONFIG) {}
+export class OneShotPresentationService implements PresentationService {
+  constructor(
+    _displayConfig = DEFAULT_DISPLAY_CONFIG,
+    private readonly emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
+  ) {}
 
   presentThinking(_agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {
     return Effect.void;
@@ -37,8 +69,20 @@ class OneShotPresentationService implements PresentationService {
     return Effect.void;
   }
 
+  private get eventsActive(): boolean {
+    return this.emitEventTypes.size > 0;
+  }
+
+  private emitNdjson(payload: Record<string, unknown>): void {
+    process.stderr.write(`${JSON.stringify(payload, truncateLongStrings)}\n`);
+  }
+
   presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (this.eventsActive) {
+        this.emitNdjson({ type: "warning", agentName, message });
+        return;
+      }
       process.stderr.write(`⚠ ${agentName}: ${message}\n`);
     });
   }
@@ -93,17 +137,37 @@ class OneShotPresentationService implements PresentationService {
   createStreamingRenderer(
     _config: StreamingRendererConfig,
   ): Effect.Effect<StreamingRenderer, never> {
-    const noopRenderer: StreamingRenderer = {
-      handleEvent: (_event: StreamEvent) => Effect.void,
+    if (this.emitEventTypes.size === 0) {
+      const noopRenderer: StreamingRenderer = {
+        handleEvent: (_event: StreamEvent) => Effect.void,
+        setInterruptHandler: (_handler: (() => void) | null) => Effect.void,
+        reset: () => Effect.void,
+        flush: () => Effect.void,
+      };
+      return Effect.succeed(noopRenderer);
+    }
+
+    const emitEventTypes = this.emitEventTypes;
+    const emittingRenderer: StreamingRenderer = {
+      handleEvent: (event: StreamEvent) =>
+        Effect.sync(() => {
+          if (emitEventTypes.has(event.type)) {
+            process.stderr.write(`${JSON.stringify(event, truncateLongStrings)}\n`);
+          }
+        }),
       setInterruptHandler: (_handler: (() => void) | null) => Effect.void,
       reset: () => Effect.void,
       flush: () => Effect.void,
     };
-    return Effect.succeed(noopRenderer);
+    return Effect.succeed(emittingRenderer);
   }
 
   writeOutput(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (this.eventsActive) {
+        this.emitNdjson({ type: "output", message });
+        return;
+      }
       process.stderr.write(message);
     });
   }
@@ -117,6 +181,10 @@ class OneShotPresentationService implements PresentationService {
     level: "info" | "success" | "warning" | "error" | "progress",
   ): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (this.eventsActive) {
+        this.emitNdjson({ type: "status", level, message });
+        return;
+      }
       const prefixes: Record<typeof level, string> = {
         info: "ℹ",
         success: "✓",
@@ -155,14 +223,24 @@ class OneShotPresentationService implements PresentationService {
 
 /**
  * Layer providing the one-shot presentation service for `jazz run`.
+ *
+ * When `emitEventTypes` is non-empty, the streaming renderer emits matching
+ * `StreamEvent`s as NDJSON to stderr for live-progress consumers; stdout stays
+ * reserved for the final payload.
  */
-export const OneShotPresentationServiceLayer = Layer.effect(
-  PresentationServiceTag,
-  Effect.gen(function* () {
-    const configServiceOption = yield* Effect.serviceOption(AgentConfigServiceTag);
-    const displayConfig = Option.isSome(configServiceOption)
-      ? resolveDisplayConfig(yield* configServiceOption.value.appConfig)
-      : DEFAULT_DISPLAY_CONFIG;
-    return new OneShotPresentationService(displayConfig);
-  }),
-);
+export function makeOneShotPresentationServiceLayer(
+  emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
+) {
+  return Layer.effect(
+    PresentationServiceTag,
+    Effect.gen(function* () {
+      const configServiceOption = yield* Effect.serviceOption(AgentConfigServiceTag);
+      const displayConfig = Option.isSome(configServiceOption)
+        ? resolveDisplayConfig(yield* configServiceOption.value.appConfig)
+        : DEFAULT_DISPLAY_CONFIG;
+      return new OneShotPresentationService(displayConfig, emitEventTypes);
+    }),
+  );
+}
+
+export const OneShotPresentationServiceLayer = makeOneShotPresentationServiceLayer();

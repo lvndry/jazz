@@ -25,7 +25,11 @@ import {
   editPersonaCommand,
   deletePersonaCommand,
 } from "./commands/persona";
-import { isApprovalPolicyFlag, runAgentOnceCommand } from "./commands/run-agent";
+import {
+  isApprovalPolicyFlag,
+  parseEventCategories,
+  runAgentOnceCommand,
+} from "./commands/run-agent";
 import { updateCommand } from "./commands/update";
 import { wizardCommand } from "./commands/wizard";
 import {
@@ -81,6 +85,10 @@ function registerRunCommand(program: Command): void {
       "Maximum agent reasoning iterations for this run",
       parsePositiveInt("--max-iterations"),
     )
+    .option(
+      "--events <categories>",
+      "Emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,all). stdout stays the clean payload.",
+    )
     .action(
       (
         prompt: string | undefined,
@@ -90,6 +98,7 @@ function registerRunCommand(program: Command): void {
           approvalPolicy?: string;
           timeout?: number;
           maxIterations?: number;
+          events?: string;
         },
       ) => {
         const opts = program.opts<CliOptions>();
@@ -101,6 +110,20 @@ function registerRunCommand(program: Command): void {
             process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
           } else {
             process.stderr.write(`${message}\n`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        const eventCategories =
+          options.events !== undefined ? parseEventCategories(options.events) : undefined;
+        if (eventCategories !== undefined && !eventCategories.ok) {
+          if (json) {
+            process.stdout.write(
+              `${JSON.stringify({ ok: false, error: eventCategories.error, costUSD: 0 })}\n`,
+            );
+          } else {
+            process.stderr.write(`${eventCategories.error}\n`);
           }
           process.exitCode = 1;
           return;
@@ -120,6 +143,7 @@ function registerRunCommand(program: Command): void {
             ...(options.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
               : {}),
+            ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
           }),
           {
             verbose: opts.verbose,

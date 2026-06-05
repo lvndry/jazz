@@ -1,8 +1,9 @@
 import { Duration, Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
-import { OneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
+import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
 import { AgentNotFoundError } from "@/core/types/errors";
+import type { StreamEvent } from "@/core/types/streaming";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { CommonSuggestions, getErrorMessage } from "@/core/utils/error-handler";
 
@@ -85,6 +86,57 @@ export interface RunAgentOnceOptions {
   readonly approvalPolicy?: ApprovalPolicyFlag | undefined;
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
+  readonly eventTypes?: ReadonlySet<StreamEvent["type"]> | undefined;
+}
+
+const EVENT_CATEGORY_TYPES = {
+  tools: ["tools_detected", "tool_call", "tool_execution_start", "tool_execution_complete"],
+  reasoning: ["thinking_start", "thinking_chunk", "thinking_complete"],
+  text: ["text_start", "text_chunk"],
+  usage: ["stream_start", "usage_update", "complete"],
+} as const satisfies Record<string, readonly StreamEvent["type"][]>;
+
+type EventCategory = keyof typeof EVENT_CATEGORY_TYPES;
+
+function isEventCategory(value: string): value is EventCategory {
+  return Object.prototype.hasOwnProperty.call(EVENT_CATEGORY_TYPES, value);
+}
+
+/**
+ * Parse the comma-separated `--events` flag into the set of `StreamEvent` types
+ * to emit. The `error` type is always included so failures surface on the live
+ * stream regardless of the selected categories.
+ */
+export function parseEventCategories(
+  raw: string,
+): { ok: true; types: ReadonlySet<StreamEvent["type"]> } | { ok: false; error: string } {
+  const types = new Set<StreamEvent["type"]>(["error"]);
+  const categories = raw
+    .split(",")
+    .map((category) => category.trim().toLowerCase())
+    .filter((category) => category.length > 0);
+
+  for (const category of categories) {
+    if (category === "all") {
+      for (const eventTypes of Object.values(EVENT_CATEGORY_TYPES)) {
+        for (const eventType of eventTypes) {
+          types.add(eventType);
+        }
+      }
+      continue;
+    }
+    if (!isEventCategory(category)) {
+      return {
+        ok: false,
+        error: `Invalid --events category "${category}". Expected: tools, reasoning, text, usage, all.`,
+      };
+    }
+    for (const eventType of EVENT_CATEGORY_TYPES[category]) {
+      types.add(eventType);
+    }
+  }
+
+  return { ok: true, types };
 }
 
 function readStdin(): Promise<string> {
@@ -212,6 +264,6 @@ export function runAgentOnceCommand(
     );
   }).pipe(
     Effect.catchAll((error) => failOneShot(getErrorMessage(error), outputOptions)),
-    Effect.provide(OneShotPresentationServiceLayer),
+    Effect.provide(makeOneShotPresentationServiceLayer(options.eventTypes ?? new Set())),
   );
 }
