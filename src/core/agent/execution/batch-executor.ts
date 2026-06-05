@@ -7,7 +7,7 @@ import { DEFAULT_MAX_LLM_RETRIES, LLM_TIMEOUT_SECONDS } from "@/core/constants/a
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import type { PresentationService } from "@/core/interfaces/presentation";
+import type { PresentationService, StreamingRenderer } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ConversationMessages } from "@/core/types";
@@ -47,6 +47,23 @@ export function executeWithoutStreaming(
 
     const reasoningEffort = agent.config.reasoningEffort ?? "disable";
     const shouldShowThinking = displayConfig.showThinking && reasoningEffort !== "disable";
+
+    // Some presentation services (the headless one-shot `--events` emitter) only
+    // surface tool lifecycle events through a streaming renderer. On this batch
+    // path the tool executor would otherwise fall back to the plain `format*`
+    // methods and never emit those events, so route tool events through a
+    // renderer when the service asks for it. Visual services return false here
+    // and keep their batch `format*` rendering unchanged.
+    const toolEventRenderer: StreamingRenderer | null =
+      presentationService.emitsToolEventsViaRenderer?.() === true
+        ? yield* presentationService.createStreamingRenderer({
+            displayConfig,
+            streamingConfig: { enabled: true },
+            showMetrics,
+            agentName: agent.name,
+            reasoningEffort,
+          })
+        : null;
 
     const strategy: CompletionStrategy = {
       shouldShowThinking,
@@ -141,7 +158,7 @@ export function executeWithoutStreaming(
       },
 
       getRenderer() {
-        return null;
+        return toolEventRenderer;
       },
     };
 
