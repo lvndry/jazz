@@ -182,8 +182,24 @@ const TOOL_PARAMS = new Set([
 ]);
 
 /**
- * Fallback when model is not in models.dev: read tool support from Ollama manifest metadata.
+ * Fallback when model is not in models.dev: derive tool support from Ollama's own
+ * capability reporting.
+ *
+ * Ollama exposes tool support in two places that don't always agree:
+ *  - `/api/show` returns a `capabilities` array (e.g. ["completion","tools","thinking"]).
+ *    This is the authoritative signal and is present for every modern tool-capable model,
+ *    including thinking/vision models like gemma4. Tool capability is independent of the
+ *    thinking capability — a model can have both.
+ *  - `/api/tags` may include legacy `details.metadata` flags for some models.
+ *
+ * We trust `capabilities` first, then fall back to manifest metadata. Never gate on the
+ * thinking/reasoning capability: thinking-capable models can also call tools.
  */
+function ollamaToolSupportFromCapabilities(capabilities: readonly string[] | undefined): boolean {
+  if (!capabilities) return false;
+  return capabilities.includes("tools");
+}
+
 function ollamaToolSupportFromMetadata(model: OllamaModel): boolean {
   const metadata = model.details?.metadata;
   if (!metadata || typeof metadata !== "object") return false;
@@ -317,7 +333,9 @@ async function transformOllamaModels(
         } else {
           entry.fallback = {
             contextWindow: extras.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
-            supportsTools: ollamaToolSupportFromMetadata(model),
+            supportsTools:
+              ollamaToolSupportFromCapabilities(extras.capabilities) ||
+              ollamaToolSupportFromMetadata(model),
             isReasoningModel: hasReasoningParser({
               provider: "ollama",
               modelId: model.name,
