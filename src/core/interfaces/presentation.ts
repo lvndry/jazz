@@ -133,6 +133,17 @@ export interface PresentationService {
   ) => Effect.Effect<StreamingRenderer, never>;
 
   /**
+   * Whether tool lifecycle events must be routed through a streaming renderer
+   * even on the non-streaming (batch) execution path.
+   *
+   * The headless one-shot service uses the renderer as its only `--events`
+   * NDJSON emit seam, so it returns true when events are requested. Visual
+   * services (CLI, Ink) render tool activity through their own `format*`
+   * fallbacks in batch mode and return false to keep that behavior unchanged.
+   */
+  readonly emitsToolEventsViaRenderer?: () => boolean;
+
+  /**
    * Write output directly (for non-streaming mode)
    */
   readonly writeOutput: (message: string) => Effect.Effect<void, never>;

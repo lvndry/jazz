@@ -73,6 +73,10 @@ export class OneShotPresentationService implements PresentationService {
     return this.emitEventTypes.size > 0;
   }
 
+  emitsToolEventsViaRenderer(): boolean {
+    return this.eventsActive;
+  }
+
   private emitNdjson(payload: Record<string, unknown>): void {
     process.stderr.write(`${JSON.stringify(payload, truncateLongStrings)}\n`);
   }
