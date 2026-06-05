@@ -54,4 +54,24 @@ describe("resolveLocalProviderBaseUrl", () => {
     const config: LLMConfig = { llamacpp: { base_url: "" } };
     expect(resolveLocalProviderBaseUrl("llamacpp", config)).toBe("http://localhost:8080/v1");
   });
+
+  it("canonicalizes an ollama env base URL without /api to the /api root", () => {
+    process.env["OLLAMA_BASE_URL"] = "http://env-host:11434";
+    expect(resolveLocalProviderBaseUrl("ollama")).toBe("http://env-host:11434/api");
+  });
+
+  it("canonicalizes an ollama config base URL without /api to the /api root", () => {
+    const config: LLMConfig = { ollama: { base_url: "http://config-host:11434" } };
+    expect(resolveLocalProviderBaseUrl("ollama", config)).toBe("http://config-host:11434/api");
+  });
+
+  it("strips a trailing slash and keeps a single /api root for ollama", () => {
+    process.env["OLLAMA_BASE_URL"] = "http://env-host:11434/api/";
+    expect(resolveLocalProviderBaseUrl("ollama")).toBe("http://env-host:11434/api");
+  });
+
+  it("does NOT force /api onto llamacpp (its convention is /v1, not /api)", () => {
+    process.env["LLAMACPP_BASE_URL"] = "http://env-host:9000";
+    expect(resolveLocalProviderBaseUrl("llamacpp")).toBe("http://env-host:9000");
+  });
 });

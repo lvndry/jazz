@@ -148,14 +148,15 @@ function extractOllamaContextLength(
 
 /**
  * Fetch detailed model info from Ollama /api/show endpoint
- * Returns context window, template, and capabilities when available
+ * Returns context window, template, and capabilities when available.
+ * `baseUrl` is the canonical `/api` root (see resolveLocalProviderBaseUrl), so `/show` appends directly.
  */
 async function fetchOllamaModelDetails(
   baseUrl: string,
   modelName: string,
 ): Promise<OllamaShowExtras> {
   try {
-    const response = await fetch(`${baseUrl}/api/show`, {
+    const response = await fetch(`${baseUrl}/show`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: modelName }),
