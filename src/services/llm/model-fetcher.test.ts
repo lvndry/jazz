@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it, mock, beforeEach } from "bun:test";
 import { Effect } from "effect";
-import { createModelFetcher } from "./model-fetcher";
+import type { ModelsDevMetadata } from "@/core/utils/models-dev-client";
+import { createModelFetcher, resolveOllamaToolSupport, type OllamaModel } from "./model-fetcher";
 
 // Mock models-dev-client
 mock.module("@/core/utils/models-dev-client", () => ({
@@ -328,5 +329,88 @@ describe("ModelFetcher", () => {
     const result = await Effect.runPromise(program);
 
     expect(result[0]!.isReasoningModel).toBe(false);
+  });
+
+  it("run-path seam: ollama model not in models.dev with tools capability resolves supportsTools=true", async () => {
+    const mockTagsResponse = {
+      models: [{ name: "qwen3.6:27b", details: { metadata: {} } }],
+    };
+    const mockShowResponse = {
+      model_info: { "qwen3.context_length": 32768 },
+      capabilities: ["completion", "tools", "thinking"],
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/api/tags"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
+      if (url.endsWith("/api/show"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const result = await Effect.runPromise(program);
+
+    expect(result.length).toBe(1);
+    expect(result[0]!.supportsTools).toBe(true);
+  });
+
+  it("run-path seam: ollama model whose capabilities omit tools resolves supportsTools=false", async () => {
+    const mockTagsResponse = {
+      models: [{ name: "embeddinggemma:300m", details: { metadata: {} } }],
+    };
+    const mockShowResponse = {
+      model_info: { "gemma3.context_length": 2048 },
+      capabilities: ["completion"],
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/api/tags"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
+      if (url.endsWith("/api/show"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("ollama", "http://localhost:11434", "/api/tags");
+    const result = await Effect.runPromise(program);
+
+    expect(result[0]!.supportsTools).toBe(false);
+  });
+
+  describe("resolveOllamaToolSupport", () => {
+    const noMetadataModel: OllamaModel = { name: "model:tag", details: { metadata: {} } };
+    const toolCapableDev: ModelsDevMetadata = {
+      contextWindow: 32768,
+      supportsTools: true,
+      isReasoningModel: false,
+      supportsVision: false,
+      supportsPdf: false,
+    };
+    const nonToolDev: ModelsDevMetadata = { ...toolCapableDev, supportsTools: false };
+
+    it("trusts /api/show capabilities over a stale models.dev tool_call=false (run-path gap)", () => {
+      expect(resolveOllamaToolSupport(["completion", "tools"], nonToolDev, noMetadataModel)).toBe(
+        true,
+      );
+    });
+
+    it("drops tools when capabilities omit tools even if models.dev claims tool_call=true", () => {
+      expect(resolveOllamaToolSupport(["completion"], toolCapableDev, noMetadataModel)).toBe(false);
+    });
+
+    it("falls back to models.dev tool_call when /api/show capabilities are absent", () => {
+      expect(resolveOllamaToolSupport(undefined, toolCapableDev, noMetadataModel)).toBe(true);
+      expect(resolveOllamaToolSupport(undefined, nonToolDev, noMetadataModel)).toBe(false);
+    });
+
+    it("falls back to legacy manifest metadata when neither capabilities nor models.dev are present", () => {
+      const metadataModel: OllamaModel = {
+        name: "legacy:tag",
+        details: { metadata: { supports_tools: true } },
+      };
+      expect(resolveOllamaToolSupport(undefined, undefined, metadataModel)).toBe(true);
+      expect(resolveOllamaToolSupport(undefined, undefined, noMetadataModel)).toBe(false);
+    });
   });
 });

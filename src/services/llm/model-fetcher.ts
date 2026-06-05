@@ -72,7 +72,7 @@ type OpenRouterModel = {
   supported_parameters?: string[];
 };
 
-type OllamaModel = {
+export type OllamaModel = {
   name: string;
   model?: string;
   details?: {
@@ -182,18 +182,11 @@ const TOOL_PARAMS = new Set([
 ]);
 
 /**
- * Fallback when model is not in models.dev: derive tool support from Ollama's own
- * capability reporting.
- *
- * Ollama exposes tool support in two places that don't always agree:
- *  - `/api/show` returns a `capabilities` array (e.g. ["completion","tools","thinking"]).
- *    This is the authoritative signal and is present for every modern tool-capable model,
- *    including thinking/vision models like gemma4. Tool capability is independent of the
- *    thinking capability — a model can have both.
- *  - `/api/tags` may include legacy `details.metadata` flags for some models.
- *
- * We trust `capabilities` first, then fall back to manifest metadata. Never gate on the
- * thinking/reasoning capability: thinking-capable models can also call tools.
+ * Tool support from Ollama's `/api/show` `capabilities` array
+ * (e.g. ["completion","tools","thinking"]). Present for every modern tool-capable model,
+ * including thinking/vision models like gemma4; tool capability is independent of the
+ * thinking capability, so a model can have both. Never gate on the thinking/reasoning
+ * capability.
  */
 function ollamaToolSupportFromCapabilities(capabilities: readonly string[] | undefined): boolean {
   if (!capabilities) return false;
@@ -205,6 +198,36 @@ function ollamaToolSupportFromMetadata(model: OllamaModel): boolean {
   if (!metadata || typeof metadata !== "object") return false;
   const flag = metadata["supports_tools"] ?? metadata["tool_use"] ?? metadata["function_calling"];
   return typeof flag === "boolean" && flag;
+}
+
+/**
+ * Authoritative tool-support decision for a local Ollama model.
+ *
+ * Ollama's `/api/show` `capabilities` array describes the actual model loaded on the host,
+ * so it outranks models.dev. models.dev is matched by a normalized bare key
+ * ("last-provider-wins"), which can miss an Ollama tag entirely or collide with a different
+ * provider's same-named model and report a stale/wrong `tool_call` — either way it would
+ * gate tools incorrectly. Precedence:
+ *  1. `/api/show` capabilities, when present (authoritative for the real local model).
+ *  2. models.dev `tool_call`, when the model resolved against models.dev.
+ *  3. legacy `/api/tags` manifest metadata flags.
+ *
+ * This is shared by both the model-listing path and the agent run path, which resolve
+ * supportsTools through the same fetched ModelInfo, so a tool-capable local model is never
+ * silently stripped of its tools.
+ */
+export function resolveOllamaToolSupport(
+  capabilities: readonly string[] | undefined,
+  dev: ModelsDevMetadata | undefined,
+  model: OllamaModel,
+): boolean {
+  if (capabilities !== undefined) {
+    return ollamaToolSupportFromCapabilities(capabilities);
+  }
+  if (dev) {
+    return dev.supportsTools;
+  }
+  return ollamaToolSupportFromMetadata(model);
 }
 
 // List extractors: provider API response → RawModelEntry[] (metadata resolved via models.dev or fallback)
@@ -327,18 +350,14 @@ async function transformOllamaModels(
         const extras = await fetchOllamaModelDetails(baseUrl, model.name);
         const entry: RawModelEntry = { id: model.name, displayName: model.name };
         const dev = getMetadataFromMap(modelsDevMap, model.name);
+        const supportsTools = resolveOllamaToolSupport(extras.capabilities, dev, model);
         let base: ModelInfo;
         if (dev) {
           base = resolveToModelInfo(entry, modelsDevMap);
         } else {
           entry.fallback = {
             contextWindow: extras.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
-            // Trust /api/show capabilities authoritatively when present (it's the source of truth for
-            // tool support); only fall back to the legacy manifest metadata when capabilities is absent.
-            supportsTools:
-              extras.capabilities !== undefined
-                ? ollamaToolSupportFromCapabilities(extras.capabilities)
-                : ollamaToolSupportFromMetadata(model),
+            supportsTools,
             isReasoningModel: hasReasoningParser({
               provider: "ollama",
               modelId: model.name,
@@ -350,6 +369,7 @@ async function transformOllamaModels(
         }
         return {
           ...base,
+          supportsTools,
           ...(extras.template ? { chatTemplate: extras.template } : {}),
           ...(extras.capabilities ? { capabilities: extras.capabilities } : {}),
         };
