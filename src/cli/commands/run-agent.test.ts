@@ -136,4 +136,14 @@ describe("parseEventCategories", () => {
       'Invalid --events category "bogus". Expected: tools, reasoning, text, usage, all.',
     );
   });
+
+  it.each(["toString", "constructor", "hasOwnProperty", "__proto__", "valueOf"])(
+    "rejects inherited Object.prototype key %p instead of treating it as a category",
+    (inheritedKey) => {
+      const result = parseEventCategories(inheritedKey);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toContain("Invalid --events category");
+    },
+  );
 });

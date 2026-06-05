@@ -99,7 +99,7 @@ const EVENT_CATEGORY_TYPES = {
 type EventCategory = keyof typeof EVENT_CATEGORY_TYPES;
 
 function isEventCategory(value: string): value is EventCategory {
-  return value in EVENT_CATEGORY_TYPES;
+  return Object.prototype.hasOwnProperty.call(EVENT_CATEGORY_TYPES, value);
 }
 
 /**
