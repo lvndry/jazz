@@ -658,7 +658,7 @@ function buildProviderCacheFingerprint(providerName: ProviderName, llmConfig?: L
   }
 }
 
-function buildProviderOptions(
+export function buildProviderOptions(
   providerName: ProviderName,
   options: ChatCompletionOptions,
   webSearchConfig?: WebSearchConfig,
@@ -744,7 +744,15 @@ function buildProviderOptions(
           } satisfies OllamaCompletionProviderOptions,
         };
       }
-      break;
+      // Thinking-capable ollama models default thinking ON when no flag is sent,
+      // which makes the ai-sdk ollama provider emit reasoning into a separate
+      // field and return empty content/no tool calls. Disabling reasoning must
+      // therefore explicitly turn thinking off.
+      return {
+        ollama: {
+          think: false,
+        } satisfies OllamaCompletionProviderOptions,
+      };
     }
     case "openrouter": {
       const reasoningEffort = options.reasoning_effort;

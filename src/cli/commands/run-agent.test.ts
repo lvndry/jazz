@@ -3,6 +3,7 @@ import {
   formatOneShotError,
   formatOneShotResult,
   isApprovalPolicyFlag,
+  isReasoningEffortFlag,
   type OneShotSuccess,
   parseEventCategories,
 } from "./run-agent";
@@ -146,4 +147,20 @@ describe("parseEventCategories", () => {
       expect(result.error).toContain("Invalid --events category");
     },
   );
+});
+
+describe("isReasoningEffortFlag", () => {
+  it("accepts the four reasoning levels", () => {
+    expect(isReasoningEffortFlag("disable")).toBe(true);
+    expect(isReasoningEffortFlag("low")).toBe(true);
+    expect(isReasoningEffortFlag("medium")).toBe(true);
+    expect(isReasoningEffortFlag("high")).toBe(true);
+  });
+
+  it("rejects anything else", () => {
+    expect(isReasoningEffortFlag("off")).toBe(false);
+    expect(isReasoningEffortFlag("none")).toBe(false);
+    expect(isReasoningEffortFlag("")).toBe(false);
+    expect(isReasoningEffortFlag("HIGH")).toBe(false);
+  });
 });
