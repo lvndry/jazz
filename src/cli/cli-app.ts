@@ -28,6 +28,7 @@ import {
 import {
   isApprovalPolicyFlag,
   parseEventCategories,
+  isReasoningEffortFlag,
   runAgentOnceCommand,
 } from "./commands/run-agent";
 import { updateCommand } from "./commands/update";
@@ -89,6 +90,10 @@ function registerRunCommand(program: Command): void {
       "--events <categories>",
       "Emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,all). stdout stays the clean payload.",
     )
+    .option(
+      "--reasoning <effort>",
+      "Reasoning effort for this run: low | medium | high | disable (overrides the agent's config)",
+    )
     .action(
       (
         prompt: string | undefined,
@@ -99,6 +104,7 @@ function registerRunCommand(program: Command): void {
           timeout?: number;
           maxIterations?: number;
           events?: string;
+          reasoning?: string;
         },
       ) => {
         const opts = program.opts<CliOptions>();
@@ -129,6 +135,17 @@ function registerRunCommand(program: Command): void {
           return;
         }
 
+        if (options.reasoning !== undefined && !isReasoningEffortFlag(options.reasoning)) {
+          const message = `Invalid --reasoning "${options.reasoning}". Expected low, medium, high, or disable.`;
+          if (json) {
+            process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
+          } else {
+            process.stderr.write(`${message}\n`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
         // Force plain terminal so Ink never mounts and writes to stdout; the
         // one-shot presentation layer keeps stdout clean for the payload.
         process.env["JAZZ_NO_TUI"] = "1";
@@ -138,6 +155,9 @@ function registerRunCommand(program: Command): void {
             json,
             ...(options.approvalPolicy !== undefined && isApprovalPolicyFlag(options.approvalPolicy)
               ? { approvalPolicy: options.approvalPolicy }
+              : {}),
+            ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
+              ? { reasoningEffort: options.reasoning }
               : {}),
             ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
             ...(options.maxIterations !== undefined

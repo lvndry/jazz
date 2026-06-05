@@ -81,9 +81,17 @@ export function isApprovalPolicyFlag(value: string): value is ApprovalPolicyFlag
   return (VALID_APPROVAL_POLICIES as readonly string[]).includes(value);
 }
 
+const VALID_REASONING_EFFORTS = ["disable", "low", "medium", "high"] as const;
+export type ReasoningEffort = (typeof VALID_REASONING_EFFORTS)[number];
+
+export function isReasoningEffortFlag(value: string): value is ReasoningEffort {
+  return (VALID_REASONING_EFFORTS as readonly string[]).includes(value);
+}
+
 export interface RunAgentOnceOptions {
   readonly json: boolean;
   readonly approvalPolicy?: ApprovalPolicyFlag | undefined;
+  readonly reasoningEffort?: ReasoningEffort | undefined;
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
   readonly eventTypes?: ReadonlySet<StreamEvent["type"]> | undefined;
@@ -219,10 +227,15 @@ export function runAgentOnceCommand(
       ),
     );
 
+    const agentForRun =
+      options.reasoningEffort !== undefined
+        ? { ...agent, config: { ...agent.config, reasoningEffort: options.reasoningEffort } }
+        : agent;
+
     const autoApprovePolicy: AutoApprovePolicy | undefined = options.approvalPolicy;
     const runId = `run-${agent.id}-${Date.now()}`;
     const runEffect = AgentRunner.run({
-      agent,
+      agent: agentForRun,
       userInput: prompt,
       sessionId: runId,
       conversationId: runId,

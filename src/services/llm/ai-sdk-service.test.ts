@@ -10,6 +10,7 @@ import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
 import type { AgentConfigService } from "../../core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../core/interfaces/llm";
+import type { ChatCompletionOptions } from "../../core/types/chat";
 import {
   LLMAuthenticationError,
   LLMConfigurationError,
@@ -19,7 +20,7 @@ import {
 import type { AppConfig, LLMConfig, StreamEvent } from "../../core/types/index";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
-import { createAISDKServiceLayer } from "./ai-sdk-service";
+import { buildProviderOptions, createAISDKServiceLayer } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
 
 mock.module("@/core/utils/models-dev-client", () => ({
@@ -917,5 +918,37 @@ describe("AI SDK Service - Unit Tests", () => {
         expect(Cause.defects(exit.cause).length).toBe(0);
       }
     });
+  });
+});
+
+describe("buildProviderOptions - ollama reasoning", () => {
+  function ollamaOptions(
+    reasoningEffort: ChatCompletionOptions["reasoning_effort"],
+  ): ChatCompletionOptions {
+    return {
+      model: "gemma4:26b-a4b-it",
+      messages: [{ role: "user", content: "hi" }],
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+    };
+  }
+
+  it("sends think:false when reasoning is disabled", () => {
+    const result = buildProviderOptions("ollama", ollamaOptions("disable"));
+    expect(result).toEqual({ ollama: { think: false } });
+  });
+
+  it("sends think:false when no reasoning effort is provided", () => {
+    const result = buildProviderOptions("ollama", ollamaOptions(undefined));
+    expect(result).toEqual({ ollama: { think: false } });
+  });
+
+  it("sends think:true when reasoning effort is high", () => {
+    const result = buildProviderOptions("ollama", ollamaOptions("high"));
+    expect(result).toEqual({ ollama: { think: true } });
+  });
+
+  it("sends think:true when reasoning effort is low", () => {
+    const result = buildProviderOptions("ollama", ollamaOptions("low"));
+    expect(result).toEqual({ ollama: { think: true } });
   });
 });
