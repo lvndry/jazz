@@ -123,7 +123,7 @@ Simply run `jazz mcp add` and input the MCP configuration:
 
 Skills are packaged expertise your agent loads on demand—proven playbooks for complex tasks instead of winging it every time. Think deep research with multi-source verification, structured code review, meeting notes that follow your format, PR descriptions from your conventions. You get consistency and domain expertise without stuffing the context window.
 
-Jazz ships with **20+ built-in skills**—code review, deep research, email, calendar, PR descriptions, documentation, browser automation, Obsidian, budgeting, and more. Add your own from the ecosystem: Jazz follows the [`.agents` convention](https://agentskills.io), so any skill works. Run `npx skills add` to browse and install, or drop a skill in `~/.jazz/skills/` (global) or `./skills/` (project-local). Use `/skills` in chat to browse what's available.
+Jazz ships with **built-in skills**—deep research, email, calendar, browser automation, Obsidian, and more. Add your own from the ecosystem: Jazz follows the [`.agents` convention](https://agentskills.io), so any skill works. Run `npx skills add` to browse and install, or drop a skill in `~/.jazz/skills/` (global) or `./skills/` (project-local). Use `/skills` in chat to browse what's available.
 
 ---
 
@@ -138,7 +138,6 @@ Jazz ships with workflows ready to go:
 | Workflow             | Schedule      | What it does                                                      |
 | -------------------- | ------------- | ----------------------------------------------------------------- |
 | **email-cleanup**    | Hourly        | Archive newsletters, organize promotions, flag important messages |
-| **tech-digest**      | Daily         | Scan AI/tech news sources and compile a personalized digest       |
 | **weather-briefing** | Every morning | Weather forecast + outfit recommendations for your location       |
 | **market-analysis**  | Daily         | Stock/crypto analysis with buy/sell signals                       |
 
