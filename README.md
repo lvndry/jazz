@@ -123,7 +123,7 @@ Simply run `jazz mcp add` and input the MCP configuration:
 
 Skills are packaged expertise your agent loads on demand—proven playbooks for complex tasks instead of winging it every time. Think deep research with multi-source verification, structured code review, meeting notes that follow your format, PR descriptions from your conventions. You get consistency and domain expertise without stuffing the context window.
 
-Jazz ships with **built-in skills**—deep research, email, calendar, browser automation, Obsidian, and more. Add your own from the ecosystem: Jazz follows the [`.agents` convention](https://agentskills.io), so any skill works. Run `npx skills add` to browse and install, or drop a skill in `~/.jazz/skills/` (global) or `./skills/` (project-local). Use `/skills` in chat to browse what's available.
+Jazz ships with **15+ built-in skills**—deep research, email, calendar, browser automation, Obsidian, and more. Add your own from the ecosystem: Jazz follows the [`.agents` convention](https://agentskills.io), so any skill works. Run `npx skills add` to browse and install, or drop a skill in `~/.jazz/skills/` (global) or `./skills/` (project-local). Use `/skills` in chat to browse what's available.
 
 ---
 
