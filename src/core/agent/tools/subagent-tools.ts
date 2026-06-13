@@ -139,6 +139,17 @@ ${args.task}`;
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
             maxIterations: context.parentMaxIterations ?? DEFAULT_MAX_ITERATIONS,
             ephemeralRegionId: regionId,
+            ...(context.getAutoApprovePolicy
+              ? { autoApprovePolicy: context.getAutoApprovePolicy }
+              : {}),
+            ...(context.autoApprovedCommands
+              ? { autoApprovedCommands: context.autoApprovedCommands }
+              : {}),
+            ...(context.autoApprovedTools ? { autoApprovedTools: context.autoApprovedTools } : {}),
+            ...(context.onAutoApproveCommand
+              ? { onAutoApproveCommand: context.onAutoApproveCommand }
+              : {}),
+            ...(context.onAutoApproveTool ? { onAutoApproveTool: context.onAutoApproveTool } : {}),
           }).pipe(
             Effect.tapError(() =>
               Effect.sync(() =>

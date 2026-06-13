@@ -375,9 +375,7 @@ export class ChatServiceImpl implements ChatService {
             ...(options?.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
               : {}),
-            ...(autoApprovePolicy !== undefined
-              ? { autoApprovePolicy: getCurrentAutoApprovePolicy }
-              : {}),
+            autoApprovePolicy: getCurrentAutoApprovePolicy,
             autoApprovedCommands,
             autoApprovedTools,
             onAutoApproveCommand: (command: string) =>
