@@ -1,30 +1,3 @@
-/* eslint-disable import/order */
-import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
-import type { ProviderName } from "@/core/constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
-import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import type {
-  ChatCompletionOptions,
-  ChatCompletionResponse,
-  LLMConfig,
-  LLMProvider,
-  LLMProviderListItem,
-  ModelInfo,
-  StreamEvent,
-  StreamingResult,
-} from "@/core/types";
-import type { WebSearchConfig } from "@/core/types/config";
-import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
-import type { ToolCall } from "@/core/types/tools";
-import { safeParseJson } from "@/core/utils/json";
-import { formatProviderDisplayName, sanitize } from "@/core/utils/string";
-import {
-  convertToLLMError,
-  extractCleanErrorMessage,
-  truncateRequestBodyValues,
-} from "@/core/utils/llm-error";
-import { createDeferred } from "@/core/utils/promise";
 import { alibaba, createAlibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
 import { anthropic, createAnthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { cerebras, createCerebras } from "@ai-sdk/cerebras";
@@ -43,16 +16,16 @@ import {
   type MoonshotAILanguageModelOptions,
 } from "@ai-sdk/moonshotai";
 import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { createProviderToolFactory } from "@ai-sdk/provider-utils";
 import { createTogetherAI, togetherai } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiProviderOptions } from "@ai-sdk/xai";
-import { minimax } from "vercel-minimax-ai-provider";
 import {
   createOpenRouter,
   openrouter as openrouterDefaultInstance,
   type OpenRouterProviderOptions,
   type OpenRouterProviderSettings,
 } from "@openrouter/ai-sdk-provider";
-import { createProviderToolFactory } from "@ai-sdk/provider-utils";
 import {
   gateway,
   generateText,
@@ -69,15 +42,40 @@ import {
 } from "ai";
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import shortUUID from "short-uuid";
+import { minimax } from "vercel-minimax-ai-provider";
 import { z } from "zod";
+import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
+import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import type {
+  ChatCompletionOptions,
+  ChatCompletionResponse,
+  LLMConfig,
+  LLMProvider,
+  LLMProviderListItem,
+  ModelInfo,
+  StreamEvent,
+  StreamingResult,
+} from "@/core/types";
+import type { WebSearchConfig } from "@/core/types/config";
+import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
+import type { ToolCall } from "@/core/types/tools";
+import { safeParseJson } from "@/core/utils/json";
+import {
+  convertToLLMError,
+  extractCleanErrorMessage,
+  truncateRequestBodyValues,
+} from "@/core/utils/llm-error";
+import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
+import { createDeferred } from "@/core/utils/promise";
+import { formatProviderDisplayName, sanitize } from "@/core/utils/string";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
-import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
-import { StreamProcessor } from "./stream-processor";
 import { selectParser } from "./reasoning";
-import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
+import { StreamProcessor } from "./stream-processor";
 
 interface AISDKConfig {
   llmConfig?: LLMConfig;

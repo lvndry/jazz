@@ -50,7 +50,7 @@ type EnvShape = { JAZZ_OUTPUT_MODE?: string; JAZZ_NO_TUI?: string };
 type StdoutShape = { isTTY?: boolean; rows?: number };
 
 export function getPresentationConfig(
-  env: EnvShape = process.env as EnvShape,
+  env: EnvShape = process.env,
   stdout: StdoutShape = process.stdout,
 ): PresentationConfig {
   const isQuiet = env.JAZZ_OUTPUT_MODE === "quiet";

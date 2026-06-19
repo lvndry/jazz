@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 // eslint-disable-next-line
 import js from "@eslint/js";
 import prettierConfig from "eslint-config-prettier";
-import importPlugin from "eslint-plugin-import";
+import importPlugin from "eslint-plugin-import-x";
 import nodePlugin from "eslint-plugin-n";
 import prettierPlugin from "eslint-plugin-prettier";
 // eslint-disable-next-line
@@ -27,6 +27,13 @@ export default [
   prettierConfig,
   nodePlugin.configs["flat/recommended-script"],
   {
+    settings: {
+      node: {
+        version: ">=22.16.0",
+      },
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     ignores: ["**/*.test.ts"],
     languageOptions: {
@@ -48,6 +55,7 @@ export default [
       "@typescript-eslint/explicit-function-return-type": "off",
       "n/no-missing-import": "off",
       "n/no-unsupported-features/es-syntax": "off",
+      "n/no-unsupported-features/node-builtins": ["error", { allowExperimental: true }],
       "n/no-process-exit": "off",
     },
   },
@@ -62,10 +70,10 @@ export default [
   {
     files: ["**/*.{js,mjs,ts,tsx}"],
     plugins: {
-      import: importPlugin,
+      "import-x": importPlugin,
     },
     rules: {
-      "import/order": [
+      "import-x/order": [
         "error",
         {
           groups: ["builtin", "external", "internal", ["parent", "sibling", "index"], "object"],
