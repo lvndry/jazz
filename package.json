@@ -126,7 +126,6 @@
     "@types/marked-terminal": "^6.1.1",
     "@types/node": "^26.0.0",
     "@types/node-notifier": "^8.0.5",
-    "@types/plist": "^3.0.5",
     "@types/react": "^19.2.17",
     "eslint": "^10.5.0",
     "eslint-config-prettier": "^10.1.8",
