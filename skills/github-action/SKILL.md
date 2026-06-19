@@ -146,7 +146,7 @@ Add to your GitHub repo or org secrets:
 ### Output contracts
 
 **Code-review agent** output contract:
-````
+`````
 ```markdown
 Reviewed 4 files. Found 2 issues.
 ```
@@ -161,7 +161,7 @@ Reviewed 4 files. Found 2 issues.
   }
 ]
 ````
-````
+`````
 
 - Block 1: Four-backtick `markdown` — non-empty review verdict
 - Block 2: Four-backtick `json` — array of inline comments (may be `[]`)
@@ -209,6 +209,6 @@ Validation logic (in the `actions/github-script` posting step):
 | Workflow skips jobs | Fork PR (`head.repo.full_name` mismatch) |
 | `/jazz` comment ignored | Comment author not OWNER/MEMBER/COLLABORATOR |
 | Agent output not posted | Output didn't match contract (check workflow run logs) |
-| `jazz: command not found` | `bun install -g jazz-ai` failed or runner lacks Bun/Node |
+| `jazz: command not found` | `bun add -g jazz-ai` or `npm install -g jazz-ai` failed, or runner lacks Bun/Node |
 | Inline comments rejected | Lines reference outside diff hunks (falls back to general comment) |
 | "No issues found" on every PR | Model too weak or workflow prompt lacks specificity |
