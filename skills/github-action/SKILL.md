@@ -74,11 +74,11 @@ The key design:
   "id": "ci-reviewer",
   "name": "ci-reviewer",
   "description": "CI code review agent focused on intent, behavior, and risk",
-  "model": "openai/gpt-4o-mini",
+  "model": "openrouter/owl-alpha",
   "config": {
     "persona": "coder",
-    "llmProvider": "openai",
-    "llmModel": "gpt-4o-mini",
+    "llmProvider": "openrouter",
+    "llmModel": "openrouter/owl-alpha",
     "reasoningEffort": "high",
     "tools": [
       "context_info", "find", "git_diff", "git_log", "grep",
@@ -94,11 +94,11 @@ The key design:
   "id": "pr-assistant",
   "name": "pr-assistant",
   "description": "Pull request assistant agent for /jazz PR comments",
-  "model": "openai/gpt-4o-mini",
+  "model": "openrouter/owl-alpha",
   "config": {
     "persona": "coder",
-    "llmProvider": "openai",
-    "llmModel": "gpt-4o-mini",
+    "llmProvider": "openrouter",
+    "llmModel": "openrouter/owl-alpha",
     "reasoningEffort": "medium",
     "tools": [
       "context_info", "find", "git_diff", "git_log", "git_tag_list",
