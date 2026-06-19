@@ -18,7 +18,7 @@ Turn Jazz into a GitHub Actions-powered PR reviewer and on-demand assistant. Whe
 
 ## Architecture
 
-The setup uses four files in your repo plus two secrets:
+The setup uses five files in your repo plus two secrets:
 
 ```
 .github/
