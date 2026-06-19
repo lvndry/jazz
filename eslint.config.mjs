@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 // eslint-disable-next-line
 import js from "@eslint/js";
 import prettierConfig from "eslint-config-prettier";
-import importPlugin from "eslint-plugin-import";
+import importPlugin from "eslint-plugin-import-x";
 import nodePlugin from "eslint-plugin-n";
 import prettierPlugin from "eslint-plugin-prettier";
 // eslint-disable-next-line
@@ -62,10 +62,10 @@ export default [
   {
     files: ["**/*.{js,mjs,ts,tsx}"],
     plugins: {
-      import: importPlugin,
+      "import-x": importPlugin,
     },
     rules: {
-      "import/order": [
+      "import-x/order": [
         "error",
         {
           groups: ["builtin", "external", "internal", ["parent", "sibling", "index"], "object"],

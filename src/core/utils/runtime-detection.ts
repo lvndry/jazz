@@ -100,7 +100,7 @@ export function getHistoryDirectory(): string {
  */
 export function getPackageRootDirectory(): string | null {
   try {
-    let currentDir = path.resolve(import.meta.dirname);
+    let currentDir = path.resolve(import.meta.dirname); // eslint-disable-line n/no-unsupported-features/node-builtins
     const root = path.parse(currentDir).root;
 
     while (currentDir !== root) {
@@ -262,7 +262,7 @@ export function getGlobalWorkflowsDirectory(): string {
 export function isRunningFromGlobalInstall(): boolean {
   const pathsToCheck = [
     process.argv[1] ? path.resolve(process.argv[1]) : null,
-    import.meta.dirname,
+    import.meta.dirname, // eslint-disable-line n/no-unsupported-features/node-builtins
   ].filter((p): p is string => p !== null && p !== undefined);
 
   for (const checkPath of pathsToCheck) {

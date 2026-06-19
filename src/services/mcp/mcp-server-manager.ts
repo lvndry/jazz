@@ -95,7 +95,7 @@ class MCPServerManagerImpl implements MCPServerManager {
 
       // Create MCP client with retry logic for transient failures
       const connectEffect = Effect.tryPromise({
-        try: () => createMCPClient({ transport }),
+        try: () => createMCPClient({ transport: transport as import("@ai-sdk/mcp").MCPTransport }),
         catch: (error) => (error instanceof Error ? error : new Error(String(error))),
       }).pipe(
         Effect.flatMap((client) => {

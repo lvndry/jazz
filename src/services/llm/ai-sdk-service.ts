@@ -1,4 +1,22 @@
-/* eslint-disable import/order */
+/* eslint-disable import-x/order */
+import { alibaba, createAlibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
+import { anthropic, createAnthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
+import { cerebras, createCerebras } from "@ai-sdk/cerebras";
+import { createDeepSeek, deepseek } from "@ai-sdk/deepseek";
+import { createFireworks, fireworks, type FireworksLanguageModelOptions } from "@ai-sdk/fireworks";
+import {
+  createGoogleGenerativeAI,
+  google,
+  type GoogleGenerativeAIProviderOptions,
+} from "@ai-sdk/google";
+import { groq } from "@ai-sdk/groq";
+import { createMistral, mistral } from "@ai-sdk/mistral";
+import {
+  createMoonshotAI,
+  moonshotai,
+  type MoonshotAILanguageModelOptions,
+} from "@ai-sdk/moonshotai";
+import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -25,24 +43,6 @@ import {
   truncateRequestBodyValues,
 } from "@/core/utils/llm-error";
 import { createDeferred } from "@/core/utils/promise";
-import { alibaba, createAlibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
-import { anthropic, createAnthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
-import { cerebras, createCerebras } from "@ai-sdk/cerebras";
-import { createDeepSeek, deepseek } from "@ai-sdk/deepseek";
-import { createFireworks, fireworks, type FireworksLanguageModelOptions } from "@ai-sdk/fireworks";
-import {
-  createGoogleGenerativeAI,
-  google,
-  type GoogleGenerativeAIProviderOptions,
-} from "@ai-sdk/google";
-import { groq } from "@ai-sdk/groq";
-import { createMistral, mistral } from "@ai-sdk/mistral";
-import {
-  createMoonshotAI,
-  moonshotai,
-  type MoonshotAILanguageModelOptions,
-} from "@ai-sdk/moonshotai";
-import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { createTogetherAI, togetherai } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import { minimax } from "vercel-minimax-ai-provider";
@@ -75,8 +75,8 @@ import { z } from "zod";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
-import { StreamProcessor } from "./stream-processor";
 import { selectParser } from "./reasoning";
+import { StreamProcessor } from "./stream-processor";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 
 interface AISDKConfig {

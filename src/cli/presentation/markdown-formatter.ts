@@ -173,7 +173,7 @@ const RESET_RE = /\x1b\[0m|\x1b\[(?:22|23|24|27|29|39|49)m/g;
  * helper, every inner reset is followed by a re-emit of the outer's open
  * codes so the outer color (and weight) carry through to the next reset.
  */
-function wrapPreservingInner(text: string, outer: chalk.Chalk): string {
+function wrapPreservingInner(text: string, outer: typeof chalk): string {
   // Probe the outer style's open and close sequences by wrapping a sentinel.
   // Sentinel uses a PUA char that won't appear in real content.
   const SENTINEL = "";
