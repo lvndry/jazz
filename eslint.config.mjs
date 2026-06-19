@@ -27,6 +27,13 @@ export default [
   prettierConfig,
   nodePlugin.configs["flat/recommended-script"],
   {
+    settings: {
+      node: {
+        version: ">=22.16.0",
+      },
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     ignores: ["**/*.test.ts"],
     languageOptions: {
@@ -48,6 +55,7 @@ export default [
       "@typescript-eslint/explicit-function-return-type": "off",
       "n/no-missing-import": "off",
       "n/no-unsupported-features/es-syntax": "off",
+      "n/no-unsupported-features/node-builtins": ["error", { allowExperimental: true }],
       "n/no-process-exit": "off",
     },
   },
