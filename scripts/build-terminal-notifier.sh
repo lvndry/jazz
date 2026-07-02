@@ -25,7 +25,7 @@ build_arch() {
     -target terminal-notifier \
     SYMROOT=build \
     MACOSX_DEPLOYMENT_TARGET=10.13 \
-    CODE_SIGN_IDENTITY= \
+    CODE_SIGN_IDENTITY="-" \
     -quiet
 
   rm -rf "$output_dir/terminal-notifier.app"

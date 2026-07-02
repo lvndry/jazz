@@ -13,6 +13,19 @@ function escapeForAppleScript(str: string): string {
   return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function sendAppleScriptNotification(
+  title: string,
+  message: string,
+  subtitle: string | undefined,
+  sound: boolean,
+  callback: (error: Error | null) => void,
+): void {
+  const soundPart = sound ? ' sound name "Blow"' : "";
+  const subtitlePart = subtitle ? ` subtitle "${escapeForAppleScript(subtitle)}"` : "";
+  const script = `display notification "${escapeForAppleScript(message)}" with title "${escapeForAppleScript(title)}"${subtitlePart}${soundPart}`;
+  execFile("osascript", ["-e", script], callback);
+}
+
 function sendNativeNotification(
   title: string,
   message: string,
@@ -37,14 +50,16 @@ function sendNativeNotification(
       if (sound) {
         args.push("-sound", "Blow");
       }
-      execFile(terminalNotifier, args, callback);
+      execFile(terminalNotifier, args, (error) => {
+        if (error) {
+          console.error(`[Notification] Failed to send via terminal-notifier: ${error.message}`);
+          sendAppleScriptNotification(title, message, subtitle, sound ?? false, callback);
+        }
+      });
       return;
     }
 
-    const soundPart = sound ? ' sound name "Blow"' : "";
-    const subtitlePart = subtitle ? ` subtitle "${escapeForAppleScript(subtitle)}"` : "";
-    const script = `display notification "${escapeForAppleScript(message)}" with title "${escapeForAppleScript(title)}"${subtitlePart}${soundPart}`;
-    execFile("osascript", ["-e", script], callback);
+    sendAppleScriptNotification(title, message, subtitle, sound ?? false, callback);
     return;
   }
 
