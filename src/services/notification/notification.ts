@@ -6,6 +6,8 @@ import {
   type NotificationService,
   type NotificationOptions,
 } from "@/core/interfaces/notification";
+import { getTerminalBundleId } from "./terminal-bundle-id";
+import { resolveTerminalNotifierBinary } from "./terminal-notifier-path";
 
 function escapeForAppleScript(str: string): string {
   return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -24,6 +26,21 @@ function sendNativeNotification(
   };
 
   if (process.platform === "darwin") {
+    const bundleId = getTerminalBundleId();
+    const terminalNotifier = resolveTerminalNotifierBinary();
+
+    if (terminalNotifier && bundleId) {
+      const args = ["-title", title, "-message", message, "-activate", bundleId];
+      if (subtitle) {
+        args.push("-subtitle", subtitle);
+      }
+      if (sound) {
+        args.push("-sound", "Blow");
+      }
+      execFile(terminalNotifier, args, callback);
+      return;
+    }
+
     const soundPart = sound ? ' sound name "Blow"' : "";
     const subtitlePart = subtitle ? ` subtitle "${escapeForAppleScript(subtitle)}"` : "";
     const script = `display notification "${escapeForAppleScript(message)}" with title "${escapeForAppleScript(title)}"${subtitlePart}${soundPart}`;
