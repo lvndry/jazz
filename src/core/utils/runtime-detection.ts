@@ -11,15 +11,16 @@ import { Effect } from "effect";
  * This module detects whether Jazz is running from a global installation or
  * from source code (development mode). This distinction is critical because:
  *
- *   - **Production** (npm i -g jazz-ai): User data stored in `~/.jazz`
- *   - **Development** (bun run cli):     User data stored in `./.jazz`
+ *   - **Global data** (`~/.jazz`): agents, config, history, skills, schedules
+ *   - **Project data** (`./.jazz`): optional local overrides (like `.claude/`)
  *
- * This separation prevents development from accidentally overwriting production
- * data (agents, configs, conversation history, skills, etc.).
+ * Set `JAZZ_HOME` to isolate data when developing Jazz itself.
  *
  * ## Directory Resolution (most commonly used)
- *   - `getUserDataDirectory()` - Returns ~/.jazz (prod) or ./.jazz (dev)
- *   - `getGlobalUserDataDirectory()` - Always returns ~/.jazz (for schedulers, etc.)
+ *   - `getJazzHomeDirectory()` - Returns `JAZZ_HOME` or `~/.jazz`
+ *   - `getLocalJazzDirectory()` - Returns `{cwd}/.jazz` for project overrides
+ *   - `getUserDataDirectory()` - Alias for `getJazzHomeDirectory()`
+ *   - `getGlobalUserDataDirectory()` - Alias for `getJazzHomeDirectory()`
  *   - `getPackageRootDirectory()` - The jazz-ai package installation directory
  *   - `getBuiltinSkillsDirectory()` - Where built-in skills are stored
  *   - `getBuiltinPersonasDirectory()` - Where built-in personas are stored
@@ -42,49 +43,64 @@ import { Effect } from "effect";
 // They use synchronous fs operations since they're called during startup.
 // ============================================================================
 
-/**
- * Get the directory where Jazz stores user data (agents, configs, skills, etc.)
- *
- * - Global install (npm i -g jazz-ai): Returns ~/.jazz
- * - Development mode (running from source): Returns {cwd}/.jazz
- *
- * This separation prevents development from overwriting production data.
- *
- */
-export function getUserDataDirectory(): string {
-  if (isRunningFromGlobalInstall()) {
+function expandHomePath(inputPath: string): string {
+  if (inputPath.startsWith("~")) {
     const homeDir = os.homedir();
     if (homeDir && homeDir.trim().length > 0) {
-      return path.join(homeDir, ".jazz");
+      return inputPath.replace(/^~(?=$|[\\/])/, homeDir);
     }
   }
-
-  return path.resolve(process.cwd(), ".jazz");
+  return inputPath;
 }
 
 /**
- * Get the global user data directory (~/.jazz), regardless of dev/prod mode.
+ * Get the Jazz home directory where agents, config, and user data are stored.
  *
- * Use this when the path will be used by processes that always run in
- * production context (e.g. launchd jobs, cron). Scheduled workflows, logs,
- * and schedule metadata should always live in ~/.jazz.
+ * Uses `JAZZ_HOME` when set, otherwise `~/.jazz`.
  */
-export function getGlobalUserDataDirectory(): string {
+export function getJazzHomeDirectory(): string {
+  const jazzHome = process.env["JAZZ_HOME"];
+  if (jazzHome && jazzHome.trim().length > 0) {
+    return path.resolve(expandHomePath(jazzHome.trim()));
+  }
+
   const homeDir = os.homedir();
   if (homeDir && homeDir.trim().length > 0) {
     return path.join(homeDir, ".jazz");
   }
+
   return path.resolve(process.cwd(), ".jazz");
 }
 
 /**
- * Get the directory where Jazz stores per-agent conversation history.
+ * Get the project-local Jazz directory for optional per-project overrides.
  *
- * - Global install: ~/.jazz/history
- * - Development:    ./.jazz/history
+ * Files here (e.g. `config.json`) merge on top of `~/.jazz/config.json`.
+ * Agents and storage always live in the Jazz home directory.
+ */
+export function getLocalJazzDirectory(): string {
+  return path.resolve(process.cwd(), ".jazz");
+}
+
+/**
+ * Get the directory where Jazz stores user data (agents, configs, skills, etc.)
+ */
+export function getUserDataDirectory(): string {
+  return getJazzHomeDirectory();
+}
+
+/**
+ * Get the global user data directory (~/.jazz or JAZZ_HOME).
+ */
+export function getGlobalUserDataDirectory(): string {
+  return getJazzHomeDirectory();
+}
+
+/**
+ * Get the directory where Jazz stores per-agent conversation history.
  */
 export function getHistoryDirectory(): string {
-  return path.join(getUserDataDirectory(), "history");
+  return path.join(getJazzHomeDirectory(), "history");
 }
 
 /**

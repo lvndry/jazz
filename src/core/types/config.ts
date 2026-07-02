@@ -40,7 +40,7 @@ export interface TelemetryConfig {
 }
 
 /**
- * MCP server override stored in jazz.config.json.
+ * MCP server override stored in ~/.jazz/config.json or ./.jazz/config.json.
  * Only contains Jazz-specific metadata — full server definitions
  * live in ~/.agents/mcp.json (global) or .agents/mcp.json (project-local).
  */

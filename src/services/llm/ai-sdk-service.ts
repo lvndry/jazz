@@ -45,7 +45,7 @@ import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-pr
 import shortUUID from "short-uuid";
 import { minimax } from "vercel-minimax-ai-provider";
 import { z } from "zod";
-import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
+import { DEFAULT_MAX_ITERATIONS, AI_SDK_MAX_RETRIES } from "@/core/constants/agent";
 import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -76,6 +76,45 @@ import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { selectParser } from "./reasoning";
 import { StreamProcessor } from "./stream-processor";
+
+/** DelayedPromise fields on streamText results reject when the stream fails. */
+const STREAM_TEXT_PROMISE_FIELDS = [
+  "content",
+  "text",
+  "reasoning",
+  "reasoningText",
+  "files",
+  "sources",
+  "toolCalls",
+  "staticToolCalls",
+  "dynamicToolCalls",
+  "staticToolResults",
+  "dynamicToolResults",
+  "toolResults",
+  "finishReason",
+  "rawFinishReason",
+  "usage",
+  "totalUsage",
+  "warnings",
+  "steps",
+  "request",
+  "response",
+  "providerMetadata",
+  "experimental_output",
+  "output",
+] as const;
+
+function suppressStreamTextUnhandledRejections(
+  result: Awaited<ReturnType<typeof streamText>>,
+): void {
+  const record = result as unknown as Record<string, unknown>;
+  for (const field of STREAM_TEXT_PROMISE_FIELDS) {
+    const value = record[field];
+    if (value != null && typeof (value as { then?: unknown }).then === "function") {
+      void Promise.resolve(value).catch(() => {});
+    }
+  }
+}
 
 interface AISDKConfig {
   llmConfig?: LLMConfig;
@@ -1170,6 +1209,7 @@ class AISDKService implements LLMService {
           model,
           messages: coreMessages,
           allowSystemInMessages: true,
+          maxRetries: AI_SDK_MAX_RETRIES,
           ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
           ...(tools ? { tools } : {}),
           ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
@@ -1409,6 +1449,7 @@ class AISDKService implements LLMService {
                   model,
                   messages: coreMessages,
                   allowSystemInMessages: true,
+                  maxRetries: AI_SDK_MAX_RETRIES,
                   ...(typeof options.temperature === "number"
                     ? { temperature: options.temperature }
                     : {}),
@@ -1458,15 +1499,11 @@ class AISDKService implements LLMService {
                 // Close the stream
                 processor.close();
               } catch (error) {
-                // Suppress unhandled rejections on the AI SDK's internal
-                // DelayedPromise properties (usage, finishReason, steps).
-                // When the stream fails these all reject, but we only await
-                // them in the success path, so they'd otherwise surface as
-                // Bun unhandled-rejection dumps.
+                // Suppress unhandled rejections on streamText DelayedPromise fields.
+                // When the stream fails these all reject; we only consume fullStream,
+                // so they'd otherwise surface as Bun/Node unhandled-rejection dumps.
                 if (streamTextResult) {
-                  void Promise.resolve(streamTextResult.usage).catch(() => {});
-                  void Promise.resolve(streamTextResult.finishReason).catch(() => {});
-                  void Promise.resolve(streamTextResult.steps).catch(() => {});
+                  suppressStreamTextUnhandledRejections(streamTextResult);
                 }
 
                 const llmError = convertToLLMError(error, providerName);

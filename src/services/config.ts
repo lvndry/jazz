@@ -13,11 +13,15 @@ import type {
   WebSearchConfig,
 } from "@/core/types/index";
 import { safeParseJson } from "@/core/utils/json";
-import { getGlobalUserDataDirectory } from "@/core/utils/runtime-detection";
+import {
+  getGlobalUserDataDirectory,
+  getJazzHomeDirectory,
+  getLocalJazzDirectory,
+} from "@/core/utils/runtime-detection";
 
 /**
  * Extract only override fields (enabled) from a server config.
- * Used when persisting to jazz.config.json — full definitions live in mcp.json.
+ * Used when persisting to ~/.jazz/config.json — full definitions live in mcp.json.
  */
 function extractMcpOverride(entry: unknown): MCPServerOverride | undefined {
   if (!entry || typeof entry !== "object") return undefined;
@@ -154,7 +158,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         }
 
         // Persist to file
-        const path = this.configPath ?? `${expandHome("~/.jazz")}/config.json`;
+        const path = this.configPath ?? `${getJazzHomeDirectory()}/config.json`;
         if (!this.configPath) {
           this.configPath = path;
           const dir = path.substring(0, path.lastIndexOf("/"));
@@ -230,13 +234,25 @@ export function createConfigLayer(
           })
         : mergeConfig(baseConfig, fileConfigWithoutMcp);
 
+      const mainConfigWithStorage: AppConfig = {
+        ...mainConfig,
+        storage: { type: "file", path: getJazzHomeDirectory() },
+      };
+
       // Load MCP definitions from .agents/mcp.json
       const agentsServers = yield* loadAgentsMcpServers(fs);
 
-      // Extract overrides from jazz (enabled only)
-      const mcpOverrides = extractMcpOverridesFromFile(fileConfig?.mcpServers);
+      // Extract overrides from global + local jazz config (local wins)
+      const mcpOverrides = {
+        ...extractMcpOverridesFromFile(loaded.globalConfig?.mcpServers),
+        ...extractMcpOverridesFromFile(loaded.localConfig?.mcpServers),
+      };
 
-      const finalConfig = mergeAgentsMcpIntoConfig(mainConfig, agentsServers, mcpOverrides);
+      const finalConfig = mergeAgentsMcpIntoConfig(
+        mainConfigWithStorage,
+        agentsServers,
+        mcpOverrides,
+      );
 
       return new AgentConfigServiceImpl(finalConfig, mcpOverrides, loaded.configPath, fs);
     }),
@@ -337,6 +353,34 @@ function expandHome(p: string): string {
   return p;
 }
 
+function stripStorageOverride(config: Partial<AppConfig>): Partial<AppConfig> {
+  const { storage: _storage, ...rest } = config;
+  return rest;
+}
+
+function readOptionalConfigFile(
+  fs: FileSystem.FileSystem,
+  filePath: string,
+): Effect.Effect<Partial<AppConfig> | undefined, never> {
+  return Effect.gen(function* () {
+    const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    if (!exists) return undefined;
+
+    const content = yield* fs
+      .readFileString(filePath)
+      .pipe(Effect.catchAll(() => Effect.succeed("")));
+    if (!content.trim()) return undefined;
+
+    const parsed = safeParseJson<Partial<AppConfig>>(content);
+    if (Option.isNone(parsed)) return undefined;
+
+    const config = parsed.value;
+    if (typeof config !== "object" || config === null) return undefined;
+
+    return config;
+  });
+}
+
 function loadConfigFile(
   fs: FileSystem.FileSystem,
   customConfigPath?: string,
@@ -344,6 +388,8 @@ function loadConfigFile(
   {
     configPath?: string;
     fileConfig?: Partial<AppConfig>;
+    globalConfig?: Partial<AppConfig>;
+    localConfig?: Partial<AppConfig>;
   },
   ConfigurationError | ConfigurationNotFoundError
 > {
@@ -399,7 +445,6 @@ function loadConfigFile(
         );
       }
 
-      // Validate that the parsed config matches AppConfig structure
       const config = parsed.value;
       if (typeof config !== "object" || config === null) {
         return yield* Effect.fail(
@@ -412,33 +457,45 @@ function loadConfigFile(
         );
       }
 
-      return { configPath: expandedPath, fileConfig: config };
+      return { configPath: expandedPath, fileConfig: config, globalConfig: config };
     }
 
-    // Otherwise, use the default search order
     const envConfigPath = process.env["JAZZ_CONFIG_PATH"];
-    const candidates: readonly string[] = [
-      envConfigPath ? expandHome(envConfigPath) : "",
-      `${process.cwd()}/.jazz/config.json`,
-      `${process.cwd()}/jazz.config.json`,
-      `${expandHome("~/.jazz")}/config.json`,
-    ].filter(Boolean);
+    const globalConfigPath = envConfigPath
+      ? expandHome(envConfigPath)
+      : `${getJazzHomeDirectory()}/config.json`;
+    const localConfigPath = `${getLocalJazzDirectory()}/config.json`;
 
-    for (const path of candidates) {
-      const exists = yield* fs.exists(path).pipe(Effect.catchAll(() => Effect.succeed(false)));
-      if (!exists) continue;
-      const content = yield* fs
-        .readFileString(path)
-        .pipe(Effect.catchAll(() => Effect.succeed("")));
-      if (!content) return { configPath: path };
-      const parsed = safeParseJson<Partial<AppConfig>>(content);
-      if (Option.isSome(parsed)) {
-        return { configPath: path, fileConfig: parsed.value };
-      }
-      // If parse failed, ignore and continue to next
+    const globalConfig = yield* readOptionalConfigFile(fs, globalConfigPath);
+    const localConfigRaw = yield* readOptionalConfigFile(fs, localConfigPath);
+    const localConfig = localConfigRaw ? stripStorageOverride(localConfigRaw) : undefined;
+
+    if (!globalConfig && !localConfig) {
+      return { configPath: globalConfigPath };
     }
 
-    return {};
+    const emptyBase = defaultConfig();
+    const mergedFromGlobal = globalConfig ? mergeConfig(emptyBase, globalConfig) : emptyBase;
+    const merged = localConfig ? mergeConfig(mergedFromGlobal, localConfig) : mergedFromGlobal;
+
+    const result: {
+      configPath: string;
+      fileConfig: Partial<AppConfig>;
+      globalConfig?: Partial<AppConfig>;
+      localConfig?: Partial<AppConfig>;
+    } = {
+      configPath: globalConfigPath,
+      fileConfig: merged,
+    };
+
+    if (globalConfig) {
+      result.globalConfig = globalConfig;
+    }
+    if (localConfigRaw) {
+      result.localConfig = localConfigRaw;
+    }
+
+    return result;
   });
 }
 
@@ -510,7 +567,7 @@ function extractMcpOverridesFromFile(
 
 /**
  * Merge full MCP server definitions from .agents/mcp.json with
- * enable/disable overrides from jazz.config.json, returning an updated AppConfig.
+ * enable/disable overrides from ~/.jazz/config.json, returning an updated AppConfig.
  */
 function mergeAgentsMcpIntoConfig(
   config: AppConfig,

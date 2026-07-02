@@ -1,7 +1,8 @@
-import { type FileSystem } from "@effect/platform/FileSystem";
+import { FileSystem } from "@effect/platform";
 import { describe, expect, it, mock } from "bun:test";
-import { Effect } from "effect";
-import { AgentConfigServiceImpl } from "./config";
+import { Effect, Layer } from "effect";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
+import { AgentConfigServiceImpl, createConfigLayer } from "./config";
 import { type AppConfig } from "../core/types/index";
 
 // Mock FileSystem
@@ -101,5 +102,63 @@ describe("AgentConfigService", () => {
     expect(parsed.mcpServers).toBeDefined();
     expect(parsed.mcpServers.testServer).toEqual({ enabled: false });
     expect(parsed.mcpServers.testServer.command).toBeUndefined();
+  });
+});
+
+describe("createConfigLayer", () => {
+  function createTestFileSystem(fileContents: Map<string, string>): FileSystem {
+    return {
+      exists: (filePath: string) => Effect.succeed(fileContents.has(filePath)),
+      readFileString: (filePath: string) => Effect.succeed(fileContents.get(filePath) ?? ""),
+      writeFileString: mock(() => Effect.void),
+      makeDirectory: mock(() => Effect.void),
+    } as unknown as FileSystem;
+  }
+
+  it("merges global and local config with local overrides winning", async () => {
+    const homeDir = process.env["HOME"] ?? "/tmp";
+    const globalPath = `${homeDir}/.jazz/config.json`;
+    const localPath = `${process.cwd()}/.jazz/config.json`;
+
+    const fileContents = new Map<string, string>([
+      [globalPath, JSON.stringify({ logging: { level: "info" } })],
+      [localPath, JSON.stringify({ logging: { level: "debug" } })],
+    ]);
+
+    const layer = createConfigLayer().pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+    );
+    const program = Effect.gen(function* () {
+      const config = yield* AgentConfigServiceTag;
+      const level = yield* config.get<string>("logging.level");
+      const storagePath = yield* config.get<string>("storage.path");
+      return { level, storagePath };
+    }).pipe(Effect.provide(layer));
+
+    const result = await Effect.runPromise(program);
+    expect(result.level).toBe("debug");
+    expect(result.storagePath).toBe(`${homeDir}/.jazz`);
+  });
+
+  it("ignores local storage.path overrides", async () => {
+    const homeDir = process.env["HOME"] ?? "/tmp";
+    const globalPath = `${homeDir}/.jazz/config.json`;
+    const localPath = `${process.cwd()}/.jazz/config.json`;
+
+    const fileContents = new Map<string, string>([
+      [globalPath, JSON.stringify({ storage: { type: "file", path: `${homeDir}/.jazz` } })],
+      [localPath, JSON.stringify({ storage: { type: "file", path: `${process.cwd()}/.jazz` } })],
+    ]);
+
+    const layer = createConfigLayer().pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+    );
+    const program = Effect.gen(function* () {
+      const config = yield* AgentConfigServiceTag;
+      return yield* config.get<string>("storage.path");
+    }).pipe(Effect.provide(layer));
+
+    const storagePath = await Effect.runPromise(program);
+    expect(storagePath).toBe(`${homeDir}/.jazz`);
   });
 });

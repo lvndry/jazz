@@ -6,6 +6,8 @@ import {
   getBuiltinSkillsDirectory,
   getBuiltinWorkflowsDirectory,
   getGlobalUserDataDirectory,
+  getJazzHomeDirectory,
+  getLocalJazzDirectory,
   getPackageRootDirectory,
   getUserDataDirectory,
   isRunningFromGlobalInstall,
@@ -200,41 +202,46 @@ describe("Runtime Detection", () => {
       expect(result).toBe(expected);
     });
 
-    it("should return {cwd}/.jazz when in development mode", () => {
+    it("should return ~/.jazz when in development mode", () => {
       process.argv[1] = path.join(jazzProjectDir, "src", "main.ts");
 
       const result = getUserDataDirectory();
-      const expected = path.resolve(process.cwd(), ".jazz");
+      const expected = path.join(os.homedir(), ".jazz");
 
       expect(result).toBe(expected);
     });
 
-    it("should fallback to {cwd}/.jazz when home directory cannot be determined", () => {
-      // Mock a global installation path
-      process.argv[1] = "/usr/local/bin/jazz";
+    it("should respect JAZZ_HOME override", () => {
+      const previous = process.env["JAZZ_HOME"];
+      process.env["JAZZ_HOME"] = "/tmp/jazz-test-home";
 
-      // We can't easily mock os.homedir() to return empty, but we can test the fallback
-      // by ensuring the function handles the case where homeDir might be empty
-      const result = getUserDataDirectory();
+      try {
+        expect(getUserDataDirectory()).toBe(path.resolve("/tmp/jazz-test-home"));
+        expect(getGlobalUserDataDirectory()).toBe(path.resolve("/tmp/jazz-test-home"));
+        expect(getJazzHomeDirectory()).toBe(path.resolve("/tmp/jazz-test-home"));
+      } finally {
+        if (previous === undefined) {
+          delete process.env["JAZZ_HOME"];
+        } else {
+          process.env["JAZZ_HOME"] = previous;
+        }
+      }
+    });
+  });
 
-      // If homeDir is available, it should use it; otherwise fallback
-      // Since we can't easily mock os.homedir(), we just verify it doesn't throw
-      expect(result).toBeTruthy();
-      expect(typeof result).toBe("string");
-      // Should either be ~/.jazz (if homeDir available) or {cwd}/.jazz (fallback)
-      expect(result).toMatch(/\.jazz$/);
+  describe("getLocalJazzDirectory", () => {
+    it("should return {cwd}/.jazz", () => {
+      expect(getLocalJazzDirectory()).toBe(path.resolve(process.cwd(), ".jazz"));
     });
   });
 
   describe("getGlobalUserDataDirectory", () => {
-    it("should always return ~/.jazz regardless of dev/prod mode (for schedulers)", () => {
+    it("should always return ~/.jazz regardless of dev/prod mode", () => {
       const homeDir = os.homedir();
       const expected = path.join(homeDir, ".jazz");
 
-      // Even when in development mode (process.argv points to jazz source), getGlobalUserDataDirectory
-      // must return ~/.jazz so scheduled workflows (launchd/cron) always use the same paths.
       process.argv[1] = path.join(jazzProjectDir, "src", "main.ts");
-      expect(getUserDataDirectory()).not.toBe(expected); // dev mode uses cwd
+      expect(getUserDataDirectory()).toBe(expected);
       expect(getGlobalUserDataDirectory()).toBe(expected);
     });
 
@@ -371,7 +378,7 @@ describe("Runtime Detection", () => {
 
       expect(isRunningFromGlobalInstall()).toBe(false);
       expect(isRunningInDevelopmentMode()).toBe(true);
-      expect(getUserDataDirectory()).toBe(path.resolve(process.cwd(), ".jazz"));
+      expect(getUserDataDirectory()).toBe(path.join(os.homedir(), ".jazz"));
     });
 
     it("should correctly identify global install when running 'jazz' command", () => {

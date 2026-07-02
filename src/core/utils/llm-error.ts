@@ -1,4 +1,4 @@
-import { APICallError } from "ai";
+import { APICallError, RetryError } from "ai";
 import { Duration, Schedule } from "effect";
 import { MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
@@ -93,6 +93,14 @@ export function truncateRequestBodyValues(
  * Returns just the core message without verbose details.
  */
 export function extractCleanErrorMessage(error: unknown): string {
+  if (RetryError.isInstance(error)) {
+    const lastError = error.lastError;
+    if (lastError !== undefined) {
+      return extractCleanErrorMessage(lastError);
+    }
+    return error.message;
+  }
+
   if (error instanceof Error) {
     // For API errors, try to extract just the message without all the extra properties
     if (APICallError.isInstance(error)) {
