@@ -296,7 +296,7 @@ MCP (Model Context Protocol) provides a standardized way for AI agents to:
 
 Jazz loads MCP servers from multiple locations (later sources override earlier ones):
 
-1. **Main config** — `jazz.config.json` or `.jazz/config.json` (see [Configuration Reference](../reference/configuration.md))
+1. **Main config** — `~/.jazz/config.json` with optional `./.jazz/config.json` overrides (see [Configuration Reference](../reference/configuration.md))
 2. **`.agents/mcp.json`** — Project-level and user-level, following the [.agents convention](https://agentskills.io)
 
 Add MCP servers to any of these files under the `mcpServers` key:
@@ -551,7 +551,7 @@ For MCP servers running over HTTP (Streamable HTTP transport):
 
 **"Tool not found" Error**:
 
-- Ensure the MCP server is configured in `jazz.config.json`
+- Ensure the MCP server is configured in `~/.jazz/config.json` or `./.jazz/config.json`
 - Verify the server name matches the agent's tool configuration
 - Check that the server starts successfully (check logs)
 

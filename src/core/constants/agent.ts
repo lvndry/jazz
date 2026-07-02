@@ -28,6 +28,9 @@ export const FILE_LOCK_RETRY_DELAY_MS = 100;
 /** Default maximum number of LLM API retries on transient failures */
 export const DEFAULT_MAX_LLM_RETRIES = 10;
 
+/** AI SDK internal retries are disabled — Jazz retries via Effect.retry instead. */
+export const AI_SDK_MAX_RETRIES = 0;
+
 /** Maximum delay between LLM retry attempts in seconds (caps exponential backoff) */
 export const MAX_RETRY_DELAY_SECONDS = 30;
 

@@ -31,7 +31,7 @@ const McpServersInputSchema = z.record(z.string(), McpServerConfigSchema);
 
 /**
  * Parse and validate MCP server JSON, then save to ~/.agents/mcp.json
- * and set enabled: true in jazz.config.json.
+ * and set enabled: true in ~/.jazz/config.json.
  */
 function parseAndSaveMcpServers(
   input: string,
@@ -65,13 +65,13 @@ function parseAndSaveMcpServers(
     }
 
     for (const [name, config] of entries) {
-      // Strip enabled — metadata lives in jazz.config.json, not mcp.json
+      // Strip enabled — metadata lives in ~/.jazz/config.json, not mcp.json
       const { enabled: _, ...serverConfig } = config;
 
       // Write full server config to ~/.agents/mcp.json
       yield* writeAgentsMcpServer(fs, name, serverConfig);
 
-      // Set enabled in jazz.config.json (enabled by default on add)
+      // Set enabled in ~/.jazz/config.json (enabled by default on add)
       yield* configService.set(`mcpServers.${name}`, { enabled: true });
 
       yield* terminal.success(`Added MCP server: ${name}`);
@@ -95,7 +95,7 @@ function readStdin(): Promise<string> {
  * Add an MCP server from JSON (inline argument, --file, stdin pipe, or interactive prompt)
  *
  * Writes the full server config to ~/.agents/mcp.json and sets enabled: true
- * in jazz.config.json.
+ * in ~/.jazz/config.json.
  *
  * Usage:
  *   jazz mcp add '{"name": {"command": "..."}}'
@@ -187,7 +187,7 @@ export function addMcpServerCommand(
  * List all configured MCP servers.
  *
  * Shows the merged view: full configs from .agents/mcp.json with
- * enable/disable status from jazz.config.json.
+ * enable/disable status from ~/.jazz/config.json.
  */
 export function listMcpServersCommand(): Effect.Effect<
   void,
@@ -223,7 +223,7 @@ export function listMcpServersCommand(): Effect.Effect<
  * Remove an MCP server interactively.
  *
  * Removes the server from ~/.agents/mcp.json and cleans up
- * any enable/disable metadata from jazz.config.json.
+ * any enable/disable metadata from ~/.jazz/config.json.
  */
 export function removeMcpServerCommand(): Effect.Effect<
   void,
@@ -283,7 +283,7 @@ export function removeMcpServerCommand(): Effect.Effect<
 /**
  * Enable a disabled MCP server interactively.
  *
- * Sets enabled: true (or removes the override) in jazz.config.json.
+ * Sets enabled: true (or removes the override) in ~/.jazz/config.json.
  */
 export function enableMcpServerCommand(): Effect.Effect<
   void,
@@ -321,7 +321,7 @@ export function enableMcpServerCommand(): Effect.Effect<
 /**
  * Disable an enabled MCP server interactively.
  *
- * Sets enabled: false in jazz.config.json.
+ * Sets enabled: false in ~/.jazz/config.json.
  */
 export function disableMcpServerCommand(): Effect.Effect<
   void,

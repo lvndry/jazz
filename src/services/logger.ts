@@ -1,11 +1,10 @@
 import { appendFile, mkdir } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { encode as encodeToon } from "@toon-format/toon";
 import { Effect, Layer, Option, Ref } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { jsonBigIntReplacer } from "@/core/utils/logging-helpers";
-import { isRunningFromGlobalInstall } from "@/core/utils/runtime-detection";
+import { getJazzHomeDirectory } from "@/core/utils/runtime-detection";
 
 let globalLogFormat: "json" | "plain" | "toon" = "plain";
 let globalLogLevel: "debug" | "info" | "warn" | "error" = "info";
@@ -410,25 +409,13 @@ function writeToolCallToSessionFile(
 /**
  * Resolve the logs directory path
  * 1. Check JAZZ_LOG_DIR environment variable
- * 2. Check if installed globally (~/.jazz/logs)
- * 3. Default to cwd/logs
+ * 2. Default to ~/.jazz/logs (or JAZZ_HOME/logs)
  */
 function resolveLogsDirectory(): string {
-  // 1. Allow manual override via environment variable
   const override = process.env["JAZZ_LOG_DIR"];
   if (override && override.trim().length > 0) {
     return path.resolve(override);
   }
 
-  // 2. Check if we're in a globally installed package
-  if (isRunningFromGlobalInstall()) {
-    // Global install: use ~/.jazz/logs
-    const homeDir = os.homedir();
-    if (homeDir && homeDir.trim().length > 0) {
-      return path.join(homeDir, ".jazz", "logs");
-    }
-  }
-
-  // 3. Local development or local install: use cwd/logs
-  return path.resolve(process.cwd(), "logs");
+  return path.join(getJazzHomeDirectory(), "logs");
 }
