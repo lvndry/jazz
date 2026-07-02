@@ -234,11 +234,6 @@ export function createConfigLayer(
           })
         : mergeConfig(baseConfig, fileConfigWithoutMcp);
 
-      const mainConfigWithStorage: AppConfig = {
-        ...mainConfig,
-        storage: { type: "file", path: getJazzHomeDirectory() },
-      };
-
       // Load MCP definitions from .agents/mcp.json
       const agentsServers = yield* loadAgentsMcpServers(fs);
 
@@ -248,11 +243,7 @@ export function createConfigLayer(
         ...extractMcpOverridesFromFile(loaded.localConfig?.mcpServers),
       };
 
-      const finalConfig = mergeAgentsMcpIntoConfig(
-        mainConfigWithStorage,
-        agentsServers,
-        mcpOverrides,
-      );
+      const finalConfig = mergeAgentsMcpIntoConfig(mainConfig, agentsServers, mcpOverrides);
 
       return new AgentConfigServiceImpl(finalConfig, mcpOverrides, loaded.configPath, fs);
     }),
@@ -457,7 +448,30 @@ function loadConfigFile(
         );
       }
 
-      return { configPath: expandedPath, fileConfig: config, globalConfig: config };
+      const localConfigPath = `${getLocalJazzDirectory()}/config.json`;
+      const localConfigRaw = yield* readOptionalConfigFile(fs, localConfigPath);
+      const localConfig = localConfigRaw ? stripStorageOverride(localConfigRaw) : undefined;
+
+      const emptyBase = defaultConfig();
+      const mergedFromGlobal = mergeConfig(emptyBase, config);
+      const merged = localConfig ? mergeConfig(mergedFromGlobal, localConfig) : mergedFromGlobal;
+
+      const result: {
+        configPath: string;
+        fileConfig: Partial<AppConfig>;
+        globalConfig?: Partial<AppConfig>;
+        localConfig?: Partial<AppConfig>;
+      } = {
+        configPath: expandedPath,
+        fileConfig: merged,
+        globalConfig: config,
+      };
+
+      if (localConfigRaw) {
+        result.localConfig = localConfigRaw;
+      }
+
+      return result;
     }
 
     const envConfigPath = process.env["JAZZ_CONFIG_PATH"];
