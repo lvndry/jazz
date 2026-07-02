@@ -6,9 +6,24 @@ import {
   type NotificationService,
   type NotificationOptions,
 } from "@/core/interfaces/notification";
+import { getTerminalBundleId } from "./terminal-bundle-id";
+import { resolveTerminalNotifierBinary } from "./terminal-notifier-path";
 
 function escapeForAppleScript(str: string): string {
   return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function sendAppleScriptNotification(
+  title: string,
+  message: string,
+  subtitle: string | undefined,
+  sound: boolean,
+  callback: (error: Error | null) => void,
+): void {
+  const soundPart = sound ? ' sound name "Blow"' : "";
+  const subtitlePart = subtitle ? ` subtitle "${escapeForAppleScript(subtitle)}"` : "";
+  const script = `display notification "${escapeForAppleScript(message)}" with title "${escapeForAppleScript(title)}"${subtitlePart}${soundPart}`;
+  execFile("osascript", ["-e", script], callback);
 }
 
 function sendNativeNotification(
@@ -24,10 +39,27 @@ function sendNativeNotification(
   };
 
   if (process.platform === "darwin") {
-    const soundPart = sound ? ' sound name "Blow"' : "";
-    const subtitlePart = subtitle ? ` subtitle "${escapeForAppleScript(subtitle)}"` : "";
-    const script = `display notification "${escapeForAppleScript(message)}" with title "${escapeForAppleScript(title)}"${subtitlePart}${soundPart}`;
-    execFile("osascript", ["-e", script], callback);
+    const bundleId = getTerminalBundleId();
+    const terminalNotifier = resolveTerminalNotifierBinary();
+
+    if (terminalNotifier && bundleId) {
+      const args = ["-title", title, "-message", message, "-activate", bundleId];
+      if (subtitle) {
+        args.push("-subtitle", subtitle);
+      }
+      if (sound) {
+        args.push("-sound", "Blow");
+      }
+      execFile(terminalNotifier, args, (error) => {
+        if (error) {
+          console.error(`[Notification] Failed to send via terminal-notifier: ${error.message}`);
+          sendAppleScriptNotification(title, message, subtitle, sound ?? false, callback);
+        }
+      });
+      return;
+    }
+
+    sendAppleScriptNotification(title, message, subtitle, sound ?? false, callback);
     return;
   }
 
