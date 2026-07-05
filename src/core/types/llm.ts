@@ -26,6 +26,8 @@ export interface ModelInfo {
   readonly supportsVision?: boolean;
   /** Whether the model accepts PDF input natively. */
   readonly supportsPdf?: boolean;
+  /** Whether the model accepts a custom temperature. Defaults to true when unknown. */
+  readonly supportsTemperature?: boolean;
   /** Context window size in tokens. If not specified, defaults to 128000. */
   readonly contextWindow?: number;
   /** Raw chat template string (Jinja for llama.cpp, Go-template for ollama). Used for reasoning-parser selection. */

@@ -62,6 +62,50 @@ describe("ModelFetcher", () => {
     expect(result[0]!.supportsTools).toBe(true);
   });
 
+  it("sets supportsTemperature=true for an OpenRouter model whose supported_parameters include temperature", async () => {
+    const mockResponse = {
+      data: [
+        {
+          id: "m2",
+          name: "Model 2",
+          context_length: 8192,
+          supported_parameters: ["tools", "temperature"],
+        },
+      ],
+    };
+
+    global.fetch = mock(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(mockResponse) }),
+    ) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("openrouter", "https://or.api", "/models", "key");
+    const result = await Effect.runPromise(program);
+
+    expect(result[0]!.supportsTemperature).toBe(true);
+  });
+
+  it("sets supportsTemperature=false for an OpenRouter model whose supported_parameters omit temperature (e.g. o-series reasoners)", async () => {
+    const mockResponse = {
+      data: [
+        {
+          id: "o3",
+          name: "o3",
+          context_length: 200000,
+          supported_parameters: ["tools", "reasoning"],
+        },
+      ],
+    };
+
+    global.fetch = mock(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(mockResponse) }),
+    ) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("openrouter", "https://or.api", "/models", "key");
+    const result = await Effect.runPromise(program);
+
+    expect(result[0]!.supportsTemperature).toBe(false);
+  });
+
   it("should handle Ollama with special transformation", async () => {
     const mockTagsResponse = {
       models: [{ name: "llama3:latest", details: { metadata: { supports_tools: true } } }],
@@ -84,6 +128,7 @@ describe("ModelFetcher", () => {
     expect(result.length).toBe(1);
     expect(result[0]!.id).toBe("llama3:latest");
     expect(result[0]!.contextWindow).toBe(4096);
+    expect(result[0]!.supportsTemperature).toBe(true);
   });
 
   it("should fail gracefully on 404", async () => {

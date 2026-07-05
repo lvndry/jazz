@@ -51,6 +51,7 @@ function resolveToModelInfo(
       isReasoningModel: dev.isReasoningModel,
       supportsVision: dev.supportsVision,
       supportsPdf: dev.supportsPdf,
+      supportsTemperature: dev.supportsTemperature,
     };
   }
   const fb = entry.fallback;
@@ -62,6 +63,7 @@ function resolveToModelInfo(
     isReasoningModel: fb?.isReasoningModel ?? false,
     supportsVision: fb?.supportsVision ?? false,
     supportsPdf: fb?.supportsPdf ?? false,
+    supportsTemperature: fb?.supportsTemperature ?? true,
   };
 }
 
@@ -248,6 +250,7 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
           contextWindow: model.context_length ?? DEFAULT_CONTEXT_WINDOW,
           supportsTools,
           isReasoningModel,
+          supportsTemperature: supportedParameters.includes("temperature"),
         },
       };
     });

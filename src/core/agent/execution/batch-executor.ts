@@ -76,6 +76,9 @@ export function executeWithoutStreaming(
             tools: runContext.tools,
             toolChoice: "auto" as const,
             reasoning_effort: reasoningEffort,
+            ...(typeof agent.config.temperature === "number"
+              ? { temperature: agent.config.temperature }
+              : {}),
             ...(agent.config.llmApiKeys ? { providerApiKeys: agent.config.llmApiKeys } : {}),
           };
 
