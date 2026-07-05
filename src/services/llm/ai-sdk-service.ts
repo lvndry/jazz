@@ -952,6 +952,7 @@ class AISDKService implements LLMService {
               isReasoningModel: dev?.isReasoningModel ?? false,
               supportsVision: dev?.supportsVision ?? false,
               supportsPdf: dev?.supportsPdf ?? false,
+              supportsTemperature: dev?.supportsTemperature ?? true,
             };
           });
           this.modelInfoCache.set(providerName, resolved);
@@ -1210,7 +1211,9 @@ class AISDKService implements LLMService {
           messages: coreMessages,
           allowSystemInMessages: true,
           maxRetries: AI_SDK_MAX_RETRIES,
-          ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
+          ...(typeof options.temperature === "number" && modelInfo?.supportsTemperature !== false
+            ? { temperature: options.temperature }
+            : {}),
           ...(tools ? { tools } : {}),
           ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
           ...(providerOptions ? { providerOptions } : {}),
@@ -1450,7 +1453,8 @@ class AISDKService implements LLMService {
                   messages: coreMessages,
                   allowSystemInMessages: true,
                   maxRetries: AI_SDK_MAX_RETRIES,
-                  ...(typeof options.temperature === "number"
+                  ...(typeof options.temperature === "number" &&
+                  modelInfo?.supportsTemperature !== false
                     ? { temperature: options.temperature }
                     : {}),
                   ...(tools ? { tools } : {}),

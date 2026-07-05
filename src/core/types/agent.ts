@@ -55,6 +55,7 @@ export interface AgentConfig {
   /** Optional per-agent API key overrides by provider. Falls back to global config, then env vars. */
   readonly llmApiKeys?: Partial<Record<ProviderName, string>>;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
+  readonly temperature?: number;
   readonly tools?: readonly string[];
   readonly webSearchProvider?: WebSearchProviderName;
 }
