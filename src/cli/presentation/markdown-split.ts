@@ -263,11 +263,28 @@ function findLastSentenceEnd(text: string, upperBound: number): number | null {
   return lastEnd;
 }
 
+/** How far back from the cap to search for a whitespace boundary before giving up. */
+const HARD_CAP_WHITESPACE_SEARCH_WINDOW = 500;
+
 function tryHardCapFallback(text: string): number {
   if (text.length <= MAX_PENDING_TAIL) return 0;
-  // Find the last \n at or before MAX_PENDING_TAIL.
-  const idx = text.lastIndexOf("\n", MAX_PENDING_TAIL);
-  return idx === -1 ? 0 : idx + 1;
+
+  // Prefer a newline at or before the cap.
+  const newlineIndex = text.lastIndexOf("\n", MAX_PENDING_TAIL);
+  if (newlineIndex !== -1) return newlineIndex + 1;
+
+  // No newline within the cap. Walk back from the cap looking for a
+  // whitespace boundary so we don't split mid-word.
+  const searchFloor = Math.max(0, MAX_PENDING_TAIL - HARD_CAP_WHITESPACE_SEARCH_WINDOW);
+  for (let index = MAX_PENDING_TAIL; index > searchFloor; index--) {
+    const character = text[index];
+    if (character === " " || character === "\t") return index + 1;
+  }
+
+  // Pathological: no newline and no whitespace within the search window
+  // (e.g. a long URL or base64 blob). Cut at the cap anyway so the pending
+  // buffer stays bounded — a cosmetic mid-token break beats unbounded growth.
+  return MAX_PENDING_TAIL;
 }
 
 /**
