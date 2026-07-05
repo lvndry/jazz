@@ -46,6 +46,17 @@ const cases: Case[] = [
     expected: MAX_PENDING_TAIL,
   },
   {
+    name: "no newline within cap falls back to nearest word boundary before the cap",
+    // A space sits 100 chars before the cap; no newline anywhere in the text.
+    input: "a".repeat(MAX_PENDING_TAIL - 100) + " " + "b".repeat(5000),
+    expected: MAX_PENDING_TAIL - 100 + 1,
+  },
+  {
+    name: "no newline and no whitespace within search window cuts at the hard cap",
+    input: "a".repeat(MAX_PENDING_TAIL + 5000),
+    expected: MAX_PENDING_TAIL,
+  },
+  {
     name: "inline code spanning split rejects offset inside backticks",
     input: "para 1.\n\n`open code without close " + "x".repeat(SOFT_TAIL),
     expected: (s) => s.indexOf("\n\n") + 2,
