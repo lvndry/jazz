@@ -268,6 +268,19 @@ export function isRetryableLLMError(error: unknown): boolean {
 }
 
 /**
+ * Short, user-facing description of why a retryable LLM error occurred
+ * (rate limit / server error / network issue), for surfacing in retry notices.
+ */
+export function describeRetryableLLMError(error: unknown): string {
+  if (error instanceof LLMRateLimitError) return "rate limit";
+  if (error instanceof LLMRequestError) {
+    if (error.statusCode === undefined) return "network issue";
+    return `server error (${error.statusCode})`;
+  }
+  return "unknown issue";
+}
+
+/**
  * Exponential backoff schedule for LLM retries, delay capped at MAX_RETRY_DELAY_SECONDS.
  * Only retries on transient errors (rate limits, connection failures, 5xx).
  */

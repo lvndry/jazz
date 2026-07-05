@@ -1,6 +1,10 @@
 import { Duration, Effect, Fiber, Ref, Schedule } from "effect";
 import { LLM_SLOW_MODEL_HINT_SECONDS } from "@/core/constants/agent";
-import { isRetryableLLMError, makeLLMRetrySchedule } from "@/core/utils/llm-error";
+import {
+  describeRetryableLLMError,
+  isRetryableLLMError,
+  makeLLMRetrySchedule,
+} from "@/core/utils/llm-error";
 
 export type PresentStatusFn = (
   message: string,
@@ -39,8 +43,9 @@ export function makeUserVisibleLlmRetrySchedule(
       isRetryableLLMError(error)
         ? Effect.gen(function* () {
             const attempt = yield* Ref.updateAndGet(attemptRef, (count) => count + 1);
+            const reason = describeRetryableLLMError(error);
             yield* presentStatus(
-              `${agentName} hit a temporary network or model issue. Trying again (attempt ${attempt} of up to ${maxRetries})…`,
+              `${agentName} hit a ${reason}. Trying again (attempt ${attempt} of up to ${maxRetries})…`,
               "progress",
             );
           })
