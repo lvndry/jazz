@@ -211,4 +211,32 @@ describe("createConfigLayer", () => {
     const level = await Effect.runPromise(program);
     expect(level).toBe("debug");
   });
+
+  it("preserves maxRetries and telemetry from a custom config file", async () => {
+    const customConfigPath = path.join(os.tmpdir(), "jazz-retries-config.json");
+
+    const fileContents = new Map<string, string>([
+      [
+        customConfigPath,
+        JSON.stringify({
+          maxRetries: 8,
+          telemetry: { enabled: false },
+        }),
+      ],
+    ]);
+
+    const layer = createConfigLayer(undefined, customConfigPath).pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+    );
+    const program = Effect.gen(function* () {
+      const config = yield* AgentConfigServiceTag;
+      const maxRetries = yield* config.get<number>("maxRetries");
+      const telemetryEnabled = yield* config.get<boolean>("telemetry.enabled");
+      return { maxRetries, telemetryEnabled };
+    }).pipe(Effect.provide(layer));
+
+    const result = await Effect.runPromise(program);
+    expect(result.maxRetries).toBe(8);
+    expect(result.telemetryEnabled).toBe(false);
+  });
 });
