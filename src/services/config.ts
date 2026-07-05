@@ -334,7 +334,7 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
       autoApprovedCommands: override.autoApprovedCommands,
     }),
     ...(override.maxRetries !== undefined && { maxRetries: override.maxRetries }),
-    ...(override.telemetry && { telemetry: { ...base.telemetry, ...override.telemetry } }),
+    ...(override.telemetry && { telemetry: { ...(base.telemetry ?? {}), ...override.telemetry } }),
   };
 }
 
