@@ -524,17 +524,20 @@ export function getErrorMessage(error: JazzError | Error): string {
  * @returns An Effect that logs the formatted error to the console
  *
  */
+/** Ctrl+C during an inquirer prompt — a user cancellation, not a command failure. */
+export function isUserCancellation(error: JazzError | Error): boolean {
+  return (
+    error instanceof Error && (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
+  );
+}
+
 export function handleError(
   error: JazzError | Error,
 ): Effect.Effect<void, never, PresentationService> {
   return Effect.gen(function* () {
     const presentation = yield* PresentationServiceTag;
 
-    // Handle ExitPromptError from inquirer (Ctrl+C during prompts)
-    if (
-      error instanceof Error &&
-      (error.name === "ExitPromptError" || error.message.includes("SIGINT"))
-    ) {
+    if (isUserCancellation(error)) {
       yield* presentation.writeOutput("\n👋 Goodbye!\n");
       return;
     }
