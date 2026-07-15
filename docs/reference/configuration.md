@@ -51,3 +51,104 @@ You can override settings or provide API keys via `.env` or system environment v
 - `JAZZ_HOME`: Override the Jazz home directory (default: `~/.jazz`). Use when developing Jazz to isolate test data.
 - `JAZZ_CONFIG_PATH`: Override the global config file path.
 - `DEBUG`: Set to `true` for verbose logging.
+
+## Agent Config: `customTools`
+
+`customTools` is an optional field on an agent's `config`, letting a deployment declare new
+tools directly in the agent's JSON config instead of shipping code — the closest analog is the
+Claude Agent SDK's custom tools (name, description, input schema, handler, registered alongside
+builtins). Declaring a custom tool is not enough to expose it: its `name` must also appear in
+the agent's `tools` array, exactly like a builtin or MCP tool. A declared-but-unlisted custom
+tool is simply skipped at registration.
+
+Each entry has a `handler.type` of either `record` or `command`.
+
+**`record`** — no side effect. The call is validated and appended to the run's `toolCalls` (the
+same field every other tool call surfaces in), so the *caller* embedding Jazz can read the
+arguments and act on them; the model itself only ever sees the fixed `response`. This is the
+pattern behind confirmation-card / propose-then-confirm flows:
+
+```json
+{
+  "name": "propose_action",
+  "description": "Propose an action for the user to confirm before it is carried out.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": { "type": "string", "description": "Short description of the proposed action" },
+      "payload": { "type": "object", "description": "Structured data needed to carry out the action" }
+    },
+    "required": ["action"]
+  },
+  "handler": {
+    "type": "record",
+    "response": "Proposal recorded — the user will see a confirmation card."
+  }
+}
+```
+
+**`command`** — spawns `handler.command` directly (an argv array, no shell) with the validated
+tool arguments serialized as JSON on the child's stdin. Exit code `0` returns stdout (capped at
+16 KB) as the tool result; a non-zero exit, spawn error, or timeout produces a failure result the
+model sees the same way it sees a failing builtin tool. The command's environment is sanitized
+the same way `execute_command` sanitizes its shell environment (see `envAllowlist` below).
+
+```json
+{
+  "name": "lint_project",
+  "description": "Run the project linter",
+  "parameters": {
+    "type": "object",
+    "properties": {}
+  },
+  "handler": {
+    "type": "command",
+    "command": ["./lint.sh"],
+    "timeoutMs": 30000
+  }
+}
+```
+
+`timeoutMs` defaults to 30 000 ms and is capped at 300 000 ms (5 minutes) when set.
+
+### Validation rules
+
+- `name`: must match `^[a-z][a-z0-9_]{1,63}$`, must be unique within `customTools`, and must not
+  start with the `mcp_` prefix (reserved for MCP-sourced tools).
+- At most 16 entries per agent.
+- `description`: 1-1024 characters — this is what the model reads to decide when to call the tool.
+- `parameters`: a JSON Schema object; must have `"type": "object"`.
+- `handler.response` (record): optional string, at most 1024 characters, defaults to `"Recorded."`.
+- `handler.command` (command): a non-empty array of non-empty strings.
+
+### Collisions and re-registration
+
+A custom tool name that collides with an already-registered builtin or MCP tool name fails
+agent startup with a configuration error rather than silently overriding the existing tool —
+rename the custom tool or remove the conflicting one. Because tool registration runs on every
+agent run (not just once per process), re-registering the *exact same* custom tool definition
+under a name that's already registered is a no-op, not a collision; only a genuinely different
+definition sharing that name is rejected.
+
+## Agent Config: `envAllowlist`
+
+`envAllowlist` is an optional `string[]` field on an agent's `config` that exempts specific
+environment variable names from the sensitive-name scrub applied to shell commands the agent
+runs (`execute_command` and custom `command`-handler tools share this same env-sanitization
+path; it does not affect `grep`/`find`/`git` tool spawns). By default, any variable whose name
+matches `API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive) is stripped before a
+child process is spawned. Listing a name in `envAllowlist` copies that variable from the
+process environment into the child's environment even though it matches the scrub regex — it
+never invents a value that isn't already set.
+
+```json
+{
+  "envAllowlist": ["MY_SERVICE_TOKEN"]
+}
+```
+
+Validation: at most 32 names, each matching `^[A-Z][A-Z0-9_]{0,63}$` (uppercase letters,
+digits, and underscores, starting with a letter, up to 64 characters).
+
+**Security note:** allowlisting a secret-bearing variable hands it to every shell command the
+agent runs — the deployment owns that trade-off.
