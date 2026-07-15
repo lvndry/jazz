@@ -53,13 +53,13 @@ type CommandExecutionOutcome =
     }
   | { readonly ok: false; readonly error: string };
 
-/** Accumulated command output, tracked in both decoded text and true byte count. */
-interface CappedOutput {
-  readonly text: string;
+/** Accumulated command output, tracked as raw (capped) byte chunks plus a running byte count. */
+export interface CappedOutput {
+  readonly chunks: readonly Buffer[];
   readonly bytes: number;
 }
 
-const EMPTY_CAPPED_OUTPUT: CappedOutput = { text: "", bytes: 0 };
+export const EMPTY_CAPPED_OUTPUT: CappedOutput = { chunks: [], bytes: 0 };
 
 /**
  * Append a raw stdout/stderr `chunk` (as delivered by Node's child_process
@@ -69,17 +69,31 @@ const EMPTY_CAPPED_OUTPUT: CappedOutput = { text: "", bytes: 0 };
  * counts UTF-16 code units and undercounts multi-byte UTF-8 output). Caps per
  * chunk (not post-hoc) so an unbounded stream never balloons memory before
  * being sliced down.
+ *
+ * Deliberately keeps the raw `Buffer` chunks rather than decoding here: a
+ * multi-byte UTF-8 character can straddle two separate `data` events (or,
+ * post-cap, straddle the truncation cut itself), and decoding chunk-by-chunk
+ * would turn each half into a replacement character (U+FFFD). Decoding is
+ * deferred to `decodeCapped`, which runs once over the fully concatenated
+ * buffer so only in-stream chunk seams are healed — a character split by the
+ * cap cut itself can still yield one trailing replacement character, which is
+ * an acceptable, inherent cost of truncating raw bytes.
  */
-function appendCapped(current: CappedOutput, chunk: Buffer, capBytes: number): CappedOutput {
+export function appendCapped(current: CappedOutput, chunk: Buffer, capBytes: number): CappedOutput {
   if (current.bytes >= capBytes) {
     return current;
   }
   const remainingBytes = capBytes - current.bytes;
   const truncatedChunk = chunk.subarray(0, remainingBytes);
   return {
-    text: current.text + truncatedChunk.toString(),
+    chunks: [...current.chunks, truncatedChunk],
     bytes: current.bytes + truncatedChunk.byteLength,
   };
+}
+
+/** Decode a `CappedOutput`'s accumulated raw chunks to a UTF-8 string, once, over the full concatenated buffer. */
+export function decodeCapped(current: CappedOutput): string {
+  return Buffer.concat(current.chunks).toString("utf8");
 }
 
 /**
@@ -150,7 +164,12 @@ function runCustomToolCommand(
     });
 
     child.on("close", (code) => {
-      finish({ ok: true, exitCode: code ?? 0, stdout: stdout.text, stderr: stderr.text });
+      finish({
+        ok: true,
+        exitCode: code ?? 0,
+        stdout: decodeCapped(stdout),
+        stderr: decodeCapped(stderr),
+      });
     });
 
     // If the child exits before consuming stdin (or never reads it), writing

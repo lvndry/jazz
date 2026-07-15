@@ -21,7 +21,12 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import type { Agent, CustomToolDefinition } from "@/core/types/agent";
 import { AgentConfigurationError } from "@/core/types/errors";
 import type { ToolExecutionResult } from "@/core/types/tools";
-import { registerCustomToolsForAgent } from "./custom-tools";
+import {
+  appendCapped,
+  decodeCapped,
+  EMPTY_CAPPED_OUTPUT,
+  registerCustomToolsForAgent,
+} from "./custom-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 
 // ---------------------------------------------------------------------------
@@ -1191,5 +1196,27 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
     expect(typeof result.result).toBe("string");
     expect(Buffer.byteLength(result.result as string, "utf8")).toBeLessThanOrEqual(16 * 1024);
     expect(Buffer.byteLength(result.result as string, "utf8")).toBeGreaterThan(16 * 1024 - 4);
+  });
+
+  it("decodes a multi-byte UTF-8 character intact when it is split across two appended chunks", () => {
+    // "é" (U+00E9) encodes to the 2-byte UTF-8 sequence 0xC3 0xA9. Feeding
+    // each byte as a separate chunk reproduces a character split across a
+    // stream `data` event boundary — decoding per-chunk (the old behavior)
+    // would turn each half into a lone replacement character (U+FFFD).
+    const multiByteCharacter = Buffer.from("é", "utf8");
+    expect(multiByteCharacter.byteLength).toBe(2);
+    const firstHalf = multiByteCharacter.subarray(0, 1);
+    const secondHalf = multiByteCharacter.subarray(1, 2);
+
+    let accumulated = EMPTY_CAPPED_OUTPUT;
+    accumulated = appendCapped(accumulated, Buffer.from("prefix-", "utf8"), 16 * 1024);
+    accumulated = appendCapped(accumulated, firstHalf, 16 * 1024);
+    accumulated = appendCapped(accumulated, secondHalf, 16 * 1024);
+    accumulated = appendCapped(accumulated, Buffer.from("-suffix", "utf8"), 16 * 1024);
+
+    const decoded = decodeCapped(accumulated);
+
+    expect(decoded).toBe("prefix-é-suffix");
+    expect(decoded).not.toContain("�");
   });
 });

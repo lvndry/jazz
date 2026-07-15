@@ -124,7 +124,7 @@ export class FileStorageService implements StorageService {
           ),
         );
 
-        let normalizedTools: readonly string[] = [];
+        let normalizedTools: readonly string[];
         try {
           normalizedTools = normalizeToolConfig(rawData.config?.tools, {
             agentId: rawData.id,
