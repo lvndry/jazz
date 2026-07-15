@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
 import shortuuid from "short-uuid";
+import { validateCustomToolDefinitionShape } from "@/core/agent/tools/custom-tool-validation";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { StorageServiceTag, type StorageService } from "@/core/interfaces/storage";
@@ -256,27 +257,16 @@ export class AgentServiceImpl implements AgentService {
         const seenNames = new Set<string>();
 
         for (const customTool of customTools) {
-          const { name, description, parameters, handler } = customTool;
+          const { name } = customTool;
 
-          if (!/^[a-z][a-z0-9_]{1,63}$/.test(name)) {
+          const shapeIssue = validateCustomToolDefinitionShape(customTool);
+          if (shapeIssue) {
             return yield* Effect.fail(
               new AgentConfigurationError({
                 agentId: "unknown",
                 field: "config.customTools",
-                message: `Invalid custom tool name "${name}"`,
-                suggestion:
-                  "Use lowercase letters, digits, and underscores only, starting with a letter, 2-64 characters (e.g. list_files).",
-              }),
-            );
-          }
-
-          if (name.startsWith("mcp_")) {
-            return yield* Effect.fail(
-              new AgentConfigurationError({
-                agentId: "unknown",
-                field: "config.customTools",
-                message: `Custom tool name "${name}" cannot start with the reserved "mcp_" prefix`,
-                suggestion: "Choose a name that does not start with mcp_.",
+                message: shapeIssue.message,
+                suggestion: shapeIssue.suggestion,
               }),
             );
           }
@@ -292,100 +282,6 @@ export class AgentServiceImpl implements AgentService {
             );
           }
           seenNames.add(name);
-
-          if (
-            typeof description !== "string" ||
-            description.length < 1 ||
-            description.length > 1024
-          ) {
-            return yield* Effect.fail(
-              new AgentConfigurationError({
-                agentId: "unknown",
-                field: "config.customTools",
-                message: `Custom tool "${name}" description must be a string between 1 and 1024 characters`,
-                suggestion: "Provide a short, non-empty description of what the tool does.",
-              }),
-            );
-          }
-
-          if (
-            typeof parameters !== "object" ||
-            parameters === null ||
-            Array.isArray(parameters) ||
-            parameters["type"] !== "object"
-          ) {
-            return yield* Effect.fail(
-              new AgentConfigurationError({
-                agentId: "unknown",
-                field: "config.customTools",
-                message: `Custom tool "${name}" parameters must be a JSON Schema object with "type": "object"`,
-                suggestion:
-                  'Set parameters to an object schema, e.g. { type: "object", properties: {} }.',
-              }),
-            );
-          }
-
-          if (
-            typeof handler !== "object" ||
-            handler === null ||
-            (handler.type !== "record" && handler.type !== "command")
-          ) {
-            return yield* Effect.fail(
-              new AgentConfigurationError({
-                agentId: "unknown",
-                field: "config.customTools",
-                message: `Custom tool "${name}" handler.type must be "record" or "command"`,
-                suggestion: 'Set handler.type to "record" or "command".',
-              }),
-            );
-          }
-
-          if (handler.type === "record") {
-            if (
-              handler.response !== undefined &&
-              (typeof handler.response !== "string" || handler.response.length > 1024)
-            ) {
-              return yield* Effect.fail(
-                new AgentConfigurationError({
-                  agentId: "unknown",
-                  field: "config.customTools",
-                  message: `Custom tool "${name}" handler.response must be a string of at most 1024 characters`,
-                  suggestion: "Shorten the fixed response or remove it.",
-                }),
-              );
-            }
-          } else {
-            if (
-              !Array.isArray(handler.command) ||
-              handler.command.length === 0 ||
-              handler.command.some((part) => typeof part !== "string" || part.length === 0)
-            ) {
-              return yield* Effect.fail(
-                new AgentConfigurationError({
-                  agentId: "unknown",
-                  field: "config.customTools",
-                  message: `Custom tool "${name}" handler.command must be a non-empty array of non-empty strings`,
-                  suggestion: 'Provide a command like ["ls", "-la"].',
-                }),
-              );
-            }
-
-            if (
-              handler.timeoutMs !== undefined &&
-              (!Number.isInteger(handler.timeoutMs) ||
-                handler.timeoutMs <= 0 ||
-                handler.timeoutMs > 300_000)
-            ) {
-              return yield* Effect.fail(
-                new AgentConfigurationError({
-                  agentId: "unknown",
-                  field: "config.customTools",
-                  message: `Custom tool "${name}" handler.timeoutMs must be a positive integer of at most 300000`,
-                  suggestion: "Set timeoutMs between 1 and 300000 milliseconds, or omit it.",
-                }),
-              );
-            }
-          }
         }
       }
 

@@ -16,6 +16,7 @@ import { createSanitizedEnv, type ProcessEnvRecord } from "@/core/utils/env-util
 import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
+import { validateCustomToolDefinitionShape } from "./custom-tool-validation";
 
 /**
  * Custom-tool registration module
@@ -36,6 +37,12 @@ const COMMAND_OUTPUT_CAP_BYTES = 16 * 1024;
 
 /** Default kill timeout for `command`-handler custom tools when unset. */
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
+
+/** Extra margin added on top of a command tool's configured `timeoutMs` when
+ * registering it with the tool executor (see `buildCommandTool`), so the
+ * executor's own timeout can never fire before the command's internal kill
+ * timeout has a chance to. */
+const EXECUTOR_TIMEOUT_MARGIN_MS = 5_000;
 
 type CommandExecutionOutcome =
   | {
@@ -162,6 +169,9 @@ function buildRecordTool(
       description: definition.description,
       parameters,
       validate,
+      // Read-only: fixed response, no side effects — matches defineTool's
+      // own default for non-approval tools, set explicitly here for clarity.
+      riskLevel: "read-only",
       handler: (): Effect.Effect<ToolExecutionResult, Error, never> =>
         Effect.succeed({ success: true, result: response }),
     }),
@@ -175,15 +185,29 @@ function buildRecordTool(
  * Execution spawns `handler.command` argv directly (no shell), with the
  * validated tool arguments serialized as JSON on the child's stdin. Env and
  * cwd resolution match `execute_command`: `createSanitizedEnv({},
- * agent.config.envAllowlist ?? [])` for env, and the run's current working
- * directory (via `FileSystemContextService.getCwd`) for cwd — this handler
- * has no `workingDirectory` argument to override it, since the tool's
- * parameters are entirely user-declared. Exit code 0 succeeds with the
- * captured (bounded) stdout; a non-zero exit, timeout, or spawn error
- * produces the same error-result shape `execute_command` uses.
+ * declaringEnvAllowlist)` for env, and the run's current working directory
+ * (via `FileSystemContextService.getCwd`) for cwd — this handler has no
+ * `workingDirectory` argument to override it, since the tool's parameters
+ * are entirely user-declared. Exit code 0 succeeds with the captured
+ * (bounded) stdout; a non-zero exit, timeout, or spawn error produces the
+ * same error-result shape `execute_command` uses.
+ *
+ * `declaringEnvAllowlist` is the `envAllowlist` of the AGENT THAT DECLARED
+ * this custom tool (captured once, at registration time), not whichever
+ * agent happens to be `context.parentAgent` when the tool is invoked. This
+ * matters because subagents can call tools registered by a parent agent
+ * (or vice versa) under a `ToolExecutionContext` whose `parentAgent` differs
+ * from the declaring agent — using the call-time `context.parentAgent`
+ * would silently apply the WRONG agent's allowlist (e.g. leaking a token the
+ * declaring agent was never granted, or scrubbing one it was).
+ *
+ * Command tools spawn arbitrary processes on every invocation with no
+ * interactive approval step, so they are always registered `high-risk`
+ * regardless of what the command itself does.
  */
 function buildCommandTool(
   definition: CustomToolDefinition & { readonly handler: CustomToolCommandHandler },
+  declaringEnvAllowlist: readonly string[],
 ): Tool<FileSystemContextService | LoggerService> {
   const parameters = convertMCPSchemaToZod(definition.parameters, definition.name);
   const validate = makeZodValidator(parameters as z.ZodType<Record<string, unknown>>);
@@ -196,6 +220,14 @@ function buildCommandTool(
       description: definition.description,
       parameters,
       validate,
+      riskLevel: "high-risk",
+      // Give the tool executor's own timeout (TOOL_TIMEOUT_MS, 3 minutes by
+      // default) a margin above this tool's configured kill timeout, so a
+      // command tool configured close to (or past) the 3-minute default
+      // executor timeout isn't cut off by the executor before its own
+      // internal timeout/kill logic in `runCustomToolCommand` gets a chance
+      // to run.
+      timeoutMs: timeoutMs + EXECUTOR_TIMEOUT_MARGIN_MS,
       handler: (
         args,
         context,
@@ -205,8 +237,7 @@ function buildCommandTool(
           const logger = yield* LoggerServiceTag;
 
           const cwd = yield* shell.getCwd(buildKeyFromContext(context));
-          const envAllowlist = context.parentAgent?.config.envAllowlist ?? [];
-          const sanitizedEnv = createSanitizedEnv({}, envAllowlist);
+          const sanitizedEnv = createSanitizedEnv({}, declaringEnvAllowlist);
           const stdinPayload = JSON.stringify(args);
 
           const outcome = yield* Effect.promise(() =>
@@ -269,12 +300,22 @@ function isDeepEqual(left: unknown, right: unknown): boolean {
  *
  * Only entries whose `name` appears in `agentToolNames` are registered — an
  * agent may declare custom tools it doesn't actually expose to itself (e.g.
- * shared config templates). Colliding with an already-registered tool name
- * (builtin or MCP) fails startup with `AgentConfigurationError` rather than
- * silently overriding the existing registration.
+ * shared config templates). Every selected definition is re-validated here
+ * (via `validateCustomToolDefinitionShape`) even though `AgentServiceImpl.
+ * validateAgentConfig` runs the same checks on create/update — an agent
+ * config can be loaded from a file or another untrusted source that never
+ * went through that path, so registration fails CLOSED on any malformed
+ * definition (including an unrecognized `handler.type`) instead of silently
+ * treating it as a `record` handler.
+ *
+ * Colliding with an already-registered tool name (builtin or MCP) fails the
+ * run with `AgentConfigurationError` rather than silently overriding the
+ * existing registration.
  *
  * `command`-handler entries spawn the declared command directly (no shell)
- * on each invocation; see `buildCommandTool` for execution semantics.
+ * on each invocation, using THIS agent's `envAllowlist` (captured at
+ * registration time — see `buildCommandTool`'s doc comment for why call-time
+ * `context.parentAgent` would be the wrong source).
  */
 export function registerCustomToolsForAgent(
   agent: Agent,
@@ -299,9 +340,22 @@ export function registerCustomToolsForAgent(
       return;
     }
 
+    const declaringEnvAllowlist = agent.config.envAllowlist ?? [];
     const registeredToolNames = new Set(yield* registry.listAllTools());
 
     for (const definition of selected) {
+      const shapeIssue = validateCustomToolDefinitionShape(definition);
+      if (shapeIssue) {
+        yield* Effect.fail(
+          new AgentConfigurationError({
+            agentId: agent.id,
+            field: "config.customTools",
+            message: shapeIssue.message,
+            suggestion: shapeIssue.suggestion,
+          }),
+        );
+      }
+
       if (registeredToolNames.has(definition.name)) {
         // The ToolRegistry is a session-lifetime singleton and this function
         // runs on every AgentRunner.run (i.e. every chat turn), so seeing the
@@ -336,6 +390,7 @@ export function registerCustomToolsForAgent(
       if (definition.handler.type === "command") {
         const commandTool = buildCommandTool(
           definition as CustomToolDefinition & { readonly handler: CustomToolCommandHandler },
+          declaringEnvAllowlist,
         );
         yield* registry.registerTool(commandTool, CUSTOM_TOOLS_CATEGORY);
         registeredToolNames.add(definition.name);

@@ -39,7 +39,11 @@ const mockLogger: LoggerService = {
   logToolCall: mock(() => Effect.void),
 } as unknown as LoggerService;
 
-function makeAgent(customTools: readonly CustomToolDefinition[], tools: readonly string[]): Agent {
+function makeAgent(
+  customTools: readonly CustomToolDefinition[],
+  tools: readonly string[],
+  envAllowlist?: readonly string[],
+): Agent {
   return {
     id: "agent-1",
     name: "Test Agent",
@@ -50,6 +54,7 @@ function makeAgent(customTools: readonly CustomToolDefinition[], tools: readonly
       llmModel: "gpt-4",
       tools,
       customTools,
+      ...(envAllowlist !== undefined ? { envAllowlist } : {}),
     },
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -150,6 +155,86 @@ describe("registerCustomToolsForAgent", () => {
       expect(result.left).toBeInstanceOf(AgentConfigurationError);
       expect(String((result.left as AgentConfigurationError).message)).toContain("propose_action");
     }
+  });
+
+  it("fails CLOSED (does not silently register as a record handler) on an unrecognized handler.type", async () => {
+    const { registry, registered } = makeMockRegistry([]);
+    const badHandlerDefinition = {
+      ...recordToolDefinition,
+      name: "bad_handler_tool",
+      handler: { type: "shell_exec" },
+    } as unknown as CustomToolDefinition;
+    const agent = makeAgent([badHandlerDefinition], ["bad_handler_tool"]);
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        registerCustomToolsForAgent(agent, agent.config.tools ?? []).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              Layer.succeed(ToolRegistryTag, registry),
+              Layer.succeed(LoggerServiceTag, mockLogger),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(AgentConfigurationError);
+      const message = String((result.left as AgentConfigurationError).message);
+      expect(message).toContain("bad_handler_tool");
+      expect(message).toContain("shell_exec");
+    }
+    expect(registered).toEqual([]);
+  });
+
+  it("fails at registration on a bad tool name from a raw (unvalidated) config, without going through validateAgentConfig", async () => {
+    const { registry, registered } = makeMockRegistry([]);
+    const rawUnvalidatedDefinition = {
+      ...recordToolDefinition,
+      name: "Not A Valid Name!",
+    } as unknown as CustomToolDefinition;
+    // Constructed directly (not via AgentServiceImpl.createAgent/updateAgent),
+    // simulating an agent config loaded from a file that never ran
+    // `validateAgentConfig`.
+    const agent = makeAgent([rawUnvalidatedDefinition], ["Not A Valid Name!"]);
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        registerCustomToolsForAgent(agent, agent.config.tools ?? []).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              Layer.succeed(ToolRegistryTag, registry),
+              Layer.succeed(LoggerServiceTag, mockLogger),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(AgentConfigurationError);
+      expect(String((result.left as AgentConfigurationError).message)).toContain(
+        "Invalid custom tool name",
+      );
+    }
+    expect(registered).toEqual([]);
+  });
+
+  it("registers record-handler custom tools as read-only", async () => {
+    const { registry } = makeMockRegistry([]);
+    let capturedTool: any;
+    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: any) => {
+      capturedTool = tool;
+      return Effect.succeed(undefined);
+    });
+    const agent = makeAgent([recordToolDefinition], ["propose_action"]);
+
+    await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
+
+    expect(capturedTool.riskLevel).toBe("read-only");
   });
 
   it("registers command-handler entries (execution behavior covered in the command-handler suite below)", async () => {
@@ -796,7 +881,10 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
     } as unknown as FileSystemContextService;
   }
 
-  async function registerAndCapture(definition: CustomToolDefinition): Promise<{
+  async function registerAndCapture(
+    definition: CustomToolDefinition,
+    declaringAgentEnvAllowlist?: readonly string[],
+  ): Promise<{
     execute: (
       args: Record<string, unknown>,
       context: Record<string, unknown>,
@@ -808,7 +896,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
       capturedTool = tool;
       return Effect.succeed(undefined);
     });
-    const agent = makeAgent([definition], [definition.name]);
+    const agent = makeAgent([definition], [definition.name], declaringAgentEnvAllowlist);
 
     await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
 
@@ -925,7 +1013,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
     expect((result.result as string).length).toBe(16 * 1024);
   });
 
-  it("scrubs a sensitive-name env var by default, but passes it through when allowlisted", async () => {
+  it("scrubs a sensitive-name env var when the declaring agent has no envAllowlist, but passes it through when the declaring agent allowlists it", async () => {
     const originalValue = process.env["FAKE_TOKEN"];
     process.env["FAKE_TOKEN"] = "supersecret";
 
@@ -940,27 +1028,15 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
         },
       };
 
-      const tool = await registerAndCapture(definition);
-
-      const withoutAllowlist = await runTool(tool.execute({}, { agentId: "agent-1" }));
+      const withoutAllowlistTool = await registerAndCapture(definition);
+      const withoutAllowlist = await runTool(
+        withoutAllowlistTool.execute({}, { agentId: "agent-1" }),
+      );
       expect(withoutAllowlist.success).toBe(true);
       expect(withoutAllowlist.result).toBe("");
 
-      const parentAgent: Agent = {
-        id: "agent-1",
-        name: "Test Agent",
-        model: "openai/gpt-4",
-        config: {
-          persona: "default",
-          llmProvider: "openai",
-          llmModel: "gpt-4",
-          envAllowlist: ["FAKE_TOKEN"],
-        },
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const withAllowlist = await runTool(tool.execute({}, { agentId: "agent-1", parentAgent }));
+      const withAllowlistTool = await registerAndCapture(definition, ["FAKE_TOKEN"]);
+      const withAllowlist = await runTool(withAllowlistTool.execute({}, { agentId: "agent-1" }));
       expect(withAllowlist.success).toBe(true);
       expect(withAllowlist.result).toBe("supersecret");
     } finally {
@@ -970,5 +1046,83 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
         process.env["FAKE_TOKEN"] = originalValue;
       }
     }
+  });
+
+  it("uses the DECLARING agent's envAllowlist, not context.parentAgent's, at call time", async () => {
+    const originalValue = process.env["FAKE_TOKEN"];
+    process.env["FAKE_TOKEN"] = "supersecret";
+
+    try {
+      const definition: CustomToolDefinition = {
+        name: "print_env_declarer_scoped",
+        description: "Prints FAKE_TOKEN from its environment",
+        parameters: { type: "object", properties: {} },
+        handler: {
+          type: "command",
+          command: ["node", "-e", "process.stdout.write(process.env.FAKE_TOKEN || '')"],
+        },
+      };
+
+      // Agent A (the declaring agent) allowlists FAKE_TOKEN at registration time.
+      const tool = await registerAndCapture(definition, ["FAKE_TOKEN"]);
+
+      // Agent B, an unrelated agent with an empty allowlist, is the
+      // `parentAgent` in the execution context — e.g. a subagent calling a
+      // tool registered by its parent. The declaring agent's allowlist must
+      // still apply.
+      const agentBWithEmptyAllowlist: Agent = {
+        id: "agent-b",
+        name: "Agent B",
+        model: "openai/gpt-4",
+        config: {
+          persona: "default",
+          llmProvider: "openai",
+          llmModel: "gpt-4",
+          envAllowlist: [],
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const result = await runTool(
+        tool.execute({}, { agentId: "agent-b", parentAgent: agentBWithEmptyAllowlist }),
+      );
+      expect(result.success).toBe(true);
+      expect(result.result).toBe("supersecret");
+    } finally {
+      if (originalValue === undefined) {
+        delete process.env["FAKE_TOKEN"];
+      } else {
+        process.env["FAKE_TOKEN"] = originalValue;
+      }
+    }
+  });
+
+  it("carries Tool.timeoutMs = handler.timeoutMs + 5000ms margin so the executor's default 3-minute timeout can't undercut it", async () => {
+    const definition: CustomToolDefinition = {
+      name: "long_running_command",
+      description: "A command tool with a configured 240s timeout",
+      parameters: { type: "object", properties: {} },
+      handler: {
+        type: "command",
+        command: ["node", "-e", "process.exit(0);"],
+        timeoutMs: 240_000,
+      },
+    };
+
+    const tool = (await registerAndCapture(definition)) as unknown as { timeoutMs?: number };
+    expect(tool.timeoutMs).toBe(245_000);
+  });
+
+  it("registers command-handler custom tools as high-risk", async () => {
+    const definition: CustomToolDefinition = {
+      name: "high_risk_command",
+      description: "Spawns a process",
+      parameters: { type: "object", properties: {} },
+      handler: { type: "command", command: ["node", "-e", "process.exit(0);"] },
+    };
+
+    const tool = (await registerAndCapture(definition)) as unknown as { riskLevel?: string };
+    expect(tool.riskLevel).toBe("high-risk");
   });
 });
