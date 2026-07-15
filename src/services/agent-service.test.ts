@@ -4,10 +4,11 @@ import { AgentServiceImpl } from "./agent-service";
 import { type StorageService } from "../core/interfaces/storage";
 import {
   AgentAlreadyExistsError,
+  AgentConfigurationError,
   StorageNotFoundError,
   ValidationError,
 } from "../core/types/errors";
-import { type Agent } from "../core/types/index";
+import { type Agent, type AgentConfig } from "../core/types/index";
 
 // Mock Storage Service
 const mockStorage = {
@@ -109,6 +110,79 @@ describe("AgentService", () => {
       if (result._tag === "Failure") {
         // @ts-expect-error - accessing error
         expect(result.cause.error).toBeInstanceOf(AgentAlreadyExistsError);
+      }
+    });
+  });
+
+  describe("validateAgentConfig envAllowlist", () => {
+    const baseConfig: AgentConfig = {
+      persona: "default",
+      llmProvider: "openai",
+      llmModel: "gpt-4",
+    };
+
+    it("accepts well-formed allowlist names", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        envAllowlist: ["MY_TOKEN", "A", "SOME_LONG_NAME_2"],
+      });
+
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("rejects a name that does not start with an uppercase letter", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        envAllowlist: ["1BAD_NAME"],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a lowercase name", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        envAllowlist: ["my_token"],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a name longer than 64 characters", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        envAllowlist: [`A${"B".repeat(64)}`],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects more than 32 allowlist names", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        envAllowlist: Array.from({ length: 33 }, (_unused, index) => `VAR_${index}`),
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
       }
     });
   });

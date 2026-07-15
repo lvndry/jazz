@@ -7,7 +7,7 @@ import { createToolRegistryLayer } from "./tool-registry";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "../../interfaces/terminal";
-import type { ToolExecutionResult } from "../../types";
+import type { Agent, ToolExecutionResult } from "../../types";
 
 describe("Shell Tools", () => {
   const createTestLayer = () => {
@@ -225,6 +225,58 @@ describe("Shell Tools", () => {
     expect(result.result).toHaveProperty("stdout");
     expect(result.result).toHaveProperty("stderr");
     expect(result.result).toHaveProperty("success", true);
+  });
+
+  it("passes the agent's envAllowlist through to the sanitized child env", async () => {
+    const originalValue = process.env["MY_ALLOWED_TOKEN"];
+    process.env["MY_ALLOWED_TOKEN"] = "letmethrough";
+
+    try {
+      const tool = shellTools.execute;
+      const parentAgent: Agent = {
+        id: "test-agent",
+        name: "test-agent",
+        model: "openai/gpt-4o",
+        config: {
+          persona: "default",
+          llmProvider: "openai",
+          llmModel: "gpt-4o",
+          envAllowlist: ["MY_ALLOWED_TOKEN"],
+        } as Agent["config"],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const context = {
+        agentId: "test-agent",
+        conversationId: "test-conversation",
+        parentAgent,
+      };
+
+      const result: ToolExecutionResult = await Effect.runPromise(
+        Effect.provide(
+          tool.execute(
+            {
+              command: "echo $MY_ALLOWED_TOKEN",
+              description: "Print the allowlisted env var to prove it passed through.",
+            },
+            context,
+          ),
+          createTestLayer(),
+        ),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.result).toHaveProperty("stdout");
+      if (result.result && typeof result.result === "object" && "stdout" in result.result) {
+        expect((result.result as { stdout: string }).stdout.trim()).toBe("letmethrough");
+      }
+    } finally {
+      if (originalValue === undefined) {
+        delete process.env["MY_ALLOWED_TOKEN"];
+      } else {
+        process.env["MY_ALLOWED_TOKEN"] = originalValue;
+      }
+    }
   });
 
   it("should handle invalid commands gracefully", async () => {

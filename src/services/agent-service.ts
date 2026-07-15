@@ -182,6 +182,34 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
+      // Validate envAllowlist
+      if (config.envAllowlist) {
+        if (config.envAllowlist.length > 32) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.envAllowlist",
+              message: `envAllowlist cannot contain more than 32 names (${config.envAllowlist.length} provided)`,
+              suggestion: "Remove unused entries so at most 32 names remain.",
+            }),
+          );
+        }
+
+        for (const name of config.envAllowlist) {
+          if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(name)) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: "config.envAllowlist",
+                message: `Invalid env var name "${name}" in envAllowlist`,
+                suggestion:
+                  "Use uppercase letters, digits, and underscores only, starting with a letter, up to 64 characters (e.g. MY_TOKEN).",
+              }),
+            );
+          }
+        }
+      }
+
       // Validate tools
       if (config.tools) {
         if (!Array.isArray(config.tools)) {

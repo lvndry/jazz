@@ -58,4 +58,11 @@ export interface AgentConfig {
   readonly temperature?: number;
   readonly tools?: readonly string[];
   readonly webSearchProvider?: WebSearchProviderName;
+  /**
+   * Env var names exempted from the `execute_command` shell env scrub, even
+   * when they match the sensitive-name regex (API|KEY|SECRET|TOKEN|PASSWORD|
+   * CREDENTIAL|AUTH). Each name must match `^[A-Z][A-Z0-9_]{0,63}$`; at most
+   * 32 names. Does not affect `grep`/`find`/`git` tool spawns.
+   */
+  readonly envAllowlist?: readonly string[];
 }
