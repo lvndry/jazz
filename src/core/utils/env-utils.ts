@@ -3,8 +3,18 @@ export type ProcessEnvRecord = Record<string, string | undefined>;
 /**
  * Build a sanitized environment for child process execution.
  * Strips sensitive vars while preserving essentials like PATH.
+ *
+ * @param overrides - Values merged into the base environment before scrubbing.
+ * @param allowlist - Env var names exempted from the sensitive-name scrub
+ * regex. A name only appears in the result if it is present in
+ * `process.env` — the allowlist never invents a value. The `SSH_*` prefix
+ * block and the `key in baseEnv` guard still apply regardless of allowlist
+ * membership.
  */
-export function createSanitizedEnv(overrides: ProcessEnvRecord = {}): ProcessEnvRecord {
+export function createSanitizedEnv(
+  overrides: ProcessEnvRecord = {},
+  allowlist: readonly string[] = [],
+): ProcessEnvRecord {
   const baseEnv: ProcessEnvRecord = {
     PATH: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin",
     HOME: process.env["HOME"],
@@ -28,8 +38,10 @@ export function createSanitizedEnv(overrides: ProcessEnvRecord = {}): ProcessEnv
       continue;
     }
 
+    const isAllowlisted = allowlist.includes(key);
+
     if (
-      /API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH/i.test(key) ||
+      (!isAllowlisted && /API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH/i.test(key)) ||
       key in baseEnv ||
       key.startsWith("SSH_")
     ) {

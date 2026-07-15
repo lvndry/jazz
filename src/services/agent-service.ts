@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
 import shortuuid from "short-uuid";
+import { validateCustomToolDefinitionShape } from "@/core/agent/tools/custom-tool-validation";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { StorageServiceTag, type StorageService } from "@/core/interfaces/storage";
@@ -10,7 +11,7 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "@/core/types/errors";
-import { type Agent, type AgentConfig } from "@/core/types/index";
+import { type Agent, type AgentConfig, type CustomToolDefinition } from "@/core/types/index";
 import { CommonSuggestions } from "@/core/utils/error-handler";
 
 export class AgentServiceImpl implements AgentService {
@@ -179,6 +180,108 @@ export class AgentServiceImpl implements AgentService {
               }),
             );
           }
+        }
+      }
+
+      // Validate envAllowlist
+      if (config.envAllowlist) {
+        if (!Array.isArray(config.envAllowlist)) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.envAllowlist",
+              message: "envAllowlist must be provided as an array of env var names",
+              suggestion: 'Supply an array of uppercase env var names, e.g. ["MY_TOKEN"].',
+            }),
+          );
+        }
+
+        // `Array.isArray` narrows to `any[]`, discarding the `readonly string[]`
+        // element type, so re-assert it explicitly before using the value.
+        const envAllowlist = config.envAllowlist as readonly string[];
+
+        if (envAllowlist.length > 32) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.envAllowlist",
+              message: `envAllowlist cannot contain more than 32 names (${envAllowlist.length} provided)`,
+              suggestion: "Remove unused entries so at most 32 names remain.",
+            }),
+          );
+        }
+
+        for (const name of envAllowlist) {
+          if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(name)) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: "config.envAllowlist",
+                message: `Invalid env var name "${name}" in envAllowlist`,
+                suggestion:
+                  "Use uppercase letters, digits, and underscores only, starting with a letter, up to 64 characters (e.g. MY_TOKEN).",
+              }),
+            );
+          }
+        }
+      }
+
+      // Validate customTools
+      if (config.customTools) {
+        if (!Array.isArray(config.customTools)) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.customTools",
+              message: "customTools must be provided as an array of tool definitions",
+              suggestion: "Supply an array of custom tool definitions.",
+            }),
+          );
+        }
+
+        // `Array.isArray` narrows to `any[]`, discarding the `readonly
+        // CustomToolDefinition[]` element type, so re-assert it explicitly.
+        const customTools = config.customTools as readonly CustomToolDefinition[];
+
+        if (customTools.length > 16) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.customTools",
+              message: `customTools cannot contain more than 16 entries (${customTools.length} provided)`,
+              suggestion: "Remove unused entries so at most 16 custom tools remain.",
+            }),
+          );
+        }
+
+        const seenNames = new Set<string>();
+
+        for (const customTool of customTools) {
+          const { name } = customTool;
+
+          const shapeIssue = validateCustomToolDefinitionShape(customTool);
+          if (shapeIssue) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: "config.customTools",
+                message: shapeIssue.message,
+                suggestion: shapeIssue.suggestion,
+              }),
+            );
+          }
+
+          if (seenNames.has(name)) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: "config.customTools",
+                message: `Duplicate custom tool name "${name}"`,
+                suggestion: "Ensure every custom tool has a unique name.",
+              }),
+            );
+          }
+          seenNames.add(name);
         }
       }
 

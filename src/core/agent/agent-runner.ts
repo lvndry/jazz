@@ -30,6 +30,7 @@ import { agentPromptBuilder } from "./agent-prompt";
 import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
+import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import {
   BUILTIN_TOOL_CATEGORIES,
   registerMCPToolsForAgent,
@@ -118,6 +119,13 @@ function initializeAgentRun(
         }),
       ),
     );
+
+    // Register the agent's declared custom tools (record handler only for now).
+    // Unlike MCP registration above, failures here are NOT swallowed: a name
+    // collision with an already-registered tool is a configuration error that
+    // should fail agent startup rather than silently override the existing
+    // tool.
+    yield* registerCustomToolsForAgent(agent, agentToolNames);
 
     // Resolve which built-in categories the persona wants. Default = all of
     // BUILTIN_TOOL_CATEGORIES (current behavior). If toolProfile.categories is

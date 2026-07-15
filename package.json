@@ -119,6 +119,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bun": "^1.3.14",
     "@types/ink-big-text": "^1.2.4",
     "@types/ink-gradient": "^2.0.4",

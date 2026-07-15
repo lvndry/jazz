@@ -2,6 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type z from "zod";
 import type { SkillService } from "@/core/skills/skill-service";
+import type { CustomToolDefinition } from "@/core/types/agent";
 import type { ToolNotFoundError } from "@/core/types/errors";
 import type {
   ToolCategory,
@@ -76,6 +77,15 @@ export interface Tool<R = never> {
    * Overrides the default TOOL_TIMEOUT_MS (3 minutes).
    */
   readonly timeoutMs?: number;
+  /**
+   * Present only on tools built from an agent's declared `customTools` config
+   * (see `CustomToolDefinition` in `@/core/types/agent`). The `ToolRegistry` is
+   * a session-lifetime singleton and custom-tool registration re-runs on every
+   * `AgentRunner.run`, so this lets the registration path tell whether a name
+   * collision is a harmless re-registration of the same custom tool (safe to
+   * skip) versus a genuine conflict with a different tool.
+   */
+  readonly sourceCustomToolDefinition?: CustomToolDefinition;
   /**
    * Executes the tool with the provided arguments and context.
    *

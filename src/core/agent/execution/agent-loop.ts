@@ -472,8 +472,11 @@ export function executeAgentLoop(
 
               response = {
                 ...response,
-                toolCalls: completion.toolCalls,
-                toolResults: Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
+                toolCalls: [...(response.toolCalls ?? []), ...completion.toolCalls],
+                toolResults: {
+                  ...response.toolResults,
+                  ...Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
+                },
               };
 
               const queuedMessage = options.checkQueuedMessage?.();

@@ -249,8 +249,10 @@ This command will be executed on your system. Only approve commands you trust.`;
         }
 
         try {
-          // Sanitize environment variables for security
-          const sanitizedEnv = createSanitizedEnv();
+          // Sanitize environment variables for security, exempting any
+          // agent-configured allowlist from the sensitive-name scrub.
+          const envAllowlist = context.parentAgent?.config.envAllowlist ?? [];
+          const sanitizedEnv = createSanitizedEnv({}, envAllowlist);
 
           const result = yield* Effect.promise<{
             stdout: string;
