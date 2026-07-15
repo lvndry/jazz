@@ -380,6 +380,16 @@ export function runWorkflowCommand(
           error: error instanceof Error ? error.message : String(error),
         }).pipe(Effect.catchAll(() => Effect.void)),
       ),
+      // The generic top-level error handler renders this failure (e.g. an
+      // LLMRateLimitError after retries are exhausted) but never sets the
+      // process exit code, so `jazz workflow run` would print an error and
+      // still exit 0. Set it here, right after the failure is captured, so
+      // CI (and any other caller) can tell the run actually failed.
+      Effect.tapError(() =>
+        Effect.sync(() => {
+          process.exitCode = 1;
+        }),
+      ),
     );
 
     yield* terminal.log("");
