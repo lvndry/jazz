@@ -65,4 +65,49 @@ export interface AgentConfig {
    * 32 names. Does not affect `grep`/`find`/`git` tool spawns.
    */
   readonly envAllowlist?: readonly string[];
+  /**
+   * User-declared tools this agent can call, in addition to built-in tools.
+   * At most 16 entries; names must be unique within the array and must not
+   * start with `mcp_` (reserved for MCP-sourced tools). Collisions with
+   * registered builtin tool names are rejected at registration time, not here.
+   */
+  readonly customTools?: readonly CustomToolDefinition[];
+}
+
+/**
+ * A custom tool handler that always returns a fixed response without
+ * executing anything, useful for stubbing or documentation-style tools.
+ */
+export interface CustomToolRecordHandler {
+  readonly type: "record";
+  /** Fixed response returned when the tool is invoked. Defaults to an empty response when omitted. */
+  readonly response?: string;
+}
+
+/**
+ * A custom tool handler that shells out to an external command when invoked.
+ */
+export interface CustomToolCommandHandler {
+  readonly type: "command";
+  /** Command and arguments to execute, e.g. `["echo", "hello"]`. Must be non-empty. */
+  readonly command: readonly string[];
+  /** Maximum execution time in milliseconds before the command is killed. Must be a positive integer, at most 300_000 (5 minutes). */
+  readonly timeoutMs?: number;
+}
+
+/**
+ * User-declared custom tool exposed to an agent's LLM in addition to built-in tools.
+ *
+ * The `parameters` field is a JSON Schema object describing the tool's input,
+ * following the same shape LLM providers expect for function/tool calling.
+ */
+export interface CustomToolDefinition {
+  /** Unique tool name. Must match `^[a-z][a-z0-9_]{1,63}$` and must not start with `mcp_`. */
+  readonly name: string;
+  /** Human-readable description of what the tool does, shown to the LLM. 1-1024 characters. */
+  readonly description: string;
+  /** JSON Schema object describing the tool's parameters. Must have `type: "object"`. */
+  readonly parameters: Record<string, unknown>;
+  /** How the tool behaves when invoked: return a fixed response, or run a command. */
+  readonly handler: CustomToolRecordHandler | CustomToolCommandHandler;
 }

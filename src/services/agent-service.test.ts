@@ -187,6 +187,361 @@ describe("AgentService", () => {
     });
   });
 
+  describe("validateAgentConfig customTools", () => {
+    const baseConfig: AgentConfig = {
+      persona: "default",
+      llmProvider: "openai",
+      llmModel: "gpt-4",
+    };
+
+    it("accepts a valid record-handler tool", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "ping",
+            description: "Responds with a fixed pong message.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "record", response: "pong" },
+          },
+        ],
+      });
+
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("accepts a valid command-handler tool", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "list_files",
+            description: "Lists files in the current directory.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "command", command: ["ls", "-la"], timeoutMs: 5000 },
+          },
+        ],
+      });
+
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("rejects more than 16 custom tools", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: Array.from({ length: 17 }, (_unused, index) => ({
+          name: `tool_${index}`,
+          description: "A tool.",
+          parameters: { type: "object", properties: {} },
+          handler: { type: "record" as const, response: "ok" },
+        })),
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a non-array customTools value", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        // @ts-expect-error - testing invalid input shape
+        customTools: { name: "not-an-array" },
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a name that does not match the required pattern", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "Ping",
+            description: "Bad name casing.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "record", response: "pong" },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a name starting with mcp_", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "mcp_something",
+            description: "Reserved prefix.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "record", response: "pong" },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects duplicate names within the array", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "ping",
+            description: "First.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "record", response: "pong" },
+          },
+          {
+            name: "ping",
+            description: "Second.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "record", response: "pong2" },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a description that is empty", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "ping",
+            description: "",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "record", response: "pong" },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a description longer than 1024 characters", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "ping",
+            description: "A".repeat(1025),
+            parameters: { type: "object", properties: {} },
+            handler: { type: "record", response: "pong" },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects parameters that are not a plain object", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "ping",
+            description: "Bad parameters.",
+            // @ts-expect-error - testing invalid input shape
+            parameters: null,
+            handler: { type: "record", response: "pong" },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it('rejects parameters whose type is not "object"', async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "ping",
+            description: "Bad parameters type.",
+            parameters: { type: "string" },
+            handler: { type: "record", response: "pong" },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects an unknown handler type", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "ping",
+            description: "Bad handler type.",
+            parameters: { type: "object", properties: {} },
+            // @ts-expect-error - testing invalid input shape
+            handler: { type: "bogus" },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a record response longer than 1024 characters", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "ping",
+            description: "Oversized response.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "record", response: "A".repeat(1025) },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a command handler with an empty command array", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "list_files",
+            description: "Empty command.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "command", command: [] },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a command handler with an empty string entry", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "list_files",
+            description: "Empty entry in command.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "command", command: ["ls", ""] },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a timeoutMs that is not a positive integer", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "list_files",
+            description: "Bad timeout.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "command", command: ["ls"], timeoutMs: 0 },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a timeoutMs greater than 300_000", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        customTools: [
+          {
+            name: "list_files",
+            description: "Timeout too large.",
+            parameters: { type: "object", properties: {} },
+            handler: { type: "command", command: ["ls"], timeoutMs: 300_001 },
+          },
+        ],
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+  });
+
   describe("deleteAgent", () => {
     it("should delete an agent", async () => {
       // @ts-expect-error - mocking
