@@ -65,7 +65,9 @@ Each entry has a `handler.type` of either `record` or `command`.
 
 **`record`** — no side effect. The call is validated and appended to the run's `toolCalls` (the
 same field every other tool call surfaces in), so the *caller* embedding Jazz can read the
-arguments and act on them; the model itself only ever sees the fixed `response`. This is the
+arguments and act on them; the model itself only ever sees the fixed `response`. Note that
+`toolCalls` reports calls as the model sent them — including calls whose arguments failed schema
+validation — so callers must re-validate arguments before acting on them. This is the
 pattern behind confirmation-card / propose-then-confirm flows:
 
 ```json
