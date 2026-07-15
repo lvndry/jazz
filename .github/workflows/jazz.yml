@@ -263,9 +263,9 @@ jobs:
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
-          set -euo pipefail
-          jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer \
-            | tee /tmp/jazz-review.txt
+          set -uo pipefail
+          jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer | tee /tmp/jazz-review.txt
+          echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
 
       - name: Post review comments
         if: always()
@@ -280,12 +280,33 @@ jobs:
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const headSha = process.env.PR_HEAD_SHA;
 
+            // The run step captures jazz's exit code without failing the step
+            // (the free tier throttles routinely; red CI on every throttle is
+            // noise). A missing file means the run step didn't get that far —
+            // treat that as success so older behavior for unrelated failures
+            // is unaffected.
+            let jazzExitCode = 0;
+            try {
+              jazzExitCode = parseInt(fs.readFileSync('/tmp/jazz-review-exit', 'utf8').trim(), 10) || 0;
+            } catch (_) {}
+
             // Read model from agent config for display in review comment
             let modelLabel = '';
             try {
               const agent = JSON.parse(fs.readFileSync('.github/jazz/agents/ci-reviewer.json', 'utf8'));
               if (agent.model) modelLabel = `\n\n*Model: ${agent.model}*`;
             } catch (_) {}
+
+            if (jazzExitCode !== 0) {
+              core.warning(`jazz code review exited with status ${jazzExitCode} (provider error or rate limit); posted a could-not-run notice instead of a verdict.`);
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: `## Jazz Code Review\n\n⚠️ The review could not run (provider error or rate limit — see the job log). Re-run the workflow to retry.${modelLabel}`,
+              });
+              return;
+            }
 
             // Extract the markdown summary block (Block 1).
             // Prefer four-backtick fence; fall back to three-backtick so weaker
@@ -492,13 +513,18 @@ jobs:
 
   # On-demand PR assistant — triggered by a /jazz comment or manual workflow dispatch.
   assistant:
-    needs: resolve
+    # Depends on code-review too (not just resolve) so the two jazz jobs don't
+    # burst the same free OpenRouter model concurrently. code-review no longer
+    # hard-fails on provider errors/rate limits, but `always()` guards against
+    # it being skipped or cancelled for any other reason.
+    needs: [resolve, code-review]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
       issues: write
     if: |
+      always() && (
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'assistant' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz') &&
         !contains(github.event.comment.body, '/jazz-review') && (
@@ -507,6 +533,7 @@ jobs:
         github.event.comment.author_association == 'COLLABORATOR'
       ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
       (github.event_name == 'push' && needs.resolve.outputs.pr_number != '' && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
+      )
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v4
