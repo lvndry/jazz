@@ -326,11 +326,16 @@ jobs:
             }
 
             // Build the review body from the agent's markdown summary when available.
-            // Fall back to a generated summary so the comment is never empty.
+            // A run that produced NEITHER block did not finish the review — saying
+            // "No issues found" there would disguise a failed review as a clean pass.
+            const reviewCompleted = markdownSummary !== null || (Array.isArray(comments) && comments.length > 0);
             const summarySection = markdownSummary
               || (Array.isArray(comments) && comments.length > 0
                 ? `Found ${comments.length} issue(s). See inline comments below.`
-                : 'No issues found.');
+                : '⚠️ The review agent did not produce a parseable verdict (its output contained neither the summary block nor the comments block). Treat this PR as **not reviewed** — re-run the workflow or review manually.');
+            if (!reviewCompleted) {
+              core.warning('jazz code review produced no parseable output; posted a not-reviewed notice instead of a verdict.');
+            }
 
             if (!Array.isArray(comments) || comments.length === 0) {
               await github.rest.issues.createComment({
