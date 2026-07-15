@@ -410,4 +410,237 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
 
     expect(runResult.toolResults?.["propose_action"]).toBe("Custom response!");
   });
+
+  it("re-registers the same custom tool across two AgentRunner.run calls sharing one registry", async () => {
+    let callCount = 0;
+    const mockLlmService: LLMService = {
+      getProvider: mock(() =>
+        Effect.succeed({
+          name: "openai",
+          supportedModels: [{ id: "gpt-4", supportsTools: true }],
+          defaultModel: "gpt-4",
+          authenticate: () => Effect.void,
+        }),
+      ),
+      listProviders: mock(() => Effect.succeed([])),
+      createChatCompletion: mock(() => {
+        callCount++;
+        // Every run calls the tool on its first LLM turn, then wraps up.
+        if (callCount % 2 === 1) {
+          return Effect.succeed({
+            id: `completion-${callCount}`,
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: `call_${callCount}`,
+                type: "function" as const,
+                function: {
+                  name: "propose_action",
+                  arguments: JSON.stringify({ action: "do_something" }),
+                },
+              },
+            ],
+          });
+        }
+        return Effect.succeed({
+          id: `completion-${callCount}`,
+          model: "gpt-4",
+          content: "Done.",
+        });
+      }),
+      createStreamingChatCompletion: mock(() =>
+        Effect.succeed({
+          stream: Stream.empty,
+          response: Effect.succeed({ id: "unused", model: "gpt-4", content: "unused" }),
+          cancel: Effect.void,
+        }),
+      ),
+      supportsNativeWebSearch: mock(() => Effect.succeed(false)),
+    } as unknown as LLMService;
+
+    const agent: Agent = {
+      id: "agent-with-custom-tool-two-turns",
+      name: "Custom Tool Agent",
+      model: "openai/gpt-4",
+      config: {
+        persona: "default",
+        llmProvider: "openai",
+        llmModel: "gpt-4",
+        tools: ["propose_action"],
+        customTools: [recordToolDefinition],
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, mockPresentationService),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(MCPServerManagerTag, mockMcpServerManager),
+      Layer.succeed(LLMServiceTag, mockLlmService),
+      Layer.succeed(TerminalServiceTag, mockTerminalService),
+      Layer.succeed(FileSystem.FileSystem, mockFileSystem),
+      Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
+    );
+
+    // A single ToolRegistry layer, shared across both `run` calls below,
+    // mirrors the session-lifetime singleton in app-layer.ts: registration
+    // runs on every AgentRunner.run against the SAME registry instance.
+    const sharedToolRegistryLayer = createToolRegistryLayer();
+    const runLayer = Layer.mergeAll(testLayer, sharedToolRegistryLayer);
+
+    const runOptions = {
+      agent,
+      userInput: "please propose an action",
+      sessionId: "test-session-custom-tool-two-turns",
+      stream: false,
+      maxIterations: 3,
+    };
+
+    const firstRun = await Effect.runPromise(
+      AgentRunner.run(runOptions).pipe(Effect.provide(runLayer)) as Effect.Effect<
+        import("../types").AgentResponse,
+        never,
+        never
+      >,
+    );
+    expect(firstRun.content).toBe("Done.");
+    expect(firstRun.toolResults?.["propose_action"]).toBe("Custom response!");
+
+    // Second run reuses the same registry, exactly like a second chat turn in
+    // the same session: registration must be idempotent instead of throwing.
+    const secondRun = await Effect.runPromise(
+      AgentRunner.run(runOptions).pipe(Effect.provide(runLayer)) as Effect.Effect<
+        import("../types").AgentResponse,
+        never,
+        never
+      >,
+    );
+    expect(secondRun.content).toBe("Done.");
+    expect(secondRun.toolResults?.["propose_action"]).toBe("Custom response!");
+  });
+
+  it("fails with AgentConfigurationError when a second run declares a CHANGED definition for the same name", async () => {
+    const mockLlmService: LLMService = {
+      getProvider: mock(() =>
+        Effect.succeed({
+          name: "openai",
+          supportedModels: [{ id: "gpt-4", supportsTools: true }],
+          defaultModel: "gpt-4",
+          authenticate: () => Effect.void,
+        }),
+      ),
+      listProviders: mock(() => Effect.succeed([])),
+      createChatCompletion: mock(() =>
+        Effect.succeed({
+          id: "completion-1",
+          model: "gpt-4",
+          content: "",
+          toolCalls: [
+            {
+              id: "call_1",
+              type: "function" as const,
+              function: {
+                name: "propose_action",
+                arguments: JSON.stringify({ action: "do_something" }),
+              },
+            },
+          ],
+        }),
+      ),
+      createStreamingChatCompletion: mock(() =>
+        Effect.succeed({
+          stream: Stream.empty,
+          response: Effect.succeed({ id: "unused", model: "gpt-4", content: "unused" }),
+          cancel: Effect.void,
+        }),
+      ),
+      supportsNativeWebSearch: mock(() => Effect.succeed(false)),
+    } as unknown as LLMService;
+
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, mockPresentationService),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(MCPServerManagerTag, mockMcpServerManager),
+      Layer.succeed(LLMServiceTag, mockLlmService),
+      Layer.succeed(TerminalServiceTag, mockTerminalService),
+      Layer.succeed(FileSystem.FileSystem, mockFileSystem),
+      Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
+    );
+
+    const sharedToolRegistryLayer = createToolRegistryLayer();
+    const runLayer = Layer.mergeAll(testLayer, sharedToolRegistryLayer);
+
+    const firstAgent: Agent = {
+      id: "agent-original-definition",
+      name: "Custom Tool Agent",
+      model: "openai/gpt-4",
+      config: {
+        persona: "default",
+        llmProvider: "openai",
+        llmModel: "gpt-4",
+        tools: ["propose_action"],
+        customTools: [recordToolDefinition],
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const firstRun = await Effect.runPromise(
+      AgentRunner.run({
+        agent: firstAgent,
+        userInput: "please propose an action",
+        sessionId: "test-session-changed-definition",
+        stream: false,
+        maxIterations: 3,
+      }).pipe(Effect.provide(runLayer)) as Effect.Effect<
+        import("../types").AgentResponse,
+        never,
+        never
+      >,
+    );
+    expect(firstRun.toolResults?.["propose_action"]).toBe("Custom response!");
+
+    const changedDefinition: CustomToolDefinition = {
+      ...recordToolDefinition,
+      handler: { type: "record", response: "A completely different response!" },
+    };
+    const secondAgent: Agent = {
+      ...firstAgent,
+      id: "agent-changed-definition",
+      config: {
+        ...firstAgent.config,
+        customTools: [changedDefinition],
+      },
+    };
+
+    const secondRunResult = await Effect.runPromise(
+      Effect.either(
+        AgentRunner.run({
+          agent: secondAgent,
+          userInput: "please propose an action",
+          sessionId: "test-session-changed-definition-2",
+          stream: false,
+          maxIterations: 3,
+        }).pipe(Effect.provide(runLayer)) as Effect.Effect<
+          import("../types").AgentResponse,
+          Error,
+          never
+        >,
+      ),
+    );
+
+    expect(secondRunResult._tag).toBe("Left");
+    if (secondRunResult._tag === "Left") {
+      expect(secondRunResult.left).toBeInstanceOf(AgentConfigurationError);
+      expect(String((secondRunResult.left as AgentConfigurationError).message)).toContain(
+        "propose_action",
+      );
+    }
+  });
 });

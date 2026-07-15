@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { z } from "zod";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { ToolRegistryTag, type Tool, type ToolRegistry } from "@/core/interfaces/tool-registry";
@@ -39,14 +39,47 @@ function buildRecordTool(
   const validate = makeZodValidator(parameters as z.ZodType<Record<string, unknown>>);
   const response = definition.handler.response ?? "Recorded.";
 
-  return defineTool<never, Record<string, unknown>>({
-    name: definition.name,
-    description: definition.description,
-    parameters,
-    validate,
-    handler: (): Effect.Effect<ToolExecutionResult, Error, never> =>
-      Effect.succeed({ success: true, result: response }),
-  });
+  return {
+    ...defineTool<never, Record<string, unknown>>({
+      name: definition.name,
+      description: definition.description,
+      parameters,
+      validate,
+      handler: (): Effect.Effect<ToolExecutionResult, Error, never> =>
+        Effect.succeed({ success: true, result: response }),
+    }),
+    sourceCustomToolDefinition: definition,
+  };
+}
+
+/**
+ * Structural equality for JSON-like values (the shape `CustomToolDefinition`
+ * is restricted to: strings, numbers, booleans, null, arrays, and plain
+ * objects). Used to tell whether a re-registration is the exact same custom
+ * tool definition, or a genuinely different one that happens to share a name.
+ */
+function isDeepEqual(left: unknown, right: unknown): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (typeof left !== "object" || typeof right !== "object" || left === null || right === null) {
+    return false;
+  }
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    return left.every((item, index) => isDeepEqual(item, right[index]));
+  }
+
+  const leftEntries = Object.entries(left as Record<string, unknown>);
+  const rightRecord = right as Record<string, unknown>;
+  if (leftEntries.length !== Object.keys(rightRecord).length) {
+    return false;
+  }
+  return leftEntries.every(([key, value]) => isDeepEqual(value, rightRecord[key]));
 }
 
 /**
@@ -88,7 +121,27 @@ export function registerCustomToolsForAgent(
 
     for (const definition of selected) {
       if (registeredToolNames.has(definition.name)) {
-        return yield* Effect.fail(
+        // The ToolRegistry is a session-lifetime singleton and this function
+        // runs on every AgentRunner.run (i.e. every chat turn), so seeing the
+        // name again is expected — it's not necessarily a collision. Only
+        // fail if the existing registration is NOT this same custom-tool
+        // definition (a different custom tool, or a builtin/MCP tool).
+        const existingTool = yield* registry.getTool(definition.name).pipe(Effect.option);
+        const existingDefinition = existingTool.pipe(
+          Option.flatMap((tool) => Option.fromNullable(tool.sourceCustomToolDefinition)),
+        );
+
+        if (
+          Option.isSome(existingDefinition) &&
+          isDeepEqual(existingDefinition.value, definition)
+        ) {
+          yield* logger.debug(
+            `Custom tool "${definition.name}" is already registered with an identical definition, skipping re-registration`,
+          );
+          continue;
+        }
+
+        yield* Effect.fail(
           new AgentConfigurationError({
             agentId: agent.id,
             field: "config.customTools",
