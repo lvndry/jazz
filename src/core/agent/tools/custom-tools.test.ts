@@ -20,6 +20,7 @@ import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-regis
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { Agent, CustomToolDefinition } from "@/core/types/agent";
 import { AgentConfigurationError } from "@/core/types/errors";
+import type { ToolExecutionResult } from "@/core/types/tools";
 import { registerCustomToolsForAgent } from "./custom-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 
@@ -151,7 +152,7 @@ describe("registerCustomToolsForAgent", () => {
     }
   });
 
-  it("skips command-handler entries with a debug log, without registering them", async () => {
+  it("registers command-handler entries (execution behavior covered in the command-handler suite below)", async () => {
     const commandToolDefinition: CustomToolDefinition = {
       name: "run_command",
       description: "Runs a shell command",
@@ -163,7 +164,7 @@ describe("registerCustomToolsForAgent", () => {
 
     await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
 
-    expect(registered).toEqual([]);
+    expect(registered).toEqual([{ name: "run_command" }]);
   });
 
   it("record handler execute returns the configured canned response", async () => {
@@ -641,6 +642,201 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       expect(String((secondRunResult.left as AgentConfigurationError).message)).toContain(
         "propose_action",
       );
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// command-handler custom tools: real-process tests. Each definition spawns
+// `node -e <script>` directly (no shell), exercising the actual child_process
+// wiring in `buildCommandTool` rather than mocking it away.
+// ---------------------------------------------------------------------------
+
+describe("registerCustomToolsForAgent: command-handler execution", () => {
+  function makeFsContext(cwd: string): FileSystemContextService {
+    return {
+      getCwd: () => Effect.succeed(cwd),
+      setCwd: () => Effect.void,
+      resolvePath: (_key: unknown, path: string) => Effect.succeed(path),
+      findDirectory: () => Effect.succeed({ results: [] as readonly string[] }),
+      resolvePathForMkdir: (_key: unknown, path: string) => Effect.succeed(path),
+      escapePath: (path: string) => path,
+    } as unknown as FileSystemContextService;
+  }
+
+  async function registerAndCapture(definition: CustomToolDefinition): Promise<{
+    execute: (
+      args: Record<string, unknown>,
+      context: Record<string, unknown>,
+    ) => Effect.Effect<ToolExecutionResult, unknown, FileSystemContextService | LoggerService>;
+  }> {
+    const { registry } = makeMockRegistry([]);
+    let capturedTool: unknown;
+    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: unknown) => {
+      capturedTool = tool;
+      return Effect.succeed(undefined);
+    });
+    const agent = makeAgent([definition], [definition.name]);
+
+    await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
+
+    return capturedTool as {
+      execute: (
+        args: Record<string, unknown>,
+        context: Record<string, unknown>,
+      ) => Effect.Effect<ToolExecutionResult, unknown, FileSystemContextService | LoggerService>;
+    };
+  }
+
+  function runTool(
+    effect: Effect.Effect<ToolExecutionResult, unknown, FileSystemContextService | LoggerService>,
+    cwd: string = process.cwd(),
+  ): Promise<ToolExecutionResult> {
+    return Effect.runPromise(
+      effect.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.succeed(FileSystemContextServiceTag, makeFsContext(cwd)),
+            Layer.succeed(LoggerServiceTag, mockLogger),
+          ),
+        ),
+      ) as Effect.Effect<ToolExecutionResult, never, never>,
+    );
+  }
+
+  it("delivers the validated tool arguments as JSON on the command's stdin", async () => {
+    const definition: CustomToolDefinition = {
+      name: "echo_stdin",
+      description: "Echoes stdin back to stdout",
+      parameters: {
+        type: "object",
+        properties: { value: { type: "string" } },
+        required: ["value"],
+      },
+      handler: {
+        type: "command",
+        command: [
+          "node",
+          "-e",
+          "let data='';process.stdin.on('data',(c)=>{data+=c;});process.stdin.on('end',()=>{process.stdout.write(data);});",
+        ],
+      },
+    };
+
+    const tool = await registerAndCapture(definition);
+    const result = await runTool(tool.execute({ value: "hello" }, { agentId: "agent-1" }));
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe(JSON.stringify({ value: "hello" }));
+  });
+
+  it("returns an error result carrying stderr when the command exits non-zero", async () => {
+    const definition: CustomToolDefinition = {
+      name: "fail_command",
+      description: "Always fails with stderr output",
+      parameters: { type: "object", properties: {} },
+      handler: {
+        type: "command",
+        command: ["node", "-e", "process.stderr.write('boom'); process.exit(1);"],
+      },
+    };
+
+    const tool = await registerAndCapture(definition);
+    const result = await runTool(tool.execute({}, { agentId: "agent-1" }));
+
+    expect(result.success).toBe(false);
+    expect(result.result).toBeNull();
+    expect(String(result.error ?? "")).toContain("boom");
+    expect(String(result.error ?? "")).toContain("1");
+  });
+
+  it("kills the command and returns a timeout error when it runs past timeoutMs", async () => {
+    const definition: CustomToolDefinition = {
+      name: "slow_command",
+      description: "Sleeps well past the configured timeout",
+      parameters: { type: "object", properties: {} },
+      handler: {
+        type: "command",
+        command: ["node", "-e", "setTimeout(() => {}, 5000);"],
+        timeoutMs: 150,
+      },
+    };
+
+    const tool = await registerAndCapture(definition);
+    const start = Date.now();
+    const result = await runTool(tool.execute({}, { agentId: "agent-1" }));
+    const elapsedMs = Date.now() - start;
+
+    expect(result.success).toBe(false);
+    expect(result.result).toBeNull();
+    expect(String(result.error ?? "").toLowerCase()).toContain("timed out");
+    // Should be killed close to timeoutMs, nowhere near the 5s sleep.
+    expect(elapsedMs).toBeLessThan(4000);
+  });
+
+  it("caps stdout at 16 KB even when the command writes far more", async () => {
+    const definition: CustomToolDefinition = {
+      name: "huge_stdout",
+      description: "Writes 200 KB of output",
+      parameters: { type: "object", properties: {} },
+      handler: {
+        type: "command",
+        command: ["node", "-e", "process.stdout.write('a'.repeat(200 * 1024));"],
+      },
+    };
+
+    const tool = await registerAndCapture(definition);
+    const result = await runTool(tool.execute({}, { agentId: "agent-1" }));
+
+    expect(result.success).toBe(true);
+    expect(typeof result.result).toBe("string");
+    expect((result.result as string).length).toBe(16 * 1024);
+  });
+
+  it("scrubs a sensitive-name env var by default, but passes it through when allowlisted", async () => {
+    const originalValue = process.env["FAKE_TOKEN"];
+    process.env["FAKE_TOKEN"] = "supersecret";
+
+    try {
+      const definition: CustomToolDefinition = {
+        name: "print_env",
+        description: "Prints FAKE_TOKEN from its environment",
+        parameters: { type: "object", properties: {} },
+        handler: {
+          type: "command",
+          command: ["node", "-e", "process.stdout.write(process.env.FAKE_TOKEN || '')"],
+        },
+      };
+
+      const tool = await registerAndCapture(definition);
+
+      const withoutAllowlist = await runTool(tool.execute({}, { agentId: "agent-1" }));
+      expect(withoutAllowlist.success).toBe(true);
+      expect(withoutAllowlist.result).toBe("");
+
+      const parentAgent: Agent = {
+        id: "agent-1",
+        name: "Test Agent",
+        model: "openai/gpt-4",
+        config: {
+          persona: "default",
+          llmProvider: "openai",
+          llmModel: "gpt-4",
+          envAllowlist: ["FAKE_TOKEN"],
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const withAllowlist = await runTool(tool.execute({}, { agentId: "agent-1", parentAgent }));
+      expect(withAllowlist.success).toBe(true);
+      expect(withAllowlist.result).toBe("supersecret");
+    } finally {
+      if (originalValue === undefined) {
+        delete process.env["FAKE_TOKEN"];
+      } else {
+        process.env["FAKE_TOKEN"] = originalValue;
+      }
     }
   });
 });
