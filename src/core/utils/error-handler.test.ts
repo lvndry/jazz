@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "bun:test";
 import { Effect, Layer } from "effect";
-import { formatError, handleError } from "./error-handler";
+import { formatError, handleError, isUserCancellation } from "./error-handler";
 import { PresentationServiceTag, type PresentationService } from "../interfaces/presentation";
 import {
   AgentAlreadyExistsError,
@@ -120,5 +120,18 @@ describe("Error Handler", () => {
       expect(formatted).toContain("📚 Related Commands:");
       expect(formatted).toContain("jazz");
     });
+  });
+});
+
+describe("isUserCancellation", () => {
+  it("recognizes inquirer prompt cancellation and SIGINT-shaped errors", () => {
+    const promptExit = new Error("aborted");
+    promptExit.name = "ExitPromptError";
+    expect(isUserCancellation(promptExit)).toBe(true);
+    expect(isUserCancellation(new Error("received SIGINT"))).toBe(true);
+  });
+
+  it("treats ordinary command failures as failures", () => {
+    expect(isUserCancellation(new Error("LLMRateLimitError: provider returned error"))).toBe(false);
   });
 });

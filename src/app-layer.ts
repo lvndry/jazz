@@ -18,7 +18,7 @@ import { TerminalServiceTag } from "./core/interfaces/terminal";
 import { QuietPresentationServiceLayer } from "./core/presentation/quiet-presentation-service";
 import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
-import { handleError } from "./core/utils/error-handler";
+import { handleError, isUserCancellation } from "./core/utils/error-handler";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
 import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
 import { WorkflowsLive } from "./core/workflows/workflow-service";
@@ -360,10 +360,16 @@ export function runCliEffect<R, E extends JazzError | Error>(
       const maybeError = Cause.failureOption(exit.cause);
       if (Option.isSome(maybeError)) {
         yield* handleError(maybeError.value);
+        // A command whose effect failed must not exit 0 (CI relies on the exit
+        // code), but Ctrl+C during a prompt is a cancellation, not a failure.
+        if (!isUserCancellation(maybeError.value)) {
+          process.exitCode = 1;
+        }
         return;
       }
 
       yield* handleError(new Error(Cause.pretty(exit.cause)));
+      process.exitCode = 1;
       return;
     }
   });
