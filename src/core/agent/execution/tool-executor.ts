@@ -131,6 +131,7 @@ export class ToolExecutor {
         } catch (parseError) {
           throw new Error(
             `Invalid JSON in tool arguments: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+            { cause: parseError },
           );
         }
 
