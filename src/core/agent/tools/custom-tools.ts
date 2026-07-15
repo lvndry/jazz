@@ -32,8 +32,8 @@ import { validateCustomToolDefinitionShape } from "./custom-tool-validation";
  *   semantics (see `shell-tools.ts`).
  */
 
-/** Hard cap on captured stdout/stderr per command execution, in bytes. */
-const COMMAND_OUTPUT_CAP_BYTES = 16 * 1024;
+/** Hard cap on captured stdout/stderr per command execution, in BYTES (not UTF-16 code units). */
+const MAX_COMMAND_OUTPUT_BYTES = 16 * 1024;
 
 /** Default kill timeout for `command`-handler custom tools when unset. */
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
@@ -53,21 +53,38 @@ type CommandExecutionOutcome =
     }
   | { readonly ok: false; readonly error: string };
 
+/** Accumulated command output, tracked in both decoded text and true byte count. */
+interface CappedOutput {
+  readonly text: string;
+  readonly bytes: number;
+}
+
+const EMPTY_CAPPED_OUTPUT: CappedOutput = { text: "", bytes: 0 };
+
 /**
- * Append `chunk` to `current`, truncating so the combined string never
- * exceeds `capBytes`. Caps per chunk (not post-hoc) so an unbounded stream
- * never balloons memory before being sliced down.
+ * Append a raw stdout/stderr `chunk` (as delivered by Node's child_process
+ * stream, before any string decoding) to `current`, truncating so the
+ * combined output never exceeds `capBytes` BYTES — measured via
+ * `Buffer.byteLength`/`Buffer.subarray`, not `String.prototype.length` (which
+ * counts UTF-16 code units and undercounts multi-byte UTF-8 output). Caps per
+ * chunk (not post-hoc) so an unbounded stream never balloons memory before
+ * being sliced down.
  */
-function appendCapped(current: string, chunk: string, capBytes: number): string {
-  if (current.length >= capBytes) {
+function appendCapped(current: CappedOutput, chunk: Buffer, capBytes: number): CappedOutput {
+  if (current.bytes >= capBytes) {
     return current;
   }
-  return current + chunk.slice(0, capBytes - current.length);
+  const remainingBytes = capBytes - current.bytes;
+  const truncatedChunk = chunk.subarray(0, remainingBytes);
+  return {
+    text: current.text + truncatedChunk.toString(),
+    bytes: current.bytes + truncatedChunk.byteLength,
+  };
 }
 
 /**
  * Spawn `argv` directly (no shell), write `stdin` to the child's stdin, and
- * collect stdout/stderr up to `COMMAND_OUTPUT_CAP_BYTES` each. Resolves
+ * collect stdout/stderr up to `MAX_COMMAND_OUTPUT_BYTES` each. Resolves
  * (never rejects) with either the process outcome or a bounded error message
  * covering spawn failures and timeout kills — mirrors how `execute_command`
  * in `shell-tools.ts` reports failures to the model.
@@ -87,8 +104,8 @@ function runCustomToolCommand(
     }
 
     let settled = false;
-    let stdout = "";
-    let stderr = "";
+    let stdout: CappedOutput = EMPTY_CAPPED_OUTPUT;
+    let stderr: CappedOutput = EMPTY_CAPPED_OUTPUT;
     let child: ChildProcess;
 
     try {
@@ -121,11 +138,11 @@ function runCustomToolCommand(
     }, timeoutMs);
 
     child.stdout?.on("data", (data: Buffer) => {
-      stdout = appendCapped(stdout, data.toString(), COMMAND_OUTPUT_CAP_BYTES);
+      stdout = appendCapped(stdout, data, MAX_COMMAND_OUTPUT_BYTES);
     });
 
     child.stderr?.on("data", (data: Buffer) => {
-      stderr = appendCapped(stderr, data.toString(), COMMAND_OUTPUT_CAP_BYTES);
+      stderr = appendCapped(stderr, data, MAX_COMMAND_OUTPUT_BYTES);
     });
 
     child.on("error", (error) => {
@@ -133,7 +150,7 @@ function runCustomToolCommand(
     });
 
     child.on("close", (code) => {
-      finish({ ok: true, exitCode: code ?? 0, stdout, stderr });
+      finish({ ok: true, exitCode: code ?? 0, stdout: stdout.text, stderr: stderr.text });
     });
 
     // If the child exits before consuming stdin (or never reads it), writing
@@ -308,9 +325,9 @@ function isDeepEqual(left: unknown, right: unknown): boolean {
  * definition (including an unrecognized `handler.type`) instead of silently
  * treating it as a `record` handler.
  *
- * Colliding with an already-registered tool name (builtin or MCP) fails the
- * run with `AgentConfigurationError` rather than silently overriding the
- * existing registration.
+ * Colliding with an already-registered tool name OR ALIAS (builtin, MCP, or
+ * another custom tool) fails the run with `AgentConfigurationError` rather
+ * than silently overriding the existing registration.
  *
  * `command`-handler entries spawn the declared command directly (no shell)
  * on each invocation, using THIS agent's `envAllowlist` (captured at
@@ -341,7 +358,6 @@ export function registerCustomToolsForAgent(
     }
 
     const declaringEnvAllowlist = agent.config.envAllowlist ?? [];
-    const registeredToolNames = new Set(yield* registry.listAllTools());
 
     for (const definition of selected) {
       const shapeIssue = validateCustomToolDefinitionShape(definition);
@@ -356,15 +372,21 @@ export function registerCustomToolsForAgent(
         );
       }
 
-      if (registeredToolNames.has(definition.name)) {
+      // Resolving through `getTool` (rather than `listAllTools`, which only
+      // returns primary names) also catches a custom tool shadowing an ALIAS
+      // of an existing tool (e.g. "glob", an alias for "find_files") — the
+      // registry resolves aliases transparently, so this lookup finds the
+      // collision either way.
+      const existingTool = yield* registry.getTool(definition.name).pipe(Effect.option);
+
+      if (Option.isSome(existingTool)) {
         // The ToolRegistry is a session-lifetime singleton and this function
         // runs on every AgentRunner.run (i.e. every chat turn), so seeing the
         // name again is expected — it's not necessarily a collision. Only
         // fail if the existing registration is NOT this same custom-tool
         // definition (a different custom tool, or a builtin/MCP tool).
-        const existingTool = yield* registry.getTool(definition.name).pipe(Effect.option);
-        const existingDefinition = existingTool.pipe(
-          Option.flatMap((tool) => Option.fromNullable(tool.sourceCustomToolDefinition)),
+        const existingDefinition = Option.fromNullable(
+          existingTool.value.sourceCustomToolDefinition,
         );
 
         if (
@@ -377,14 +399,29 @@ export function registerCustomToolsForAgent(
           continue;
         }
 
-        yield* Effect.fail(
-          new AgentConfigurationError({
-            agentId: agent.id,
-            field: "config.customTools",
-            message: `Custom tool "${definition.name}" collides with an already-registered tool (builtin or MCP). Rename the custom tool or remove the conflicting one.`,
-            suggestion: `Choose a unique name for the "${definition.name}" custom tool.`,
-          }),
-        );
+        if (Option.isSome(existingDefinition)) {
+          // Same name, but the previously-registered custom tool's
+          // definition differs from this run's — the ToolRegistry has no way
+          // to update an existing registration in place, so this fails the
+          // RUN mid-session rather than at process startup.
+          yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: agent.id,
+              field: "config.customTools",
+              message: `Custom tool "${definition.name}" is already registered with a different definition than before (definition changed — restart the session or revert the config).`,
+              suggestion: `Restart the session, or revert the "${definition.name}" custom tool definition to match what was registered earlier.`,
+            }),
+          );
+        } else {
+          yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: agent.id,
+              field: "config.customTools",
+              message: `Custom tool "${definition.name}" collides with an existing builtin or MCP tool (or one of its aliases). Rename yours.`,
+              suggestion: `Choose a unique name for the "${definition.name}" custom tool.`,
+            }),
+          );
+        }
       }
 
       if (definition.handler.type === "command") {
@@ -393,7 +430,6 @@ export function registerCustomToolsForAgent(
           declaringEnvAllowlist,
         );
         yield* registry.registerTool(commandTool, CUSTOM_TOOLS_CATEGORY);
-        registeredToolNames.add(definition.name);
 
         yield* logger.debug(`Registered custom tool "${definition.name}" (command handler)`);
         continue;
@@ -403,7 +439,6 @@ export function registerCustomToolsForAgent(
         definition as CustomToolDefinition & { readonly handler: CustomToolRecordHandler },
       );
       yield* registry.registerTool(tool, CUSTOM_TOOLS_CATEGORY);
-      registeredToolNames.add(definition.name);
 
       yield* logger.debug(`Registered custom tool "${definition.name}" (record handler)`);
     }

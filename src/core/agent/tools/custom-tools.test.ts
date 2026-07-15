@@ -61,7 +61,10 @@ function makeAgent(
   };
 }
 
-function makeMockRegistry(existingToolNames: readonly string[]) {
+function makeMockRegistry(
+  existingToolNames: readonly string[],
+  aliases: Record<string, string> = {},
+) {
   const registered: Array<{ name: string }> = [];
   const registry = {
     registerTool: mock((tool: { name: string }) => {
@@ -71,7 +74,16 @@ function makeMockRegistry(existingToolNames: readonly string[]) {
     registerForCategory: mock(() => mock(() => Effect.succeed(undefined))),
     listAllTools: mock(() => Effect.succeed(existingToolNames)),
     listTools: mock(() => Effect.succeed(existingToolNames)),
-    getTool: mock(() => Effect.fail(new Error("not found"))),
+    // Mirrors DefaultToolRegistry.getTool: resolves `name` through the
+    // alias map first, then looks it up among the pre-seeded builtin/MCP
+    // tool names — so tests can simulate a custom tool colliding with an
+    // existing tool's ALIAS (e.g. "glob"), not just its primary name.
+    getTool: mock((name: string) => {
+      const resolvedName = aliases[name] ?? name;
+      return existingToolNames.includes(resolvedName)
+        ? Effect.succeed({ name: resolvedName, sourceCustomToolDefinition: undefined })
+        : Effect.fail(new Error("not found"));
+    }),
     getToolDefinitions: mock(() => Effect.succeed([])),
     listToolsByCategory: mock(() => Effect.succeed({})),
     getToolsInCategory: mock(() => Effect.succeed([])),
@@ -133,7 +145,7 @@ describe("registerCustomToolsForAgent", () => {
     expect(registered).toEqual([]);
   });
 
-  it("fails startup with AgentConfigurationError on a name collision", async () => {
+  it("fails with AgentConfigurationError naming a builtin/MCP collision distinctly from a changed-definition collision", async () => {
     const { registry } = makeMockRegistry(["propose_action"]);
     const agent = makeAgent([recordToolDefinition], ["propose_action"]);
 
@@ -153,7 +165,38 @@ describe("registerCustomToolsForAgent", () => {
     expect(result._tag).toBe("Left");
     if (result._tag === "Left") {
       expect(result.left).toBeInstanceOf(AgentConfigurationError);
-      expect(String((result.left as AgentConfigurationError).message)).toContain("propose_action");
+      const message = String((result.left as AgentConfigurationError).message);
+      expect(message).toContain("propose_action");
+      expect(message).toContain("builtin or MCP");
+      expect(message).not.toContain("definition changed");
+    }
+  });
+
+  it("fails at registration when a custom tool shadows an existing tool's ALIAS (e.g. 'glob')", async () => {
+    const { registry } = makeMockRegistry(["find_files"], { glob: "find_files" });
+    const aliasShadowingDefinition: CustomToolDefinition = {
+      ...recordToolDefinition,
+      name: "glob",
+    };
+    const agent = makeAgent([aliasShadowingDefinition], ["glob"]);
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        registerCustomToolsForAgent(agent, agent.config.tools ?? []).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              Layer.succeed(ToolRegistryTag, registry),
+              Layer.succeed(LoggerServiceTag, mockLogger),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(AgentConfigurationError);
+      expect(String((result.left as AgentConfigurationError).message)).toContain("glob");
     }
   });
 
@@ -856,9 +899,9 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     expect(secondRunResult._tag).toBe("Left");
     if (secondRunResult._tag === "Left") {
       expect(secondRunResult.left).toBeInstanceOf(AgentConfigurationError);
-      expect(String((secondRunResult.left as AgentConfigurationError).message)).toContain(
-        "propose_action",
-      );
+      const message = String((secondRunResult.left as AgentConfigurationError).message);
+      expect(message).toContain("propose_action");
+      expect(message).toContain("definition changed");
     }
   });
 });
@@ -1124,5 +1167,29 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
 
     const tool = (await registerAndCapture(definition)) as unknown as { riskLevel?: string };
     expect(tool.riskLevel).toBe("high-risk");
+  });
+
+  it("caps stdout at exactly 16 KB in BYTES, not JS string length, for multi-byte UTF-8 output", async () => {
+    // Each "é" is 2 bytes in UTF-8 but counts as 1 UTF-16 code unit in
+    // `String.prototype.length` — writing well past the cap in multi-byte
+    // characters exercises the Buffer.byteLength-based cap rather than a
+    // naive string-length cap.
+    const definition: CustomToolDefinition = {
+      name: "huge_multibyte_stdout",
+      description: "Writes 20000 multi-byte characters",
+      parameters: { type: "object", properties: {} },
+      handler: {
+        type: "command",
+        command: ["node", "-e", "process.stdout.write('\\u00e9'.repeat(20000));"],
+      },
+    };
+
+    const tool = await registerAndCapture(definition);
+    const result = await runTool(tool.execute({}, { agentId: "agent-1" }));
+
+    expect(result.success).toBe(true);
+    expect(typeof result.result).toBe("string");
+    expect(Buffer.byteLength(result.result as string, "utf8")).toBeLessThanOrEqual(16 * 1024);
+    expect(Buffer.byteLength(result.result as string, "utf8")).toBeGreaterThan(16 * 1024 - 4);
   });
 });
