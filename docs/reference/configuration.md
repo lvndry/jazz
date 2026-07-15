@@ -91,7 +91,12 @@ pattern behind confirmation-card / propose-then-confirm flows:
 tool arguments serialized as JSON on the child's stdin. Exit code `0` returns stdout (capped at
 16 KB) as the tool result; a non-zero exit, spawn error, or timeout produces a failure result the
 model sees the same way it sees a failing builtin tool. The command's environment is sanitized
-the same way `execute_command` sanitizes its shell environment (see `envAllowlist` below).
+the same way `execute_command` sanitizes its shell environment (see `envAllowlist` below), using
+the `envAllowlist` of the agent that DECLARED the tool, not whichever agent happens to be calling
+it. **Security note:** command tools execute with no interactive approval step — they are always
+registered `high-risk` and run whatever the deployment configured the moment the model calls
+them, so treat `handler.command` entries as deployment-authored, trusted commands, not
+user-supplied ones.
 
 ```json
 {
@@ -117,18 +122,26 @@ the same way `execute_command` sanitizes its shell environment (see `envAllowlis
   start with the `mcp_` prefix (reserved for MCP-sourced tools).
 - At most 16 entries per agent.
 - `description`: 1-1024 characters — this is what the model reads to decide when to call the tool.
-- `parameters`: a JSON Schema object; must have `"type": "object"`.
+- `parameters`: a JSON Schema object; must have `"type": "object"`. Only a subset of JSON Schema
+  is honored by the converter that turns this into the runtime validator: unsupported keywords
+  are silently dropped, and a property with a missing or unrecognized `type` degrades to an
+  empty object schema — which then rejects a scalar argument (string/number/boolean) passed for
+  that property. Stick to `string`, `number`, `integer`, `boolean`, `null`, `enum`, and plain
+  nested objects/arrays of those.
 - `handler.response` (record): optional string, at most 1024 characters, defaults to `"Recorded."`.
 - `handler.command` (command): a non-empty array of non-empty strings.
 
 ### Collisions and re-registration
 
-A custom tool name that collides with an already-registered builtin or MCP tool name fails
-agent startup with a configuration error rather than silently overriding the existing tool —
-rename the custom tool or remove the conflicting one. Because tool registration runs on every
-agent run (not just once per process), re-registering the *exact same* custom tool definition
-under a name that's already registered is a no-op, not a collision; only a genuinely different
-definition sharing that name is rejected.
+A custom tool name that collides with an already-registered builtin or MCP tool name — or one of
+its aliases (e.g. `glob`) — fails the run with a configuration error rather than silently
+overriding the existing tool; rename the custom tool or remove the conflicting one. Because tool
+registration runs on every agent run (not just once per process), re-registering the *exact
+same* custom tool definition under a name that's already registered is a no-op, not a collision;
+only a genuinely different definition sharing that name is rejected — and since the registry has
+no way to update an existing registration in place, that rejection fails the run MID-SESSION
+(not at process startup): restart the session, or revert the custom tool definition to match
+what was registered earlier.
 
 ## Agent Config: `envAllowlist`
 
@@ -139,7 +152,9 @@ path; it does not affect `grep`/`find`/`git` tool spawns). By default, any varia
 matches `API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive) is stripped before a
 child process is spawned. Listing a name in `envAllowlist` copies that variable from the
 process environment into the child's environment even though it matches the scrub regex — it
-never invents a value that isn't already set.
+never invents a value that isn't already set. `SSH_*`-prefixed names and the small set of base
+env vars Jazz always sets itself (`PATH`, `HOME`, `USER`, `SHELL`, etc.) can never be
+allowlisted — that block applies unconditionally, regardless of `envAllowlist` membership.
 
 ```json
 {

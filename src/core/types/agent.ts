@@ -80,7 +80,7 @@ export interface AgentConfig {
  */
 export interface CustomToolRecordHandler {
   readonly type: "record";
-  /** Fixed response returned when the tool is invoked. Defaults to an empty response when omitted. */
+  /** Fixed response returned when the tool is invoked. Defaults to `"Recorded."` when omitted. */
   readonly response?: string;
 }
 
