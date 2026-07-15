@@ -412,6 +412,138 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     expect(runResult.toolResults?.["propose_action"]).toBe("Custom response!");
   });
 
+  it("accumulates toolCalls across MULTIPLE tool-calling iterations within one run, in order", async () => {
+    const secondToolDefinition: CustomToolDefinition = {
+      ...recordToolDefinition,
+      name: "second_action",
+      parameters: { type: "object", properties: {} },
+      handler: { type: "record", response: "Second response!" },
+    };
+
+    let callCount = 0;
+    const mockLlmService: LLMService = {
+      getProvider: mock(() =>
+        Effect.succeed({
+          name: "openai",
+          supportedModels: [{ id: "gpt-4", supportsTools: true }],
+          defaultModel: "gpt-4",
+          authenticate: () => Effect.void,
+        }),
+      ),
+      listProviders: mock(() => Effect.succeed([])),
+      createChatCompletion: mock(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Effect.succeed({
+            id: "completion-1",
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: "call_1",
+                type: "function" as const,
+                function: {
+                  name: "propose_action",
+                  arguments: JSON.stringify({ action: "first_step" }),
+                },
+              },
+            ],
+          });
+        }
+        if (callCount === 2) {
+          return Effect.succeed({
+            id: "completion-2",
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: "call_2",
+                type: "function" as const,
+                function: {
+                  name: "second_action",
+                  arguments: JSON.stringify({}),
+                },
+              },
+            ],
+          });
+        }
+        return Effect.succeed({
+          id: "completion-3",
+          model: "gpt-4",
+          content: "Done.",
+        });
+      }),
+      createStreamingChatCompletion: mock(() =>
+        Effect.succeed({
+          stream: Stream.empty,
+          response: Effect.succeed({ id: "unused", model: "gpt-4", content: "unused" }),
+          cancel: Effect.void,
+        }),
+      ),
+      supportsNativeWebSearch: mock(() => Effect.succeed(false)),
+    } as unknown as LLMService;
+
+    const agent: Agent = {
+      id: "agent-with-two-tool-iterations",
+      name: "Custom Tool Agent",
+      model: "openai/gpt-4",
+      config: {
+        persona: "default",
+        llmProvider: "openai",
+        llmModel: "gpt-4",
+        tools: ["propose_action", "second_action"],
+        customTools: [recordToolDefinition, secondToolDefinition],
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, mockPresentationService),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(MCPServerManagerTag, mockMcpServerManager),
+      Layer.succeed(LLMServiceTag, mockLlmService),
+      Layer.succeed(TerminalServiceTag, mockTerminalService),
+      Layer.succeed(FileSystem.FileSystem, mockFileSystem),
+      Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
+    );
+
+    const realToolRegistryLayer = createToolRegistryLayer();
+
+    const runResult = await Effect.runPromise(
+      AgentRunner.run({
+        agent,
+        userInput: "please do a two-step action",
+        sessionId: "test-session-two-tool-iterations",
+        stream: false,
+        maxIterations: 4,
+      }).pipe(Effect.provide(Layer.mergeAll(testLayer, realToolRegistryLayer))) as Effect.Effect<
+        import("../types").AgentResponse,
+        never,
+        never
+      >,
+    );
+
+    expect(runResult.content).toBe("Done.");
+
+    const toolCalls = (runResult.toolCalls ?? []).map((toolCall) => ({
+      name: toolCall.function?.name ?? "",
+      arguments: toolCall.function?.arguments ?? "",
+    }));
+    // Both iterations' tool calls must be present, in call order — the bug
+    // being fixed overwrote `response.toolCalls` on each iteration, so only
+    // the LAST tool-bearing iteration ever survived to the final result.
+    expect(toolCalls).toEqual([
+      { name: "propose_action", arguments: JSON.stringify({ action: "first_step" }) },
+      { name: "second_action", arguments: JSON.stringify({}) },
+    ]);
+
+    expect(runResult.toolResults?.["propose_action"]).toBe("Custom response!");
+    expect(runResult.toolResults?.["second_action"]).toBe("Second response!");
+  });
+
   it("re-registers the same custom tool across two AgentRunner.run calls sharing one registry", async () => {
     let callCount = 0;
     const mockLlmService: LLMService = {
