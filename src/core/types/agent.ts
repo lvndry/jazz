@@ -52,6 +52,12 @@ export interface AgentConfig {
   readonly persona: string;
   readonly llmProvider: ProviderName;
   readonly llmModel: string;
+  /**
+   * Model used for background context summarization, as "provider/model"
+   * (e.g. "anthropic/claude-3-5-haiku-latest"). Defaults to the agent's own
+   * provider/model when unset or unparseable.
+   */
+  readonly summarizerModel?: string;
   /** Optional per-agent API key overrides by provider. Falls back to global config, then env vars. */
   readonly llmApiKeys?: Partial<Record<ProviderName, string>>;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";

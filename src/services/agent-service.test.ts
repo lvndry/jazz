@@ -542,6 +542,61 @@ describe("AgentService", () => {
     });
   });
 
+  describe("validateAgentConfig summarizerModel", () => {
+    const baseConfig: AgentConfig = {
+      persona: "default",
+      llmProvider: "openai",
+      llmModel: "gpt-4",
+    };
+
+    it("accepts a valid summarizerModel", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        summarizerModel: "anthropic/claude-3-5-haiku-latest",
+      });
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("accepts config with no summarizerModel", async () => {
+      const program = service.validateAgentConfig(baseConfig);
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("accepts a null summarizerModel as a cleared field", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        summarizerModel: null as unknown as string,
+      });
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("rejects a summarizerModel with no slash", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        summarizerModel: "gpt-4",
+      });
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a summarizerModel with an unknown provider", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        summarizerModel: "notaprovider/some-model",
+      });
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+  });
+
   describe("deleteAgent", () => {
     it("should delete an agent", async () => {
       // @ts-expect-error - mocking
