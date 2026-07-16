@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import { Box, Text } from "ink";
 import SelectInput from "ink-select-input";
 import React from "react";
@@ -8,8 +8,11 @@ import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
+import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
 import type { Agent } from "@/core/types/agent";
+import type { StreamEvent } from "@/core/types/streaming";
 import { describeCronSchedule } from "@/core/utils/cron-utils";
+import { getErrorMessage } from "@/core/utils/error-handler";
 import {
   type CatchUpCandidate,
   getCatchUpCandidates,
@@ -25,6 +28,7 @@ import {
 import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { groupWorkflows, formatWorkflow } from "@/core/workflows/workflow-utils";
+import { formatOneShotError, formatOneShotResult } from "./run-agent";
 
 /**
  * CLI commands for managing and running workflows.
@@ -194,14 +198,30 @@ export function runWorkflowCommand(
     agent?: string;
     maxIterations?: number;
     scheduled?: boolean;
+    /** Emit a single JSON envelope on stdout (same shape as `jazz run --json`) and suppress terminal chatter. */
+    json?: boolean;
+    /** Abort the run after this many milliseconds. */
+    timeoutMs?: number;
+    /** Stream these event types as NDJSON to stderr during the run (json mode only). */
+    eventTypes?: ReadonlySet<StreamEvent["type"]>;
   },
 ) {
-  return Effect.gen(function* () {
+  const jsonMode = options?.json === true;
+
+  // In json mode every terminal write is suppressed: stdout must carry exactly
+  // one JSON envelope, and error detail travels inside that envelope instead.
+  // Takes a thunk so the terminal call isn't even constructed when suppressed.
+  const say = <E, R>(make: () => Effect.Effect<void, E, R>): Effect.Effect<void, E, R> =>
+    jsonMode ? Effect.void : Effect.suspend(make);
+
+  const command = Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const workflowService = yield* WorkflowServiceTag;
     const logger = yield* LoggerServiceTag;
 
-    const isNonInteractive = options?.autoApprove === true;
+    // json mode implies non-interactive: a headless caller can never answer
+    // the agent picker, so missing agents must fail fast.
+    const isNonInteractive = options?.autoApprove === true || jsonMode;
     const isSchedulerTriggered = options?.scheduled === true;
 
     // When triggered by the system scheduler (--scheduled), guard against RunAtLoad
@@ -240,8 +260,8 @@ export function runWorkflowCommand(
       }
     }
 
-    yield* terminal.heading(`🚀 Running workflow: ${workflowName}`);
-    yield* terminal.log("");
+    yield* say(() => terminal.heading(`🚀 Running workflow: ${workflowName}`));
+    yield* say(() => terminal.log(""));
 
     // Record the run start as early as possible. Until this lands every
     // failed scheduled run (e.g. agent not found) exited before reaching
@@ -271,8 +291,8 @@ export function runWorkflowCommand(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           yield* markFailed(`Workflow not found: ${workflowName}`);
-          yield* terminal.error(`Workflow not found: ${workflowName}`);
-          yield* terminal.info("Run 'jazz workflow list' to see available workflows.");
+          yield* say(() => terminal.error(`Workflow not found: ${workflowName}`));
+          yield* say(() => terminal.info("Run 'jazz workflow list' to see available workflows."));
           return yield* Effect.fail(error);
         }),
       ),
@@ -287,15 +307,17 @@ export function runWorkflowCommand(
 
     if (agentResult._tag === "Right") {
       agent = agentResult.right;
-      yield* terminal.info(`Using agent: ${agent.name}`);
+      yield* say(() => terminal.info(`Using agent: ${agent.name} (${agent.model})`));
     } else {
-      // In non-interactive mode (--auto-approve), fail immediately if agent not found
+      // In non-interactive mode (--auto-approve or --json), fail immediately if agent not found
       if (isNonInteractive) {
         const errorMessage = `Agent '${agentIdentifier}' not found. Scheduled workflows require a valid agent — update the workflow or re-schedule with an existing agent.`;
         yield* markFailed(errorMessage);
-        yield* terminal.error(`Agent '${agentIdentifier}' not found.`);
-        yield* terminal.info(
-          "Scheduled workflows require a valid agent. Update the workflow or create the agent.",
+        yield* say(() => terminal.error(`Agent '${agentIdentifier}' not found.`));
+        yield* say(() =>
+          terminal.info(
+            "Scheduled workflows require a valid agent. Update the workflow or create the agent.",
+          ),
         );
         return yield* Effect.fail(new Error(errorMessage));
       }
@@ -335,7 +357,7 @@ export function runWorkflowCommand(
       }
 
       agent = selectedAgent;
-      yield* terminal.info(`Using agent: ${agent.name}`);
+      yield* terminal.info(`Using agent: ${agent.name} (${agent.model})`);
     }
 
     // Determine auto-approve policy
@@ -345,10 +367,10 @@ export function runWorkflowCommand(
         : workflow.metadata.autoApprove;
 
     if (autoApprovePolicy) {
-      yield* terminal.info(`Auto-approve policy: ${autoApprovePolicy}`);
+      yield* say(() => terminal.info(`Auto-approve policy: ${autoApprovePolicy}`));
     }
 
-    yield* terminal.log("");
+    yield* say(() => terminal.log(""));
     yield* logger.info("Starting workflow execution", {
       workflow: workflowName,
       agent: agent.name,
@@ -358,14 +380,24 @@ export function runWorkflowCommand(
     // Run the agent with the workflow prompt. Iteration cap precedence:
     // CLI --max-iterations flag > workflow metadata > default (omitted here).
     const resolvedMaxIterations = options?.maxIterations ?? workflow.metadata.maxIterations;
-    const runResult = yield* AgentRunner.run({
+    const runEffect = AgentRunner.run({
       agent,
       userInput: workflow.prompt,
       sessionId: `workflow-${workflowName}-${Date.now()}`,
       conversationId: `workflow-${workflowName}-${Date.now()}`,
       ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
-    }).pipe(
+    });
+    const runResult = yield* (
+      options?.timeoutMs != null
+        ? runEffect.pipe(
+            Effect.timeoutFail({
+              duration: Duration.millis(options.timeoutMs),
+              onTimeout: () => new Error(`Run exceeded the ${options.timeoutMs}ms timeout.`),
+            }),
+          )
+        : runEffect
+    ).pipe(
       Effect.tap((result) =>
         updateLatestRunRecord(workflowName, {
           completedAt: new Date().toISOString(),
@@ -392,6 +424,34 @@ export function runWorkflowCommand(
       ),
     );
 
+    if (jsonMode) {
+      const promptTokens = runResult.usage?.promptTokens ?? 0;
+      const completionTokens = runResult.usage?.completionTokens ?? 0;
+      const toolCalls = (runResult.toolCalls ?? []).map((toolCall) => ({
+        id: toolCall.id,
+        name: toolCall.function?.name ?? "",
+        arguments: toolCall.function?.arguments ?? "",
+      }));
+      yield* Effect.sync(() => {
+        process.stdout.write(
+          formatOneShotResult(
+            {
+              answer: runResult.content,
+              costUSD: runResult.costUSD ?? 0,
+              tokenUsage: {
+                promptTokens,
+                completionTokens,
+                totalTokens: promptTokens + completionTokens,
+              },
+              toolCalls,
+            },
+            { json: true },
+          ),
+        );
+      });
+      return;
+    }
+
     yield* terminal.log("");
     yield* terminal.success(`Workflow completed: ${workflowName}`);
 
@@ -400,6 +460,24 @@ export function runWorkflowCommand(
       yield* terminal.log(`[JAZZ_SUMMARY] ${JSON.stringify(summary)}`);
     }
   });
+
+  if (!jsonMode) {
+    return command;
+  }
+
+  // json mode: stdout carries exactly one envelope — on failure an ok:false
+  // envelope (with a non-zero exit code) instead of a rendered error, and the
+  // one-shot presentation layer keeps agent streaming off stdout (optionally
+  // emitting NDJSON events on stderr, as `jazz run --events` does).
+  return command.pipe(
+    Effect.catchAll((error) =>
+      Effect.sync(() => {
+        process.stdout.write(formatOneShotError(getErrorMessage(error), { json: true }));
+        process.exitCode = 1;
+      }),
+    ),
+    Effect.provide(makeOneShotPresentationServiceLayer(options?.eventTypes ?? new Set())),
+  );
 }
 
 /**

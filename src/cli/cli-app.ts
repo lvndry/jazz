@@ -480,6 +480,19 @@ function registerWorkflowCommands(program: Command): void {
       "--scheduled",
       "Indicates this run was triggered by the system scheduler (launchd/cron)",
     )
+    .option(
+      "--json",
+      "Emit a single JSON envelope { ok, answer, costUSD, tokenUsage, toolCalls } on stdout (for scripts/gateways); all chatter is suppressed",
+    )
+    .option(
+      "--timeout <ms>",
+      "Abort the run after this many milliseconds",
+      parsePositiveInt("--timeout"),
+    )
+    .option(
+      "--events <categories>",
+      "With --json: emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,all). stdout stays the clean payload.",
+    )
     .action(
       (
         name: string,
@@ -488,20 +501,53 @@ function registerWorkflowCommands(program: Command): void {
           agent?: string;
           maxIterations?: number;
           scheduled?: boolean;
+          json?: boolean;
+          timeout?: number;
+          events?: string;
         },
         command: Command,
       ) => {
         const opts = program.opts<CliOptions>();
+        const json = options.json === true;
         const isWorkflowRunCommand =
           command.name() === "run" && command.parent?.name() === "workflow";
+
+        // Only the one-shot presentation layer (json mode) can emit NDJSON
+        // events; in interactive mode --events would be silently ignored.
+        if (options.events !== undefined && !json) {
+          process.stderr.write("--events requires --json.\n");
+          process.exitCode = 1;
+          return;
+        }
+
+        const eventCategories =
+          options.events !== undefined ? parseEventCategories(options.events) : undefined;
+        if (eventCategories !== undefined && !eventCategories.ok) {
+          process.stdout.write(
+            `${JSON.stringify({ ok: false, error: eventCategories.error, costUSD: 0 })}\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        if (json) {
+          // Force plain terminal so Ink never mounts and writes to stdout; the
+          // one-shot presentation layer keeps stdout clean for the payload.
+          process.env["JAZZ_NO_TUI"] = "1";
+        }
+
         runCliEffect(
-          runWorkflowCommand(name, options),
+          runWorkflowCommand(name, {
+            ...options,
+            ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
+            ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
+          }),
           {
             verbose: opts.verbose,
             debug: opts.debug,
             configPath: opts.config,
           },
-          { skipCatchUp: isWorkflowRunCommand },
+          { skipCatchUp: isWorkflowRunCommand, skipUpdateCheck: json },
         );
       },
     );
