@@ -101,6 +101,138 @@ describe("runWorkflowCommand", () => {
     rmSync(jazzHomeDir, { recursive: true, force: true });
   });
 
+  describe("json mode", () => {
+    let stdoutWrites: string[];
+    let originalStdoutWrite: typeof process.stdout.write;
+
+    beforeEach(() => {
+      stdoutWrites = [];
+      originalStdoutWrite = process.stdout.write.bind(process.stdout);
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        stdoutWrites.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write;
+      (mockTerminal.heading as ReturnType<typeof mock>).mockClear();
+      (mockTerminal.log as ReturnType<typeof mock>).mockClear();
+    });
+
+    afterEach(() => {
+      process.stdout.write = originalStdoutWrite;
+    });
+
+    it("emits exactly one ok:true envelope with the answer on stdout and no terminal chatter", async () => {
+      AgentRunner.run = mock(() =>
+        Effect.succeed({
+          content: "the daily review",
+          costUSD: 0.12,
+          usage: { promptTokens: 100, completionTokens: 50 },
+          toolCalls: [],
+        }),
+      ) as unknown as typeof AgentRunner.run;
+
+      const program = runWorkflowCommand("code-review", {
+        autoApprove: true,
+        agent: "ci-reviewer",
+        json: true,
+      });
+      const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<
+        void,
+        unknown,
+        never
+      >;
+
+      await Effect.runPromiseExit(runnable);
+
+      expect(stdoutWrites).toHaveLength(1);
+      const envelope = JSON.parse(stdoutWrites[0] as string) as Record<string, unknown>;
+      expect(envelope["ok"]).toBe(true);
+      expect(envelope["answer"]).toBe("the daily review");
+      expect(envelope["costUSD"]).toBe(0.12);
+      expect(envelope["tokenUsage"]).toEqual({
+        promptTokens: 100,
+        completionTokens: 50,
+        totalTokens: 150,
+      });
+      expect(process.exitCode).toBe(0);
+      expect(mockTerminal.heading).not.toHaveBeenCalled();
+      expect(mockTerminal.log).not.toHaveBeenCalled();
+    });
+
+    it("emits an ok:false envelope on stdout and exits non-zero when the run fails", async () => {
+      AgentRunner.run = mock(() =>
+        Effect.fail(new Error("LLMRateLimitError: rate limited")),
+      ) as unknown as typeof AgentRunner.run;
+
+      const program = runWorkflowCommand("code-review", {
+        autoApprove: true,
+        agent: "ci-reviewer",
+        json: true,
+      });
+      const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<
+        void,
+        unknown,
+        never
+      >;
+
+      await Effect.runPromiseExit(runnable);
+
+      expect(stdoutWrites).toHaveLength(1);
+      const envelope = JSON.parse(stdoutWrites[0] as string) as Record<string, unknown>;
+      expect(envelope["ok"]).toBe(false);
+      expect(String(envelope["error"])).toContain("rate limited");
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("aborts a hung run at --timeout and reports it in the envelope", async () => {
+      AgentRunner.run = mock(() => Effect.never) as unknown as typeof AgentRunner.run;
+
+      const program = runWorkflowCommand("code-review", {
+        autoApprove: true,
+        agent: "ci-reviewer",
+        json: true,
+        timeoutMs: 20,
+      });
+      const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<
+        void,
+        unknown,
+        never
+      >;
+
+      await Effect.runPromiseExit(runnable);
+
+      expect(stdoutWrites).toHaveLength(1);
+      const envelope = JSON.parse(stdoutWrites[0] as string) as Record<string, unknown>;
+      expect(envelope["ok"]).toBe(false);
+      expect(String(envelope["error"])).toContain("timeout");
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("fails fast with an envelope when the agent does not exist, without opening the picker", async () => {
+      const failingAgentService = {
+        getAgent: mock(() => Effect.fail(new Error("not found"))),
+        listAgents: mock(() => Effect.succeed([mockAgent])),
+      } as unknown as AgentService;
+      const layer = Layer.mergeAll(
+        Layer.succeed(TerminalServiceTag, mockTerminal),
+        Layer.succeed(WorkflowServiceTag, mockWorkflowService),
+        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(SchedulerServiceTag, mockScheduler),
+        Layer.succeed(AgentServiceTag, failingAgentService),
+        NodeFileSystem.layer,
+      );
+
+      const program = runWorkflowCommand("code-review", { agent: "ghost", json: true });
+      const runnable = program.pipe(Effect.provide(layer)) as Effect.Effect<void, unknown, never>;
+
+      await Effect.runPromiseExit(runnable);
+
+      expect(stdoutWrites).toHaveLength(1);
+      const envelope = JSON.parse(stdoutWrites[0] as string) as Record<string, unknown>;
+      expect(envelope["ok"]).toBe(false);
+      expect(process.exitCode).toBe(1);
+    });
+  });
+
   it("sets a non-zero exit code when the agent run fails (e.g. a rate limit error)", async () => {
     const rateLimitError = new Error("LLMRateLimitError: rate limited after 11 retries");
     AgentRunner.run = mock(() => Effect.fail(rateLimitError)) as unknown as typeof AgentRunner.run;

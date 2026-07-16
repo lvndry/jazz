@@ -127,7 +127,20 @@ jazz workflow run email-cleanup --auto-approve
 
 # Run with a specific agent
 jazz workflow run email-cleanup --agent research-bot
+
+# Headless / scripted use (webhook gateways, systemd timers, CI):
+# --json prints exactly one JSON envelope { ok, answer, costUSD, tokenUsage, toolCalls }
+# on stdout (ok:false + non-zero exit on failure), suppressing all terminal chatter.
+# --timeout aborts the run cleanly after the given milliseconds.
+# --events streams event categories as NDJSON to stderr while stdout stays clean.
+jazz workflow run email-cleanup --auto-approve --json --timeout 1200000 --events tools
 ```
+
+**Note for headless runs**: `--json` implies non-interactive — if the agent is missing
+the command fails fast with an `ok:false` envelope instead of opening the agent picker.
+Combine it with `--auto-approve` (and an `autoApprove` policy in the workflow frontmatter
+that covers the tools the workflow needs), otherwise the run may stall waiting for an
+approval nobody can give.
 
 ### Schedule Workflows
 
