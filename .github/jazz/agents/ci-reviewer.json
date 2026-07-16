@@ -2,11 +2,11 @@
   "id": "ci-reviewer",
   "name": "ci-reviewer",
   "description": "CI code review agent focused on intent, behavior, and risk",
-  "model": "qwen/qwen3-coder:free",
+  "model": "cohere/north-mini-code:free",
   "config": {
     "persona": "coder",
     "llmProvider": "openrouter",
-    "llmModel": "qwen/qwen3-coder:free",
+    "llmModel": "cohere/north-mini-code:free",
     "reasoningEffort": "disable",
     "tools": [
       "context_info",
