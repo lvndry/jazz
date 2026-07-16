@@ -13,6 +13,7 @@ import {
 } from "@/core/types/errors";
 import { type Agent, type AgentConfig, type CustomToolDefinition } from "@/core/types/index";
 import { CommonSuggestions } from "@/core/utils/error-handler";
+import { parseProviderModel } from "@/core/utils/provider-model";
 
 export class AgentServiceImpl implements AgentService {
   constructor(private readonly storage: StorageService) {}
@@ -180,6 +181,23 @@ export class AgentServiceImpl implements AgentService {
               }),
             );
           }
+        }
+      }
+
+      if (config.summarizerModel !== undefined) {
+        if (
+          typeof config.summarizerModel !== "string" ||
+          parseProviderModel(config.summarizerModel) === null
+        ) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.summarizerModel",
+              message: `Invalid summarizerModel "${String(config.summarizerModel)}"`,
+              suggestion:
+                'Use "provider/model" with a known provider, e.g. "anthropic/claude-3-5-haiku-latest", or remove the field to use the agent\'s own model.',
+            }),
+          );
         }
       }
 
