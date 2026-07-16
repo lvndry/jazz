@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { Summarizer, type RecursiveRunner } from "./summarizer";
+import { selectSummarizerModel, Summarizer, type RecursiveRunner } from "./summarizer";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
@@ -121,6 +121,104 @@ function createMockRecursiveRunner(mockContent: string): RecursiveRunner {
 }
 
 describe("Summarizer", () => {
+  describe("selectSummarizerModel", () => {
+    it("defaults to the parent model when summarizerModel is unset", () => {
+      const agent = createMockAgent();
+      const result = selectSummarizerModel(agent);
+      expect(result.config).toEqual({ provider: "openai", model: "gpt-4" });
+      expect(result.warning).toBeUndefined();
+    });
+
+    it("uses a valid configured summarizerModel", () => {
+      const agent = createMockAgent({
+        config: {
+          llmProvider: "openai",
+          llmModel: "gpt-4",
+          persona: "default",
+          tools: [],
+          summarizerModel: "anthropic/claude-3-5-haiku-latest",
+        },
+      });
+      const result = selectSummarizerModel(agent);
+      expect(result.config).toEqual({
+        provider: "anthropic",
+        model: "claude-3-5-haiku-latest",
+      });
+      expect(result.warning).toBeUndefined();
+    });
+
+    it("falls back to the parent model and warns on an invalid summarizerModel", () => {
+      const agent = createMockAgent({
+        config: {
+          llmProvider: "openai",
+          llmModel: "gpt-4",
+          persona: "default",
+          tools: [],
+          summarizerModel: "garbage",
+        },
+      });
+      const result = selectSummarizerModel(agent);
+      expect(result.config).toEqual({ provider: "openai", model: "gpt-4" });
+      expect(result.warning).toContain("garbage");
+    });
+  });
+
+  describe("summarizeHistory model selection", () => {
+    it("builds the summarizer agent with the configured summarizer model", async () => {
+      let capturedAgent: Agent | undefined;
+      const mockRunner: RecursiveRunner = (options) => {
+        capturedAgent = options.agent;
+        return Effect.succeed({
+          content: "Summary",
+          conversationId: "test-conv",
+        } as AgentResponse);
+      };
+
+      const agent = createMockAgent({
+        config: {
+          llmProvider: "openai",
+          llmModel: "gpt-4",
+          persona: "default",
+          tools: [],
+          summarizerModel: "anthropic/claude-3-5-haiku-latest",
+        },
+      });
+      const messages: ChatMessage[] = [{ role: "user", content: "Test" }];
+
+      await Effect.runPromise(
+        Summarizer.summarizeHistory(messages, agent, "session-1", "conv-1", mockRunner).pipe(
+          Effect.provide(createTestLayer()),
+        ) as Effect.Effect<ChatMessage, Error, never>,
+      );
+
+      expect(capturedAgent?.config.llmProvider).toBe("anthropic");
+      expect(capturedAgent?.config.llmModel).toBe("claude-3-5-haiku-latest");
+    });
+
+    it("builds the summarizer agent with the parent model by default", async () => {
+      let capturedAgent: Agent | undefined;
+      const mockRunner: RecursiveRunner = (options) => {
+        capturedAgent = options.agent;
+        return Effect.succeed({
+          content: "Summary",
+          conversationId: "test-conv",
+        } as AgentResponse);
+      };
+
+      const agent = createMockAgent();
+      const messages: ChatMessage[] = [{ role: "user", content: "Test" }];
+
+      await Effect.runPromise(
+        Summarizer.summarizeHistory(messages, agent, "session-1", "conv-1", mockRunner).pipe(
+          Effect.provide(createTestLayer()),
+        ) as Effect.Effect<ChatMessage, Error, never>,
+      );
+
+      expect(capturedAgent?.config.llmProvider).toBe("openai");
+      expect(capturedAgent?.config.llmModel).toBe("gpt-4");
+    });
+  });
+
   describe("summarizeHistory", () => {
     it("should return empty message for empty history", async () => {
       const mockRunner = createMockRecursiveRunner("This should not be called");

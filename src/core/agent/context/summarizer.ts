@@ -1,16 +1,14 @@
 import { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
-import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
-import { LLMServiceTag } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
-import type { LLMConfig } from "@/core/types/config";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
-import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
+import { parseProviderModel } from "@/core/utils/provider-model";
 import type { AgentResponse } from "../types";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
@@ -20,115 +18,41 @@ function modelHintFromAgent(agent: Agent): ModelHint {
   return { provider: agent.config.llmProvider, modelId: agent.config.llmModel };
 }
 
-/**
- * Fallback cheap models for each static provider if models.dev lookup fails.
- */
-const FALLBACK_CHEAP_MODELS: Partial<Record<ProviderName, string>> = {
-  openai: "gpt-5-mini",
-  anthropic: "claude-3-5-haiku-latest",
-  google: "gemini-3-lite-preview",
-  mistral: "mistral-small-latest",
-  xai: "grok-4.1-fast",
-};
-
-/**
- * Static providers that support model selection for summarization.
- */
-const STATIC_PROVIDERS = new Set<ProviderName>(["openai", "anthropic", "google", "mistral", "xai"]);
-
 interface SummarizerModelConfig {
   provider: ProviderName;
   model: string;
 }
 
 /**
- * Find the cheapest model for a given provider using models.dev pricing data.
- */
-async function findCheapestModelForProvider(
-  provider: string,
-  availableModels: readonly string[],
-): Promise<string | null> {
-  try {
-    const modelsDevMap = await getModelsDevMap();
-    if (!modelsDevMap) return null;
-
-    let cheapestModel: string | null = null;
-    let lowestCost = Infinity;
-
-    for (const modelId of availableModels) {
-      const meta = getMetadataFromMap(modelsDevMap, modelId, provider);
-      if (meta?.inputPricePerMillion !== undefined && meta?.outputPricePerMillion !== undefined) {
-        // Use average of input/output price as cost metric
-        const avgCost = (meta.inputPricePerMillion + meta.outputPricePerMillion) / 2;
-        if (avgCost < lowestCost) {
-          lowestCost = avgCost;
-          cheapestModel = modelId;
-        }
-      }
-    }
-
-    return cheapestModel;
-  } catch {
-    return null; // Fallback to hardcoded on any error
-  }
-}
-
-/**
- * Select the best model for summarization based on cost priority.
+ * Choose the model for background summarization.
  *
- * Priority order:
- * 1. OpenRouter free tier if configured
- * 2. Cheapest model from parent provider (via models.dev pricing)
- * 3. Fallback to hardcoded cheap models for static providers
- * 4. Parent agent's model (for dynamic providers like ollama, groq)
+ * Uses the agent's configured `summarizerModel` ("provider/model") when set and
+ * parseable; otherwise falls back to the agent's own provider/model. When a
+ * configured value is unusable it returns a `warning` for the caller to log.
  */
-function selectSummarizerModel(
-  parentAgent: Agent,
-  llmConfig: LLMConfig | undefined,
-): Effect.Effect<SummarizerModelConfig, never, LLMService> {
-  return Effect.gen(function* () {
-    const llmService = yield* LLMServiceTag;
+export function selectSummarizerModel(parentAgent: Agent): {
+  config: SummarizerModelConfig;
+  warning?: string;
+} {
+  const parentConfig: SummarizerModelConfig = {
+    provider: parentAgent.config.llmProvider,
+    model: parentAgent.config.llmModel,
+  };
 
-    // Priority 1: OpenRouter free tier if configured
-    if (llmConfig?.openrouter?.api_key) {
-      return { provider: "openrouter", model: "openrouter/free" };
-    }
+  const configured = parentAgent.config.summarizerModel;
+  if (configured === undefined) {
+    return { config: parentConfig };
+  }
 
-    // Get parent provider
-    const parentProvider = parentAgent.config.llmProvider;
+  const parsed = parseProviderModel(configured);
+  if (parsed) {
+    return { config: parsed };
+  }
 
-    // Priority 2 & 3: For static providers, try to find cheapest model
-    if (STATIC_PROVIDERS.has(parentProvider)) {
-      // Try to get available models for this provider
-      const providerInfoResult = yield* llmService.getProvider(parentProvider).pipe(Effect.either);
-
-      if (providerInfoResult._tag === "Right") {
-        const providerInfo = providerInfoResult.right;
-        const modelIds = providerInfo.supportedModels.map((m) => m.id);
-
-        // Try models.dev lookup for cheapest model
-        const cheapestModel = yield* Effect.promise(() =>
-          findCheapestModelForProvider(parentProvider, modelIds),
-        );
-
-        if (cheapestModel) {
-          return { provider: parentProvider, model: cheapestModel };
-        }
-      }
-
-      // Fallback to hardcoded cheap models if models.dev lookup failed
-      const fallbackModel = FALLBACK_CHEAP_MODELS[parentProvider];
-      if (fallbackModel) {
-        return { provider: parentProvider, model: fallbackModel };
-      }
-    }
-
-    // Priority 4: Use parent model for dynamic providers (ollama, groq, etc.)
-    return {
-      provider: parentAgent.config.llmProvider,
-      model: parentAgent.config.llmModel,
-    };
-  });
+  return {
+    config: parentConfig,
+    warning: `Invalid summarizerModel "${configured}" — falling back to parent model ${parentConfig.provider}/${parentConfig.model}`,
+  };
 }
 
 /**
@@ -367,11 +291,8 @@ export const Summarizer = {
    * Summarizes a portion of the conversation history using a specialized sub-agent.
    * Returns a single assistant message containing the summary.
    *
-   * Uses a cheaper model for summarization when available:
-   * - OpenRouter free tier if configured
-   * - Cheapest model from parent provider (via models.dev pricing)
-   * - Fallback to hardcoded cheap models for static providers
-   * - Parent agent's model for dynamic providers (ollama, groq, etc.)
+   * Uses the agent's configured `summarizerModel` if set and valid, otherwise
+   * falls back to the agent's own provider/model (see `selectSummarizerModel`).
    *
    * @param runRecursive - Injected runner function to execute the summarizer sub-agent
    */
@@ -393,18 +314,15 @@ export const Summarizer = {
   > {
     return Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
-      const configService = yield* AgentConfigServiceTag;
 
       if (messagesToSummarize.length === 0) {
         return { role: "assistant", content: "No history to summarize." };
       }
 
-      // Get LLM config for model selection
-      const appConfig = yield* configService.appConfig;
-      const llmConfig = appConfig.llm;
-
-      // Select cheaper model for summarization
-      const summarizerModelConfig = yield* selectSummarizerModel(agent, llmConfig);
+      const { config: summarizerModelConfig, warning } = selectSummarizerModel(agent);
+      if (warning) {
+        yield* logger.warn(warning, { agentId: agent.id });
+      }
 
       yield* logger.debug("Starting background context summarization", {
         messageCount: messagesToSummarize.length,
@@ -429,7 +347,7 @@ export const Summarizer = {
         "Summarize the following conversation. Produce a concise, structured summary that preserves key information for continuity—goals, decisions, outcomes, key entities, current status, and open questions. Output only the summary.\n\n" +
         historyText;
 
-      // Define specialized summarizer agent on the fly with cheaper model
+      // Define specialized summarizer agent on the fly with the selected model
       const summarizerModel =
         `${summarizerModelConfig.provider}/${summarizerModelConfig.model}` as `${string}/${string}`;
       const summarizer: Agent = {
