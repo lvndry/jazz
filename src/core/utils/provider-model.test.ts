@@ -23,6 +23,17 @@ describe("parseProviderModel", () => {
     });
   });
 
+  it("trims whitespace around each segment", () => {
+    expect(parseProviderModel("openai / gpt-4")).toEqual({
+      provider: "openai",
+      model: "gpt-4",
+    });
+  });
+
+  it("returns null when the model segment is only whitespace", () => {
+    expect(parseProviderModel("openai/   ")).toBeNull();
+  });
+
   it("returns null when there is no slash", () => {
     expect(parseProviderModel("gpt-4")).toBeNull();
   });

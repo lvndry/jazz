@@ -39,9 +39,16 @@ export function selectSummarizerModel(parentAgent: Agent): {
     model: parentAgent.config.llmModel,
   };
 
-  const configured = parentAgent.config.summarizerModel;
-  if (configured === undefined) {
+  const configured: unknown = parentAgent.config.summarizerModel;
+  if (configured === undefined || configured === null) {
     return { config: parentConfig };
+  }
+
+  if (typeof configured !== "string") {
+    return {
+      config: parentConfig,
+      warning: `Invalid summarizerModel type "${typeof configured}" — falling back to parent model ${parentConfig.provider}/${parentConfig.model}`,
+    };
   }
 
   const parsed = parseProviderModel(configured);

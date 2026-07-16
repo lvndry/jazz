@@ -161,6 +161,36 @@ describe("Summarizer", () => {
       expect(result.config).toEqual({ provider: "openai", model: "gpt-4" });
       expect(result.warning).toContain("garbage");
     });
+
+    it("treats a null summarizerModel as unset (parent model, no warning)", () => {
+      const agent = createMockAgent({
+        config: {
+          llmProvider: "openai",
+          llmModel: "gpt-4",
+          persona: "default",
+          tools: [],
+          summarizerModel: null as unknown as string,
+        },
+      });
+      const result = selectSummarizerModel(agent);
+      expect(result.config).toEqual({ provider: "openai", model: "gpt-4" });
+      expect(result.warning).toBeUndefined();
+    });
+
+    it("falls back and warns on a non-string summarizerModel without throwing", () => {
+      const agent = createMockAgent({
+        config: {
+          llmProvider: "openai",
+          llmModel: "gpt-4",
+          persona: "default",
+          tools: [],
+          summarizerModel: 42 as unknown as string,
+        },
+      });
+      const result = selectSummarizerModel(agent);
+      expect(result.config).toEqual({ provider: "openai", model: "gpt-4" });
+      expect(result.warning).toContain("number");
+    });
   });
 
   describe("summarizeHistory model selection", () => {

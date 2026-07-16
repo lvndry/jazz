@@ -562,6 +562,14 @@ describe("AgentService", () => {
       await expect(Effect.runPromise(program)).resolves.toBeUndefined();
     });
 
+    it("accepts a null summarizerModel as a cleared field", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        summarizerModel: null as unknown as string,
+      });
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
     it("rejects a summarizerModel with no slash", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,

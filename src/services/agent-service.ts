@@ -184,16 +184,14 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
-      if (config.summarizerModel !== undefined) {
-        if (
-          typeof config.summarizerModel !== "string" ||
-          parseProviderModel(config.summarizerModel) === null
-        ) {
+      const summarizerModel: unknown = config.summarizerModel;
+      if (summarizerModel !== undefined && summarizerModel !== null) {
+        if (typeof summarizerModel !== "string" || parseProviderModel(summarizerModel) === null) {
           return yield* Effect.fail(
             new AgentConfigurationError({
               agentId: "unknown",
               field: "config.summarizerModel",
-              message: `Invalid summarizerModel "${String(config.summarizerModel)}"`,
+              message: `Invalid summarizerModel ${JSON.stringify(summarizerModel)}`,
               suggestion:
                 'Use "provider/model" with a known provider, e.g. "anthropic/claude-3-5-haiku-latest", or remove the field to use the agent\'s own model.',
             }),
