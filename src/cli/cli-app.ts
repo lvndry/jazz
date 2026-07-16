@@ -512,16 +512,20 @@ function registerWorkflowCommands(program: Command): void {
         const isWorkflowRunCommand =
           command.name() === "run" && command.parent?.name() === "workflow";
 
+        // Only the one-shot presentation layer (json mode) can emit NDJSON
+        // events; in interactive mode --events would be silently ignored.
+        if (options.events !== undefined && !json) {
+          process.stderr.write("--events requires --json.\n");
+          process.exitCode = 1;
+          return;
+        }
+
         const eventCategories =
           options.events !== undefined ? parseEventCategories(options.events) : undefined;
         if (eventCategories !== undefined && !eventCategories.ok) {
-          if (json) {
-            process.stdout.write(
-              `${JSON.stringify({ ok: false, error: eventCategories.error, costUSD: 0 })}\n`,
-            );
-          } else {
-            process.stderr.write(`${eventCategories.error}\n`);
-          }
+          process.stdout.write(
+            `${JSON.stringify({ ok: false, error: eventCategories.error, costUSD: 0 })}\n`,
+          );
           process.exitCode = 1;
           return;
         }

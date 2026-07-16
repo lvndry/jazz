@@ -307,7 +307,7 @@ export function runWorkflowCommand(
 
     if (agentResult._tag === "Right") {
       agent = agentResult.right;
-      yield* say(() => terminal.info(`Using agent: ${agent.name}`));
+      yield* say(() => terminal.info(`Using agent: ${agent.name} (${agent.model})`));
     } else {
       // In non-interactive mode (--auto-approve or --json), fail immediately if agent not found
       if (isNonInteractive) {
@@ -357,7 +357,7 @@ export function runWorkflowCommand(
       }
 
       agent = selectedAgent;
-      yield* terminal.info(`Using agent: ${agent.name}`);
+      yield* terminal.info(`Using agent: ${agent.name} (${agent.model})`);
     }
 
     // Determine auto-approve policy
