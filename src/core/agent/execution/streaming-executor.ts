@@ -22,6 +22,7 @@ import {
 import type { DisplayConfig } from "@/core/types/output";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
+import { makeDefaultObserver } from "./agent-loop-observer";
 import type { RecursiveRunner } from "../context/summarizer";
 import { recordFirstTokenLatency, recordLLMRetry } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
@@ -373,11 +374,13 @@ export function executeWithStreaming(
       },
     };
 
+    const observer = makeDefaultObserver(presentationService);
     const response = yield* executeAgentLoop(
       options,
       runContext,
       displayConfig,
       strategy,
+      observer,
       runRecursive,
     ).pipe(Effect.ensuring(renderer.setInterruptHandler(null)));
 
