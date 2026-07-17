@@ -85,6 +85,64 @@ describe("InputService", () => {
     });
   });
 
+  describe("handler registry", () => {
+    test("stale cleanup from a replaced registration does not remove the newer handler", () => {
+      let newerHandlerCalls = 0;
+
+      const staleCleanup = Effect.runSync(
+        service.registerHandler({
+          id: "text-input",
+          priority: 100,
+          isActive: () => true,
+          handle: () => InputResults.ignored(),
+        }),
+      );
+
+      const newerCleanup = Effect.runSync(
+        service.registerHandler({
+          id: "text-input",
+          priority: 100,
+          isActive: () => true,
+          handle: (event) => {
+            if (event.action.type === "char") {
+              newerHandlerCalls += 1;
+              return InputResults.consumed();
+            }
+            return InputResults.ignored();
+          },
+        }),
+      );
+
+      try {
+        staleCleanup();
+
+        expect(Effect.runSync(service.getHandlerIds)).toEqual(["text-input"]);
+
+        processInput(service, "a");
+        expect(newerHandlerCalls).toBe(1);
+      } finally {
+        newerCleanup();
+      }
+
+      expect(Effect.runSync(service.getHandlerIds)).toEqual([]);
+    });
+
+    test("cleanup removes its own registration when not replaced", () => {
+      const cleanup = Effect.runSync(
+        service.registerHandler({
+          id: "solo-handler",
+          priority: 100,
+          isActive: () => true,
+          handle: () => InputResults.ignored(),
+        }),
+      );
+
+      expect(Effect.runSync(service.getHandlerIds)).toEqual(["solo-handler"]);
+      cleanup();
+      expect(Effect.runSync(service.getHandlerIds)).toEqual([]);
+    });
+  });
+
   describe("ordered char application (text input ordering)", () => {
     test("multiple char events applied in order produce correct accumulated value", () => {
       let value = "";
