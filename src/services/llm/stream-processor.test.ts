@@ -324,6 +324,83 @@ describe("StreamProcessor", () => {
     expect(firstTextChunkIdx).toBeGreaterThan(thinkingCompleteIdx);
   });
 
+  it("captures structured reasoning parts from the SDK response messages", async () => {
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      Effect.runSync(eff);
+    };
+
+    const processor = new StreamProcessor(
+      {
+        providerName: "anthropic",
+        modelName: "m1",
+        hasReasoningEnabled: true,
+        startTime: Date.now(),
+      },
+      emit,
+      mockLogger,
+    );
+
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "reasoning-start" };
+        yield { type: "reasoning-delta", text: "thinking" };
+        yield { type: "reasoning-end" };
+        yield { type: "text-delta", text: "answer" };
+        yield { type: "finish", finishReason: "stop" };
+      })(),
+      usage: Promise.resolve({}),
+      response: Promise.resolve({
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "reasoning",
+                text: "thinking",
+                providerOptions: { anthropic: { signature: "sig-xyz" } },
+              },
+              { type: "text", text: "answer" },
+            ],
+          },
+        ],
+      }),
+    } as any;
+
+    const finalResponse = await processor.process(mockResult);
+
+    expect(finalResponse.reasoningParts).toEqual([
+      {
+        text: "thinking",
+        provider: "anthropic",
+        providerOptions: { anthropic: { signature: "sig-xyz" } },
+      },
+    ]);
+  });
+
+  it("omits reasoningParts when the result has no response promise", async () => {
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      Effect.runSync(eff);
+    };
+
+    const processor = new StreamProcessor(
+      { providerName: "p1", modelName: "m1", hasReasoningEnabled: false, startTime: Date.now() },
+      emit,
+      mockLogger,
+    );
+
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "text-delta", text: "hi" };
+        yield { type: "finish", finishReason: "stop" };
+      })(),
+      usage: Promise.resolve({}),
+    } as any;
+
+    const finalResponse = await processor.process(mockResult);
+
+    expect(finalResponse.reasoningParts).toBeUndefined();
+  });
+
   // -------------------------------------------------------------------------
   // Integration: selectParser → StreamProcessor end-to-end routing
   //

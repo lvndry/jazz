@@ -75,6 +75,7 @@ import { formatProviderDisplayName, sanitize } from "@/core/utils/string";
 import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
 import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { selectParser } from "./reasoning";
+import { extractReasoningParts } from "./reasoning-parts";
 import { StreamProcessor } from "./stream-processor";
 
 /** DelayedPromise fields on streamText results reject when the stream fails. */
@@ -1301,10 +1302,13 @@ class AISDKService implements LLMService {
           }
         }
 
+        const reasoningParts = extractReasoningParts(result.response.messages, providerName);
+
         const resultObj: ChatCompletionResponse = {
           id: shortUUID.generate(),
           model: responseModel,
           content,
+          ...(reasoningParts ? { reasoningParts } : {}),
           ...(toolCalls ? { toolCalls } : {}),
           ...(usage ? { usage } : {}),
           ...(toolsDisabled ? { toolsDisabled } : {}),

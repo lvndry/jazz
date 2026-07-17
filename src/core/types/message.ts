@@ -11,6 +11,23 @@
  * LLM message types
  */
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export interface StoredReasoningPart {
+  /** Stored verbatim — never sanitized or trimmed; provider signatures validate exact bytes. */
+  text: string;
+  /** Provider that produced this part (e.g. "anthropic"); replay is gated on exact match. */
+  provider: string;
+  /** Opaque provider payload from the AI SDK reasoning part (signatures, encrypted content, item ids). */
+  providerOptions?: Record<string, Record<string, JsonValue>>;
+}
+
 /**
  * Individual chat message in a conversation with an LLM
  *
@@ -42,6 +59,12 @@ export interface ChatMessage {
      */
     thought_signature?: string;
   }>;
+  /**
+   * For role === "assistant": reasoning blocks captured from the provider,
+   * replayed on subsequent requests within the same turn (Anthropic thinking
+   * signatures, OpenAI encrypted reasoning, OpenRouter reasoning_details).
+   */
+  reasoning_parts?: ReadonlyArray<StoredReasoningPart>;
 }
 
 /**
