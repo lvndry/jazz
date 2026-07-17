@@ -5,7 +5,6 @@ import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { PresentationService, StreamingRenderer } from "@/core/interfaces/presentation";
-import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ChatMessage, ConversationMessages } from "@/core/types";
 import type { ChatCompletionResponse } from "@/core/types/chat";
@@ -13,6 +12,7 @@ import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
+import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import {
   ContextWindowManager,
@@ -28,6 +28,7 @@ import {
   recordLLMUsage,
   recordToolDefinitionTokens,
   recordToolResultTokens,
+  type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
@@ -58,6 +59,32 @@ export function buildBudgetPressureMessage(
 export interface TrackedToolCall {
   name: string;
   arguments: string;
+}
+
+interface LoopState {
+  currentMessages: ConversationMessages;
+  response: AgentResponse;
+  recentToolCalls: TrackedToolCall[];
+  iterationsUsed: number;
+}
+
+interface LoopDeps {
+  agent: AgentRunnerOptions["agent"];
+  options: AgentRunnerOptions;
+  actualConversationId: string;
+  context: AgentRunContext["context"];
+  tools: AgentRunContext["tools"];
+  provider: AgentRunContext["provider"];
+  model: string;
+  runMetrics: AgentRunMetrics;
+  contextWindowMaxTokens: number;
+  runContextWindowManager: ContextWindowManager;
+  displayConfig: DisplayConfig;
+  strategy: CompletionStrategy;
+  observer: AgentLoopObserver;
+  logger: LoggerService;
+  maxIterations: number;
+  runRecursive: RecursiveRunner;
 }
 
 export const MELTDOWN_WINDOW_SIZE = 10;
@@ -138,6 +165,450 @@ export interface CompletionStrategy {
   shouldShowThinking: boolean;
 }
 
+interface FinalizeInput {
+  response: AgentResponse;
+  currentMessages: ConversationMessages;
+  runMetrics: AgentRunMetrics;
+  modelMetadata: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined;
+  iterationsUsed: number;
+  finished: boolean;
+  interrupted: boolean;
+}
+
+/**
+ * Post-loop finalization: iteration-limit/empty-response warnings, kicking off
+ * the async metrics/telemetry write (tracked via `finalizeFiberRef` so the caller
+ * can await it during release), cost computation, and `AgentResponse` assembly.
+ */
+function finalizeRun(
+  input: FinalizeInput,
+  observer: AgentLoopObserver,
+  logger: LoggerService,
+  agentName: string,
+  maxIterations: number,
+  finalizeFiberRef: Ref.Ref<Option.Option<Fiber.RuntimeFiber<void, Error>>>,
+): Effect.Effect<AgentResponse, never, LoggerService> {
+  return Effect.gen(function* () {
+    const { response, currentMessages, runMetrics, modelMetadata, finished, interrupted } = input;
+    let iterationsUsed = input.iterationsUsed;
+
+    if (!finished) {
+      iterationsUsed = maxIterations;
+      yield* observer.onIterationLimit(agentName, maxIterations);
+    } else if (
+      !response.content?.trim() &&
+      !response.reasoning?.trim() &&
+      !response.toolCalls &&
+      !interrupted
+    ) {
+      yield* observer.onEmptyResponse(agentName);
+    }
+
+    yield* logger.debug("Finalizing agent run", { interrupted, finished });
+
+    const finalizeFiber = yield* finalizeAgentRun(runMetrics, {
+      iterationsUsed,
+      finished,
+    }).pipe(
+      Effect.catchAll((error) =>
+        logger.warn("Failed to write agent token usage log", { error: error.message }),
+      ),
+      Effect.fork,
+    );
+    yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
+
+    const inputPrice = modelMetadata?.inputPricePerMillion ?? 0;
+    const outputPrice = modelMetadata?.outputPricePerMillion ?? 0;
+    const costUSD =
+      inputPrice > 0 || outputPrice > 0
+        ? parseFloat(
+            (
+              (runMetrics.totalPromptTokens / 1_000_000) * inputPrice +
+              (runMetrics.totalCompletionTokens / 1_000_000) * outputPrice
+            ).toFixed(8),
+          )
+        : undefined;
+
+    return {
+      ...response,
+      messages: currentMessages,
+      usage: {
+        promptTokens: runMetrics.totalPromptTokens,
+        completionTokens: runMetrics.totalCompletionTokens,
+      },
+      ...(costUSD !== undefined ? { costUSD } : {}),
+    };
+  });
+}
+
+/**
+ * Handles the tool-call branch of a single loop iteration: executes the tool
+ * calls, validates every call produced a result, appends tool-result messages,
+ * runs meltdown detection/recovery injection, and applies budget/queued-message
+ * handling. Mutates `state` in place (currentMessages, recentToolCalls, response).
+ */
+function handleToolPhase(
+  state: LoopState,
+  toolCalls: NonNullable<ChatCompletionResponse["toolCalls"]>,
+  reasoningContent: string,
+  iterationIndex: number,
+  deps: LoopDeps,
+): Effect.Effect<
+  void,
+  Error,
+  ToolRegistry | LoggerService | AgentConfigService | ToolRequirements | PresentationService
+> {
+  const {
+    agent,
+    actualConversationId,
+    context,
+    contextWindowMaxTokens,
+    runContextWindowManager,
+    displayConfig,
+    strategy,
+    runMetrics,
+    maxIterations,
+    options,
+    logger,
+  } = deps;
+
+  return Effect.gen(function* () {
+    yield* logger.info("Agent decided to use tools", {
+      agentId: agent.id,
+      conversationId: actualConversationId,
+      iteration: iterationIndex + 1,
+      toolsChosen: toolCalls.map((tc) => tc.function.name),
+      reasoning: reasoningContent,
+    });
+
+    for (const toolCall of toolCalls) {
+      if (toolCall.type === "function") {
+        state.recentToolCalls.push({
+          name: toolCall.function.name,
+          arguments: toolCall.function.arguments,
+        });
+      }
+    }
+
+    if (state.recentToolCalls.length > MELTDOWN_WINDOW_SIZE) {
+      state.recentToolCalls.splice(0, state.recentToolCalls.length - MELTDOWN_WINDOW_SIZE);
+    }
+
+    if (detectMeltdown(state.recentToolCalls)) {
+      yield* logger.warn("Meltdown detected — injecting recovery signal", {
+        agentId: agent.id,
+        recentTools: state.recentToolCalls.slice(-10).map((tc) => tc.name),
+      });
+      state.currentMessages.push({
+        role: "user",
+        content:
+          "[MELTDOWN DETECTED: You have been repeating the same tool calls without progress. Stop the current approach. Summarize what you have found so far, identify what is still missing, and either proceed directly to output or try a fundamentally different search strategy. Do not repeat your last action.]",
+      });
+      state.recentToolCalls.length = 0;
+    }
+
+    const contextWithTokenStats = {
+      ...context,
+      tokenStats: {
+        currentTokens: runContextWindowManager.calculateTotalTokens(state.currentMessages),
+        maxTokens: contextWindowMaxTokens,
+      },
+      conversationMessages: state.currentMessages,
+      parentAgent: agent,
+      parentMaxIterations: maxIterations,
+      compactConversation: (compacted: readonly ChatMessage[]) => {
+        state.currentMessages = [
+          state.currentMessages[0],
+          ...compacted.slice(1),
+        ] as typeof state.currentMessages;
+      },
+    };
+
+    const toolResults = yield* ToolExecutor.executeToolCalls(
+      toolCalls,
+      contextWithTokenStats,
+      displayConfig,
+      strategy.getRenderer(),
+      runMetrics,
+      agent.id,
+      actualConversationId,
+      agent.name,
+      strategy.getInterruptSignal?.(),
+    );
+
+    // Validate all tool calls have results
+    const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
+    const missingResults: string[] = [];
+    for (const toolCall of toolCalls) {
+      if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
+        missingResults.push(toolCall.id);
+      }
+    }
+    if (missingResults.length > 0) {
+      yield* logger.error("Missing tool results for some tool calls", {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        missingToolCallIds: missingResults,
+        expectedCount: toolCalls.length,
+        actualCount: toolResults.length,
+      });
+      return yield* Effect.fail(
+        new Error(
+          `Missing tool results for ${missingResults.length} tool call(s). This indicates a bug in tool execution.`,
+        ),
+      );
+    }
+
+    // Add tool result messages
+    for (const toolCall of toolCalls) {
+      if (toolCall.type === "function") {
+        const result = resultMap.get(toolCall.id);
+        if (result === undefined) {
+          yield* logger.error("Tool result is undefined despite validation", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            toolCallId: toolCall.id,
+            toolName: toolCall.function.name,
+          });
+          state.currentMessages.push({
+            role: "tool",
+            name: toolCall.function.name,
+            content: formatToolResultForContext(toolCall.function.name, {
+              error: "Tool execution result was undefined",
+            }),
+            tool_call_id: toolCall.id,
+          });
+        } else {
+          const formattedResult = formatToolResultForContext(toolCall.function.name, result);
+          state.currentMessages.push({
+            role: "tool",
+            name: toolCall.function.name,
+            content: formattedResult,
+            tool_call_id: toolCall.id,
+          });
+          recordToolResultTokens(runMetrics, toolCall.function.name, formattedResult.length);
+        }
+      }
+    }
+
+    state.response = {
+      ...state.response,
+      toolCalls: [...(state.response.toolCalls ?? []), ...toolCalls],
+      toolResults: {
+        ...state.response.toolResults,
+        ...Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
+      },
+    };
+
+    const queuedMessage = options.checkQueuedMessage?.();
+    if (queuedMessage) {
+      state.currentMessages.push({ role: "user", content: queuedMessage });
+    }
+  });
+}
+
+type RunIterationResult = { kind: "continue" } | { kind: "final" } | { kind: "interrupted" };
+
+/**
+ * Runs one full loop iteration: context compaction, LLM request logging,
+ * `strategy.getCompletion`, usage recording, assistant message build + trim,
+ * then either delegates to `handleToolPhase` (tool branch → "continue") or
+ * handles the final-response presentation (→ "final"). An interrupted
+ * completion short-circuits to "interrupted". Mutates `state` in place.
+ */
+function runIteration(
+  state: LoopState,
+  iterationIndex: number,
+  deps: LoopDeps,
+): Effect.Effect<
+  RunIterationResult,
+  LLMRateLimitError | Error,
+  | LLMService
+  | ToolRegistry
+  | LoggerService
+  | AgentConfigService
+  | PresentationService
+  | ToolRequirements
+> {
+  const {
+    agent,
+    options,
+    actualConversationId,
+    tools,
+    provider,
+    model,
+    runMetrics,
+    contextWindowMaxTokens,
+    runContextWindowManager,
+    strategy,
+    observer,
+    logger,
+    maxIterations,
+    runRecursive,
+  } = deps;
+
+  return Effect.gen(function* () {
+    if (!options.internal && strategy.shouldShowThinking) {
+      yield* observer.onThinking(agent.name, iterationIndex === 0);
+    }
+
+    state.currentMessages = yield* Summarizer.compactIfNeeded(
+      state.currentMessages,
+      agent,
+      options.sessionId,
+      actualConversationId,
+      runRecursive,
+      contextWindowMaxTokens,
+    );
+
+    let lastUserContent: string | undefined;
+    for (let j = state.currentMessages.length - 1; j >= 0; j--) {
+      if (state.currentMessages[j]?.role === "user") {
+        lastUserContent = state.currentMessages[j]?.content;
+        break;
+      }
+    }
+
+    yield* logger.debug("Sending LLM request", {
+      agentId: agent.id,
+      conversationId: actualConversationId,
+      iteration: iterationIndex + 1,
+      provider,
+      model,
+      messageCount: state.currentMessages.length,
+      toolsAvailable: tools.length,
+      reasoningEffort: agent.config.reasoningEffort,
+      lastUserMessage: lastUserContent,
+    });
+
+    const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
+    const messagesForLLM = budgetMsg
+      ? ([...state.currentMessages, budgetMsg] as typeof state.currentMessages)
+      : state.currentMessages;
+
+    const result = yield* strategy.getCompletion(messagesForLLM, iterationIndex);
+
+    if (result.interrupted) {
+      const completion = result.completion;
+      state.response = {
+        ...state.response,
+        content: completion.content,
+        ...(completion.toolCalls ? { toolCalls: completion.toolCalls } : {}),
+      };
+
+      if (completion.content.length > 0) {
+        state.currentMessages.push({
+          role: "assistant",
+          content: completion.content,
+        });
+      }
+      yield* observer.onInterrupted(agent.name);
+      yield* logger.debug("Interruption handled, breaking loop");
+      return { kind: "interrupted" } as const;
+    }
+
+    const { completion } = result;
+
+    // Log LLM response summary
+    yield* logger.debug("LLM response received", {
+      agentId: agent.id,
+      conversationId: actualConversationId,
+      iteration: iterationIndex + 1,
+      contentLength: completion.content.length,
+      toolCallsCount: completion.toolCalls?.length ?? 0,
+      tokenUsage: completion.usage,
+      contentPreview: completion.content.substring(0, 300),
+    });
+
+    if (completion.usage) {
+      recordLLMUsage(runMetrics, completion.usage);
+
+      calibrateTokenCounter({
+        authoritativePromptTokens: completion.usage.promptTokens,
+        messagesAtCallTime: state.currentMessages,
+        provider,
+        modelId: model,
+      });
+    }
+
+    if (completion.toolDefinitionChars != null) {
+      recordToolDefinitionTokens(
+        runMetrics,
+        estimateTokens(completion.toolDefinitionChars),
+        completion.toolDefinitionCount ?? 0,
+      );
+    }
+
+    if (completion.toolsDisabled) {
+      state.response = { ...state.response, toolsDisabled: true };
+    }
+
+    const assistantMessage = {
+      role: "assistant" as const,
+      content: completion.content,
+      ...(completion.reasoningParts && completion.reasoningParts.length > 0
+        ? { reasoning_parts: completion.reasoningParts }
+        : {}),
+      ...(completion.toolCalls
+        ? {
+            tool_calls: completion.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: tc.type,
+              function: { name: tc.function.name, arguments: tc.function.arguments },
+              ...(tc.thought_signature ? { thought_signature: tc.thought_signature } : {}),
+            })),
+          }
+        : {}),
+    };
+
+    state.currentMessages.push(assistantMessage);
+
+    const trimUpdate = yield* runContextWindowManager.trim(
+      state.currentMessages,
+      logger,
+      agent.id,
+      actualConversationId,
+    );
+    state.currentMessages = trimUpdate.messages;
+
+    if (completion.toolCalls && completion.toolCalls.length > 0) {
+      yield* handleToolPhase(state, completion.toolCalls, completion.content, iterationIndex, deps);
+      return { kind: "continue" } as const;
+    }
+
+    // No tool calls - final response
+    yield* logger.info("Agent provided final response", {
+      agentId: agent.id,
+      conversationId: actualConversationId,
+      iteration: iterationIndex + 1,
+      completionLength: completion.content.length,
+      totalToolsUsed: runMetrics.toolCalls,
+    });
+
+    // If the model produced reasoning but no text content (e.g. llama.cpp
+    // with --jinja routing the entire response into reasoning_content),
+    // surface the reasoning as the visible content so downstream
+    // consumers — conversation history, summarization, batch rendering —
+    // see what the model actually said.
+    const visibleContent = completion.content?.trim().length
+      ? completion.content
+      : (completion.reasoning ?? completion.content);
+    state.response = {
+      ...state.response,
+      content: visibleContent,
+      ...(completion.reasoning ? { reasoning: completion.reasoning } : {}),
+    };
+
+    // Let strategy present the response (batch renders markdown, streaming is already rendered)
+    yield* strategy.presentResponse(agent.name, visibleContent, completion);
+    yield* observer.onCompletion(agent.name);
+    yield* strategy.onComplete(agent.name, completion);
+
+    state.iterationsUsed = iterationIndex + 1;
+    return { kind: "final" } as const;
+  });
+}
+
 /**
  * Shared agent execution loop used by both streaming and batch executors.
  *
@@ -156,6 +627,7 @@ export function executeAgentLoop(
   runContext: AgentRunContext,
   displayConfig: DisplayConfig,
   strategy: CompletionStrategy,
+  observer: AgentLoopObserver,
   runRecursive: RecursiveRunner,
 ): Effect.Effect<
   AgentResponse,
@@ -181,7 +653,6 @@ export function executeAgentLoop(
       Effect.gen(function* () {
         const { agent, maxIterations: maxIter } = options;
         const maxIterations = maxIter ?? DEFAULT_MAX_ITERATIONS;
-        const presentationService = yield* PresentationServiceTag;
         const { actualConversationId, context, tools, messages, runMetrics, provider, model } =
           runContext;
 
@@ -209,372 +680,71 @@ export function executeAgentLoop(
           source: modelMetadata ? "models.dev" : "default",
         });
 
-        let currentMessages: ConversationMessages = [messages[0], ...messages.slice(1)];
-        let response: AgentResponse = {
-          content: "",
-          conversationId: actualConversationId,
+        const state: LoopState = {
+          currentMessages: [messages[0], ...messages.slice(1)],
+          response: {
+            content: "",
+            conversationId: actualConversationId,
+          },
+          recentToolCalls: [],
+          iterationsUsed: 0,
         };
         let finished = false;
         let interrupted = false;
-        let iterationsUsed = 0;
-        const recentToolCalls: TrackedToolCall[] = [];
+
+        const deps: LoopDeps = {
+          agent,
+          options,
+          actualConversationId,
+          context,
+          tools,
+          provider,
+          model,
+          runMetrics,
+          contextWindowMaxTokens,
+          runContextWindowManager,
+          displayConfig,
+          strategy,
+          observer,
+          logger,
+          maxIterations,
+          runRecursive,
+        };
 
         for (let i = 0; i < maxIterations; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
-            if (!options.internal && strategy.shouldShowThinking) {
-              yield* presentationService.presentThinking(agent.name, i === 0);
-            }
-
-            currentMessages = yield* Summarizer.compactIfNeeded(
-              currentMessages,
-              agent,
-              options.sessionId,
-              actualConversationId,
-              runRecursive,
-              contextWindowMaxTokens,
-            );
-
-            let lastUserContent: string | undefined;
-            for (let j = currentMessages.length - 1; j >= 0; j--) {
-              if (currentMessages[j]?.role === "user") {
-                lastUserContent = currentMessages[j]?.content;
-                break;
-              }
-            }
-
-            yield* logger.debug("Sending LLM request", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              provider,
-              model,
-              messageCount: currentMessages.length,
-              toolsAvailable: tools.length,
-              reasoningEffort: agent.config.reasoningEffort,
-              lastUserMessage: lastUserContent,
-            });
-
-            const budgetMsg = buildBudgetPressureMessage(i + 1, maxIterations);
-            const messagesForLLM = budgetMsg
-              ? ([...currentMessages, budgetMsg] as typeof currentMessages)
-              : currentMessages;
-
-            const result = yield* strategy.getCompletion(messagesForLLM, i);
-
-            if (result.interrupted) {
-              const completion = result.completion;
-              response = {
-                ...response,
-                content: completion.content,
-                ...(completion.toolCalls ? { toolCalls: completion.toolCalls } : {}),
-              };
-
-              if (completion.content.length > 0) {
-                currentMessages.push({
-                  role: "assistant",
-                  content: completion.content,
-                });
-              }
-              yield* presentationService.presentWarning(agent.name, "generation stopped by user");
+            const step = yield* runIteration(state, i, deps);
+            if (step.kind === "interrupted") {
               finished = true;
               interrupted = true;
-              yield* logger.debug("Interruption handled, breaking loop");
               break;
             }
-
-            const { completion } = result;
-
-            // Log LLM response summary
-            yield* logger.debug("LLM response received", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              contentLength: completion.content.length,
-              toolCallsCount: completion.toolCalls?.length ?? 0,
-              tokenUsage: completion.usage,
-              contentPreview: completion.content.substring(0, 300),
-            });
-
-            if (completion.usage) {
-              recordLLMUsage(runMetrics, completion.usage);
-
-              calibrateTokenCounter({
-                authoritativePromptTokens: completion.usage.promptTokens,
-                messagesAtCallTime: currentMessages,
-                provider,
-                modelId: model,
-              });
+            if (step.kind === "final") {
+              finished = true;
+              break;
             }
-
-            if (completion.toolDefinitionChars != null) {
-              recordToolDefinitionTokens(
-                runMetrics,
-                estimateTokens(completion.toolDefinitionChars),
-                completion.toolDefinitionCount ?? 0,
-              );
-            }
-
-            if (completion.toolsDisabled) {
-              response = { ...response, toolsDisabled: true };
-            }
-
-            const assistantMessage = {
-              role: "assistant" as const,
-              content: completion.content,
-              ...(completion.reasoningParts && completion.reasoningParts.length > 0
-                ? { reasoning_parts: completion.reasoningParts }
-                : {}),
-              ...(completion.toolCalls
-                ? {
-                    tool_calls: completion.toolCalls.map((tc) => ({
-                      id: tc.id,
-                      type: tc.type,
-                      function: { name: tc.function.name, arguments: tc.function.arguments },
-                      ...(tc.thought_signature ? { thought_signature: tc.thought_signature } : {}),
-                    })),
-                  }
-                : {}),
-            };
-
-            currentMessages.push(assistantMessage);
-
-            const trimUpdate = yield* runContextWindowManager.trim(
-              currentMessages,
-              logger,
-              agent.id,
-              actualConversationId,
-            );
-            currentMessages = trimUpdate.messages;
-
-            if (completion.toolCalls && completion.toolCalls.length > 0) {
-              yield* logger.info("Agent decided to use tools", {
-                agentId: agent.id,
-                conversationId: actualConversationId,
-                iteration: i + 1,
-                toolsChosen: completion.toolCalls.map((tc) => tc.function.name),
-                reasoning: completion.content,
-              });
-
-              for (const toolCall of completion.toolCalls) {
-                if (toolCall.type === "function") {
-                  recentToolCalls.push({
-                    name: toolCall.function.name,
-                    arguments: toolCall.function.arguments,
-                  });
-                }
-              }
-
-              if (recentToolCalls.length > MELTDOWN_WINDOW_SIZE) {
-                recentToolCalls.splice(0, recentToolCalls.length - MELTDOWN_WINDOW_SIZE);
-              }
-
-              if (detectMeltdown(recentToolCalls)) {
-                yield* logger.warn("Meltdown detected — injecting recovery signal", {
-                  agentId: agent.id,
-                  recentTools: recentToolCalls.slice(-10).map((tc) => tc.name),
-                });
-                currentMessages.push({
-                  role: "user",
-                  content:
-                    "[MELTDOWN DETECTED: You have been repeating the same tool calls without progress. Stop the current approach. Summarize what you have found so far, identify what is still missing, and either proceed directly to output or try a fundamentally different search strategy. Do not repeat your last action.]",
-                });
-                recentToolCalls.length = 0;
-              }
-
-              const contextWithTokenStats = {
-                ...context,
-                tokenStats: {
-                  currentTokens: runContextWindowManager.calculateTotalTokens(currentMessages),
-                  maxTokens: contextWindowMaxTokens,
-                },
-                conversationMessages: currentMessages,
-                parentAgent: agent,
-                parentMaxIterations: maxIterations,
-                compactConversation: (compacted: readonly ChatMessage[]) => {
-                  currentMessages = [
-                    currentMessages[0],
-                    ...compacted.slice(1),
-                  ] as typeof currentMessages;
-                },
-              };
-
-              const toolResults = yield* ToolExecutor.executeToolCalls(
-                completion.toolCalls,
-                contextWithTokenStats,
-                displayConfig,
-                strategy.getRenderer(),
-                runMetrics,
-                agent.id,
-                actualConversationId,
-                agent.name,
-                strategy.getInterruptSignal?.(),
-              );
-
-              // Validate all tool calls have results
-              const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
-              const missingResults: string[] = [];
-              for (const toolCall of completion.toolCalls) {
-                if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
-                  missingResults.push(toolCall.id);
-                }
-              }
-              if (missingResults.length > 0) {
-                yield* logger.error("Missing tool results for some tool calls", {
-                  agentId: agent.id,
-                  conversationId: actualConversationId,
-                  missingToolCallIds: missingResults,
-                  expectedCount: completion.toolCalls.length,
-                  actualCount: toolResults.length,
-                });
-                return yield* Effect.fail(
-                  new Error(
-                    `Missing tool results for ${missingResults.length} tool call(s). This indicates a bug in tool execution.`,
-                  ),
-                );
-              }
-
-              // Add tool result messages
-              for (const toolCall of completion.toolCalls) {
-                if (toolCall.type === "function") {
-                  const result = resultMap.get(toolCall.id);
-                  if (result === undefined) {
-                    yield* logger.error("Tool result is undefined despite validation", {
-                      agentId: agent.id,
-                      conversationId: actualConversationId,
-                      toolCallId: toolCall.id,
-                      toolName: toolCall.function.name,
-                    });
-                    currentMessages.push({
-                      role: "tool",
-                      name: toolCall.function.name,
-                      content: formatToolResultForContext(toolCall.function.name, {
-                        error: "Tool execution result was undefined",
-                      }),
-                      tool_call_id: toolCall.id,
-                    });
-                  } else {
-                    const formattedResult = formatToolResultForContext(
-                      toolCall.function.name,
-                      result,
-                    );
-                    currentMessages.push({
-                      role: "tool",
-                      name: toolCall.function.name,
-                      content: formattedResult,
-                      tool_call_id: toolCall.id,
-                    });
-                    recordToolResultTokens(
-                      runMetrics,
-                      toolCall.function.name,
-                      formattedResult.length,
-                    );
-                  }
-                }
-              }
-
-              response = {
-                ...response,
-                toolCalls: [...(response.toolCalls ?? []), ...completion.toolCalls],
-                toolResults: {
-                  ...response.toolResults,
-                  ...Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
-                },
-              };
-
-              const queuedMessage = options.checkQueuedMessage?.();
-              if (queuedMessage) {
-                currentMessages.push({ role: "user", content: queuedMessage });
-              }
-              continue;
-            }
-
-            // No tool calls - final response
-            yield* logger.info("Agent provided final response", {
-              agentId: agent.id,
-              conversationId: actualConversationId,
-              iteration: i + 1,
-              completionLength: completion.content.length,
-              totalToolsUsed: runMetrics.toolCalls,
-            });
-
-            // If the model produced reasoning but no text content (e.g. llama.cpp
-            // with --jinja routing the entire response into reasoning_content),
-            // surface the reasoning as the visible content so downstream
-            // consumers — conversation history, summarization, batch rendering —
-            // see what the model actually said.
-            const visibleContent = completion.content?.trim().length
-              ? completion.content
-              : (completion.reasoning ?? completion.content);
-            response = {
-              ...response,
-              content: visibleContent,
-              ...(completion.reasoning ? { reasoning: completion.reasoning } : {}),
-            };
-
-            // Let strategy present the response (batch renders markdown, streaming is already rendered)
-            yield* strategy.presentResponse(agent.name, visibleContent, completion);
-            yield* presentationService.presentCompletion(agent.name);
-            yield* strategy.onComplete(agent.name, completion);
-
-            iterationsUsed = i + 1;
-            finished = true;
-            break;
           } finally {
             yield* Effect.sync(() => completeIteration(runMetrics));
           }
         }
 
-        // Post-loop cleanup
-        if (!finished) {
-          iterationsUsed = maxIterations;
-          yield* presentationService.presentWarning(
-            agent.name,
-            `iteration limit reached (${maxIterations}) - type 'continue' to resume`,
-          );
-        } else if (
-          !response.content?.trim() &&
-          !response.reasoning?.trim() &&
-          !response.toolCalls &&
-          !interrupted
-        ) {
-          yield* presentationService.presentWarning(agent.name, "model returned an empty response");
-        }
-
-        yield* logger.debug("Finalizing agent run", { interrupted, finished });
-
-        const finalizeFiber = yield* finalizeAgentRun(runMetrics, {
-          iterationsUsed,
-          finished,
-        }).pipe(
-          Effect.catchAll((error) =>
-            logger.warn("Failed to write agent token usage log", { error: error.message }),
-          ),
-          Effect.fork,
-        );
-        yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
-
-        const inputPrice = modelMetadata?.inputPricePerMillion ?? 0;
-        const outputPrice = modelMetadata?.outputPricePerMillion ?? 0;
-        const costUSD =
-          inputPrice > 0 || outputPrice > 0
-            ? parseFloat(
-                (
-                  (runMetrics.totalPromptTokens / 1_000_000) * inputPrice +
-                  (runMetrics.totalCompletionTokens / 1_000_000) * outputPrice
-                ).toFixed(8),
-              )
-            : undefined;
-
-        return {
-          ...response,
-          messages: currentMessages,
-          usage: {
-            promptTokens: runMetrics.totalPromptTokens,
-            completionTokens: runMetrics.totalCompletionTokens,
+        return yield* finalizeRun(
+          {
+            response: state.response,
+            currentMessages: state.currentMessages,
+            runMetrics,
+            modelMetadata,
+            iterationsUsed: state.iterationsUsed,
+            finished,
+            interrupted,
           },
-          ...(costUSD !== undefined ? { costUSD } : {}),
-        };
+          observer,
+          logger,
+          agent.name,
+          maxIterations,
+          finalizeFiberRef,
+        );
       }),
     // Release: cleanup
     ({ logger, finalizeFiberRef }) =>

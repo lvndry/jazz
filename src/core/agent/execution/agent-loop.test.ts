@@ -8,6 +8,7 @@ import {
   type CompletionStrategy,
   type TrackedToolCall,
 } from "./agent-loop";
+import { makeDefaultObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import { SkillServiceTag } from "../../../core/skills/skill-service";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
@@ -99,6 +100,23 @@ const TestLayer = Layer.mergeAll(
   Layer.succeed(SkillServiceTag, mockSkillService),
 );
 
+const defaultObserver = makeDefaultObserver(mockPresentationService);
+
+// Fake observer that records lifecycle calls.
+function recordingObserver() {
+  const calls: string[] = [];
+  const observer = {
+    onThinking: (name: string, first: boolean) =>
+      Effect.sync(() => void calls.push(`thinking:${name}:${first}`)),
+    onInterrupted: (name: string) => Effect.sync(() => void calls.push(`interrupted:${name}`)),
+    onIterationLimit: (name: string, max: number) =>
+      Effect.sync(() => void calls.push(`limit:${name}:${max}`)),
+    onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
+    onCompletion: (name: string) => Effect.sync(() => void calls.push(`completion:${name}`)),
+  };
+  return { observer, calls };
+}
+
 function makeOptions(overrides?: Partial<AgentRunnerOptions>): AgentRunnerOptions {
   return {
     sessionId: "test-session",
@@ -179,9 +197,14 @@ describe("executeAgentLoop", () => {
     };
 
     const result = await Effect.runPromise(
-      executeAgentLoop(makeOptions(), makeRunContext(), displayConfig, strategy, runRecursive).pipe(
-        Effect.provide(TestLayer),
-      ),
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
     );
 
     expect(result.content).toBe("Hello world");
@@ -235,12 +258,21 @@ describe("executeAgentLoop", () => {
         makeRunContext(),
         displayConfig,
         strategy,
+        defaultObserver,
         runRecursive,
       ).pipe(Effect.provide(TestLayer)),
     );
 
     expect(result.content).toBe("Done with tools");
     expect(ToolExecutor.executeToolCalls).toHaveBeenCalled();
+
+    // Confirms the tool-branch ("continue") appended a tool-result message
+    // to the conversation before the loop moved on to the final ("final") response.
+    const toolMessage = result.messages?.find(
+      (message) => message.role === "tool" && message.tool_call_id === "call_1",
+    );
+    expect(toolMessage).toBeDefined();
+    expect(toolMessage?.name).toBe("test_tool");
 
     ToolExecutor.executeToolCalls = originalExecute;
   });
@@ -254,6 +286,7 @@ describe("executeAgentLoop", () => {
         return Effect.void;
       },
     };
+    const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
 
     // Strategy that always returns tool calls (never finishes)
     const strategy: CompletionStrategy = {
@@ -305,6 +338,7 @@ describe("executeAgentLoop", () => {
         makeRunContext(),
         displayConfig,
         strategy,
+        trackingObserver,
         runRecursive,
       ).pipe(Effect.provide(testLayer)),
     );
@@ -315,25 +349,39 @@ describe("executeAgentLoop", () => {
   });
 
   it("should handle interruption from strategy", async () => {
+    let getCompletionCalls = 0;
     const strategy: CompletionStrategy = {
       shouldShowThinking: false,
-      getCompletion: () =>
-        Effect.succeed({
+      getCompletion: () => {
+        getCompletionCalls++;
+        return Effect.succeed({
           completion: { id: "c1", model: "gpt-4", content: "partial" },
           interrupted: true,
-        }),
+        });
+      },
       presentResponse: () => Effect.void,
       onComplete: () => Effect.void,
       getRenderer: () => null,
     };
 
+    const { observer, calls } = recordingObserver();
+
     const result = await Effect.runPromise(
-      executeAgentLoop(makeOptions(), makeRunContext(), displayConfig, strategy, runRecursive).pipe(
-        Effect.provide(TestLayer),
-      ),
+      executeAgentLoop(
+        makeOptions({ maxIterations: 5 }),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        observer,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
     );
 
     expect(result.content).toBe("partial");
+    // Interruption must fire the observer callback and stop the loop immediately
+    // rather than continuing on to further iterations.
+    expect(calls).toContain("interrupted:test-agent");
+    expect(getCompletionCalls).toBe(1);
   });
 
   it("should warn on empty response", async () => {
@@ -345,6 +393,7 @@ describe("executeAgentLoop", () => {
         return Effect.void;
       },
     };
+    const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
 
     const strategy: CompletionStrategy = {
       shouldShowThinking: false,
@@ -372,9 +421,14 @@ describe("executeAgentLoop", () => {
     );
 
     await Effect.runPromise(
-      executeAgentLoop(makeOptions(), makeRunContext(), displayConfig, strategy, runRecursive).pipe(
-        Effect.provide(testLayer),
-      ),
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        trackingObserver,
+        runRecursive,
+      ).pipe(Effect.provide(testLayer)),
     );
 
     expect(warningCalls.some((msg) => msg.includes("empty response"))).toBe(true);
@@ -390,6 +444,7 @@ describe("executeAgentLoop", () => {
         return Effect.void;
       },
     };
+    const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
 
     const strategy: CompletionStrategy = {
       shouldShowThinking: false,
@@ -425,9 +480,14 @@ describe("executeAgentLoop", () => {
     );
 
     const result = await Effect.runPromise(
-      executeAgentLoop(makeOptions(), makeRunContext(), displayConfig, strategy, runRecursive).pipe(
-        Effect.provide(testLayer),
-      ),
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        trackingObserver,
+        runRecursive,
+      ).pipe(Effect.provide(testLayer)),
     );
 
     expect(warningCalls.some((msg) => msg.includes("empty response"))).toBe(false);
@@ -456,9 +516,14 @@ describe("executeAgentLoop", () => {
     };
 
     const result = await Effect.runPromise(
-      executeAgentLoop(makeOptions(), makeRunContext(), displayConfig, strategy, runRecursive).pipe(
-        Effect.provide(TestLayer),
-      ),
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
     );
 
     expect(result.usage?.promptTokens).toBe(10);
@@ -484,15 +549,86 @@ describe("executeAgentLoop", () => {
     };
 
     const result = await Effect.runPromise(
-      executeAgentLoop(makeOptions(), makeRunContext(), displayConfig, strategy, runRecursive).pipe(
-        Effect.provide(TestLayer),
-      ),
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
     );
 
     expect(result.toolsDisabled).toBe(true);
   });
 
+  it("returns usage from runMetrics and omits costUSD when pricing metadata is unavailable", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "Final answer",
+            usage: { promptTokens: 42, completionTokens: 17, totalTokens: 59 },
+          },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        // Use a provider/model combo absent from models.dev so pricing metadata
+        // resolves to undefined deterministically, without depending on network access.
+        makeRunContext({ provider: "test-provider", model: "totally-fake-model-xyz" }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(result.usage).toEqual({ promptTokens: 42, completionTokens: 17 });
+    expect(result.costUSD).toBeUndefined();
+    expect(result.messages).toBeDefined();
+  });
+
+  it("emits onThinking and onCompletion through the observer for a simple completion", async () => {
+    const { observer, calls } = recordingObserver();
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: true,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: { id: "c1", model: "gpt-4", content: "Hello world" },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        observer,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(calls).toContain("thinking:test-agent:true");
+    expect(calls).toContain("completion:test-agent");
+  });
+
   it("stores reasoning parts on the assistant message in conversation history", async () => {
+    const { observer } = recordingObserver();
     const strategy: CompletionStrategy = {
       shouldShowThinking: false,
       getCompletion: () =>
@@ -517,9 +653,14 @@ describe("executeAgentLoop", () => {
     };
 
     const result = await Effect.runPromise(
-      executeAgentLoop(makeOptions(), makeRunContext(), displayConfig, strategy, runRecursive).pipe(
-        Effect.provide(TestLayer),
-      ),
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        observer,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
     );
 
     const assistantMessage = result.messages?.find((message) => message.role === "assistant");
