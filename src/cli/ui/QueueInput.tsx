@@ -2,7 +2,13 @@ import { Box, Text, useInput } from "ink";
 import React, { useCallback } from "react";
 import { ChatInput } from "./components/ChatInput";
 import { getGlyphs } from "./glyphs";
-import { useTextInput } from "./hooks/use-input-service";
+import {
+  InputResults,
+  useInputHandler,
+  useInputService,
+  useTextInput,
+} from "./hooks/use-input-service";
+import { composeRecalledBuffer, isCursorOnFirstLine } from "./queue-recall";
 import { store } from "./store";
 import { PADDING, THEME } from "./theme";
 
@@ -13,6 +19,11 @@ const ENTRY_PREVIEW_MAX_CHARS = 80;
 
 /** Show at most this many entries; older ones become a `+N more` line. */
 const MAX_VISIBLE_ENTRIES = 5;
+
+// Between command-suggestions (50, Prompt.tsx) and TEXT_INPUT (100): recall
+// must win the ↑ key over single-line text editing but stay below
+// system/modal/prompt layers.
+const QUEUE_RECALL_PRIORITY = 60;
 
 function truncateEntry(entry: string): string {
   // Collapse newlines inside a single queued entry so each entry occupies one
@@ -28,7 +39,9 @@ function truncateEntry(entry: string): string {
  * Each Enter appends a new entry to the in-memory message queue. The queue
  * preview shows entries stacked one per line; on agent completion the chat
  * loop drains the queue (joining with `\n`) and sends it as a single
- * combined turn. `Ctrl-X` clears the queue when the input buffer is empty.
+ * combined turn. `↑` recalls the whole queue into the input for editing
+ * (any typed draft is kept below the recalled text). `Ctrl-X` clears the
+ * queue when the input buffer is empty.
  */
 export function QueueInput({
   queue,
@@ -48,6 +61,26 @@ export function QueueInput({
     onSubmit: (val) => {
       handleSubmit(val);
       setValue("", 0);
+    },
+  });
+
+  const inputService = useInputService();
+
+  useInputHandler({
+    id: "queue-recall",
+    priority: QUEUE_RECALL_PRIORITY,
+    isActive: queue.length > 0,
+    onInput: (action) => {
+      if (action.type !== "up") return InputResults.ignored();
+      const current = inputService.getTextInputState("text-input");
+      if (!isCursorOnFirstLine(current.value, current.cursor)) {
+        return InputResults.ignored();
+      }
+      const queueText = store.takeQueue();
+      if (queueText.length === 0) return InputResults.ignored();
+      const recalled = composeRecalledBuffer(queueText, current.value);
+      setValue(recalled.value, recalled.cursor);
+      return InputResults.consumed();
     },
   });
 
@@ -80,7 +113,7 @@ export function QueueInput({
           marginTop={1}
           flexDirection="column"
         >
-          <Text dimColor>Queued ({queue.length}) · Ctrl-X to clear</Text>
+          <Text dimColor>Queued ({queue.length}) · ↑ edit · Ctrl-X clear</Text>
           {overflowCount > 0 && <Text dimColor> …and {overflowCount} earlier</Text>}
           {visibleEntries.map((entry, index) => (
             <Text
