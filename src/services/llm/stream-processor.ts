@@ -15,6 +15,7 @@ import type { ChatCompletionResponse, StreamEvent } from "@/core/types";
 import { type LLMError } from "@/core/types/errors";
 import type { ToolCall } from "@/core/types/tools";
 import type { ParseChunk, ReasoningParser } from "./reasoning";
+import { extractReasoningParts } from "./reasoning-parts";
 
 /**
  * Type for AI SDK StreamText result
@@ -556,6 +557,19 @@ export class StreamProcessor {
       // Ignore usage errors
     }
 
+    let reasoningParts: ChatCompletionResponse["reasoningParts"];
+    try {
+      const responseData = await Promise.race([
+        result.response,
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 50)),
+      ]);
+      if (responseData?.messages) {
+        reasoningParts = extractReasoningParts(responseData.messages, this.config.providerName);
+      }
+    } catch {
+      // Best-effort: never fail the completion over reasoning capture
+    }
+
     const reasoningText = this.state.accumulatedReasoning;
 
     return {
@@ -563,6 +577,7 @@ export class StreamProcessor {
       model: this.config.modelName,
       content: finalText,
       ...(reasoningText.length > 0 && { reasoning: reasoningText }),
+      ...(reasoningParts ? { reasoningParts } : {}),
       ...(toolCalls && { toolCalls }),
       ...(usage && { usage }),
       ...(this.config.toolsDisabled ? { toolsDisabled: true } : {}),
