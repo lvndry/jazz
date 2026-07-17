@@ -3,7 +3,6 @@ import * as os from "os";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
-import { DEFAULT_PROMPT } from "./prompts/default/system";
 import { SKILLS_INSTRUCTIONS } from "./prompts/shared";
 
 function formatUtcOffsetLabel(date: Date): string {
@@ -79,14 +78,6 @@ function getSkillIndexLineFromOption(s: {
   return desc.length > 80 ? desc.slice(0, 77) + "..." : desc;
 }
 
-/** Fallback when PersonaService is unavailable or persona cannot be resolved. */
-const FALLBACK_DEFAULT: AgentPersona = {
-  name: "Default Agent",
-  description: "A general-purpose agent that can assist with various tasks.",
-  systemPrompt: DEFAULT_PROMPT,
-  userPromptTemplate: "{userInput}",
-};
-
 export class AgentPromptBuilder {
   private systemPromptCache = new Map<string, string>();
 
@@ -158,8 +149,16 @@ export class AgentPromptBuilder {
   }
 
   /**
-   * Resolve a persona by name. Loads from PersonaService (both built-in and custom).
-   * Built-in personas live in package personas/; custom in ~/.jazz/personas/.
+   * Resolve a persona by name via PersonaService (built-in and custom).
+   * Built-in personas ship in the package under personas/<name>/persona.md;
+   * custom personas live in ~/.jazz/personas/.
+   *
+   * There is no built-in fallback prompt. A persona that cannot be resolved is
+   * a hard error, not a recoverable condition: for a built-in persona (e.g.
+   * "default") it means the packaged personas/ directory is missing or
+   * unreadable — a broken install — and for a custom persona it means the agent
+   * references one that does not exist. Both must surface rather than be
+   * silently masked by a generic prompt.
    */
   resolvePersona(
     name: string,
@@ -167,32 +166,34 @@ export class AgentPromptBuilder {
   ): Effect.Effect<AgentPersona, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
-        if (personaService) {
-          const persona = yield* personaService
-            .getPersonaByIdentifier(name)
-            .pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-          if (persona && persona.systemPrompt) {
-            return {
-              name: persona.name,
-              description: persona.description,
-              systemPrompt: persona.systemPrompt,
-              userPromptTemplate: "{userInput}",
-            } satisfies AgentPersona;
-          }
+        if (!personaService) {
+          return yield* Effect.fail(
+            new Error(
+              `Cannot resolve persona "${name}": PersonaService is not available. ` +
+                `The persona service layer must be provided to build a system prompt.`,
+            ),
+          );
         }
 
-        // Fall back to default when PersonaService unavailable or persona not found
-        return FALLBACK_DEFAULT;
+        const persona = yield* personaService.getPersonaByIdentifier(name);
+
+        if (!persona.systemPrompt || persona.systemPrompt.trim().length === 0) {
+          return yield* Effect.fail(
+            new Error(
+              `Persona "${name}" has an empty system prompt. Built-in personas ship ` +
+                `with the package under personas/<name>/persona.md.`,
+            ),
+          );
+        }
+
+        return {
+          name: persona.name,
+          description: persona.description,
+          systemPrompt: persona.systemPrompt,
+          userPromptTemplate: "{userInput}",
+        } satisfies AgentPersona;
       }.bind(this),
     );
-  }
-
-  /**
-   * Get a persona by name. For full resolution including custom personas, use resolvePersona().
-   */
-  getPersona(name: string): Effect.Effect<AgentPersona, Error> {
-    return this.resolvePersona(name);
   }
 
   /**

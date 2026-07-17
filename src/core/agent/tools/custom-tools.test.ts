@@ -12,6 +12,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { MCPServerManager } from "@/core/interfaces/mcp-server";
 import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
+import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
@@ -410,6 +411,22 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
   const mockFileSystem = {} as unknown as FileSystem.FileSystem;
   const mockFileSystemContext = {} as unknown as FileSystemContextService;
 
+  // AgentRunner resolves the agent's persona through PersonaService; there is no
+  // built-in fallback prompt, so a persona that can't be resolved is a hard
+  // error. Provide a minimal stub that returns a valid "default" persona.
+  const mockPersonaService = {
+    getPersonaByIdentifier: mock((identifier: string) =>
+      Effect.succeed({
+        id: `builtin-${identifier}`,
+        name: identifier,
+        description: "Test persona",
+        systemPrompt: "You are a test assistant.",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    ),
+  } as unknown as PersonaService;
+
   const mockSkillService = {
     listSkills: mock(() => Effect.succeed([])),
   } as unknown as SkillService;
@@ -514,6 +531,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       Layer.succeed(TerminalServiceTag, mockTerminalService),
       Layer.succeed(FileSystem.FileSystem, mockFileSystem),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
+      Layer.succeed(PersonaServiceTag, mockPersonaService),
     );
 
     const realToolRegistryLayer = createToolRegistryLayer();
@@ -641,6 +659,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       Layer.succeed(TerminalServiceTag, mockTerminalService),
       Layer.succeed(FileSystem.FileSystem, mockFileSystem),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
+      Layer.succeed(PersonaServiceTag, mockPersonaService),
     );
 
     const realToolRegistryLayer = createToolRegistryLayer();
@@ -750,6 +769,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       Layer.succeed(TerminalServiceTag, mockTerminalService),
       Layer.succeed(FileSystem.FileSystem, mockFileSystem),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
+      Layer.succeed(PersonaServiceTag, mockPersonaService),
     );
 
     // A single ToolRegistry layer, shared across both `run` calls below,
@@ -837,6 +857,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       Layer.succeed(TerminalServiceTag, mockTerminalService),
       Layer.succeed(FileSystem.FileSystem, mockFileSystem),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
+      Layer.succeed(PersonaServiceTag, mockPersonaService),
     );
 
     const sharedToolRegistryLayer = createToolRegistryLayer();

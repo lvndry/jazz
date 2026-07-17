@@ -13,6 +13,7 @@ import type { LoggerService } from "../interfaces/logger";
 import { LoggerServiceTag } from "../interfaces/logger";
 import type { MCPServerManager } from "../interfaces/mcp-server";
 import { MCPServerManagerTag } from "../interfaces/mcp-server";
+import { PersonaServiceTag, type PersonaService } from "../interfaces/persona-service";
 import type { PresentationService } from "../interfaces/presentation";
 import { PresentationServiceTag } from "../interfaces/presentation";
 import type { TerminalService } from "../interfaces/terminal";
@@ -197,6 +198,22 @@ const mockMcpServerManager = {
   disconnectAllServers: mock(() => Effect.void),
 } as unknown as MCPServerManager;
 
+// AgentRunner resolves the agent's persona through PersonaService; there is no
+// built-in fallback prompt, so a persona that can't be resolved is a hard
+// error. Provide a minimal stub that returns a valid "default" persona.
+const mockPersonaService = {
+  getPersonaByIdentifier: mock((identifier: string) =>
+    Effect.succeed({
+      id: `builtin-${identifier}`,
+      name: identifier,
+      description: "Test persona",
+      systemPrompt: "You are a test assistant.",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }),
+  ),
+} as unknown as PersonaService;
+
 describe("AgentRunner", () => {
   function createTestLayer(): Layer.Layer<never, never, unknown> {
     return Layer.mergeAll(
@@ -210,6 +227,7 @@ describe("AgentRunner", () => {
       Layer.succeed(TerminalServiceTag, mockTerminalService),
       Layer.succeed(FileSystem.FileSystem, mockFileSystem),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
+      Layer.succeed(PersonaServiceTag, mockPersonaService),
     );
   }
 
