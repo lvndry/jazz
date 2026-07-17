@@ -1,5 +1,5 @@
 import type { ProviderName } from "@/core/constants/models";
-import type { ChatMessage } from "./message";
+import type { ChatMessage, StoredReasoningPart } from "./message";
 import type { ToolCall, ToolDefinition } from "./tools";
 
 export interface ChatCompletionResponse {
@@ -13,6 +13,8 @@ export interface ChatCompletionResponse {
    * responses where `content` would otherwise look empty.
    */
   reasoning?: string;
+  /** Structured reasoning blocks with provider payloads, for replay in conversation history. */
+  reasoningParts?: ReadonlyArray<StoredReasoningPart>;
   toolCalls?: ToolCall[];
   usage?: {
     promptTokens: number;
