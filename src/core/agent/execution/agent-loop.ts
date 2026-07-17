@@ -322,6 +322,9 @@ export function executeAgentLoop(
             const assistantMessage = {
               role: "assistant" as const,
               content: completion.content,
+              ...(completion.reasoningParts && completion.reasoningParts.length > 0
+                ? { reasoning_parts: completion.reasoningParts }
+                : {}),
               ...(completion.toolCalls
                 ? {
                     tool_calls: completion.toolCalls.map((tc) => ({

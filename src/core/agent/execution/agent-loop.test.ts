@@ -491,6 +491,46 @@ describe("executeAgentLoop", () => {
 
     expect(result.toolsDisabled).toBe(true);
   });
+
+  it("stores reasoning parts on the assistant message in conversation history", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "Final answer",
+            reasoningParts: [
+              {
+                text: "chain of thought",
+                provider: "openai",
+                providerOptions: { openai: { itemId: "rs_1", reasoningEncryptedContent: "enc" } },
+              },
+            ],
+          },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(makeOptions(), makeRunContext(), displayConfig, strategy, runRecursive).pipe(
+        Effect.provide(TestLayer),
+      ),
+    );
+
+    const assistantMessage = result.messages?.find((message) => message.role === "assistant");
+    expect(assistantMessage?.reasoning_parts).toEqual([
+      {
+        text: "chain of thought",
+        provider: "openai",
+        providerOptions: { openai: { itemId: "rs_1", reasoningEncryptedContent: "enc" } },
+      },
+    ]);
+  });
 });
 
 describe("buildBudgetPressureMessage", () => {
