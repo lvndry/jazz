@@ -747,8 +747,8 @@ export function buildProviderOptions(
             reasoningSummary: "auto",
             systemMessageMode: "system",
             promptCacheKey: "conversation",
-            // store: false,
-            // include: ["reasoning.encrypted_content"],
+            store: false,
+            include: ["reasoning.encrypted_content"],
           } satisfies OpenAIResponsesProviderOptions,
         };
       }

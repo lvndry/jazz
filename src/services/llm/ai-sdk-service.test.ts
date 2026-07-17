@@ -953,6 +953,31 @@ describe("buildProviderOptions - ollama reasoning", () => {
   });
 });
 
+describe("buildProviderOptions - openai reasoning round-trip", () => {
+  const openaiOptions = (
+    reasoningEffort: "disable" | "low" | "medium" | "high" | undefined,
+  ): ChatCompletionOptions =>
+    ({
+      model: "gpt-5",
+      messages: [{ role: "user", content: "hi" }],
+      reasoning_effort: reasoningEffort,
+    }) as ChatCompletionOptions;
+
+  it("enables stateless encrypted reasoning when reasoning is on", () => {
+    const result = buildProviderOptions("openai", openaiOptions("high"));
+
+    expect(result?.["openai"]).toMatchObject({
+      reasoningEffort: "high",
+      store: false,
+      include: ["reasoning.encrypted_content"],
+    });
+  });
+
+  it("returns no openai options when reasoning is disabled", () => {
+    expect(buildProviderOptions("openai", openaiOptions("disable"))).toBeUndefined();
+  });
+});
+
 describe("toCoreMessages - reasoning replay", () => {
   const reasoningPart = {
     text: "thinking hard",
