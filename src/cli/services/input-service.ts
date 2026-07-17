@@ -243,10 +243,14 @@ export function createInputService(terminalCapabilities: TerminalCapabilities): 
         handlers.set(handler.id, handler);
         handlersDirty = true;
 
-        // Return cleanup function
+        // Return cleanup function.
+        // Only remove the entry if it still belongs to this registration —
+        // a stale cleanup must not delete a newer handler registered under the same id.
         return () => {
-          handlers.delete(handler.id);
-          handlersDirty = true;
+          if (handlers.get(handler.id) === handler) {
+            handlers.delete(handler.id);
+            handlersDirty = true;
+          }
         };
       }),
 
