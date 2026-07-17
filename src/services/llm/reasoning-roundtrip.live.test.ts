@@ -167,6 +167,77 @@ describe.skipIf(!process.env["OPENAI_API_KEY"])("live: openai reasoning round-tr
     const finalText = await runToolLoopRoundTrip(provider("gpt-5-mini"), "openai", "gpt-5-mini");
     expect(finalText.length).toBeGreaterThan(0);
   }, 120_000);
+
+  it("survives a multi-turn history where an old tool call has its reasoning stripped", async () => {
+    const provider = createOpenAI({ apiKey: process.env["OPENAI_API_KEY"] });
+    const model = provider("gpt-5-mini");
+    const providerOptions = buildProviderOptions("openai", reasoningOptions("gpt-5-mini"));
+    const userMessage: ChatMessage = {
+      role: "user",
+      content: "What is the weather in Paris? Use the get_weather tool.",
+    };
+
+    const firstResult = await generateText({
+      model,
+      messages: toCoreMessages([userMessage], "openai"),
+      tools: weatherTool,
+      ...(providerOptions ? { providerOptions } : {}),
+    });
+
+    const firstToolCall = firstResult.toolCalls[0];
+    expect(firstToolCall).toBeDefined();
+
+    const reasoningParts = extractReasoningParts(firstResult.response.messages, "openai");
+    expect(reasoningParts?.length).toBeGreaterThan(0);
+
+    // A follow-up user turn moves jazz's current-turn gate past the first tool
+    // loop, so toCoreMessages strips its reasoning while the function_call item
+    // is still sent. store:false historically 400ed when function calls arrived
+    // without their paired reasoning items (the reason these flags were disabled
+    // in #117) — this probes whether that applies to resolved historical turns;
+    // a live 400 here is a real finding, not a broken test.
+    const history: ChatMessage[] = [
+      userMessage,
+      {
+        role: "assistant",
+        content: firstResult.text,
+        reasoning_parts: reasoningParts,
+        tool_calls: [
+          {
+            id: firstToolCall!.toolCallId,
+            type: "function",
+            function: {
+              name: firstToolCall!.toolName,
+              arguments: JSON.stringify(firstToolCall!.input ?? {}),
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: "22°C and sunny",
+        tool_call_id: firstToolCall!.toolCallId,
+        name: firstToolCall!.toolName,
+      },
+      {
+        role: "assistant",
+        content: "It is 22°C and sunny in Paris.",
+      },
+      {
+        role: "user",
+        content: "Thanks! What about London? Use the get_weather tool.",
+      },
+    ];
+
+    const secondResult = await generateText({
+      model,
+      messages: toCoreMessages(history, "openai"),
+      tools: weatherTool,
+      ...(providerOptions ? { providerOptions } : {}),
+    });
+
+    expect(secondResult.toolCalls.length + secondResult.text.length).toBeGreaterThan(0);
+  }, 120_000);
 });
 
 describe.skipIf(!process.env["OPENROUTER_API_KEY"])("live: openrouter reasoning round-trip", () => {
