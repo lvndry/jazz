@@ -20,7 +20,7 @@ import {
 import type { AppConfig, LLMConfig, StreamEvent } from "../../core/types/index";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
-import { buildProviderOptions, createAISDKServiceLayer } from "./ai-sdk-service";
+import { buildProviderOptions, createAISDKServiceLayer, toCoreMessages } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
 
 mock.module("@/core/utils/models-dev-client", () => ({
@@ -950,5 +950,96 @@ describe("buildProviderOptions - ollama reasoning", () => {
   it("sends think:true when reasoning effort is low", () => {
     const result = buildProviderOptions("ollama", ollamaOptions("low"));
     expect(result).toEqual({ ollama: { think: true } });
+  });
+});
+
+describe("toCoreMessages - reasoning replay", () => {
+  const reasoningPart = {
+    text: "thinking hard",
+    provider: "anthropic",
+    providerOptions: { anthropic: { signature: "sig-1" } },
+  };
+
+  it("replays reasoning parts first in assistant content", () => {
+    const result = toCoreMessages(
+      [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: "checking",
+          reasoning_parts: [reasoningPart],
+          tool_calls: [
+            { id: "t1", type: "function", function: { name: "get_weather", arguments: "{}" } },
+          ],
+        },
+      ],
+      "anthropic",
+    );
+
+    const assistantContent = result[1]?.content as Array<{ type: string }>;
+    expect(assistantContent[0]).toEqual({
+      type: "reasoning",
+      text: "thinking hard",
+      providerOptions: { anthropic: { signature: "sig-1" } },
+    });
+    expect(assistantContent.map((part) => part.type)).toEqual(["reasoning", "text", "tool-call"]);
+  });
+
+  it("drops parts whose provider does not match the current provider", () => {
+    const result = toCoreMessages(
+      [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "answer", reasoning_parts: [reasoningPart] },
+      ],
+      "openai",
+    );
+
+    const assistantContent = result[1]?.content as Array<{ type: string }>;
+    expect(assistantContent.every((part) => part.type !== "reasoning")).toBe(true);
+  });
+
+  it("does not replay parts on assistant messages before the last user message", () => {
+    const result = toCoreMessages(
+      [
+        { role: "user", content: "first question" },
+        { role: "assistant", content: "old answer", reasoning_parts: [reasoningPart] },
+        { role: "user", content: "second question" },
+        { role: "assistant", content: "new answer", reasoning_parts: [reasoningPart] },
+      ],
+      "anthropic",
+    );
+
+    const oldAssistantContent = result[1]?.content as Array<{ type: string }>;
+    const newAssistantContent = result[3]?.content as Array<{ type: string }>;
+    expect(oldAssistantContent.every((part) => part.type !== "reasoning")).toBe(true);
+    expect(newAssistantContent[0]?.type).toBe("reasoning");
+  });
+
+  it("replays reasoning text verbatim without sanitization", () => {
+    const loneSurrogateText = "exact bytes \uD800 preserved";
+    const result = toCoreMessages(
+      [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: "answer",
+          reasoning_parts: [{ ...reasoningPart, text: loneSurrogateText }],
+        },
+      ],
+      "anthropic",
+    );
+
+    const assistantContent = result[1]?.content as Array<{ type: string; text?: string }>;
+    expect(assistantContent[0]?.text).toBe(loneSurrogateText);
+  });
+
+  it("does not replay when no provider name is given", () => {
+    const result = toCoreMessages([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "answer", reasoning_parts: [reasoningPart] },
+    ]);
+
+    const assistantContent = result[1]?.content as Array<{ type: string }>;
+    expect(assistantContent.every((part) => part.type !== "reasoning")).toBe(true);
   });
 });

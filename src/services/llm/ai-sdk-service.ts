@@ -62,6 +62,7 @@ import type {
 } from "@/core/types";
 import type { WebSearchConfig } from "@/core/types/config";
 import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
+import type { JsonValue } from "@/core/types/message";
 import type { ToolCall } from "@/core/types/tools";
 import { safeParseJson } from "@/core/utils/json";
 import {
@@ -190,7 +191,7 @@ function buildToolConfig(
   };
 }
 
-function toCoreMessages(
+export function toCoreMessages(
   messages: ReadonlyArray<{
     role: "system" | "user" | "assistant" | "tool";
     content: string;
@@ -202,10 +203,24 @@ function toCoreMessages(
       function: { name: string; arguments: string };
       thought_signature?: string;
     }>;
+    reasoning_parts?: ReadonlyArray<{
+      text: string;
+      provider: string;
+      providerOptions?: Record<string, Record<string, JsonValue>>;
+    }>;
   }>,
   providerName?: ProviderName,
 ): ModelMessage[] {
-  const result = messages.map((m) => {
+  let lastUserMessageIndex = -1;
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+    if (messages[messageIndex]?.role === "user") {
+      lastUserMessageIndex = messageIndex;
+      break;
+    }
+  }
+  const normalizedProviderName = providerName?.toLowerCase();
+
+  const result = messages.map((m, messageIndex) => {
     const role = m.role;
     const content = sanitize(m.content);
 
@@ -250,7 +265,26 @@ function toCoreMessages(
     }
 
     if (role === "assistant") {
-      const contentParts: Array<{ type: "text"; text: string } | ToolCallPart> = [];
+      const contentParts: Array<
+        | { type: "text"; text: string }
+        | {
+            type: "reasoning";
+            text: string;
+            providerOptions?: Record<string, Record<string, JsonValue>>;
+          }
+        | ToolCallPart
+      > = [];
+
+      if (m.reasoning_parts && messageIndex > lastUserMessageIndex && normalizedProviderName) {
+        for (const storedPart of m.reasoning_parts) {
+          if (storedPart.provider.toLowerCase() !== normalizedProviderName) continue;
+          contentParts.push({
+            type: "reasoning",
+            text: storedPart.text,
+            ...(storedPart.providerOptions ? { providerOptions: storedPart.providerOptions } : {}),
+          });
+        }
+      }
 
       if (content && content.length > 0) {
         contentParts.push({ type: "text", text: content });
