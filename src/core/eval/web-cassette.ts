@@ -10,7 +10,9 @@ type Cassette = Record<string, CassetteEntry>;
 export function requestKey(input: RequestInfo | URL, init?: RequestInit): string {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   const method = (init?.method ?? "GET").toUpperCase();
-  const body = typeof init?.body === "string" ? init.body : "";
+  let body = "";
+  if (typeof init?.body === "string") body = init.body;
+  else if (init?.body instanceof URLSearchParams) body = init.body.toString();
   return `${method} ${url} ${body}`;
 }
 

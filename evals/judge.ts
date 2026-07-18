@@ -45,7 +45,7 @@ export function makeJudge(
   return async (prompt) => {
     const proc = Bun.spawn(
       ["bun", MAIN_TS, "run", prompt, "--agent", agentId, "--json", "--timeout", String(timeoutMs)],
-      { stdout: "pipe", stderr: "pipe" },
+      { stdout: "pipe", stderr: "ignore" }, // never pipe-without-drain: jazz is chatty on stderr and would deadlock
     );
     const stdout = await new Response(proc.stdout).text();
     await proc.exited;

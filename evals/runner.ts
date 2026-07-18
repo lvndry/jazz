@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EVAL_CONFIG } from "./config";
@@ -139,8 +139,11 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteReport> {
         const rubricScore = await judge(task.prompt, result.answer, task.rubric.criteria);
         pass = rubricScore >= 0.5;
       }
-    } catch {
+    } catch (error) {
+      console.error(`eval task ${task.id} (sample ${sampleIndex}) failed:`, error);
       pass = false;
+    } finally {
+      rmSync(workspaceDir, { recursive: true, force: true });
     }
     const entry = perTask.get(task.id) ?? {
       taskId: task.id,
@@ -202,45 +205,53 @@ async function loadCalibration(): Promise<CalibrationRow[]> {
 
 function parseFlag(name: string): string | undefined {
   const index = process.argv.indexOf(name);
-  return index >= 0 ? process.argv[index + 1] : undefined;
+  if (index < 0) return undefined;
+  const value = process.argv[index + 1];
+  return value && !value.startsWith("-") ? value : undefined;
 }
 
 export async function runCli(): Promise<void> {
-  const agentId = parseFlag("--agent") ?? EVAL_CONFIG.sutAgentId;
-  const abAgent = parseFlag("--ab");
-  const samples = Number(parseFlag("--samples") ?? EVAL_CONFIG.samplesPerTask);
-  const tasks = await loadTasks();
-  if (tasks.length === 0) {
-    console.error(`No tasks found under ${TASKS_DIR}`);
-    process.exit(1);
-  }
+  try {
+    const agentId = parseFlag("--agent") ?? EVAL_CONFIG.sutAgentId;
+    const abAgent = parseFlag("--ab");
+    const samples = Number(parseFlag("--samples") ?? EVAL_CONFIG.samplesPerTask);
+    const tasks = await loadTasks();
+    if (tasks.length === 0) {
+      console.error(`No tasks found under ${TASKS_DIR}`);
+      process.exitCode = 1;
+      return;
+    }
 
-  const calibration = await loadCalibration();
-  let judgeOk = true;
-  if (calibration.length > 0) {
-    const { r, ok } = await calibrateJudge(makeJudge(), calibration);
-    judgeOk = ok;
-    console.error(
-      `Judge calibration: Pearson r=${r.toFixed(3)} (${ok ? "OK" : "UNRELIABLE — rubric scores flagged"})`,
-    );
-  }
+    const calibration = await loadCalibration();
+    let judgeOk = true;
+    if (calibration.length > 0) {
+      const { r, ok } = await calibrateJudge(makeJudge(), calibration);
+      judgeOk = ok;
+      console.error(
+        `Judge calibration: Pearson r=${r.toFixed(3)} (${ok ? "OK" : "UNRELIABLE — rubric scores flagged"})`,
+      );
+    }
 
-  mkdirSync(REPORT_DIR, { recursive: true });
-  const stamp = parseFlag("--stamp") ?? "run";
-  let report: unknown;
-  if (abAgent) {
-    report = await runAB(tasks, agentId, abAgent, samples, EVAL_CONFIG.concurrency, judgeOk);
-  } else {
-    report = await runSuite({
-      tasks,
-      agentId,
-      samples,
-      concurrency: EVAL_CONFIG.concurrency,
-      judgeOk,
-    });
+    mkdirSync(REPORT_DIR, { recursive: true });
+    const stamp = parseFlag("--stamp") ?? "run";
+    let report: unknown;
+    if (abAgent) {
+      report = await runAB(tasks, agentId, abAgent, samples, EVAL_CONFIG.concurrency, judgeOk);
+    } else {
+      report = await runSuite({
+        tasks,
+        agentId,
+        samples,
+        concurrency: EVAL_CONFIG.concurrency,
+        judgeOk,
+      });
+    }
+    const outPath = join(REPORT_DIR, `${stamp}.json`);
+    writeFileSync(outPath, JSON.stringify(report, null, 2));
+    console.error(`Report written to ${outPath}`);
+    console.log(JSON.stringify(report, null, 2));
+  } catch (error) {
+    console.error("eval run failed:", error);
+    process.exitCode = 1;
   }
-  const outPath = join(REPORT_DIR, `${stamp}.json`);
-  writeFileSync(outPath, JSON.stringify(report, null, 2));
-  console.error(`Report written to ${outPath}`);
-  console.log(JSON.stringify(report, null, 2));
 }

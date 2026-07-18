@@ -64,7 +64,13 @@ export function citationGroundingCheck(result: OneShotResult, corpusDir: string)
   const grounded: string[] = [];
   for (const file of files) {
     if (!result.answer.includes(file)) continue;
-    const lines = readFileSync(join(corpusDir, file), "utf-8")
+    let content: string;
+    try {
+      content = readFileSync(join(corpusDir, file), "utf-8");
+    } catch {
+      continue; // directory entry / unreadable file — skip, don't crash the check
+    }
+    const lines = content
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 25);
