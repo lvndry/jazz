@@ -325,7 +325,13 @@ export function App(): React.ReactElement {
       }
       // User-initiated abort — drop any open ephemeral panels (subagents,
       // reasoning) and any queued chat message so nothing gets stuck after
-      // the run is interrupted.
+      // the run is interrupted. Print immediate feedback: the loop's own
+      // "generation stopped" line can lag behind a mid-flight tool.
+      store.printOutput({
+        type: "warn",
+        message: "Interrupting…",
+        timestamp: new Date(),
+      });
       store.collapseAllEphemeral();
       store.clearQueue();
       interruptHandlerRef.current();

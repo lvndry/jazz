@@ -472,11 +472,22 @@ export class UIStore {
   }
 
   /**
-   * Collapse every open region — used on errors and /clear so panels don't
-   * get stuck. Emits no per-region summary; just removes them.
+   * Collapse every open region — used on errors, interrupts, and /clear so
+   * panels don't get stuck. Emits no per-region summary, but open reasoning
+   * regions are preserved into the expandable stack (their visible tail is
+   * the best content available here — the full text lives in the renderer),
+   * so an interrupt doesn't silently destroy in-flight reasoning.
    */
   collapseAllEphemeral = (): void => {
     if (this.ephemeralRegions.size === 0) return;
+    for (const region of this.ephemeralRegions.values()) {
+      if (region.kind !== "reasoning" || region.tail.length === 0) continue;
+      this.pushExpandableReasoning({
+        fullText: region.tail.join("\n"),
+        label: region.label,
+        durationMs: Date.now() - region.startedAt,
+      });
+    }
     this.ephemeralRegions.clear();
     this.publishEphemeralRegions();
   };
