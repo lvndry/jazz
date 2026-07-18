@@ -60,71 +60,111 @@ export function InputProvider({
     return Effect.runSync(Effect.provide(program, TerminalCapabilityServiceLive));
   });
 
-  // Track whether a paste was just handled so we can suppress
-  // Ink's useInput for the same chunk (Ink strips pasted newlines).
-  // A ref is used instead of state because the raw stdin listener and
-  // Ink's useInput fire synchronously within the same event-loop tick;
-  // a state update would only be visible after a re-render, causing the
-  // suppression flag to be missed and the pasted content to be processed
-  // twice.
-  const suppressNextRef = useRef(false);
+  // Suppression window: after the raw-data listener consumes a paste chunk,
+  // Ink's useInput still receives the same bytes (possibly split into several
+  // keypress events). A single "skip next call" flag leaks the tail events,
+  // so we suppress every useInput call inside a short wall-clock window
+  // instead — no human keystroke lands within a few ms of a paste chunk.
+  const suppressUntilRef = useRef(0);
+
+  // Buffer for a bracketed paste that spans multiple stdin chunks
+  // (non-null while inside ESC[200~ … ESC[201~).
+  const pasteBufferRef = useRef<string | null>(null);
 
   const { stdin } = useStdin();
 
-  // Intercept raw stdin to detect multi-line pastes.
-  // Ink's parseKeypress treats \r as "return" and discards the rest,
-  // so pasted multi-line text loses all content. We listen on the raw
-  // stdin 'data' event (which fires before Ink processes the chunk)
-  // and inject the text directly as a "char" action when we detect
-  // a paste containing newlines.
+  // Intercept raw stdin to handle pastes.
+  //
+  // Bracketed paste mode (enabled below) wraps pasted bytes in
+  // ESC[200~ … ESC[201~, letting us capture the exact paste content —
+  // including single-line pastes and any newlines Ink's keypress parser
+  // would otherwise swallow. The newline heuristic remains as a fallback
+  // for terminals that don't support the mode.
   useEffect(() => {
     if (!stdin) return;
+
+    const PASTE_START = "\u001b[200~";
+    const PASTE_END = "\u001b[201~";
+    const SUPPRESS_WINDOW_MS = 20;
+
+    const injectPaste = (content: string): void => {
+      const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      if (normalized.length === 0) return;
+      const charKey: KeyInfo = {
+        upArrow: false,
+        downArrow: false,
+        leftArrow: false,
+        rightArrow: false,
+        return: false,
+        escape: false,
+        ctrl: false,
+        shift: false,
+        tab: false,
+        backspace: false,
+        delete: false,
+        meta: false,
+      };
+      Effect.runSync(service.processInput(normalized, charKey));
+    };
 
     const onData = (data: Buffer | string) => {
       const text = typeof data === "string" ? data : data.toString("utf8");
 
-      // Detect a multi-line paste: contains \r\n or \n and has
-      // content beyond just the line endings themselves.
+      // Continuation of a bracketed paste from a previous chunk.
+      if (pasteBufferRef.current !== null) {
+        const endIndex = text.indexOf(PASTE_END);
+        if (endIndex === -1) {
+          pasteBufferRef.current += text;
+        } else {
+          const content = pasteBufferRef.current + text.slice(0, endIndex);
+          pasteBufferRef.current = null;
+          injectPaste(content);
+        }
+        suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
+        return;
+      }
+
+      // Start of a bracketed paste.
+      const startIndex = text.indexOf(PASTE_START);
+      if (startIndex !== -1) {
+        const afterStart = text.slice(startIndex + PASTE_START.length);
+        const endIndex = afterStart.indexOf(PASTE_END);
+        if (endIndex === -1) {
+          pasteBufferRef.current = afterStart;
+        } else {
+          injectPaste(afterStart.slice(0, endIndex));
+        }
+        suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
+        return;
+      }
+
+      // Fallback heuristic for terminals without bracketed paste: a chunk
+      // with newlines plus content is a multi-line paste.
       const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
       const hasNewlines = normalized.includes("\n");
       const hasContent = normalized.replace(/\n/g, "").length > 0;
-
       if (hasNewlines && hasContent) {
-        // This is a pasted multi-line string. Inject it directly
-        // as a char input, bypassing Ink's keypress parser.
-        const charKey: KeyInfo = {
-          upArrow: false,
-          downArrow: false,
-          leftArrow: false,
-          rightArrow: false,
-          return: false,
-          escape: false,
-          ctrl: false,
-          shift: false,
-          tab: false,
-          backspace: false,
-          delete: false,
-          meta: false,
-        };
-        Effect.runSync(service.processInput(normalized, charKey));
-        // Tell useInput handler to skip the next call (same chunk)
-        suppressNextRef.current = true;
+        injectPaste(normalized);
+        suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
       }
     };
 
     // Prepend listener so we see data before Ink's handler
     stdin.prependListener("data", onData);
+
+    // Ask the terminal to bracket pastes; restore on unmount.
+    process.stdout.write("\u001b[?2004h");
     return () => {
       stdin.removeListener("data", onData);
+      process.stdout.write("\u001b[?2004l");
     };
   }, [stdin, service]);
 
   // Bridge Ink's useInput to our InputService
   const handleInput = useCallback(
     (input: string, key: InkKey) => {
-      // Skip if we already handled this chunk as a multi-line paste
-      if (suppressNextRef.current) {
-        suppressNextRef.current = false;
+      // Skip events that belong to a paste chunk the raw listener consumed
+      if (Date.now() < suppressUntilRef.current) {
         return;
       }
 

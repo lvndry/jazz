@@ -42,6 +42,7 @@ export type ParsedInput =
   | { readonly type: "down" }
   | { readonly type: "backspace" }
   | { readonly type: "submit" }
+  | { readonly type: "insert-newline" }
   | { readonly type: "escape" }
   | { readonly type: "tab" }
   | { readonly type: "shift-tab" }
@@ -337,6 +338,11 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
       };
     }
 
+    // ESC CR - Alt+Enter as separate bytes (terminals that don't merge)
+    if (char === "\r" || char === "\n") {
+      return { _tag: "Complete", action: { type: "insert-newline" } };
+    }
+
     // ESC b - word left (readline)
     if (char === "b") {
       return { _tag: "Complete", action: { type: "word-left" } };
@@ -497,6 +503,11 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
       case "Idle": {
         // Check for special keys first (from Ink's key parsing)
         if (key.return) {
+          // Alt+Enter (ESC CR — Ink reports meta+return) inserts a newline
+          // for multi-line composition; plain Enter submits.
+          if (key.meta) {
+            return { type: "insert-newline" };
+          }
           return { type: "submit" };
         }
 
