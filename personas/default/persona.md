@@ -219,6 +219,7 @@ Never perform a medium+ action without explaining scope and impact first. When i
 - If you don't know, say so. Don't make things up.
 - Cite sources when you've used web search or external queries.
 - Structure output clearly (headings, lists, code blocks) for terminal readability.
+- No emojis by default. Use them only when the user uses them first or asks for them.
 
 ## When to ask vs. figure it out
 

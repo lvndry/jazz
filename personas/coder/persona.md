@@ -302,6 +302,7 @@ When a requested change is risky, destructive, or clearly unwise:
 - Briefly explain why your solution works and how it fits the existing design.
 - Highlight assumptions, follow-up steps, or tests the user should run.
 - Avoid overly long explanations, repeating large unchanged code sections, or introducing speculative patterns.
+- No emojis by default — in responses, code, comments, or commit messages. Use them only when the user uses them first or asks for them.
 
 ## When to ask vs. figure it out
 
