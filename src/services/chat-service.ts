@@ -150,13 +150,19 @@ export class ChatServiceImpl implements ChatService {
 
       while (chatActive) {
         let userMessage: string | undefined;
+        const queuedEntryCount = store.getMessageQueueSnapshot().length;
         const queued = store.peekQueue();
+        // A multi-entry drain is prose for the agent even if the first entry
+        // starts with "/" — parsing the joined text as one command would
+        // silently discard the other entries.
+        let drainedMultipleEntries = false;
 
         if (queued.length > 0 && !lastTurnErrored) {
           // Clean prior turn → drain the queue as the next user message
           // without re-prompting.
           store.takeQueue();
           userMessage = queued;
+          drainedMultipleEntries = queuedEntryCount > 1;
           // Echo "You: <prompt>" to scrollback so the user can see when their
           // queued message was actually popped (vs when the LLM started
           // responding to it). The interactive ask() path emits the same
@@ -234,7 +240,7 @@ export class ChatServiceImpl implements ChatService {
 
         let messageForAgent = userMessage;
 
-        if (trimmedMessage.startsWith("/")) {
+        if (trimmedMessage.startsWith("/") && !drainedMultipleEntries) {
           const specialCommand = parseSpecialCommand(userMessage);
 
           // Commands that support pass-through: trailing text is sent as a message to the agent

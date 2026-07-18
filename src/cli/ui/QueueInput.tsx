@@ -122,6 +122,11 @@ export function QueueInput({
             >
               {`  ${G.bullet} `}
               {truncateEntry(entry)}
+              {/* Slash commands only run when queued alone — a mixed queue is
+                  sent to the agent as prose. Warn while it's still editable. */}
+              {entry.trimStart().startsWith("/") && queue.length > 1 ? (
+                <Text color={THEME.warning}> (sent as text, not run — queue it alone)</Text>
+              ) : null}
             </Text>
           ))}
         </Box>

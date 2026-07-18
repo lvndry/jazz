@@ -41,11 +41,12 @@ function CommandSuggestionItem({
   return (
     <Box marginLeft={1}>
       <Text
-        color={isSelected ? THEME.selected : "white"}
+        {...(isSelected ? { color: THEME.selected } : {})}
         bold={isSelected}
       >
         {isSelected ? "> " : "  "}/{command.name}
       </Text>
+      {command.usage ? <Text color={THEME.muted}> {command.usage}</Text> : null}
       <Text dimColor> – {command.description}</Text>
     </Box>
   );

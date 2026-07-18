@@ -5,6 +5,8 @@
 export interface ChatCommandInfo {
   readonly name: string;
   readonly description: string;
+  /** Argument hint shown in autocomplete and /help, e.g. "[agent]". */
+  readonly usage?: string;
 }
 
 export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
@@ -17,25 +19,47 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "cost", description: "Show conversation token usage and estimated cost" },
   { name: "exit", description: "Exit the chat" },
   { name: "fork", description: "Fork conversation (new branch from last message)" },
-  { name: "help", description: "Show this help message" },
+  { name: "help", description: "Show available commands and shortcuts", usage: "[command]" },
   { name: "mcp", description: "Show MCP server status and connections" },
-  { name: "mode", description: "Switch between safe mode and yolo mode for tool approvals" },
-  { name: "model", description: "Show or change model and reasoning effort" },
+  {
+    name: "mode",
+    description: "Switch between safe mode and yolo mode for tool approvals",
+    usage: "[allow <cmd> | disallow <cmd>]",
+  },
+  {
+    name: "model",
+    description: "Show or change model and reasoning effort",
+    usage: "[provider/model | reasoning <level>]",
+  },
   { name: "resume", description: "Browse and resume a past conversation" },
   { name: "new", description: "Start a new conversation (clear context)" },
   { name: "skills", description: "List and view available skills" },
   { name: "stats", description: "Show session statistics and usage summary" },
-  { name: "switch", description: "Switch to a different agent in the same conversation" },
-  { name: "theme", description: "Switch between light and dark theme" },
+  {
+    name: "switch",
+    description: "Switch to a different agent in the same conversation",
+    usage: "[agent]",
+  },
+  { name: "theme", description: "Switch between light and dark theme", usage: "light|dark" },
   { name: "tools", description: "List all agent tools by category" },
-  { name: "workflows", description: "List workflows or send action (e.g. create) to the agent" },
+  {
+    name: "workflows",
+    description: "List workflows or send action (e.g. create) to the agent",
+    usage: "[action]",
+  },
 ] as const;
 
 /**
- * Filter commands by prefix (e.g. "s" matches status, skills, switch).
- * Case-insensitive.
+ * Filter commands for autocomplete. Prefix matches rank first (in list
+ * order), then substring matches (so "/ode" still surfaces /model and
+ * /mode). Case-insensitive.
  */
-export function filterCommandsByPrefix(prefix: string): readonly ChatCommandInfo[] {
-  const lower = prefix.toLowerCase();
-  return CHAT_COMMANDS.filter((cmd) => cmd.name.toLowerCase().startsWith(lower));
+export function filterCommandsByPrefix(query: string): readonly ChatCommandInfo[] {
+  const lower = query.toLowerCase();
+  const prefixMatches = CHAT_COMMANDS.filter((cmd) => cmd.name.toLowerCase().startsWith(lower));
+  if (lower.length === 0) return prefixMatches;
+  const substringMatches = CHAT_COMMANDS.filter(
+    (cmd) => !cmd.name.toLowerCase().startsWith(lower) && cmd.name.toLowerCase().includes(lower),
+  );
+  return [...prefixMatches, ...substringMatches];
 }
