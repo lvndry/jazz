@@ -25,12 +25,12 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   {
     name: "mode",
     description: "Switch between safe mode and yolo mode for tool approvals",
-    usage: "[allow <cmd> | disallow <cmd>]",
+    usage: "[allow|disallow <cmd>]",
   },
   {
     name: "model",
     description: "Show or change model and reasoning effort",
-    usage: "[provider/model | reasoning <level>]",
+    usage: "[model | reasoning <level>]",
   },
   { name: "resume", description: "Browse and resume a past conversation" },
   { name: "retry", description: "Re-send your last message" },

@@ -11,6 +11,7 @@ import { SearchSelect } from "./components/SearchSelect";
 import { TextInput } from "./components/TextInput";
 import { getGlyphs } from "./glyphs";
 import { InputResults, useInputHandler, useTextInput } from "./hooks/use-input-service";
+import { isCursorOnFirstLine, isCursorOnLastLine } from "./queue-recall";
 import { store } from "./store";
 import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
@@ -154,10 +155,12 @@ function PromptComponent({
   const filteredCommandsRef = useRef(filteredCommands);
   const selectedSuggestionIndexRef = useRef(selectedSuggestionIndex);
   const valueRef = useRef(value);
+  const cursorRef = useRef(cursor);
   setSelectedSuggestionIndexRef.current = setSelectedSuggestionIndex;
   filteredCommandsRef.current = filteredCommands;
   selectedSuggestionIndexRef.current = selectedSuggestionIndex;
   valueRef.current = value;
+  cursorRef.current = cursor;
 
   useInputHandler({
     id: "chat-command-suggestions",
@@ -213,6 +216,16 @@ function PromptComponent({
       if (history.length === 0) return InputResults.ignored();
 
       const currentValue = valueRef.current;
+      const currentCursor = cursorRef.current;
+      // Inside a multi-line buffer, ↑/↓ move the cursor between lines
+      // (handled by the text-input handler) — history only takes over at the
+      // buffer's edges, mirroring queue-recall's first-line gating.
+      if (action.type === "up" && !isCursorOnFirstLine(currentValue, currentCursor)) {
+        return InputResults.ignored();
+      }
+      if (action.type === "down" && !isCursorOnLastLine(currentValue, currentCursor)) {
+        return InputResults.ignored();
+      }
       const index = historyIndexRef.current;
       const navigating = index !== null && currentValue === history[index];
 

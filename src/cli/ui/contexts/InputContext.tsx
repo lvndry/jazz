@@ -87,6 +87,21 @@ export function InputProvider({
     const PASTE_END = "\u001b[201~";
     const SUPPRESS_WINDOW_MS = 20;
 
+    // Bytes held back because they might be the beginning of a paste marker
+    // split across stdin chunk boundaries (e.g. one chunk ends with ESC and
+    // the next begins with "[200~").
+    let markerCarry = "";
+
+    /** Longest suffix of `text` that is a proper prefix of a paste marker. */
+    const partialMarkerSuffixLength = (text: string): number => {
+      const maxLength = Math.min(text.length, PASTE_END.length - 1);
+      for (let length = maxLength; length > 0; length--) {
+        const suffix = text.slice(-length);
+        if (PASTE_START.startsWith(suffix) || PASTE_END.startsWith(suffix)) return length;
+      }
+      return 0;
+    };
+
     const injectPaste = (content: string): void => {
       const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
       if (normalized.length === 0) return;
@@ -108,17 +123,28 @@ export function InputProvider({
     };
 
     const onData = (data: Buffer | string) => {
-      const text = typeof data === "string" ? data : data.toString("utf8");
+      const chunk = typeof data === "string" ? data : data.toString("utf8");
+      // Prepend any held-back bytes that could have been the start of a
+      // marker split across chunk boundaries.
+      const text = markerCarry + chunk;
+      markerCarry = "";
 
       // Continuation of a bracketed paste from a previous chunk.
       if (pasteBufferRef.current !== null) {
         const endIndex = text.indexOf(PASTE_END);
         if (endIndex === -1) {
-          pasteBufferRef.current += text;
+          // Hold back a possible partial end-marker so it can complete on
+          // the next chunk instead of leaking into the paste content —
+          // otherwise a split ESC[201~ would swallow input forever.
+          const holdback = partialMarkerSuffixLength(text);
+          pasteBufferRef.current += holdback > 0 ? text.slice(0, -holdback) : text;
+          markerCarry = holdback > 0 ? text.slice(-holdback) : "";
         } else {
           const content = pasteBufferRef.current + text.slice(0, endIndex);
           pasteBufferRef.current = null;
           injectPaste(content);
+          const remainder = text.slice(endIndex + PASTE_END.length);
+          if (remainder.length > 0) onData(remainder);
         }
         suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
         return;
@@ -130,12 +156,24 @@ export function InputProvider({
         const afterStart = text.slice(startIndex + PASTE_START.length);
         const endIndex = afterStart.indexOf(PASTE_END);
         if (endIndex === -1) {
-          pasteBufferRef.current = afterStart;
+          const holdback = partialMarkerSuffixLength(afterStart);
+          pasteBufferRef.current = holdback > 0 ? afterStart.slice(0, -holdback) : afterStart;
+          markerCarry = holdback > 0 ? afterStart.slice(-holdback) : "";
         } else {
           injectPaste(afterStart.slice(0, endIndex));
+          const remainder = afterStart.slice(endIndex + PASTE_END.length);
+          if (remainder.length > 0) onData(remainder);
         }
         suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
         return;
+      }
+
+      // No marker found. If the chunk ends with a possible partial marker,
+      // hold those bytes back so detection works across the boundary. This
+      // only affects our detection — Ink still processes the raw chunk.
+      const holdback = partialMarkerSuffixLength(text);
+      if (holdback > 0) {
+        markerCarry = text.slice(-holdback);
       }
 
       // Fallback heuristic for terminals without bracketed paste: a chunk
@@ -152,11 +190,18 @@ export function InputProvider({
     // Prepend listener so we see data before Ink's handler
     stdin.prependListener("data", onData);
 
-    // Ask the terminal to bracket pastes; restore on unmount.
+    // Ask the terminal to bracket pastes; restore on unmount AND on hard
+    // process exit (crash/SIGINT paths skip React cleanup and would leave
+    // the terminal in bracketed-paste mode).
     process.stdout.write("\u001b[?2004h");
+    const restorePasteMode = (): void => {
+      process.stdout.write("\u001b[?2004l");
+    };
+    process.on("exit", restorePasteMode);
     return () => {
       stdin.removeListener("data", onData);
-      process.stdout.write("\u001b[?2004l");
+      process.removeListener("exit", restorePasteMode);
+      restorePasteMode();
     };
   }, [stdin, service]);
 

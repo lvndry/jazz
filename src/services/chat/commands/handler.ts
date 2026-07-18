@@ -267,7 +267,16 @@ function handleExportCommand(
     }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const targetPath = args[0] ?? `jazz-conversation-${timestamp}.md`;
+    // args is whitespace-split by the parser — rejoin so paths with spaces
+    // survive, and expand a leading ~ (the shell doesn't expand it for us).
+    const rawPath = args.join(" ").trim();
+    const homeDir = process.env["HOME"];
+    const targetPath =
+      rawPath.length > 0
+        ? rawPath.startsWith("~/") && homeDir
+          ? `${homeDir}${rawPath.slice(1)}`
+          : rawPath
+        : `jazz-conversation-${timestamp}.md`;
 
     const lines: string[] = [
       `# Conversation with ${agent.name}`,
@@ -380,7 +389,9 @@ function handleHelpCommand(
         return { shouldContinue: true };
       }
       yield* terminal.log(fmt.heading(`/${command.name}`));
-      yield* terminal.log(fmt.keyValueCompact("Usage", `/${command.name} ${command.usage ?? ""}`));
+      yield* terminal.log(
+        fmt.keyValueCompact("Usage", `/${command.name}${command.usage ? ` ${command.usage}` : ""}`),
+      );
       yield* terminal.log(fmt.keyValueCompact("Description", command.description));
       yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
@@ -829,16 +840,29 @@ function copyToClipboard(text: string): Promise<void> {
         return;
       }
       const child = spawn(candidate.cmd, candidate.args);
+      let advanced = false;
+      const advance = (): void => {
+        if (advanced) return;
+        advanced = true;
+        resolve(tryCandidate(index + 1));
+      };
+      // A dying child can emit EPIPE on stdin before 'close' — without this
+      // handler that's an uncaught exception that crashes the CLI.
+      child.stdin.on("error", advance);
+      child.on("error", advance);
+      child.on("close", (code) => {
+        if (advanced) return;
+        if (code === 0) {
+          advanced = true;
+          resolve();
+        } else {
+          // Installed but non-functional (e.g. wl-copy without a Wayland
+          // session) — fall through to the next candidate.
+          advance();
+        }
+      });
       child.stdin.write(text);
       child.stdin.end();
-      child.on("close", (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`${candidate.cmd} exited with code ${code}`));
-      });
-      child.on("error", () => {
-        // Binary missing — try the next candidate.
-        resolve(tryCandidate(index + 1));
-      });
     });
   return tryCandidate(0);
 }

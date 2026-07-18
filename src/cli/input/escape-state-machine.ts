@@ -105,6 +105,12 @@ export interface EscapeStateMachine {
 /** Maximum time to wait for escape sequence completion (ms) */
 const ESCAPE_TIMEOUT_MS = 100;
 
+/**
+ * ESC and CR arriving within this window are merged into Alt+Enter
+ * (insert-newline); a slower gap means two deliberate keypresses.
+ */
+const ALT_ENTER_MERGE_MS = 10;
+
 /** Maximum buffer length for escape sequences */
 const MAX_BUFFER_LENGTH = 10;
 
@@ -624,6 +630,13 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
       }
 
       case "EscapeReceived": {
+        // A real Alt+Enter arrives as ESC CR back-to-back (same read, <10ms).
+        // A human pressing Esc (clear draft) then Enter (submit) is far
+        // slower — treat that as a plain submit, not insert-newline.
+        if ((input === "\r" || input === "\n") && now - state.timestamp > ALT_ENTER_MERGE_MS) {
+          state = { _tag: "Idle" };
+          return { type: "submit" };
+        }
         const result = handleAfterEscape(input);
         if (result._tag === "Complete") {
           state = { _tag: "Idle" };

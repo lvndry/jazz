@@ -498,9 +498,11 @@ export class UIStore {
   collapseAllEphemeral = (): void => {
     if (this.ephemeralRegions.size === 0) return;
     for (const region of this.ephemeralRegions.values()) {
-      if (region.kind !== "reasoning" || region.tail.length === 0) continue;
+      if (region.kind !== "reasoning") continue;
+      const fullText = region.tail.join("\n").trim();
+      if (fullText.length === 0) continue;
       this.pushExpandableReasoning({
-        fullText: region.tail.join("\n"),
+        fullText,
         label: region.label,
         durationMs: Date.now() - region.startedAt,
       });

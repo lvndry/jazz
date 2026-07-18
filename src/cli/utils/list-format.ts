@@ -146,7 +146,9 @@ export function footer(text: string): string {
  * Example: `   /tools           List all agent tools by category`
  */
 export function commandRow(command: string, description: string, colWidth = 20): string {
-  const paddedCmd = command.padEnd(colWidth);
+  // padEnd is a no-op once the label exceeds the column — guarantee at
+  // least two separating spaces so the description never butts against it.
+  const paddedCmd = command.length >= colWidth ? `${command}  ` : command.padEnd(colWidth);
   return `${INDENT}${CHALK_THEME.primaryBold(paddedCmd)}${CHALK_THEME.secondary(description)}`;
 }
 

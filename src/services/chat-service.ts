@@ -159,7 +159,11 @@ export class ChatServiceImpl implements ChatService {
 
         if (queued.length > 0 && !lastTurnErrored) {
           // Clean prior turn → drain the queue as the next user message
-          // without re-prompting.
+          // without re-prompting. Record entries in input history for ↑
+          // recall parity with interactively typed messages.
+          for (const entry of store.getMessageQueueSnapshot()) {
+            store.pushInputHistory(entry);
+          }
           store.takeQueue();
           userMessage = queued;
           drainedMultipleEntries = queuedEntryCount > 1;
@@ -240,7 +244,14 @@ export class ChatServiceImpl implements ChatService {
 
         let messageForAgent = userMessage;
 
-        if (trimmedMessage.startsWith("/") && !drainedMultipleEntries) {
+        // A message with interior newlines (multi-line composition or a
+        // multi-line queued entry) is prose even when it starts with "/" —
+        // command parsing would silently discard everything after line one.
+        if (
+          trimmedMessage.startsWith("/") &&
+          !drainedMultipleEntries &&
+          !trimmedMessage.includes("\n")
+        ) {
           const specialCommand = parseSpecialCommand(userMessage);
 
           // Commands that support pass-through: trailing text is sent as a message to the agent
@@ -326,9 +337,17 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
-              // Reset logged message count when history is cleared (e.g., /new command)
-              loggedMessageCount = 0;
-              conversationTitle = null;
+              if (commandResult.resendMessage !== undefined) {
+                // /retry replays the SAME conversation — keep the title (so
+                // the exit-time save still fires) and clamp the session-log
+                // cursor instead of resetting it (a reset would re-log the
+                // entire pre-retry history as duplicate events).
+                loggedMessageCount = Math.min(loggedMessageCount, conversationHistory.length);
+              } else {
+                // Reset logged message count when history is cleared (e.g., /new command)
+                loggedMessageCount = 0;
+                conversationTitle = null;
+              }
             }
             if (commandResult.resetStartedAt) {
               startedAt = new Date().toISOString();

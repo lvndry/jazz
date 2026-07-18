@@ -8,6 +8,11 @@ export function isCursorOnFirstLine(value: string, cursor: number): boolean {
   return firstNewline === -1 || cursor <= firstNewline;
 }
 
+export function isCursorOnLastLine(value: string, cursor: number): boolean {
+  const lastNewline = value.lastIndexOf("\n");
+  return lastNewline === -1 || cursor > lastNewline;
+}
+
 export function composeRecalledBuffer(queueText: string, draft: string): RecalledBuffer {
   const value = draft.length > 0 ? `${queueText}\n${draft}` : queueText;
   return { value, cursor: value.length };
