@@ -39,6 +39,7 @@ import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workf
 import type { WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { groupWorkflows } from "@/core/workflows/workflow-utils";
 import { loadHistory } from "@/services/history/conversation-history-service";
+import { CHAT_COMMANDS } from "./constants";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
@@ -80,7 +81,7 @@ export function handleSpecialCommand(
         return yield* handleForkCommand(terminal, conversationHistory);
 
       case "help":
-        return yield* handleHelpCommand(terminal);
+        return yield* handleHelpCommand(terminal, command.args);
 
       case "tools":
         return yield* handleToolsCommand(terminal, agent);
@@ -272,36 +273,63 @@ function handleThemeCommand(
   });
 }
 
+/** Keyboard shortcuts surfaced in /help. Keep in sync with App.tsx bindings. */
+const KEYBOARD_SHORTCUTS: ReadonlyArray<readonly [keys: string, description: string]> = [
+  ["Esc Esc", "Interrupt the current generation"],
+  ["Shift+Tab", "Toggle safe/yolo approval mode"],
+  ["Ctrl+R", "Expand collapsed reasoning (repeat for earlier blocks)"],
+  ["Ctrl+O", "Expand the last truncated diff or tool output"],
+  ["Tab", "Complete the highlighted slash command"],
+  ["Up/Down", "Recall previously sent messages (empty input)"],
+  ["Alt+Enter", "Insert a newline for a multi-line message"],
+  ["Esc", "Clear the current draft"],
+  ["Up (agent busy)", "Recall queued messages for editing"],
+  ["Ctrl+X (agent busy)", "Clear the message queue"],
+];
+
 /**
- * Handle /help command - Show available commands
+ * Handle /help command. Rendered from CHAT_COMMANDS (the same list that
+ * powers autocomplete) so the two can never drift. `/help <command>` shows
+ * that command's usage detail.
  */
-function handleHelpCommand(terminal: TerminalService): Effect.Effect<CommandResult, never, never> {
+function handleHelpCommand(
+  terminal: TerminalService,
+  args: string[],
+): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
+    const requested = args[0]?.toLowerCase().replace(/^\//, "");
+    if (requested !== undefined) {
+      const command = CHAT_COMMANDS.find((candidate) => candidate.name === requested);
+      if (!command) {
+        yield* terminal.warn(`Unknown command "/${requested}". Run /help for the full list.`);
+        return { shouldContinue: true };
+      }
+      yield* terminal.log(fmt.heading(`/${command.name}`));
+      yield* terminal.log(fmt.keyValueCompact("Usage", `/${command.name} ${command.usage ?? ""}`));
+      yield* terminal.log(fmt.keyValueCompact("Description", command.description));
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true };
+    }
+
     yield* terminal.log(fmt.heading("Available Commands"));
     yield* terminal.log(
-      [
-        fmt.commandRow("/new", "Start a new conversation (clear context)"),
-        fmt.commandRow("/fork", "Fork conversation (new branch from last message)"),
-        fmt.commandRow("/tools", "List all agent tools by category"),
-        fmt.commandRow("/agents", "List all available agents"),
-        fmt.commandRow("/switch [agent]", "Switch to a different agent"),
-        fmt.commandRow("/clear", "Clear the screen"),
-        fmt.commandRow("/compact", "Summarize history to save tokens"),
-        fmt.commandRow("/context", "Show context window usage"),
-        fmt.commandRow("/cost", "Show token usage and estimated cost"),
-        fmt.commandRow("/copy", "Copy last agent response to clipboard"),
-        fmt.commandRow("/model", "Show or change model and reasoning"),
-        fmt.commandRow("/config", "Show or modify agent configuration"),
-        fmt.commandRow("/skills", "List and view available skills"),
-        fmt.commandRow("/workflows", "List or create workflows"),
-        fmt.commandRow("/stats", "Show session statistics"),
-        fmt.commandRow("/mcp", "Show MCP server status"),
-        fmt.commandRow("/mode", "Switch approval modes"),
-        fmt.commandRow("/resume", "Browse and resume a past conversation"),
-        fmt.commandRow("/help", "Show this help message"),
-        fmt.commandRow("/exit", "Exit the chat"),
-      ].join("\n"),
+      CHAT_COMMANDS.map((command) =>
+        fmt.commandRow(
+          `/${command.name}${command.usage ? ` ${command.usage}` : ""}`,
+          command.description,
+          34,
+        ),
+      ).join("\n"),
     );
+    yield* terminal.log(fmt.blank());
+    yield* terminal.log(fmt.heading("Keyboard Shortcuts"));
+    yield* terminal.log(
+      KEYBOARD_SHORTCUTS.map(([keys, description]) => fmt.commandRow(keys, description, 34)).join(
+        "\n",
+      ),
+    );
+    yield* terminal.log(fmt.footer("Run /help <command> for details on a specific command."));
+    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }

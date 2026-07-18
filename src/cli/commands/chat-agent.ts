@@ -6,6 +6,7 @@ import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import { AgentNotFoundError } from "@/core/types/errors";
 import { CommonSuggestions } from "@/core/utils/error-handler";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
+import packageJson from "../../../package.json";
 
 /**
  * CLI commands for AI-powered chat agent interactions
@@ -53,14 +54,15 @@ export function chatWithAIAgentCommand(
     yield* terminal.setTitle(`🎷 Jazz - ${agent.name}`);
     yield* terminal.clear();
     yield* terminal.heading(
-      `🤖 Starting chat with AI agent: ${agent.name} (reasoning: ${agent.config.reasoningEffort ?? "disabled"})`,
+      `${agent.name} · ${agent.config.llmProvider}/${agent.config.llmModel} · jazz v${packageJson.version}`,
     );
     if (agent.description) {
-      yield* terminal.log(`   Description: ${agent.description}`);
+      yield* terminal.log(`   ${agent.description}`);
     }
     yield* terminal.log("");
-    yield* terminal.info("Type '/help' to see available special commands.");
-    yield* terminal.info("Type '/exit' to end the conversation.");
+    yield* terminal.info(
+      "/help commands & shortcuts · /exit quit · Esc Esc interrupt · Shift+Tab approval mode · Ctrl+R reasoning · Ctrl+O expand output",
+    );
 
     // Check if model supports tools and warn if not
     const modelMeta = yield* Effect.promise(() =>
