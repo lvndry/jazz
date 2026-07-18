@@ -144,6 +144,12 @@ export function handleSpecialCommand(
       case "theme":
         return yield* handleThemeCommand(terminal, command.args);
 
+      case "export":
+        return yield* handleExportCommand(terminal, agent, conversationHistory, command.args);
+
+      case "retry":
+        return yield* handleRetryCommand(terminal, conversationHistory);
+
       case "clear":
         return yield* handleClearCommand(terminal, agent);
 
@@ -241,6 +247,75 @@ function handleForkCommand(
       newHistory,
       saveCurrentHistory: true,
     };
+  });
+}
+
+/**
+ * Handle /export command - write the conversation to a markdown file.
+ */
+function handleExportCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  conversationHistory: CommandContext["conversationHistory"],
+  args: string[],
+): Effect.Effect<CommandResult, never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    if (conversationHistory.length === 0) {
+      yield* terminal.warn("Nothing to export yet — the conversation is empty.");
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true };
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const targetPath = args[0] ?? `jazz-conversation-${timestamp}.md`;
+
+    const lines: string[] = [
+      `# Conversation with ${agent.name}`,
+      "",
+      `Exported ${new Date().toISOString()} · ${conversationHistory.length} messages`,
+      "",
+    ];
+    for (const message of conversationHistory) {
+      if (!message.content) continue;
+      const speaker = message.role === "user" ? "You" : agent.name;
+      lines.push(`## ${speaker}`, "", message.content, "");
+    }
+
+    const fs = yield* FileSystem.FileSystem;
+    const result = yield* fs.writeFileString(targetPath, lines.join("\n")).pipe(Effect.either);
+
+    if (result._tag === "Left") {
+      yield* terminal.error(`Failed to export conversation: ${String(result.left)}`);
+    } else {
+      yield* terminal.success(`Conversation exported to ${targetPath}`);
+    }
+    yield* terminal.log(fmt.blank());
+    return { shouldContinue: true };
+  });
+}
+
+/**
+ * Handle /retry command - re-send the last user message. History is
+ * truncated to just before that message so the rerun doesn't duplicate it.
+ */
+function handleRetryCommand(
+  terminal: TerminalService,
+  conversationHistory: CommandContext["conversationHistory"],
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    for (let index = conversationHistory.length - 1; index >= 0; index--) {
+      const message = conversationHistory[index];
+      if (message && message.role === "user" && message.content) {
+        return {
+          shouldContinue: true,
+          newHistory: conversationHistory.slice(0, index),
+          resendMessage: message.content,
+        };
+      }
+    }
+    yield* terminal.warn("No previous message to retry.");
+    yield* terminal.log(fmt.blank());
+    return { shouldContinue: true };
   });
 }
 
@@ -535,6 +610,7 @@ function handleSwitchCommand(
 
       if (switchResult.success) {
         const newAgent = switchResult.agent;
+        yield* terminal.setTitle(`🎷 Jazz - ${newAgent.name}`);
         yield* terminal.success(
           `Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`,
         );
@@ -723,6 +799,50 @@ function handleCompactCommand(
 /**
  * Handle /copy command - Copy last response to clipboard
  */
+/** Platform-appropriate clipboard commands, tried in order. */
+function clipboardCommands(): ReadonlyArray<{ cmd: string; args: string[] }> {
+  switch (process.platform) {
+    case "darwin":
+      return [{ cmd: "pbcopy", args: [] }];
+    case "win32":
+      return [{ cmd: "clip", args: [] }];
+    default:
+      return [
+        { cmd: "wl-copy", args: [] },
+        { cmd: "xclip", args: ["-selection", "clipboard"] },
+        { cmd: "xsel", args: ["--clipboard", "--input"] },
+      ];
+  }
+}
+
+function copyToClipboard(text: string): Promise<void> {
+  const candidates = clipboardCommands();
+  const tryCandidate = (index: number): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const candidate = candidates[index];
+      if (!candidate) {
+        reject(
+          new Error(
+            `No clipboard utility found (tried: ${candidates.map((entry) => entry.cmd).join(", ")})`,
+          ),
+        );
+        return;
+      }
+      const child = spawn(candidate.cmd, candidate.args);
+      child.stdin.write(text);
+      child.stdin.end();
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`${candidate.cmd} exited with code ${code}`));
+      });
+      child.on("error", () => {
+        // Binary missing — try the next candidate.
+        resolve(tryCandidate(index + 1));
+      });
+    });
+  return tryCandidate(0);
+}
+
 function handleCopyCommand(
   terminal: TerminalService,
   conversationHistory: CommandContext["conversationHistory"],
@@ -744,26 +864,8 @@ function handleCopyCommand(
       return { shouldContinue: true };
     }
 
-    // Copy to clipboard using pbcopy (macOS specific for now)
     yield* Effect.tryPromise({
-      try: () =>
-        new Promise<void>((resolve, reject) => {
-          const pbcopy = spawn("pbcopy");
-          pbcopy.stdin.write(lastResponse);
-          pbcopy.stdin.end();
-
-          pbcopy.on("close", (code) => {
-            if (code === 0) {
-              resolve();
-            } else {
-              reject(new Error(`pbcopy exited with code ${code}`));
-            }
-          });
-
-          pbcopy.on("error", (err) => {
-            reject(err);
-          });
-        }),
+      try: () => copyToClipboard(lastResponse),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     }).pipe(
       Effect.flatMap(() =>
@@ -775,7 +877,6 @@ function handleCopyCommand(
       Effect.catchAll((error) =>
         Effect.all([
           terminal.error(`Failed to copy to clipboard: ${error.message}`),
-          terminal.log("   (Note: /copy currently requires pbcopy on macOS)"),
           terminal.log(""),
         ]),
       ),
@@ -1412,7 +1513,14 @@ function handleModeCommand(
       return { shouldContinue: true };
     }
 
-    // Interactive: show select prompt
+    // Interactive: show select prompt. Surface the allow/disallow
+    // sub-commands here — previously they were only discoverable via the
+    // error path.
+    yield* terminal.log(
+      fmt.footer(
+        "Tip: /mode allow <cmd> auto-approves a command prefix; /mode disallow removes it.",
+      ),
+    );
     const isSafe = !currentPolicy;
     const isYolo = currentPolicy === true || currentPolicy === "high-risk";
     const selected = yield* terminal.select<string>("Select tool approval mode:", {

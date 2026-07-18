@@ -359,7 +359,14 @@ export class ChatServiceImpl implements ChatService {
               );
             }
 
-            continue;
+            if (commandResult.resendMessage !== undefined) {
+              // /retry — fall through to the agent run with the replayed
+              // message instead of prompting again.
+              messageForAgent = commandResult.resendMessage;
+              yield* terminal.user(messageForAgent);
+            } else {
+              continue;
+            }
           }
         }
 

@@ -93,6 +93,8 @@ export function chatWithAIAgentCommand(
           return yield* Effect.void;
         }),
       ),
+      // Don't leave a stale agent name in the tab title after the session.
+      Effect.ensuring(Effect.ignore(terminal.setTitle("🎷 Jazz"))),
     );
   });
 }

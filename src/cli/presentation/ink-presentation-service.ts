@@ -1129,7 +1129,7 @@ class InkPresentationService implements PresentationService {
       {
         flexDirection: "column",
         borderStyle: "round",
-        borderColor: "yellow",
+        borderColor: THEME.warning,
         paddingX: PADDING.content,
         paddingY: 1,
         marginTop: 1,
@@ -1137,7 +1137,7 @@ class InkPresentationService implements PresentationService {
       React.createElement(
         Box,
         {},
-        React.createElement(Text, { color: "yellow", bold: true }, "Approval Required"),
+        React.createElement(Text, { color: THEME.warning, bold: true }, "Approval Required"),
         React.createElement(Text, {}, " for "),
         React.createElement(Text, { color: THEME.primary, bold: true }, request.toolName),
         pendingCount > 0
@@ -1149,6 +1149,14 @@ class InkPresentationService implements PresentationService {
         { marginTop: 1 },
         React.createElement(Text, { bold: true }, request.message),
       ),
+      // Never let users approve a file edit blind: point at the diff.
+      request.previewDiff
+        ? React.createElement(
+            Box,
+            { marginTop: 1 },
+            React.createElement(Text, { dimColor: true }, "Press Ctrl+O to view the diff"),
+          )
+        : null,
     );
 
     store.printOutput({

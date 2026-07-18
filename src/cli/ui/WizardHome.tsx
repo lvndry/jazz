@@ -25,8 +25,10 @@ interface WizardHomeProps {
 
 const TIPS = [
   // CLI Shortcuts
-  "Type '/help' in chat to see special commands like /clear and /debug",
-  // "Use 'Arrow Up' in chat to recall your previous messages",
+  "Type '/help' in chat to see every command and keyboard shortcut",
+  "Use Arrow Up in chat to recall your previous messages",
+  "Press Alt+Enter in chat to write multi-line messages",
+  "Press Ctrl+R after a response to expand the agent's reasoning",
   "Run 'jazz agent list' to see all your active agents",
 
   // Agent Management

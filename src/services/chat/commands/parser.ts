@@ -58,6 +58,10 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "resume", args };
     case "theme":
       return { type: "theme", args };
+    case "export":
+      return { type: "export", args };
+    case "retry":
+      return { type: "retry", args };
     default:
       return { type: "unknown", args: [command, ...args] };
   }
