@@ -47,6 +47,7 @@
   "scripts": {
     "build": "bun run scripts/build.ts",
     "typecheck": "bun run tsc --noEmit",
+    "typecheck:evals": "tsc -p evals/tsconfig.json",
     "dev": "bun --watch src/main.ts",
     "start": "bun dist/main.js",
     "cli": "bun src/main.ts",
