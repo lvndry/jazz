@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { getGlyphs } from "@/cli/ui/glyphs";
+import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
@@ -139,6 +140,9 @@ export function handleSpecialCommand(
       case "resume":
         return yield* handleResumeCommand(terminal, agent);
 
+      case "theme":
+        return yield* handleThemeCommand(terminal, command.args);
+
       case "clear":
         return yield* handleClearCommand(terminal, agent);
 
@@ -236,6 +240,35 @@ function handleForkCommand(
       newHistory,
       saveCurrentHistory: true,
     };
+  });
+}
+
+/**
+ * Handle /theme command - show or switch the light/dark theme.
+ */
+function handleThemeCommand(
+  terminal: TerminalService,
+  args: string[],
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    const requested = args[0]?.toLowerCase();
+    if (requested === "light" || requested === "dark") {
+      setThemeVariant(requested);
+      process.env["JAZZ_THEME"] = requested;
+      yield* terminal.success(`Theme switched to ${requested}.`);
+      yield* terminal.info(
+        `Persist it across sessions with: export JAZZ_THEME=${requested} (a restart applies it to every surface).`,
+      );
+      return { shouldContinue: true };
+    }
+    if (requested !== undefined) {
+      yield* terminal.warn(`Unknown theme "${requested}".`);
+    }
+    yield* terminal.log(fmt.heading("Theme"));
+    yield* terminal.log(fmt.keyValueCompact("Current", getThemeVariant()));
+    yield* terminal.log(fmt.footer("Usage: /theme light | /theme dark"));
+    yield* terminal.log(fmt.blank());
+    return { shouldContinue: true };
   });
 }
 

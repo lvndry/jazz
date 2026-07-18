@@ -26,6 +26,7 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "skills", description: "List and view available skills" },
   { name: "stats", description: "Show session statistics and usage summary" },
   { name: "switch", description: "Switch to a different agent in the same conversation" },
+  { name: "theme", description: "Switch between light and dark theme" },
   { name: "tools", description: "List all agent tools by category" },
   { name: "workflows", description: "List workflows or send action (e.g. create) to the agent" },
 ] as const;

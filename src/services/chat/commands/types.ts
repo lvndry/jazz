@@ -25,6 +25,7 @@ export type CommandType =
   | "mcp"
   | "mode"
   | "resume"
+  | "theme"
   | "unknown";
 
 /**
