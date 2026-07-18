@@ -708,15 +708,21 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   private setupToolTimeout(toolCallId: string, toolName: string): void {
-    const timeoutId = setTimeout(() => {
-      if (this.acc.activeTools.has(toolCallId)) {
-        store.printOutput({
-          type: "warn",
-          message: `⏱️ Tool ${toolName} is taking longer than expected...`,
-          timestamp: new Date(),
-        });
-      }
-    }, InkStreamingRenderer.TOOL_WARNING_MS);
+    const startedAt = Date.now();
+    const warn = (): void => {
+      if (!this.acc.activeTools.has(toolCallId)) return;
+      const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+      store.printOutput({
+        type: "warn",
+        message: `Tool ${toolName} still running after ${elapsedSeconds}s (press Esc twice to interrupt)`,
+        timestamp: new Date(),
+      });
+      // Re-arm so multi-minute tools keep reassuring the user instead of
+      // going silent after a single warning.
+      const timeoutId = setTimeout(warn, InkStreamingRenderer.TOOL_WARNING_MS);
+      this.toolTimeouts.set(toolCallId, timeoutId);
+    };
+    const timeoutId = setTimeout(warn, InkStreamingRenderer.TOOL_WARNING_MS);
     this.toolTimeouts.set(toolCallId, timeoutId);
   }
 

@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { getGlyphs } from "./glyphs";
 import type { EphemeralRegion } from "./store";
@@ -24,6 +24,14 @@ function elapsed(startedAt: number): string {
  * character-by-character wrapping under load.
  */
 export function EphemeralPanel({ region }: { region: EphemeralRegion }): React.ReactElement {
+  // Tick once a second so the elapsed header keeps advancing even when the
+  // region receives no new content — a stalled panel otherwise looks hung.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick((tick) => tick + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const headerColor = region.kind === "reasoning" ? THEME.reasoning : THEME.agent;
   const tailColor = region.kind === "reasoning" ? THEME.reasoning : "white";
 
