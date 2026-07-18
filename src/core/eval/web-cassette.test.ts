@@ -1,11 +1,25 @@
 import { promises as fs } from "node:fs";
 import { afterEach, describe, expect, it } from "bun:test";
-import { installWebCassette, requestKey } from "./web-cassette";
+import { installWebCassette, isBypassHost, requestKey } from "./web-cassette";
 
 const CASSETTE = "/tmp/jazz-eval-cassette-test.json";
 const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
+});
+
+describe("isBypassHost", () => {
+  it("bypasses LLM-provider and infra hosts (so the cassette never starves the model call)", () => {
+    expect(isBypassHost("https://api.openai.com/v1/responses")).toBe(true);
+    expect(isBypassHost("https://openrouter.ai/api/v1/chat/completions")).toBe(true);
+    expect(isBypassHost("https://generativelanguage.googleapis.com/v1")).toBe(true);
+    expect(isBypassHost("http://localhost:11434/api/chat")).toBe(true);
+    expect(isBypassHost("https://models.dev/api.json")).toBe(true);
+  });
+  it("does not bypass genuine web-tool hosts", () => {
+    expect(isBypassHost("https://example.com/article")).toBe(false);
+    expect(isBypassHost("https://en.wikipedia.org/wiki/Recursion")).toBe(false);
+  });
 });
 
 describe("web-cassette", () => {

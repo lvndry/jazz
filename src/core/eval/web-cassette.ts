@@ -14,6 +14,42 @@ export function requestKey(input: RequestInfo | URL, init?: RequestInit): string
   return `${method} ${url} ${body}`;
 }
 
+// Hosts the cassette must NEVER intercept: the LLM provider APIs (the model
+// call itself), model-metadata, and local model servers. Only genuine web-tool
+// traffic is recorded/replayed — otherwise replay mode would starve the LLM.
+const BYPASS_HOST_SUBSTRINGS = [
+  "openai.com",
+  "openrouter.ai",
+  "anthropic.com",
+  "googleapis.com",
+  "mistral.ai",
+  "groq.com",
+  "x.ai",
+  "together.xyz",
+  "together.ai",
+  "cohere.com",
+  "fireworks.ai",
+  "deepseek.com",
+  "moonshot",
+  "minimax",
+  "cerebras",
+  "dashscope",
+  "models.dev",
+  "localhost",
+  "127.0.0.1",
+];
+
+export function isBypassHost(input: RequestInfo | URL): boolean {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return BYPASS_HOST_SUBSTRINGS.some((needle) => host.includes(needle));
+}
+
 /**
  * Monkeypatch globalThis.fetch for deterministic evals. Inert unless installed.
  * replay: serve only recorded requests; throw on a miss (never silently hit the
@@ -26,6 +62,7 @@ export function installWebCassette(cassettePath: string, mode: "record" | "repla
     : {};
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (isBypassHost(input)) return realFetch(input, init);
     const key = requestKey(input, init);
     if (mode === "replay") {
       const entry = cassette[key];

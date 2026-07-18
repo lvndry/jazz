@@ -87,7 +87,7 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
     "--timeout",
     String(options.timeoutMs),
   ];
-  if (options.reasoningEffort) argv.push("--reasoning-effort", options.reasoningEffort);
+  if (options.reasoningEffort) argv.push("--reasoning", options.reasoningEffort);
 
   const proc = Bun.spawn(argv, {
     cwd: options.workspaceDir,
