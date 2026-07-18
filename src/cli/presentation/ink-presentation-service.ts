@@ -36,6 +36,7 @@ import {
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { isInsideOpenStructure } from "./markdown-split";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
+import { getGlyphs } from "../ui/glyphs";
 import { store } from "../ui/store";
 import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
 
@@ -373,7 +374,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const durationMs = Date.now() - this.reasoningStartedAt;
     const seconds = (durationMs / 1000).toFixed(1);
     const tokenSegment = tokens !== undefined ? ` · ${tokens} tokens` : "";
-    const line = chalk.dim(chalk.italic(`✓ Reasoning · ${seconds}s${tokenSegment}`));
+    const line = chalk.dim(
+      chalk.italic(`${getGlyphs().success} Reasoning · ${seconds}s${tokenSegment}`),
+    );
 
     store.collapseEphemeral(this.reasoningRegionId, {
       line,
@@ -888,7 +891,7 @@ class InkPresentationService implements PresentationService {
 
   presentAgentResponse(agentName: string, content: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      const header = CHALK_THEME.primaryBold(`◉ ${agentName}:`);
+      const header = CHALK_THEME.primaryBold(`${getGlyphs().active} ${agentName}:`);
       const rendered = this.formatMarkdownText(content);
       store.printOutput({
         type: "log",
@@ -974,12 +977,13 @@ class InkPresentationService implements PresentationService {
     level: "info" | "success" | "warning" | "error" | "progress",
   ): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      const glyphs = getGlyphs();
       const icons: Record<typeof level, { icon: string; color: string }> = {
-        info: { icon: "ℹ", color: "blue" },
-        success: { icon: "✓", color: "green" },
-        warning: { icon: "⚠", color: "yellow" },
-        error: { icon: "✗", color: "red" },
-        progress: { icon: "⏳", color: "cyan" },
+        info: { icon: glyphs.info, color: "blue" },
+        success: { icon: glyphs.success, color: "green" },
+        warning: { icon: glyphs.warn, color: "yellow" },
+        error: { icon: glyphs.error, color: "red" },
+        progress: { icon: glyphs.pending, color: "cyan" },
       };
       const { icon, color } = icons[level];
       const colorFn = chalk[color as keyof typeof chalk] as (s: string) => string;

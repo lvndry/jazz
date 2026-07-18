@@ -16,6 +16,7 @@ import {
   formatToolArguments as formatToolArgumentsCore,
   formatToolResult as formatToolResultCore,
 } from "@/core/utils/tool-formatter";
+import { getGlyphs } from "../ui/glyphs";
 import { CHALK_THEME } from "../ui/theme";
 
 // ---------------------------------------------------------------------------
@@ -43,27 +44,27 @@ export function formatToolResult(toolName: string, result: string): string {
 
 export function formatThinking(agentName: string, isFirstIteration: boolean = false): string {
   const message = isFirstIteration ? "thinking..." : "processing results...";
-  return CHALK_THEME.primary(`◉  ${agentName} is ${message}`);
+  return CHALK_THEME.primary(`${getGlyphs().active}  ${agentName} is ${message}`);
 }
 
 export function formatCompletion(agentName: string): string {
-  return chalk.greenBright(`✔  ${agentName} completed successfully`);
+  return chalk.greenBright(`${getGlyphs().success}  ${agentName} completed successfully`);
 }
 
 export function formatWarning(agentName: string, message: string): string {
-  return chalk.yellowBright(`⚠  ${agentName}: ${message}`);
+  return chalk.yellowBright(`${getGlyphs().warn}  ${agentName}: ${message}`);
 }
 
 export function formatToolExecutionStart(toolName: string, argsStr: string): string {
-  return `\n${chalk.cyanBright("▸")} Executing tool: ${chalk.cyanBright.bold(toolName)}${chalk.cyan(argsStr)}...`;
+  return `\n${chalk.cyanBright(getGlyphs().arrow)} Executing tool: ${chalk.cyanBright.bold(toolName)}${chalk.cyan(argsStr)}...`;
 }
 
 export function formatToolExecutionComplete(summary: string | null, durationMs: number): string {
-  return ` ${chalk.greenBright("✔")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+  return ` ${chalk.greenBright(getGlyphs().success)}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${durationMs}ms)`)}\n`;
 }
 
 export function formatToolExecutionError(errorMessage: string, durationMs: number): string {
-  return ` ${chalk.redBright("✖")} ${chalk.redBright(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+  return ` ${chalk.redBright(getGlyphs().error)} ${chalk.redBright(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
 }
 
 /**
@@ -97,7 +98,7 @@ export function formatToolsDetected(
       return name;
     })
     .join(", ");
-  return `\n${chalk.yellow("⌁")} ${chalk.yellow(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
+  return `\n${chalk.yellow(getGlyphs().arrow)} ${chalk.yellow(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
 }
 
 // ---------------------------------------------------------------------------

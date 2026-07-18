@@ -13,14 +13,13 @@
  */
 
 import chalk from "chalk";
+import { getGlyphs } from "../ui/glyphs";
 import { CHALK_THEME } from "../ui/theme";
 
 // ── Indentation & symbols ────────────────────────────────────────────
 
 const INDENT = "   ";
 const ITEM_INDENT = "      ";
-const BULLET = "•";
-const ARROW = "▸";
 
 // ── Heading ──────────────────────────────────────────────────────────
 
@@ -55,7 +54,7 @@ export function section(label: string, count?: number, unit?: string): string {
  * Example: `      • shell_exec`
  */
 export function item(name: string): string {
-  return `${ITEM_INDENT}${CHALK_THEME.secondary(BULLET)} ${CHALK_THEME.primary(name)}`;
+  return `${ITEM_INDENT}${CHALK_THEME.secondary(getGlyphs().bullet)} ${CHALK_THEME.primary(name)}`;
 }
 
 /**
@@ -64,7 +63,7 @@ export function item(name: string): string {
  * Example: `      • git-commit - Commit staged changes`
  */
 export function itemWithDesc(name: string, description: string): string {
-  return `${ITEM_INDENT}${CHALK_THEME.secondary(BULLET)} ${CHALK_THEME.primary(name)} ${CHALK_THEME.secondary("-")} ${CHALK_THEME.secondary(description)}`;
+  return `${ITEM_INDENT}${CHALK_THEME.secondary(getGlyphs().bullet)} ${CHALK_THEME.primary(name)} ${CHALK_THEME.secondary("-")} ${CHALK_THEME.secondary(description)}`;
 }
 
 /**
@@ -74,7 +73,7 @@ export function itemWithDesc(name: string, description: string): string {
  */
 export function labeledItem(name: string, suffix?: string): string {
   const sfx = suffix ? ` ${CHALK_THEME.secondary(suffix)}` : "";
-  return `${INDENT}${CHALK_THEME.primary(ARROW)} ${CHALK_THEME.primaryBold(name)}${sfx}`;
+  return `${INDENT}${CHALK_THEME.primary(getGlyphs().arrow)} ${CHALK_THEME.primaryBold(name)}${sfx}`;
 }
 
 /**
@@ -117,7 +116,7 @@ export function keyValueCompact(key: string, value: string, width = 14): string 
  * Example: `   ● my-server`
  */
 export function statusConnected(name: string): string {
-  return `${INDENT}${chalk.green("●")} ${CHALK_THEME.primaryBold(name)}`;
+  return `${INDENT}${chalk.green(getGlyphs().active)} ${CHALK_THEME.primaryBold(name)}`;
 }
 
 /**
@@ -126,7 +125,7 @@ export function statusConnected(name: string): string {
  * Example: `   ○ my-server`
  */
 export function statusDisconnected(name: string): string {
-  return `${INDENT}${CHALK_THEME.secondary("○")} ${CHALK_THEME.white(name)}`;
+  return `${INDENT}${CHALK_THEME.secondary(getGlyphs().pending)} ${CHALK_THEME.white(name)}`;
 }
 
 // ── Footer / totals ──────────────────────────────────────────────────

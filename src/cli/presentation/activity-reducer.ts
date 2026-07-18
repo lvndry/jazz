@@ -19,6 +19,7 @@ import type { TerminalOutput } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
 import { formatToolArguments, formatToolResult } from "./format-utils";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
+import { getGlyphs } from "../ui/glyphs";
 import { PADDING, THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
 
@@ -199,17 +200,18 @@ function findLatestTodoSnapshot(
 }
 
 function formatTodoSnapshotForOutput(todoSnapshot: TodoSnapshotItem[]): string {
+  const glyphs = getGlyphs();
   const lines = todoSnapshot.map((todo) => {
     switch (todo.status) {
       case "completed":
-        return `✓ ${todo.content}`;
+        return `${glyphs.success} ${todo.content}`;
       case "in_progress":
-        return `◐ ${todo.content}`;
+        return `${glyphs.proposed} ${todo.content}`;
       case "cancelled":
-        return `✗ ${todo.content}`;
+        return `${glyphs.error} ${todo.content}`;
       case "pending":
       default:
-        return `○ ${todo.content}`;
+        return `${glyphs.pending} ${todo.content}`;
     }
   });
   return lines.join("\n");
@@ -405,7 +407,7 @@ export function reduceEvent(
               React.createElement(
                 Box,
                 null,
-                React.createElement(Text, { color: THEME.success }, "✔ "),
+                React.createElement(Text, { color: THEME.success }, `${getGlyphs().success} `),
                 React.createElement(Text, { color: THEME.agent }, headerLine),
                 React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
               ),
@@ -429,7 +431,7 @@ export function reduceEvent(
             React.createElement(
               Box,
               { paddingLeft: PADDING.content },
-              React.createElement(Text, { color: THEME.success }, "✔ "),
+              React.createElement(Text, { color: THEME.success }, `${getGlyphs().success} `),
               React.createElement(Text, { color: THEME.agent }, singleLineSummary),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
             ),

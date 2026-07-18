@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { AWAITING_LABELS, createAccumulator, reduceEvent } from "./activity-reducer";
 import type { ReducerAccumulator } from "./activity-reducer";
+import { getGlyphs } from "../ui/glyphs";
 
 /** Stub ink renderer — returns the string tag for assertions. */
 const stubInk = (node: unknown) => `[ink:${typeof node}]`;
@@ -354,10 +355,11 @@ describe("activity-reducer", () => {
       );
 
       expect(result.outputs).toHaveLength(2);
+      const glyphs = getGlyphs();
       const outputText = nodes.map((node) => extractText(node)).join("\n");
       expect(outputText).toContain("Todo list");
-      expect(outputText).toContain("✓ Check status");
-      expect(outputText).toContain("◐ Push branch");
+      expect(outputText).toContain(`${glyphs.success} Check status`);
+      expect(outputText).toContain(`${glyphs.proposed} Push branch`);
       expect(outputText).not.toMatch(/manage_todos done/);
     });
   });
