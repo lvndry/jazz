@@ -40,6 +40,7 @@ import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { getGlyphs } from "../ui/glyphs";
 import { store } from "../ui/store";
 import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
+import { separatorLine } from "../utils/string-utils";
 
 /**
  * Bridges the pure activity reducer with Ink's rendering system.
@@ -633,30 +634,30 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     const parts: string[] = [];
     if (event.metrics.firstTokenLatencyMs) {
-      parts.push(`First token: ${event.metrics.firstTokenLatencyMs}ms`);
+      parts.push(`first token ${event.metrics.firstTokenLatencyMs}ms`);
     }
     if (event.metrics.tokensPerSecond) {
-      parts.push(`Speed: ${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
+      parts.push(`${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
     }
     const usage = event.response.usage;
     if (usage) {
-      parts.push(`Input: ${usage.promptTokens}`);
-      parts.push(`Output: ${usage.completionTokens}`);
+      parts.push(`in ${usage.promptTokens.toLocaleString()}`);
+      parts.push(`out ${usage.completionTokens.toLocaleString()}`);
       if (usage.reasoningTokens !== undefined && usage.reasoningTokens > 0) {
-        parts.push(`Reasoning: ${usage.reasoningTokens}`);
+        parts.push(`reasoning ${usage.reasoningTokens.toLocaleString()}`);
       }
-      parts.push(`Total: ${usage.totalTokens} tokens`);
+      parts.push(`total ${usage.totalTokens.toLocaleString()}`);
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
       this.acc.lastPromptTokens = usage.promptTokens;
       store.updateRunStats({ tokensInContext: usage.promptTokens });
     } else if (event.metrics.totalTokens) {
-      parts.push(`Total: ${event.metrics.totalTokens} tokens`);
+      parts.push(`total ${event.metrics.totalTokens.toLocaleString()}`);
     }
     if (parts.length > 0) {
       store.printOutput({
         type: "debug",
-        message: `[${parts.join(" | ")}]`,
+        message: parts.join(" · "),
         timestamp: new Date(),
       });
     }
@@ -697,7 +698,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
         store.printOutput({
           type: "debug",
-          message: `[Cost: ${fmt(inputCost)} input + ${fmt(outputCost)} output = ${fmt(totalCost)} total]`,
+          message: `cost ${fmt(totalCost)} (${fmt(inputCost)} in + ${fmt(outputCost)} out)`,
           timestamp: new Date(),
         });
 
@@ -1307,7 +1308,7 @@ class InkPresentationService implements PresentationService {
     }
 
     // Show the question with formatted suggestions
-    const separator = chalk.dim("─".repeat(50));
+    const separator = chalk.dim(separatorLine(50));
     store.printOutput({
       type: "log",
       message: `\n${separator}`,
@@ -1358,7 +1359,7 @@ class InkPresentationService implements PresentationService {
   requestFilePicker(request: FilePickerRequest): Effect.Effect<string, never> {
     return Effect.async((resume) => {
       // Show the file picker prompt
-      const separator = chalk.dim("─".repeat(50));
+      const separator = chalk.dim(separatorLine(50));
       store.printOutput({
         type: "log",
         message: `\n${separator}`,

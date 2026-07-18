@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
+import { separatorLine } from "@/cli/utils/string-utils";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import type {
@@ -198,7 +199,7 @@ export class CLIPresentationService implements PresentationService {
     return Effect.gen(this, function* () {
       // Format the approval message with details about the action
       const toolLabel = CHALK_THEME.primary(request.toolName);
-      const separator = chalk.dim("─".repeat(50));
+      const separator = chalk.dim(separatorLine(50));
 
       // Write the approval details
       yield* this.writeOutput(`\n${separator}\n`);
@@ -265,7 +266,7 @@ export class CLIPresentationService implements PresentationService {
 
   requestUserInput(request: UserInputRequest): Effect.Effect<string, never> {
     return Effect.gen(this, function* () {
-      const separator = chalk.dim("─".repeat(50));
+      const separator = chalk.dim(separatorLine(50));
 
       // Display the question
       yield* this.writeOutput(`\n${separator}\n`);
@@ -296,7 +297,7 @@ export class CLIPresentationService implements PresentationService {
 
   requestFilePicker(request: FilePickerRequest): Effect.Effect<string, never> {
     return Effect.gen(this, function* () {
-      const separator = chalk.dim("─".repeat(50));
+      const separator = chalk.dim(separatorLine(50));
 
       // Display the prompt
       yield* this.writeOutput(`\n${separator}\n`);

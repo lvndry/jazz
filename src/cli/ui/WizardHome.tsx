@@ -1,3 +1,4 @@
+import chalk from "chalk";
 import { Box, Text, useInput } from "ink";
 import BigText from "ink-big-text";
 import Gradient from "ink-gradient";
@@ -5,6 +6,7 @@ import SelectInput from "ink-select-input";
 import React, { useState, useEffect } from "react";
 import { THEME } from "./theme";
 import packageJson from "../../../package.json";
+import { getTerminalWidth, separatorLine } from "../utils/string-utils";
 
 /**
  * Menu option for the wizard
@@ -101,18 +103,29 @@ export function WizardHome({
       paddingX={2}
       paddingY={1}
     >
-      {/* Logo */}
+      {/* Logo — the block-font ASCII art is ~30 columns wide and the gradient
+          needs decent color depth; fall back to a plain bold title on narrow
+          or low-color terminals instead of wrapping into garbage. */}
       <Box
         flexDirection="column"
         alignItems="center"
         marginBottom={1}
       >
-        <Gradient name="morning">
-          <BigText
-            text="Jazz"
-            font="block"
-          />
-        </Gradient>
+        {getTerminalWidth() >= 44 && chalk.level >= 2 ? (
+          <Gradient name="morning">
+            <BigText
+              text="Jazz"
+              font="block"
+            />
+          </Gradient>
+        ) : (
+          <Text
+            bold
+            color={THEME.primary}
+          >
+            Jazz
+          </Text>
+        )}
         <Text dimColor>v{packageJson.version} • Agentic CLI 🎷</Text>
       </Box>
 
@@ -145,7 +158,7 @@ export function WizardHome({
         marginTop={1}
         flexDirection="column"
       >
-        <Text dimColor>{"─".repeat(40)}</Text>
+        <Text dimColor>{separatorLine(40)}</Text>
         <Box marginTop={1}>
           <Text color={THEME.primary}>💡 </Text>
           <Text

@@ -111,6 +111,19 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     // Log entries: render just the text with no icon/space siblings.
     // No pre-wrapping — the terminal handles line wrapping natively.
     if (entry.type === "log") {
+      // A blank log line is a spacer — render exactly one row. With the
+      // default marginBottom it occupied two, and command output that emits
+      // fmt.blank() twice ballooned to ~4 empty rows.
+      if (entry.message === "") {
+        return (
+          <Box
+            marginTop={0}
+            marginBottom={0}
+          >
+            <Text> </Text>
+          </Box>
+        );
+      }
       return (
         <Box
           marginTop={addSpacing ? 1 : 0}

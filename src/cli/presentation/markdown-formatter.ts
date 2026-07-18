@@ -111,9 +111,10 @@ const HEADING_AGENT = CHALK_THEME.agentBold;
 const HEADING_LINK = chalk.hex(THEME.link).bold;
 /**
  * H4 intentionally not bold so readers feel a weight drop from H3 → H4 even
- * without font-size changes.
+ * without font-size changes. Secondary color only — stacking dim on top made
+ * H4 nearly invisible on many terminals.
  */
-const HEADING_MUTED = chalk.dim.hex(THEME.secondary);
+const HEADING_MUTED = chalk.hex(THEME.secondary);
 const ITALIC_MUTED = chalk.italic.hex(THEME.secondary);
 
 /**

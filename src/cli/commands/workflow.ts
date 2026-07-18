@@ -4,6 +4,7 @@ import SelectInput from "ink-select-input";
 import React from "react";
 import { store } from "@/cli/ui/store";
 import { THEME } from "@/cli/ui/theme";
+import { separatorLine } from "@/cli/utils/string-utils";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -175,9 +176,9 @@ export function showWorkflowCommand(workflowName: string) {
     }
 
     yield* terminal.log("");
-    yield* terminal.log("─".repeat(60));
+    yield* terminal.log(separatorLine(60));
     yield* terminal.log("Prompt:");
-    yield* terminal.log("─".repeat(60));
+    yield* terminal.log(separatorLine(60));
     yield* terminal.log(workflow.prompt);
   });
 }

@@ -2,6 +2,8 @@
  * String and text formatting utilities for CLI output.
  */
 
+import { getGlyphs } from "../ui/glyphs";
+
 /**
  * Get the current terminal width, defaulting to 80 if not available.
  */
@@ -11,6 +13,16 @@ export function getTerminalWidth(): number {
   } catch {
     return 80;
   }
+}
+
+/**
+ * Glyph-aware horizontal rule capped at `maxWidth` and at the current
+ * terminal width, so separators neither wrap on narrow terminals nor look
+ * stubby relative to intent on wide ones.
+ */
+export function separatorLine(maxWidth = 60): string {
+  const width = Math.max(10, Math.min(maxWidth, getTerminalWidth() - 2));
+  return getGlyphs().divider.repeat(width);
 }
 
 /**
