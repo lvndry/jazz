@@ -1,7 +1,10 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useMemo, useState } from "react";
+import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
+
+const G = getGlyphs();
 
 interface ScrollableMultiSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];
@@ -152,12 +155,21 @@ export function ScrollableMultiSelect<T = unknown>({
         const isSelected = selectedIndexes.has(absoluteIndex);
 
         return (
-          <Text
-            key={absoluteIndex}
-            {...(isActive ? { color: THEME.selected, bold: true as const } : {})}
-          >
-            {isActive ? ">" : " "} [{isSelected ? "x" : " "}] {choice.label}
-          </Text>
+          <Box key={absoluteIndex}>
+            <Text
+              color={THEME.primary}
+              bold
+            >
+              {isActive ? G.rail : " "}
+            </Text>
+            <Text
+              color={isActive ? THEME.selected : THEME.secondary}
+              bold={isActive}
+            >
+              {" "}
+              [{isSelected ? "x" : " "}] {choice.label}
+            </Text>
+          </Box>
         );
       })}
 
