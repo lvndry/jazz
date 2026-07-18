@@ -27,7 +27,6 @@ import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
   formatToolResult,
-  formatCompletion,
   formatWarning,
   formatToolExecutionStartEffect,
   formatToolExecutionCompleteEffect,
@@ -574,8 +573,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     if (this.showMetrics && event.metrics) {
       store.printOutput({ type: "log", message: "", timestamp: new Date() });
-      this.printMetrics(event);
-      this.printCost(event);
+      this.printOutro(event);
     }
 
     store.setActivity({ phase: "idle" });
@@ -628,101 +626,91 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
   }
 
-  /** Print token usage metrics. */
-  private printMetrics(event: Extract<StreamEvent, { type: "complete" }>): void {
-    if (!event.metrics) return;
+  /**
+   * The turn outro: ONE quiet line closing the turn —
+   * `✓ 4.2s · 9.3k in → 28 out · $0.0019` — replacing the old trio of
+   * metrics line, cost line, and "completed successfully" banner.
+   *
+   * Cost joins the line when pricing is in the synchronous cache (the common
+   * case); on a cold cache the footer still gets the async update, but no
+   * late line is printed after the prompt has already returned.
+   */
+  private printOutro(event: Extract<StreamEvent, { type: "complete" }>): void {
+    const compactTokens = (count: number): string => {
+      if (count < 1000) return `${count}`;
+      if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
+      return `${Math.round(count / 1000)}k`;
+    };
+    const formatCost = (cost: number): string => {
+      if (cost === 0) return "$0.00";
+      if (cost >= 0.01) return `$${cost.toFixed(2)}`;
+      if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
+      return `<$0.0001`;
+    };
 
     const parts: string[] = [];
-    if (event.metrics.firstTokenLatencyMs) {
-      parts.push(`first token ${event.metrics.firstTokenLatencyMs}ms`);
+    if (event.totalDurationMs > 0) {
+      parts.push(`${(event.totalDurationMs / 1000).toFixed(1)}s`);
     }
-    if (event.metrics.tokensPerSecond) {
-      parts.push(`${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
-    }
+
     const usage = event.response.usage;
     if (usage) {
-      parts.push(`in ${usage.promptTokens.toLocaleString()}`);
-      parts.push(`out ${usage.completionTokens.toLocaleString()}`);
-      if (usage.reasoningTokens !== undefined && usage.reasoningTokens > 0) {
-        parts.push(`reasoning ${usage.reasoningTokens.toLocaleString()}`);
-      }
-      parts.push(`total ${usage.totalTokens.toLocaleString()}`);
+      parts.push(
+        `${compactTokens(usage.promptTokens)} in → ${compactTokens(usage.completionTokens)} out`,
+      );
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
       this.acc.lastPromptTokens = usage.promptTokens;
       store.updateRunStats({ tokensInContext: usage.promptTokens });
-    } else if (event.metrics.totalTokens) {
-      parts.push(`total ${event.metrics.totalTokens.toLocaleString()}`);
-    }
-    if (parts.length > 0) {
-      store.printOutput({
-        type: "debug",
-        message: parts.join(" · "),
-        timestamp: new Date(),
-      });
-    }
-  }
-
-  /**
-   * Calculate and display cost. Uses synchronous cache lookup when possible
-   * to avoid the cost line popping in after the prompt. Falls back to async
-   * fetch on first run before the cache is warm.
-   */
-  private printCost(event: Extract<StreamEvent, { type: "complete" }>): void {
-    const usage = event.response.usage;
-    if (!usage || !this.acc.currentProvider || !this.acc.currentModel) {
-      return;
+    } else if (event.metrics?.totalTokens) {
+      parts.push(`${compactTokens(event.metrics.totalTokens)} tok`);
     }
 
     const provider = this.acc.currentProvider;
     const model = this.acc.currentModel;
-    const promptTokens = usage.promptTokens;
-    const completionTokens = usage.completionTokens;
-
-    const emitCost = (
-      meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined,
-    ): void => {
-      if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
-        const inputPrice = meta.inputPricePerMillion ?? 0;
-        const outputPrice = meta.outputPricePerMillion ?? 0;
-        const inputCost = (promptTokens / 1_000_000) * inputPrice;
-        const outputCost = (completionTokens / 1_000_000) * outputPrice;
-        const totalCost = inputCost + outputCost;
-
-        const fmt = (cost: number): string => {
-          if (cost === 0) return "$0.00";
-          if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-          if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-          return `$${cost.toExponential(2)}`;
-        };
-
-        store.printOutput({
-          type: "debug",
-          message: `cost ${fmt(totalCost)} (${fmt(inputCost)} in + ${fmt(outputCost)} out)`,
-          timestamp: new Date(),
-        });
-
-        // Roll session-cumulative cost into the persistent footer.
+    if (usage && provider && model) {
+      const computeCost = (
+        meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined,
+      ): number | null => {
+        if (meta?.inputPricePerMillion === undefined && meta?.outputPricePerMillion === undefined) {
+          return null;
+        }
+        const inputCost = (usage.promptTokens / 1_000_000) * (meta.inputPricePerMillion ?? 0);
+        const outputCost = (usage.completionTokens / 1_000_000) * (meta.outputPricePerMillion ?? 0);
+        return inputCost + outputCost;
+      };
+      const rollIntoFooter = (totalCost: number): void => {
         this.acc.cumulativeCostUSD += totalCost;
-        store.updateRunStats({
-          model,
-          provider,
-          costUSD: this.acc.cumulativeCostUSD,
-        });
-      }
-    };
+        store.updateRunStats({ model, provider, costUSD: this.acc.cumulativeCostUSD });
+      };
 
-    // Try synchronous cache hit first to avoid async print-after-prompt
-    const cachedMeta = getModelsDevMetadataSync(model, provider);
-    if (cachedMeta !== undefined) {
-      emitCost(cachedMeta);
-    } else {
-      // Fallback: async fetch (first run before cache is warm)
-      void getModelsDevMetadata(model, provider)
-        .then(emitCost)
-        .catch(() => {
-          /* pricing unavailable — omit cost line */
-        });
+      const cachedMeta = getModelsDevMetadataSync(model, provider);
+      if (cachedMeta !== undefined) {
+        const totalCost = computeCost(cachedMeta);
+        if (totalCost !== null) {
+          rollIntoFooter(totalCost);
+          parts.push(formatCost(totalCost));
+        }
+      } else {
+        // Cold cache: keep the footer accurate without printing a straggler
+        // line after the prompt has returned.
+        void getModelsDevMetadata(model, provider)
+          .then((meta) => {
+            const totalCost = computeCost(meta);
+            if (totalCost !== null) rollIntoFooter(totalCost);
+          })
+          .catch(() => {
+            /* pricing unavailable */
+          });
+      }
+    }
+
+    if (parts.length > 0) {
+      store.printOutput({
+        type: "debug",
+        message: `${getGlyphs().success} ${parts.join(" · ")}`,
+        timestamp: new Date(),
+      });
     }
   }
 
@@ -927,14 +915,11 @@ class InkPresentationService implements PresentationService {
     });
   }
 
-  presentCompletion(agentName: string): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      store.printOutput({
-        type: "info",
-        message: formatCompletion(agentName),
-        timestamp: new Date(),
-      });
-    });
+  presentCompletion(_agentName: string): Effect.Effect<void, never> {
+    // Intentionally silent: the turn outro line (duration · tokens · cost)
+    // already marks completion — a second "completed successfully" banner
+    // was pure noise.
+    return Effect.void;
   }
 
   presentWarning(agentName: string, message: string): Effect.Effect<void, never> {

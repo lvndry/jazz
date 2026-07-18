@@ -70,6 +70,11 @@ export interface GlyphSet {
 
   // ─── Markers ─────────────────────────────────────────────────────────
   /** Agent response header marker */ readonly diamond: string;
+  /** Turn/note marker — Jazz's signature glyph */ readonly note: string;
+  /** Speaker rail drawn down the left of transcript lines */ readonly rail: string;
+
+  // ─── Equalizer animation (level-meter pulse for waiting states) ──────
+  /** Animation frames for the equalizer pulse */ readonly meterFrames: readonly string[];
 
   // ─── Context-usage grid cells ────────────────────────────────────────
   /** Grid cell: used tokens */ readonly gridFilled: string;
@@ -121,6 +126,10 @@ const ASCII: GlyphSet = {
   active: "*",
 
   diamond: "*",
+  note: "*",
+  rail: "|",
+
+  meterFrames: ["=...", ".=..", "..=.", "...=", "..=.", ".=.."],
 
   gridFilled: "#",
   gridEmpty: ".",
@@ -165,6 +174,11 @@ const UNICODE: GlyphSet = {
   active: "●",
 
   diamond: "◆",
+  note: "♪",
+  rail: "▍",
+
+  // A little audio level meter — the Jazz waiting animation.
+  meterFrames: ["▁▂▃▅", "▂▃▅▇", "▃▅▇▆", "▅▇▆▄", "▇▆▄▂", "▆▄▂▁", "▄▂▁▂", "▂▁▂▃"],
 
   gridFilled: "█",
   gridEmpty: "░",

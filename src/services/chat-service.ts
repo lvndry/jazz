@@ -1,4 +1,5 @@
 import { FileSystem } from "@effect/platform";
+import chalk from "chalk";
 import { Effect, Layer } from "effect";
 import { store } from "@/cli/ui/store";
 import { AgentRunner, type AgentRunnerOptions } from "@/core/agent/agent-runner";
@@ -203,7 +204,7 @@ export class ChatServiceImpl implements ChatService {
         const trimmedMessage = (userMessage ?? "").trim();
         const lowerMessage = trimmedMessage.toLowerCase();
         if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
-          yield* terminal.info("👋 Goodbye!");
+          yield* terminal.log(chalk.dim.italic("— fin —"));
 
           // Cleanup: Disconnect all MCP servers and unregister mode handler before exiting
           store.registerModeSwitchHandler(null);

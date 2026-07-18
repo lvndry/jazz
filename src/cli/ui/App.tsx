@@ -12,6 +12,7 @@ import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
+import { RAIL_WIDTH, railStreamLines } from "./rail";
 import StatusFooter from "./StatusFooter";
 import { store, type RunStats } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
@@ -168,8 +169,9 @@ function renderPendingStream(pending: PendingStream): string {
   // in ink-presentation-service.ts.
   const formatted = formatMarkdown(pending.rawTail);
   const dimmed = pending.kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
-  const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content);
-  return wrapToWidth(dimmed, width);
+  const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content - RAIL_WIDTH);
+  // Same speaker rail as settled slices so the live tail is seamless.
+  return railStreamLines(wrapToWidth(dimmed, width), pending.kind);
 }
 
 function OutputIslandComponent(): React.ReactElement {

@@ -130,6 +130,8 @@ describe("glyphs", () => {
         "proposed",
         "active",
         "diamond",
+        "note",
+        "rail",
         "gridFilled",
         "gridEmpty",
         "gridReserved",
@@ -141,6 +143,11 @@ describe("glyphs", () => {
         }
       }
       for (const frame of set.spinnerFrames) {
+        for (const ch of frame) {
+          expect(ch.charCodeAt(0)).toBeLessThan(128);
+        }
+      }
+      for (const frame of set.meterFrames) {
         for (const ch of frame) {
           expect(ch.charCodeAt(0)).toBeLessThan(128);
         }

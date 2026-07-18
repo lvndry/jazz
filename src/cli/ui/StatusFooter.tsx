@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import React from "react";
-import { AnimatedEllipsis } from "./components/AnimatedEllipsis";
+import { Equalizer } from "./components/Equalizer";
 import type { RunStats } from "./store";
 import { THEME } from "./theme";
 
@@ -113,10 +113,10 @@ function StatusFooter({
     >
       <Box flexShrink={1}>
         {status ? (
-          <AnimatedEllipsis
-            label={status}
-            color={THEME.primary}
-          />
+          <Box>
+            <Equalizer color={THEME.primary} />
+            <Text color={THEME.primary}> {status}</Text>
+          </Box>
         ) : (
           <Box>
             {/* Yolo mode auto-approves every tool call — keep it loudly and

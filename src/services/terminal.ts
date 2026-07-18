@@ -65,7 +65,8 @@ const USER_ECHO_WIDTH_OFFSET = 8;
  * styling stays in one place.
  */
 function printUserMessage(message: string): void {
-  const wrapped = wrapToWidth(chalk.green(message), getTerminalWidth() - USER_ECHO_WIDTH_OFFSET);
+  // No inline color — OutputEntryView owns user styling (brass rail + text).
+  const wrapped = wrapToWidth(message, getTerminalWidth() - USER_ECHO_WIDTH_OFFSET);
   store.printOutput({
     type: "user",
     message: wrapped,

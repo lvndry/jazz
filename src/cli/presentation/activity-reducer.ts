@@ -37,24 +37,20 @@ interface TodoSnapshotItem {
  * "{agentName} {label}…" in ActivityView, e.g. "Cassandra is cooking…".
  */
 export const AWAITING_LABELS: readonly string[] = [
-  "is cooking",
-  "is brewing",
-  "is pondering",
-  "is noodling",
-  "is mulling",
-  "is ruminating",
-  "is concocting",
-  "is percolating",
-  "is conjuring",
-  "is simmering",
-  "is plotting",
-  "is hatching",
-  "is warming up",
-  "is gathering its wits",
-  "is consulting the oracle",
-  "is doing math",
-  "is reading tea leaves",
-  "is cracking knuckles",
+  "is tuning up",
+  "is counting in",
+  "is riffing",
+  "is vamping",
+  "is finding the groove",
+  "is warming up the horns",
+  "is setting the tempo",
+  "is taking it from the top",
+  "is improvising",
+  "is reading the charts",
+  "is picking up the rhythm",
+  "is trading fours",
+  "is working out the changes",
+  "is in the woodshed",
 ];
 
 function pickAwaitingLabel(): string {
@@ -238,17 +234,16 @@ export function reduceEvent(
       acc.lastAppliedTextSequence = -1;
       acc.isThinking = false;
 
-      // Agent-colored turn header (same visual language as AgentResponseCard)
-      // instead of a generic info line — marks where each agent turn begins.
+      // Agent turn header: the note glyph is Jazz's signature turn marker.
       outputs.push({
         type: "log",
         message: inkRender(
           React.createElement(
             Box,
             null,
-            React.createElement(Text, { color: THEME.agent }, `${getGlyphs().diamond} `),
+            React.createElement(Text, { color: THEME.agent }, `${getGlyphs().note} `),
             React.createElement(Text, { color: THEME.agent, bold: true }, acc.agentName),
-            React.createElement(Text, { dimColor: true }, ` (${event.provider}/${event.model})`),
+            React.createElement(Text, { dimColor: true }, ` · ${event.provider}/${event.model}`),
           ),
         ),
         timestamp: new Date(),
