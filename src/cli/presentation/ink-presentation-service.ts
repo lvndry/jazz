@@ -738,9 +738,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
     void getModelsDevMetadata(model, provider)
       .then((meta) => {
-        if (meta !== undefined) {
-          store.updateRunStats({ maxContextTokens: meta.contextWindow });
-        }
+        if (meta === undefined) return;
+        // Guard against a stale write: if the user switched models while the
+        // fetch was in flight, this response no longer describes the active
+        // model and must not overwrite the footer denominator.
+        const stats = store.getRunStatsSnapshot();
+        if (stats.model !== model || stats.provider !== provider) return;
+        store.updateRunStats({ maxContextTokens: meta.contextWindow });
       })
       .catch(() => {
         /* context window unavailable — footer shows the bare count */

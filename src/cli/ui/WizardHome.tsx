@@ -210,7 +210,7 @@ function ItemComponent({
   return (
     <Box>
       <Text
-        color={isSelected ? THEME.selected : "white"}
+        color={isSelected ? THEME.selected : THEME.secondary}
         bold={isSelected}
       >
         {label}

@@ -335,7 +335,7 @@ function PromptComponent({
                   cursor={cursor}
                   placeholder="Ask anything..."
                   showCursor
-                  textColor="white"
+                  textColor={THEME.selected}
                 />
               </Box>
             </Box>
