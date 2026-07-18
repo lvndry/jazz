@@ -4,9 +4,12 @@ import BigText from "ink-big-text";
 import Gradient from "ink-gradient";
 import SelectInput from "ink-select-input";
 import React, { useState, useEffect } from "react";
+import { getGlyphs } from "./glyphs";
 import { THEME } from "./theme";
 import packageJson from "../../../package.json";
-import { getTerminalWidth, separatorLine } from "../utils/string-utils";
+import { getTerminalWidth } from "../utils/string-utils";
+
+const G = getGlyphs();
 
 /**
  * Menu option for the wizard
@@ -107,10 +110,10 @@ export function WizardHome({
     >
       {/* Logo — the block-font ASCII art is ~30 columns wide and the gradient
           needs decent color depth; fall back to a plain bold title on narrow
-          or low-color terminals instead of wrapping into garbage. */}
+          or low-color terminals instead of wrapping into garbage. Left-aligned
+          so the whole screen reads as one column. */}
       <Box
         flexDirection="column"
-        alignItems="center"
         marginBottom={1}
       >
         {getTerminalWidth() >= 44 && chalk.level >= 2 ? (
@@ -128,14 +131,16 @@ export function WizardHome({
             Jazz
           </Text>
         )}
-        <Text dimColor>v{packageJson.version} • Agentic CLI 🎷</Text>
+        <Text dimColor>
+          {G.note} v{packageJson.version} · your everyday agentic CLI
+        </Text>
       </Box>
 
-      {/* Menu */}
+      {/* Menu — selection marked by the brass rail, same speaker-rail
+          language as the chat transcript. */}
       <Box
         flexDirection="column"
         marginTop={1}
-        paddingX={1}
         paddingY={0}
       >
         <Box marginBottom={1}>
@@ -156,28 +161,20 @@ export function WizardHome({
       </Box>
 
       {/* Tip — below menu, subtle */}
-      <Box
-        marginTop={1}
-        flexDirection="column"
-      >
-        <Text dimColor>{separatorLine(40)}</Text>
-        <Box marginTop={1}>
-          <Text color={THEME.primary}>💡 </Text>
-          <Text
-            dimColor
-            wrap="wrap"
-          >
-            {TIPS[tipIndex]}
-          </Text>
-        </Box>
+      <Box marginTop={1}>
+        <Text color={THEME.primary}>{G.note} </Text>
+        <Text
+          dimColor
+          italic
+          wrap="wrap"
+        >
+          {TIPS[tipIndex]}
+        </Text>
       </Box>
 
       {/* Footer hint */}
       <Box marginTop={1}>
-        <Text dimColor>
-          <Text color={THEME.primary}>↑/↓</Text> navigate · <Text color={THEME.primary}>Enter</Text>{" "}
-          select · <Text color={THEME.primary}>q</Text> quit
-        </Text>
+        <Text dimColor>↑↓ move · enter select · q quit</Text>
       </Box>
     </Box>
   );
@@ -191,7 +188,7 @@ function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): R
           color={THEME.primary}
           bold
         >
-          ❯
+          {G.rail}
         </Text>
       ) : (
         <Text> </Text>
