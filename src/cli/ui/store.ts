@@ -63,6 +63,9 @@ export interface ExpandableReasoning {
 /** Upper bound on retained collapsed-reasoning blocks. */
 const MAX_EXPANDABLE_REASONING = 20;
 
+/** Upper bound on recallable sent-message history. */
+const MAX_INPUT_HISTORY = 100;
+
 /** Caller-supplied summary when collapsing a region. */
 export interface CollapseEphemeralSummary {
   /** One-line static entry to emit into scrollback (omit to skip). */
@@ -122,6 +125,7 @@ export class UIStore {
   private ephemeralRegionsSnapshot: readonly EphemeralRegion[] = [];
   private expandableReasoningSnapshot: ExpandableReasoning | null = null;
   private expandableReasoningStack: ExpandableReasoning[] = [];
+  private inputHistory: string[] = [];
   private messageQueueSnapshot: readonly string[] = [];
   private chatBusySnapshot: boolean = false;
 
@@ -462,6 +466,19 @@ export class UIStore {
       });
     }
   };
+
+  /** Record a sent chat message for ↑/↓ recall. Skips consecutive duplicates. */
+  pushInputHistory = (message: string): void => {
+    const trimmed = message.trim();
+    if (trimmed.length === 0) return;
+    if (this.inputHistory.at(-1) === trimmed) return;
+    this.inputHistory.push(trimmed);
+    if (this.inputHistory.length > MAX_INPUT_HISTORY) {
+      this.inputHistory.shift();
+    }
+  };
+
+  getInputHistory = (): readonly string[] => this.inputHistory;
 
   private pushExpandableReasoning(value: ExpandableReasoning): void {
     this.expandableReasoningStack.push(value);

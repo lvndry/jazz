@@ -269,6 +269,7 @@ export class InkTerminalService implements TerminalService {
           // prompts (API key entry, named fields, etc.) the label is genuine
           // scrollback context, so keep it.
           if (promptType === "chat") {
+            store.pushInputHistory(inputValue);
             printUserMessage(displayValue);
           } else {
             const rawMessage = `${message} ${chalk.green(displayValue)}`;

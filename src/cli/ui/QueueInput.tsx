@@ -120,7 +120,7 @@ export function QueueInput({
               key={`${queue.length - visibleEntries.length + index}`}
               dimColor
             >
-              {"  • "}
+              {`  ${G.bullet} `}
               {truncateEntry(entry)}
             </Text>
           ))}
@@ -147,7 +147,7 @@ export function QueueInput({
             cursor={cursor}
             placeholder="Type to queue for next turn…"
             showCursor
-            textColor="white"
+            textColor={THEME.selected}
           />
         </Box>
       </Box>
