@@ -1,13 +1,36 @@
 {
   "id": "eval-ceiling",
   "name": "eval-ceiling",
-  "model": "openai/gpt-5.4",
+  "model": "openai/gpt-5.4-mini",
   "config": {
     "persona": "default",
     "llmProvider": "openai",
-    "llmModel": "gpt-5.4",
+    "llmModel": "gpt-5.4-mini",
     "reasoningEffort": "medium",
-    "tools": ["ls","cd","pwd","read_file","write_file","edit_file","find","grep","glob","head","tail","mkdir","mv","cp","rm","read_pdf","pdf_page_count","manage_todos","list_todos","get_time","web_fetch","http_request"]
+    "tools": [
+      "ls",
+      "cd",
+      "pwd",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "find",
+      "grep",
+      "glob",
+      "head",
+      "tail",
+      "mkdir",
+      "mv",
+      "cp",
+      "rm",
+      "read_pdf",
+      "pdf_page_count",
+      "manage_todos",
+      "list_todos",
+      "get_time",
+      "web_fetch",
+      "http_request"
+    ]
   },
   "createdAt": "2026-07-18T00:00:00.000Z",
   "updatedAt": "2026-07-18T00:00:00.000Z"

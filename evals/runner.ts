@@ -1,7 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { EVAL_CONFIG } from "./config";
+import { EVAL_CONFIG, isAllowedEvalModel } from "./config";
 import { makeJudge, calibrateJudge, type CalibrationRow } from "./judge";
 import {
   abDelta,
@@ -203,6 +211,33 @@ async function loadCalibration(): Promise<CalibrationRow[]> {
     .map((line) => JSON.parse(line) as CalibrationRow);
 }
 
+/**
+ * Cost guardrail: refuse to run any agent whose model isn't free-or-cheap.
+ * Resolves the agent config from the jazz agents dir and checks isAllowedEvalModel.
+ */
+function assertAllowedAgent(agentId: string): void {
+  const agentPath = join(
+    process.env["JAZZ_HOME"] ?? join(homedir(), ".jazz"),
+    "agents",
+    `${agentId}.json`,
+  );
+  let parsed: { config?: { llmProvider?: string; llmModel?: string } };
+  try {
+    parsed = JSON.parse(readFileSync(agentPath, "utf-8")) as {
+      config?: { llmProvider?: string; llmModel?: string };
+    };
+  } catch {
+    throw new Error(`eval: cannot read agent "${agentId}" at ${agentPath} to verify its model.`);
+  }
+  const provider = parsed.config?.llmProvider ?? "";
+  const model = parsed.config?.llmModel ?? "";
+  if (!isAllowedEvalModel(provider, model)) {
+    throw new Error(
+      `eval cost guardrail: agent "${agentId}" uses "${provider}/${model}". Only OpenRouter ":free" models or gpt-5.4-nano/gpt-5.4-mini are permitted.`,
+    );
+  }
+}
+
 function parseFlag(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   if (index < 0) return undefined;
@@ -215,6 +250,9 @@ export async function runCli(): Promise<void> {
     const agentId = parseFlag("--agent") ?? EVAL_CONFIG.sutAgentId;
     const abAgent = parseFlag("--ab");
     const samples = Number(parseFlag("--samples") ?? EVAL_CONFIG.samplesPerTask);
+    assertAllowedAgent(agentId);
+    if (abAgent) assertAllowedAgent(abAgent);
+    assertAllowedAgent(EVAL_CONFIG.judgeAgentId);
     const tasks = await loadTasks();
     if (tasks.length === 0) {
       console.error(`No tasks found under ${TASKS_DIR}`);
