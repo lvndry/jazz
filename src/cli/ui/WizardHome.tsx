@@ -1,13 +1,9 @@
-import chalk from "chalk";
 import { Box, Text, useInput } from "ink";
-import BigText from "ink-big-text";
-import Gradient from "ink-gradient";
 import SelectInput from "ink-select-input";
 import React, { useState, useEffect } from "react";
 import { getGlyphs } from "./glyphs";
 import { THEME } from "./theme";
 import packageJson from "../../../package.json";
-import { getTerminalWidth } from "../utils/string-utils";
 
 const G = getGlyphs();
 
@@ -108,32 +104,19 @@ export function WizardHome({
       paddingX={2}
       paddingY={1}
     >
-      {/* Logo — the block-font ASCII art is ~30 columns wide and the gradient
-          needs decent color depth; fall back to a plain bold title on narrow
-          or low-color terminals instead of wrapping into garbage. Left-aligned
-          so the whole screen reads as one column. */}
+      {/* Lettermark — one bold brass word. The identity carries through the
+          rails, the note glyph, and the equalizer; no ASCII art needed. */}
       <Box
         flexDirection="column"
         marginBottom={1}
       >
-        {getTerminalWidth() >= 44 && chalk.level >= 2 ? (
-          <Gradient name="morning">
-            <BigText
-              text="Jazz"
-              font="block"
-            />
-          </Gradient>
-        ) : (
-          <Text
-            bold
-            color={THEME.primary}
-          >
-            Jazz
-          </Text>
-        )}
-        <Text dimColor>
-          {G.note} v{packageJson.version} · your everyday agentic CLI
+        <Text
+          bold
+          color={THEME.primary}
+        >
+          {G.note} Jazz
         </Text>
+        <Text dimColor>v{packageJson.version} · your everyday agentic CLI</Text>
       </Box>
 
       {/* Menu — selection marked by the brass rail, same speaker-rail
