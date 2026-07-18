@@ -133,6 +133,7 @@ export class UIStore {
   private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
   private chatBusySetter: ((busy: boolean) => void) | null = null;
   private modeToastSetter: ((message: string | null) => void) | null = null;
+  private frameClearHandler: (() => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
 
@@ -190,7 +191,15 @@ export class UIStore {
   };
 
   setPrompt = (prompt: PromptState | null): void => {
+    const dismissing = this.promptSnapshot !== null && prompt === null;
     this.promptSnapshot = prompt;
+    // Erase the painted prompt frame (input line + suggestion dropdown)
+    // before React swaps in the shorter busy-phase UI. Under heavy <Static>
+    // churn Ink does not reliably erase lines freed by a shrinking live
+    // region, which left the dropdown visible until the turn completed.
+    if (dismissing && this.frameClearHandler) {
+      this.frameClearHandler();
+    }
     if (this.promptSetter) {
       this.promptSetter(prompt);
     }
@@ -510,6 +519,15 @@ export class UIStore {
 
   registerPromptSetter(setter: (prompt: PromptState | null) => void): void {
     this.promptSetter = setter;
+  }
+
+  /**
+   * Register a callback that erases Ink's current dynamic frame from the
+   * terminal (the Ink instance's `clear()`). Invoked when a prompt is
+   * dismissed so stale prompt chrome never lingers on screen.
+   */
+  registerFrameClearHandler(handler: (() => void) | null): void {
+    this.frameClearHandler = handler;
   }
 
   registerWorkingDirectorySetter(setter: (wd: string | null) => void): void {

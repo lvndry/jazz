@@ -18,6 +18,12 @@ const G = getGlyphs();
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
 
+/**
+ * Cap the dropdown height. Tall live frames are the trigger for Ink's
+ * shrinking-region erase bug, and a 20-row dropdown is unscannable anyway.
+ */
+const MAX_VISIBLE_SUGGESTIONS = 8;
+
 interface CommandSuggestionItemProps {
   command: ChatCommandInfo;
   isSelected: boolean;
@@ -131,9 +137,11 @@ function PromptComponent({
   const setSelectedSuggestionIndexRef = useRef(setSelectedSuggestionIndex);
   const filteredCommandsRef = useRef(filteredCommands);
   const selectedSuggestionIndexRef = useRef(selectedSuggestionIndex);
+  const valueRef = useRef(value);
   setSelectedSuggestionIndexRef.current = setSelectedSuggestionIndex;
   filteredCommandsRef.current = filteredCommands;
   selectedSuggestionIndexRef.current = selectedSuggestionIndex;
+  valueRef.current = value;
 
   useInputHandler({
     id: "chat-command-suggestions",
@@ -150,7 +158,20 @@ function PromptComponent({
         setSelectedSuggestionIndexRef.current(Math.min(commands.length - 1, idx + 1));
         return InputResults.consumed();
       }
+      if (action.type === "tab" && commands[idx]) {
+        const nextValue = "/" + commands[idx].name + " ";
+        setValueRef.current(nextValue, nextValue.length);
+        setSelectedSuggestionIndexRef.current(0);
+        return InputResults.consumed();
+      }
       if (action.type === "submit" && commands[idx]) {
+        // A fully typed command submits on the first Enter — only incomplete
+        // prefixes get completed in place (second Enter then submits).
+        const typed = valueRef.current.trim();
+        const isExactCommand = commands.some((cmd) => "/" + cmd.name === typed);
+        if (isExactCommand) {
+          return InputResults.ignored();
+        }
         const nextValue = "/" + commands[idx].name + " ";
         setValueRef.current(nextValue, nextValue.length);
         setSelectedSuggestionIndexRef.current(0);
@@ -257,21 +278,38 @@ function PromptComponent({
                 />
               </Box>
             </Box>
-            {suggestionsVisible && (
-              <Box
-                marginTop={1}
-                flexDirection="column"
-              >
-                <Text dimColor>Commands (↑/↓ select, Enter to pick):</Text>
-                {filteredCommands.map((cmd, index) => (
-                  <CommandSuggestionItem
-                    key={cmd.name}
-                    command={cmd}
-                    isSelected={index === selectedSuggestionIndex}
-                  />
-                ))}
-              </Box>
-            )}
+            {suggestionsVisible &&
+              (() => {
+                const windowStart = Math.min(
+                  Math.max(0, selectedSuggestionIndex - MAX_VISIBLE_SUGGESTIONS + 1),
+                  Math.max(0, filteredCommands.length - MAX_VISIBLE_SUGGESTIONS),
+                );
+                const visibleCommands = filteredCommands.slice(
+                  windowStart,
+                  windowStart + MAX_VISIBLE_SUGGESTIONS,
+                );
+                const hiddenBelow = filteredCommands.length - windowStart - visibleCommands.length;
+                return (
+                  <Box
+                    marginTop={1}
+                    flexDirection="column"
+                  >
+                    <Text dimColor>Commands (↑/↓ select · Tab complete · Enter run):</Text>
+                    {visibleCommands.map((cmd, index) => (
+                      <CommandSuggestionItem
+                        key={cmd.name}
+                        command={cmd}
+                        isSelected={windowStart + index === selectedSuggestionIndex}
+                      />
+                    ))}
+                    {hiddenBelow > 0 && (
+                      <Box marginLeft={1}>
+                        <Text dimColor> …and {hiddenBelow} more</Text>
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })()}
             {validationError && (
               <Box marginTop={1}>
                 <Text
