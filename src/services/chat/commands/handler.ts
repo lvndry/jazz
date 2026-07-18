@@ -681,9 +681,9 @@ function handleSwitchCommand(
       value: ag.id,
     }));
 
-    const selectedAgentId = yield* terminal.select<string>("Select an agent to switch to:", {
+    const selectedAgentId = yield* terminal.search<string>("Select an agent to switch to:", {
       choices,
-      default: currentAgent.id,
+      placeholder: "Type to filter agents…",
     });
 
     // User cancelled selection (Escape key)
@@ -1249,8 +1249,9 @@ function handleResumeCommand(
       };
     });
 
-    const selectedId = yield* terminal.select<string>("Select a conversation to resume:", {
+    const selectedId = yield* terminal.search<string>("Select a conversation to resume:", {
       choices,
+      placeholder: "Type to filter conversations…",
     });
 
     if (!selectedId) {

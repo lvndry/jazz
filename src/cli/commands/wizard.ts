@@ -320,7 +320,10 @@ function selectAgent(
       };
     });
 
-    const selectedId = yield* terminal.select<string>(message, { choices });
+    const selectedId = yield* terminal.search<string>(message, {
+      choices,
+      placeholder: "Type to filter agents…",
+    });
 
     if (!selectedId) {
       return null;
@@ -419,8 +422,9 @@ function resumeConversation(
       value: String(idx),
     }));
 
-    const selectedIdx = yield* terminal.select<string>("Select a conversation to resume:", {
+    const selectedIdx = yield* terminal.search<string>("Select a conversation to resume:", {
       choices,
+      placeholder: "Type to filter conversations…",
     });
     if (selectedIdx === null || selectedIdx === undefined) return;
 
