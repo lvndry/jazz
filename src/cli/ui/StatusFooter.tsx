@@ -67,10 +67,12 @@ function StatusFooter({
   status,
   workingDirectory,
   runStats,
+  modeIsYolo = false,
 }: {
   status: string | null;
   workingDirectory: string | null;
   runStats: RunStats;
+  modeIsYolo?: boolean;
 }) {
   const hasRunStats =
     runStats.model !== undefined ||
@@ -115,10 +117,24 @@ function StatusFooter({
             label={status}
             color={THEME.primary}
           />
-        ) : statLine.length > 0 ? (
-          <Text dimColor>{statLine}</Text>
         ) : (
-          <Text dimColor> </Text>
+          <Box>
+            {/* Yolo mode auto-approves every tool call — keep it loudly and
+                persistently visible, not just in the 2s toast. */}
+            {modeIsYolo ? (
+              <Text
+                color={THEME.warning}
+                bold
+              >
+                yolo{statLine.length > 0 ? " · " : ""}
+              </Text>
+            ) : null}
+            {statLine.length > 0 ? (
+              <Text color={THEME.secondary}>{statLine}</Text>
+            ) : (
+              <Text dimColor> </Text>
+            )}
+          </Box>
         )}
       </Box>
       <Box flexShrink={0}>{wd && <Text dimColor>{wd}</Text>}</Box>

@@ -413,6 +413,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.seenLength = 0;
         this.hasStreamedText = false;
         store.updateRunStats({ provider: event.provider, model: event.model });
+        this.resolveContextWindow(event.provider, event.model);
       }
 
       if (this.displayConfig.showThinking) {
@@ -705,6 +706,27 @@ export class InkStreamingRenderer implements StreamingRenderer {
           /* pricing unavailable — omit cost line */
         });
     }
+  }
+
+  /**
+   * Resolve the model's context window and publish it to the footer so
+   * tokens-in-context renders as `12.3k/200k` instead of a bare count.
+   */
+  private resolveContextWindow(provider: string, model: string): void {
+    const cached = getModelsDevMetadataSync(model, provider);
+    if (cached !== undefined) {
+      store.updateRunStats({ maxContextTokens: cached.contextWindow });
+      return;
+    }
+    void getModelsDevMetadata(model, provider)
+      .then((meta) => {
+        if (meta !== undefined) {
+          store.updateRunStats({ maxContextTokens: meta.contextWindow });
+        }
+      })
+      .catch(() => {
+        /* context window unavailable — footer shows the bare count */
+      });
   }
 
   private setupToolTimeout(toolCallId: string, toolName: string): void {

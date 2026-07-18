@@ -133,6 +133,7 @@ export class UIStore {
   private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
   private chatBusySetter: ((busy: boolean) => void) | null = null;
   private modeToastSetter: ((message: string | null) => void) | null = null;
+  private modeSetter: ((isYolo: boolean) => void) | null = null;
   private frameClearHandler: (() => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
@@ -342,14 +343,26 @@ export class UIStore {
   toggleMode = (): void => {
     const nextMode = this.currentModeIsYolo ? "safe" : "yolo";
     this.currentModeIsYolo = !this.currentModeIsYolo;
+    this.modeSetter?.(this.currentModeIsYolo);
     this.requestModeSwitch(nextMode);
   };
 
   setModeIsYolo = (isYolo: boolean): void => {
     this.currentModeIsYolo = isYolo;
+    this.modeSetter?.(isYolo);
   };
 
   getModeIsYolo = (): boolean => this.currentModeIsYolo;
+
+  /**
+   * Subscribe the footer (or any island) to approval-mode changes so the
+   * current safe/yolo state stays persistently visible, not just in the
+   * 2-second toast.
+   */
+  registerModeSetter = (setter: ((isYolo: boolean) => void) | null): void => {
+    this.modeSetter = setter;
+    setter?.(this.currentModeIsYolo);
+  };
 
   registerModeToastSetter = (setter: ((message: string | null) => void) | null): void => {
     this.modeToastSetter = setter;

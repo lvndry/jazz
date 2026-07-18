@@ -118,17 +118,20 @@ function StatusFooterIslandComponent(): React.ReactElement | null {
   // we don't duplicate it here (avoids conflicting with the prompt's
   // single-slot wd setter).
   const [runStats, setRunStats] = React.useState<RunStats>({});
+  const [modeIsYolo, setModeIsYolo] = React.useState(false);
   const initializedRef = useRef(false);
 
   if (!initializedRef.current) {
     store.registerRunStatsSetter(setRunStats);
     setRunStats(store.getRunStatsSnapshot());
+    store.registerModeSetter(setModeIsYolo);
     initializedRef.current = true;
   }
 
   useEffect(() => {
     return () => {
       store.registerRunStatsSetter(() => {});
+      store.registerModeSetter(null);
     };
   }, []);
 
@@ -137,6 +140,7 @@ function StatusFooterIslandComponent(): React.ReactElement | null {
       status={null}
       workingDirectory={null}
       runStats={runStats}
+      modeIsYolo={modeIsYolo}
     />
   );
 }
