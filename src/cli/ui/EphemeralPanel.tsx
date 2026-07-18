@@ -4,6 +4,7 @@ import { PreWrappedText } from "./components/PreWrappedText";
 import { getGlyphs } from "./glyphs";
 import type { EphemeralRegion } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
+import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
 
@@ -41,7 +42,11 @@ export function EphemeralPanel({ region }: { region: EphemeralRegion }): React.R
   // already get raw output (their content can be anything — JSON, search
   // results, code) so we leave that untouched.
   const rawTail = region.tail.join("\n");
-  const formattedTail = region.kind === "reasoning" ? formatMarkdown(rawTail) : rawTail;
+  // Reasoning renders markdown but dimmed/italic — the live panel should read
+  // as quiet planning text, matching the settled scrollback styling, instead
+  // of competing with the response for attention.
+  const formattedTail =
+    region.kind === "reasoning" ? dimReasoningMarkdownOutput(formatMarkdown(rawTail)) : rawTail;
   const wrappedTail = wrapToWidth(formattedTail, availableWidth);
 
   return (

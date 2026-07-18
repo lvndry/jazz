@@ -111,7 +111,21 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000;
-  private static readonly REASONING_PANEL_LINES = 8;
+  private static readonly MIN_REASONING_PANEL_LINES = 8;
+  private static readonly MAX_REASONING_PANEL_LINES = 24;
+
+  /**
+   * Reasoning panel height adapts to the terminal: roughly a quarter of the
+   * rows, clamped so short terminals still get a useful window and tall ones
+   * don't drown the transcript in live planning text.
+   */
+  private static reasoningPanelLines(): number {
+    const rows = process.stdout.rows ?? 24;
+    return Math.min(
+      InkStreamingRenderer.MAX_REASONING_PANEL_LINES,
+      Math.max(InkStreamingRenderer.MIN_REASONING_PANEL_LINES, Math.floor(rows / 4)),
+    );
+  }
 
   /**
    * Buffered streaming deltas, flushed at `textBufferMs` cadence. Without
@@ -375,7 +389,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const seconds = (durationMs / 1000).toFixed(1);
     const tokenSegment = tokens !== undefined ? ` · ${tokens} tokens` : "";
     const line = chalk.dim(
-      chalk.italic(`${getGlyphs().success} Reasoning · ${seconds}s${tokenSegment}`),
+      chalk.italic(
+        `${getGlyphs().success} Reasoning · ${seconds}s${tokenSegment} · ctrl+r to expand`,
+      ),
     );
 
     store.collapseEphemeral(this.reasoningRegionId, {
@@ -425,7 +441,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
             this.reasoningRegionId = store.openEphemeral(
               "reasoning",
               "Reasoning",
-              InkStreamingRenderer.REASONING_PANEL_LINES,
+              InkStreamingRenderer.reasoningPanelLines(),
             );
             this.reasoningFullText = "";
             this.reasoningStartedAt = Date.now();
@@ -446,7 +462,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
               this.reasoningRegionId = store.openEphemeral(
                 "reasoning",
                 "Reasoning",
-                InkStreamingRenderer.REASONING_PANEL_LINES,
+                InkStreamingRenderer.reasoningPanelLines(),
               );
               this.reasoningStartedAt = Date.now();
               this.reasoningFullText = "";

@@ -48,8 +48,10 @@ export interface EphemeralRegion {
 }
 
 /**
- * Snapshot of the most recently collapsed reasoning, available for
- * Ctrl-R expansion. Replaced on every new collapse; cleared once expanded.
+ * Snapshot of a collapsed reasoning block, available for Ctrl-R expansion.
+ * Collapsed blocks accumulate in a bounded stack — each Ctrl-R press pops
+ * and expands the most recent unexpanded block, so earlier reasoning from
+ * a multi-step turn stays recoverable instead of being overwritten.
  */
 export interface ExpandableReasoning {
   readonly fullText: string;
@@ -57,6 +59,9 @@ export interface ExpandableReasoning {
   readonly durationMs: number;
   readonly tokens?: number;
 }
+
+/** Upper bound on retained collapsed-reasoning blocks. */
+const MAX_EXPANDABLE_REASONING = 20;
 
 /** Caller-supplied summary when collapsing a region. */
 export interface CollapseEphemeralSummary {
@@ -116,6 +121,7 @@ export class UIStore {
   private runStatsSnapshot: RunStats = {};
   private ephemeralRegionsSnapshot: readonly EphemeralRegion[] = [];
   private expandableReasoningSnapshot: ExpandableReasoning | null = null;
+  private expandableReasoningStack: ExpandableReasoning[] = [];
   private messageQueueSnapshot: readonly string[] = [];
   private chatBusySnapshot: boolean = false;
 
@@ -448,7 +454,7 @@ export class UIStore {
     }
 
     if (region.kind === "reasoning" && summary.fullText) {
-      this.setExpandableReasoning({
+      this.pushExpandableReasoning({
         fullText: summary.fullText,
         label: region.label,
         durationMs: summary.durationMs,
@@ -456,6 +462,14 @@ export class UIStore {
       });
     }
   };
+
+  private pushExpandableReasoning(value: ExpandableReasoning): void {
+    this.expandableReasoningStack.push(value);
+    if (this.expandableReasoningStack.length > MAX_EXPANDABLE_REASONING) {
+      this.expandableReasoningStack.shift();
+    }
+    this.setExpandableReasoning(value);
+  }
 
   /**
    * Collapse every open region — used on errors and /clear so panels don't
@@ -468,19 +482,21 @@ export class UIStore {
   };
 
   /**
-   * If a most-recently-collapsed reasoning is available, emit it as a
-   * streamContent entry into scrollback and clear the slot. No-op otherwise.
+   * Pop the most recent unexpanded reasoning block and emit it into
+   * scrollback. Pressing Ctrl-R repeatedly walks backwards through the
+   * turn's collapsed reasoning blocks. No-op once the stack is empty.
    */
   expandLastReasoning = (): void => {
-    const value = this.expandableReasoningSnapshot;
+    const value = this.expandableReasoningStack.pop();
     if (!value) return;
+    const seconds = (value.durationMs / 1000).toFixed(1);
     this.printOutput({
       type: "streamContent",
-      message: value.fullText,
+      message: `*${value.label} · ${seconds}s*\n\n${value.fullText}`,
       meta: { kind: "reasoning" },
       timestamp: new Date(),
     });
-    this.setExpandableReasoning(null);
+    this.setExpandableReasoning(this.expandableReasoningStack.at(-1) ?? null);
   };
 
   appendStream = (kind: StreamKind, delta: string): void => {
