@@ -337,7 +337,7 @@ function PromptComponent({
                 color={THEME.prompt}
                 bold
               >
-                {G.promptCursor}{" "}
+                {G.rail}{" "}
               </Text>
               <Box
                 flexDirection="column"
