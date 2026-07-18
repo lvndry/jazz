@@ -238,9 +238,19 @@ export function reduceEvent(
       acc.lastAppliedTextSequence = -1;
       acc.isThinking = false;
 
+      // Agent-colored turn header (same visual language as AgentResponseCard)
+      // instead of a generic info line — marks where each agent turn begins.
       outputs.push({
-        type: "info",
-        message: `${acc.agentName} (${event.provider}/${event.model})`,
+        type: "log",
+        message: inkRender(
+          React.createElement(
+            Box,
+            null,
+            React.createElement(Text, { color: THEME.agent }, `${getGlyphs().diamond} `),
+            React.createElement(Text, { color: THEME.agent, bold: true }, acc.agentName),
+            React.createElement(Text, { dimColor: true }, ` (${event.provider}/${event.model})`),
+          ),
+        ),
         timestamp: new Date(),
       });
 
