@@ -376,7 +376,7 @@ export function App(): React.ReactElement {
       if (!payload) {
         store.printOutput({
           type: "warn",
-          message: "No truncated diff available to expand.",
+          message: "No truncated output available to expand.",
           timestamp: new Date(),
         });
         return InputResults.consumed();

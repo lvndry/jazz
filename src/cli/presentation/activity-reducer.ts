@@ -425,7 +425,14 @@ export function reduceEvent(
                 React.createElement(
                   Box,
                   { key: `tool-result-line-${index}` },
-                  React.createElement(Text, { dimColor: true }, line),
+                  // Lines that already carry ANSI styling (diff +/- coloring,
+                  // syntax highlighting) render as-is: layering dim over them
+                  // washes the colors out.
+                  React.createElement(
+                    Text,
+                    line.includes("\u001b[") ? {} : { dimColor: true },
+                    line,
+                  ),
                 ),
               ),
             ),

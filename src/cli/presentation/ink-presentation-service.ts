@@ -22,6 +22,7 @@ import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/models-dev-client";
 import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
+import { expandableToolResultPayload } from "@/core/utils/tool-formatter";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
@@ -780,14 +781,22 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   private storeExpandableDiff(toolName: string | undefined, result: string): void {
-    if (
-      toolName !== "edit_file" &&
-      toolName !== "execute_edit_file" &&
-      toolName !== "write_file" &&
-      toolName !== "execute_write_file"
-    ) {
+    const isDiffTool =
+      toolName === "edit_file" ||
+      toolName === "execute_edit_file" ||
+      toolName === "write_file" ||
+      toolName === "execute_write_file";
+
+    if (!isDiffTool) {
+      // Generic tools: when the on-screen summary truncates the result, keep
+      // the full text expandable via the same Ctrl+O affordance as diffs.
+      const payload = expandableToolResultPayload(result);
+      if (payload !== null) {
+        store.setExpandableDiff(payload);
+      }
       return;
     }
+
     try {
       const parsed: unknown = JSON.parse(result);
       if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {

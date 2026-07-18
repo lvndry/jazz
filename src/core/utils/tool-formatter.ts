@@ -363,6 +363,26 @@ function formatLoadSkillSectionStringBody(body: string): string {
 }
 
 /**
+ * If a tool result is large enough that the displayed summary truncates it,
+ * return the full (pretty-printed when JSON) text for Ctrl+O expansion.
+ * Returns null when the result fits on screen untruncated.
+ */
+export function expandableToolResultPayload(result: string): string | null {
+  const normalized = result.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return null;
+  let pretty = normalized;
+  try {
+    pretty = JSON.stringify(JSON.parse(normalized), null, 2);
+  } catch {
+    // Not JSON — expand the raw text as-is.
+  }
+  const withinCaps =
+    pretty.split("\n").length <= MAX_RESULT_DISPLAY_LINES &&
+    pretty.length <= MAX_RESULT_DISPLAY_CHARS;
+  return withinCaps ? null : pretty;
+}
+
+/**
  * Format tool result for display
  * Shows relevant summary information for each tool type
  */
@@ -376,11 +396,15 @@ export function formatToolResult(toolName: string, result: string): string {
     const omittedLines = lines.length - visibleLines.length;
 
     let output = visibleLines.join("\n");
+    let charTruncated = false;
     if (output.length > MAX_RESULT_DISPLAY_CHARS) {
       output = output.slice(0, MAX_RESULT_DISPLAY_CHARS).trimEnd() + "…";
+      charTruncated = true;
     }
     if (omittedLines > 0) {
-      output += `\n… ${omittedLines} more line${omittedLines === 1 ? "" : "s"}`;
+      output += `\n… ${omittedLines} more line${omittedLines === 1 ? "" : "s"} · ctrl+o to expand`;
+    } else if (charTruncated) {
+      output += `\n… output capped · ctrl+o to expand`;
     }
     return output;
   }
