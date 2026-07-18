@@ -24,7 +24,7 @@ export interface EvalTask {
   domain: Domain;
   prompt: string;
   baseDifficulty?: "trivial" | "medium" | "hard";
-  setup(workspaceDir: string): Promise<void>;
-  check(result: OneShotResult, workspaceDir: string): Promise<CheckResult>;
+  setup(workspaceDir: string): void | Promise<void>;
+  check(result: OneShotResult, workspaceDir: string): CheckResult | Promise<CheckResult>;
   rubric?: RubricSpec;
 }

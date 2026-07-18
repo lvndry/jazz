@@ -1,0 +1,14 @@
+{
+  "id": "eval-sut",
+  "name": "eval-sut",
+  "model": "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
+  "config": {
+    "persona": "default",
+    "llmProvider": "openrouter",
+    "llmModel": "qwen/qwen3-next-80b-a3b-instruct:free",
+    "reasoningEffort": "medium",
+    "tools": ["ls","cd","pwd","read_file","write_file","edit_file","find","grep","glob","head","tail","mkdir","mv","cp","rm","read_pdf","pdf_page_count","manage_todos","list_todos","get_time","web_fetch","http_request"]
+  },
+  "createdAt": "2026-07-18T00:00:00.000Z",
+  "updatedAt": "2026-07-18T00:00:00.000Z"
+}

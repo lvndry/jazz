@@ -1,0 +1,14 @@
+{
+  "id": "eval-judge",
+  "name": "eval-judge",
+  "model": "openai/gpt-5.4-mini",
+  "config": {
+    "persona": "default",
+    "llmProvider": "openai",
+    "llmModel": "gpt-5.4-mini",
+    "reasoningEffort": "low",
+    "tools": []
+  },
+  "createdAt": "2026-07-18T00:00:00.000Z",
+  "updatedAt": "2026-07-18T00:00:00.000Z"
+}
