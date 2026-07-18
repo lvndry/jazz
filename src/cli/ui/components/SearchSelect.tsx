@@ -126,10 +126,10 @@ export function SearchSelect<T = unknown>({
     <Box flexDirection="column">
       {/* Search input */}
       <Box>
-        <Text color="gray">Search: </Text>
+        <Text color={THEME.muted}>Search: </Text>
         {query.length === 0 ? (
           <Text
-            color="gray"
+            color={THEME.muted}
             dimColor
           >
             <Text inverse>{placeholder[0] || " "}</Text>

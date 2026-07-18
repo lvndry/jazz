@@ -110,7 +110,7 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
       >
         <Text
           bold
-          color="gray"
+          color={THEME.muted}
         >
           Configuration
         </Text>
@@ -149,7 +149,7 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
         <Box justifyContent="space-between">
           <Text
             bold
-            color="gray"
+            color={THEME.muted}
           >
             Tools
           </Text>

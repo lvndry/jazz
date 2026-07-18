@@ -58,19 +58,17 @@ function todoStatusGlyph(status: "pending" | "in_progress" | "completed" | "canc
   }
 }
 
-function todoStatusColor(
-  status: "pending" | "in_progress" | "completed" | "cancelled",
-): "green" | "cyan" | "gray" | "yellow" {
+function todoStatusColor(status: "pending" | "in_progress" | "completed" | "cancelled"): string {
   switch (status) {
     case "completed":
-      return "green";
+      return THEME.success;
     case "in_progress":
-      return "cyan";
+      return THEME.agent;
     case "cancelled":
-      return "gray";
+      return THEME.muted;
     case "pending":
     default:
-      return "yellow";
+      return THEME.warning;
   }
 }
 

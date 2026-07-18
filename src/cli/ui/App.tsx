@@ -420,16 +420,20 @@ export function App(): React.ReactElement {
           paddingX={PADDING.page}
           marginTop={1}
         >
-          <ErrorBoundary fallback={<Text color="red">Output area error. Restart may help.</Text>}>
+          <ErrorBoundary
+            fallback={<Text color={THEME.error}>Output area error. Restart may help.</Text>}
+          >
             <OutputIsland />
           </ErrorBoundary>
 
-          <ErrorBoundary fallback={<Text color="red">Activity area error. Restart may help.</Text>}>
+          <ErrorBoundary
+            fallback={<Text color={THEME.error}>Activity area error. Restart may help.</Text>}
+          >
             <ActivityIsland />
           </ErrorBoundary>
 
           <ErrorBoundary
-            fallback={<Text color="red">Live panel area error. Restart may help.</Text>}
+            fallback={<Text color={THEME.error}>Live panel area error. Restart may help.</Text>}
           >
             <EphemeralPanelIsland />
           </ErrorBoundary>
@@ -453,12 +457,16 @@ export function App(): React.ReactElement {
           )}
 
           <Box marginTop={1}>
-            <ErrorBoundary fallback={<Text color="red">Prompt area error. Restart may help.</Text>}>
+            <ErrorBoundary
+              fallback={<Text color={THEME.error}>Prompt area error. Restart may help.</Text>}
+            >
               <PromptIsland />
             </ErrorBoundary>
           </Box>
 
-          <ErrorBoundary fallback={<Text color="red">Status footer error. Restart may help.</Text>}>
+          <ErrorBoundary
+            fallback={<Text color={THEME.error}>Status footer error. Restart may help.</Text>}
+          >
             <StatusFooterIsland />
           </ErrorBoundary>
         </Box>

@@ -123,7 +123,7 @@ export const TextInput = React.memo(function TextInput({
     if (value.length === 0 && placeholder.length > 0) {
       return (
         <Text
-          color="gray"
+          color={THEME.muted}
           wrap="wrap"
         >
           <Text inverse>{placeholder[0] || " "}</Text>
@@ -163,7 +163,7 @@ export const TextInput = React.memo(function TextInput({
       {/* Validation error on separate line */}
       {validationError && (
         <Box paddingLeft={3}>
-          <Text color="red">✗ {validationError}</Text>
+          <Text color={THEME.error}>✗ {validationError}</Text>
         </Box>
       )}
     </Box>

@@ -215,7 +215,7 @@ export function Questionnaire({
                 }}
               />
             ) : (
-              <Text color="gray">Type your own response...</Text>
+              <Text color={THEME.muted}>Type your own response...</Text>
             )}
           </Box>
         </Box>

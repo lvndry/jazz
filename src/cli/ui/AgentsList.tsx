@@ -139,14 +139,14 @@ export function AgentsList(props: {
                 {sp}
                 <Text
                   bold
-                  color="white"
+                  color={THEME.selected}
                 >
                   {padRight(truncateMiddle(agent.name, nameW), nameW)}
                 </Text>
                 {sp}
                 <Text color={THEME.primary}>{padRight(truncateMiddle(model, modelW), modelW)}</Text>
                 {sp}
-                <Text color="yellow">{padRight(truncateMiddle(type, typeW), typeW)}</Text>
+                <Text color={THEME.warning}>{padRight(truncateMiddle(type, typeW), typeW)}</Text>
                 {sp}
                 <Text color={reasoning === "—" ? "gray" : THEME.primary}>
                   {padRight(truncateMiddle(reasoning, reasoningW), reasoningW)}

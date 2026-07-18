@@ -33,8 +33,8 @@ const COLORS: Record<OutputType, string> = {
   debug: THEME.secondary,
   user: THEME.primary,
   info: THEME.info,
-  log: "white",
-  streamContent: "white",
+  log: THEME.selected,
+  streamContent: THEME.selected,
 };
 
 /**
@@ -99,7 +99,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
           </Text>
           <Text> </Text>
           <Text
-            color="white"
+            color={THEME.selected}
             wrap="wrap"
           >
             {entry.message}
@@ -164,7 +164,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     >
       {ICONS.warn}
       <Text> </Text>
-      <Text color="yellow">[Unsupported UI output]</Text>
+      <Text color={THEME.warning}>[Unsupported UI output]</Text>
     </Box>
   );
 });

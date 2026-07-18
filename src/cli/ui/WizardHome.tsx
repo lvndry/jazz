@@ -126,7 +126,7 @@ export function WizardHome({
         <Box marginBottom={1}>
           <Text
             bold
-            color="white"
+            color={THEME.selected}
           >
             {title || "What would you like to do?"}
           </Text>

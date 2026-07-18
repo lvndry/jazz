@@ -791,7 +791,7 @@ export function formatBlockquotes(text: string): string {
 export function formatTaskLists(text: string): string {
   return text.replace(TASK_LIST_REGEX, (_match: string, checked: string, content: string) => {
     const isChecked = checked.toLowerCase() === "x";
-    const checkbox = isChecked ? CHALK_THEME.success("✓") : chalk.gray("○");
+    const checkbox = isChecked ? CHALK_THEME.success("✓") : CHALK_THEME.muted("○");
     const indent = "  ";
     return `${TASK_LIST_MARKER}${indent}${checkbox} ${content}`;
   });
@@ -825,7 +825,7 @@ export function formatLists(text: string): string {
       const content = unorderedMatch[3];
       const indentLevel = Math.floor(indent.length / 2);
       const indentStr = "  ".repeat(indentLevel + 1);
-      return `${indentStr}${chalk.yellow(bullet)} ${content}`;
+      return `${indentStr}${codeColor(bullet)} ${content}`;
     }
 
     // Ordered lists (1., 2., etc.)
@@ -841,7 +841,7 @@ export function formatLists(text: string): string {
       const content = orderedMatch[3];
       const indentLevel = Math.floor(indent.length / 2);
       const indentStr = "  ".repeat(indentLevel + 1);
-      return `${indentStr}${chalk.yellow(number)} ${content}`;
+      return `${indentStr}${codeColor(number)} ${content}`;
     }
 
     return line;
@@ -856,7 +856,7 @@ export function formatLists(text: string): string {
 export function formatHorizontalRules(text: string, terminalWidth: number = 80): string {
   const ruleLength = Math.min(terminalWidth - 4, 40);
   const rule = "─".repeat(ruleLength);
-  return text.replace(HORIZONTAL_RULE_REGEX, () => chalk.gray(rule) + "\n");
+  return text.replace(HORIZONTAL_RULE_REGEX, () => CHALK_THEME.muted(rule) + "\n");
 }
 
 /**
@@ -1185,7 +1185,7 @@ export function formatCodeBlockContent(codeBlock: string): string {
   {
     const line = lines[openIdx]!;
     const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
-    out.push(leadingWhitespace + chalk.yellow(line.trimStart()));
+    out.push(leadingWhitespace + codeColor(line.trimStart()));
   }
   // Highlighted body.
   if (styledBody.length > 0 || bodyLines.length > 0) {
@@ -1195,7 +1195,7 @@ export function formatCodeBlockContent(codeBlock: string): string {
   if (closeIdx < lines.length) {
     const line = lines[closeIdx]!;
     const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
-    out.push(leadingWhitespace + chalk.yellow(line.trimStart()));
+    out.push(leadingWhitespace + codeColor(line.trimStart()));
   }
   // Anything after the close fence (rare).
   for (let i = closeIdx + 1; i < lines.length; i++) out.push(codeColor(lines[i]!));
@@ -1226,7 +1226,7 @@ export function segmentByCodeBlocks(
   for (const line of lines) {
     if (line.trim().startsWith("```")) {
       if (current && current.lines.length > 0) segments.push(current);
-      segments.push({ type: "code", lines: [chalk.yellow(line)] });
+      segments.push({ type: "code", lines: [codeColor(line)] });
       isInCodeBlock = !isInCodeBlock;
       current = null;
     } else if (isInCodeBlock) {
@@ -1581,7 +1581,7 @@ export function formatCodeBlockContentHybrid(codeBlock: string): string {
     if (line.trim().startsWith("```")) {
       const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
       const content = line.trimStart();
-      processedLines.push(leadingWhitespace + chalk.yellow(content));
+      processedLines.push(leadingWhitespace + codeColor(content));
     } else {
       processedLines.push(codeColor(line));
     }

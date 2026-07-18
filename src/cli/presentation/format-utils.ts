@@ -48,23 +48,23 @@ export function formatThinking(agentName: string, isFirstIteration: boolean = fa
 }
 
 export function formatCompletion(agentName: string): string {
-  return chalk.greenBright(`${getGlyphs().success}  ${agentName} completed successfully`);
+  return CHALK_THEME.success(`${getGlyphs().success}  ${agentName} completed successfully`);
 }
 
 export function formatWarning(agentName: string, message: string): string {
-  return chalk.yellowBright(`${getGlyphs().warn}  ${agentName}: ${message}`);
+  return CHALK_THEME.warning(`${getGlyphs().warn}  ${agentName}: ${message}`);
 }
 
 export function formatToolExecutionStart(toolName: string, argsStr: string): string {
-  return `\n${chalk.cyanBright(getGlyphs().arrow)} Executing tool: ${chalk.cyanBright.bold(toolName)}${chalk.cyan(argsStr)}...`;
+  return `\n${CHALK_THEME.agent(getGlyphs().arrow)} Executing tool: ${CHALK_THEME.agentBold(toolName)}${CHALK_THEME.agent(argsStr)}...`;
 }
 
 export function formatToolExecutionComplete(summary: string | null, durationMs: number): string {
-  return ` ${chalk.greenBright(getGlyphs().success)}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+  return ` ${CHALK_THEME.success(getGlyphs().success)}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${durationMs}ms)`)}\n`;
 }
 
 export function formatToolExecutionError(errorMessage: string, durationMs: number): string {
-  return ` ${chalk.redBright(getGlyphs().error)} ${chalk.redBright(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+  return ` ${CHALK_THEME.error(getGlyphs().error)} ${CHALK_THEME.error(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
 }
 
 /**
@@ -98,7 +98,7 @@ export function formatToolsDetected(
       return name;
     })
     .join(", ");
-  return `\n${chalk.yellow(getGlyphs().arrow)} ${chalk.yellow(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
+  return `\n${CHALK_THEME.warning(getGlyphs().arrow)} ${CHALK_THEME.warning(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
 }
 
 // ---------------------------------------------------------------------------
