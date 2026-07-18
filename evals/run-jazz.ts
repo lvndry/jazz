@@ -84,6 +84,8 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
     "--json",
     "--events",
     "all",
+    "--approval-policy",
+    "high-risk",
     "--timeout",
     String(options.timeoutMs),
   ];
