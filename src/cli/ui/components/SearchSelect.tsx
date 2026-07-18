@@ -29,11 +29,29 @@ export function SearchSelect<T = unknown>({
   const [cursorIndex, setCursorIndex] = useState(0);
   const [windowStart, setWindowStart] = useState(0);
 
-  // Filter options based on query (case-insensitive)
+  // Filter + rank from the first character (case-insensitive). Plain
+  // substring filtering alone barely narrows short queries — every label
+  // contains most letters — so matches are ranked: label-prefix first, then
+  // word-prefix (after space/dash/slash), then anywhere. The match position
+  // is kept so the render can highlight it, making one-character filtering
+  // visibly do something.
   const filteredOptions = useMemo(() => {
-    if (!query.trim()) return options;
-    const lowerQuery = query.toLowerCase();
-    return options.filter((opt) => opt.label.toLowerCase().includes(lowerQuery));
+    const lowerQuery = query.trim().toLowerCase();
+    if (!lowerQuery) {
+      return options.map((option) => ({ option, matchIndex: -1 }));
+    }
+    const WORD_BOUNDARY = new Set([" ", "-", "_", "/", ".", "("]);
+    const scored: { option: Choice<T>; matchIndex: number; rank: number }[] = [];
+    for (const option of options) {
+      const lowerLabel = option.label.toLowerCase();
+      const matchIndex = lowerLabel.indexOf(lowerQuery);
+      if (matchIndex === -1) continue;
+      const rank =
+        matchIndex === 0 ? 0 : WORD_BOUNDARY.has(option.label[matchIndex - 1] ?? "") ? 1 : 2;
+      scored.push({ option, matchIndex, rank });
+    }
+    scored.sort((a, b) => a.rank - b.rank || a.matchIndex - b.matchIndex);
+    return scored.map(({ option, matchIndex }) => ({ option, matchIndex }));
   }, [options, query]);
 
   const effectivePageSize = Math.max(1, Math.min(pageSize, filteredOptions.length || 1));
@@ -85,7 +103,7 @@ export function SearchSelect<T = unknown>({
   function submit(): void {
     const selected = filteredOptions[cursorIndex];
     if (selected) {
-      onSelect(selected.value);
+      onSelect(selected.option.value);
     }
   }
 
@@ -161,9 +179,12 @@ export function SearchSelect<T = unknown>({
       {filteredOptions.length === 0 ? (
         <Text dimColor>(No matching options)</Text>
       ) : (
-        filteredOptions.slice(windowStart, windowEndExclusive).map((choice, localIndex) => {
+        filteredOptions.slice(windowStart, windowEndExclusive).map((entry, localIndex) => {
           const absoluteIndex = windowStart + localIndex;
           const isActive = absoluteIndex === cursorIndex;
+          const { option, matchIndex } = entry;
+          const queryLength = query.trim().length;
+          const labelColor = isActive ? THEME.selected : THEME.secondary;
 
           return (
             <Box key={absoluteIndex}>
@@ -173,12 +194,28 @@ export function SearchSelect<T = unknown>({
               >
                 {isActive ? `${G.rail} ` : "  "}
               </Text>
-              <Text
-                color={isActive ? THEME.selected : THEME.secondary}
-                bold={isActive}
-              >
-                {choice.label}
-              </Text>
+              {matchIndex >= 0 && queryLength > 0 ? (
+                <Text
+                  color={labelColor}
+                  bold={isActive}
+                >
+                  {option.label.slice(0, matchIndex)}
+                  <Text
+                    color={THEME.primary}
+                    bold
+                  >
+                    {option.label.slice(matchIndex, matchIndex + queryLength)}
+                  </Text>
+                  {option.label.slice(matchIndex + queryLength)}
+                </Text>
+              ) : (
+                <Text
+                  color={labelColor}
+                  bold={isActive}
+                >
+                  {option.label}
+                </Text>
+              )}
             </Box>
           );
         })
