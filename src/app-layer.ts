@@ -27,6 +27,7 @@ import { createAgentServiceLayer } from "./services/agent-service";
 import { createChatServiceLayer } from "./services/chat-service";
 import { createConfigLayer } from "./services/config";
 import { createFileSystemContextServiceLayer } from "./services/fs";
+import { createJazzStateServiceLayer } from "./services/jazz-state";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer, setLogFormat, setLogLevel } from "./services/logger";
 import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
@@ -100,6 +101,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
   const { debug, configPath } = config;
   const fileSystemLayer = NodeFileSystem.layer;
   const configLayer = createConfigLayer(debug, configPath).pipe(Layer.provide(fileSystemLayer));
+  const jazzStateLayer = createJazzStateServiceLayer().pipe(Layer.provide(fileSystemLayer));
   const loggerLayer = createLoggerLayer();
 
   const logFormatLayer = Layer.effectDiscard(
@@ -185,6 +187,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     logFormatLayer,
     terminalLayer,
     storageLayer,
+    jazzStateLayer,
     llmLayer,
     toolRegistryLayer,
     shellLayer,

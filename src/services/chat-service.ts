@@ -7,6 +7,7 @@ import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { ChatServiceTag, type ChatService } from "@/core/interfaces/chat-service";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { JazzStateServiceTag, type JazzStateService } from "@/core/interfaces/jazz-state";
 import { type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@/core/interfaces/mcp-server";
@@ -63,6 +64,7 @@ export class ChatServiceImpl implements ChatService {
     | FileSystemContextService
     | FileSystem.FileSystem
     | typeof AgentConfigServiceTag
+    | JazzStateService
     | ToolRegistry
     | AgentService
     | LLMService
@@ -123,6 +125,13 @@ export class ChatServiceImpl implements ChatService {
       if (appConfig.autoApprovedCommands?.length) {
         autoApprovedCommands = [...appConfig.autoApprovedCommands];
       }
+
+      // Load last-used agent from runtime state for sorting /agents and /switch
+      const jazzState = yield* JazzStateServiceTag;
+      const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
+        Effect.map((value) => (typeof value === "string" ? value : null)),
+        Effect.catchAll(() => Effect.succeed(null)),
+      );
 
       // Register mode switch handler for Shift+Tab toggle
       store.registerModeSwitchHandler((mode) => {
@@ -274,6 +283,7 @@ export class ChatServiceImpl implements ChatService {
               sessionId,
               sessionUsage,
               sessionStartedAt,
+              lastUsedAgentId,
               ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
               ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
               ...(latestConfig.autoApprovedCommands?.length
@@ -634,6 +644,7 @@ export function createChatServiceLayer(): Layer.Layer<
   | FileSystemContextService
   | FileSystem.FileSystem
   | typeof AgentConfigServiceTag
+  | JazzStateService
   | typeof ToolRegistryTag
   | typeof AgentServiceTag
 > {

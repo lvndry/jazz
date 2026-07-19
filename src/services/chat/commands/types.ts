@@ -90,4 +90,6 @@ export interface CommandContext {
   persistedAutoApprovedCommands?: readonly string[];
   /** Currently auto-approved tool names for this session (for /mode display). */
   autoApprovedTools?: readonly string[];
+  /** ID of the agent most recently chatted with, used to sort /agents and /switch. */
+  lastUsedAgentId?: string | null;
 }

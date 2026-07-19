@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { Effect, Layer } from "effect";
+import { JazzStateServiceTag, type JazzStateService } from "@/core/interfaces/jazz-state";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
@@ -88,7 +89,13 @@ describe("handleSpecialCommand resume", () => {
       TerminalServiceTag,
       mockTerminal as unknown as TerminalService,
     );
-    const testLayer = Layer.merge(terminalLayer, NodeFileSystem.layer);
+    const jazzStateLayer = Layer.succeed(JazzStateServiceTag, {
+      get: () => Effect.succeed(undefined),
+      set: () => Effect.void,
+      load: () => Effect.succeed({}),
+      persist: () => Effect.void,
+    } as unknown as JazzStateService);
+    const testLayer = Layer.mergeAll(terminalLayer, jazzStateLayer, NodeFileSystem.layer);
 
     const context: CommandContext = {
       agent: testAgent,
