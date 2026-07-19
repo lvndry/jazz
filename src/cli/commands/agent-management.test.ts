@@ -22,6 +22,7 @@ const mockAgentService = {
 } as unknown as AgentService;
 
 const mockTerminal = {
+  isInteractive: true,
   info: mock(() => Effect.void),
   log: mock(() => Effect.void),
   success: mock(() => Effect.void),
@@ -29,6 +30,11 @@ const mockTerminal = {
   warn: mock(() => Effect.void),
   ask: mock(() => Effect.succeed("")),
   confirm: mock(() => Effect.succeed(true)),
+} as unknown as TerminalService;
+
+const mockPlainTerminal = {
+  ...mockTerminal,
+  isInteractive: false,
 } as unknown as TerminalService;
 
 const mockCLIOptions = {
@@ -71,7 +77,7 @@ describe("Agent Management Commands", () => {
     // @ts-expect-error - mocking
     mockTerminal.confirm.mockReturnValueOnce(Effect.succeed(true));
 
-    const program = deleteAgentCommand("agent1", { interactive: true });
+    const program = deleteAgentCommand("agent1");
     const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<void, unknown, never>;
     await Effect.runPromise(runnable);
 
@@ -93,7 +99,7 @@ describe("Agent Management Commands", () => {
     // @ts-expect-error - mocking
     mockTerminal.confirm.mockReturnValueOnce(Effect.succeed(false));
 
-    const program = deleteAgentCommand("agent1", { interactive: true });
+    const program = deleteAgentCommand("agent1");
     const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<void, unknown, never>;
     await Effect.runPromise(runnable);
 
@@ -109,7 +115,7 @@ describe("Agent Management Commands", () => {
     // @ts-expect-error - mocking
     mockAgentService.deleteAgent.mockReturnValueOnce(Effect.void);
 
-    const program = deleteAgentCommand("agent1", { skipConfirmation: true, interactive: false });
+    const program = deleteAgentCommand("agent1", { skipConfirmation: true });
     const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<void, unknown, never>;
     await Effect.runPromise(runnable);
 
@@ -123,8 +129,18 @@ describe("Agent Management Commands", () => {
     // @ts-expect-error - mocking
     mockAgentService.getAgent.mockReturnValueOnce(Effect.succeed(testAgent));
 
-    const program = deleteAgentCommand("agent1", { interactive: false });
-    const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<void, unknown, never>;
+    const plainLayer = Layer.mergeAll(
+      Layer.succeed(AgentServiceTag, mockAgentService),
+      Layer.succeed(TerminalServiceTag, mockPlainTerminal),
+      Layer.succeed(CLIOptionsTag, mockCLIOptions),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+    );
+    const program = deleteAgentCommand("agent1");
+    const runnable = program.pipe(Effect.provide(plainLayer)) as Effect.Effect<
+      void,
+      unknown,
+      never
+    >;
     const exit = await Effect.runPromiseExit(runnable);
 
     expect(Exit.isFailure(exit)).toBe(true);

@@ -209,7 +209,6 @@ export function listAgentsCommand(): Effect.Effect<
  * @param agentIdentifier - The agent ID or name to delete
  * @param options - Deletion options
  * @param options.skipConfirmation - Delete without prompting (for `--yes`/`--force`)
- * @param options.interactive - Override TTY detection (used by tests)
  * @returns An Effect that resolves when the agent is deleted successfully
  *
  * @throws {StorageError} When there's an error accessing storage
@@ -221,7 +220,6 @@ export function deleteAgentCommand(
   agentIdentifier: string,
   options: {
     readonly skipConfirmation?: boolean;
-    readonly interactive?: boolean;
   } = {},
 ): Effect.Effect<
   void,
@@ -236,12 +234,10 @@ export function deleteAgentCommand(
     const agent = yield* getAgentByIdentifier(agentIdentifier);
 
     if (options.skipConfirmation !== true) {
-      const interactive =
-        options.interactive ?? (process.stdout.isTTY === true && process.stdin.isTTY === true);
-
-      // PlainTerminalService.confirm resolves to the default (false) without
-      // asking, which would silently abort — require an explicit --yes instead.
-      if (!interactive) {
+      // A non-interactive terminal (non-TTY, quiet mode, JAZZ_NO_TUI) resolves
+      // confirm() with the default (false) without asking, which would silently
+      // abort — require an explicit --yes instead.
+      if (terminal.isInteractive !== true) {
         return yield* Effect.fail(
           new CLIError({
             command: "agent delete",

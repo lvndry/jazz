@@ -33,6 +33,15 @@ export function ink(node: unknown): TerminalInkNode {
  */
 export interface TerminalService {
   /**
+   * Whether this terminal can actually prompt the user for input.
+   *
+   * False for plain/non-TTY terminals whose prompt methods resolve
+   * immediately with defaults instead of asking. Callers gating
+   * destructive actions on a prompt must check this first.
+   */
+  readonly isInteractive?: boolean;
+
+  /**
    * Display an informational message
    */
   readonly info: (message: string) => Effect.Effect<void, never>;

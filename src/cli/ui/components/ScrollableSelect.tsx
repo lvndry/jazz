@@ -6,6 +6,7 @@ import type { Choice } from "../types";
 interface ScrollableSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];
   readonly pageSize?: number;
+  readonly initialIndex?: number;
   readonly onSelect: (value: T) => void;
   readonly onCancel?: () => void;
 }
@@ -18,22 +19,27 @@ interface ScrollableSelectProps<T = unknown> {
 export function ScrollableSelect<T = unknown>({
   options,
   pageSize = 10,
+  initialIndex = 0,
   onSelect,
   onCancel,
 }: ScrollableSelectProps<T>): React.ReactElement {
-  const [cursorIndex, setCursorIndex] = useState(0);
-  const [windowStart, setWindowStart] = useState(0);
-
   const effectivePageSize = Math.max(1, Math.min(pageSize, options.length || 1));
+
+  const clampedInitialIndex = Math.max(0, Math.min(options.length - 1, initialIndex));
+  const initialWindowStart = Math.max(0, clampedInitialIndex - (effectivePageSize - 1));
+
+  const [cursorIndex, setCursorIndex] = useState(clampedInitialIndex);
+  const [windowStart, setWindowStart] = useState(initialWindowStart);
+
   const windowEndExclusive = Math.min(options.length, windowStart + effectivePageSize);
   const hasMoreAbove = windowStart > 0;
   const hasMoreBelow = windowEndExclusive < options.length;
 
   // Reset state when options change (new prompt)
   useEffect(() => {
-    setCursorIndex(0);
-    setWindowStart(0);
-  }, [options]);
+    setCursorIndex(clampedInitialIndex);
+    setWindowStart(initialWindowStart);
+  }, [options, clampedInitialIndex, initialWindowStart]);
 
   function clampCursor(nextIndex: number): number {
     if (options.length === 0) return 0;

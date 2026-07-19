@@ -324,6 +324,7 @@ function PromptComponent({
               { label: "Yes", value: true },
               { label: "No", value: false },
             ]}
+            initialIndex={prompt.options?.["defaultValue"] === true ? 0 : 1}
             pageSize={10}
             onSelect={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
