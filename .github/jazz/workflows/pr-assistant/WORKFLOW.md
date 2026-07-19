@@ -27,12 +27,14 @@ The requester said:
 ## Steps
 
 1. Read `/tmp/jazz-pr-context.json` first. If it is missing or contains `{"error": ...}`, proceed without it, note in your answer that PR metadata was unavailable, and do not ask the user to retry.
-2. Inspect the diff: `git_diff` with `path: "__WORKSPACE__"` and `commit: "__PR_BASE_SHA__...__PR_HEAD_SHA__"`.
-3. Read surrounding code and tests for the touched areas.
-4. Answer the request above. If it is vague, infer the most helpful PR-focused action and state what you assumed; ground claims about the PR's intent and prior discussion in the snapshot.
-5. For review-style requests, prioritize correctness, security, and maintainability, and skip issues already raised in prior `reviews` / `reviewComments`.
-6. For change requests, name the exact files and functions to change and what to do — you cannot edit the repository or post GitHub comments yourself. Use `web_fetch` for external docs or public URLs; do not call the GitHub REST API via `http_request`.
-7. Never return an empty response. If the request is unclear or the diff is trivial, summarize what you found, explain what the PR does, or ask a clarifying question — a blank or one-word reply is not acceptable.
+2. Establish the authoritative file list: call `git_diff` with `path: "__WORKSPACE__"`, `commit: "__PR_BASE_SHA__...__PR_HEAD_SHA__"`, and `nameOnly: true`. This list is the source of truth for what the PR changes — every claim about scope must match it. Never describe the PR as touching fewer files than this list shows.
+3. Read the diff content, and respect truncation. `git_diff` returns at most 500 lines by default (cap: 2000) and sets `truncated: true` when it cut the output. A truncated diff is NOT the whole diff — files come back alphabetically, so a truncated result over-represents the earliest paths (e.g. `.github/...`, `.gitignore`) and hides everything after. Never conclude "only these files changed" from a truncated diff or from diff content alone; reconcile against the step-2 list. To read the whole diff, raise `maxLines` (up to 2000) and/or scope with `paths: [...]` to pull it in batches until every file from step 2 is covered.
+4. If the PR is large (10+ files or 500+ changed lines), spawn subagents to read and analyze file batches in parallel, then merge their findings into one answer.
+5. Read surrounding code and tests for the touched areas.
+6. Answer the request above. If it is vague, infer the most helpful PR-focused action and state what you assumed; ground claims about the PR's intent and prior discussion in the snapshot.
+7. For review-style requests, prioritize correctness, security, and maintainability, and skip issues already raised in prior `reviews` / `reviewComments`.
+8. For change requests, name the exact files and functions to change and what to do — you cannot edit the repository or post GitHub comments yourself. Use `web_fetch` for external docs or public URLs; do not call the GitHub REST API via `http_request`.
+9. Never return an empty response. If the request is unclear or the diff is trivial, summarize what you found, explain what the PR does, or ask a clarifying question — a blank or one-word reply is not acceptable.
 
 ## Output Format (strict)
 

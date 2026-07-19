@@ -27,7 +27,7 @@ Jazz is a single-user agentic CLI running on local or server machines, not a mul
 ## Steps
 
 1. Read `/tmp/jazz-pr-context.json` to extract the intended behavior and the issues already raised.
-2. Run `git_diff` with `nameOnly: true` to list changed files, then read the diff content for all of them (batched if large).
+2. Run `git_diff` with `nameOnly: true` to list changed files — this list is authoritative for the PR's scope. Then read the diff content for all of them. `git_diff` caps output (500 lines default, 2000 max) and sets `truncated: true` when it cut the result; a truncated diff over-represents alphabetically-early paths and hides the rest, so never review from a truncated result — raise `maxLines` and/or scope with `paths: [...]` to cover every file in the list.
 3. Open surrounding code for touched modules; verify contracts at call sites and boundary interfaces.
 4. Check intent vs behavior: does the implementation do what the PR claims, on both success and failure paths? Could it degrade real CLI/agent usage?
 5. Check engineering quality: strict TypeScript with no avoidable `any`; Effect-TS typed/tagged errors, proper Layer boundaries, explicit parallelism, scoped resources; validation at trust boundaries; actionable errors with no silent drops; no brittle coupling or hidden side effects.
