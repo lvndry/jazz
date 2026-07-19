@@ -39,7 +39,7 @@ export interface TerminalService {
    * immediately with defaults instead of asking. Callers gating
    * destructive actions on a prompt must check this first.
    */
-  readonly isInteractive?: boolean;
+  readonly isInteractive: boolean;
 
   /**
    * Display an informational message
