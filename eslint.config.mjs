@@ -121,6 +121,57 @@ export default [
     },
   },
   {
+    files: ["evals/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    languageOptions: {
+      parserOptions: {
+        project: "./evals/tsconfig.json",
+        tsconfigRootDir,
+      },
+      globals: {
+        ...nodeGlobals,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+      "@typescript-eslint/no-explicit-any": "warn",
+      "no-console": "off",
+      "@typescript-eslint/explicit-function-return-type": "off",
+      "n/no-missing-import": "off",
+      "n/no-unsupported-features/es-syntax": "off",
+      "n/no-unsupported-features/node-builtins": ["error", { allowExperimental: true }],
+      "n/no-process-exit": "off",
+    },
+  },
+  {
+    files: ["evals/**/*.test.ts"],
+    languageOptions: {
+      globals: {
+        ...nodeGlobals,
+        describe: "readonly",
+        it: "readonly",
+        expect: "readonly",
+        beforeEach: "readonly",
+        afterEach: "readonly",
+        beforeAll: "readonly",
+        afterAll: "readonly",
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+      "@typescript-eslint/no-explicit-any": "off",
+      "no-console": "off",
+      "n/no-missing-import": "off",
+      "n/no-unsupported-features/es-syntax": "off",
+    },
+  },
+  {
     files: ["**/*.{js,mjs,ts,tsx}"],
     plugins: { prettier: prettierPlugin },
     rules: {
