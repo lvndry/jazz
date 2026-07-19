@@ -182,8 +182,9 @@ export function listAgentsCommand(): Effect.Effect<
     );
     const agents = sortAgents(agentsUnsorted, lastUsedAgentId);
 
-    // Prefer a responsive Ink component (reflows on terminal resize).
-    // Fall back to a plain string block when not in a TTY.
+    // Ink component sized to the terminal width at print time (Static
+    // scrollback cannot reflow after printing). Plain string block when
+    // not in a TTY.
     if (process.stdout.isTTY) {
       yield* terminal.log({
         _tag: "ink",
