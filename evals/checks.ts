@@ -123,9 +123,10 @@ export async function comprehensionCheck(
  */
 export function machineSpecGroundingCheck(
   result: OneShotResult,
-  opts: { probePatterns: RegExp[]; askBackPatterns: RegExp[] },
+  opts: { probePatterns: RegExp[]; askBackPatterns: RegExp[]; ramGB?: number },
 ): CheckResult {
-  const ramGB = Math.round(totalmem() / 1024 ** 3);
+  // ramGB is injectable so tests are host-independent; real runs use actual RAM.
+  const ramGB = opts.ramGB ?? Math.round(totalmem() / 1024 ** 3);
   const citesRealRam = new RegExp(`\\b${ramGB}\\s*gb\\b`, "i").test(result.answer);
   const ranProbe = result.toolCalls.some(
     (call) =>

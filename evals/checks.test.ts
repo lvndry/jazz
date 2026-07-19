@@ -1,5 +1,5 @@
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir, totalmem } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 import {
@@ -100,10 +100,14 @@ describe("machineSpecGroundingCheck", () => {
   const probePatterns = [/system_profiler/i, /sysctl\b/i];
   const askBackPatterns = [/what(?:'s| is) your ram/i];
 
+  // Pin a synthetic RAM figure so the check is host-independent (the real check
+  // reads totalmem(); on a 16GB CI runner, generic "8-16GB" advice would else
+  // falsely count as citing the real RAM).
+  const ramGB = 99;
+
   it("passes when the answer cites the real RAM figure", () => {
-    const ramGB = Math.round(totalmem() / 1024 ** 3);
     const r = result({ answer: `This machine has ${ramGB}GB of RAM, so try a 7B model.` });
-    expect(machineSpecGroundingCheck(r, { probePatterns, askBackPatterns }).pass).toBe(true);
+    expect(machineSpecGroundingCheck(r, { probePatterns, askBackPatterns, ramGB }).pass).toBe(true);
   });
 
   it("passes when the agent ran a system probe command", () => {
@@ -113,19 +117,23 @@ describe("machineSpecGroundingCheck", () => {
         { id: "1", name: "execute_command", arguments: '{"command":"sysctl hw.memsize"}' },
       ],
     });
-    expect(machineSpecGroundingCheck(r, { probePatterns, askBackPatterns }).pass).toBe(true);
+    expect(machineSpecGroundingCheck(r, { probePatterns, askBackPatterns, ramGB }).pass).toBe(true);
   });
 
   it("fails on generic RAM-bucket guidance with no probe", () => {
     const r = result({
       answer: "If you have 8-16GB of RAM, try a 7B model; for 32GB+, go bigger.",
     });
-    expect(machineSpecGroundingCheck(r, { probePatterns, askBackPatterns }).pass).toBe(false);
+    expect(machineSpecGroundingCheck(r, { probePatterns, askBackPatterns, ramGB }).pass).toBe(
+      false,
+    );
   });
 
   it("fails when the agent asks the user for their specs", () => {
     const r = result({ answer: "What's your RAM? I can recommend a model once I know." });
-    expect(machineSpecGroundingCheck(r, { probePatterns, askBackPatterns }).pass).toBe(false);
+    expect(machineSpecGroundingCheck(r, { probePatterns, askBackPatterns, ramGB }).pass).toBe(
+      false,
+    );
   });
 });
 

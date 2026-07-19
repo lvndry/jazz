@@ -128,7 +128,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteReport> {
     const workspaceDir = mkdtempSync(join(tmpdir(), `eval-${task.id}-`));
     const cassettePath = join(WEB_FIXTURE_DIR, `${task.id}.cassette.json`);
     if (!existsSync(cassettePath)) writeFileSync(cassettePath, "{}");
-    let pass = false;
+    let pass: boolean;
     let costUSD = 0;
     try {
       await task.setup(workspaceDir);
