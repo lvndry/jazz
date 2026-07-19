@@ -33,7 +33,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
         .int()
         .positive()
         .optional()
-        .describe("Max diff lines (default: 500, cap: 2000)"),
+        .describe("Max diff lines (default: 500, cap: 20000)"),
     })
     .strict();
 
@@ -42,7 +42,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
     name: "git_diff",
     description:
-      "Show differences between commits, branches, or working tree. Default 500 lines, cap 2000.",
+      "Show differences between commits, branches, or working tree. Default 500 lines, cap 20000.",
     tags: ["git", "diff"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -134,7 +134,10 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
         const hasChanges = trimmedOutput.length > 0;
         const requestedMaxLines = args.maxLines ?? 500;
-        const maxLines = Math.min(requestedMaxLines, 2000);
+        // Cap is generous so a large-context agent (review workflows run on
+        // 256k-token models) can pull a whole PR diff in one call instead of
+        // iterating; the small default keeps interactive results lightweight.
+        const maxLines = Math.min(requestedMaxLines, 20000);
         let diff = trimmedOutput;
         let truncated = false;
         let totalLines = 0;
