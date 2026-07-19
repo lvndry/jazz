@@ -40,7 +40,6 @@ export const AWAITING_LABELS: readonly string[] = [
   "is tuning up",
   "is counting in",
   "is riffing",
-  "is vamping",
   "is finding the groove",
   "is warming up the horns",
   "is setting the tempo",
@@ -48,7 +47,6 @@ export const AWAITING_LABELS: readonly string[] = [
   "is improvising",
   "is reading the charts",
   "is picking up the rhythm",
-  "is trading fours",
   "is working out the changes",
   "is in the woodshed",
 ];
