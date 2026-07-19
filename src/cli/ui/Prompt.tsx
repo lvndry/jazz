@@ -18,6 +18,12 @@ const G = getGlyphs();
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
 
+/**
+ * Cap the dropdown height. Tall live frames are the trigger for Ink's
+ * shrinking-region erase bug, and a 20-row dropdown is unscannable anyway.
+ */
+const MAX_VISIBLE_SUGGESTIONS = 8;
+
 interface CommandSuggestionItemProps {
   command: ChatCommandInfo;
   isSelected: boolean;
@@ -119,6 +125,16 @@ function PromptComponent({
     [commandSuggestionsEnabled, suggestionPrefix, value],
   );
   const suggestionsVisible = filteredCommands.length > 0;
+  const suggestionWindowStart = Math.min(
+    Math.max(0, selectedSuggestionIndex - MAX_VISIBLE_SUGGESTIONS + 1),
+    Math.max(0, filteredCommands.length - MAX_VISIBLE_SUGGESTIONS),
+  );
+  const visibleSuggestions = filteredCommands.slice(
+    suggestionWindowStart,
+    suggestionWindowStart + MAX_VISIBLE_SUGGESTIONS,
+  );
+  const hiddenSuggestionsBelow =
+    filteredCommands.length - suggestionWindowStart - visibleSuggestions.length;
 
   // Keep selected index in bounds when list changes
   useEffect(() => {
@@ -131,9 +147,11 @@ function PromptComponent({
   const setSelectedSuggestionIndexRef = useRef(setSelectedSuggestionIndex);
   const filteredCommandsRef = useRef(filteredCommands);
   const selectedSuggestionIndexRef = useRef(selectedSuggestionIndex);
+  const valueRef = useRef(value);
   setSelectedSuggestionIndexRef.current = setSelectedSuggestionIndex;
   filteredCommandsRef.current = filteredCommands;
   selectedSuggestionIndexRef.current = selectedSuggestionIndex;
+  valueRef.current = value;
 
   useInputHandler({
     id: "chat-command-suggestions",
@@ -150,7 +168,20 @@ function PromptComponent({
         setSelectedSuggestionIndexRef.current(Math.min(commands.length - 1, idx + 1));
         return InputResults.consumed();
       }
+      if (action.type === "tab" && commands[idx]) {
+        const nextValue = "/" + commands[idx].name + " ";
+        setValueRef.current(nextValue, nextValue.length);
+        setSelectedSuggestionIndexRef.current(0);
+        return InputResults.consumed();
+      }
       if (action.type === "submit" && commands[idx]) {
+        // A fully typed command submits on the first Enter — only incomplete
+        // prefixes get completed in place (second Enter then submits).
+        const typed = valueRef.current.trim();
+        const isExactCommand = commands.some((cmd) => "/" + cmd.name === typed);
+        if (isExactCommand) {
+          return InputResults.ignored();
+        }
         const nextValue = "/" + commands[idx].name + " ";
         setValueRef.current(nextValue, nextValue.length);
         setSelectedSuggestionIndexRef.current(0);
@@ -262,14 +293,19 @@ function PromptComponent({
                 marginTop={1}
                 flexDirection="column"
               >
-                <Text dimColor>Commands (↑/↓ select, Enter to pick):</Text>
-                {filteredCommands.map((cmd, index) => (
+                <Text dimColor>Commands (↑/↓ select · Tab complete · Enter run):</Text>
+                {visibleSuggestions.map((cmd, index) => (
                   <CommandSuggestionItem
                     key={cmd.name}
                     command={cmd}
-                    isSelected={index === selectedSuggestionIndex}
+                    isSelected={suggestionWindowStart + index === selectedSuggestionIndex}
                   />
                 ))}
+                {hiddenSuggestionsBelow > 0 && (
+                  <Box marginLeft={1}>
+                    <Text dimColor> …and {hiddenSuggestionsBelow} more</Text>
+                  </Box>
+                )}
               </Box>
             )}
             {validationError && (

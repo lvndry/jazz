@@ -1,43 +1,97 @@
 import { describe, expect, it } from "bun:test";
 import { getGlyphs, GLYPHS, resolveGlyphMode } from "./glyphs";
 
+const ENV_KEYS = [
+  "JAZZ_UI_GLYPHS",
+  "TERM",
+  "TERM_PROGRAM",
+  "LC_ALL",
+  "LC_CTYPE",
+  "LANG",
+  "WT_SESSION",
+] as const;
+
+function withEnv(overrides: Record<string, string | undefined>, run: () => void): void {
+  const saved = new Map<string, string | undefined>();
+  for (const key of ENV_KEYS) {
+    saved.set(key, process.env[key]);
+    delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== undefined) process.env[key] = value;
+  }
+  try {
+    run();
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 describe("glyphs", () => {
   describe("resolveGlyphMode", () => {
-    it("defaults to ascii when env is unset", () => {
-      const original = process.env["JAZZ_UI_GLYPHS"];
-      delete process.env["JAZZ_UI_GLYPHS"];
-      try {
-        expect(resolveGlyphMode()).toBe("ascii");
-      } finally {
-        if (original !== undefined) process.env["JAZZ_UI_GLYPHS"] = original;
-      }
-    });
-
     it("returns unicode when JAZZ_UI_GLYPHS=unicode (any case)", () => {
-      const original = process.env["JAZZ_UI_GLYPHS"];
-      try {
-        process.env["JAZZ_UI_GLYPHS"] = "unicode";
-        expect(resolveGlyphMode()).toBe("unicode");
-        process.env["JAZZ_UI_GLYPHS"] = "UNICODE";
-        expect(resolveGlyphMode()).toBe("unicode");
-        process.env["JAZZ_UI_GLYPHS"] = "Unicode";
-        expect(resolveGlyphMode()).toBe("unicode");
-      } finally {
-        if (original === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-        else process.env["JAZZ_UI_GLYPHS"] = original;
+      for (const value of ["unicode", "UNICODE", "Unicode"]) {
+        withEnv({ JAZZ_UI_GLYPHS: value, TERM: "dumb" }, () => {
+          expect(resolveGlyphMode()).toBe("unicode");
+        });
       }
     });
 
-    it("falls back to ascii for any other value", () => {
-      const original = process.env["JAZZ_UI_GLYPHS"];
-      try {
-        for (const v of ["fancy", "emoji", "minimal", "", "truecolor"]) {
-          process.env["JAZZ_UI_GLYPHS"] = v;
+    it("returns ascii when JAZZ_UI_GLYPHS=ascii even on a capable terminal", () => {
+      withEnv({ JAZZ_UI_GLYPHS: "ascii", LANG: "en_US.UTF-8" }, () => {
+        expect(resolveGlyphMode()).toBe("ascii");
+      });
+    });
+
+    it("detects unicode from a UTF-8 locale", () => {
+      withEnv({ LANG: "en_US.UTF-8" }, () => {
+        expect(resolveGlyphMode()).toBe("unicode");
+      });
+      withEnv({ LC_ALL: "fr_FR.utf8" }, () => {
+        expect(resolveGlyphMode()).toBe("unicode");
+      });
+    });
+
+    it("detects unicode from a known-capable TERM_PROGRAM without a locale", () => {
+      for (const program of ["iTerm.app", "WezTerm", "vscode", "ghostty", "Apple_Terminal"]) {
+        withEnv({ TERM_PROGRAM: program }, () => {
+          expect(resolveGlyphMode()).toBe("unicode");
+        });
+      }
+    });
+
+    it("detects unicode in Windows Terminal via WT_SESSION", () => {
+      withEnv({ WT_SESSION: "some-guid" }, () => {
+        expect(resolveGlyphMode()).toBe("unicode");
+      });
+    });
+
+    it("falls back to ascii on dumb/linux terminals even with UTF-8 locale", () => {
+      withEnv({ TERM: "dumb", LANG: "en_US.UTF-8" }, () => {
+        expect(resolveGlyphMode()).toBe("ascii");
+      });
+      withEnv({ TERM: "linux", LANG: "en_US.UTF-8" }, () => {
+        expect(resolveGlyphMode()).toBe("ascii");
+      });
+    });
+
+    it("falls back to ascii when nothing signals unicode support", () => {
+      withEnv({}, () => {
+        expect(resolveGlyphMode()).toBe("ascii");
+      });
+    });
+
+    it("treats unrecognized JAZZ_UI_GLYPHS values as unset (detection applies)", () => {
+      for (const value of ["fancy", "emoji", "minimal", "", "truecolor"]) {
+        withEnv({ JAZZ_UI_GLYPHS: value }, () => {
           expect(resolveGlyphMode()).toBe("ascii");
-        }
-      } finally {
-        if (original === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-        else process.env["JAZZ_UI_GLYPHS"] = original;
+        });
+        withEnv({ JAZZ_UI_GLYPHS: value, LANG: "en_US.UTF-8" }, () => {
+          expect(resolveGlyphMode()).toBe("unicode");
+        });
       }
     });
   });
@@ -74,6 +128,11 @@ describe("glyphs", () => {
         "arrow",
         "pending",
         "proposed",
+        "active",
+        "diamond",
+        "gridFilled",
+        "gridEmpty",
+        "gridReserved",
       ];
       for (const k of fields) {
         const v = set[k] as string;
@@ -97,25 +156,22 @@ describe("glyphs", () => {
   });
 
   describe("getGlyphs picks the active set", () => {
-    it("returns ascii by default", () => {
-      const original = process.env["JAZZ_UI_GLYPHS"];
-      delete process.env["JAZZ_UI_GLYPHS"];
-      try {
+    it("returns ascii when nothing signals unicode support", () => {
+      withEnv({}, () => {
         expect(getGlyphs()).toBe(GLYPHS.ascii);
-      } finally {
-        if (original !== undefined) process.env["JAZZ_UI_GLYPHS"] = original;
-      }
+      });
     });
 
     it("returns unicode when env opts in", () => {
-      const original = process.env["JAZZ_UI_GLYPHS"];
-      process.env["JAZZ_UI_GLYPHS"] = "unicode";
-      try {
+      withEnv({ JAZZ_UI_GLYPHS: "unicode" }, () => {
         expect(getGlyphs()).toBe(GLYPHS.unicode);
-      } finally {
-        if (original === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-        else process.env["JAZZ_UI_GLYPHS"] = original;
-      }
+      });
+    });
+
+    it("returns unicode on a detected UTF-8 terminal", () => {
+      withEnv({ LANG: "en_US.UTF-8" }, () => {
+        expect(getGlyphs()).toBe(GLYPHS.unicode);
+      });
     });
   });
 });

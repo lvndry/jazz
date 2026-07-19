@@ -1,9 +1,19 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
+import React from "react";
 import { InkStreamingRenderer } from "./ink-presentation-service";
 import type { ActivityState } from "../ui/activity-state";
 import { store } from "../ui/store";
 import type { OutputEntry } from "../ui/types";
+
+/** Recursively extract the text content of a React element tree. */
+function extractNodeText(node: unknown): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (!React.isValidElement(node)) return "";
+  const children = (node.props as { children?: unknown }).children;
+  if (Array.isArray(children)) return children.map(extractNodeText).join("");
+  return extractNodeText(children);
+}
 
 // Large-base-text size for the seenLength regression test below. The exact
 // value isn't load-bearing — anything large enough to make a delta-mismatch
@@ -574,11 +584,17 @@ describe("InkStreamingRenderer", () => {
         }),
       );
 
-      // Streaming path should not render the AgentResponseCard
+      // Streaming path should not render the AgentResponseCard. The turn
+      // header emitted at stream_start is an ink node too, so assert on
+      // content: no ink log may carry the response body.
       const inkLogs = printOutputCalls.filter(
         (e) => e.type === "log" && typeof e.message === "object" && e.message !== null,
       );
-      expect(inkLogs.length).toBe(0);
+      const cardLogs = inkLogs.filter((e) => {
+        const node = (e.message as { node?: unknown }).node;
+        return extractNodeText(node).includes("response");
+      });
+      expect(cardLogs.length).toBe(0);
     });
   });
 
