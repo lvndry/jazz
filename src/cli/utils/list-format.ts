@@ -12,7 +12,6 @@
  *   - Bold white     : key values that should stand out
  */
 
-import chalk from "chalk";
 import { getGlyphs } from "../ui/glyphs";
 import { CHALK_THEME } from "../ui/theme";
 
@@ -116,7 +115,7 @@ export function keyValueCompact(key: string, value: string, width = 14): string 
  * Example: `   ● my-server`
  */
 export function statusConnected(name: string): string {
-  return `${INDENT}${chalk.green(getGlyphs().active)} ${CHALK_THEME.primaryBold(name)}`;
+  return `${INDENT}${CHALK_THEME.success(getGlyphs().active)} ${CHALK_THEME.primaryBold(name)}`;
 }
 
 /**
@@ -147,7 +146,9 @@ export function footer(text: string): string {
  * Example: `   /tools           List all agent tools by category`
  */
 export function commandRow(command: string, description: string, colWidth = 20): string {
-  const paddedCmd = command.padEnd(colWidth);
+  // padEnd is a no-op once the label exceeds the column — guarantee at
+  // least two separating spaces so the description never butts against it.
+  const paddedCmd = command.length >= colWidth ? `${command}  ` : command.padEnd(colWidth);
   return `${INDENT}${CHALK_THEME.primaryBold(paddedCmd)}${CHALK_THEME.secondary(description)}`;
 }
 

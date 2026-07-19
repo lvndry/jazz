@@ -63,6 +63,9 @@ export interface ExpandableReasoning {
 /** Upper bound on retained collapsed-reasoning blocks. */
 const MAX_EXPANDABLE_REASONING = 20;
 
+/** Upper bound on recallable sent-message history. */
+const MAX_INPUT_HISTORY = 100;
+
 /** Caller-supplied summary when collapsing a region. */
 export interface CollapseEphemeralSummary {
   /** One-line static entry to emit into scrollback (omit to skip). */
@@ -119,9 +122,14 @@ export class UIStore {
   private activitySnapshot: ActivityState = { phase: "idle" };
   private workingDirectorySnapshot: string | null = null;
   private runStatsSnapshot: RunStats = {};
+  // Session-wide cumulative cost in USD. Every renderer (main agent and each
+  // sub-agent) adds its own per-turn cost here so the footer total reflects
+  // aggregate spend, not just the orchestrator's. Reset per session.
+  private sessionCostUSD = 0;
   private ephemeralRegionsSnapshot: readonly EphemeralRegion[] = [];
   private expandableReasoningSnapshot: ExpandableReasoning | null = null;
   private expandableReasoningStack: ExpandableReasoning[] = [];
+  private inputHistory: string[] = [];
   private messageQueueSnapshot: readonly string[] = [];
   private chatBusySnapshot: boolean = false;
 
@@ -236,10 +244,23 @@ export class UIStore {
    * costUSD only after we've resolved pricing).
    */
   resetRunStats = (initial: RunStats = {}): void => {
+    this.sessionCostUSD = 0;
     this.runStatsSnapshot = initial;
     if (this.runStatsSetter) {
       this.runStatsSetter(initial);
     }
+  };
+
+  /**
+   * Add a run's cost to the session-wide total and publish it to the footer.
+   * Called by every renderer (main agent and sub-agents) as each turn's cost
+   * resolves, so the displayed total aggregates all spend rather than being
+   * clobbered by whichever run completed last.
+   */
+  addSessionCostUSD = (deltaUSD: number): void => {
+    if (!deltaUSD) return;
+    this.sessionCostUSD += deltaUSD;
+    this.updateRunStats({ costUSD: this.sessionCostUSD });
   };
 
   updateRunStats = (patch: Partial<RunStats>): void => {
@@ -463,6 +484,19 @@ export class UIStore {
     }
   };
 
+  /** Record a sent chat message for ↑/↓ recall. Skips consecutive duplicates. */
+  pushInputHistory = (message: string): void => {
+    const trimmed = message.trim();
+    if (trimmed.length === 0) return;
+    if (this.inputHistory.at(-1) === trimmed) return;
+    this.inputHistory.push(trimmed);
+    if (this.inputHistory.length > MAX_INPUT_HISTORY) {
+      this.inputHistory.shift();
+    }
+  };
+
+  getInputHistory = (): readonly string[] => this.inputHistory;
+
   private pushExpandableReasoning(value: ExpandableReasoning): void {
     this.expandableReasoningStack.push(value);
     if (this.expandableReasoningStack.length > MAX_EXPANDABLE_REASONING) {
@@ -481,9 +515,11 @@ export class UIStore {
   collapseAllEphemeral = (): void => {
     if (this.ephemeralRegions.size === 0) return;
     for (const region of this.ephemeralRegions.values()) {
-      if (region.kind !== "reasoning" || region.tail.length === 0) continue;
+      if (region.kind !== "reasoning") continue;
+      const fullText = region.tail.join("\n").trim();
+      if (fullText.length === 0) continue;
       this.pushExpandableReasoning({
-        fullText: region.tail.join("\n"),
+        fullText,
         label: region.label,
         durationMs: Date.now() - region.startedAt,
       });

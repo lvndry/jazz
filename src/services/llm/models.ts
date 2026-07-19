@@ -1,40 +1,36 @@
-import {
-  STATIC_PROVIDER_MODELS,
-  type ProviderName,
-  type StaticModelEntry,
-} from "@/core/constants/models";
+import type { ProviderName } from "@/core/constants/models";
 import type { LLMConfig } from "@/core/types/config";
 
 /**
  * This type represents how models are fetched for each provider.
- * Static models come from core constants (just IDs + displayName); metadata resolved via models.dev.
+ * Catalog-backed providers list models (and metadata) from models.dev.
  * Dynamic models are fetched from provider API endpoints.
  */
 export type ModelSource =
-  | { type: "static"; models: readonly StaticModelEntry[] }
+  | { type: "models-dev" }
   | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api";
 export const DEFAULT_LLAMACPP_BASE_URL = "http://localhost:8080/v1";
 
 export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
-  anthropic: { type: "static", models: STATIC_PROVIDER_MODELS.anthropic },
-  openai: { type: "static", models: STATIC_PROVIDER_MODELS.openai },
-  google: { type: "static", models: STATIC_PROVIDER_MODELS.google },
-  xai: { type: "static", models: STATIC_PROVIDER_MODELS.xai },
+  anthropic: { type: "models-dev" },
+  openai: { type: "models-dev" },
+  google: { type: "models-dev" },
+  xai: { type: "models-dev" },
   openrouter: {
     type: "dynamic",
     endpointPath: "/api/v1/models",
     defaultBaseUrl: "https://openrouter.ai",
   },
   ai_gateway: { type: "dynamic", endpointPath: "" },
-  alibaba: { type: "static", models: STATIC_PROVIDER_MODELS.alibaba },
+  alibaba: { type: "models-dev" },
   cerebras: {
     type: "dynamic",
     endpointPath: "/v1/models",
     defaultBaseUrl: "https://api.cerebras.ai",
   },
-  deepseek: { type: "static", models: STATIC_PROVIDER_MODELS.deepseek },
+  deepseek: { type: "models-dev" },
   fireworks: {
     type: "dynamic",
     endpointPath: "/v1/accounts/fireworks/models?pageSize=200",
@@ -45,9 +41,9 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/models",
     defaultBaseUrl: "https://api.groq.com/openai/v1",
   },
-  minimax: { type: "static", models: STATIC_PROVIDER_MODELS.minimax },
-  mistral: { type: "static", models: STATIC_PROVIDER_MODELS.mistral },
-  moonshotai: { type: "static", models: STATIC_PROVIDER_MODELS.moonshotai },
+  minimax: { type: "models-dev" },
+  mistral: { type: "models-dev" },
+  moonshotai: { type: "models-dev" },
   ollama: { type: "dynamic", endpointPath: "/tags", defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL },
   llamacpp: {
     type: "dynamic",

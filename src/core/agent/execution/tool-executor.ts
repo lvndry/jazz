@@ -299,9 +299,6 @@ export class ToolExecutor {
               }
             }
 
-            // Signal that tool execution has started (allows next approval to proceed)
-            yield* presentationService.signalToolExecutionStarted();
-
             // Execute the actual tool
             result = yield* ToolExecutor.executeTool(
               approvalResult.executeToolName,
@@ -380,6 +377,12 @@ export class ToolExecutor {
           }
         }
 
+        // Now that this tool has finished and its result has been rendered,
+        // release the next queued approval prompt — so approvals and results
+        // never interleave (approve → run → result → approve). No-op unless an
+        // approval is waiting.
+        yield* presentationService.signalToolExecutionStarted();
+
         const finalResult = result.success
           ? result.result
           : { error: result.error ?? "Tool execution failed", result: result.result };
@@ -419,6 +422,10 @@ export class ToolExecutor {
           toolCallId: toolCall.id,
           error: errorMessage,
         });
+
+        // Release the next queued approval after this failure too, so a failed
+        // tool doesn't stall the approval queue.
+        yield* presentationService.signalToolExecutionStarted();
 
         return {
           toolCallId: toolCall.id,

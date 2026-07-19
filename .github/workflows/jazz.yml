@@ -1,3 +1,22 @@
+# Jazz — GitHub workflow organization
+#
+# Runs the `jazz-ai` CLI in CI for AI pull-request review and assistance.
+#
+# Jobs:
+#   resolve      resolves PR number + base/head SHAs from the triggering event
+#   code-review  inline line-level review          (agent: ci-reviewer)
+#   assistant    conversational PR / codebase Q&A  (agent: pr-assistant)
+#
+# Triggers:
+#   PR opened / ready       -> code-review
+#   comment "/jazz-review"  -> code-review
+#   comment "/jazz <req>"   -> assistant
+#   Actions tab dispatch    -> either job
+#
+# Configuration lives in .github/jazz/ (agent configs + workflow prompts).
+# Secrets: GITHUB_TOKEN (automatic), OPENROUTER_API_KEY and/or OPENAI_API_KEY.
+# Setup and customization guide: .github/jazz/README.md
+
 name: Jazz
 
 on:
@@ -186,7 +205,9 @@ jobs:
               core.warning(`Could not react with eyes: ${e.message}`);
             }
 
-  # Automated code review — runs on PR open or when a trusted author comments /jazz-review.
+  # Automated code review — runs on PR open or when a trusted author comments
+  # /jazz-review. This posts line-level inline comments (json contract); the
+  # conversational /jazz assistant handles review *requests* and codebase Q&A.
   code-review:
     needs: resolve
     runs-on: ubuntu-latest

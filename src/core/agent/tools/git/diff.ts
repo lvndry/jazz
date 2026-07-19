@@ -33,7 +33,9 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
         .int()
         .positive()
         .optional()
-        .describe("Max diff lines (default: 500, cap: 2000)"),
+        .describe(
+          "Cap on diff lines. Omit to return the whole diff (the default); set to bound output.",
+        ),
     })
     .strict();
 
@@ -42,7 +44,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
     name: "git_diff",
     description:
-      "Show differences between commits, branches, or working tree. Default 500 lines, cap 2000.",
+      "Show differences between commits, branches, or working tree. Returns the whole diff by default; maxLines caps it.",
     tags: ["git", "diff"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -133,8 +135,10 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
         }
 
         const hasChanges = trimmedOutput.length > 0;
-        const requestedMaxLines = args.maxLines ?? 500;
-        const maxLines = Math.min(requestedMaxLines, 2000);
+        // Default is the WHOLE diff: an unspecified call returns everything, so
+        // an agent never silently reviews a partial diff. maxLines is an opt-in
+        // cap for callers that deliberately want a bounded slice.
+        const maxLines = args.maxLines;
         let diff = trimmedOutput;
         let truncated = false;
         let totalLines = 0;
@@ -143,7 +147,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
         if (hasChanges) {
           const lines = trimmedOutput.split("\n");
           totalLines = lines.length;
-          if (lines.length > maxLines) {
+          if (maxLines !== undefined && lines.length > maxLines) {
             diff = lines.slice(0, maxLines).join("\n");
             truncated = true;
             returnedLines = maxLines;

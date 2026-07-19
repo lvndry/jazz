@@ -65,7 +65,8 @@ const USER_ECHO_WIDTH_OFFSET = 8;
  * styling stays in one place.
  */
 function printUserMessage(message: string): void {
-  const wrapped = wrapToWidth(chalk.green(message), getTerminalWidth() - USER_ECHO_WIDTH_OFFSET);
+  // No inline color — OutputEntryView owns user styling (brass rail + text).
+  const wrapped = wrapToWidth(message, getTerminalWidth() - USER_ECHO_WIDTH_OFFSET);
   store.printOutput({
     type: "user",
     message: wrapped,
@@ -271,6 +272,7 @@ export class InkTerminalService implements TerminalService {
           // prompts (API key entry, named fields, etc.) the label is genuine
           // scrollback context, so keep it.
           if (promptType === "chat") {
+            store.pushInputHistory(inputValue);
             printUserMessage(displayValue);
           } else {
             const rawMessage = `${message} ${chalk.green(displayValue)}`;

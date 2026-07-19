@@ -1,12 +1,10 @@
-import { Box, Text, useStdout } from "ink";
-import React, { useRef } from "react";
-import {
-  formatIsoShort,
-  formatToolsLine,
-  padRight,
-  truncateMiddle,
-} from "@/cli/utils/string-utils";
-import { THEME } from "./theme";
+import { Box, Text } from "ink";
+import React from "react";
+import { formatToolsLine, getTerminalWidth, padRight } from "@/cli/utils/string-utils";
+import { getGlyphs } from "./glyphs";
+import { PADDING, PADDING_BUDGET, THEME } from "./theme";
+
+const G = getGlyphs();
 
 interface AgentListItem {
   readonly id: string;
@@ -23,56 +21,50 @@ interface AgentListItem {
   };
 }
 
+function truncateEnd(text: string, maxWidth: number): string {
+  if (text.length <= maxWidth) return text;
+  return text.slice(0, Math.max(1, maxWidth - 1)) + "…";
+}
+
+function formatDate(date: Date): string {
+  return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+/**
+ * Agent list table. Rendered into Static scrollback, so it is sized ONCE for
+ * the terminal width at print time (already-printed scrollback cannot reflow
+ * on resize — that's inherent to terminals, not a bug here). The width math
+ * accounts for the App's horizontal padding so rows never overflow and wrap.
+ *
+ * Column priority under narrow widths: name and model stay readable, the
+ * description column is dropped entirely rather than truncated into noise.
+ */
 export function AgentsList(props: {
   readonly agents: readonly AgentListItem[];
   readonly verbose: boolean;
 }): React.ReactElement {
-  const { stdout } = useStdout();
-  const [columns, setColumns] = React.useState<number>(() => stdout.columns ?? 80);
-  const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Chrome around this component: App paddingX + OutputEntryView content
+  // indent (PADDING_BUDGET covers both) plus a safety column for cursors.
+  const inner = Math.max(40, getTerminalWidth() - PADDING_BUDGET - PADDING.content - 1);
 
-  React.useEffect(() => {
-    function handleResize(): void {
-      if (resizeTimeoutRef.current) {
-        clearTimeout(resizeTimeoutRef.current);
-      }
-      resizeTimeoutRef.current = setTimeout(() => {
-        setColumns(stdout.columns ?? 80);
-      }, 100);
-    }
-
-    setColumns(stdout.columns ?? 80);
-    stdout.on("resize", handleResize);
-    return () => {
-      stdout.off("resize", handleResize);
-      if (resizeTimeoutRef.current) {
-        clearTimeout(resizeTimeoutRef.current);
-      }
-    };
-  }, [stdout]);
-
-  const width = Math.max(60, Math.min(columns, 140));
-  const inner = Math.max(40, width - 4);
-
-  // Column settings
-  const idxW = 4;
-  const nameW = Math.max(16, Math.min(24, Math.floor(inner * 0.2)));
-  const modelW = Math.max(18, Math.min(28, Math.floor(inner * 0.22)));
-  const typeW = Math.max(10, Math.min(12, Math.floor(inner * 0.1)));
-  const reasoningW = 12;
   const gap = 2;
-  const fixed = idxW + gap + nameW + gap + modelW + gap + typeW + gap + reasoningW + gap;
-  const descW = Math.max(15, inner - fixed);
+  const idxW = 3;
+  const reasoningW = 9;
+  const personaW = Math.max(8, Math.min(12, Math.floor(inner * 0.1)));
+  const nameW = Math.max(12, Math.min(22, Math.floor(inner * 0.22)));
+  const modelW = Math.max(16, Math.min(30, Math.floor(inner * 0.26)));
+  const fixed = idxW + gap + nameW + gap + modelW + gap + personaW + gap + reasoningW;
+  const descW = inner - fixed - gap;
+  const showDescription = descW >= 12;
 
   const sp = " ".repeat(gap);
 
   return (
     <Box
       flexDirection="column"
-      paddingX={2}
-      width={width}
+      width={inner}
     >
-      {/* Header Section */}
+      {/* Header */}
       <Box
         justifyContent="space-between"
         marginBottom={1}
@@ -82,51 +74,41 @@ export function AgentsList(props: {
             bold
             color={THEME.primary}
           >
-            AGENTS
+            {G.note} Agents
           </Text>
           <Text dimColor> ({props.agents.length})</Text>
         </Text>
         <Text dimColor>jazz chat &lt;id|name&gt; · jazz edit &lt;id|name&gt;</Text>
       </Box>
 
-      {/* Table Header */}
-      <Box
-        borderStyle="single"
-        borderBottom
-        borderColor="gray"
-        borderTop={false}
-        borderLeft={false}
-        borderRight={false}
-        paddingBottom={0}
+      {/* Column headings */}
+      <Text
+        color={THEME.secondary}
+        bold
       >
-        <Text
-          color="whiteBright"
-          bold
-        >
-          {padRight("#", idxW)}
-          {sp}
-          {padRight("NAME", nameW)}
-          {sp}
-          {padRight("MODEL", modelW)}
-          {sp}
-          {padRight("PERSONA", typeW)}
-          {sp}
-          {padRight("REASONING", reasoningW)}
-          {sp}
-          {padRight("DESCRIPTION", descW)}
-        </Text>
-      </Box>
+        {padRight("#", idxW)}
+        {sp}
+        {padRight("name", nameW)}
+        {sp}
+        {padRight("model", modelW)}
+        {sp}
+        {padRight("persona", personaW)}
+        {sp}
+        {padRight("reasoning", reasoningW)}
+        {showDescription ? sp + "description" : ""}
+      </Text>
+      <Text dimColor>{G.divider.repeat(inner)}</Text>
 
-      {/* Table Body */}
+      {/* Rows */}
       <Box
         flexDirection="column"
         marginTop={1}
       >
-        {props.agents.map((agent, i) => {
-          const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
-          const type = agent.config.persona ?? "default";
+        {props.agents.map((agent, index) => {
+          const persona = agent.config.persona ?? "default";
           const reasoning = agent.config.reasoningEffort ?? "—";
-          const desc = agent.description ?? "";
+          const description =
+            agent.description && agent.description !== agent.name ? agent.description : "";
 
           return (
             <Box
@@ -135,35 +117,42 @@ export function AgentsList(props: {
               marginBottom={1}
             >
               <Text>
-                <Text color={THEME.primary}>{padRight(String(i + 1), idxW)}</Text>
+                <Text color={THEME.muted}>{padRight(String(index + 1), idxW)}</Text>
                 {sp}
                 <Text
                   bold
-                  color="white"
+                  color={THEME.selected}
                 >
-                  {padRight(truncateMiddle(agent.name, nameW), nameW)}
+                  {padRight(truncateEnd(agent.name, nameW), nameW)}
                 </Text>
                 {sp}
-                <Text color={THEME.primary}>{padRight(truncateMiddle(model, modelW), modelW)}</Text>
-                {sp}
-                <Text color="yellow">{padRight(truncateMiddle(type, typeW), typeW)}</Text>
-                {sp}
-                <Text color={reasoning === "—" ? "gray" : THEME.primary}>
-                  {padRight(truncateMiddle(reasoning, reasoningW), reasoningW)}
+                <Text color={THEME.agent}>
+                  {padRight(truncateEnd(agent.config.llmModel, modelW), modelW)}
                 </Text>
                 {sp}
-                <Text dimColor>{truncateMiddle(desc, descW)}</Text>
+                <Text color={THEME.secondary}>
+                  {padRight(truncateEnd(persona, personaW), personaW)}
+                </Text>
+                {sp}
+                <Text color={reasoning === "—" ? THEME.muted : THEME.primary}>
+                  {padRight(reasoning, reasoningW)}
+                </Text>
+                {showDescription ? (
+                  <Text dimColor>
+                    {sp}
+                    {truncateEnd(description, descW)}
+                  </Text>
+                ) : null}
               </Text>
 
-              {/* Meta info below each row */}
+              {/* Meta line */}
               <Box paddingLeft={idxW + gap}>
                 <Text
                   dimColor
                   italic
                 >
-                  {padRight(`ID: ${truncateMiddle(agent.id, 12)}`, 20)}
-                  {" · "}
-                  Created: {formatIsoShort(agent.createdAt)}
+                  {agent.config.llmProvider} · {truncateEnd(agent.id, 24)} · created{" "}
+                  {formatDate(agent.createdAt)}
                 </Text>
               </Box>
 
@@ -175,20 +164,6 @@ export function AgentsList(props: {
             </Box>
           );
         })}
-      </Box>
-
-      {/* Bottom Footer */}
-      <Box
-        marginTop={1}
-        borderStyle="single"
-        borderTop
-        borderColor="gray"
-        borderBottom={false}
-        borderLeft={false}
-        borderRight={false}
-        paddingTop={0}
-      >
-        <Text dimColor>Total active agents: {props.agents.length}</Text>
       </Box>
     </Box>
   );

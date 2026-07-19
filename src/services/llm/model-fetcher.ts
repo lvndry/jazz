@@ -6,7 +6,9 @@ import { LLMConfigurationError } from "@/core/types/errors";
 import {
   getMetadataFromMap,
   getModelsDevMap,
+  getModelsDevProviderModels,
   type ModelsDevMetadata,
+  type ModelsDevModelEntry,
 } from "@/core/utils/models-dev-client";
 import { hasReasoningParser } from "./reasoning";
 
@@ -65,6 +67,63 @@ function resolveToModelInfo(
     supportsPdf: fb?.supportsPdf ?? false,
     supportsTemperature: fb?.supportsTemperature ?? true,
   };
+}
+
+/** Dated snapshot suffixes like "-20251001" or "-2024-05-13" (kept only when no undated base id exists). */
+const DATED_SNAPSHOT_SUFFIX = /-(\d{8}|\d{4}-\d{2}-\d{2})$/;
+
+const MEDIA_OUTPUT_MODALITIES = ["image", "audio", "video"] as const;
+
+/**
+ * Keep only text-in/text-out chat models: drops embedding, TTS, transcription,
+ * image/video generation, and realtime-audio entries from the catalog.
+ */
+function isTextChatModel(entry: ModelsDevModelEntry): boolean {
+  return (
+    entry.inputModalities.includes("text") &&
+    entry.outputModalities.includes("text") &&
+    !MEDIA_OUTPUT_MODALITIES.some((modality) => entry.outputModalities.includes(modality))
+  );
+}
+
+/**
+ * List a provider's models from the models.dev catalog.
+ *
+ * models.dev is the single source of truth for these providers — no hardcoded lists,
+ * no fallback. Filters to active text-chat models, drops dated snapshot duplicates
+ * (e.g. "claude-haiku-4-5-20251001" when "claude-haiku-4-5" exists), and sorts by
+ * release date, newest first.
+ *
+ * Throws when models.dev is unavailable.
+ */
+export async function fetchModelsDevModels(providerName: ProviderName): Promise<ModelInfo[]> {
+  const entries = await getModelsDevProviderModels(providerName);
+
+  const ids = new Set(entries.map((entry) => entry.id));
+  const isSnapshotDuplicate = (id: string): boolean => {
+    const base = id.replace(DATED_SNAPSHOT_SUFFIX, "");
+    return base !== id && ids.has(base);
+  };
+
+  return entries
+    .filter(
+      (entry) =>
+        entry.status !== "deprecated" && isTextChatModel(entry) && !isSnapshotDuplicate(entry.id),
+    )
+    .sort((left, right) => {
+      const byDate = (right.releaseDate ?? "").localeCompare(left.releaseDate ?? "");
+      return byDate !== 0 ? byDate : left.id.localeCompare(right.id);
+    })
+    .map((entry) => ({
+      id: entry.id,
+      displayName: entry.displayName,
+      contextWindow: entry.metadata.contextWindow,
+      supportsTools: entry.metadata.supportsTools,
+      isReasoningModel: entry.metadata.isReasoningModel,
+      supportsVision: entry.metadata.supportsVision,
+      supportsPdf: entry.metadata.supportsPdf,
+      supportsTemperature: entry.metadata.supportsTemperature,
+    }));
 }
 
 type OpenRouterModel = {

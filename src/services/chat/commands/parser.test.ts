@@ -1,4 +1,5 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { setSkillCommands } from "./constants";
 import { parseSpecialCommand } from "./parser";
 
 describe("parseSpecialCommand", () => {
@@ -163,6 +164,38 @@ describe("parseSpecialCommand", () => {
       const result = parseSpecialCommand("hello/world");
       expect(result.type).toBe("unknown");
       expect(result.args).toEqual([]);
+    });
+  });
+
+  describe("skill commands", () => {
+    afterEach(() => {
+      setSkillCommands([]);
+    });
+
+    it("should route a registered skill name to runSkill", () => {
+      setSkillCommands([{ name: "deep-research", description: "Research a topic" }]);
+      const result = parseSpecialCommand("/deep-research");
+      expect(result.type).toBe("runSkill");
+      expect(result.args).toEqual(["deep-research"]);
+    });
+
+    it("should carry trailing text as skill args", () => {
+      setSkillCommands([{ name: "deep-research", description: "Research a topic" }]);
+      const result = parseSpecialCommand("/deep-research best laptops 2026");
+      expect(result.type).toBe("runSkill");
+      expect(result.args).toEqual(["deep-research", "best", "laptops", "2026"]);
+    });
+
+    it("should still return unknown for unregistered skills", () => {
+      setSkillCommands([{ name: "deep-research", description: "Research a topic" }]);
+      const result = parseSpecialCommand("/not-a-skill");
+      expect(result.type).toBe("unknown");
+    });
+
+    it("should let built-in commands win over a same-named skill", () => {
+      setSkillCommands([{ name: "help", description: "colliding skill" }]);
+      const result = parseSpecialCommand("/help");
+      expect(result.type).toBe("help");
     });
   });
 

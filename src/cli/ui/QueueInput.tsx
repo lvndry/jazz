@@ -120,8 +120,13 @@ export function QueueInput({
               key={`${queue.length - visibleEntries.length + index}`}
               dimColor
             >
-              {"  • "}
+              {`  ${G.bullet} `}
               {truncateEntry(entry)}
+              {/* Slash commands only run when queued alone — a mixed queue is
+                  sent to the agent as prose. Warn while it's still editable. */}
+              {entry.trimStart().startsWith("/") && queue.length > 1 ? (
+                <Text color={THEME.warning}> (sent as text, not run — queue it alone)</Text>
+              ) : null}
             </Text>
           ))}
         </Box>
@@ -136,7 +141,7 @@ export function QueueInput({
           color={THEME.prompt}
           bold
         >
-          {G.promptCursor}{" "}
+          {G.rail}{" "}
         </Text>
         <Box
           flexDirection="column"
@@ -147,7 +152,7 @@ export function QueueInput({
             cursor={cursor}
             placeholder="Type to queue for next turn…"
             showCursor
-            textColor="white"
+            textColor={THEME.selected}
           />
         </Box>
       </Box>

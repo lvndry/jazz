@@ -369,20 +369,25 @@ function formatLoadSkillSectionStringBody(body: string): string {
  * If a tool result is large enough that the displayed summary truncates it,
  * return the full (pretty-printed when JSON) text for Ctrl+O expansion.
  * Returns null when the result fits on screen untruncated.
+ *
+ * The truncation DECISION uses the raw text — the same signal that drives
+ * the on-screen `ctrl+o to expand` hint — so hint and payload can't desync
+ * (a pretty-printed form that expands past the caps must not clobber the
+ * stored expandable output of a previous, visibly truncated tool).
  */
 export function expandableToolResultPayload(result: string): string | null {
   const normalized = result.replace(/\r\n/g, "\n").trim();
   if (!normalized) return null;
+  const withinCaps =
+    normalized.split("\n").length <= MAX_RESULT_DISPLAY_LINES &&
+    normalized.length <= MAX_RESULT_DISPLAY_CHARS;
+  if (withinCaps) return null;
   let pretty = normalized;
   try {
     pretty = JSON.stringify(JSON.parse(normalized), null, 2);
   } catch {
     // Not JSON — expand the raw text as-is.
   }
-  const withinCaps =
-    pretty.split("\n").length <= MAX_RESULT_DISPLAY_LINES &&
-    pretty.length <= MAX_RESULT_DISPLAY_CHARS;
-  if (withinCaps) return null;
   if (pretty.length > MAX_EXPANDABLE_CHARS) {
     return pretty.slice(0, MAX_EXPANDABLE_CHARS).trimEnd() + "\n… output capped at 100k characters";
   }

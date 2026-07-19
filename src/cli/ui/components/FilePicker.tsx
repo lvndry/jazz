@@ -288,9 +288,9 @@ export function FilePicker({
     <Box flexDirection="column">
       {/* Search input */}
       <Box>
-        <Text color="gray">Path: </Text>
+        <Text color={THEME.muted}>Path: </Text>
         <Text color={THEME.primary}>{query}</Text>
-        <Text color="gray">│</Text>
+        <Text color={THEME.muted}>│</Text>
       </Box>
 
       {/* Base path info */}
@@ -338,7 +338,7 @@ export function FilePicker({
       {/* Error message */}
       {submitError && (
         <Box>
-          <Text color="red">{submitError}</Text>
+          <Text color={THEME.error}>{submitError}</Text>
         </Box>
       )}
 

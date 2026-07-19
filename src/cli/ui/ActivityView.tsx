@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import React, { useEffect, useRef, useState } from "react";
 import type { ActivityState } from "./activity-state";
-import { AnimatedEllipsis } from "./components/AnimatedEllipsis";
+import { Equalizer } from "./components/Equalizer";
 import { getGlyphs } from "./glyphs";
 import { PADDING, THEME } from "./theme";
 
@@ -58,19 +58,17 @@ function todoStatusGlyph(status: "pending" | "in_progress" | "completed" | "canc
   }
 }
 
-function todoStatusColor(
-  status: "pending" | "in_progress" | "completed" | "cancelled",
-): "green" | "cyan" | "gray" | "yellow" {
+function todoStatusColor(status: "pending" | "in_progress" | "completed" | "cancelled"): string {
   switch (status) {
     case "completed":
-      return "green";
+      return THEME.success;
     case "in_progress":
-      return "cyan";
+      return THEME.agent;
     case "cancelled":
-      return "gray";
+      return THEME.muted;
     case "pending":
     default:
-      return "yellow";
+      return THEME.warning;
   }
 }
 
@@ -87,21 +85,21 @@ function AgentHeader({
 }): React.ReactElement {
   return (
     <Box>
-      <Text color={THEME.agent}>{G.bullet}</Text>
-      <Text> </Text>
+      {animated ? (
+        <>
+          <Equalizer color={THEME.agent} />
+          <Text> </Text>
+        </>
+      ) : (
+        <Text color={THEME.agent}>{G.bullet} </Text>
+      )}
       <Text
         bold
         color={THEME.agent}
       >
         {agentName}
       </Text>
-      <Text dimColor> {label}</Text>
-      {animated ? (
-        <AnimatedEllipsis
-          label=""
-          color={THEME.agent}
-        />
-      ) : null}
+      <Text dimColor> {label}…</Text>
       {elapsedSeconds !== undefined ? <ElapsedText seconds={elapsedSeconds} /> : null}
     </Box>
   );
@@ -135,7 +133,7 @@ export const ActivityView = React.memo(function ActivityView({
           paddingX={PADDING.content}
         >
           <Box>
-            <Text color={THEME.agent}>{G.bullet}</Text>
+            <Equalizer color={THEME.agent} />
             <Text> </Text>
             <Text
               bold
@@ -143,11 +141,7 @@ export const ActivityView = React.memo(function ActivityView({
             >
               {activity.agentName}
             </Text>
-            <Text dimColor> {activity.label}</Text>
-            <AnimatedEllipsis
-              label=""
-              color={THEME.agent}
-            />
+            <Text dimColor> {activity.label}…</Text>
             <Text dimColor>
               {" "}
               ({activity.provider}/{activity.model})
@@ -208,10 +202,8 @@ export const ActivityView = React.memo(function ActivityView({
           paddingX={PADDING.content}
         >
           <Box>
-            <AnimatedEllipsis
-              label={label}
-              color={THEME.agent}
-            />
+            <Equalizer color={THEME.agent} />
+            <Text color={THEME.agent}> {label}</Text>
             <ElapsedText seconds={elapsedSeconds} />
           </Box>
           {activity.todoSnapshot && activity.todoSnapshot.length > 0 ? (

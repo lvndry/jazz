@@ -145,7 +145,7 @@ export function Questionnaire({
       const isSelected = selectedIndices.has(index);
       const isFocused = index === selectedIndex;
       return (
-        <Text color={isFocused ? THEME.selected : "white"}>
+        <Text color={isFocused ? THEME.selected : THEME.secondary}>
           {isFocused ? "› " : "  "}
           <Text color={isSelected ? THEME.selected : "gray"}>{isSelected ? "[✓]" : "[ ]"}</Text>
         </Text>
@@ -153,7 +153,7 @@ export function Questionnaire({
     }
     return (
       <Text
-        color={index === selectedIndex ? THEME.selected : "white"}
+        color={index === selectedIndex ? THEME.selected : THEME.secondary}
         bold={index === selectedIndex}
       >
         {index === selectedIndex ? "› " : "  "}
@@ -178,7 +178,7 @@ export function Questionnaire({
               {renderIndicator(i)}
               <Text color={isFocused ? THEME.selected : THEME.primary}> {i + 1}.</Text>
               <Text
-                color={isFocused ? THEME.selected : "white"}
+                color={isFocused ? THEME.selected : THEME.secondary}
                 bold={isFocused}
               >
                 {" "}
@@ -215,7 +215,7 @@ export function Questionnaire({
                 }}
               />
             ) : (
-              <Text color="gray">Type your own response...</Text>
+              <Text color={THEME.muted}>Type your own response...</Text>
             )}
           </Box>
         </Box>

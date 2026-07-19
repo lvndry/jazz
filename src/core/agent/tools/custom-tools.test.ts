@@ -405,6 +405,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     formatToolExecutionError: mock(() => Effect.succeed("Tool failed")),
     formatToolsDetected: mock(() => Effect.succeed("Tools detected")),
     requestApproval: mock(() => Effect.succeed({ approved: true as const })),
+    signalToolExecutionStarted: mock(() => Effect.void),
   } as unknown as PresentationService;
 
   const mockTerminalService = {} as unknown as TerminalService;

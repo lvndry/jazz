@@ -9,40 +9,126 @@ import chalk from "chalk";
  * when the terminal has truecolor support (chalk.level >= 3). On lower-level
  * terminals chalk auto-downgrades to the closest 256/16-color match.
  */
-export const THEME = {
+export interface ThemeColors {
   /** Primary brand accent used for prompts, selection, and key affordances. */
-  primary: "#DE9A2C",
+  primary: string;
   /** Secondary accent used for live agent identity and active surfaces. */
-  agent: "#22D3EE",
+  agent: string;
   /** Links and code-adjacent interactive elements. */
-  link: "#60A5FA",
+  link: string;
   /** Success feedback. */
-  success: "#22C55E",
+  success: string;
   /** Error feedback. */
-  error: "#FB7185",
+  error: string;
   /** Warning feedback. */
-  warning: "#F59E0B",
+  warning: string;
   /** Informational feedback. */
-  info: "#38BDF8",
+  info: string;
   /** Selected / highlighted menu items. */
-  selected: "#F8FAFC",
+  selected: string;
   /** Input prompt chevron and active cursor-adjacent accents. */
-  prompt: "#DE9A2C",
+  prompt: string;
   /** Muted secondary text. */
-  secondary: "#94A3B8",
+  secondary: string;
   /** Non-selected / default text in lists. */
-  muted: "#64748B",
+  muted: string;
   /** Reasoning content should feel quieter than response text, but not dead. */
-  reasoning: "#A5B4FC",
+  reasoning: string;
   /** Tool execution chrome. */
-  toolBorder: "#475569",
+  toolBorder: string;
   /** Subtle surfaces and separators. */
+  surface: string;
+  surfaceSoft: string;
+  surfaceStrong: string;
+  border: string;
+  borderSoft: string;
+}
+
+export type ThemeVariant = "dark" | "light";
+
+const DARK_PALETTE: ThemeColors = {
+  primary: "#DE9A2C",
+  agent: "#22D3EE",
+  link: "#60A5FA",
+  success: "#22C55E",
+  error: "#FB7185",
+  warning: "#F59E0B",
+  info: "#38BDF8",
+  selected: "#F8FAFC",
+  prompt: "#DE9A2C",
+  secondary: "#94A3B8",
+  muted: "#64748B",
+  reasoning: "#A5B4FC",
+  toolBorder: "#475569",
   surface: "#111827",
   surfaceSoft: "#1F2937",
   surfaceStrong: "#334155",
   border: "#334155",
   borderSoft: "#1F2937",
-} as const;
+};
+
+/** Same semantic roles tuned for light terminal backgrounds. */
+const LIGHT_PALETTE: ThemeColors = {
+  primary: "#B45309",
+  agent: "#0E7490",
+  link: "#1D4ED8",
+  success: "#15803D",
+  error: "#BE123C",
+  warning: "#D97706",
+  info: "#0369A1",
+  selected: "#0F172A",
+  prompt: "#B45309",
+  secondary: "#475569",
+  muted: "#64748B",
+  reasoning: "#6366F1",
+  toolBorder: "#94A3B8",
+  surface: "#F1F5F9",
+  surfaceSoft: "#E2E8F0",
+  surfaceStrong: "#CBD5E1",
+  border: "#CBD5E1",
+  borderSoft: "#E2E8F0",
+};
+
+const PALETTES: Record<ThemeVariant, ThemeColors> = {
+  dark: DARK_PALETTE,
+  light: LIGHT_PALETTE,
+};
+
+/**
+ * Resolve the theme variant: `JAZZ_THEME=light|dark` wins; otherwise the
+ * terminal's advertised background via `COLORFGBG` (last field is the
+ * background color index — 7/15 mean a light background); dark by default.
+ */
+export function resolveThemeVariant(): ThemeVariant {
+  const raw = (process.env["JAZZ_THEME"] ?? "").toLowerCase();
+  if (raw === "light") return "light";
+  if (raw === "dark") return "dark";
+  const colorFgBg = process.env["COLORFGBG"];
+  if (colorFgBg) {
+    const background = Number(colorFgBg.split(";").at(-1));
+    if (background === 7 || background === 15) return "light";
+  }
+  return "dark";
+}
+
+let activeVariant: ThemeVariant = resolveThemeVariant();
+
+/**
+ * Mutable theme object — components read `THEME.x` at render time, so
+ * switching variants updates everything rendered after the switch. Module
+ * constants that captured a color at import time keep the old value until
+ * restart (acceptable: /theme persists the choice for the next run too).
+ */
+export const THEME: ThemeColors = { ...PALETTES[activeVariant] };
+
+export function getThemeVariant(): ThemeVariant {
+  return activeVariant;
+}
+
+export function setThemeVariant(variant: ThemeVariant): void {
+  activeVariant = variant;
+  Object.assign(THEME, PALETTES[variant]);
+}
 
 /**
  * Unified spacing constants for the Jazz CLI.
@@ -118,21 +204,56 @@ export const codeColor: (text: string) => string = getCodeColor();
 /**
  * Chalk-based color helpers for non-Ink rendering paths.
  * Use these instead of hardcoded `chalk.blue`, `chalk.cyan`, etc.
+ *
+ * Getters (not baked instances) so each access reads the CURRENT palette —
+ * this is what lets /theme switch light/dark without rebuilding consumers.
+ * Each returned value is a real chalk instance, so chaining
+ * (`CHALK_THEME.reasoning.italic`) and passing as a function both work.
  */
 export const CHALK_THEME = {
-  primary: chalk.hex(THEME.primary),
-  primaryBold: chalk.hex(THEME.primary).bold,
-  agent: chalk.hex(THEME.agent),
-  agentBold: chalk.hex(THEME.agent).bold,
-  reasoning: chalk.hex(THEME.reasoning),
-  success: chalk.hex(THEME.success),
-  error: chalk.hex(THEME.error),
-  warning: chalk.hex(THEME.warning),
-  heading: chalk.bold.hex(THEME.agent),
-  headingUnderline: chalk.bold.hex(THEME.primary).underline,
-  link: chalk.hex(THEME.link).underline,
-  muted: chalk.hex(THEME.secondary),
-  secondary: chalk.dim,
-  bold: chalk.bold,
-  white: chalk.hex(THEME.selected),
+  get primary() {
+    return chalk.hex(THEME.primary);
+  },
+  get primaryBold() {
+    return chalk.hex(THEME.primary).bold;
+  },
+  get agent() {
+    return chalk.hex(THEME.agent);
+  },
+  get agentBold() {
+    return chalk.hex(THEME.agent).bold;
+  },
+  get reasoning() {
+    return chalk.hex(THEME.reasoning);
+  },
+  get success() {
+    return chalk.hex(THEME.success);
+  },
+  get error() {
+    return chalk.hex(THEME.error);
+  },
+  get warning() {
+    return chalk.hex(THEME.warning);
+  },
+  get heading() {
+    return chalk.bold.hex(THEME.agent);
+  },
+  get headingUnderline() {
+    return chalk.bold.hex(THEME.primary).underline;
+  },
+  get link() {
+    return chalk.hex(THEME.link).underline;
+  },
+  get muted() {
+    return chalk.hex(THEME.secondary);
+  },
+  get secondary() {
+    return chalk.dim;
+  },
+  get bold() {
+    return chalk.bold;
+  },
+  get white() {
+    return chalk.hex(THEME.selected);
+  },
 } as const;

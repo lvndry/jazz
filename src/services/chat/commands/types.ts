@@ -25,6 +25,10 @@ export type CommandType =
   | "mcp"
   | "mode"
   | "resume"
+  | "theme"
+  | "export"
+  | "retry"
+  | "runSkill"
   | "unknown";
 
 /**
@@ -57,6 +61,8 @@ export interface CommandResult {
   saveCurrentHistory?: boolean;
   /** Reset the startedAt timestamp to now (used when resuming a saved conversation) */
   resetStartedAt?: boolean;
+  /** Message to re-send to the agent immediately (set by /retry) */
+  resendMessage?: string;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */

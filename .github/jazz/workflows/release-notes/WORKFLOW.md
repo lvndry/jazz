@@ -8,34 +8,26 @@ maxIterations: 100
 
 # Release Notes Generation
 
-Generate release notes for **__NEW_TAG__** by comparing commits since **__PREVIOUS_TAG__**.
+Generate release notes for **__NEW_TAG__** from the commits since **__PREVIOUS_TAG__**, and emit them in the exact output format below.
 
 ## Context
 
-- Repository checkout path: `__WORKSPACE__` (the absolute path to the working tree on this runner — every git/file tool call MUST pass this as the `path` argument; the runner's default cwd is not the repository).
+- Repository checkout path: `__WORKSPACE__` — every git/file tool call MUST pass this as the `path` argument; the runner's default cwd is not the repository.
 
 ## Steps
 
-1. Use `git_log` with `path: "__WORKSPACE__"` to get all commits between `__PREVIOUS_TAG__` and `__NEW_TAG__`.
-2. Use `git_diff` with `path: "__WORKSPACE__"` and `commit` set to `__PREVIOUS_TAG__...__NEW_TAG__` to understand the scope of changes. If the diff is large, scope to specific files via the `paths` parameter (an array of file paths, e.g. `paths: ["src/foo.ts", "src/bar.ts"]`).
-3. Read relevant source files to understand the context of changes. When using `read_file`, `ls`, `find`, or `grep`, pass paths under `__WORKSPACE__/...`.
-4. Group commits by **feature** — cluster related changes into cohesive product areas (e.g. "Agent workflows", "CLI experience", "Scheduler"). Each group = one feature or capability area.
-5. Write **funny, exciting, product- and UX-focused** descriptions. Explain what changed and **why it matters** to the user. No dry dev-speak — make it feel alive and clear.
-6. Skip trivial commits (version bump, merge commit).
+1. Run `git_log` with `path: "__WORKSPACE__"` to get all commits between `__PREVIOUS_TAG__` and `__NEW_TAG__`.
+2. Run `git_diff` with `path: "__WORKSPACE__"` and `commit: "__PREVIOUS_TAG__...__NEW_TAG__"` to understand the scope. If the diff is large, narrow it with the `paths` parameter (an array of file paths, e.g. `paths: ["src/foo.ts", "src/bar.ts"]`).
+3. Read source files under `__WORKSPACE__/...` where a commit's purpose is unclear.
+4. Group commits by feature/product area (e.g. "Agent workflows", "CLI experience", "Scheduler") — one group per cohesive capability, never by change type (Features, Bug Fixes).
+5. Write funny, exciting, product- and UX-focused descriptions: what changed, what problem it solves, and why users should care. Reference PR numbers when available.
+6. Skip trivial commits (version bumps, merge commits).
 
-## Output Format
+## Output Format (strict)
 
-The very last thing you output MUST be a single markdown fenced block opened with **FOUR** backticks (` ````markdown `) and closed with four backticks. Four. Not three.
+The very last thing you output MUST be a single fenced block opened with FOUR backticks and the tag `markdown`, closed with four backticks, with nothing after it. Three backticks would collide with inner ```ts / ```diff samples and truncate the notes mid-sentence; inner code fences use three backticks and nest cleanly.
 
-Three backticks will collide with any inner ` ```ts ` / ` ```diff ` code samples in the body and the parser will truncate your release notes mid-sentence.
-
-| ✅ DO | ❌ DON'T |
-|---|---|
-| `` ` ` ` ` markdown `` …4 backticks… `` ` ` ` ` `` | `` ` ` ` markdown `` …3 backticks… `` ` ` ` `` |
-
-Inside the four-backtick wrapper, use normal three-backtick fences for any code samples — they nest cleanly. Do NOT output anything after the closing four-backtick fence.
-
-The content inside the block should follow this structure:
+The block's content follows this structure:
 
 ````markdown
 ## What's Changed
@@ -58,10 +50,6 @@ Same vibe — what changed, what problem it solves, why it's awesome.
 [__PREVIOUS_TAG__...__NEW_TAG__](https://github.com/__REPO__/compare/__PREVIOUS_TAG__...__NEW_TAG__)
 ````
 
-Rules:
-- Group by **feature/product area**, not by type (Features, Bug Fixes, etc.).
-- Tone: funny, exciting, clear — product and UX first.
-- Each section header is the feature name; the paragraph sells the value.
-- Include the full commit list at the bottom.
-- Always include the diff link (__REPO__ is substituted with owner/repo, e.g. `lvndry/jazz`).
-- Reference PR numbers in descriptions when available.
+Each section header is a feature name and its paragraph sells the value. Always close the notes with the full commit list and the diff link (`__REPO__` is substituted with owner/repo, e.g. `lvndry/jazz`).
+
+Restating the contract: one four-backtick `markdown` block, the last thing in your output, with nothing after its closing fence.

@@ -1,9 +1,10 @@
 import { Duration, Effect } from "effect";
 import { Box, Text } from "ink";
-import SelectInput from "ink-select-input";
 import React from "react";
+import { SearchSelect } from "@/cli/ui/components/SearchSelect";
 import { store } from "@/cli/ui/store";
 import { THEME } from "@/cli/ui/theme";
+import { separatorLine } from "@/cli/utils/string-utils";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -175,9 +176,9 @@ export function showWorkflowCommand(workflowName: string) {
     }
 
     yield* terminal.log("");
-    yield* terminal.log("─".repeat(60));
+    yield* terminal.log(separatorLine(60));
     yield* terminal.log("Prompt:");
-    yield* terminal.log("─".repeat(60));
+    yield* terminal.log(separatorLine(60));
     yield* terminal.log(workflow.prompt);
   });
 }
@@ -839,13 +840,10 @@ function selectAgentForWorkflow(
   prompt: string,
 ): Effect.Effect<Agent | null, never> {
   return Effect.async<Agent | null, never>((resume) => {
-    const items = [
-      ...agents.map((agent) => ({
-        label: `${agent.name} (${agent.config.llmModel})`,
-        value: agent.id,
-      })),
-      { label: "Cancel", value: "__cancel__" },
-    ];
+    const options = agents.map((agent) => ({
+      label: `${agent.name} (${agent.config.llmModel})`,
+      value: agent.id,
+    }));
 
     store.setCustomView(
       React.createElement(
@@ -855,17 +853,17 @@ function selectAgentForWorkflow(
         React.createElement(
           Box,
           { marginTop: 1 },
-          React.createElement(SelectInput, {
-            items,
-            onSelect: (item) => {
+          React.createElement(SearchSelect<string>, {
+            options,
+            pageSize: 10,
+            placeholder: "Type to filter agents…",
+            onSelect: (value: string) => {
               store.setCustomView(null);
-              const value = item.value as string;
-              if (value === "__cancel__") {
-                resume(Effect.succeed(null));
-              } else {
-                const selected = agents.find((a) => a.id === value) || null;
-                resume(Effect.succeed(selected));
-              }
+              resume(Effect.succeed(agents.find((a) => a.id === value) ?? null));
+            },
+            onCancel: () => {
+              store.setCustomView(null);
+              resume(Effect.succeed(null));
             },
           }),
         ),

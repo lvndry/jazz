@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { THEME } from "./theme";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -57,16 +58,16 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           padding={1}
         >
           <Text
-            color="red"
+            color={THEME.error}
             bold
           >
             ⚠️ An error occurred
           </Text>
           <Box marginTop={1}>
-            <Text color="gray">{this.state.error?.message || "Unknown error"}</Text>
+            <Text color={THEME.muted}>{this.state.error?.message || "Unknown error"}</Text>
           </Box>
           <Box marginTop={1}>
-            <Text color="yellow">Please try again or restart the application.</Text>
+            <Text color={THEME.warning}>Please try again or restart the application.</Text>
           </Box>
         </Box>
       );

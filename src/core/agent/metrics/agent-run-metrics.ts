@@ -48,6 +48,8 @@ export interface AgentRunMetrics {
   totalReasoningTokens: number;
   totalCacheReadTokens: number;
   totalCacheWriteTokens: number;
+  /** Aggregated USD cost of nested runs (sub-agents) spawned during this run. */
+  childCostUSD: number;
   llmRetryCount: number;
   lastError?: string;
   toolCalls: number;
@@ -86,6 +88,7 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     totalReasoningTokens: 0,
     totalCacheReadTokens: 0,
     totalCacheWriteTokens: 0,
+    childCostUSD: 0,
     llmRetryCount: 0,
     toolCalls: 0,
     toolErrors: 0,

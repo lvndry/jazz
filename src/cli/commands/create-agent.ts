@@ -434,7 +434,8 @@ async function promptForAgentInfo(
             terminal.ask(`${providerDisplayName} API Key${isOptional ? " (optional)" : ""}:`, {
               simple: true,
               secret: true,
-              placeholder: "Paste your API key...",
+              cancellable: true,
+              placeholder: "Paste your API key... (Esc to go back)",
               validate: (inputValue: string): boolean | string => {
                 if (isOptional) return true;
                 if (!inputValue || inputValue.trim().length === 0) {
@@ -444,6 +445,12 @@ async function promptForAgentInfo(
               },
             }),
           );
+
+          if (apiKey === undefined) {
+            // Esc — back to provider selection without saving anything.
+            await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
+            break;
+          }
 
           await Effect.runPromise(configService.set(apiKeyPath, apiKey));
           await Effect.runPromise(

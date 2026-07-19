@@ -27,7 +27,6 @@ import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
   formatToolResult,
-  formatCompletion,
   formatWarning,
   formatToolExecutionStartEffect,
   formatToolExecutionCompleteEffect,
@@ -40,6 +39,7 @@ import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { getGlyphs } from "../ui/glyphs";
 import { store } from "../ui/store";
 import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
+import { separatorLine } from "../utils/string-utils";
 
 /**
  * Bridges the pure activity reducer with Ink's rendering system.
@@ -573,8 +573,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     if (this.showMetrics && event.metrics) {
       store.printOutput({ type: "log", message: "", timestamp: new Date() });
-      this.printMetrics(event);
-      this.printCost(event);
+      this.printOutro(event);
     }
 
     store.setActivity({ phase: "idle" });
@@ -627,101 +626,99 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
   }
 
-  /** Print token usage metrics. */
-  private printMetrics(event: Extract<StreamEvent, { type: "complete" }>): void {
-    if (!event.metrics) return;
+  /**
+   * The turn outro: ONE quiet line closing the turn —
+   * `✓ 4.2s · 9.3k in → 28 out · $0.0019` — replacing the old trio of
+   * metrics line, cost line, and "completed successfully" banner.
+   *
+   * Cost joins the line when pricing is in the synchronous cache (the common
+   * case); on a cold cache the footer still gets the async update, but no
+   * late line is printed after the prompt has already returned.
+   */
+  private printOutro(event: Extract<StreamEvent, { type: "complete" }>): void {
+    const compactTokens = (count: number): string => {
+      if (count < 1000) return `${count}`;
+      if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
+      return `${Math.round(count / 1000)}k`;
+    };
+    const formatCost = (cost: number): string => {
+      if (cost === 0) return "$0.00";
+      if (cost >= 0.01) return `$${cost.toFixed(2)}`;
+      if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
+      return `<$0.0001`;
+    };
 
     const parts: string[] = [];
-    if (event.metrics.firstTokenLatencyMs) {
-      parts.push(`First token: ${event.metrics.firstTokenLatencyMs}ms`);
+    if (event.totalDurationMs > 0) {
+      parts.push(`${(event.totalDurationMs / 1000).toFixed(1)}s`);
     }
-    if (event.metrics.tokensPerSecond) {
-      parts.push(`Speed: ${event.metrics.tokensPerSecond.toFixed(1)} tok/s`);
-    }
+
     const usage = event.response.usage;
     if (usage) {
-      parts.push(`Input: ${usage.promptTokens}`);
-      parts.push(`Output: ${usage.completionTokens}`);
-      if (usage.reasoningTokens !== undefined && usage.reasoningTokens > 0) {
-        parts.push(`Reasoning: ${usage.reasoningTokens}`);
-      }
-      parts.push(`Total: ${usage.totalTokens} tokens`);
+      parts.push(
+        `${compactTokens(usage.promptTokens)} in → ${compactTokens(usage.completionTokens)} out`,
+      );
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
       this.acc.lastPromptTokens = usage.promptTokens;
       store.updateRunStats({ tokensInContext: usage.promptTokens });
-    } else if (event.metrics.totalTokens) {
-      parts.push(`Total: ${event.metrics.totalTokens} tokens`);
-    }
-    if (parts.length > 0) {
-      store.printOutput({
-        type: "debug",
-        message: `[${parts.join(" | ")}]`,
-        timestamp: new Date(),
-      });
-    }
-  }
-
-  /**
-   * Calculate and display cost. Uses synchronous cache lookup when possible
-   * to avoid the cost line popping in after the prompt. Falls back to async
-   * fetch on first run before the cache is warm.
-   */
-  private printCost(event: Extract<StreamEvent, { type: "complete" }>): void {
-    const usage = event.response.usage;
-    if (!usage || !this.acc.currentProvider || !this.acc.currentModel) {
-      return;
+    } else if (event.metrics?.totalTokens) {
+      parts.push(`${compactTokens(event.metrics.totalTokens)} tok`);
     }
 
     const provider = this.acc.currentProvider;
     const model = this.acc.currentModel;
-    const promptTokens = usage.promptTokens;
-    const completionTokens = usage.completionTokens;
-
-    const emitCost = (
-      meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined,
-    ): void => {
-      if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
-        const inputPrice = meta.inputPricePerMillion ?? 0;
-        const outputPrice = meta.outputPricePerMillion ?? 0;
-        const inputCost = (promptTokens / 1_000_000) * inputPrice;
-        const outputCost = (completionTokens / 1_000_000) * outputPrice;
-        const totalCost = inputCost + outputCost;
-
-        const fmt = (cost: number): string => {
-          if (cost === 0) return "$0.00";
-          if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-          if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-          return `$${cost.toExponential(2)}`;
-        };
-
-        store.printOutput({
-          type: "debug",
-          message: `[Cost: ${fmt(inputCost)} input + ${fmt(outputCost)} output = ${fmt(totalCost)} total]`,
-          timestamp: new Date(),
-        });
-
-        // Roll session-cumulative cost into the persistent footer.
+    if (usage && provider && model) {
+      const computeCost = (
+        meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined,
+      ): number | null => {
+        if (meta?.inputPricePerMillion === undefined && meta?.outputPricePerMillion === undefined) {
+          return null;
+        }
+        const inputCost = (usage.promptTokens / 1_000_000) * (meta.inputPricePerMillion ?? 0);
+        const outputCost = (usage.completionTokens / 1_000_000) * (meta.outputPricePerMillion ?? 0);
+        return inputCost + outputCost;
+      };
+      const rollIntoFooter = (totalCost: number): void => {
         this.acc.cumulativeCostUSD += totalCost;
-        store.updateRunStats({
-          model,
-          provider,
-          costUSD: this.acc.cumulativeCostUSD,
-        });
-      }
-    };
+        // Accumulate into the shared session total so sub-agent renderers add
+        // to the footer rather than overwriting it with their own figure.
+        store.addSessionCostUSD(totalCost);
+        // Only the main-agent (scrollback) renderer owns the footer's model/
+        // provider label; sub-agent renderers contribute cost but must not
+        // relabel the footer with their (often different) model.
+        if (this.streamTarget.kind === "scrollback") {
+          store.updateRunStats({ model, provider });
+        }
+      };
 
-    // Try synchronous cache hit first to avoid async print-after-prompt
-    const cachedMeta = getModelsDevMetadataSync(model, provider);
-    if (cachedMeta !== undefined) {
-      emitCost(cachedMeta);
-    } else {
-      // Fallback: async fetch (first run before cache is warm)
-      void getModelsDevMetadata(model, provider)
-        .then(emitCost)
-        .catch(() => {
-          /* pricing unavailable — omit cost line */
-        });
+      const cachedMeta = getModelsDevMetadataSync(model, provider);
+      if (cachedMeta !== undefined) {
+        const totalCost = computeCost(cachedMeta);
+        if (totalCost !== null) {
+          rollIntoFooter(totalCost);
+          parts.push(formatCost(totalCost));
+        }
+      } else {
+        // Cold cache: keep the footer accurate without printing a straggler
+        // line after the prompt has returned.
+        void getModelsDevMetadata(model, provider)
+          .then((meta) => {
+            const totalCost = computeCost(meta);
+            if (totalCost !== null) rollIntoFooter(totalCost);
+          })
+          .catch(() => {
+            /* pricing unavailable */
+          });
+      }
+    }
+
+    if (parts.length > 0) {
+      store.printOutput({
+        type: "debug",
+        message: `${getGlyphs().success} ${parts.join(" · ")}`,
+        timestamp: new Date(),
+      });
     }
   }
 
@@ -737,9 +734,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
     void getModelsDevMetadata(model, provider)
       .then((meta) => {
-        if (meta !== undefined) {
-          store.updateRunStats({ maxContextTokens: meta.contextWindow });
-        }
+        if (meta === undefined) return;
+        // Guard against a stale write: if the user switched models while the
+        // fetch was in flight, this response no longer describes the active
+        // model and must not overwrite the footer denominator.
+        const stats = store.getRunStatsSnapshot();
+        if (stats.model !== model || stats.provider !== provider) return;
+        store.updateRunStats({ maxContextTokens: meta.contextWindow });
       })
       .catch(() => {
         /* context window unavailable — footer shows the bare count */
@@ -922,14 +923,11 @@ class InkPresentationService implements PresentationService {
     });
   }
 
-  presentCompletion(agentName: string): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      store.printOutput({
-        type: "info",
-        message: formatCompletion(agentName),
-        timestamp: new Date(),
-      });
-    });
+  presentCompletion(_agentName: string): Effect.Effect<void, never> {
+    // Intentionally silent: the turn outro line (duration · tokens · cost)
+    // already marks completion — a second "completed successfully" banner
+    // was pure noise.
+    return Effect.void;
   }
 
   presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
@@ -1128,7 +1126,7 @@ class InkPresentationService implements PresentationService {
       {
         flexDirection: "column",
         borderStyle: "round",
-        borderColor: "yellow",
+        borderColor: THEME.warning,
         paddingX: PADDING.content,
         paddingY: 1,
         marginTop: 1,
@@ -1136,7 +1134,7 @@ class InkPresentationService implements PresentationService {
       React.createElement(
         Box,
         {},
-        React.createElement(Text, { color: "yellow", bold: true }, "Approval Required"),
+        React.createElement(Text, { color: THEME.warning, bold: true }, "Approval Required"),
         React.createElement(Text, {}, " for "),
         React.createElement(Text, { color: THEME.primary, bold: true }, request.toolName),
         pendingCount > 0
@@ -1148,6 +1146,14 @@ class InkPresentationService implements PresentationService {
         { marginTop: 1 },
         React.createElement(Text, { bold: true }, request.message),
       ),
+      // Never let users approve a file edit blind: point at the diff.
+      request.previewDiff
+        ? React.createElement(
+            Box,
+            { marginTop: 1 },
+            React.createElement(Text, { dimColor: true }, "Press Ctrl+O to view the diff"),
+          )
+        : null,
     );
 
     store.printOutput({
@@ -1262,7 +1268,11 @@ class InkPresentationService implements PresentationService {
 
   signalToolExecutionStarted(): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      // If there's a pending signal callback, invoke it to allow next approval
+      // If there's a pending signal callback, invoke it to allow the next
+      // approval prompt to appear. The tool executor now fires this AFTER the
+      // tool completes and its result card has printed (not at start), so
+      // approvals and results never interleave: approve → run → result →
+      // approve. The method name is kept for interface compatibility.
       if (this.pendingExecutionSignal) {
         this.pendingExecutionSignal();
       }
@@ -1307,7 +1317,7 @@ class InkPresentationService implements PresentationService {
     }
 
     // Show the question with formatted suggestions
-    const separator = chalk.dim("─".repeat(50));
+    const separator = chalk.dim(separatorLine(50));
     store.printOutput({
       type: "log",
       message: `\n${separator}`,
@@ -1358,7 +1368,7 @@ class InkPresentationService implements PresentationService {
   requestFilePicker(request: FilePickerRequest): Effect.Effect<string, never> {
     return Effect.async((resume) => {
       // Show the file picker prompt
-      const separator = chalk.dim("─".repeat(50));
+      const separator = chalk.dim(separatorLine(50));
       store.printOutput({
         type: "log",
         message: `\n${separator}`,

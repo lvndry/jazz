@@ -1,10 +1,11 @@
 import { Box, Text, useInput } from "ink";
-import BigText from "ink-big-text";
-import Gradient from "ink-gradient";
 import SelectInput from "ink-select-input";
 import React, { useState, useEffect } from "react";
+import { getGlyphs } from "./glyphs";
 import { THEME } from "./theme";
 import packageJson from "../../../package.json";
+
+const G = getGlyphs();
 
 /**
  * Menu option for the wizard
@@ -23,8 +24,10 @@ interface WizardHomeProps {
 
 const TIPS = [
   // CLI Shortcuts
-  "Type '/help' in chat to see special commands like /clear and /debug",
-  // "Use 'Arrow Up' in chat to recall your previous messages",
+  "Type '/help' in chat to see every command and keyboard shortcut",
+  "Use Arrow Up in chat to recall your previous messages",
+  "Press Alt+Enter in chat to write multi-line messages",
+  "Press Ctrl+R after a response to expand the agent's reasoning",
   "Run 'jazz agent list' to see all your active agents",
 
   // Agent Management
@@ -101,32 +104,32 @@ export function WizardHome({
       paddingX={2}
       paddingY={1}
     >
-      {/* Logo */}
+      {/* Lettermark — one bold brass word. The identity carries through the
+          rails, the note glyph, and the equalizer; no ASCII art needed. */}
       <Box
         flexDirection="column"
-        alignItems="center"
         marginBottom={1}
       >
-        <Gradient name="morning">
-          <BigText
-            text="Jazz"
-            font="block"
-          />
-        </Gradient>
-        <Text dimColor>v{packageJson.version} • Agentic CLI 🎷</Text>
+        <Text
+          bold
+          color={THEME.primary}
+        >
+          {G.note} Jazz
+        </Text>
+        <Text dimColor>v{packageJson.version} · your everyday agentic CLI</Text>
       </Box>
 
-      {/* Menu */}
+      {/* Menu — selection marked by the brass rail, same speaker-rail
+          language as the chat transcript. */}
       <Box
         flexDirection="column"
         marginTop={1}
-        paddingX={1}
         paddingY={0}
       >
         <Box marginBottom={1}>
           <Text
             bold
-            color="white"
+            color={THEME.selected}
           >
             {title || "What would you like to do?"}
           </Text>
@@ -141,28 +144,20 @@ export function WizardHome({
       </Box>
 
       {/* Tip — below menu, subtle */}
-      <Box
-        marginTop={1}
-        flexDirection="column"
-      >
-        <Text dimColor>{"─".repeat(40)}</Text>
-        <Box marginTop={1}>
-          <Text color={THEME.primary}>💡 </Text>
-          <Text
-            dimColor
-            wrap="wrap"
-          >
-            {TIPS[tipIndex]}
-          </Text>
-        </Box>
+      <Box marginTop={1}>
+        <Text color={THEME.primary}>{G.note} </Text>
+        <Text
+          dimColor
+          italic
+          wrap="wrap"
+        >
+          {TIPS[tipIndex]}
+        </Text>
       </Box>
 
       {/* Footer hint */}
       <Box marginTop={1}>
-        <Text dimColor>
-          <Text color={THEME.primary}>↑/↓</Text> navigate · <Text color={THEME.primary}>Enter</Text>{" "}
-          select · <Text color={THEME.primary}>q</Text> quit
-        </Text>
+        <Text dimColor>↑↓ move · enter select · q quit</Text>
       </Box>
     </Box>
   );
@@ -176,7 +171,7 @@ function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): R
           color={THEME.primary}
           bold
         >
-          ❯
+          {G.rail}
         </Text>
       ) : (
         <Text> </Text>
@@ -195,7 +190,7 @@ function ItemComponent({
   return (
     <Box>
       <Text
-        color={isSelected ? THEME.selected : "white"}
+        color={isSelected ? THEME.selected : THEME.secondary}
         bold={isSelected}
       >
         {label}

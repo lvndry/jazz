@@ -46,7 +46,7 @@ import shortUUID from "short-uuid";
 import { minimax } from "vercel-minimax-ai-provider";
 import { z } from "zod";
 import { DEFAULT_MAX_ITERATIONS, AI_SDK_MAX_RETRIES } from "@/core/constants/agent";
-import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@/core/constants/models";
+import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -70,10 +70,13 @@ import {
   extractCleanErrorMessage,
   truncateRequestBodyValues,
 } from "@/core/utils/llm-error";
-import { getMetadataFromMap, getModelsDevMap } from "@/core/utils/models-dev-client";
 import { createDeferred } from "@/core/utils/promise";
 import { formatProviderDisplayName, sanitize } from "@/core/utils/string";
-import { createModelFetcher, type ModelFetcherService } from "./model-fetcher";
+import {
+  createModelFetcher,
+  fetchModelsDevModels,
+  type ModelFetcherService,
+} from "./model-fetcher";
 import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
@@ -973,30 +976,17 @@ class AISDKService implements LLMService {
 
     const modelSource = this.providerModels[providerName];
 
-    if (modelSource.type === "static") {
+    if (modelSource.type === "models-dev") {
       return Effect.tryPromise({
         try: async () => {
-          const devMap = await getModelsDevMap();
-          const resolved: ModelInfo[] = modelSource.models.map((entry) => {
-            const dev = getMetadataFromMap(devMap, entry.id, providerName);
-            return {
-              id: entry.id,
-              displayName: entry.displayName ?? entry.id,
-              contextWindow: dev?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
-              supportsTools: dev?.supportsTools ?? false,
-              isReasoningModel: dev?.isReasoningModel ?? false,
-              supportsVision: dev?.supportsVision ?? false,
-              supportsPdf: dev?.supportsPdf ?? false,
-              supportsTemperature: dev?.supportsTemperature ?? true,
-            };
-          });
+          const resolved = await fetchModelsDevModels(providerName);
           this.modelInfoCache.set(providerName, resolved);
           return resolved;
         },
         catch: (error) =>
           new LLMConfigurationError({
             provider: providerName,
-            message: `Failed to resolve static models from models.dev: ${error instanceof Error ? error.message : String(error)}`,
+            message: `Failed to list models from models.dev: ${error instanceof Error ? error.message : String(error)}`,
           }),
       });
     }

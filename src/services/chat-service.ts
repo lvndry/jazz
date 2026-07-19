@@ -1,4 +1,5 @@
 import { FileSystem } from "@effect/platform";
+import chalk from "chalk";
 import { Effect, Layer } from "effect";
 import { store } from "@/cli/ui/store";
 import { AgentRunner, type AgentRunnerOptions } from "@/core/agent/agent-runner";
@@ -17,14 +18,14 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import type { SkillService } from "@/core/skills/skill-service";
+import { getSkillIndexLine, SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
-import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
+import { handleSpecialCommand, parseSpecialCommand, setSkillCommands } from "./chat/commands";
 import type { CommandContext, CommandResult } from "./chat/commands/types";
 import {
   generateConversationId,
@@ -105,6 +106,17 @@ export class ChatServiceImpl implements ChatService {
       // Errors are handled gracefully inside setupAgent - conversation continues even if some MCPs fail
       yield* setupAgent(agent, sessionId);
 
+      // Register skills as invokable slash commands so they appear in the "/"
+      // autocomplete menu and can be run like any built-in command. Failures
+      // here are non-fatal — the menu simply omits skills.
+      yield* Effect.gen(function* () {
+        const skillService = yield* SkillServiceTag;
+        const skills = yield* skillService.listSkills();
+        setSkillCommands(
+          skills.map((skill) => ({ name: skill.name, description: getSkillIndexLine(skill) })),
+        );
+      }).pipe(Effect.catchAll(() => Effect.void));
+
       store.resetRunStats({ provider: agent.config.llmProvider, model: agent.config.llmModel });
 
       let chatActive = true;
@@ -159,13 +171,23 @@ export class ChatServiceImpl implements ChatService {
 
       while (chatActive) {
         let userMessage: string | undefined;
+        const queuedEntryCount = store.getMessageQueueSnapshot().length;
         const queued = store.peekQueue();
+        // A multi-entry drain is prose for the agent even if the first entry
+        // starts with "/" — parsing the joined text as one command would
+        // silently discard the other entries.
+        let drainedMultipleEntries = false;
 
         if (queued.length > 0 && !lastTurnErrored) {
           // Clean prior turn → drain the queue as the next user message
-          // without re-prompting.
+          // without re-prompting. Record entries in input history for ↑
+          // recall parity with interactively typed messages.
+          for (const entry of store.getMessageQueueSnapshot()) {
+            store.pushInputHistory(entry);
+          }
           store.takeQueue();
           userMessage = queued;
+          drainedMultipleEntries = queuedEntryCount > 1;
           // Echo "You: <prompt>" to scrollback so the user can see when their
           // queued message was actually popped (vs when the LLM started
           // responding to it). The interactive ask() path emits the same
@@ -202,7 +224,7 @@ export class ChatServiceImpl implements ChatService {
         const trimmedMessage = (userMessage ?? "").trim();
         const lowerMessage = trimmedMessage.toLowerCase();
         if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
-          yield* terminal.info("👋 Goodbye!");
+          yield* terminal.log(chalk.dim.italic("— fin —"));
 
           // Cleanup: Disconnect all MCP servers and unregister mode handler before exiting
           store.registerModeSwitchHandler(null);
@@ -243,7 +265,14 @@ export class ChatServiceImpl implements ChatService {
 
         let messageForAgent = userMessage;
 
-        if (trimmedMessage.startsWith("/")) {
+        // A message with interior newlines (multi-line composition or a
+        // multi-line queued entry) is prose even when it starts with "/" —
+        // command parsing would silently discard everything after line one.
+        if (
+          trimmedMessage.startsWith("/") &&
+          !drainedMultipleEntries &&
+          !trimmedMessage.includes("\n")
+        ) {
           const specialCommand = parseSpecialCommand(userMessage);
 
           // Commands that support pass-through: trailing text is sent as a message to the agent
@@ -330,9 +359,17 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
-              // Reset logged message count when history is cleared (e.g., /new command)
-              loggedMessageCount = 0;
-              conversationTitle = null;
+              if (commandResult.resendMessage !== undefined) {
+                // /retry replays the SAME conversation — keep the title (so
+                // the exit-time save still fires) and clamp the session-log
+                // cursor instead of resetting it (a reset would re-log the
+                // entire pre-retry history as duplicate events).
+                loggedMessageCount = Math.min(loggedMessageCount, conversationHistory.length);
+              } else {
+                // Reset logged message count when history is cleared (e.g., /new command)
+                loggedMessageCount = 0;
+                conversationTitle = null;
+              }
             }
             if (commandResult.resetStartedAt) {
               startedAt = new Date().toISOString();
@@ -363,7 +400,14 @@ export class ChatServiceImpl implements ChatService {
               );
             }
 
-            continue;
+            if (commandResult.resendMessage !== undefined) {
+              // /retry — fall through to the agent run with the replayed
+              // message instead of prompting again.
+              messageForAgent = commandResult.resendMessage;
+              yield* terminal.user(messageForAgent);
+            } else {
+              continue;
+            }
           }
         }
 

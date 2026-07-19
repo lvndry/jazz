@@ -11,12 +11,18 @@ import { SearchSelect } from "./components/SearchSelect";
 import { TextInput } from "./components/TextInput";
 import { getGlyphs } from "./glyphs";
 import { InputResults, useInputHandler, useTextInput } from "./hooks/use-input-service";
+import { isCursorOnFirstLine, isCursorOnLastLine } from "./queue-recall";
+import { store } from "./store";
 import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
 
 const G = getGlyphs();
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
+
+// Above TEXT_INPUT (100) so ↑ recalls history on a single-line buffer, below
+// command suggestions (50) and queue recall (60) so those win when active.
+const INPUT_HISTORY_PRIORITY = 80;
 
 // Stable reference: an inline literal would retrigger ScrollableSelect's
 // reset-on-options-change effect on every re-render, wiping the user's
@@ -44,11 +50,13 @@ function CommandSuggestionItem({
   return (
     <Box marginLeft={1}>
       <Text
-        color={isSelected ? THEME.selected : "white"}
+        {...(isSelected ? { color: THEME.selected } : {})}
         bold={isSelected}
       >
         {isSelected ? "> " : "  "}/{command.name}
       </Text>
+      {command.usage ? <Text color={THEME.muted}> {command.usage}</Text> : null}
+      {command.source === "skill" ? <Text color={THEME.muted}> (skill)</Text> : null}
       <Text dimColor> – {command.description}</Text>
     </Box>
   );
@@ -156,10 +164,12 @@ function PromptComponent({
   const filteredCommandsRef = useRef(filteredCommands);
   const selectedSuggestionIndexRef = useRef(selectedSuggestionIndex);
   const valueRef = useRef(value);
+  const cursorRef = useRef(cursor);
   setSelectedSuggestionIndexRef.current = setSelectedSuggestionIndex;
   filteredCommandsRef.current = filteredCommands;
   selectedSuggestionIndexRef.current = selectedSuggestionIndex;
   valueRef.current = value;
+  cursorRef.current = cursor;
 
   useInputHandler({
     id: "chat-command-suggestions",
@@ -200,6 +210,59 @@ function PromptComponent({
     deps: [commandSuggestionsEnabled, suggestionsVisible],
   });
 
+  // ↑/↓ history recall of previously sent messages. Navigation starts only
+  // from an empty buffer (a typed draft is never clobbered); while
+  // navigating, editing the recalled text ends navigation.
+  const historyIndexRef = useRef<number | null>(null);
+
+  useInputHandler({
+    id: "chat-input-history",
+    priority: INPUT_HISTORY_PRIORITY,
+    isActive: prompt.type === "chat" && !suggestionsVisible,
+    onInput: (action) => {
+      if (action.type !== "up" && action.type !== "down") return InputResults.ignored();
+      const history = store.getInputHistory();
+      if (history.length === 0) return InputResults.ignored();
+
+      const currentValue = valueRef.current;
+      const currentCursor = cursorRef.current;
+      // Inside a multi-line buffer, ↑/↓ move the cursor between lines
+      // (handled by the text-input handler) — history only takes over at the
+      // buffer's edges, mirroring queue-recall's first-line gating.
+      if (action.type === "up" && !isCursorOnFirstLine(currentValue, currentCursor)) {
+        return InputResults.ignored();
+      }
+      if (action.type === "down" && !isCursorOnLastLine(currentValue, currentCursor)) {
+        return InputResults.ignored();
+      }
+      const index = historyIndexRef.current;
+      const navigating = index !== null && currentValue === history[index];
+
+      if (action.type === "up") {
+        if (!navigating && currentValue.length > 0) return InputResults.ignored();
+        const nextIndex = navigating ? Math.max(0, index - 1) : history.length - 1;
+        const recalled = history[nextIndex] ?? "";
+        historyIndexRef.current = nextIndex;
+        setValueRef.current(recalled, recalled.length);
+        return InputResults.consumed();
+      }
+
+      // down — only meaningful while navigating
+      if (!navigating) return InputResults.ignored();
+      if (index >= history.length - 1) {
+        historyIndexRef.current = null;
+        setValueRef.current("", 0);
+        return InputResults.consumed();
+      }
+      const nextIndex = index + 1;
+      const recalled = history[nextIndex] ?? "";
+      historyIndexRef.current = nextIndex;
+      setValueRef.current(recalled, recalled.length);
+      return InputResults.consumed();
+    },
+    deps: [prompt.type, suggestionsVisible],
+  });
+
   // Track the previous prompt's type so we only reset the input buffer when
   // the prompt's *kind* changes (e.g. confirm → chat) rather than on every
   // prompt change. Without this, anything the user typed into QueueInput
@@ -210,22 +273,18 @@ function PromptComponent({
   useEffect(() => {
     const rawDefaultValue = prompt.options?.["defaultValue"];
     const hasExplicitDefault = prompt.type === "chat" && typeof rawDefaultValue === "string";
-    const previousType = previousPromptTypeRef.current;
-    const typeChanged = previousType !== null && previousType !== prompt.type;
 
     if (hasExplicitDefault) {
       // Caller explicitly seeded the input — honor it.
       const defaultValue = rawDefaultValue;
       setValue(defaultValue, defaultValue.length);
-    } else if (typeChanged) {
-      // Prompt kind changed (e.g. confirm → chat) without unmount: clear so
-      // any leftover state from the previous prompt's input semantics doesn't
-      // bleed into the new one.
-      setValue("", 0);
     }
-    // Otherwise: same prompt type as before, or first mount of this Prompt.
-    // Preserve whatever's already in the shared text-input buffer — it may
-    // hold text the user typed in QueueInput during the busy phase.
+    // Otherwise preserve whatever's already in the shared text-input buffer.
+    // It may hold text typed in QueueInput during the busy phase, or a chat
+    // draft interrupted by a select/confirm prompt — non-chat prompt types
+    // use their own input ids, so nothing of theirs bleeds into this buffer
+    // and there is no need to clear it on prompt-kind changes (doing so wiped
+    // half-typed drafts whenever another prompt interjected).
 
     previousPromptTypeRef.current = prompt.type;
     setValidationError(null);
@@ -239,10 +298,16 @@ function PromptComponent({
     }
   }, [value]);
 
-  // Handle Escape key for cancellation (only for select/confirm prompts)
+  // Escape: cancel when the prompt is cancellable; otherwise (chat) clear
+  // the current draft so Escape isn't a silent no-op.
   useInput((_input: string, key: { escape?: boolean }) => {
-    if (key.escape && promptRef.current.reject) {
+    if (!key.escape) return;
+    if (promptRef.current.reject) {
       promptRef.current.reject();
+      return;
+    }
+    if (promptRef.current.type === "chat" && valueRef.current.length > 0) {
+      setValueRef.current("", 0);
     }
   });
 
@@ -281,7 +346,7 @@ function PromptComponent({
                 color={THEME.prompt}
                 bold
               >
-                {G.promptCursor}{" "}
+                {G.rail}{" "}
               </Text>
               <Box
                 flexDirection="column"
@@ -292,7 +357,7 @@ function PromptComponent({
                   cursor={cursor}
                   placeholder="Ask anything..."
                   showCursor
-                  textColor="white"
+                  textColor={THEME.selected}
                 />
               </Box>
             </Box>

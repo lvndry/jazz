@@ -79,7 +79,7 @@ describe("handleSpecialCommand resume", () => {
     await runEffect(saveConversation(testRecord, tmpDir));
 
     const mockTerminal: Partial<TerminalService> = {
-      select: mock(() => Effect.succeed("conv-to-resume")),
+      search: mock(() => Effect.succeed("conv-to-resume")),
       success: mock(() => Effect.void),
       log: mock(() => Effect.succeed(undefined)),
       info: mock(() => Effect.void),

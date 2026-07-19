@@ -1,4 +1,9 @@
-export { CHAT_COMMANDS, filterCommandsByPrefix } from "./constants";
+export {
+  CHAT_COMMANDS,
+  filterCommandsByPrefix,
+  getSkillCommandNames,
+  setSkillCommands,
+} from "./constants";
 export type { ChatCommandInfo } from "./constants";
 export { handleSpecialCommand } from "./handler";
 export { parseSpecialCommand } from "./parser";

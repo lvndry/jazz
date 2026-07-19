@@ -7,7 +7,7 @@
     "persona": "coder",
     "llmProvider": "openrouter",
     "llmModel": "cohere/north-mini-code:free",
-    "reasoningEffort": "disable",
+    "reasoningEffort": "medium",
     "tools": [
       "context_info",
       "find",
@@ -17,6 +17,7 @@
       "http_request",
       "ls",
       "read_file",
+      "spawn_subagent",
       "summarize_context",
       "write_file"
     ]

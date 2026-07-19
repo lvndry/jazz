@@ -193,6 +193,13 @@ export interface ToolExecutionContext {
    */
   readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
   /**
+   * Record the USD cost of a nested run (e.g. a sub-agent spawned via
+   * spawn_subagent) against the parent run. The parent's finalized costUSD
+   * adds this so aggregated pricing reflects all sub-agent spend, not just
+   * the orchestrator's own tokens.
+   */
+  readonly recordChildCost?: (costUSD: number) => void;
+  /**
    * Commands that are always auto-approved for execute_command tool.
    * Each entry is a prefix — a command is approved if it starts with any entry.
    */

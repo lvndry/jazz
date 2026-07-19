@@ -257,6 +257,12 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
           onSubmitRef.current(currentValue);
           return InputResults.consumed();
 
+        case "insert-newline":
+          nextValue =
+            currentValue.slice(0, currentCursor) + "\n" + currentValue.slice(currentCursor);
+          nextCursor = currentCursor + 1;
+          break;
+
         case "char":
           nextValue =
             currentValue.slice(0, currentCursor) + action.char + currentValue.slice(currentCursor);

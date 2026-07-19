@@ -242,6 +242,17 @@ export function wizardCommand() {
             lastUsedAgentId,
           );
           if (selectedAgent) {
+            // Deletion is irreversible — always confirm, defaulting to No.
+            const confirmed = yield* terminal.confirm(
+              `Delete agent "${selectedAgent.name}" (${selectedAgent.config.llmProvider}/${selectedAgent.config.llmModel})? This cannot be undone.`,
+              false,
+            );
+            if (!confirmed) {
+              yield* terminal.info("Deletion cancelled.");
+              yield* terminal.ask("Press Enter to continue...", { hidden: true });
+              yield* terminal.clear();
+              break;
+            }
             yield* deleteAgentCommand(selectedAgent.id).pipe(
               Effect.catchAll((error) =>
                 Effect.gen(function* () {
@@ -318,13 +329,21 @@ function selectAgent(
     const sorted = sortAgents(agents, lastUsedAgentId);
 
     const choices = sorted.map((agent) => {
+      // `agent.model` is provider/model; llmModel alone avoids provider
+      // duplication when the model id itself is namespaced (openrouter/free).
+      // Skip the description when it just repeats the name.
+      const description =
+        agent.description && agent.description !== agent.name ? ` · ${agent.description}` : "";
       return {
-        name: `${agent.name} - ${agent.model} - ${agent.description || agent.config.persona || "default"}`,
+        name: `${agent.name} · ${agent.config.llmModel}${description}`,
         value: agent.id,
       };
     });
 
-    const selectedId = yield* terminal.select<string>(message, { choices });
+    const selectedId = yield* terminal.search<string>(message, {
+      choices,
+      placeholder: "Type to filter agents…",
+    });
 
     if (!selectedId) {
       return null;
@@ -419,8 +438,9 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       value: String(idx),
     }));
 
-    const selectedIdx = yield* terminal.select<string>("Select a conversation to resume:", {
+    const selectedIdx = yield* terminal.search<string>("Select a conversation to resume:", {
       choices,
+      placeholder: "Type to filter conversations…",
     });
     if (selectedIdx === null || selectedIdx === undefined) return;
 

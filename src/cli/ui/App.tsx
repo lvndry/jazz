@@ -12,6 +12,7 @@ import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
+import { RAIL_WIDTH, railStreamLines } from "./rail";
 import StatusFooter from "./StatusFooter";
 import { store, type RunStats } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
@@ -168,8 +169,9 @@ function renderPendingStream(pending: PendingStream): string {
   // in ink-presentation-service.ts.
   const formatted = formatMarkdown(pending.rawTail);
   const dimmed = pending.kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
-  const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content);
-  return wrapToWidth(dimmed, width);
+  const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content - RAIL_WIDTH);
+  // Same speaker rail as settled slices so the live tail is seamless.
+  return railStreamLines(wrapToWidth(dimmed, width), pending.kind);
 }
 
 function OutputIslandComponent(): React.ReactElement {
@@ -420,16 +422,20 @@ export function App(): React.ReactElement {
           paddingX={PADDING.page}
           marginTop={1}
         >
-          <ErrorBoundary fallback={<Text color="red">Output area error. Restart may help.</Text>}>
+          <ErrorBoundary
+            fallback={<Text color={THEME.error}>Output area error. Restart may help.</Text>}
+          >
             <OutputIsland />
           </ErrorBoundary>
 
-          <ErrorBoundary fallback={<Text color="red">Activity area error. Restart may help.</Text>}>
+          <ErrorBoundary
+            fallback={<Text color={THEME.error}>Activity area error. Restart may help.</Text>}
+          >
             <ActivityIsland />
           </ErrorBoundary>
 
           <ErrorBoundary
-            fallback={<Text color="red">Live panel area error. Restart may help.</Text>}
+            fallback={<Text color={THEME.error}>Live panel area error. Restart may help.</Text>}
           >
             <EphemeralPanelIsland />
           </ErrorBoundary>
@@ -453,12 +459,16 @@ export function App(): React.ReactElement {
           )}
 
           <Box marginTop={1}>
-            <ErrorBoundary fallback={<Text color="red">Prompt area error. Restart may help.</Text>}>
+            <ErrorBoundary
+              fallback={<Text color={THEME.error}>Prompt area error. Restart may help.</Text>}
+            >
               <PromptIsland />
             </ErrorBoundary>
           </Box>
 
-          <ErrorBoundary fallback={<Text color="red">Status footer error. Restart may help.</Text>}>
+          <ErrorBoundary
+            fallback={<Text color={THEME.error}>Status footer error. Restart may help.</Text>}
+          >
             <StatusFooterIsland />
           </ErrorBoundary>
         </Box>

@@ -219,14 +219,17 @@ function finalizeRun(
 
     const inputPrice = modelMetadata?.inputPricePerMillion ?? 0;
     const outputPrice = modelMetadata?.outputPricePerMillion ?? 0;
-    const costUSD =
+    const ownCostUSD =
       inputPrice > 0 || outputPrice > 0
-        ? parseFloat(
-            (
-              (runMetrics.totalPromptTokens / 1_000_000) * inputPrice +
-              (runMetrics.totalCompletionTokens / 1_000_000) * outputPrice
-            ).toFixed(8),
-          )
+        ? (runMetrics.totalPromptTokens / 1_000_000) * inputPrice +
+          (runMetrics.totalCompletionTokens / 1_000_000) * outputPrice
+        : undefined;
+    // Report the run's own cost plus any sub-agent cost. Emit a figure whenever
+    // either side is known — a run with unpriced parent tokens but priced
+    // sub-agents should still surface the sub-agent spend.
+    const costUSD =
+      ownCostUSD !== undefined || runMetrics.childCostUSD > 0
+        ? parseFloat(((ownCostUSD ?? 0) + runMetrics.childCostUSD).toFixed(8))
         : undefined;
 
     return {
@@ -321,6 +324,9 @@ function handleToolPhase(
           state.currentMessages[0],
           ...compacted.slice(1),
         ] as typeof state.currentMessages;
+      },
+      recordChildCost: (costUSD: number) => {
+        runMetrics.childCostUSD += costUSD;
       },
     };
 

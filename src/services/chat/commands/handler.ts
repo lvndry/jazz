@@ -2,12 +2,13 @@ import { spawn } from "node:child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { getGlyphs } from "@/cli/ui/glyphs";
+import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
-import { STATIC_PROVIDER_MODELS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
+import { AVAILABLE_PROVIDERS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
@@ -38,6 +39,7 @@ import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workf
 import type { WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { groupWorkflows } from "@/core/workflows/workflow-utils";
 import { loadHistory } from "@/services/history/conversation-history-service";
+import { CHAT_COMMANDS } from "./constants";
 import { generateConversationId } from "../session";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
@@ -79,7 +81,7 @@ export function handleSpecialCommand(
         return yield* handleForkCommand(terminal, conversationHistory);
 
       case "help":
-        return yield* handleHelpCommand(terminal);
+        return yield* handleHelpCommand(terminal, command.args);
 
       case "tools":
         return yield* handleToolsCommand(terminal, agent);
@@ -144,8 +146,20 @@ export function handleSpecialCommand(
       case "resume":
         return yield* handleResumeCommand(terminal, agent);
 
+      case "theme":
+        return yield* handleThemeCommand(terminal, command.args);
+
+      case "export":
+        return yield* handleExportCommand(terminal, agent, conversationHistory, command.args);
+
+      case "retry":
+        return yield* handleRetryCommand(terminal, conversationHistory);
+
       case "clear":
         return yield* handleClearCommand(terminal, agent);
+
+      case "runSkill":
+        return yield* handleRunSkillCommand(command.args);
 
       case "unknown":
         return yield* handleUnknownCommand(terminal, command.args);
@@ -245,35 +259,171 @@ function handleForkCommand(
 }
 
 /**
- * Handle /help command - Show available commands
+ * Handle /export command - write the conversation to a markdown file.
  */
-function handleHelpCommand(terminal: TerminalService): Effect.Effect<CommandResult, never, never> {
+function handleExportCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  conversationHistory: CommandContext["conversationHistory"],
+  args: string[],
+): Effect.Effect<CommandResult, never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
+    if (conversationHistory.length === 0) {
+      yield* terminal.warn("Nothing to export yet — the conversation is empty.");
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true };
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    // args is whitespace-split by the parser — rejoin so paths with spaces
+    // survive, and expand a leading ~ (the shell doesn't expand it for us).
+    const rawPath = args.join(" ").trim();
+    const homeDir = process.env["HOME"];
+    const targetPath =
+      rawPath.length > 0
+        ? rawPath.startsWith("~/") && homeDir
+          ? `${homeDir}${rawPath.slice(1)}`
+          : rawPath
+        : `jazz-conversation-${timestamp}.md`;
+
+    const lines: string[] = [
+      `# Conversation with ${agent.name}`,
+      "",
+      `Exported ${new Date().toISOString()} · ${conversationHistory.length} messages`,
+      "",
+    ];
+    for (const message of conversationHistory) {
+      if (!message.content) continue;
+      const speaker = message.role === "user" ? "You" : agent.name;
+      lines.push(`## ${speaker}`, "", message.content, "");
+    }
+
+    const fs = yield* FileSystem.FileSystem;
+    const result = yield* fs.writeFileString(targetPath, lines.join("\n")).pipe(Effect.either);
+
+    if (result._tag === "Left") {
+      yield* terminal.error(`Failed to export conversation: ${String(result.left)}`);
+    } else {
+      yield* terminal.success(`Conversation exported to ${targetPath}`);
+    }
+    yield* terminal.log(fmt.blank());
+    return { shouldContinue: true };
+  });
+}
+
+/**
+ * Handle /retry command - re-send the last user message. History is
+ * truncated to just before that message so the rerun doesn't duplicate it.
+ */
+function handleRetryCommand(
+  terminal: TerminalService,
+  conversationHistory: CommandContext["conversationHistory"],
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    for (let index = conversationHistory.length - 1; index >= 0; index--) {
+      const message = conversationHistory[index];
+      if (message && message.role === "user" && message.content) {
+        return {
+          shouldContinue: true,
+          newHistory: conversationHistory.slice(0, index),
+          resendMessage: message.content,
+        };
+      }
+    }
+    yield* terminal.warn("No previous message to retry.");
+    yield* terminal.log(fmt.blank());
+    return { shouldContinue: true };
+  });
+}
+
+/**
+ * Handle /theme command - show or switch the light/dark theme.
+ */
+function handleThemeCommand(
+  terminal: TerminalService,
+  args: string[],
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    const requested = args[0]?.toLowerCase();
+    if (requested === "light" || requested === "dark") {
+      setThemeVariant(requested);
+      process.env["JAZZ_THEME"] = requested;
+      yield* terminal.success(`Theme switched to ${requested}.`);
+      yield* terminal.info(
+        `Persist it across sessions with: export JAZZ_THEME=${requested} (a restart applies it to every surface).`,
+      );
+      return { shouldContinue: true };
+    }
+    if (requested !== undefined) {
+      yield* terminal.warn(`Unknown theme "${requested}".`);
+    }
+    yield* terminal.log(fmt.heading("Theme"));
+    yield* terminal.log(fmt.keyValueCompact("Current", getThemeVariant()));
+    yield* terminal.log(fmt.footer("Usage: /theme light | /theme dark"));
+    yield* terminal.log(fmt.blank());
+    return { shouldContinue: true };
+  });
+}
+
+/** Keyboard shortcuts surfaced in /help. Keep in sync with App.tsx bindings. */
+const KEYBOARD_SHORTCUTS: ReadonlyArray<readonly [keys: string, description: string]> = [
+  ["Esc Esc", "Interrupt the current generation"],
+  ["Shift+Tab", "Toggle safe/yolo approval mode"],
+  ["Ctrl+R", "Expand collapsed reasoning (repeat for earlier blocks)"],
+  ["Ctrl+O", "Expand the last truncated diff or tool output"],
+  ["Tab", "Complete the highlighted slash command"],
+  ["Up/Down", "Recall previously sent messages (empty input)"],
+  ["Alt+Enter", "Insert a newline for a multi-line message"],
+  ["Esc", "Clear the current draft"],
+  ["Up (agent busy)", "Recall queued messages for editing"],
+  ["Ctrl+X (agent busy)", "Clear the message queue"],
+];
+
+/**
+ * Handle /help command. Rendered from CHAT_COMMANDS (the same list that
+ * powers autocomplete) so the two can never drift. `/help <command>` shows
+ * that command's usage detail.
+ */
+function handleHelpCommand(
+  terminal: TerminalService,
+  args: string[],
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    const requested = args[0]?.toLowerCase().replace(/^\//, "");
+    if (requested !== undefined) {
+      const command = CHAT_COMMANDS.find((candidate) => candidate.name === requested);
+      if (!command) {
+        yield* terminal.warn(`Unknown command "/${requested}". Run /help for the full list.`);
+        return { shouldContinue: true };
+      }
+      yield* terminal.log(fmt.heading(`/${command.name}`));
+      yield* terminal.log(
+        fmt.keyValueCompact("Usage", `/${command.name}${command.usage ? ` ${command.usage}` : ""}`),
+      );
+      yield* terminal.log(fmt.keyValueCompact("Description", command.description));
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true };
+    }
+
     yield* terminal.log(fmt.heading("Available Commands"));
     yield* terminal.log(
-      [
-        fmt.commandRow("/new", "Start a new conversation (clear context)"),
-        fmt.commandRow("/fork", "Fork conversation (new branch from last message)"),
-        fmt.commandRow("/tools", "List all agent tools by category"),
-        fmt.commandRow("/agents", "List all available agents"),
-        fmt.commandRow("/switch [agent]", "Switch to a different agent"),
-        fmt.commandRow("/clear", "Clear the screen"),
-        fmt.commandRow("/compact", "Summarize history to save tokens"),
-        fmt.commandRow("/context", "Show context window usage"),
-        fmt.commandRow("/cost", "Show token usage and estimated cost"),
-        fmt.commandRow("/copy", "Copy last agent response to clipboard"),
-        fmt.commandRow("/model", "Show or change model and reasoning"),
-        fmt.commandRow("/config", "Show or modify agent configuration"),
-        fmt.commandRow("/skills", "List and view available skills"),
-        fmt.commandRow("/workflows", "List or create workflows"),
-        fmt.commandRow("/stats", "Show session statistics"),
-        fmt.commandRow("/mcp", "Show MCP server status"),
-        fmt.commandRow("/mode", "Switch approval modes"),
-        fmt.commandRow("/resume", "Browse and resume a past conversation"),
-        fmt.commandRow("/help", "Show this help message"),
-        fmt.commandRow("/exit", "Exit the chat"),
-      ].join("\n"),
+      CHAT_COMMANDS.map((command) =>
+        fmt.commandRow(
+          `/${command.name}${command.usage ? ` ${command.usage}` : ""}`,
+          command.description,
+          34,
+        ),
+      ).join("\n"),
     );
+    yield* terminal.log(fmt.blank());
+    yield* terminal.log(fmt.heading("Keyboard Shortcuts"));
+    yield* terminal.log(
+      KEYBOARD_SHORTCUTS.map(([keys, description]) => fmt.commandRow(keys, description, 34)).join(
+        "\n",
+      ),
+    );
+    yield* terminal.log(fmt.footer("Run /help <command> for details on a specific command."));
+    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }
@@ -468,6 +618,7 @@ function handleSwitchCommand(
 
       if (switchResult.success) {
         const newAgent = switchResult.agent;
+        yield* terminal.setTitle(`🎷 Jazz - ${newAgent.name}`);
         yield* terminal.success(
           `Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`,
         );
@@ -522,9 +673,9 @@ function handleSwitchCommand(
       value: ag.id,
     }));
 
-    const selectedAgentId = yield* terminal.select<string>("Select an agent to switch to:", {
+    const selectedAgentId = yield* terminal.search<string>("Select an agent to switch to:", {
       choices,
-      default: currentAgent.id,
+      placeholder: "Type to filter agents…",
     });
 
     // User cancelled selection (Escape key)
@@ -651,6 +802,63 @@ function handleCompactCommand(
 /**
  * Handle /copy command - Copy last response to clipboard
  */
+/** Platform-appropriate clipboard commands, tried in order. */
+function clipboardCommands(): ReadonlyArray<{ cmd: string; args: string[] }> {
+  switch (process.platform) {
+    case "darwin":
+      return [{ cmd: "pbcopy", args: [] }];
+    case "win32":
+      return [{ cmd: "clip", args: [] }];
+    default:
+      return [
+        { cmd: "wl-copy", args: [] },
+        { cmd: "xclip", args: ["-selection", "clipboard"] },
+        { cmd: "xsel", args: ["--clipboard", "--input"] },
+      ];
+  }
+}
+
+function copyToClipboard(text: string): Promise<void> {
+  const candidates = clipboardCommands();
+  const tryCandidate = (index: number): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const candidate = candidates[index];
+      if (!candidate) {
+        reject(
+          new Error(
+            `No clipboard utility found (tried: ${candidates.map((entry) => entry.cmd).join(", ")})`,
+          ),
+        );
+        return;
+      }
+      const child = spawn(candidate.cmd, candidate.args);
+      let advanced = false;
+      const advance = (): void => {
+        if (advanced) return;
+        advanced = true;
+        resolve(tryCandidate(index + 1));
+      };
+      // A dying child can emit EPIPE on stdin before 'close' — without this
+      // handler that's an uncaught exception that crashes the CLI.
+      child.stdin.on("error", advance);
+      child.on("error", advance);
+      child.on("close", (code) => {
+        if (advanced) return;
+        if (code === 0) {
+          advanced = true;
+          resolve();
+        } else {
+          // Installed but non-functional (e.g. wl-copy without a Wayland
+          // session) — fall through to the next candidate.
+          advance();
+        }
+      });
+      child.stdin.write(text);
+      child.stdin.end();
+    });
+  return tryCandidate(0);
+}
+
 function handleCopyCommand(
   terminal: TerminalService,
   conversationHistory: CommandContext["conversationHistory"],
@@ -672,26 +880,8 @@ function handleCopyCommand(
       return { shouldContinue: true };
     }
 
-    // Copy to clipboard using pbcopy (macOS specific for now)
     yield* Effect.tryPromise({
-      try: () =>
-        new Promise<void>((resolve, reject) => {
-          const pbcopy = spawn("pbcopy");
-          pbcopy.stdin.write(lastResponse);
-          pbcopy.stdin.end();
-
-          pbcopy.on("close", (code) => {
-            if (code === 0) {
-              resolve();
-            } else {
-              reject(new Error(`pbcopy exited with code ${code}`));
-            }
-          });
-
-          pbcopy.on("error", (err) => {
-            reject(err);
-          });
-        }),
+      try: () => copyToClipboard(lastResponse),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     }).pipe(
       Effect.flatMap(() =>
@@ -703,7 +893,6 @@ function handleCopyCommand(
       Effect.catchAll((error) =>
         Effect.all([
           terminal.error(`Failed to copy to clipboard: ${error.message}`),
-          terminal.log("   (Note: /copy currently requires pbcopy on macOS)"),
           terminal.log(""),
         ]),
       ),
@@ -788,9 +977,9 @@ function handleModelCommand(
     const modelId = modelArg.substring(slashIndex + 1);
 
     // Validate provider exists
-    if (!(providerName in STATIC_PROVIDER_MODELS)) {
+    if (!AVAILABLE_PROVIDERS.includes(providerName)) {
       yield* terminal.error(`Unknown provider: ${providerName}`);
-      yield* terminal.info(`Available: ${Object.keys(STATIC_PROVIDER_MODELS).join(", ")}`);
+      yield* terminal.info(`Available: ${AVAILABLE_PROVIDERS.join(", ")}`);
       yield* terminal.log("");
       return { shouldContinue: true };
     }
@@ -1009,6 +1198,25 @@ function formatWorkflowDesc(w: WorkflowMetadata): string {
 }
 
 /**
+ * Handle a skill invoked as a slash command (e.g. `/deep-research <task>`).
+ *
+ * args[0] is the skill name; the rest is optional trailing text. We hand the
+ * invocation to the agent via `resendMessage` so it loads and follows the skill
+ * through its existing `load_skill` tool — the same path skills use elsewhere.
+ */
+function handleRunSkillCommand(args: string[]): Effect.Effect<CommandResult, never, never> {
+  return Effect.sync(() => {
+    const skillName = args[0] ?? "";
+    const trailingText = args.slice(1).join(" ").trim();
+    const resendMessage =
+      trailingText.length > 0
+        ? `Use the "${skillName}" skill to help with: ${trailingText}`
+        : `Use the "${skillName}" skill.`;
+    return { shouldContinue: true, resendMessage };
+  });
+}
+
+/**
  * Handle unknown command
  */
 function handleUnknownCommand(
@@ -1052,8 +1260,9 @@ function handleResumeCommand(
       };
     });
 
-    const selectedId = yield* terminal.select<string>("Select a conversation to resume:", {
+    const selectedId = yield* terminal.search<string>("Select a conversation to resume:", {
       choices,
+      placeholder: "Type to filter conversations…",
     });
 
     if (!selectedId) {
@@ -1340,7 +1549,14 @@ function handleModeCommand(
       return { shouldContinue: true };
     }
 
-    // Interactive: show select prompt
+    // Interactive: show select prompt. Surface the allow/disallow
+    // sub-commands here — previously they were only discoverable via the
+    // error path.
+    yield* terminal.log(
+      fmt.footer(
+        "Tip: /mode allow <cmd> auto-approves a command prefix; /mode disallow removes it.",
+      ),
+    );
     const isSafe = !currentPolicy;
     const isYolo = currentPolicy === true || currentPolicy === "high-risk";
     const selected = yield* terminal.select<string>("Select tool approval mode:", {

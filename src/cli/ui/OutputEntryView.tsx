@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import React from "react";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { getGlyphs } from "./glyphs";
+import { RAIL_WIDTH, railStreamLines } from "./rail";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
@@ -33,8 +34,8 @@ const COLORS: Record<OutputType, string> = {
   debug: THEME.secondary,
   user: THEME.primary,
   info: THEME.info,
-  log: "white",
-  streamContent: "white",
+  log: THEME.selected,
+  streamContent: THEME.selected,
 };
 
 /**
@@ -71,39 +72,43 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     // Pre-wrap + PreWrappedText (wrap="truncate"), same as the pending tail in
     // App.tsx: a bare <Text wrap="wrap"> lets Yoga re-wrap settled slices,
     // which degenerates into char-by-char wrapping under live re-render load.
-    const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content);
+    // Each line carries the speaker rail (cyan = agent, indigo = reasoning) —
+    // the transcript's color-coded left edge.
+    const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content - RAIL_WIDTH);
     return (
       <Box
         marginTop={0}
         marginBottom={0}
         paddingLeft={PADDING.content}
       >
-        <PreWrappedText>{wrapToWidth(display, width)}</PreWrappedText>
+        <PreWrappedText>{railStreamLines(wrapToWidth(display, width), kind)}</PreWrappedText>
       </Box>
     );
   }
 
   if (typeof entry.message === "string") {
     if (entry.type === "user") {
+      // Speaker rail: a brass bar down the left of everything you said.
+      // The agent's reply gets a cyan rail — color IS the speaker label.
+      const userLines = entry.message.split("\n");
       return (
         <Box
+          flexDirection="column"
           marginTop={addSpacing ? 1 : 0}
           marginBottom={1}
           paddingLeft={PADDING.content}
         >
-          <Text
-            color={THEME.primary}
-            bold
-          >
-            {G.promptCursor} You:
-          </Text>
-          <Text> </Text>
-          <Text
-            color="white"
-            wrap="wrap"
-          >
-            {entry.message}
-          </Text>
+          {userLines.map((line, index) => (
+            <Box key={index}>
+              <Text
+                color={THEME.primary}
+                bold
+              >
+                {G.rail}{" "}
+              </Text>
+              <PreWrappedText color={THEME.selected}>{line}</PreWrappedText>
+            </Box>
+          ))}
         </Box>
       );
     }
@@ -111,6 +116,19 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     // Log entries: render just the text with no icon/space siblings.
     // No pre-wrapping — the terminal handles line wrapping natively.
     if (entry.type === "log") {
+      // A blank log line is a spacer — render exactly one row. With the
+      // default marginBottom it occupied two, and command output that emits
+      // fmt.blank() twice ballooned to ~4 empty rows.
+      if (entry.message === "") {
+        return (
+          <Box
+            marginTop={0}
+            marginBottom={0}
+          >
+            <Text> </Text>
+          </Box>
+        );
+      }
       return (
         <Box
           marginTop={addSpacing ? 1 : 0}
@@ -164,7 +182,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     >
       {ICONS.warn}
       <Text> </Text>
-      <Text color="yellow">[Unsupported UI output]</Text>
+      <Text color={THEME.warning}>[Unsupported UI output]</Text>
     </Box>
   );
 });

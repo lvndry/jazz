@@ -1,13 +1,54 @@
 import { afterAll, describe, expect, it, mock, beforeEach } from "bun:test";
 import { Effect } from "effect";
-import type { ModelsDevMetadata } from "@/core/utils/models-dev-client";
-import { createModelFetcher, resolveOllamaToolSupport, type OllamaModel } from "./model-fetcher";
+import type { ModelsDevMetadata, ModelsDevModelEntry } from "@/core/utils/models-dev-client";
+import {
+  createModelFetcher,
+  fetchModelsDevModels,
+  resolveOllamaToolSupport,
+  type OllamaModel,
+} from "./model-fetcher";
+
+function modelsDevEntry(
+  overrides: Partial<ModelsDevModelEntry> & { id: string },
+): ModelsDevModelEntry {
+  return {
+    displayName: overrides.id,
+    inputModalities: ["text"],
+    outputModalities: ["text"],
+    metadata: {
+      contextWindow: 200000,
+      supportsTools: true,
+      isReasoningModel: false,
+      supportsVision: false,
+      supportsPdf: false,
+      supportsTemperature: true,
+    },
+    ...overrides,
+  };
+}
+
+let modelsDevProviderModels: readonly ModelsDevModelEntry[] = [];
+let modelsDevProviderError: Error | null = null;
+
+// Bun module mocks are process-global: snapshot the real exports so afterAll can
+// restore them for test files that run later in the same process.
+const actualModelsDevClient = {
+  ...(await import("@/core/utils/models-dev-client")),
+};
 
 // Mock models-dev-client
 mock.module("@/core/utils/models-dev-client", () => ({
   getModelsDevMap: mock(() => Promise.resolve(new Map())),
   getMetadataFromMap: mock(() => null),
+  getModelsDevProviderModels: mock(() => {
+    if (modelsDevProviderError) return Promise.reject(modelsDevProviderError);
+    return Promise.resolve(modelsDevProviderModels);
+  }),
 }));
+
+afterAll(() => {
+  mock.module("@/core/utils/models-dev-client", () => actualModelsDevClient);
+});
 
 /**
  * Install a `global.fetch` mock for an ollama model fetch: `/api/tags` → `tags`,
@@ -502,6 +543,108 @@ describe("ModelFetcher", () => {
       };
       expect(resolveOllamaToolSupport(undefined, undefined, metadataModel)).toBe(true);
       expect(resolveOllamaToolSupport(undefined, undefined, noMetadataModel)).toBe(false);
+    });
+  });
+
+  describe("fetchModelsDevModels", () => {
+    beforeEach(() => {
+      modelsDevProviderModels = [];
+      modelsDevProviderError = null;
+    });
+
+    it("maps catalog entries to ModelInfo with their metadata", async () => {
+      modelsDevProviderModels = [
+        modelsDevEntry({
+          id: "claude-sonnet-5",
+          displayName: "Claude Sonnet 5",
+          metadata: {
+            contextWindow: 1000000,
+            supportsTools: true,
+            isReasoningModel: true,
+            supportsVision: true,
+            supportsPdf: true,
+            supportsTemperature: false,
+          },
+        }),
+      ];
+
+      const result = await fetchModelsDevModels("anthropic");
+
+      expect(result).toEqual([
+        {
+          id: "claude-sonnet-5",
+          displayName: "Claude Sonnet 5",
+          contextWindow: 1000000,
+          supportsTools: true,
+          isReasoningModel: true,
+          supportsVision: true,
+          supportsPdf: true,
+          supportsTemperature: false,
+        },
+      ]);
+    });
+
+    it("drops deprecated models", async () => {
+      modelsDevProviderModels = [
+        modelsDevEntry({ id: "current-model" }),
+        modelsDevEntry({ id: "old-model", status: "deprecated" }),
+        modelsDevEntry({ id: "preview-model", status: "beta" }),
+      ];
+
+      const ids = (await fetchModelsDevModels("openai")).map((model) => model.id);
+
+      expect(ids).toContain("current-model");
+      expect(ids).toContain("preview-model");
+      expect(ids).not.toContain("old-model");
+    });
+
+    it("drops non-text-chat models (embeddings, tts, image/video generation)", async () => {
+      modelsDevProviderModels = [
+        modelsDevEntry({ id: "chat-model" }),
+        modelsDevEntry({ id: "embedding-model", outputModalities: [] }),
+        modelsDevEntry({ id: "tts-model", outputModalities: ["audio"] }),
+        modelsDevEntry({ id: "image-gen-model", outputModalities: ["text", "image"] }),
+        modelsDevEntry({ id: "realtime-model", outputModalities: ["text", "audio"] }),
+        modelsDevEntry({ id: "vision-only-input", inputModalities: ["image"] }),
+      ];
+
+      const ids = (await fetchModelsDevModels("openai")).map((model) => model.id);
+
+      expect(ids).toEqual(["chat-model"]);
+    });
+
+    it("drops dated snapshot duplicates only when the undated base id exists", async () => {
+      modelsDevProviderModels = [
+        modelsDevEntry({ id: "claude-haiku-4-5" }),
+        modelsDevEntry({ id: "claude-haiku-4-5-20251001" }),
+        modelsDevEntry({ id: "gpt-4o" }),
+        modelsDevEntry({ id: "gpt-4o-2024-05-13" }),
+        modelsDevEntry({ id: "kimi-k2-0711-preview" }),
+      ];
+
+      const ids = (await fetchModelsDevModels("anthropic")).map((model) => model.id);
+
+      expect(ids.sort()).toEqual(["claude-haiku-4-5", "gpt-4o", "kimi-k2-0711-preview"]);
+    });
+
+    it("sorts by release date, newest first, with undated entries last", async () => {
+      modelsDevProviderModels = [
+        modelsDevEntry({ id: "undated-model" }),
+        modelsDevEntry({ id: "older-model", releaseDate: "2025-01-01" }),
+        modelsDevEntry({ id: "newer-model", releaseDate: "2026-06-01" }),
+      ];
+
+      const ids = (await fetchModelsDevModels("google")).map((model) => model.id);
+
+      expect(ids).toEqual(["newer-model", "older-model", "undated-model"]);
+    });
+
+    it("propagates catalog unavailability as an error (no fallback by design)", async () => {
+      modelsDevProviderError = new Error("Could not load the model catalog from models.dev");
+
+      await expect(fetchModelsDevModels("anthropic")).rejects.toThrow(
+        "Could not load the model catalog from models.dev",
+      );
     });
   });
 });

@@ -34,7 +34,7 @@ export function EphemeralPanel({ region }: { region: EphemeralRegion }): React.R
   }, []);
 
   const headerColor = region.kind === "reasoning" ? THEME.reasoning : THEME.agent;
-  const tailColor = region.kind === "reasoning" ? THEME.reasoning : "white";
+  const tailColor = region.kind === "reasoning" ? THEME.reasoning : THEME.selected;
 
   const availableWidth = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content);
   // Format markdown for reasoning panels so inline code, bold, lists etc.

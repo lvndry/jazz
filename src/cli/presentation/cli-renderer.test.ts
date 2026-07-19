@@ -85,20 +85,20 @@ describe("CLIRenderer", () => {
     it("should render unordered lists correctly", () => {
       const text = "- Item\n";
       const result = renderer.testRenderChunk(text, 0);
-      expect(result).toBe(`  ${chalk.yellow("-")} Item\n`);
+      expect(result).toBe(`  ${codeColor("-")} Item\n`);
     });
 
     it("should render ordered lists correctly", () => {
       const text = "1. Item\n";
       const result = renderer.testRenderChunk(text, 0);
-      expect(result).toBe(`  ${chalk.yellow("1.")} Item\n`);
+      expect(result).toBe(`  ${codeColor("1.")} Item\n`);
     });
 
     it("should render horizontal rules correctly", () => {
       const text = "---\n";
       const result = renderer.testRenderChunk(text, 0);
       // Horizontal rules now include a newline at the end
-      expect(result).toBe(chalk.gray("────────────────────────────────────────") + "\n");
+      expect(result).toBe(CHALK_THEME.muted("────────────────────────────────────────") + "\n");
     });
 
     it("should render code blocks when complete", () => {
@@ -111,8 +111,8 @@ describe("CLIRenderer", () => {
       const result = renderer.testRenderChunk(chunk, 0);
 
       // Fences stay yellow.
-      expect(result).toContain(chalk.yellow("```typescript"));
-      expect(result).toContain(chalk.yellow("```"));
+      expect(result).toContain(codeColor("```typescript"));
+      expect(result).toContain(codeColor("```"));
       // Body content is present (regardless of intra-line highlighting).
       const stripped = stripAnsiCodes(result);
       expect(stripped).toContain("const x = 1;");
@@ -148,11 +148,11 @@ describe("CLIRenderer", () => {
       const chunk1 = "```typescript\nconst x = 1;\n```\n";
       const result1 = renderer.testRenderChunk(chunk1, 0);
       const lines = result1.split("\n");
-      expect(lines[0]).toBe(chalk.yellow("```typescript"));
+      expect(lines[0]).toBe(codeColor("```typescript"));
       // Body line: assert visible content (intra-line ANSI varies with
       // cli-highlight's typescript grammar).
       expect(stripAnsiCodes(lines[1] ?? "")).toContain("const x = 1;");
-      expect(lines[2]).toBe(chalk.yellow("```"));
+      expect(lines[2]).toBe(codeColor("```"));
 
       // Next chunk should be plain (not green)
       const chunk2 = "Normal text after code block\n";
@@ -169,11 +169,11 @@ describe("CLIRenderer", () => {
       const chunk2 = "```python\nprint('hello')\n```\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
       const lines = result2.split("\n");
-      expect(lines[0]).toBe(chalk.yellow("```python"));
+      expect(lines[0]).toBe(codeColor("```python"));
       // Body line: assert visible content (cli-highlight applies python
       // grammar to keywords/strings/etc.; we don't pin exact ANSI bytes).
       expect(stripAnsiCodes(lines[1] ?? "")).toContain("print('hello')");
-      expect(lines[2]).toBe(chalk.yellow("```"));
+      expect(lines[2]).toBe(codeColor("```"));
 
       // Text after should be plain
       const chunk3 = "Normal text\n";
@@ -259,7 +259,7 @@ describe("CLIRenderer", () => {
       const text = "- [ ] Unchecked task\n- [x] Checked task\n- [X] Checked task uppercase\n";
       const result = renderer.testRenderChunk(text, 0);
       const lines = result.split("\n");
-      expect(lines[0]).toBe(`  ${chalk.gray("○")} Unchecked task`);
+      expect(lines[0]).toBe(`  ${CHALK_THEME.muted("○")} Unchecked task`);
       expect(lines[1]).toBe(`  ${CHALK_THEME.success("✓")} Checked task`);
       expect(lines[2]).toBe(`  ${CHALK_THEME.success("✓")} Checked task uppercase`);
     });
@@ -268,27 +268,27 @@ describe("CLIRenderer", () => {
       const text = "- Item 1\n  - Nested item\n    - Deeply nested\n";
       const result = renderer.testRenderChunk(text, 0);
       const lines = result.split("\n");
-      expect(lines[0]).toBe(`  ${chalk.yellow("-")} Item 1`);
-      expect(lines[1]).toBe(`    ${chalk.yellow("-")} Nested item`);
-      expect(lines[2]).toBe(`      ${chalk.yellow("-")} Deeply nested`);
+      expect(lines[0]).toBe(`  ${codeColor("-")} Item 1`);
+      expect(lines[1]).toBe(`    ${codeColor("-")} Nested item`);
+      expect(lines[2]).toBe(`      ${codeColor("-")} Deeply nested`);
     });
 
     it("should render nested ordered lists correctly", () => {
       const text = "1. Item 1\n  2. Nested item\n    3. Deeply nested\n";
       const result = renderer.testRenderChunk(text, 0);
       const lines = result.split("\n");
-      expect(lines[0]).toBe(`  ${chalk.yellow("1.")} Item 1`);
-      expect(lines[1]).toBe(`    ${chalk.yellow("2.")} Nested item`);
-      expect(lines[2]).toBe(`      ${chalk.yellow("3.")} Deeply nested`);
+      expect(lines[0]).toBe(`  ${codeColor("1.")} Item 1`);
+      expect(lines[1]).toBe(`    ${codeColor("2.")} Nested item`);
+      expect(lines[2]).toBe(`      ${codeColor("3.")} Deeply nested`);
     });
 
     it("should render mixed nested lists correctly", () => {
       const text = "- Item 1\n  1. Nested ordered\n    - Deeply nested unordered\n";
       const result = renderer.testRenderChunk(text, 0);
       const lines = result.split("\n");
-      expect(lines[0]).toBe(`  ${chalk.yellow("-")} Item 1`);
-      expect(lines[1]).toBe(`    ${chalk.yellow("1.")} Nested ordered`);
-      expect(lines[2]).toBe(`      ${chalk.yellow("-")} Deeply nested unordered`);
+      expect(lines[0]).toBe(`  ${codeColor("-")} Item 1`);
+      expect(lines[1]).toBe(`    ${codeColor("1.")} Nested ordered`);
+      expect(lines[2]).toBe(`      ${codeColor("-")} Deeply nested unordered`);
     });
   });
 
