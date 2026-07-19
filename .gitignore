@@ -41,6 +41,9 @@ data/
 jazz.config.json
 jazz.config.*.json
 
+# Worktrees
+.worktrees/
+
 # AI agents
 CLAUDE.md
 .kiro/
