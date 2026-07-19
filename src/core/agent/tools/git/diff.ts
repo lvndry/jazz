@@ -34,7 +34,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
         .positive()
         .optional()
         .describe(
-          "Max diff lines (default: 500; no cap — pass a high value to fetch a whole diff)",
+          "Cap on diff lines. Omit to return the whole diff (the default); set to bound output.",
         ),
     })
     .strict();
@@ -44,7 +44,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
     name: "git_diff",
     description:
-      "Show differences between commits, branches, or working tree. Default 500 lines; no cap when maxLines is set.",
+      "Show differences between commits, branches, or working tree. Returns the whole diff by default; maxLines caps it.",
     tags: ["git", "diff"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -135,10 +135,10 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
         }
 
         const hasChanges = trimmedOutput.length > 0;
-        // No hard ceiling: a caller that requests N lines gets N. Review
-        // workflows run on 256k-token models and pull a whole PR diff in one
-        // call; the small default keeps unspecified/interactive results light.
-        const maxLines = args.maxLines ?? 500;
+        // Default is the WHOLE diff: an unspecified call returns everything, so
+        // an agent never silently reviews a partial diff. maxLines is an opt-in
+        // cap for callers that deliberately want a bounded slice.
+        const maxLines = args.maxLines;
         let diff = trimmedOutput;
         let truncated = false;
         let totalLines = 0;
@@ -147,7 +147,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
         if (hasChanges) {
           const lines = trimmedOutput.split("\n");
           totalLines = lines.length;
-          if (lines.length > maxLines) {
+          if (maxLines !== undefined && lines.length > maxLines) {
             diff = lines.slice(0, maxLines).join("\n");
             truncated = true;
             returnedLines = maxLines;
