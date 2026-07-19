@@ -640,7 +640,8 @@ async function promptForAgentUpdates(
         terminal.ask(`${providerDisplayName} API Key:`, {
           simple: true,
           secret: true,
-          placeholder: "Paste your API key...",
+          cancellable: true,
+          placeholder: "Paste your API key... (Esc to go back)",
           validate: (inputValue: string): boolean | string => {
             if (!inputValue || inputValue.trim().length === 0) {
               return "API key cannot be empty";
@@ -649,6 +650,10 @@ async function promptForAgentUpdates(
           },
         }),
       );
+
+      if (apiKey === undefined) {
+        throw new Error("Edit cancelled");
+      }
 
       // Update config with the new API key
       await Effect.runPromise(configService.set(apiKeyPath, apiKey));
@@ -757,7 +762,8 @@ async function promptForAgentUpdates(
         {
           simple: true,
           secret: true,
-          placeholder: "Paste your API key...",
+          cancellable: true,
+          placeholder: "Paste your API key... (Esc to go back)",
           validate: (inputValue: string): boolean | string => {
             if (!isOptional && inputValue.trim().length === 0) {
               return true; // empty means clear override

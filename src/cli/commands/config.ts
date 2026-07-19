@@ -120,8 +120,13 @@ export function setConfigCommand(
         const apiKey = yield* terminal.ask("Enter API Key:", {
           simple: true,
           secret: true,
-          placeholder: "Paste your API key...",
+          cancellable: true,
+          placeholder: "Paste your API key... (Esc to cancel)",
         });
+        if (apiKey === undefined) {
+          yield* terminal.info("Cancelled — configuration unchanged.");
+          return;
+        }
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
 
         yield* terminal.success(`Configuration for ${provider} updated.`);
