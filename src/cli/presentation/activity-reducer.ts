@@ -321,8 +321,16 @@ export function reduceEvent(
 
     case "tools_detected": {
       const approvalSet = new Set(event.toolsRequiringApproval);
-      const formattedTools = event.toolNames
-        .map((name) => (approvalSet.has(name) ? `${name} (requires approval)` : name))
+      // Dedupe repeated tool names with a count so a batch of 5 execute_command
+      // calls reads "execute_command ×5 (requires approval)" instead of five
+      // identical, unreadable entries.
+      const counts = new Map<string, number>();
+      for (const name of event.toolNames) counts.set(name, (counts.get(name) ?? 0) + 1);
+      const formattedTools = Array.from(counts.entries())
+        .map(([name, count]) => {
+          const label = count > 1 ? `${name} ×${count}` : name;
+          return approvalSet.has(name) ? `${label} (requires approval)` : label;
+        })
         .join(", ");
       // Blank line after prior static output (e.g. metrics/cost from complete) before the badge.
       outputs.push({

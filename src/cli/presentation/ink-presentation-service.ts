@@ -1260,7 +1260,11 @@ class InkPresentationService implements PresentationService {
 
   signalToolExecutionStarted(): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      // If there's a pending signal callback, invoke it to allow next approval
+      // If there's a pending signal callback, invoke it to allow the next
+      // approval prompt to appear. The tool executor now fires this AFTER the
+      // tool completes and its result card has printed (not at start), so
+      // approvals and results never interleave: approve → run → result →
+      // approve. The method name is kept for interface compatibility.
       if (this.pendingExecutionSignal) {
         this.pendingExecutionSignal();
       }
