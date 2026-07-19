@@ -29,7 +29,8 @@
       "list_todos",
       "get_time",
       "web_fetch",
-      "http_request"
+      "http_request",
+      "execute_command"
     ]
   },
   "createdAt": "2026-07-18T00:00:00.000Z",

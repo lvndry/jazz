@@ -43,6 +43,31 @@ tooluse / planning / productivity / tutoring (non-web); research (web) tasks use
 record-replay cassettes under `evals/fixtures/web/` and need the fetch-based web
 path — deferred until a fetch-based search provider is wired.
 
+### Grounding / deixis
+
+`evals/tasks/grounding/*.ts` tests whether the agent resolves indexical
+references ("this machine", "this repo", "the latest version") against the
+real environment instead of answering generically from training data. Checks
+live in `checks.ts`:
+
+- `machineSpecGroundingCheck` — for "this machine has real hardware" questions
+  (chip/RAM). RAM is a fixed constant on the box running the eval, so the check
+  asserts against ground truth directly (`node:os` `totalmem`): pass if the
+  answer cites the real figure OR the agent ran a system probe
+  (`system_profiler`/`sysctl`/etc via `execute_command`); fail on generic
+  RAM-bucket guidance or asking the user for their specs.
+- `toolGroundedAnswerCheck` — for tasks where the correct answer can only come
+  from a real check (disk space, repo files, a live URL). Requires BOTH a
+  matching tool call AND answer content consistent with it, since calling the
+  tool proves nothing if the answer still guesses.
+- `grounding-latest-bun-version` uses `web_fetch` (not `web_search` — that path
+  is the one noted above as deferred) against a real recorded cassette of the
+  GitHub releases API, so a stale training-data guess fails against the actual
+  current version.
+
+`eval-sut` / `eval-ceiling` include `execute_command` specifically so the
+machine-spec and disk-space tasks can probe real system state.
+
 ## Judge calibration
 
 `evals/judge/calibration.jsonl` holds human-labeled rows; the runner checks the

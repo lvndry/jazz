@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statfsSync } from "node:fs";
+import { totalmem } from "node:os";
 import { join } from "node:path";
 import type { CheckResult, OneShotResult } from "./types";
 
@@ -111,4 +112,85 @@ export async function comprehensionCheck(
     score,
     detail: `${correct}/${qa.length} questions answerable from the explanation`,
   };
+}
+
+/**
+ * Deixis/grounding check for "this machine" questions (chip, RAM). Total RAM is
+ * a fixed hardware constant on the box actually running the eval, so we can
+ * assert against ground truth directly: pass if the answer cites the real RAM
+ * figure OR the agent ran a system probe command; fail if it gives a generic
+ * RAM-bucket answer or asks the user to supply their own specs.
+ */
+export function machineSpecGroundingCheck(
+  result: OneShotResult,
+  opts: { probePatterns: RegExp[]; askBackPatterns: RegExp[] },
+): CheckResult {
+  const ramGB = Math.round(totalmem() / 1024 ** 3);
+  const citesRealRam = new RegExp(`\\b${ramGB}\\s*gb\\b`, "i").test(result.answer);
+  const ranProbe = result.toolCalls.some(
+    (call) =>
+      call.name === "execute_command" &&
+      opts.probePatterns.some((pattern) => pattern.test(call.arguments)),
+  );
+  const askedBack = opts.askBackPatterns.some((pattern) => pattern.test(result.answer));
+  const pass = (citesRealRam || ranProbe) && !askedBack;
+  const detail = askedBack
+    ? "asked the user for their own specs instead of checking the machine"
+    : citesRealRam
+      ? `cites the real RAM (${ramGB}GB)`
+      : ranProbe
+        ? "ran a system probe command"
+        : `no grounding found (expected ~${ramGB}GB cited or a probe command)`;
+  return { pass, score: pass ? 1 : 0, detail };
+}
+
+export interface ToolGroundedSpec {
+  /** Any call to one of these tools counts as "checked something real". */
+  toolNames: string[];
+  /** If set, at least one matching call's arguments must satisfy one of these. */
+  toolArgPatterns?: RegExp[];
+  /** The answer must match ALL of these — proof the tool's real output was used, not ignored. */
+  answerPatterns: RegExp[];
+}
+
+/**
+ * Grounding check for tasks whose correct answer can only come from inspecting
+ * live state (disk, repo files, the web) rather than recalling or guessing.
+ * Unlike machineSpecGroundingCheck, this requires BOTH a matching tool call AND
+ * answer content consistent with it — the tool call alone doesn't prove the
+ * agent actually used what it found.
+ */
+export function toolGroundedAnswerCheck(
+  result: OneShotResult,
+  spec: ToolGroundedSpec,
+): CheckResult {
+  const matchingCalls = result.toolCalls.filter((call) => spec.toolNames.includes(call.name));
+  const checkedReality =
+    matchingCalls.length > 0 &&
+    (!spec.toolArgPatterns ||
+      matchingCalls.some((call) => spec.toolArgPatterns!.some((p) => p.test(call.arguments))));
+  const missing = spec.answerPatterns.filter((pattern) => !pattern.test(result.answer));
+  const pass = checkedReality && missing.length === 0;
+  return {
+    pass,
+    score: !checkedReality
+      ? 0
+      : (spec.answerPatterns.length - missing.length) / spec.answerPatterns.length,
+    detail: pass
+      ? "checked real state via a grounding tool and the answer reflects it"
+      : !checkedReality
+        ? `expected a real check via ${spec.toolNames.join("/")}${spec.toolArgPatterns ? " matching an expected pattern" : ""}, none found`
+        : `tool was called but the answer is missing grounded content (${missing.length}/${spec.answerPatterns.length} patterns unmatched)`,
+  };
+}
+
+/**
+ * Disk free space is not a stable ground truth like RAM — it drifts as other
+ * processes write files — so this only bounds plausibility (same order of
+ * magnitude as reality at check time) rather than requiring an exact match.
+ */
+export function plausibleFreeDiskGB(path: string): { min: number; max: number } {
+  const stats = statfsSync(path);
+  const freeGB = (stats.bavail * stats.bsize) / 1024 ** 3;
+  return { min: freeGB * 0.5, max: freeGB * 1.5 };
 }

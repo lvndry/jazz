@@ -1,4 +1,10 @@
-export type Domain = "research" | "tooluse" | "planning" | "productivity" | "tutoring";
+export type Domain =
+  | "research"
+  | "tooluse"
+  | "planning"
+  | "productivity"
+  | "tutoring"
+  | "grounding";
 
 export interface OneShotResult {
   ok: boolean;
