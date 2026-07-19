@@ -10,8 +10,15 @@ export const TOOL_TIMEOUT_MS = 3 * 60 * 1000;
 /** Maximum number of workflow run history records to keep */
 export const MAX_RUN_HISTORY_RECORDS = 100;
 
-/** Maximum number of conversation history records to keep per agent */
-export const MAX_CONVERSATION_HISTORY_PER_AGENT = 5;
+/**
+ * Maximum number of conversation history records to keep per agent.
+ *
+ * Saves are LRU (an updated conversation moves to the front), so this bounds
+ * how many distinct conversations an agent can remember. Headless bridges
+ * (`jazz run --conversation`) keep one conversation per external chat, so the
+ * cap must comfortably exceed the number of concurrently active chats.
+ */
+export const MAX_CONVERSATION_HISTORY_PER_AGENT = 100;
 
 /** Default maximum age for workflow catch-up runs in seconds (24 hours) */
 export const DEFAULT_MAX_CATCH_UP_AGE_SECONDS = 60 * 60 * 24;

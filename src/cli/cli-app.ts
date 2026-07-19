@@ -94,6 +94,10 @@ function registerRunCommand(program: Command): void {
       "--reasoning <effort>",
       "Reasoning effort for this run: low | medium | high | disable (overrides the agent's config)",
     )
+    .option(
+      "--conversation <id>",
+      "Stable conversation key (e.g. a Telegram chat id). Loads prior history for this key before the run and saves the updated transcript after, giving repeated invocations shared memory. Omit for a stateless one-shot run.",
+    )
     .action(
       (
         prompt: string | undefined,
@@ -105,6 +109,7 @@ function registerRunCommand(program: Command): void {
           maxIterations?: number;
           events?: string;
           reasoning?: string;
+          conversation?: string;
         },
       ) => {
         const opts = program.opts<CliOptions>();
@@ -164,6 +169,7 @@ function registerRunCommand(program: Command): void {
               ? { maxIterations: options.maxIterations }
               : {}),
             ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
+            ...(options.conversation !== undefined ? { conversationId: options.conversation } : {}),
           }),
           {
             verbose: opts.verbose,
