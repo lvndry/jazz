@@ -3,7 +3,7 @@ import * as os from "os";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
-import { SKILLS_INSTRUCTIONS } from "./prompts/shared";
+import { ENVIRONMENT_TEMPLATE, SKILLS_INSTRUCTIONS } from "./prompts/shared";
 
 function formatUtcOffsetLabel(date: Date): string {
   const offsetMinutes = -date.getTimezoneOffset();
@@ -233,17 +233,32 @@ export class AgentPromptBuilder {
         const { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory } =
           yield* this.getSystemInfo();
 
-        // Replace placeholders in system prompt
+        const fillEnvironment = (text: string): string =>
+          text
+            .replace("{currentDate}", currentDate)
+            .replace("{osInfo}", osInfo)
+            .replace("{hardware}", hardware)
+            .replace("{shell}", shell)
+            .replace("{homeDirectory}", homeDirectory)
+            .replace("{hostname}", hostname)
+            .replace("{username}", username);
+
         let systemPrompt = persona.systemPrompt
           .replace("{agentName}", options.agentName)
-          .replace("{agentDescription}", options.agentDescription)
-          .replace("{currentDate}", currentDate)
-          .replace("{osInfo}", osInfo)
-          .replace("{hardware}", hardware)
-          .replace("{shell}", shell)
-          .replace("{homeDirectory}", homeDirectory)
-          .replace("{hostname}", hostname)
-          .replace("{username}", username);
+          .replace("{agentDescription}", options.agentDescription);
+
+        // Machine grounding. Two modes:
+        // - A persona that hand-places {currentDate} keeps full control over
+        //   where the facts sit; substitute in place and add nothing.
+        // - Otherwise append the one canonical block, so custom personas get
+        //   grounding for free and the field list has a single source of truth.
+        // The summarizer is a pure transcript-compression role with no tools;
+        // machine facts are noise for it, so it never gets the block.
+        if (systemPrompt.includes("{currentDate}")) {
+          systemPrompt = fillEnvironment(systemPrompt);
+        } else if (personaName !== "summarizer") {
+          systemPrompt = `${systemPrompt}\n${fillEnvironment(ENVIRONMENT_TEMPLATE)}`;
+        }
 
         if (options.knownSkills && options.knownSkills.length > 0) {
           // Compact index — one line per skill. Full descriptions are loaded

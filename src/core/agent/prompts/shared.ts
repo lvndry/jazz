@@ -1,6 +1,15 @@
-export const SYSTEM_INFORMATION = `
+/**
+ * Canonical environment facts block, the single source of truth for the machine
+ * grounding appended to every persona system prompt at build time. Kept here so
+ * persona authors never hand-copy it (that drifted field lists across personas)
+ * and so a new field is added in exactly one place. Rendered by filling the
+ * placeholders with live values in AgentPromptBuilder.buildSystemPrompt.
+ */
+export const ENVIRONMENT_TEMPLATE = `# Environment
+
 - Date: {currentDate}
 - OS: {osInfo}
+- Hardware: {hardware}
 - Shell: {shell}
 - Home: {homeDirectory}
 - Hostname: {hostname}
