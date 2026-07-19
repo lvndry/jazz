@@ -463,6 +463,14 @@ export function formatToolResultForContext(toolName: string, result: unknown): s
   // Serialize
   const serialized = typeof stripped === "string" ? stripped : safeStringify(stripped);
 
+  // git_diff governs its own size via the maxLines parameter, so it is exempt
+  // from Phase 2 truncation — a caller that requested the whole diff (e.g. a
+  // review agent on a large-context model) receives it in full instead of being
+  // re-truncated here to the 24k-char budget.
+  if (toolName === "git_diff") {
+    return serialized;
+  }
+
   // Phase 2: Truncate only when payload actually exceeds adaptive budget.
   const maxChars = resolveMaxChars(stripped);
   if (serialized.length <= maxChars) {
