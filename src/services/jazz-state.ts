@@ -42,7 +42,12 @@ export function createJazzStateServiceLayer(): Layer.Layer<
             .readFileString(statePath)
             .pipe(Effect.catchAll(() => Effect.succeed("{}")));
           const parsed = safeParseJson<JazzState>(content);
-          if (parsed._tag === "Some" && parsed.value && typeof parsed.value === "object") {
+          if (
+            parsed._tag === "Some" &&
+            parsed.value &&
+            typeof parsed.value === "object" &&
+            !Array.isArray(parsed.value)
+          ) {
             state = parsed.value;
           } else {
             state = {};
@@ -79,10 +84,15 @@ export function createJazzStateServiceLayer(): Layer.Layer<
   );
 }
 
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 function deepGet(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split(".").filter(Boolean);
   let current: unknown = obj;
   for (const part of parts) {
+    if (FORBIDDEN_KEYS.has(part)) {
+      return undefined;
+    }
     if (current && typeof current === "object" && part in (current as Record<string, unknown>)) {
       current = (current as Record<string, unknown>)[part];
     } else {
@@ -97,6 +107,9 @@ function deepSet(obj: Record<string, unknown>, path: string, value: unknown): vo
   let current: Record<string, unknown> = obj;
   for (let i = 0; i < parts.length; i++) {
     const key = parts[i] as string;
+    if (FORBIDDEN_KEYS.has(key)) {
+      return;
+    }
     if (i === parts.length - 1) {
       current[key] = value;
     } else {
