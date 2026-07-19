@@ -1,4 +1,8 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
+import { isOfflineMode } from "@/core/utils/offline";
+import { getUserDataDirectory } from "@/core/utils/runtime-detection";
 
 /**
  * Client for https://models.dev/api.json (~3MB JSON)
@@ -14,10 +18,19 @@ import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
  *   Map<providerId, entries[]> for provider model listings.
  * - Per-provider cache: ai-sdk-service caches resolved ModelInfo[] so we don't even
  *   re-resolve after first provider load.
+ *
+ * Airgapped / self-hosted operation:
+ * - Every successful fetch is mirrored to <jazz home>/cache/models-dev.json; when the
+ *   network is unreachable (or JAZZ_OFFLINE is set) that snapshot is used instead, however
+ *   stale — stale metadata beats none, and local providers don't depend on it at all.
+ * - JAZZ_MODELS_DEV_URL points the fetch at an internal mirror of api.json.
+ * - The fetch is capped at FETCH_TIMEOUT_MS so a blackholed route can't hang model listing.
  */
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const FETCH_TIMEOUT_MS = 10_000;
+const DISK_CACHE_FILE = "models-dev.json";
 
 export interface ModelsDevMetadata {
   readonly contextWindow: number;
@@ -168,23 +181,29 @@ function buildData(api: ModelsDevApi): ModelsDevData {
   return { metadataMap, providerModels };
 }
 
-/**
- * Fetch and cache the models.dev payload. Returns the previous cache (possibly stale,
- * possibly null) when the fetch fails — callers decide how strict to be.
- */
-async function loadModelsDevData(): Promise<ModelsDevData | null> {
-  const now = Date.now();
-  if (cachedData !== null && now < cacheExpiry) {
-    return cachedData;
-  }
+function resolveApiUrl(): string {
+  const override = process.env["JAZZ_MODELS_DEV_URL"];
+  return override && override.length > 0 ? override : MODELS_DEV_API_URL;
+}
 
+function diskCachePath(): string {
+  return join(getUserDataDirectory(), "cache", DISK_CACHE_FILE);
+}
+
+async function writeDiskCache(rawJson: string): Promise<void> {
   try {
-    const response = await fetch(MODELS_DEV_API_URL, {
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) return cachedData;
+    const path = diskCachePath();
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, rawJson, "utf8");
+  } catch {
+    // Best-effort mirror — an unwritable cache dir must never break model listing.
+  }
+}
 
-    const api = (await response.json()) as ModelsDevApi;
+async function loadFromDiskCache(now: number): Promise<ModelsDevData | null> {
+  try {
+    const raw = await readFile(diskCachePath(), "utf8");
+    const api = JSON.parse(raw) as ModelsDevApi;
     if (!api || typeof api !== "object") return cachedData;
 
     cachedData = buildData(api);
@@ -192,6 +211,42 @@ async function loadModelsDevData(): Promise<ModelsDevData | null> {
     return cachedData;
   } catch {
     return cachedData;
+  }
+}
+
+/**
+ * Fetch and cache the models.dev payload. When the network is unreachable (or
+ * JAZZ_OFFLINE is set) falls back to the on-disk snapshot from a previous run,
+ * then to the previous in-memory cache (possibly stale, possibly null) —
+ * callers decide how strict to be.
+ */
+async function loadModelsDevData(): Promise<ModelsDevData | null> {
+  const now = Date.now();
+  if (cachedData !== null && now < cacheExpiry) {
+    return cachedData;
+  }
+
+  if (isOfflineMode()) {
+    return loadFromDiskCache(now);
+  }
+
+  try {
+    const response = await fetch(resolveApiUrl(), {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) return loadFromDiskCache(now);
+
+    const rawJson = await response.text();
+    const api = JSON.parse(rawJson) as ModelsDevApi;
+    if (!api || typeof api !== "object") return loadFromDiskCache(now);
+
+    cachedData = buildData(api);
+    cacheExpiry = now + CACHE_TTL_MS;
+    await writeDiskCache(rawJson);
+    return cachedData;
+  } catch {
+    return loadFromDiskCache(now);
   }
 }
 
@@ -218,7 +273,9 @@ export async function getModelsDevProviderModels(
   const data = await loadModelsDevData();
   if (!data) {
     throw new Error(
-      "Could not load the model catalog from models.dev — check your network connection and try again",
+      isOfflineMode()
+        ? "Model catalog unavailable: JAZZ_OFFLINE is set and no cached catalog exists. Local providers (ollama, llamacpp) list models without the catalog."
+        : "Could not load the model catalog from models.dev — check your network connection and try again",
     );
   }
   const entries = data.providerModels.get(providerId.toLowerCase().trim());

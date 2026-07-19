@@ -10,6 +10,7 @@ Step-by-step guides to help you get started and master Jazz.
 
 - [Quick Start](./guide/quick-start.md)
 - [Creating Agents](./guide/creating-agents.md)
+- [Airgapped & Self-Hosted](./guide/airgapped.md)
 - **Use Cases**:
   - [Deep Research & Obsidian](./guide/use-cases/deep-research.md)
   - [Security Audits](./guide/use-cases/security-audit.md)
