@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { APICallError } from "ai";
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Stream } from "effect";
 import type { ProviderName } from "../../core/constants/models";
 import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
@@ -23,10 +23,20 @@ import { createLoggerLayer } from "../logger";
 import { buildProviderOptions, createAISDKServiceLayer, toCoreMessages } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
 
+// Bun module mocks are process-global: snapshot the real exports so afterAll can
+// restore them for test files that run later in the same process.
+const actualModelsDevClient = {
+  ...(await import("@/core/utils/models-dev-client")),
+};
+
 mock.module("@/core/utils/models-dev-client", () => ({
   getModelsDevMap: () => Promise.resolve(new Map()),
   getMetadataFromMap: () => null,
 }));
+
+afterAll(() => {
+  mock.module("@/core/utils/models-dev-client", () => actualModelsDevClient);
+});
 
 describe("AI SDK Service - Unit Tests", () => {
   /**

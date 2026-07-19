@@ -30,6 +30,12 @@ function modelsDevEntry(
 let modelsDevProviderModels: readonly ModelsDevModelEntry[] = [];
 let modelsDevProviderError: Error | null = null;
 
+// Bun module mocks are process-global: snapshot the real exports so afterAll can
+// restore them for test files that run later in the same process.
+const actualModelsDevClient = {
+  ...(await import("@/core/utils/models-dev-client")),
+};
+
 // Mock models-dev-client
 mock.module("@/core/utils/models-dev-client", () => ({
   getModelsDevMap: mock(() => Promise.resolve(new Map())),
@@ -39,6 +45,10 @@ mock.module("@/core/utils/models-dev-client", () => ({
     return Promise.resolve(modelsDevProviderModels);
   }),
 }));
+
+afterAll(() => {
+  mock.module("@/core/utils/models-dev-client", () => actualModelsDevClient);
+});
 
 /**
  * Install a `global.fetch` mock for an ollama model fetch: `/api/tags` → `tags`,
