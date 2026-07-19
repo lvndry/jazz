@@ -88,6 +88,7 @@ export class AgentPromptBuilder {
     {
       currentDate: string;
       osInfo: string;
+      hardware: string;
       shell: string;
       hostname: string;
       username: string;
@@ -114,8 +115,12 @@ export class AgentPromptBuilder {
       const homeDirectory = os.homedir();
 
       const osInfo = `${platform} ${release} (${machine})`;
+      const cpuModel = os.cpus()[0]?.model ?? "unknown CPU";
+      const coreCount = os.cpus().length;
+      const totalMemoryGb = Math.round(os.totalmem() / 1024 ** 3);
+      const hardware = `${cpuModel} · ${coreCount} cores · ${totalMemoryGb} GB RAM`;
 
-      return { currentDate, osInfo, shell, hostname, username, homeDirectory };
+      return { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory };
     });
   }
 
@@ -225,7 +230,7 @@ export class AgentPromptBuilder {
         );
         const cached = this.systemPromptCache.get(cacheKey);
         if (cached) return cached;
-        const { currentDate, osInfo, shell, hostname, username, homeDirectory } =
+        const { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory } =
           yield* this.getSystemInfo();
 
         // Replace placeholders in system prompt
@@ -234,6 +239,7 @@ export class AgentPromptBuilder {
           .replace("{agentDescription}", options.agentDescription)
           .replace("{currentDate}", currentDate)
           .replace("{osInfo}", osInfo)
+          .replace("{hardware}", hardware)
           .replace("{shell}", shell)
           .replace("{homeDirectory}", homeDirectory)
           .replace("{hostname}", hostname)
