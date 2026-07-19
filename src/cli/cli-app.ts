@@ -236,13 +236,20 @@ function registerAgentCommands(program: Command): void {
     .alias("remove")
     .alias("rm")
     .description("Delete an agent")
-    .action((agentId: string) => {
+    .option("-y, --yes", "Delete without asking for confirmation")
+    .option("-f, --force", "Alias for --yes")
+    .action((agentId: string, options: { yes?: boolean; force?: boolean }) => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(deleteAgentCommand(agentId), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
+      runCliEffect(
+        deleteAgentCommand(agentId, {
+          skipConfirmation: options.yes === true || options.force === true,
+        }),
+        {
+          verbose: opts.verbose,
+          debug: opts.debug,
+          configPath: opts.config,
+        },
+      );
     });
 
   agentCommand

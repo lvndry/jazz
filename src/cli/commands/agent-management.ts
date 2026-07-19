@@ -14,7 +14,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { CLIOptionsTag, type CLIOptions } from "@/core/interfaces/cli-options";
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
-import { StorageError, StorageNotFoundError } from "@/core/types/errors";
+import { CLIError, StorageError, StorageNotFoundError } from "@/core/types/errors";
 import { sortAgents } from "@/core/utils/agent-sort";
 import { formatProviderDisplayName } from "@/core/utils/string";
 import { AgentDetailsCard } from "../ui/AgentDetailsCard";
@@ -206,22 +206,62 @@ export function listAgentsCommand(): Effect.Effect<
  * This operation is irreversible and will permanently delete the agent
  * and all its associated data.
  *
- * @param agentId - The unique identifier of the agent to delete
+ * @param agentIdentifier - The agent ID or name to delete
+ * @param options - Deletion options
+ * @param options.skipConfirmation - Delete without prompting (for `--yes`/`--force`)
+ * @param options.interactive - Override TTY detection (used by tests)
  * @returns An Effect that resolves when the agent is deleted successfully
  *
  * @throws {StorageError} When there's an error accessing storage
  * @throws {StorageNotFoundError} When the agent with the given ID doesn't exist
+ * @throws {CLIError} When confirmation is required but the session is non-interactive
  *
  */
 export function deleteAgentCommand(
   agentIdentifier: string,
-): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService | TerminalService> {
+  options: {
+    readonly skipConfirmation?: boolean;
+    readonly interactive?: boolean;
+  } = {},
+): Effect.Effect<
+  void,
+  StorageError | StorageNotFoundError | CLIError,
+  AgentService | TerminalService
+> {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
     const terminal = yield* TerminalServiceTag;
 
     // Resolve identifier (ID first, then fall back to matching by name)
     const agent = yield* getAgentByIdentifier(agentIdentifier);
+
+    if (options.skipConfirmation !== true) {
+      const interactive =
+        options.interactive ?? (process.stdout.isTTY === true && process.stdin.isTTY === true);
+
+      // PlainTerminalService.confirm resolves to the default (false) without
+      // asking, which would silently abort — require an explicit --yes instead.
+      if (!interactive) {
+        return yield* Effect.fail(
+          new CLIError({
+            command: "agent delete",
+            message: `deleting agent "${agent.name}" requires confirmation, but this session is not interactive`,
+            suggestion: "Pass --yes (or --force) to delete without a confirmation prompt.",
+          }),
+        );
+      }
+
+      const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
+      const confirmed = yield* terminal.confirm(
+        `Delete agent "${agent.name}" (${model})? This cannot be undone.`,
+        false,
+      );
+
+      if (!confirmed) {
+        yield* terminal.info("Deletion cancelled.");
+        return;
+      }
+    }
 
     // Delete the agent
     yield* agentService.deleteAgent(agent.id);
