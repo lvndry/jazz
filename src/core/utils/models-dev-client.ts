@@ -86,6 +86,7 @@ interface ModelsDevData {
 
 let cachedData: ModelsDevData | null = null;
 let cacheExpiry = 0;
+let inFlightLoad: Promise<ModelsDevData | null> | null = null;
 
 /**
  * Normalize model id for lookup: lowercase, and add a variant without :tag
@@ -195,8 +196,11 @@ async function writeDiskCache(rawJson: string): Promise<void> {
     const path = diskCachePath();
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, rawJson, "utf8");
-  } catch {
-    // Best-effort mirror — an unwritable cache dir must never break model listing.
+  } catch (error) {
+    // Best-effort mirror — an unwritable cache dir must never break model listing,
+    // but a silent failure here would leave operators unable to diagnose why
+    // offline mode has no snapshot to fall back on.
+    console.warn(`Could not write models.dev disk cache: ${String(error)}`);
   }
 }
 
@@ -219,6 +223,10 @@ async function loadFromDiskCache(now: number): Promise<ModelsDevData | null> {
  * JAZZ_OFFLINE is set) falls back to the on-disk snapshot from a previous run,
  * then to the previous in-memory cache (possibly stale, possibly null) —
  * callers decide how strict to be.
+ *
+ * Concurrent callers (e.g. several agents listing models at once before the
+ * first load completes) share a single in-flight load instead of each firing
+ * their own fetch and disk write.
  */
 async function loadModelsDevData(): Promise<ModelsDevData | null> {
   const now = Date.now();
@@ -226,6 +234,17 @@ async function loadModelsDevData(): Promise<ModelsDevData | null> {
     return cachedData;
   }
 
+  if (inFlightLoad) {
+    return inFlightLoad;
+  }
+
+  inFlightLoad = fetchAndCacheModelsDevData(now).finally(() => {
+    inFlightLoad = null;
+  });
+  return inFlightLoad;
+}
+
+async function fetchAndCacheModelsDevData(now: number): Promise<ModelsDevData | null> {
   if (isOfflineMode()) {
     return loadFromDiskCache(now);
   }
@@ -341,4 +360,5 @@ export function getModelsDevMetadataSync(
 export function clearModelsDevCache(): void {
   cachedData = null;
   cacheExpiry = 0;
+  inFlightLoad = null;
 }

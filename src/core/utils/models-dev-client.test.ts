@@ -87,6 +87,21 @@ describe("models-dev-client disk cache", () => {
 
     expect(await getModelsDevMap()).toBeNull();
   });
+
+  it("dedupes concurrent loads into a single fetch", async () => {
+    const fetchMock = mockFetchSuccess();
+
+    const [first, second, third] = await Promise.all([
+      getModelsDevProviderModels("anthropic"),
+      getModelsDevProviderModels("anthropic"),
+      getModelsDevMap(),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(first.map((model) => model.id)).toEqual(["claude-test"]);
+    expect(second.map((model) => model.id)).toEqual(["claude-test"]);
+    expect(third?.size).toBeGreaterThan(0);
+  });
 });
 
 describe("models-dev-client offline mode", () => {
