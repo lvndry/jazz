@@ -29,9 +29,40 @@ const actualModelsDevClient = {
   ...(await import("@/core/utils/models-dev-client")),
 };
 
+const mockCatalogMetadata = {
+  contextWindow: 128000,
+  supportsTools: true,
+  isReasoningModel: false,
+  supportsVision: false,
+  supportsPdf: false,
+  supportsTemperature: true,
+};
+
+// getModelsDevProviderModels must be mocked too: catalog-backed providers list
+// models through it, and the real implementation reaches the network (or the
+// on-disk snapshot), which unit tests must never depend on.
 mock.module("@/core/utils/models-dev-client", () => ({
   getModelsDevMap: () => Promise.resolve(new Map()),
   getMetadataFromMap: () => null,
+  getModelsDevProviderModels: () =>
+    Promise.resolve([
+      {
+        id: "mock-model-newer",
+        displayName: "Mock Model Newer",
+        releaseDate: "2026-01-01",
+        inputModalities: ["text"],
+        outputModalities: ["text"],
+        metadata: mockCatalogMetadata,
+      },
+      {
+        id: "mock-model-older",
+        displayName: "Mock Model Older",
+        releaseDate: "2025-01-01",
+        inputModalities: ["text"],
+        outputModalities: ["text"],
+        metadata: { ...mockCatalogMetadata, contextWindow: 64000 },
+      },
+    ]),
 }));
 
 afterAll(() => {
