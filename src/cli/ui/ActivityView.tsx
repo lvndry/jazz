@@ -1,11 +1,48 @@
 import { Box, Text } from "ink";
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { ActivityState } from "./activity-state";
 import { AnimatedEllipsis } from "./components/AnimatedEllipsis";
 import { getGlyphs } from "./glyphs";
 import { PADDING, THEME } from "./theme";
 
 const G = getGlyphs();
+
+/** Seconds before the elapsed counter appears (avoids a "0s" flash). */
+const ELAPSED_VISIBLE_AFTER_S = 2;
+
+export function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${minutes}m ${rest.toString().padStart(2, "0")}s`;
+}
+
+/**
+ * Self-ticking elapsed counter. Resets whenever `resetKey` changes; when
+ * `externalStart` is provided (e.g. a tool's real start timestamp) it wins
+ * over the phase-entry time. Ticks once a second so long waits visibly
+ * advance instead of looking hung.
+ */
+function useElapsedSeconds(resetKey: string, externalStart?: number): number {
+  const startRef = useRef(Date.now());
+  const keyRef = useRef(resetKey);
+  if (keyRef.current !== resetKey) {
+    keyRef.current = resetKey;
+    startRef.current = Date.now();
+  }
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick((tick) => tick + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+  const start = externalStart ?? startRef.current;
+  return Math.max(0, Math.floor((Date.now() - start) / 1000));
+}
+
+function ElapsedText({ seconds }: { seconds: number }): React.ReactElement | null {
+  if (seconds < ELAPSED_VISIBLE_AFTER_S) return null;
+  return <Text dimColor> · {formatElapsed(seconds)}</Text>;
+}
 
 function todoStatusGlyph(status: "pending" | "in_progress" | "completed" | "cancelled"): string {
   switch (status) {
@@ -41,10 +78,12 @@ function AgentHeader({
   agentName,
   label,
   animated = false,
+  elapsedSeconds,
 }: {
   agentName: string;
   label: string;
   animated?: boolean;
+  elapsedSeconds?: number;
 }): React.ReactElement {
   return (
     <Box>
@@ -63,6 +102,7 @@ function AgentHeader({
           color={THEME.agent}
         />
       ) : null}
+      {elapsedSeconds !== undefined ? <ElapsedText seconds={elapsedSeconds} /> : null}
     </Box>
   );
 }
@@ -76,6 +116,12 @@ export const ActivityView = React.memo(function ActivityView({
 }: {
   activity: ActivityState;
 }): React.ReactElement | null {
+  const earliestToolStart =
+    activity.phase === "tool-execution" && activity.tools.length > 0
+      ? Math.min(...activity.tools.map((tool) => tool.startedAt))
+      : undefined;
+  const elapsedSeconds = useElapsedSeconds(activity.phase, earliestToolStart);
+
   switch (activity.phase) {
     case "idle":
     case "complete":
@@ -106,6 +152,7 @@ export const ActivityView = React.memo(function ActivityView({
               {" "}
               ({activity.provider}/{activity.model})
             </Text>
+            <ElapsedText seconds={elapsedSeconds} />
           </Box>
         </Box>
       );
@@ -124,6 +171,7 @@ export const ActivityView = React.memo(function ActivityView({
             agentName={activity.agentName}
             label="is thinking"
             animated
+            elapsedSeconds={elapsedSeconds}
           />
         </Box>
       );
@@ -139,6 +187,7 @@ export const ActivityView = React.memo(function ActivityView({
             agentName={activity.agentName}
             label="is responding"
             animated
+            elapsedSeconds={elapsedSeconds}
           />
         </Box>
       );
@@ -158,10 +207,13 @@ export const ActivityView = React.memo(function ActivityView({
           marginTop={1}
           paddingX={PADDING.content}
         >
-          <AnimatedEllipsis
-            label={label}
-            color={THEME.agent}
-          />
+          <Box>
+            <AnimatedEllipsis
+              label={label}
+              color={THEME.agent}
+            />
+            <ElapsedText seconds={elapsedSeconds} />
+          </Box>
           {activity.todoSnapshot && activity.todoSnapshot.length > 0 ? (
             <Box
               marginTop={1}

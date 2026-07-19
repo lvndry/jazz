@@ -4,9 +4,11 @@ import * as path from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
+import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@/core/constants/agent";
 import type { ChatMessage } from "@/core/types/message";
 import {
   saveConversation,
+  loadConversation,
   loadHistory,
   type ConversationRecord,
 } from "./conversation-history-service";
@@ -67,13 +69,39 @@ describe("saveConversation", () => {
     expect(conversations[1].conversationId).toBe("conv-1");
   });
 
-  test("evicts oldest when count exceeds 5", async () => {
-    for (let i = 1; i <= 6; i++) {
+  test("evicts oldest when count exceeds the cap", async () => {
+    for (let i = 1; i <= MAX_CONVERSATION_HISTORY_PER_AGENT + 1; i++) {
       await runEffect(saveConversation(makeRecord({ conversationId: `conv-${i}` }), tmpDir));
     }
     const { conversations } = await runEffect(loadHistory("agent-1", tmpDir));
-    expect(conversations).toHaveLength(5);
+    expect(conversations).toHaveLength(MAX_CONVERSATION_HISTORY_PER_AGENT);
     expect(conversations.map((c) => c.conversationId)).not.toContain("conv-1");
+  });
+
+  test("saving an existing conversationId upserts and moves it to the front", async () => {
+    await runEffect(saveConversation(makeRecord({ conversationId: "conv-1" }), tmpDir));
+    await runEffect(saveConversation(makeRecord({ conversationId: "conv-2" }), tmpDir));
+    await runEffect(
+      saveConversation(makeRecord({ conversationId: "conv-1", title: "Updated" }), tmpDir),
+    );
+    const { conversations } = await runEffect(loadHistory("agent-1", tmpDir));
+    expect(conversations.map((c) => c.conversationId)).toEqual(["conv-1", "conv-2"]);
+    expect(conversations[0].title).toBe("Updated");
+  });
+});
+
+describe("loadConversation", () => {
+  test("returns the record matching the conversationId", async () => {
+    await runEffect(saveConversation(makeRecord({ conversationId: "conv-1" }), tmpDir));
+    await runEffect(saveConversation(makeRecord({ conversationId: "conv-2" }), tmpDir));
+    const record = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(record?.conversationId).toBe("conv-1");
+  });
+
+  test("returns null when the conversation does not exist", async () => {
+    await runEffect(saveConversation(makeRecord({ conversationId: "conv-1" }), tmpDir));
+    expect(await runEffect(loadConversation("agent-1", "conv-9", tmpDir))).toBeNull();
+    expect(await runEffect(loadConversation("no-such-agent", "conv-1", tmpDir))).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import React from "react";
 import { TerminalText } from "./components/TerminalText";
+import { getGlyphs } from "./glyphs";
 import { PADDING, THEME } from "./theme";
 
 /**
@@ -22,7 +23,7 @@ export function AgentResponseCard({
       paddingX={PADDING.content}
     >
       <Box>
-        <Text color={THEME.agent}>◆</Text>
+        <Text color={THEME.agent}>{getGlyphs().diamond}</Text>
         <Text> </Text>
         <Text
           bold

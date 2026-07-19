@@ -118,17 +118,20 @@ function StatusFooterIslandComponent(): React.ReactElement | null {
   // we don't duplicate it here (avoids conflicting with the prompt's
   // single-slot wd setter).
   const [runStats, setRunStats] = React.useState<RunStats>({});
+  const [modeIsYolo, setModeIsYolo] = React.useState(false);
   const initializedRef = useRef(false);
 
   if (!initializedRef.current) {
     store.registerRunStatsSetter(setRunStats);
     setRunStats(store.getRunStatsSnapshot());
+    store.registerModeSetter(setModeIsYolo);
     initializedRef.current = true;
   }
 
   useEffect(() => {
     return () => {
       store.registerRunStatsSetter(() => {});
+      store.registerModeSetter(null);
     };
   }, []);
 
@@ -137,6 +140,7 @@ function StatusFooterIslandComponent(): React.ReactElement | null {
       status={null}
       workingDirectory={null}
       runStats={runStats}
+      modeIsYolo={modeIsYolo}
     />
   );
 }
@@ -321,7 +325,13 @@ export function App(): React.ReactElement {
       }
       // User-initiated abort — drop any open ephemeral panels (subagents,
       // reasoning) and any queued chat message so nothing gets stuck after
-      // the run is interrupted.
+      // the run is interrupted. Print immediate feedback: the loop's own
+      // "generation stopped" line can lag behind a mid-flight tool.
+      store.printOutput({
+        type: "warn",
+        message: "Interrupting…",
+        timestamp: new Date(),
+      });
       store.collapseAllEphemeral();
       store.clearQueue();
       interruptHandlerRef.current();
@@ -366,7 +376,7 @@ export function App(): React.ReactElement {
       if (!payload) {
         store.printOutput({
           type: "warn",
-          message: "No truncated diff available to expand.",
+          message: "No truncated output available to expand.",
           timestamp: new Date(),
         });
         return InputResults.consumed();

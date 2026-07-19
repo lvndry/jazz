@@ -1,10 +1,12 @@
 import { Box, Text } from "ink";
 import React from "react";
+import { PreWrappedText } from "./components/PreWrappedText";
 import { getGlyphs } from "./glyphs";
-import { PADDING, THEME } from "./theme";
+import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
-import { formatMarkdown } from "../presentation/markdown-formatter";
+import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
+import { getTerminalWidth } from "../utils/string-utils";
 
 // Icons routed through the glyph module so they degrade to ASCII when the
 // user's font/terminal don't render Unicode dingbats reliably. Computed
@@ -66,13 +68,17 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     const formatted = formatMarkdown(raw);
     const kind = entry.meta?.["kind"];
     const display = kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
+    // Pre-wrap + PreWrappedText (wrap="truncate"), same as the pending tail in
+    // App.tsx: a bare <Text wrap="wrap"> lets Yoga re-wrap settled slices,
+    // which degenerates into char-by-char wrapping under live re-render load.
+    const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content);
     return (
       <Box
         marginTop={0}
         marginBottom={0}
         paddingLeft={PADDING.content}
       >
-        <Text>{display}</Text>
+        <PreWrappedText>{wrapToWidth(display, width)}</PreWrappedText>
       </Box>
     );
   }
@@ -85,7 +91,12 @@ export const OutputEntryView = React.memo(function OutputEntryView({
           marginBottom={1}
           paddingLeft={PADDING.content}
         >
-          <Text color={THEME.primary}>You:</Text>
+          <Text
+            color={THEME.primary}
+            bold
+          >
+            {G.promptCursor} You:
+          </Text>
           <Text> </Text>
           <Text
             color="white"

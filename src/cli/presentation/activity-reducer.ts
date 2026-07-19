@@ -19,6 +19,7 @@ import type { TerminalOutput } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
 import { formatToolArguments, formatToolResult } from "./format-utils";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
+import { getGlyphs } from "../ui/glyphs";
 import { PADDING, THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
 
@@ -199,17 +200,18 @@ function findLatestTodoSnapshot(
 }
 
 function formatTodoSnapshotForOutput(todoSnapshot: TodoSnapshotItem[]): string {
+  const glyphs = getGlyphs();
   const lines = todoSnapshot.map((todo) => {
     switch (todo.status) {
       case "completed":
-        return `✓ ${todo.content}`;
+        return `${glyphs.success} ${todo.content}`;
       case "in_progress":
-        return `◐ ${todo.content}`;
+        return `${glyphs.proposed} ${todo.content}`;
       case "cancelled":
-        return `✗ ${todo.content}`;
+        return `${glyphs.error} ${todo.content}`;
       case "pending":
       default:
-        return `○ ${todo.content}`;
+        return `${glyphs.pending} ${todo.content}`;
     }
   });
   return lines.join("\n");
@@ -236,9 +238,19 @@ export function reduceEvent(
       acc.lastAppliedTextSequence = -1;
       acc.isThinking = false;
 
+      // Agent-colored turn header (same visual language as AgentResponseCard)
+      // instead of a generic info line — marks where each agent turn begins.
       outputs.push({
-        type: "info",
-        message: `${acc.agentName} (${event.provider}/${event.model})`,
+        type: "log",
+        message: inkRender(
+          React.createElement(
+            Box,
+            null,
+            React.createElement(Text, { color: THEME.agent }, `${getGlyphs().diamond} `),
+            React.createElement(Text, { color: THEME.agent, bold: true }, acc.agentName),
+            React.createElement(Text, { dimColor: true }, ` (${event.provider}/${event.model})`),
+          ),
+        ),
         timestamp: new Date(),
       });
 
@@ -405,7 +417,7 @@ export function reduceEvent(
               React.createElement(
                 Box,
                 null,
-                React.createElement(Text, { color: THEME.success }, "✔ "),
+                React.createElement(Text, { color: THEME.success }, `${getGlyphs().success} `),
                 React.createElement(Text, { color: THEME.agent }, headerLine),
                 React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
               ),
@@ -413,7 +425,14 @@ export function reduceEvent(
                 React.createElement(
                   Box,
                   { key: `tool-result-line-${index}` },
-                  React.createElement(Text, { dimColor: true }, line),
+                  // Lines that already carry ANSI styling (diff +/- coloring,
+                  // syntax highlighting) render as-is: layering dim over them
+                  // washes the colors out.
+                  React.createElement(
+                    Text,
+                    line.includes("\u001b[") ? {} : { dimColor: true },
+                    line,
+                  ),
                 ),
               ),
             ),
@@ -429,7 +448,7 @@ export function reduceEvent(
             React.createElement(
               Box,
               { paddingLeft: PADDING.content },
-              React.createElement(Text, { color: THEME.success }, "✔ "),
+              React.createElement(Text, { color: THEME.success }, `${getGlyphs().success} `),
               React.createElement(Text, { color: THEME.agent }, singleLineSummary),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
             ),

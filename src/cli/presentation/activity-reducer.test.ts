@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { AWAITING_LABELS, createAccumulator, reduceEvent } from "./activity-reducer";
 import type { ReducerAccumulator } from "./activity-reducer";
+import { getGlyphs } from "../ui/glyphs";
 
 /** Stub ink renderer — returns the string tag for assertions. */
 const stubInk = (node: unknown) => `[ink:${typeof node}]`;
@@ -60,12 +61,13 @@ describe("activity-reducer", () => {
   // -------------------------------------------------------------------------
 
   describe("stream_start", () => {
-    test("emits info log, stores provider/model, transitions to awaiting phase", () => {
+    test("emits agent turn header, stores provider/model, transitions to awaiting phase", () => {
       const a = acc();
+      const { nodes, render } = createCapturingInk();
       const result = reduceEvent(
         a,
         { type: "stream_start", provider: "openai", model: "gpt-4", timestamp: Date.now() },
-        stubInk,
+        render,
       );
 
       expect(result.activity).not.toBeNull();
@@ -77,9 +79,10 @@ describe("activity-reducer", () => {
         expect(AWAITING_LABELS).toContain(result.activity.label);
       }
       expect(result.outputs).toHaveLength(1);
-      expect(result.outputs[0]!.type).toBe("info");
-      expect(result.outputs[0]!.message).toContain("TestAgent");
-      expect(result.outputs[0]!.message).toContain("openai/gpt-4");
+      expect(result.outputs[0]!.type).toBe("log");
+      const headerText = nodes.map((node) => extractText(node)).join("");
+      expect(headerText).toContain("TestAgent");
+      expect(headerText).toContain("openai/gpt-4");
       expect(a.lastAgentHeaderWritten).toBe(true);
       expect(a.currentProvider).toBe("openai");
       expect(a.currentModel).toBe("gpt-4");
@@ -354,10 +357,11 @@ describe("activity-reducer", () => {
       );
 
       expect(result.outputs).toHaveLength(2);
+      const glyphs = getGlyphs();
       const outputText = nodes.map((node) => extractText(node)).join("\n");
       expect(outputText).toContain("Todo list");
-      expect(outputText).toContain("✓ Check status");
-      expect(outputText).toContain("◐ Push branch");
+      expect(outputText).toContain(`${glyphs.success} Check status`);
+      expect(outputText).toContain(`${glyphs.proposed} Push branch`);
       expect(outputText).not.toMatch(/manage_todos done/);
     });
   });

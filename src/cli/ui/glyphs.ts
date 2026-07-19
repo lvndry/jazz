@@ -11,10 +11,11 @@
  * everything that depends on column math (tables, progress bars, anything
  * inside a Box).
  *
- * Solution: route every UI glyph through this module, default to ASCII
- * (every monospace font has had `+`, `-`, `|`, `*`, `>` since the 1970s),
- * and let users opt into the Unicode set via `JAZZ_UI_GLYPHS=unicode`
- * once they've confirmed their font handles it cleanly.
+ * Solution: route every UI glyph through this module, detect whether the
+ * terminal can render Unicode (UTF-8 locale or a known-capable emulator),
+ * and fall back to ASCII (every monospace font has had `+`, `-`, `|`, `*`,
+ * `>` since the 1970s) when uncertain. `JAZZ_UI_GLYPHS=unicode|ascii`
+ * overrides detection either way.
  *
  * Scope of this module: visual chrome only. The markdown renderer's
  * inline emphasis (bold/italic/strikethrough) and color choices are
@@ -65,6 +66,15 @@ export interface GlyphSet {
   /** Spinner animation frames */ readonly spinnerFrames: readonly string[];
   /** Pending / paused indicator */ readonly pending: string;
   /** Pending tool call (proposed but not yet approved/run) */ readonly proposed: string;
+  /** Active / connected indicator (status dot on) */ readonly active: string;
+
+  // ─── Markers ─────────────────────────────────────────────────────────
+  /** Agent response header marker */ readonly diamond: string;
+
+  // ─── Context-usage grid cells ────────────────────────────────────────
+  /** Grid cell: used tokens */ readonly gridFilled: string;
+  /** Grid cell: free tokens */ readonly gridEmpty: string;
+  /** Grid cell: reserved/buffer tokens */ readonly gridReserved: string;
 }
 
 const ASCII: GlyphSet = {
@@ -108,6 +118,13 @@ const ASCII: GlyphSet = {
   spinnerFrames: ["|", "/", "-", "\\", "|", "/", "-", "\\"],
   pending: "o",
   proposed: "?",
+  active: "*",
+
+  diamond: "*",
+
+  gridFilled: "#",
+  gridEmpty: ".",
+  gridReserved: "~",
 };
 
 const UNICODE: GlyphSet = {
@@ -145,10 +162,23 @@ const UNICODE: GlyphSet = {
   spinnerFrames: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
   pending: "○",
   proposed: "◐",
+  active: "●",
+
+  diamond: "◆",
+
+  gridFilled: "█",
+  gridEmpty: "░",
+  gridReserved: "▒",
 };
 
 /**
- * Resolve the active glyph mode from env. Default `ascii`.
+ * Resolve the active glyph mode.
+ *
+ * `JAZZ_UI_GLYPHS=unicode|ascii` is an explicit override; otherwise the mode
+ * is detected from the environment: a UTF-8 locale or a known-capable
+ * terminal emulator gets the Unicode set, and anything uncertain (TERM=dumb,
+ * TERM=linux console, legacy Windows console, no UTF-8 hint) falls back to
+ * ASCII.
  *
  * Read each call rather than memoizing so tests / runtime overrides take
  * effect immediately. Glyph selection is on the cold path of UI rendering
@@ -158,6 +188,35 @@ const UNICODE: GlyphSet = {
 export function resolveGlyphMode(): GlyphMode {
   const raw = (process.env["JAZZ_UI_GLYPHS"] ?? "").toLowerCase();
   if (raw === "unicode") return "unicode";
+  if (raw === "ascii") return "ascii";
+  return detectGlyphMode();
+}
+
+/** Terminal emulators known to render the Unicode set at correct widths. */
+const UNICODE_CAPABLE_TERM_PROGRAMS = new Set([
+  "apple_terminal",
+  "ghostty",
+  "hyper",
+  "iterm.app",
+  "kitty",
+  "tabby",
+  "vscode",
+  "wezterm",
+]);
+
+function detectGlyphMode(): GlyphMode {
+  const term = (process.env["TERM"] ?? "").toLowerCase();
+  if (term === "dumb" || term === "linux") return "ascii";
+
+  const locale = process.env["LC_ALL"] ?? process.env["LC_CTYPE"] ?? process.env["LANG"] ?? "";
+  if (/utf-?8/i.test(locale)) return "unicode";
+
+  const termProgram = (process.env["TERM_PROGRAM"] ?? "").toLowerCase();
+  if (UNICODE_CAPABLE_TERM_PROGRAMS.has(termProgram)) return "unicode";
+
+  // Windows Terminal exposes no locale vars but handles Unicode fine.
+  if (process.env["WT_SESSION"] !== undefined) return "unicode";
+
   return "ascii";
 }
 

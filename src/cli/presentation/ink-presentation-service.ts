@@ -22,6 +22,7 @@ import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/models-dev-client";
 import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
+import { expandableToolResultPayload } from "@/core/utils/tool-formatter";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
@@ -36,6 +37,7 @@ import {
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { isInsideOpenStructure } from "./markdown-split";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
+import { getGlyphs } from "../ui/glyphs";
 import { store } from "../ui/store";
 import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
 
@@ -110,7 +112,21 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly TOOL_WARNING_MS = 30_000;
-  private static readonly REASONING_PANEL_LINES = 8;
+  private static readonly MIN_REASONING_PANEL_LINES = 8;
+  private static readonly MAX_REASONING_PANEL_LINES = 24;
+
+  /**
+   * Reasoning panel height adapts to the terminal: roughly a quarter of the
+   * rows, clamped so short terminals still get a useful window and tall ones
+   * don't drown the transcript in live planning text.
+   */
+  private static reasoningPanelLines(): number {
+    const rows = process.stdout.rows ?? 24;
+    return Math.min(
+      InkStreamingRenderer.MAX_REASONING_PANEL_LINES,
+      Math.max(InkStreamingRenderer.MIN_REASONING_PANEL_LINES, Math.floor(rows / 4)),
+    );
+  }
 
   /**
    * Buffered streaming deltas, flushed at `textBufferMs` cadence. Without
@@ -373,7 +389,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const durationMs = Date.now() - this.reasoningStartedAt;
     const seconds = (durationMs / 1000).toFixed(1);
     const tokenSegment = tokens !== undefined ? ` · ${tokens} tokens` : "";
-    const line = chalk.dim(chalk.italic(`✓ Reasoning · ${seconds}s${tokenSegment}`));
+    const line = chalk.dim(
+      chalk.italic(
+        `${getGlyphs().success} Reasoning · ${seconds}s${tokenSegment} · ctrl+r to expand`,
+      ),
+    );
 
     store.collapseEphemeral(this.reasoningRegionId, {
       line,
@@ -410,6 +430,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.seenLength = 0;
         this.hasStreamedText = false;
         store.updateRunStats({ provider: event.provider, model: event.model });
+        this.resolveContextWindow(event.provider, event.model);
       }
 
       if (this.displayConfig.showThinking) {
@@ -421,7 +442,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
             this.reasoningRegionId = store.openEphemeral(
               "reasoning",
               "Reasoning",
-              InkStreamingRenderer.REASONING_PANEL_LINES,
+              InkStreamingRenderer.reasoningPanelLines(),
             );
             this.reasoningFullText = "";
             this.reasoningStartedAt = Date.now();
@@ -442,7 +463,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
               this.reasoningRegionId = store.openEphemeral(
                 "reasoning",
                 "Reasoning",
-                InkStreamingRenderer.REASONING_PANEL_LINES,
+                InkStreamingRenderer.reasoningPanelLines(),
               );
               this.reasoningStartedAt = Date.now();
               this.reasoningFullText = "";
@@ -704,16 +725,43 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
   }
 
+  /**
+   * Resolve the model's context window and publish it to the footer so
+   * tokens-in-context renders as `12.3k/200k` instead of a bare count.
+   */
+  private resolveContextWindow(provider: string, model: string): void {
+    const cached = getModelsDevMetadataSync(model, provider);
+    if (cached !== undefined) {
+      store.updateRunStats({ maxContextTokens: cached.contextWindow });
+      return;
+    }
+    void getModelsDevMetadata(model, provider)
+      .then((meta) => {
+        if (meta !== undefined) {
+          store.updateRunStats({ maxContextTokens: meta.contextWindow });
+        }
+      })
+      .catch(() => {
+        /* context window unavailable — footer shows the bare count */
+      });
+  }
+
   private setupToolTimeout(toolCallId: string, toolName: string): void {
-    const timeoutId = setTimeout(() => {
-      if (this.acc.activeTools.has(toolCallId)) {
-        store.printOutput({
-          type: "warn",
-          message: `⏱️ Tool ${toolName} is taking longer than expected...`,
-          timestamp: new Date(),
-        });
-      }
-    }, InkStreamingRenderer.TOOL_WARNING_MS);
+    const startedAt = Date.now();
+    const warn = (): void => {
+      if (!this.acc.activeTools.has(toolCallId)) return;
+      const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+      store.printOutput({
+        type: "warn",
+        message: `Tool ${toolName} still running after ${elapsedSeconds}s (press Esc twice to interrupt)`,
+        timestamp: new Date(),
+      });
+      // Re-arm so multi-minute tools keep reassuring the user instead of
+      // going silent after a single warning.
+      const timeoutId = setTimeout(warn, InkStreamingRenderer.TOOL_WARNING_MS);
+      this.toolTimeouts.set(toolCallId, timeoutId);
+    };
+    const timeoutId = setTimeout(warn, InkStreamingRenderer.TOOL_WARNING_MS);
     this.toolTimeouts.set(toolCallId, timeoutId);
   }
 
@@ -733,14 +781,22 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   private storeExpandableDiff(toolName: string | undefined, result: string): void {
-    if (
-      toolName !== "edit_file" &&
-      toolName !== "execute_edit_file" &&
-      toolName !== "write_file" &&
-      toolName !== "execute_write_file"
-    ) {
+    const isDiffTool =
+      toolName === "edit_file" ||
+      toolName === "execute_edit_file" ||
+      toolName === "write_file" ||
+      toolName === "execute_write_file";
+
+    if (!isDiffTool) {
+      // Generic tools: when the on-screen summary truncates the result, keep
+      // the full text expandable via the same Ctrl+O affordance as diffs.
+      const payload = expandableToolResultPayload(result);
+      if (payload !== null) {
+        store.setExpandableDiff(payload);
+      }
       return;
     }
+
     try {
       const parsed: unknown = JSON.parse(result);
       if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -888,7 +944,7 @@ class InkPresentationService implements PresentationService {
 
   presentAgentResponse(agentName: string, content: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      const header = CHALK_THEME.primaryBold(`◉ ${agentName}:`);
+      const header = CHALK_THEME.primaryBold(`${getGlyphs().active} ${agentName}:`);
       const rendered = this.formatMarkdownText(content);
       store.printOutput({
         type: "log",
@@ -974,12 +1030,13 @@ class InkPresentationService implements PresentationService {
     level: "info" | "success" | "warning" | "error" | "progress",
   ): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      const glyphs = getGlyphs();
       const icons: Record<typeof level, { icon: string; color: string }> = {
-        info: { icon: "ℹ", color: "blue" },
-        success: { icon: "✓", color: "green" },
-        warning: { icon: "⚠", color: "yellow" },
-        error: { icon: "✗", color: "red" },
-        progress: { icon: "⏳", color: "cyan" },
+        info: { icon: glyphs.info, color: "blue" },
+        success: { icon: glyphs.success, color: "green" },
+        warning: { icon: glyphs.warn, color: "yellow" },
+        error: { icon: glyphs.error, color: "red" },
+        progress: { icon: glyphs.pending, color: "cyan" },
       };
       const { icon, color } = icons[level];
       const colorFn = chalk[color as keyof typeof chalk] as (s: string) => string;
