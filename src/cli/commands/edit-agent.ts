@@ -4,6 +4,7 @@ import Spinner from "ink-spinner";
 import React from "react";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
+import * as fmt from "@/cli/utils/list-format";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
 import {
@@ -82,25 +83,32 @@ export function editAgentCommand(
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    yield* terminal.heading("Welcome to the Jazz Agent Edit Wizard!");
-    yield* terminal.log("Let's update your agent step by step.");
-    yield* terminal.log("");
-
     const agent = yield* getAgentByIdentifier(agentIdentifier);
     const agentService = yield* AgentServiceTag;
 
-    yield* terminal.heading(`📋 Current Agent: ${agent.name}`);
-    yield* terminal.log(`   ID: ${agent.id}`);
-    yield* terminal.log(`   Description: ${agent.description || "N/A"}`);
-    yield* terminal.log(`   Persona: ${agent.config.persona || "N/A"}`);
-    yield* terminal.log(
-      `   LLM Provider: ${formatProviderDisplayName(agent.config.llmProvider) || "N/A"}`,
-    );
-    yield* terminal.log(`   LLM Model: ${agent.config.llmModel || "N/A"}`);
-    yield* terminal.log(`   Reasoning: ${agent.config.reasoningEffort || "N/A"}`);
-    yield* terminal.log(`   Tools: ${agent.config.tools ? agent.config.tools.length : 0} tools`);
-    yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
-    yield* terminal.log(`   Updated: ${agent.updatedAt.toISOString()}`);
+    const formatDate = (date: Date): string =>
+      date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+
+    const summaryRows: string[] = [
+      fmt.heading(`Edit agent · ${agent.name}`),
+      "",
+      ...(agent.description && agent.description !== agent.name
+        ? [fmt.keyValueCompact("Description", agent.description)]
+        : []),
+      fmt.keyValueCompact(
+        "Model",
+        `${formatProviderDisplayName(agent.config.llmProvider)} · ${agent.config.llmModel}`,
+      ),
+      fmt.keyValueCompact("Persona", agent.config.persona || "default"),
+      fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort || "disabled"),
+      fmt.keyValueCompact("Tools", `${agent.config.tools ? agent.config.tools.length : 0}`),
+      fmt.keyValueCompact(
+        "Updated",
+        `${formatDate(agent.updatedAt)} (created ${formatDate(agent.createdAt)})`,
+      ),
+      fmt.keyValueCompact("ID", agent.id),
+    ];
+    yield* terminal.log(summaryRows.join("\n"));
     yield* terminal.log("");
 
     // Get available LLM providers and models

@@ -325,8 +325,13 @@ function selectAgent(
     const sorted = sortAgents(agents, lastUsedAgentId);
 
     const choices = sorted.map((agent) => {
+      // `agent.model` is provider/model; llmModel alone avoids provider
+      // duplication when the model id itself is namespaced (openrouter/free).
+      // Skip the description when it just repeats the name.
+      const description =
+        agent.description && agent.description !== agent.name ? ` · ${agent.description}` : "";
       return {
-        name: `${agent.name} - ${agent.model} - ${agent.description || agent.config.persona || "default"}`,
+        name: `${agent.name} · ${agent.config.llmModel}${description}`,
         value: agent.id,
       };
     });
