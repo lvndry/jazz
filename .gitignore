@@ -51,3 +51,6 @@ CLAUDE.md
 .history/
 .claude/
 superpowers/
+
+# eval harness run outputs
+evals/report/

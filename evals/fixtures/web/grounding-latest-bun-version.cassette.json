@@ -1,0 +1,7 @@
+{
+  "GET https://api.github.com/repos/oven-sh/bun/releases/latest ": {
+    "status": 200,
+    "body": "{\n  \"tag_name\": \"bun-v1.3.14\",\n  \"name\": \"Bun v1.3.14\",\n  \"html_url\": \"https://github.com/oven-sh/bun/releases/tag/bun-v1.3.14\",\n  \"published_at\": \"2026-05-13T03:48:28Z\",\n  \"prerelease\": false\n}",
+    "headers": { "content-type": "application/json; charset=utf-8" }
+  }
+}
