@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { Effect } from "effect";
 import { z } from "zod";
+import { getGlyphs } from "@/cli/ui/glyphs";
 import { store } from "@/cli/ui/store";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
@@ -154,7 +155,20 @@ ${args.task}`;
             Effect.tapError(() =>
               Effect.sync(() =>
                 store.collapseEphemeral(regionId, {
-                  line: chalk.dim(chalk.italic(`✗ ${subagentLabel} failed`)),
+                  line: chalk.dim(chalk.italic(`${getGlyphs().error} ${subagentLabel} failed`)),
+                  durationMs: Date.now() - startedAt,
+                }),
+              ),
+            ),
+            // Interruption is not a typed error, so tapError never sees it.
+            // Without this, any abort that doesn't go through the double-Esc
+            // handler leaves the subagent panel stuck live.
+            Effect.onInterrupt(() =>
+              Effect.sync(() =>
+                store.collapseEphemeral(regionId, {
+                  line: chalk.dim(
+                    chalk.italic(`${getGlyphs().error} ${subagentLabel} interrupted`),
+                  ),
                   durationMs: Date.now() - startedAt,
                 }),
               ),
@@ -180,7 +194,9 @@ ${args.task}`;
 
           const durationMs = Date.now() - startedAt;
           const seconds = (durationMs / 1000).toFixed(1);
-          const summaryLine = chalk.dim(chalk.italic(`✓ ${subagentLabel} completed · ${seconds}s`));
+          const summaryLine = chalk.dim(
+            chalk.italic(`${getGlyphs().success} ${subagentLabel} completed · ${seconds}s`),
+          );
           store.collapseEphemeral(regionId, { line: summaryLine, durationMs });
 
           const fullResult = result?.trim() || "No output";

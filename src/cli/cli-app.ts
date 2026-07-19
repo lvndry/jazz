@@ -94,6 +94,10 @@ function registerRunCommand(program: Command): void {
       "--reasoning <effort>",
       "Reasoning effort for this run: low | medium | high | disable (overrides the agent's config)",
     )
+    .option(
+      "--conversation <id>",
+      "Stable conversation key (e.g. a Telegram chat id). Loads prior history for this key before the run and saves the updated transcript after, giving repeated invocations shared memory. Omit for a stateless one-shot run.",
+    )
     .action(
       (
         prompt: string | undefined,
@@ -105,6 +109,7 @@ function registerRunCommand(program: Command): void {
           maxIterations?: number;
           events?: string;
           reasoning?: string;
+          conversation?: string;
         },
       ) => {
         const opts = program.opts<CliOptions>();
@@ -164,6 +169,7 @@ function registerRunCommand(program: Command): void {
               ? { maxIterations: options.maxIterations }
               : {}),
             ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
+            ...(options.conversation !== undefined ? { conversationId: options.conversation } : {}),
           }),
           {
             verbose: opts.verbose,
@@ -236,13 +242,20 @@ function registerAgentCommands(program: Command): void {
     .alias("remove")
     .alias("rm")
     .description("Delete an agent")
-    .action((agentId: string) => {
+    .option("-y, --yes", "Delete without asking for confirmation")
+    .option("-f, --force", "Alias for --yes")
+    .action((agentId: string, options: { yes?: boolean; force?: boolean }) => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(deleteAgentCommand(agentId), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
+      runCliEffect(
+        deleteAgentCommand(agentId, {
+          skipConfirmation: options.yes === true || options.force === true,
+        }),
+        {
+          verbose: opts.verbose,
+          debug: opts.debug,
+          configPath: opts.config,
+        },
+      );
     });
 
   agentCommand

@@ -10,11 +10,11 @@ import {
   wrapCommaList,
 } from "@/cli/utils/string-utils";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
-import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { CLIOptionsTag, type CLIOptions } from "@/core/interfaces/cli-options";
+import { JazzStateServiceTag, type JazzStateService } from "@/core/interfaces/jazz-state";
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
-import { StorageError, StorageNotFoundError } from "@/core/types/errors";
+import { CLIError, StorageError, StorageNotFoundError } from "@/core/types/errors";
 import { sortAgents } from "@/core/utils/agent-sort";
 import { formatProviderDisplayName } from "@/core/utils/string";
 import { AgentDetailsCard } from "../ui/AgentDetailsCard";
@@ -162,7 +162,7 @@ function formatAgentsListBlock(
 export function listAgentsCommand(): Effect.Effect<
   void,
   StorageError,
-  AgentService | TerminalService | CLIOptions | AgentConfigService
+  AgentService | TerminalService | CLIOptions | JazzStateService
 > {
   return Effect.gen(function* () {
     const agentsUnsorted = yield* listAllAgents();
@@ -175,8 +175,8 @@ export function listAgentsCommand(): Effect.Effect<
     }
 
     // Sort with last-used agent first, then alphabetically
-    const configService = yield* AgentConfigServiceTag;
-    const lastUsedAgentId = yield* configService.get("wizard.lastUsedAgentId").pipe(
+    const jazzState = yield* JazzStateServiceTag;
+    const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
       Effect.map((value) => (typeof value === "string" ? value : null)),
       Effect.catchAll(() => Effect.succeed(null)),
     );
@@ -206,22 +206,58 @@ export function listAgentsCommand(): Effect.Effect<
  * This operation is irreversible and will permanently delete the agent
  * and all its associated data.
  *
- * @param agentId - The unique identifier of the agent to delete
+ * @param agentIdentifier - The agent ID or name to delete
+ * @param options - Deletion options
+ * @param options.skipConfirmation - Delete without prompting (for `--yes`/`--force`)
  * @returns An Effect that resolves when the agent is deleted successfully
  *
  * @throws {StorageError} When there's an error accessing storage
  * @throws {StorageNotFoundError} When the agent with the given ID doesn't exist
+ * @throws {CLIError} When confirmation is required but the session is non-interactive
  *
  */
 export function deleteAgentCommand(
   agentIdentifier: string,
-): Effect.Effect<void, StorageError | StorageNotFoundError, AgentService | TerminalService> {
+  options: {
+    readonly skipConfirmation?: boolean;
+  } = {},
+): Effect.Effect<
+  void,
+  StorageError | StorageNotFoundError | CLIError,
+  AgentService | TerminalService
+> {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
     const terminal = yield* TerminalServiceTag;
 
     // Resolve identifier (ID first, then fall back to matching by name)
     const agent = yield* getAgentByIdentifier(agentIdentifier);
+
+    if (options.skipConfirmation !== true) {
+      // A non-interactive terminal (non-TTY, quiet mode, JAZZ_NO_TUI) resolves
+      // confirm() with the default (false) without asking, which would silently
+      // abort — require an explicit --yes instead.
+      if (terminal.isInteractive !== true) {
+        return yield* Effect.fail(
+          new CLIError({
+            command: "agent delete",
+            message: `deleting agent "${agent.name}" requires confirmation, but this session is not interactive`,
+            suggestion: "Pass --yes (or --force) to delete without a confirmation prompt.",
+          }),
+        );
+      }
+
+      const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
+      const confirmed = yield* terminal.confirm(
+        `Delete agent "${agent.name}" (${model})? This cannot be undone.`,
+        false,
+      );
+
+      if (!confirmed) {
+        yield* terminal.info("Deletion cancelled.");
+        return;
+      }
+    }
 
     // Delete the agent
     yield* agentService.deleteAgent(agent.id);

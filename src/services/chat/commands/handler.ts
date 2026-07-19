@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
+import { getGlyphs } from "@/cli/ui/glyphs";
 import * as fmt from "@/cli/utils/list-format";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
@@ -84,10 +85,15 @@ export function handleSpecialCommand(
         return yield* handleToolsCommand(terminal, agent);
 
       case "agents":
-        return yield* handleAgentsCommand(terminal, agent);
+        return yield* handleAgentsCommand(terminal, agent, context.lastUsedAgentId ?? null);
 
       case "switch":
-        return yield* handleSwitchCommand(terminal, agent, command.args);
+        return yield* handleSwitchCommand(
+          terminal,
+          agent,
+          command.args,
+          context.lastUsedAgentId ?? null,
+        );
 
       case "compact":
         return yield* handleCompactCommand(
@@ -377,14 +383,10 @@ function resolveWebSearchProviderLabel(
 function handleAgentsCommand(
   terminal: TerminalService,
   currentAgent: CommandContext["agent"],
-): Effect.Effect<
-  CommandResult,
-  StorageError | StorageNotFoundError,
-  AgentService | AgentConfigService
-> {
+  lastUsedAgentId: string | null,
+): Effect.Effect<CommandResult, StorageError | StorageNotFoundError, AgentService> {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
-    const configService = yield* AgentConfigServiceTag;
     const allAgentsUnsorted = yield* agentService.listAgents();
 
     yield* terminal.log(fmt.heading("Available Agents"));
@@ -393,10 +395,6 @@ function handleAgentsCommand(
       yield* terminal.warn("No agents found.");
       yield* terminal.info("Create one with: jazz agent create");
     } else {
-      const lastUsedAgentId = yield* configService.get("wizard.lastUsedAgentId").pipe(
-        Effect.map((value) => (typeof value === "string" ? value : null)),
-        Effect.catchAll(() => Effect.succeed(null)),
-      );
       const allAgents = sortAgents(allAgentsUnsorted, lastUsedAgentId);
 
       for (const ag of allAgents) {
@@ -439,11 +437,8 @@ function handleSwitchCommand(
   terminal: TerminalService,
   currentAgent: CommandContext["agent"],
   args: string[],
-): Effect.Effect<
-  CommandResult,
-  StorageError | StorageNotFoundError | Error,
-  AgentService | AgentConfigService
-> {
+  lastUsedAgentId: string | null,
+): Effect.Effect<CommandResult, StorageError | StorageNotFoundError | Error, AgentService> {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
 
@@ -518,11 +513,6 @@ function handleSwitchCommand(
     }
 
     // Sort with last-used agent first, then alphabetically
-    const configService = yield* AgentConfigServiceTag;
-    const lastUsedAgentId = yield* configService.get("wizard.lastUsedAgentId").pipe(
-      Effect.map((value) => (typeof value === "string" ? value : null)),
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
     const allAgents = sortAgents(allAgentsUnsorted, lastUsedAgentId);
 
     // Show interactive prompt with history preservation note
@@ -1403,12 +1393,18 @@ function handleModeCommand(
 // Context Command Utilities
 // ============================================================================
 
-/** Symbols for context visualization */
-const CONTEXT_SYMBOLS = {
-  used: "⛁",
-  free: "⛶",
-  buffer: "⛝",
-} as const;
+/**
+ * Symbols for context visualization. Resolved per call so the glyph mode
+ * (unicode block shades vs portable ASCII) is honored at render time.
+ */
+function contextSymbols(): { used: string; free: string; buffer: string } {
+  const glyphs = getGlyphs();
+  return {
+    used: glyphs.gridFilled,
+    free: glyphs.gridEmpty,
+    buffer: glyphs.gridReserved,
+  };
+}
 
 /** Grid dimensions for visualization (10x10 = 100 cells) */
 const GRID_SIZE = 10;
@@ -1559,13 +1555,14 @@ function generateContextGrid(usage: ContextUsageBreakdown): string[] {
   }
 
   // Build the grid string
+  const symbols = contextSymbols();
   const cells: string[] = [];
-  for (let i = 0; i < usedCells; i++) cells.push(CONTEXT_SYMBOLS.used);
-  for (let i = 0; i < Math.max(0, adjustedFreeCells); i++) cells.push(CONTEXT_SYMBOLS.free);
-  for (let i = 0; i < bufferCells; i++) cells.push(CONTEXT_SYMBOLS.buffer);
+  for (let i = 0; i < usedCells; i++) cells.push(symbols.used);
+  for (let i = 0; i < Math.max(0, adjustedFreeCells); i++) cells.push(symbols.free);
+  for (let i = 0; i < bufferCells; i++) cells.push(symbols.buffer);
 
   // Pad or trim to exactly 100 cells
-  while (cells.length < TOTAL_CELLS) cells.push(CONTEXT_SYMBOLS.free);
+  while (cells.length < TOTAL_CELLS) cells.push(symbols.free);
   cells.length = TOTAL_CELLS;
 
   // Format into rows
@@ -1621,6 +1618,7 @@ function handleContextCommand(
 
     // Generate visual grid
     const gridRows = generateContextGrid(adjustedUsage);
+    const symbols = contextSymbols();
 
     // Display header
     yield* terminal.log(fmt.heading("Context Usage"));
@@ -1633,22 +1631,22 @@ function handleContextCommand(
     yield* terminal.log(`   ${gridRows[1]}`);
     yield* terminal.log(`   ${gridRows[2]}   Estimated usage by category`);
     yield* terminal.log(
-      `   ${gridRows[3]}   ${CONTEXT_SYMBOLS.used} System prompt: ${formatTokenCount(adjustedUsage.systemPromptTokens)} tokens (${systemPercent}%)`,
+      `   ${gridRows[3]}   ${symbols.used} System prompt: ${formatTokenCount(adjustedUsage.systemPromptTokens)} tokens (${systemPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[4]}   ${CONTEXT_SYMBOLS.used} System tools: ${formatTokenCount(adjustedUsage.toolsTokens)} tokens (${toolsPercent}%)`,
+      `   ${gridRows[4]}   ${symbols.used} System tools: ${formatTokenCount(adjustedUsage.toolsTokens)} tokens (${toolsPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[5]}   ${CONTEXT_SYMBOLS.used} Skills: ${formatTokenCount(adjustedUsage.skillsTokens)} tokens (${skillsPercent}%)`,
+      `   ${gridRows[5]}   ${symbols.used} Skills: ${formatTokenCount(adjustedUsage.skillsTokens)} tokens (${skillsPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[6]}   ${CONTEXT_SYMBOLS.used} Messages: ${formatTokenCount(adjustedUsage.messagesTokens)} tokens (${messagesPercent}%)`,
+      `   ${gridRows[6]}   ${symbols.used} Messages: ${formatTokenCount(adjustedUsage.messagesTokens)} tokens (${messagesPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[7]}   ${CONTEXT_SYMBOLS.free} Free space: ${formatTokenCount(adjustedUsage.freeSpace)} (${freePercent}%)`,
+      `   ${gridRows[7]}   ${symbols.free} Free space: ${formatTokenCount(adjustedUsage.freeSpace)} (${freePercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[8]}   ${CONTEXT_SYMBOLS.buffer} Autocompact buffer: ${formatTokenCount(adjustedUsage.autocompactBuffer)} tokens (${bufferPercent}%)`,
+      `   ${gridRows[8]}   ${symbols.buffer} Autocompact buffer: ${formatTokenCount(adjustedUsage.autocompactBuffer)} tokens (${bufferPercent}%)`,
     );
     yield* terminal.log(`   ${gridRows[9]}`);
     yield* terminal.log("");

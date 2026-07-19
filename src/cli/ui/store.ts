@@ -48,8 +48,10 @@ export interface EphemeralRegion {
 }
 
 /**
- * Snapshot of the most recently collapsed reasoning, available for
- * Ctrl-R expansion. Replaced on every new collapse; cleared once expanded.
+ * Snapshot of a collapsed reasoning block, available for Ctrl-R expansion.
+ * Collapsed blocks accumulate in a bounded stack — each Ctrl-R press pops
+ * and expands the most recent unexpanded block, so earlier reasoning from
+ * a multi-step turn stays recoverable instead of being overwritten.
  */
 export interface ExpandableReasoning {
   readonly fullText: string;
@@ -57,6 +59,9 @@ export interface ExpandableReasoning {
   readonly durationMs: number;
   readonly tokens?: number;
 }
+
+/** Upper bound on retained collapsed-reasoning blocks. */
+const MAX_EXPANDABLE_REASONING = 20;
 
 /** Caller-supplied summary when collapsing a region. */
 export interface CollapseEphemeralSummary {
@@ -116,6 +121,7 @@ export class UIStore {
   private runStatsSnapshot: RunStats = {};
   private ephemeralRegionsSnapshot: readonly EphemeralRegion[] = [];
   private expandableReasoningSnapshot: ExpandableReasoning | null = null;
+  private expandableReasoningStack: ExpandableReasoning[] = [];
   private messageQueueSnapshot: readonly string[] = [];
   private chatBusySnapshot: boolean = false;
 
@@ -133,6 +139,8 @@ export class UIStore {
   private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
   private chatBusySetter: ((busy: boolean) => void) | null = null;
   private modeToastSetter: ((message: string | null) => void) | null = null;
+  private modeSetter: ((isYolo: boolean) => void) | null = null;
+  private frameClearHandler: (() => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
 
@@ -190,7 +198,15 @@ export class UIStore {
   };
 
   setPrompt = (prompt: PromptState | null): void => {
+    const dismissing = this.promptSnapshot !== null && prompt === null;
     this.promptSnapshot = prompt;
+    // Erase the painted prompt frame (input line + suggestion dropdown)
+    // before React swaps in the shorter busy-phase UI. Under heavy <Static>
+    // churn Ink does not reliably erase lines freed by a shrinking live
+    // region, which left the dropdown visible until the turn completed.
+    if (dismissing && this.frameClearHandler) {
+      this.frameClearHandler();
+    }
     if (this.promptSetter) {
       this.promptSetter(prompt);
     }
@@ -333,14 +349,26 @@ export class UIStore {
   toggleMode = (): void => {
     const nextMode = this.currentModeIsYolo ? "safe" : "yolo";
     this.currentModeIsYolo = !this.currentModeIsYolo;
+    this.modeSetter?.(this.currentModeIsYolo);
     this.requestModeSwitch(nextMode);
   };
 
   setModeIsYolo = (isYolo: boolean): void => {
     this.currentModeIsYolo = isYolo;
+    this.modeSetter?.(isYolo);
   };
 
   getModeIsYolo = (): boolean => this.currentModeIsYolo;
+
+  /**
+   * Subscribe the footer (or any island) to approval-mode changes so the
+   * current safe/yolo state stays persistently visible, not just in the
+   * 2-second toast.
+   */
+  registerModeSetter = (setter: ((isYolo: boolean) => void) | null): void => {
+    this.modeSetter = setter;
+    setter?.(this.currentModeIsYolo);
+  };
 
   registerModeToastSetter = (setter: ((message: string | null) => void) | null): void => {
     this.modeToastSetter = setter;
@@ -426,7 +454,7 @@ export class UIStore {
     }
 
     if (region.kind === "reasoning" && summary.fullText) {
-      this.setExpandableReasoning({
+      this.pushExpandableReasoning({
         fullText: summary.fullText,
         label: region.label,
         durationMs: summary.durationMs,
@@ -435,30 +463,51 @@ export class UIStore {
     }
   };
 
+  private pushExpandableReasoning(value: ExpandableReasoning): void {
+    this.expandableReasoningStack.push(value);
+    if (this.expandableReasoningStack.length > MAX_EXPANDABLE_REASONING) {
+      this.expandableReasoningStack.shift();
+    }
+    this.setExpandableReasoning(value);
+  }
+
   /**
-   * Collapse every open region — used on errors and /clear so panels don't
-   * get stuck. Emits no per-region summary; just removes them.
+   * Collapse every open region — used on errors, interrupts, and /clear so
+   * panels don't get stuck. Emits no per-region summary, but open reasoning
+   * regions are preserved into the expandable stack (their visible tail is
+   * the best content available here — the full text lives in the renderer),
+   * so an interrupt doesn't silently destroy in-flight reasoning.
    */
   collapseAllEphemeral = (): void => {
     if (this.ephemeralRegions.size === 0) return;
+    for (const region of this.ephemeralRegions.values()) {
+      if (region.kind !== "reasoning" || region.tail.length === 0) continue;
+      this.pushExpandableReasoning({
+        fullText: region.tail.join("\n"),
+        label: region.label,
+        durationMs: Date.now() - region.startedAt,
+      });
+    }
     this.ephemeralRegions.clear();
     this.publishEphemeralRegions();
   };
 
   /**
-   * If a most-recently-collapsed reasoning is available, emit it as a
-   * streamContent entry into scrollback and clear the slot. No-op otherwise.
+   * Pop the most recent unexpanded reasoning block and emit it into
+   * scrollback. Pressing Ctrl-R repeatedly walks backwards through the
+   * turn's collapsed reasoning blocks. No-op once the stack is empty.
    */
   expandLastReasoning = (): void => {
-    const value = this.expandableReasoningSnapshot;
+    const value = this.expandableReasoningStack.pop();
     if (!value) return;
+    const seconds = (value.durationMs / 1000).toFixed(1);
     this.printOutput({
       type: "streamContent",
-      message: value.fullText,
+      message: `*${value.label} · ${seconds}s*\n\n${value.fullText}`,
       meta: { kind: "reasoning" },
       timestamp: new Date(),
     });
-    this.setExpandableReasoning(null);
+    this.setExpandableReasoning(this.expandableReasoningStack.at(-1) ?? null);
   };
 
   appendStream = (kind: StreamKind, delta: string): void => {
@@ -481,6 +530,11 @@ export class UIStore {
     // a queued microtask flushes after clear
     this.outputBatch = [];
     this.batchFlushScheduled = false;
+
+    // Reasoning from before the clear is stale context — drop it so Ctrl+R
+    // can't resurrect output the user just wiped.
+    this.expandableReasoningStack = [];
+    this.setExpandableReasoning(null);
 
     if (!this.clearOutputsHandler) {
       this._pendingClear = true;
@@ -510,6 +564,15 @@ export class UIStore {
 
   registerPromptSetter(setter: (prompt: PromptState | null) => void): void {
     this.promptSetter = setter;
+  }
+
+  /**
+   * Register a callback that erases Ink's current dynamic frame from the
+   * terminal (the Ink instance's `clear()`). Invoked when a prompt is
+   * dismissed so stale prompt chrome never lingers on screen.
+   */
+  registerFrameClearHandler(handler: (() => void) | null): void {
+    this.frameClearHandler = handler;
   }
 
   registerWorkingDirectorySetter(setter: (wd: string | null) => void): void {

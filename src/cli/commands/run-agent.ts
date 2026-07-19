@@ -3,9 +3,15 @@ import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
 import { AgentNotFoundError } from "@/core/types/errors";
+import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { CommonSuggestions, getErrorMessage } from "@/core/utils/error-handler";
+import {
+  loadConversation,
+  saveConversation,
+  type ConversationRecord,
+} from "@/services/history/conversation-history-service";
 
 /**
  * One-shot, non-interactive agent invocation — designed to be driven from
@@ -17,6 +23,11 @@ import { CommonSuggestions, getErrorMessage } from "@/core/utils/error-handler";
  * (status notices, tool chatter, the `◉ Agent:` header, the `✔ completed`
  * footer) is routed to stderr so stdout carries only the answer (plain mode)
  * or exactly one JSON object (`--json`).
+ *
+ * With `--conversation <id>` the run gains memory: prior history stored under
+ * the caller-supplied key is loaded before the run and the updated transcript
+ * is saved back after, so a webhook bridge that passes its chat id gets
+ * per-chat context across invocations without storing anything itself.
  */
 
 export interface OneShotTokenUsage {
@@ -95,6 +106,50 @@ export interface RunAgentOnceOptions {
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
   readonly eventTypes?: ReadonlySet<StreamEvent["type"]> | undefined;
+  /**
+   * Caller-supplied stable conversation key (e.g. a Telegram chat id). When
+   * set, prior history for this conversation is loaded before the run and the
+   * updated transcript is saved back after — giving stateless webhook bridges
+   * per-chat memory across invocations. Absent = one-shot (no persistence).
+   */
+  readonly conversationId?: string | undefined;
+}
+
+/**
+ * Build the conversation record to persist after a `--conversation` run.
+ *
+ * Prefers the runner's full message transcript (which includes tool calls and
+ * the system message — the prompt builder filters system messages back out on
+ * the next load). Falls back to appending the user/assistant pair to the prior
+ * transcript when the runner returned no messages array.
+ */
+export function buildConversationRecord(params: {
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly prompt: string;
+  readonly priorRecord: ConversationRecord | null;
+  readonly responseContent: string;
+  readonly responseMessages: ChatMessage[] | undefined;
+  readonly now: string;
+}): ConversationRecord {
+  const messages: ChatMessage[] =
+    params.responseMessages && params.responseMessages.length > 0
+      ? params.responseMessages
+      : [
+          ...(params.priorRecord?.messages ?? []),
+          { role: "user", content: params.prompt },
+          { role: "assistant", content: params.responseContent },
+        ];
+
+  return {
+    conversationId: params.conversationId,
+    title: params.priorRecord?.title ?? params.prompt.trim().slice(0, 80),
+    agentId: params.agentId,
+    startedAt: params.priorRecord?.startedAt ?? params.now,
+    endedAt: params.now,
+    messageCount: messages.length,
+    messages,
+  };
 }
 
 const EVENT_CATEGORY_TYPES = {
@@ -232,13 +287,22 @@ export function runAgentOnceCommand(
         ? { ...agent, config: { ...agent.config, reasoningEffort: options.reasoningEffort } }
         : agent;
 
+    const conversationKey = options.conversationId?.trim();
+    if (conversationKey !== undefined && conversationKey.length === 0) {
+      return yield* failOneShot("Invalid --conversation id: must be non-empty.", outputOptions);
+    }
+
+    const priorRecord =
+      conversationKey !== undefined ? yield* loadConversation(agent.id, conversationKey) : null;
+
     const autoApprovePolicy: AutoApprovePolicy | undefined = options.approvalPolicy;
     const runId = `run-${agent.id}-${Date.now()}`;
     const runEffect = AgentRunner.run({
       agent: agentForRun,
       userInput: prompt,
       sessionId: runId,
-      conversationId: runId,
+      conversationId: conversationKey ?? runId,
+      ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
     });
@@ -251,6 +315,29 @@ export function runAgentOnceCommand(
           }),
         )
       : runEffect;
+
+    if (conversationKey !== undefined) {
+      const record = buildConversationRecord({
+        agentId: agent.id,
+        conversationId: conversationKey,
+        prompt,
+        priorRecord,
+        responseContent: runResult.content,
+        responseMessages: runResult.messages,
+        now: new Date().toISOString(),
+      });
+      // A failed save must not discard the answer the run already produced —
+      // warn on stderr (stdout stays the clean payload) and continue.
+      yield* saveConversation(record).pipe(
+        Effect.catchAll((error) =>
+          Effect.sync(() => {
+            process.stderr.write(
+              `Warning: failed to save conversation "${conversationKey}": ${getErrorMessage(error)}\n`,
+            );
+          }),
+        ),
+      );
+    }
 
     const promptTokens = runResult.usage?.promptTokens ?? 0;
     const completionTokens = runResult.usage?.completionTokens ?? 0;

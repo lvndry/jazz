@@ -406,7 +406,34 @@ describe("UIStore", () => {
       return Promise.resolve().then(() => {
         expect(printed).toHaveLength(1);
         expect(printed[0]!.type).toBe("streamContent");
-        expect(printed[0]!.message).toBe("full reasoning body");
+        expect(printed[0]!.message).toContain("full reasoning body");
+        expect(printed[0]!.message).toContain("Reasoning · 1.0s");
+        expect(s.getExpandableReasoningSnapshot()).toBeNull();
+      });
+    });
+
+    test("expandLastReasoning walks back through multiple collapsed blocks", () => {
+      const s = new UIStore();
+      const printed: OutputEntry[] = [];
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        printed.push(...arr);
+        return arr[0]?.id ?? "id";
+      });
+
+      const first = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(first, { durationMs: 500, fullText: "first block" });
+      const second = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(second, { durationMs: 700, fullText: "second block" });
+
+      s.expandLastReasoning();
+      s.expandLastReasoning();
+      s.expandLastReasoning(); // stack empty — no-op
+
+      return Promise.resolve().then(() => {
+        expect(printed).toHaveLength(2);
+        expect(printed[0]!.message).toContain("second block");
+        expect(printed[1]!.message).toContain("first block");
         expect(s.getExpandableReasoningSnapshot()).toBeNull();
       });
     });

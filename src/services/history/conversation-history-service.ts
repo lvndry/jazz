@@ -153,10 +153,12 @@ export function saveConversation(
       dir,
       Effect.gen(function* () {
         const history = yield* readHistory(record.agentId, dir);
-        const updated = [record, ...history.conversations].slice(
-          0,
-          MAX_CONVERSATION_HISTORY_PER_AGENT,
+        // Upsert by conversationId: saving an existing conversation replaces
+        // its record and moves it to the front (LRU), instead of duplicating.
+        const others = history.conversations.filter(
+          (conversation) => conversation.conversationId !== record.conversationId,
         );
+        const updated = [record, ...others].slice(0, MAX_CONVERSATION_HISTORY_PER_AGENT);
         yield* writeHistory({ agentId: record.agentId, conversations: updated }, dir);
       }),
     );
@@ -168,4 +170,19 @@ export function loadHistory(
   dir?: string,
 ): Effect.Effect<AgentConversationHistory, Error, FileSystem.FileSystem> {
   return readHistory(agentId, dir);
+}
+
+export function loadConversation(
+  agentId: string,
+  conversationId: string,
+  dir?: string,
+): Effect.Effect<ConversationRecord | null, Error, FileSystem.FileSystem> {
+  return readHistory(agentId, dir).pipe(
+    Effect.map(
+      (history) =>
+        history.conversations.find(
+          (conversation) => conversation.conversationId === conversationId,
+        ) ?? null,
+    ),
+  );
 }
