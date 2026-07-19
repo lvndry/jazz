@@ -19,6 +19,7 @@ import { QuietPresentationServiceLayer } from "./core/presentation/quiet-present
 import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
 import { handleError, isUserCancellation } from "./core/utils/error-handler";
+import { isOfflineMode } from "./core/utils/offline";
 import { resolveStorageDirectory } from "./core/utils/storage-utils";
 import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
 import { WorkflowsLive } from "./core/workflows/workflow-service";
@@ -252,7 +253,9 @@ export function runCliEffect<R, E extends JazzError | Error>(
     }
 
     const shouldSkipUpdateCheck =
-      process.env["JAZZ_DISABLE_UPDATE_CHECK"] === "1" || options.skipUpdateCheck === true;
+      process.env["JAZZ_DISABLE_UPDATE_CHECK"] === "1" ||
+      isOfflineMode() ||
+      options.skipUpdateCheck === true;
     const startupCheck = shouldSkipUpdateCheck ? Effect.void : autoCheckForUpdate();
     const fiber = yield* Effect.fork(startupCheck.pipe(Effect.zipRight(effect)));
     let signalCount = 0;

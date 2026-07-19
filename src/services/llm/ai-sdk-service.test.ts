@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { APICallError } from "ai";
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Stream } from "effect";
 import type { ProviderName } from "../../core/constants/models";
 import { AVAILABLE_PROVIDERS } from "../../core/constants/models";
@@ -23,10 +23,51 @@ import { createLoggerLayer } from "../logger";
 import { buildProviderOptions, createAISDKServiceLayer, toCoreMessages } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
 
+// Bun module mocks are process-global: snapshot the real exports so afterAll can
+// restore them for test files that run later in the same process.
+const actualModelsDevClient = {
+  ...(await import("@/core/utils/models-dev-client")),
+};
+
+const mockCatalogMetadata = {
+  contextWindow: 128000,
+  supportsTools: true,
+  isReasoningModel: false,
+  supportsVision: false,
+  supportsPdf: false,
+  supportsTemperature: true,
+};
+
+// getModelsDevProviderModels must be mocked too: catalog-backed providers list
+// models through it, and the real implementation reaches the network (or the
+// on-disk snapshot), which unit tests must never depend on.
 mock.module("@/core/utils/models-dev-client", () => ({
   getModelsDevMap: () => Promise.resolve(new Map()),
   getMetadataFromMap: () => null,
+  getModelsDevProviderModels: () =>
+    Promise.resolve([
+      {
+        id: "mock-model-newer",
+        displayName: "Mock Model Newer",
+        releaseDate: "2026-01-01",
+        inputModalities: ["text"],
+        outputModalities: ["text"],
+        metadata: mockCatalogMetadata,
+      },
+      {
+        id: "mock-model-older",
+        displayName: "Mock Model Older",
+        releaseDate: "2025-01-01",
+        inputModalities: ["text"],
+        outputModalities: ["text"],
+        metadata: { ...mockCatalogMetadata, contextWindow: 64000 },
+      },
+    ]),
 }));
+
+afterAll(() => {
+  mock.module("@/core/utils/models-dev-client", () => actualModelsDevClient);
+});
 
 describe("AI SDK Service - Unit Tests", () => {
   /**

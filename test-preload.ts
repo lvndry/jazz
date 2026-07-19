@@ -8,3 +8,11 @@
  * explicitly per-test, so this default doesn't constrain them.
  */
 process.env["JAZZ_UI_GLYPHS"] ??= "ascii";
+
+/**
+ * Default tests to offline mode so the models.dev client never fetches the
+ * real catalog (or mirrors it into the developer's ~/.jazz) from inside the
+ * suite. Tests that exercise the fetch/cache behavior itself
+ * (models-dev-client.test.ts) manage this env var explicitly per-test.
+ */
+process.env["JAZZ_OFFLINE"] ??= "1";

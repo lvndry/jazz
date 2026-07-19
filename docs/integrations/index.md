@@ -166,6 +166,8 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 
 Both fields are optional. When `base_url` is omitted, Jazz uses `http://localhost:11434/api`. You can also set `OLLAMA_BASE_URL` (config takes precedence over env).
 
+Running on a server without internet access? See the [Airgapped & Self-Hosted guide](../guide/airgapped.md) — set `JAZZ_OFFLINE=1` to disable all outbound requests Jazz makes on its own.
+
 ### llama.cpp
 
 **Capabilities**: Run any GGUF model locally via [`llama-server`](https://github.com/ggml-org/llama.cpp). Tool calling supported when `llama-server` is started with `--jinja` (see [function calling guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/function-calling.md)). Context window and tool support are auto-detected from the server's `/props` endpoint.

@@ -6,6 +6,7 @@ Learn how to use Jazz effectively.
 
 - [Quick Start](./quick-start.md): Install and run your first agent.
 - [Creating Agents](./creating-agents.md): Build custom agents tailored to your needs.
+- [Airgapped & Self-Hosted](./airgapped.md): Run Jazz fully offline with Ollama or llama.cpp.
 
 ## End-to-End Use Cases
 
