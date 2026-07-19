@@ -122,6 +122,10 @@ export class UIStore {
   private activitySnapshot: ActivityState = { phase: "idle" };
   private workingDirectorySnapshot: string | null = null;
   private runStatsSnapshot: RunStats = {};
+  // Session-wide cumulative cost in USD. Every renderer (main agent and each
+  // sub-agent) adds its own per-turn cost here so the footer total reflects
+  // aggregate spend, not just the orchestrator's. Reset per session.
+  private sessionCostUSD = 0;
   private ephemeralRegionsSnapshot: readonly EphemeralRegion[] = [];
   private expandableReasoningSnapshot: ExpandableReasoning | null = null;
   private expandableReasoningStack: ExpandableReasoning[] = [];
@@ -240,10 +244,23 @@ export class UIStore {
    * costUSD only after we've resolved pricing).
    */
   resetRunStats = (initial: RunStats = {}): void => {
+    this.sessionCostUSD = 0;
     this.runStatsSnapshot = initial;
     if (this.runStatsSetter) {
       this.runStatsSetter(initial);
     }
+  };
+
+  /**
+   * Add a run's cost to the session-wide total and publish it to the footer.
+   * Called by every renderer (main agent and sub-agents) as each turn's cost
+   * resolves, so the displayed total aggregates all spend rather than being
+   * clobbered by whichever run completed last.
+   */
+  addSessionCostUSD = (deltaUSD: number): void => {
+    if (!deltaUSD) return;
+    this.sessionCostUSD += deltaUSD;
+    this.updateRunStats({ costUSD: this.sessionCostUSD });
   };
 
   updateRunStats = (patch: Partial<RunStats>): void => {

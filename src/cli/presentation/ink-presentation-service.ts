@@ -681,7 +681,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
       };
       const rollIntoFooter = (totalCost: number): void => {
         this.acc.cumulativeCostUSD += totalCost;
-        store.updateRunStats({ model, provider, costUSD: this.acc.cumulativeCostUSD });
+        // Accumulate into the shared session total so sub-agent renderers add
+        // to the footer rather than overwriting it with their own figure.
+        store.addSessionCostUSD(totalCost);
+        // Only the main-agent (scrollback) renderer owns the footer's model/
+        // provider label; sub-agent renderers contribute cost but must not
+        // relabel the footer with their (often different) model.
+        if (this.streamTarget.kind === "scrollback") {
+          store.updateRunStats({ model, provider });
+        }
       };
 
       const cachedMeta = getModelsDevMetadataSync(model, provider);

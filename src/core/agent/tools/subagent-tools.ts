@@ -31,6 +31,14 @@ const spawnSubagentSchema = z.object({
   task: z
     .string()
     .describe("Specific task description for the sub-agent, including expected output."),
+  name: z
+    .string()
+    .optional()
+    .describe(
+      "Short role label for this sub-agent (e.g. 'Curriculum coach', 'Food-safety instructor'). " +
+        "Shown in the sub-agent panel so parallel sub-agents are distinguishable. " +
+        "Defaults to 'Sub-Agent (<persona>)' when omitted.",
+    ),
   persona: z
     .enum(["default", "coder", "researcher"])
     .optional()
@@ -63,7 +71,8 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
-        "Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default.",
+        "Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. " +
+        "Pass a short 'name' to label each sub-agent by its role so parallel sub-agents stay distinguishable.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",
@@ -90,7 +99,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           });
 
           const taskPreview = args.task.length > 80 ? `...${args.task.slice(-77)}` : args.task;
-          const subagentLabel = `Sub-Agent (${args.persona})`;
+          const subagentLabel = args.name?.trim() || `Sub-Agent (${args.persona})`;
           const startedAt = Date.now();
 
           const regionId = store.openEphemeral("subagent", subagentLabel, SUBAGENT_PANEL_LINES);
@@ -99,7 +108,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           // Create an ephemeral sub-agent with the parent's LLM config but a specific persona
           const subAgent: Agent = {
             id: `subagent-${++subagentCounter}-${Date.now()}`,
-            name: `Sub-Agent (${args.persona})`,
+            name: subagentLabel,
             description: `Ephemeral sub-agent spawned for: ${args.task.substring(0, 100)}`,
             model: parentAgent.model,
             config: {
@@ -174,6 +183,13 @@ ${args.task}`;
               ),
             ),
           );
+
+          // Fold the sub-agent's cost into the parent run's total so aggregated
+          // pricing (one-shot JSON envelope, workflow history) includes sub-agent
+          // spend. The interactive footer aggregates separately via each renderer.
+          if (response.costUSD && context.recordChildCost) {
+            context.recordChildCost(response.costUSD);
+          }
 
           let result = response.content;
           if (!result?.trim() && response.messages?.length) {
