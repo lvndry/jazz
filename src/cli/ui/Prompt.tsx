@@ -125,6 +125,16 @@ function PromptComponent({
     [commandSuggestionsEnabled, suggestionPrefix, value],
   );
   const suggestionsVisible = filteredCommands.length > 0;
+  const suggestionWindowStart = Math.min(
+    Math.max(0, selectedSuggestionIndex - MAX_VISIBLE_SUGGESTIONS + 1),
+    Math.max(0, filteredCommands.length - MAX_VISIBLE_SUGGESTIONS),
+  );
+  const visibleSuggestions = filteredCommands.slice(
+    suggestionWindowStart,
+    suggestionWindowStart + MAX_VISIBLE_SUGGESTIONS,
+  );
+  const hiddenSuggestionsBelow =
+    filteredCommands.length - suggestionWindowStart - visibleSuggestions.length;
 
   // Keep selected index in bounds when list changes
   useEffect(() => {
@@ -278,38 +288,26 @@ function PromptComponent({
                 />
               </Box>
             </Box>
-            {suggestionsVisible &&
-              (() => {
-                const windowStart = Math.min(
-                  Math.max(0, selectedSuggestionIndex - MAX_VISIBLE_SUGGESTIONS + 1),
-                  Math.max(0, filteredCommands.length - MAX_VISIBLE_SUGGESTIONS),
-                );
-                const visibleCommands = filteredCommands.slice(
-                  windowStart,
-                  windowStart + MAX_VISIBLE_SUGGESTIONS,
-                );
-                const hiddenBelow = filteredCommands.length - windowStart - visibleCommands.length;
-                return (
-                  <Box
-                    marginTop={1}
-                    flexDirection="column"
-                  >
-                    <Text dimColor>Commands (↑/↓ select · Tab complete · Enter run):</Text>
-                    {visibleCommands.map((cmd, index) => (
-                      <CommandSuggestionItem
-                        key={cmd.name}
-                        command={cmd}
-                        isSelected={windowStart + index === selectedSuggestionIndex}
-                      />
-                    ))}
-                    {hiddenBelow > 0 && (
-                      <Box marginLeft={1}>
-                        <Text dimColor> …and {hiddenBelow} more</Text>
-                      </Box>
-                    )}
+            {suggestionsVisible && (
+              <Box
+                marginTop={1}
+                flexDirection="column"
+              >
+                <Text dimColor>Commands (↑/↓ select · Tab complete · Enter run):</Text>
+                {visibleSuggestions.map((cmd, index) => (
+                  <CommandSuggestionItem
+                    key={cmd.name}
+                    command={cmd}
+                    isSelected={suggestionWindowStart + index === selectedSuggestionIndex}
+                  />
+                ))}
+                {hiddenSuggestionsBelow > 0 && (
+                  <Box marginLeft={1}>
+                    <Text dimColor> …and {hiddenSuggestionsBelow} more</Text>
                   </Box>
-                );
-              })()}
+                )}
+              </Box>
+            )}
             {validationError && (
               <Box marginTop={1}>
                 <Text

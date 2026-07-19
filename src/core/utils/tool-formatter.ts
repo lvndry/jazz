@@ -3,6 +3,9 @@ import { safeString } from "./string";
 
 const MAX_RESULT_DISPLAY_LINES = 12;
 const MAX_RESULT_DISPLAY_CHARS = 1200;
+// Ctrl+O expansion prints the full payload through Ink — cap it so expanding
+// a multi-megabyte tool result can't hang the renderer.
+const MAX_EXPANDABLE_CHARS = 100_000;
 
 /**
  * Utility functions for formatting tool arguments and results
@@ -379,7 +382,11 @@ export function expandableToolResultPayload(result: string): string | null {
   const withinCaps =
     pretty.split("\n").length <= MAX_RESULT_DISPLAY_LINES &&
     pretty.length <= MAX_RESULT_DISPLAY_CHARS;
-  return withinCaps ? null : pretty;
+  if (withinCaps) return null;
+  if (pretty.length > MAX_EXPANDABLE_CHARS) {
+    return pretty.slice(0, MAX_EXPANDABLE_CHARS).trimEnd() + "\n… output capped at 100k characters";
+  }
+  return pretty;
 }
 
 /**

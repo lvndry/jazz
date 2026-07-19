@@ -531,6 +531,11 @@ export class UIStore {
     this.outputBatch = [];
     this.batchFlushScheduled = false;
 
+    // Reasoning from before the clear is stale context — drop it so Ctrl+R
+    // can't resurrect output the user just wiped.
+    this.expandableReasoningStack = [];
+    this.setExpandableReasoning(null);
+
     if (!this.clearOutputsHandler) {
       this._pendingClear = true;
       this.pendingOutputQueue.length = 0;
