@@ -1,18 +1,19 @@
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 
 /**
- * Client for https://models.dev/api.json (~1MB JSON)
+ * Client for https://models.dev/api.json (~3MB JSON)
  *
- * Provides context window, tool_call, and reasoning metadata for models across
- * providers. Used by model-fetcher and ai-sdk-service to resolve model metadata.
+ * Single source of truth for model catalogs and metadata across providers:
+ * - Model lists per provider (id, display name, status, release date, modalities)
+ * - Metadata (context window, tool_call, reasoning, vision, pdf, temperature, cost)
  *
  * Efficiency:
  * - Lazy load: JSON fetched only on first use (when first model list is requested).
  * - In-memory cache: fetched once, cached for 1 hour (CACHE_TTL_MS), no repeated HTTP.
- * - Indexed map: parsed JSON → Map<modelId, metadata> for O(1) lookups.
+ * - Indexed structures: flat Map<modelId, metadata> for O(1) metadata lookups, plus
+ *   Map<providerId, entries[]> for provider model listings.
  * - Per-provider cache: ai-sdk-service caches resolved ModelInfo[] so we don't even
  *   re-resolve after first provider load.
- *
  */
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
@@ -34,23 +35,43 @@ export interface ModelsDevMetadata {
   readonly outputPricePerMillion?: number;
 }
 
+/** One model as listed under a models.dev provider, with resolved metadata. */
+export interface ModelsDevModelEntry {
+  readonly id: string;
+  readonly displayName: string;
+  /** models.dev `status` — "deprecated" | "beta" | "alpha"; undefined means active. */
+  readonly status?: string;
+  /** ISO date (YYYY-MM-DD) from models.dev `release_date`. */
+  readonly releaseDate?: string;
+  readonly inputModalities: readonly string[];
+  readonly outputModalities: readonly string[];
+  readonly metadata: ModelsDevMetadata;
+}
+
+type ModelsDevModelSpec = {
+  name?: string;
+  status?: string;
+  release_date?: string;
+  limit?: { context?: number; output?: number };
+  tool_call?: boolean;
+  reasoning?: boolean;
+  temperature?: boolean;
+  modalities?: { input?: string[]; output?: string[] };
+  cost?: { input?: number; output?: number };
+};
+
 type ModelsDevProvider = {
-  models?: Record<
-    string,
-    {
-      limit?: { context?: number; output?: number };
-      tool_call?: boolean;
-      reasoning?: boolean;
-      temperature?: boolean;
-      modalities?: { input?: string[]; output?: string[] };
-      cost?: { input?: number; output?: number };
-    }
-  >;
+  models?: Record<string, ModelsDevModelSpec>;
 };
 
 type ModelsDevApi = Record<string, ModelsDevProvider>;
 
-let cachedMap: Map<string, ModelsDevMetadata> | null = null;
+interface ModelsDevData {
+  readonly metadataMap: Map<string, ModelsDevMetadata>;
+  readonly providerModels: Map<string, readonly ModelsDevModelEntry[]>;
+}
+
+let cachedData: ModelsDevData | null = null;
 let cacheExpiry = 0;
 
 /**
@@ -80,79 +101,131 @@ function lookupKeys(modelId: string): string[] {
   return keys;
 }
 
+function toMetadata(spec: ModelsDevModelSpec): ModelsDevMetadata {
+  const context = spec.limit?.context;
+  const contextWindow =
+    typeof context === "number" && context > 0 ? context : DEFAULT_CONTEXT_WINDOW;
+
+  const inputPrice =
+    typeof spec.cost?.input === "number" && spec.cost.input >= 0 ? spec.cost.input : undefined;
+  const outputPrice =
+    typeof spec.cost?.output === "number" && spec.cost.output >= 0 ? spec.cost.output : undefined;
+
+  const inputModalities = Array.isArray(spec.modalities?.input) ? spec.modalities.input : [];
+
+  return {
+    contextWindow,
+    supportsTools: Boolean(spec.tool_call),
+    isReasoningModel: Boolean(spec.reasoning),
+    supportsVision: inputModalities.includes("image"),
+    supportsPdf: inputModalities.includes("pdf"),
+    supportsTemperature: spec.temperature !== false,
+    ...(inputPrice !== undefined && { inputPricePerMillion: inputPrice }),
+    ...(outputPrice !== undefined && { outputPricePerMillion: outputPrice }),
+  };
+}
+
 /**
- * Build a flat map from all providers/models in the API.
- * Keys: "modelId" (last provider wins) and "providerId:modelId" for provider-scoped lookup (e.g. cost).
+ * Build both indexes from the raw API payload:
+ * - metadataMap keys: "modelId" (last provider wins) and "providerId:modelId" for provider-scoped lookup (e.g. cost).
+ * - providerModels: providerId → full model entries for provider listings.
  */
-function buildMap(api: ModelsDevApi): Map<string, ModelsDevMetadata> {
-  const map = new Map<string, ModelsDevMetadata>();
+function buildData(api: ModelsDevApi): ModelsDevData {
+  const metadataMap = new Map<string, ModelsDevMetadata>();
+  const providerModels = new Map<string, readonly ModelsDevModelEntry[]>();
 
   for (const [providerId, provider] of Object.entries(api)) {
     const models = provider.models;
     if (!models || typeof models !== "object") continue;
 
     const providerKey = providerId.toLowerCase().trim();
+    const entries: ModelsDevModelEntry[] = [];
 
     for (const [id, spec] of Object.entries(models)) {
       if (!spec || typeof spec !== "object") continue;
 
-      const context = spec.limit?.context;
-      const contextWindow =
-        typeof context === "number" && context > 0 ? context : DEFAULT_CONTEXT_WINDOW;
-
-      const inputPrice =
-        typeof spec.cost?.input === "number" && spec.cost.input >= 0 ? spec.cost.input : undefined;
-      const outputPrice =
-        typeof spec.cost?.output === "number" && spec.cost.output >= 0
-          ? spec.cost.output
-          : undefined;
-
-      const inputModalities = Array.isArray(spec.modalities?.input) ? spec.modalities.input : [];
-
-      const meta: ModelsDevMetadata = {
-        contextWindow,
-        supportsTools: Boolean(spec.tool_call),
-        isReasoningModel: Boolean(spec.reasoning),
-        supportsVision: inputModalities.includes("image"),
-        supportsPdf: inputModalities.includes("pdf"),
-        supportsTemperature: spec.temperature !== false,
-        ...(inputPrice !== undefined && { inputPricePerMillion: inputPrice }),
-        ...(outputPrice !== undefined && { outputPricePerMillion: outputPrice }),
-      };
-
+      const meta = toMetadata(spec);
       const modelKey = id.toLowerCase().trim();
-      map.set(modelKey, meta);
-      map.set(`${providerKey}:${modelKey}`, meta);
+      metadataMap.set(modelKey, meta);
+      metadataMap.set(`${providerKey}:${modelKey}`, meta);
+
+      entries.push({
+        id,
+        displayName: typeof spec.name === "string" && spec.name.length > 0 ? spec.name : id,
+        ...(typeof spec.status === "string" && { status: spec.status }),
+        ...(typeof spec.release_date === "string" && { releaseDate: spec.release_date }),
+        inputModalities: Array.isArray(spec.modalities?.input) ? spec.modalities.input : ["text"],
+        outputModalities: Array.isArray(spec.modalities?.output)
+          ? spec.modalities.output
+          : ["text"],
+        metadata: meta,
+      });
     }
+
+    providerModels.set(providerKey, entries);
   }
 
-  return map;
+  return { metadataMap, providerModels };
 }
 
 /**
- * Fetch the models.dev API and return the parsed map. Uses in-memory cache with TTL.
+ * Fetch and cache the models.dev payload. Returns the previous cache (possibly stale,
+ * possibly null) when the fetch fails — callers decide how strict to be.
  */
-export async function getModelsDevMap(): Promise<Map<string, ModelsDevMetadata> | null> {
+async function loadModelsDevData(): Promise<ModelsDevData | null> {
   const now = Date.now();
-  if (cachedMap !== null && now < cacheExpiry) {
-    return cachedMap;
+  if (cachedData !== null && now < cacheExpiry) {
+    return cachedData;
   }
 
   try {
     const response = await fetch(MODELS_DEV_API_URL, {
       headers: { Accept: "application/json" },
     });
-    if (!response.ok) return cachedMap;
+    if (!response.ok) return cachedData;
 
     const api = (await response.json()) as ModelsDevApi;
-    if (!api || typeof api !== "object") return cachedMap;
+    if (!api || typeof api !== "object") return cachedData;
 
-    cachedMap = buildMap(api);
+    cachedData = buildData(api);
     cacheExpiry = now + CACHE_TTL_MS;
-    return cachedMap;
+    return cachedData;
   } catch {
-    return cachedMap;
+    return cachedData;
   }
+}
+
+/**
+ * Fetch the models.dev API and return the metadata map. Uses in-memory cache with TTL.
+ * Returns null when models.dev is unavailable and nothing is cached (lenient — used for
+ * best-effort metadata enrichment of dynamically fetched model lists).
+ */
+export async function getModelsDevMap(): Promise<Map<string, ModelsDevMetadata> | null> {
+  const data = await loadModelsDevData();
+  return data?.metadataMap ?? null;
+}
+
+/**
+ * List the models of a provider from the models.dev catalog.
+ *
+ * Strict: throws when models.dev is unreachable (and nothing is cached) or when the
+ * provider is missing from the catalog. Model listings for catalog-backed providers
+ * fully depend on models.dev — there is no fallback by design.
+ */
+export async function getModelsDevProviderModels(
+  providerId: string,
+): Promise<readonly ModelsDevModelEntry[]> {
+  const data = await loadModelsDevData();
+  if (!data) {
+    throw new Error(
+      "Could not load the model catalog from models.dev — check your network connection and try again",
+    );
+  }
+  const entries = data.providerModels.get(providerId.toLowerCase().trim());
+  if (!entries) {
+    throw new Error(`Provider "${providerId}" was not found in the models.dev catalog`);
+  }
+  return entries;
 }
 
 /**
@@ -201,14 +274,14 @@ export function getModelsDevMetadataSync(
   modelId: string,
   providerId?: string,
 ): ModelsDevMetadata | undefined {
-  if (cachedMap === null || Date.now() >= cacheExpiry) return undefined;
-  return getMetadataFromMap(cachedMap, modelId, providerId);
+  if (cachedData === null || Date.now() >= cacheExpiry) return undefined;
+  return getMetadataFromMap(cachedData.metadataMap, modelId, providerId);
 }
 
 /**
  * Clear the in-memory cache (e.g. for tests).
  */
 export function clearModelsDevCache(): void {
-  cachedMap = null;
+  cachedData = null;
   cacheExpiry = 0;
 }

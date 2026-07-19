@@ -8,7 +8,7 @@ import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
-import { STATIC_PROVIDER_MODELS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
+import { AVAILABLE_PROVIDERS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
@@ -985,9 +985,9 @@ function handleModelCommand(
     const modelId = modelArg.substring(slashIndex + 1);
 
     // Validate provider exists
-    if (!(providerName in STATIC_PROVIDER_MODELS)) {
+    if (!AVAILABLE_PROVIDERS.includes(providerName)) {
       yield* terminal.error(`Unknown provider: ${providerName}`);
-      yield* terminal.info(`Available: ${Object.keys(STATIC_PROVIDER_MODELS).join(", ")}`);
+      yield* terminal.info(`Available: ${AVAILABLE_PROVIDERS.join(", ")}`);
       yield* terminal.log("");
       return { shouldContinue: true };
     }
