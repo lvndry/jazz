@@ -18,6 +18,14 @@ const G = getGlyphs();
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
 
+// Stable reference: an inline literal would retrigger ScrollableSelect's
+// reset-on-options-change effect on every re-render, wiping the user's
+// current selection (e.g. on terminal resize or background output).
+const CONFIRM_OPTIONS = [
+  { label: "Yes", value: true },
+  { label: "No", value: false },
+] as const;
+
 /**
  * Cap the dropdown height. Tall live frames are the trigger for Ink's
  * shrinking-region erase bug, and a 20-row dropdown is unscannable anyway.
@@ -356,10 +364,8 @@ function PromptComponent({
         )}
         {prompt.type === "confirm" && (
           <ScrollableSelect
-            options={[
-              { label: "Yes", value: true },
-              { label: "No", value: false },
-            ]}
+            options={CONFIRM_OPTIONS}
+            initialIndex={prompt.options?.["defaultValue"] === true ? 0 : 1}
             pageSize={10}
             onSelect={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}

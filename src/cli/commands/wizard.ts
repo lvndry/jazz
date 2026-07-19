@@ -249,6 +249,8 @@ export function wizardCommand() {
                 }),
               ),
             );
+            // Pause so the outcome (deleted/cancelled) is visible before the clear
+            yield* terminal.ask("Press Enter to continue...", { hidden: true });
             yield* terminal.clear();
           }
           break;

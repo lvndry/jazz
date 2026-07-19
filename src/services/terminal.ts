@@ -80,6 +80,8 @@ function printUserMessage(message: string): void {
  * Creating a second instance while one is active will throw an error.
  */
 export class InkTerminalService implements TerminalService {
+  readonly isInteractive = true;
+
   private inkInstance: ReturnType<typeof render> | null = null;
 
   constructor() {
@@ -498,6 +500,8 @@ export class InkTerminalService implements TerminalService {
  * Interactive prompts return sensible defaults (empty string, false, first choice).
  */
 export class PlainTerminalService implements TerminalService {
+  readonly isInteractive = false;
+
   private write(message: string): void {
     process.stdout.write(`${message}\n`);
   }
