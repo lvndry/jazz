@@ -186,7 +186,9 @@ jobs:
               core.warning(`Could not react with eyes: ${e.message}`);
             }
 
-  # Automated code review — runs on PR open or when a trusted author comments /jazz-review.
+  # Automated code review — runs on PR open or when a trusted author comments
+  # /jazz-review or /jazz review (both route here; the generalist assistant is
+  # suppressed for review-intent comments so only one job replies).
   code-review:
     needs: resolve
     runs-on: ubuntu-latest
@@ -196,7 +198,7 @@ jobs:
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'code-review' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz-review') && (
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && (contains(github.event.comment.body, '/jazz-review') || contains(github.event.comment.body, '/jazz review')) && (
         github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR'
@@ -527,7 +529,7 @@ jobs:
       always() && (
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'assistant' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz') &&
-        !contains(github.event.comment.body, '/jazz-review') && (
+        !contains(github.event.comment.body, '/jazz-review') && !contains(github.event.comment.body, '/jazz review') && (
         github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR'

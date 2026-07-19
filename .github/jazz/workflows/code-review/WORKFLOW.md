@@ -28,11 +28,11 @@ Jazz is a single-user agentic CLI running on local or server machines, not a mul
 
 1. Read `/tmp/jazz-pr-context.json` to extract the intended behavior and the issues already raised.
 2. Run `git_diff` with `nameOnly: true` to list changed files — this list is authoritative for the PR's scope. Then read the diff content for all of them. `git_diff` caps output (500 lines default, 2000 max) and sets `truncated: true` when it cut the result; a truncated diff over-represents alphabetically-early paths and hides the rest, so never review from a truncated result — raise `maxLines` and/or scope with `paths: [...]` to cover every file in the list.
-3. Open surrounding code for touched modules; verify contracts at call sites and boundary interfaces.
+3. For every changed file, open the surrounding code and read the call sites of each changed export or function — a change is only correct if its callers still hold. Never judge a diff hunk in isolation; trace it to who depends on it, and verify contracts at call sites and boundary interfaces.
 4. Check intent vs behavior: does the implementation do what the PR claims, on both success and failure paths? Could it degrade real CLI/agent usage?
 5. Check engineering quality: strict TypeScript with no avoidable `any`; Effect-TS typed/tagged errors, proper Layer boundaries, explicit parallelism, scoped resources; validation at trust boundaries; actionable errors with no silent drops; no brittle coupling or hidden side effects.
 6. De-duplicate and calibrate: drop findings already clearly raised in prior review comments (unless unresolved and still critical) and drop anything without a concrete, reachable failure mode.
-7. If the PR is large (10+ files or 500+ changed lines), spawn subagents to review file batches in parallel, then merge findings into one final output.
+7. Cover the whole PR — every file in the step-2 list, not a sample. For a large PR (10+ files or 500+ changed lines) you MUST spawn subagents, each owning a batch of files and each responsible for (a) reading the full diff for its files, (b) reading the call sites of the changed exports, and (c) returning findings — then merge them into one output. Never conclude the review after inspecting only a subset of the changed files.
 
 A valid finding names the exact file and diff line(s), what fails at runtime, why it fails, and a concrete fix direction (or a patch snippet when obvious). "This might be unsafe" without a realistic path, "consider pattern X" without a demonstrated deficiency, and style or formatting preferences are not findings.
 
@@ -40,7 +40,7 @@ A valid finding names the exact file and diff line(s), what fails at runtime, wh
 
 Your output must contain exactly two fenced blocks, in this order, with no text before, between, or after them. Both outer fences use FOUR backticks so triple-backtick snippets inside `body` nest cleanly.
 
-1. A four-backtick `markdown` block — the review verdict, never empty. This is a verdict, not a PR summary: state the files reviewed (count or short list), what you found or a clear "looks sound" conclusion, and what you checked to reach it.
+1. A four-backtick `markdown` block — the review verdict, never empty. This is a verdict, not a PR summary: state how many of the changed files you reviewed (this count must equal the number of files from step 2 — if it does not, you have not finished), what you found or a clear "looks sound" conclusion, and what you checked to reach it.
 2. A four-backtick `json` block — an array of inline comments, `[]` when there are none. Each object:
    - `path`: repo-relative file path in the diff
    - `line`: target line from the diff
