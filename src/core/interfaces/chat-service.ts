@@ -7,6 +7,7 @@ import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { AgentConfigServiceTag } from "./agent-config";
 import type { AgentService } from "./agent-service";
 import type { FileSystemContextService } from "./fs";
+import type { JazzStateService } from "./jazz-state";
 import type { LLMService } from "./llm";
 import type { LoggerService } from "./logger";
 import type { PresentationService } from "./presentation";
@@ -46,6 +47,7 @@ export interface ChatService {
     | FileSystemContextService
     | FileSystem.FileSystem
     | typeof AgentConfigServiceTag
+    | JazzStateService
     | ToolRegistry
     | AgentService
     | LLMService

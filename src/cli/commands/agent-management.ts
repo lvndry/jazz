@@ -10,9 +10,9 @@ import {
   wrapCommaList,
 } from "@/cli/utils/string-utils";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
-import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { CLIOptionsTag, type CLIOptions } from "@/core/interfaces/cli-options";
+import { JazzStateServiceTag, type JazzStateService } from "@/core/interfaces/jazz-state";
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import { sortAgents } from "@/core/utils/agent-sort";
@@ -162,7 +162,7 @@ function formatAgentsListBlock(
 export function listAgentsCommand(): Effect.Effect<
   void,
   StorageError,
-  AgentService | TerminalService | CLIOptions | AgentConfigService
+  AgentService | TerminalService | CLIOptions | JazzStateService
 > {
   return Effect.gen(function* () {
     const agentsUnsorted = yield* listAllAgents();
@@ -175,8 +175,8 @@ export function listAgentsCommand(): Effect.Effect<
     }
 
     // Sort with last-used agent first, then alphabetically
-    const configService = yield* AgentConfigServiceTag;
-    const lastUsedAgentId = yield* configService.get("wizard.lastUsedAgentId").pipe(
+    const jazzState = yield* JazzStateServiceTag;
+    const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
       Effect.map((value) => (typeof value === "string" ? value : null)),
       Effect.catchAll(() => Effect.succeed(null)),
     );

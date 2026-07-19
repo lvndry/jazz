@@ -85,10 +85,15 @@ export function handleSpecialCommand(
         return yield* handleToolsCommand(terminal, agent);
 
       case "agents":
-        return yield* handleAgentsCommand(terminal, agent);
+        return yield* handleAgentsCommand(terminal, agent, context.lastUsedAgentId ?? null);
 
       case "switch":
-        return yield* handleSwitchCommand(terminal, agent, command.args);
+        return yield* handleSwitchCommand(
+          terminal,
+          agent,
+          command.args,
+          context.lastUsedAgentId ?? null,
+        );
 
       case "compact":
         return yield* handleCompactCommand(
@@ -378,14 +383,10 @@ function resolveWebSearchProviderLabel(
 function handleAgentsCommand(
   terminal: TerminalService,
   currentAgent: CommandContext["agent"],
-): Effect.Effect<
-  CommandResult,
-  StorageError | StorageNotFoundError,
-  AgentService | AgentConfigService
-> {
+  lastUsedAgentId: string | null,
+): Effect.Effect<CommandResult, StorageError | StorageNotFoundError, AgentService> {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
-    const configService = yield* AgentConfigServiceTag;
     const allAgentsUnsorted = yield* agentService.listAgents();
 
     yield* terminal.log(fmt.heading("Available Agents"));
@@ -394,10 +395,6 @@ function handleAgentsCommand(
       yield* terminal.warn("No agents found.");
       yield* terminal.info("Create one with: jazz agent create");
     } else {
-      const lastUsedAgentId = yield* configService.get("wizard.lastUsedAgentId").pipe(
-        Effect.map((value) => (typeof value === "string" ? value : null)),
-        Effect.catchAll(() => Effect.succeed(null)),
-      );
       const allAgents = sortAgents(allAgentsUnsorted, lastUsedAgentId);
 
       for (const ag of allAgents) {
@@ -440,11 +437,8 @@ function handleSwitchCommand(
   terminal: TerminalService,
   currentAgent: CommandContext["agent"],
   args: string[],
-): Effect.Effect<
-  CommandResult,
-  StorageError | StorageNotFoundError | Error,
-  AgentService | AgentConfigService
-> {
+  lastUsedAgentId: string | null,
+): Effect.Effect<CommandResult, StorageError | StorageNotFoundError | Error, AgentService> {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
 
@@ -519,11 +513,6 @@ function handleSwitchCommand(
     }
 
     // Sort with last-used agent first, then alphabetically
-    const configService = yield* AgentConfigServiceTag;
-    const lastUsedAgentId = yield* configService.get("wizard.lastUsedAgentId").pipe(
-      Effect.map((value) => (typeof value === "string" ? value : null)),
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
     const allAgents = sortAgents(allAgentsUnsorted, lastUsedAgentId);
 
     // Show interactive prompt with history preservation note
