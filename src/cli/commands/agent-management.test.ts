@@ -1,12 +1,12 @@
 import { describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
-import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "../../core/interfaces/agent-service";
 import { CLIOptionsTag, type CLIOptions } from "../../core/interfaces/cli-options";
+import { JazzStateServiceTag, type JazzStateService } from "../../core/interfaces/jazz-state";
 import { TerminalServiceTag, type TerminalService } from "../../core/interfaces/terminal";
 import { CLIError } from "../../core/types/errors";
-import { type Agent, type AppConfig } from "../../core/types/index";
+import { type Agent } from "../../core/types/index";
 
 const testAgent = {
   id: "a1",
@@ -41,21 +41,19 @@ const mockCLIOptions = {
   verbose: false,
 } as unknown as CLIOptions;
 
-const mockAgentConfigService = {
-  get: () => Effect.succeed(null),
-  getOrElse: (_key: string, fallback: unknown) => Effect.succeed(fallback),
-  getOrFail: () => Effect.fail(new Error("not found")),
-  has: () => Effect.succeed(false),
+const mockJazzStateService = {
+  get: () => Effect.succeed(undefined),
   set: () => Effect.void,
-  appConfig: Effect.succeed({} as AppConfig),
-} as unknown as AgentConfigService;
+  load: () => Effect.succeed({}),
+  persist: () => Effect.void,
+} as unknown as JazzStateService;
 
 describe("Agent Management Commands", () => {
   const testLayer = Layer.mergeAll(
     Layer.succeed(AgentServiceTag, mockAgentService),
     Layer.succeed(TerminalServiceTag, mockTerminal),
     Layer.succeed(CLIOptionsTag, mockCLIOptions),
-    Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+    Layer.succeed(JazzStateServiceTag, mockJazzStateService),
   );
 
   it("should list agents and show info if empty", async () => {
@@ -133,7 +131,7 @@ describe("Agent Management Commands", () => {
       Layer.succeed(AgentServiceTag, mockAgentService),
       Layer.succeed(TerminalServiceTag, mockPlainTerminal),
       Layer.succeed(CLIOptionsTag, mockCLIOptions),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(JazzStateServiceTag, mockJazzStateService),
     );
     const program = deleteAgentCommand("agent1");
     const runnable = program.pipe(Effect.provide(plainLayer)) as Effect.Effect<

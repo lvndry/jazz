@@ -3,6 +3,7 @@ import React from "react";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { ChatServiceTag } from "@/core/interfaces/chat-service";
+import { JazzStateServiceTag } from "@/core/interfaces/jazz-state";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/index";
 import type { ChatMessage } from "@/core/types/message";
@@ -50,8 +51,9 @@ export function wizardCommand() {
       // Get all agents for the menu
       const agents = yield* agentService.listAgents();
 
-      // Get last used agent ID from config
-      const lastUsedAgentId = yield* configService.get("wizard.lastUsedAgentId").pipe(
+      // Get last used agent ID from runtime state
+      const jazzState = yield* JazzStateServiceTag;
+      const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
         Effect.map((value) => (typeof value === "string" ? value : null)),
         Effect.catchAll(() => Effect.succeed(null)),
       );
@@ -124,7 +126,7 @@ export function wizardCommand() {
       switch (selection) {
         case "continue": {
           if (lastUsedAgent) {
-            yield* startChatWithAgent(lastUsedAgent, configService);
+            yield* startChatWithAgent(lastUsedAgent);
             yield* terminal.clear();
           }
           break;
@@ -138,14 +140,14 @@ export function wizardCommand() {
             lastUsedAgentId,
           );
           if (selectedAgent) {
-            yield* startChatWithAgent(selectedAgent, configService);
+            yield* startChatWithAgent(selectedAgent);
             yield* terminal.clear();
           }
           break;
         }
 
         case "resume-conversation": {
-          yield* resumeConversation(agents, terminal, configService);
+          yield* resumeConversation(agents, terminal);
           yield* terminal.clear();
           break;
         }
@@ -186,7 +188,7 @@ export function wizardCommand() {
           );
 
           // Start chat with the newly created agent
-          yield* startChatWithAgent(newest, configService).pipe(
+          yield* startChatWithAgent(newest).pipe(
             Effect.catchAll((error) =>
               Effect.gen(function* () {
                 yield* terminal.error(`Failed to start chat with created agent: ${String(error)}`);
@@ -337,14 +339,14 @@ function selectAgent(
  */
 function startChatWithAgent(
   agent: Agent,
-  configService: AgentConfigService,
   options?: { initialHistory?: ChatMessage[]; initialConversationTitle?: string },
 ) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
+    const jazzState = yield* JazzStateServiceTag;
 
     // Save as last used agent
-    yield* configService
+    yield* jazzState
       .set("wizard.lastUsedAgentId", agent.id)
       .pipe(Effect.catchAll(() => Effect.void));
 
@@ -376,11 +378,7 @@ function startChatWithAgent(
 /**
  * Load all saved conversations across agents, show a selector, and resume the chosen one
  */
-function resumeConversation(
-  agents: readonly Agent[],
-  terminal: TerminalService,
-  configService: AgentConfigService,
-) {
+function resumeConversation(agents: readonly Agent[], terminal: TerminalService) {
   return Effect.gen(function* () {
     type ConversationEntry = {
       agent: Agent;
@@ -429,7 +427,7 @@ function resumeConversation(
     const selected = entries[Number(selectedIdx)];
     if (!selected) return;
 
-    yield* startChatWithAgent(selected.agent, configService, {
+    yield* startChatWithAgent(selected.agent, {
       initialHistory: selected.messages,
       initialConversationTitle: selected.title,
     });
