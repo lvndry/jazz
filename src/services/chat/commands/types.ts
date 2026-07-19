@@ -28,6 +28,7 @@ export type CommandType =
   | "theme"
   | "export"
   | "retry"
+  | "runSkill"
   | "unknown";
 
 /**

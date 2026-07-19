@@ -18,14 +18,14 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import type { SkillService } from "@/core/skills/skill-service";
+import { getSkillIndexLine, SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
-import { handleSpecialCommand, parseSpecialCommand } from "./chat/commands";
+import { handleSpecialCommand, parseSpecialCommand, setSkillCommands } from "./chat/commands";
 import type { CommandContext, CommandResult } from "./chat/commands/types";
 import {
   generateConversationId,
@@ -105,6 +105,17 @@ export class ChatServiceImpl implements ChatService {
       // Agent setup phase: Connect to MCP servers and register tools before first message
       // Errors are handled gracefully inside setupAgent - conversation continues even if some MCPs fail
       yield* setupAgent(agent, sessionId);
+
+      // Register skills as invokable slash commands so they appear in the "/"
+      // autocomplete menu and can be run like any built-in command. Failures
+      // here are non-fatal — the menu simply omits skills.
+      yield* Effect.gen(function* () {
+        const skillService = yield* SkillServiceTag;
+        const skills = yield* skillService.listSkills();
+        setSkillCommands(
+          skills.map((skill) => ({ name: skill.name, description: getSkillIndexLine(skill) })),
+        );
+      }).pipe(Effect.catchAll(() => Effect.void));
 
       store.resetRunStats({ provider: agent.config.llmProvider, model: agent.config.llmModel });
 

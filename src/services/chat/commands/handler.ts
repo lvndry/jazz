@@ -158,6 +158,9 @@ export function handleSpecialCommand(
       case "clear":
         return yield* handleClearCommand(terminal, agent);
 
+      case "runSkill":
+        return yield* handleRunSkillCommand(command.args);
+
       case "unknown":
         return yield* handleUnknownCommand(terminal, command.args);
 
@@ -1192,6 +1195,25 @@ function formatWorkflowDesc(w: WorkflowMetadata): string {
   }
 
   return parts.join(" ");
+}
+
+/**
+ * Handle a skill invoked as a slash command (e.g. `/deep-research <task>`).
+ *
+ * args[0] is the skill name; the rest is optional trailing text. We hand the
+ * invocation to the agent via `resendMessage` so it loads and follows the skill
+ * through its existing `load_skill` tool — the same path skills use elsewhere.
+ */
+function handleRunSkillCommand(args: string[]): Effect.Effect<CommandResult, never, never> {
+  return Effect.sync(() => {
+    const skillName = args[0] ?? "";
+    const trailingText = args.slice(1).join(" ").trim();
+    const resendMessage =
+      trailingText.length > 0
+        ? `Use the "${skillName}" skill to help with: ${trailingText}`
+        : `Use the "${skillName}" skill.`;
+    return { shouldContinue: true, resendMessage };
+  });
 }
 
 /**

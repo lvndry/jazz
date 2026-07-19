@@ -1,3 +1,4 @@
+import { getSkillCommandNames } from "./constants";
 import type { SpecialCommand } from "./types";
 
 /**
@@ -63,6 +64,11 @@ export function parseSpecialCommand(input: string): SpecialCommand {
     case "retry":
       return { type: "retry", args };
     default:
+      // A slash command that matches a registered skill runs that skill.
+      // args[0] is the skill name (mirrors the "unknown" convention).
+      if (getSkillCommandNames().has(command)) {
+        return { type: "runSkill", args: [command, ...args] };
+      }
       return { type: "unknown", args: [command, ...args] };
   }
 }

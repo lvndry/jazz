@@ -7,6 +7,8 @@ export interface ChatCommandInfo {
   readonly description: string;
   /** Argument hint shown in autocomplete and /help, e.g. "[agent]". */
   readonly usage?: string;
+  /** Set for entries that come from a skill rather than a built-in command. */
+  readonly source?: "skill";
 }
 
 export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
@@ -52,15 +54,39 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
 ] as const;
 
 /**
- * Filter commands for autocomplete. Prefix matches rank first (in list
- * order), then substring matches (so "/ode" still surfaces /model and
- * /mode). Case-insensitive.
+ * Skills registered as invokable slash commands. Populated once at chat
+ * startup from the SkillService (see setSkillCommands) so both the autocomplete
+ * menu and the command parser can treat skills exactly like built-in commands.
+ */
+let skillCommands: readonly ChatCommandInfo[] = [];
+
+/**
+ * Register the available skills as slash commands. Any skill whose name
+ * collides with a built-in command is dropped so built-ins always win.
+ */
+export function setSkillCommands(skills: readonly ChatCommandInfo[]): void {
+  const reserved = new Set(CHAT_COMMANDS.map((cmd) => cmd.name.toLowerCase()));
+  skillCommands = skills
+    .filter((skill) => !reserved.has(skill.name.toLowerCase()))
+    .map((skill) => ({ ...skill, source: "skill" as const }));
+}
+
+/** Names of all registered skill commands, lower-cased, for parser routing. */
+export function getSkillCommandNames(): ReadonlySet<string> {
+  return new Set(skillCommands.map((skill) => skill.name.toLowerCase()));
+}
+
+/**
+ * Filter commands for autocomplete. Built-in commands and skills are merged
+ * (built-ins first). Prefix matches rank first (in list order), then substring
+ * matches (so "/ode" still surfaces /model and /mode). Case-insensitive.
  */
 export function filterCommandsByPrefix(query: string): readonly ChatCommandInfo[] {
   const lower = query.toLowerCase();
-  const prefixMatches = CHAT_COMMANDS.filter((cmd) => cmd.name.toLowerCase().startsWith(lower));
+  const all = [...CHAT_COMMANDS, ...skillCommands];
+  const prefixMatches = all.filter((cmd) => cmd.name.toLowerCase().startsWith(lower));
   if (lower.length === 0) return prefixMatches;
-  const substringMatches = CHAT_COMMANDS.filter(
+  const substringMatches = all.filter(
     (cmd) => !cmd.name.toLowerCase().startsWith(lower) && cmd.name.toLowerCase().includes(lower),
   );
   return [...prefixMatches, ...substringMatches];
