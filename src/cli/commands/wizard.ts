@@ -240,6 +240,17 @@ export function wizardCommand() {
             lastUsedAgentId,
           );
           if (selectedAgent) {
+            // Deletion is irreversible — always confirm, defaulting to No.
+            const confirmed = yield* terminal.confirm(
+              `Delete agent "${selectedAgent.name}" (${selectedAgent.config.llmProvider}/${selectedAgent.config.llmModel})? This cannot be undone.`,
+              false,
+            );
+            if (!confirmed) {
+              yield* terminal.info("Deletion cancelled.");
+              yield* terminal.ask("Press Enter to continue...", { hidden: true });
+              yield* terminal.clear();
+              break;
+            }
             yield* deleteAgentCommand(selectedAgent.id).pipe(
               Effect.catchAll((error) =>
                 Effect.gen(function* () {
