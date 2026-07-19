@@ -14,7 +14,6 @@ Step-by-step guides to help you get started and master Jazz.
 - **Use Cases**:
   - [Deep Research & Obsidian](./guide/use-cases/deep-research.md)
   - [Security Audits](./guide/use-cases/security-audit.md)
-  - [Travel Planning](./guide/use-cases/travel-agent.md)
   - [Investment Analysis](./guide/use-cases/investment.md)
   - [Meeting Assistant](./guide/use-cases/meetings.md)
 

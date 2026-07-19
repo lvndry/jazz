@@ -20,13 +20,6 @@ Jazz comes with a suite of strict, type-safe tools that agents can use.
 - `git_commit`: Verify and commit changes.
 - `git_log`: View history.
 
-### Browser (via `browser-use`)
-
-- `open_url`: Navigate to a page.
-- `click`: Interact with elements.
-- `type`: Enter text.
-- `extract_data`: Get structured data from page.
-
 ### Communication
 
 - `send_email`: Send an email (requires interaction).
