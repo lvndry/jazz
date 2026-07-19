@@ -1,20 +1,21 @@
-# Jazz — AI PR review + assistant, powered by the `jazz-ai` CLI.
+# Jazz — GitHub workflow organization
 #
-# COPY THIS INTO YOUR REPO:
-#   1. Copy this file to .github/workflows/jazz.yml
-#   2. Copy the .github/jazz/ directory (agent configs + workflow prompts)
-#   3. Add a repo secret OPENROUTER_API_KEY (or OPENAI_API_KEY) — your model provider key
-#   4. Customize for your stack:
-#        - .github/jazz/agents/*.json — pick your model / provider
-#        - .github/jazz/workflows/code-review/WORKFLOW.md — the "Runtime Model"
-#          section is Jazz-specific (single-threaded JS / Effect-TS / Bun); replace
-#          it with your project's language, framework, and risk areas.
-#   Full guide: .github/jazz/README.md
+# Runs the `jazz-ai` CLI in CI for AI pull-request review and assistance.
 #
-# Triggers: PR opened/ready → auto code review · comment "/jazz-review" → re-review ·
-#           comment "/jazz <question>" → PR assistant · Actions tab → manual dispatch.
-# Secrets:  GITHUB_TOKEN (automatic) · OPENROUTER_API_KEY and/or OPENAI_API_KEY (you add).
-# Forks:    same-repo PRs only (a safety guard skips PRs from forks); see the README.
+# Jobs:
+#   resolve      resolves PR number + base/head SHAs from the triggering event
+#   code-review  inline line-level review          (agent: ci-reviewer)
+#   assistant    conversational PR / codebase Q&A  (agent: pr-assistant)
+#
+# Triggers:
+#   PR opened / ready       -> code-review
+#   comment "/jazz-review"  -> code-review
+#   comment "/jazz <req>"   -> assistant
+#   Actions tab dispatch    -> either job
+#
+# Configuration lives in .github/jazz/ (agent configs + workflow prompts).
+# Secrets: GITHUB_TOKEN (automatic), OPENROUTER_API_KEY and/or OPENAI_API_KEY.
+# Setup and customization guide: .github/jazz/README.md
 
 name: Jazz
 
