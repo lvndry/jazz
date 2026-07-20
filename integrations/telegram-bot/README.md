@@ -79,6 +79,7 @@ run Ollama; cloud users typically just keep the default.)
 | `JAZZ_TELEGRAM_PROVIDER` | `openai` | LLM provider — `openai`, `openrouter`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `ollama`, … |
 | `JAZZ_TELEGRAM_MODEL` | `gpt-5.4` | Default model id for the provider. |
 | `OPENAI_API_KEY` (or provider's key) | — | API key for the chosen provider (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, …). Not needed for `ollama`. |
+| `BRAVE_API_KEY` | — | If set, `web_search` uses Brave (configured as the provider in `config.json`). |
 | `JAZZ_REASONING` | `medium` | `disable`\|`low`\|`medium`\|`high`. |
 | `OLLAMA_BASE_URL` | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`). |
 | `JAZZ_APPROVAL_POLICY` | `low-risk` | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. |
