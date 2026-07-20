@@ -63,12 +63,19 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | `/model` | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model) |
 | `/persona` | Inline keyboard of available personas |
 | `/new` (`/reset`) | Start a fresh conversation — clears earlier context; keeps your model/persona |
+| `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, or `tomorrow 09:00` |
+| `/reminders` | List your pending reminders; tap one to cancel |
 | `/status` | Current model, today's runs/tokens/cost, daily cap, uptime |
 | `/help` | Usage |
 
 While a message is processing, the progress bubble carries a **⏹ Cancel** button
 that kills the run; each answer offers **🔍 Go deeper** / **✂️ Shorter** follow-ups.
 Set `JAZZ_DAILY_COST_CAP_USD` to cap total spend per day (0 = no cap).
+
+Reminders are persisted in `tg-reminders.json` and delivered by a sweep, so they
+survive restarts (a reminder due while the bridge was down fires on next start,
+marked `(delayed)`). Clock times (`18:00`, `tomorrow 09:00`) use the container's
+timezone — set `TZ` in `.env` to your own; relative durations are unambiguous.
 
 Each Telegram user gets an independent agent (`tg_<chat_id>.json`, cloned from the
 `telegram` template on first contact), so `/model` and `/persona` change only *your*
