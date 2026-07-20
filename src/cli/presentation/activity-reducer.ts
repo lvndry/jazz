@@ -471,9 +471,11 @@ export function reduceEvent(
       return { activity, outputs };
     }
 
-    // ---- Usage updates (no-op) ------------------------------------------
+    // ---- Usage + approval (no-op for the TUI activity view) -------------
 
     case "usage_update":
+    case "approval_required":
+    case "approval_resolved":
       return { activity: null, outputs };
 
     // ---- Error ----------------------------------------------------------

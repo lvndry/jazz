@@ -212,6 +212,17 @@ export class ToolExecutor {
 
           const isAutoApproved = checkAutoApproved();
 
+          if (renderer) {
+            yield* renderer.handleEvent({
+              type: "approval_required",
+              toolName: name,
+              riskLevel,
+              ...(autoApprovePolicy !== undefined
+                ? { autoApprovePolicy: String(autoApprovePolicy) }
+                : {}),
+            });
+          }
+
           if (isAutoApproved) {
             yield* logger.info("Tool auto-approved by policy", {
               toolName: name,
@@ -243,6 +254,15 @@ export class ToolExecutor {
                 ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
                 isAutoApproved: checkAutoApproved,
               });
+
+          if (renderer) {
+            yield* renderer.handleEvent({
+              type: "approval_resolved",
+              toolName: name,
+              approved: outcome.approved,
+              auto: isAutoApproved,
+            });
+          }
 
           if (outcome.approved) {
             // Handle "always approve this command" choice (execute_command only)

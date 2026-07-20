@@ -119,6 +119,8 @@ describe("parseEventCategories", () => {
       "stream_start",
       "usage_update",
       "complete",
+      "approval_required",
+      "approval_resolved",
     ];
     expect([...result.types].sort()).toEqual(expected.sort());
   });
@@ -146,7 +148,7 @@ describe("parseEventCategories", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBe(
-      'Invalid --events category "bogus". Expected: tools, reasoning, text, usage, all.',
+      'Invalid --events category "bogus". Expected: tools, reasoning, text, usage, approval, all.',
     );
   });
 

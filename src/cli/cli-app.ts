@@ -88,7 +88,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--events <categories>",
-      "Emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,all). stdout stays the clean payload.",
+      "Emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,all). stdout stays the clean payload.",
     )
     .option(
       "--reasoning <effort>",
@@ -516,7 +516,7 @@ function registerWorkflowCommands(program: Command): void {
     )
     .option(
       "--events <categories>",
-      "With --json: emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,all). stdout stays the clean payload.",
+      "With --json: emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,all). stdout stays the clean payload.",
     )
     .action(
       (
