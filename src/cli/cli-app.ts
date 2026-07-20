@@ -98,6 +98,11 @@ function registerRunCommand(program: Command): void {
       "--conversation <id>",
       "Stable conversation key (e.g. a Telegram chat id). Loads prior history for this key before the run and saves the updated transcript after, giving repeated invocations shared memory. Omit for a stateless one-shot run.",
     )
+    .option(
+      "--stream",
+      "Force streaming mode. Required for --events to emit in non-TTY contexts (scripts, webhooks), where streaming is otherwise auto-disabled.",
+    )
+    .option("--no-stream", "Disable streaming mode")
     .action(
       (
         prompt: string | undefined,
@@ -110,6 +115,8 @@ function registerRunCommand(program: Command): void {
           events?: string;
           reasoning?: string;
           conversation?: string;
+          stream?: boolean;
+          noStream?: boolean;
         },
       ) => {
         const opts = program.opts<CliOptions>();
@@ -170,6 +177,11 @@ function registerRunCommand(program: Command): void {
               : {}),
             ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
             ...(options.conversation !== undefined ? { conversationId: options.conversation } : {}),
+            ...(options.noStream === true
+              ? { stream: false }
+              : options.stream === true
+                ? { stream: true }
+                : {}),
           }),
           {
             verbose: opts.verbose,
