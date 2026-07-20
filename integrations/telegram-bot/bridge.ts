@@ -411,7 +411,7 @@ function createProgressReporter(config: BridgeConfig, chatId: number, messageId:
       lines.push(`🤖 ${escapeHtml(task)}`);
     }
     for (const tool of declined) {
-      lines.push(`⛔ <code>${escapeHtml(tool)}</code> needs approval`);
+      lines.push(`⛔ <code>${escapeHtml(tool)}</code> declined (needs approval)`);
     }
     if (writing) lines.push("✍️ writing the answer…");
     return lines.join("\n");
@@ -570,7 +570,7 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       parts.push(`${formatTokenCount(totalTokens)} tok`);
     }
     if (envelope.costUSD > 0) {
-      parts.push(`$${envelope.costUSD.toFixed(4)}`);
+      parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
     }
     await reporter?.finish(parts.join(" · "));
     await sendReply(config, chatId, envelope.answer);
