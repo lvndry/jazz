@@ -26,6 +26,10 @@ const TELEGRAM_SPLIT_LENGTH = 3500;
 const GETUPDATES_TIMEOUT_SECONDS = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
 const ALLOWED_UPDATES = ["message", "callback_query"];
+// Telegram rate-limits message edits; don't refresh the progress bubble faster.
+const PROGRESS_MIN_INTERVAL_MS = 2_000;
+const PROGRESS_MAX_TOOLS_SHOWN = 8;
+const PROGRESS_REASONING_CHARS = 180;
 
 type TransportMode = "polling" | "webhook";
 
@@ -340,12 +344,117 @@ async function sendReply(config: BridgeConfig, chatId: number, text: string): Pr
   }
 }
 
+// --- Live progress --------------------------------------------------------
+
+// A subset of Jazz's NDJSON stream events (jazz run --events); other fields ignored.
+interface JazzEvent {
+  readonly type: string;
+  readonly toolName?: string;
+  readonly content?: string;
+}
+
+/** Read a byte stream and invoke onLine for each newline-delimited line. */
+async function streamLines(
+  stream: ReadableStream<Uint8Array>,
+  onLine: (line: string) => void,
+): Promise<void> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        onLine(buffer.slice(0, newlineIndex));
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf("\n");
+      }
+    }
+    if (buffer.length > 0) onLine(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
+ * Live-updates one Telegram message ("🤔 Working…") from Jazz stream events:
+ * current thinking, tools being called, and the writing phase. Edits are
+ * throttled and serialized so we never spam or race Telegram's edit API.
+ */
+function createProgressReporter(config: BridgeConfig, chatId: number, messageId: number) {
+  const tools: string[] = [];
+  let reasoning = "";
+  let writing = false;
+  let lastText = "";
+  let lastEditAt = 0;
+  let editing = false;
+
+  const render = (): string => {
+    const lines = ["🤔 <b>Working…</b>"];
+    if (reasoning) lines.push(`💭 ${escapeHtml(reasoning)}`);
+    for (const tool of tools.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
+      lines.push(`🔧 <code>${escapeHtml(tool)}</code>`);
+    }
+    if (writing) lines.push("✍️ writing the answer…");
+    return lines.join("\n");
+  };
+
+  const edit = async (text: string): Promise<void> => {
+    if (text === lastText || editing) return;
+    editing = true;
+    lastText = text;
+    lastEditAt = Date.now();
+    try {
+      await callTelegram(config, "editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
+    } finally {
+      editing = false;
+    }
+  };
+
+  return {
+    onEvent(event: JazzEvent): void {
+      switch (event.type) {
+        case "thinking_chunk":
+          if (typeof event.content === "string") {
+            reasoning = (reasoning + event.content)
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(-PROGRESS_REASONING_CHARS);
+          }
+          break;
+        case "tool_execution_start":
+          if (typeof event.toolName === "string") tools.push(event.toolName);
+          break;
+        case "text_start":
+        case "text_chunk":
+          writing = true;
+          break;
+      }
+      if (Date.now() - lastEditAt >= PROGRESS_MIN_INTERVAL_MS) {
+        void edit(render());
+      }
+    },
+    finish: (summary: string): Promise<void> => edit(summary),
+    toolsUsed: (): string[] => [...new Set(tools)],
+  };
+}
+
 // --- Jazz invocation ------------------------------------------------------
 
 async function runJazz(
   config: BridgeConfig,
   chatId: number,
   prompt: string,
+  onEvent: (event: JazzEvent) => void,
 ): Promise<JazzEnvelope> {
   const child = Bun.spawn(
     [
@@ -353,6 +462,8 @@ async function runJazz(
       "run",
       "--no-tui",
       "--json",
+      "--events",
+      "tools,reasoning,text",
       "--agent",
       agentIdForChat(chatId),
       "--approval-policy",
@@ -367,9 +478,22 @@ async function runJazz(
   );
 
   const timeout = setTimeout(() => child.kill(), config.runTimeoutMs + 15_000);
-  const [stdout, stderr, exitCode] = await Promise.all([
+  const stderrTail: string[] = [];
+  const stderrDone = streamLines(child.stderr, (line) => {
+    if (stderrTail.length < 50) stderrTail.push(line);
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) return;
+    try {
+      const event = JSON.parse(trimmed) as JazzEvent;
+      if (typeof event.type === "string") onEvent(event);
+    } catch {
+      // Non-event stderr line (plain log chatter) — ignore.
+    }
+  });
+
+  const [stdout, , exitCode] = await Promise.all([
     new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
+    stderrDone,
     child.exited,
   ]);
   clearTimeout(timeout);
@@ -381,7 +505,9 @@ async function runJazz(
     .at(-1);
 
   if (lastJsonLine === undefined) {
-    console.error(`Jazz produced no JSON envelope (exit ${exitCode}). stderr:\n${stderr}`);
+    console.error(
+      `Jazz produced no JSON envelope (exit ${exitCode}). stderr:\n${stderrTail.join("\n")}`,
+    );
     return { ok: false, error: "Jazz did not return a response." };
   }
 
@@ -397,10 +523,29 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   ensureChatAgent(config, chatId);
   await callTelegram(config, "sendChatAction", { chat_id: chatId, action: "typing" });
 
-  const envelope = await runJazz(config, chatId, text);
+  // A live-updated progress bubble. The final answer is sent as a *new* message
+  // so it pushes a notification (edits don't).
+  const sent = (await callTelegram(config, "sendMessage", {
+    chat_id: chatId,
+    text: "🤔 <b>Working…</b>",
+    parse_mode: "HTML",
+  })) as { result?: { message_id?: number } } | undefined;
+  const messageId = sent?.result?.message_id;
+  const reporter =
+    typeof messageId === "number" ? createProgressReporter(config, chatId, messageId) : undefined;
+
+  const envelope = await runJazz(config, chatId, text, (event) => reporter?.onEvent(event));
+
   if (envelope.ok) {
+    const used = reporter?.toolsUsed() ?? [];
+    const summary =
+      used.length > 0
+        ? `✅ <b>Done</b> · ${used.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(" ")}`
+        : "✅ <b>Done</b>";
+    await reporter?.finish(summary);
     await sendReply(config, chatId, envelope.answer);
   } else {
+    await reporter?.finish("⚠️ <b>Failed</b>");
     await sendReply(config, chatId, `⚠️ ${envelope.error}`);
   }
 }

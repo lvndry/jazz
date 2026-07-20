@@ -18,6 +18,7 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - 🔌 **Bring your own model** — OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama, no keys/cost).
 - 🎛️ **Per-person `/model` and `/persona`** — each user picks their own via inline keyboards; choices persist.
 - ♻️ **Auto reasoning** — switching to an Ollama model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
+- 📡 **Live progress** — a status bubble updates in real time with what the agent is thinking and which tools it's calling; the final answer lands as a new message, so it pushes a notification.
 - 💬 **Per-chat memory**, ✍️ **Markdown rendering** (with plain-text fallback), 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
 
 ## Requirements
