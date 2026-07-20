@@ -121,6 +121,8 @@ describe("parseEventCategories", () => {
       "complete",
       "approval_required",
       "approval_resolved",
+      "subagent_start",
+      "subagent_complete",
     ];
     expect([...result.types].sort()).toEqual(expected.sort());
   });
@@ -148,7 +150,7 @@ describe("parseEventCategories", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBe(
-      'Invalid --events category "bogus". Expected: tools, reasoning, text, usage, approval, all.',
+      'Invalid --events category "bogus". Expected: tools, reasoning, text, usage, approval, subagent, all.',
     );
   });
 

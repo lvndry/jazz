@@ -3,6 +3,7 @@ import type z from "zod";
 import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
+import type { StreamEvent } from "@/core/types/streaming";
 
 // Re-export ToolRiskLevel from tool-registry interface
 export type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
@@ -220,5 +221,13 @@ export interface ToolExecutionContext {
    * The chat service uses this to add the tool to the auto-approved list.
    */
   readonly onAutoApproveTool?: (toolName: string) => void;
+  /**
+   * Emit a live stream event from within a tool — e.g. spawn_subagent emitting
+   * subagent_start/complete, or any long-running tool reporting progress.
+   * Wired to the executor's streaming renderer when one exists; undefined in
+   * non-streaming contexts. Lets tools surface live progress to `--events`
+   * consumers without holding a renderer reference themselves.
+   */
+  readonly emitEvent?: (event: StreamEvent) => Effect.Effect<void, never>;
   readonly [key: string]: unknown;
 }
