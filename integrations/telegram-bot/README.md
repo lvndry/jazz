@@ -75,9 +75,9 @@ run Ollama; cloud users typically just keep the default.)
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | — | **Required.** Bot token from @BotFather. |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | — | **Required.** Comma-separated chat ids allowed to use the bot. |
-| `JAZZ_TELEGRAM_PROVIDER` | `openai` | LLM provider (`openai`, `ollama`, …). |
-| `JAZZ_TELEGRAM_MODEL` | `gpt-5.4` | Default model for the provider. |
-| `OPENAI_API_KEY` | — | API key for the provider (set the one yours needs). Not needed for `ollama`. |
+| `JAZZ_TELEGRAM_PROVIDER` | `openai` | LLM provider — `openai`, `openrouter`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `ollama`, … |
+| `JAZZ_TELEGRAM_MODEL` | `gpt-5.4` | Default model id for the provider. |
+| `OPENAI_API_KEY` (or provider's key) | — | API key for the chosen provider (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, …). Not needed for `ollama`. |
 | `JAZZ_REASONING` | `medium` | `disable`\|`low`\|`medium`\|`high`. |
 | `OLLAMA_BASE_URL` | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`). |
 | `JAZZ_APPROVAL_POLICY` | `low-risk` | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. |
@@ -113,7 +113,10 @@ Add a `ports:` mapping to `docker-compose.yml` to expose the port. The bridge ca
 ## Security notes
 
 - Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is ignored.
-- The agent has real tools and runs at `JAZZ_APPROVAL_POLICY` **without a human in
-  the loop**. On a networked host, be deliberate about the toolset in
-  `agent.telegram.json` and the approval level. The default toolset is
-  read/search/write with no shell or git.
+- The agent ships with the **full toolset** — filesystem (incl. write/delete),
+  `execute_command`, git (incl. push), HTTP, and web search — and runs
+  **without a human in the loop**. `JAZZ_APPROVAL_POLICY` is the gate: at the
+  default `low-risk`, higher-risk actions (shell, delete, push, …) are
+  auto-declined; raise it to `high-risk` only if you understand that a prompt
+  (or prompt injection) could then run arbitrary commands on the host. Trim the
+  toolset in `agent.telegram.json` if you want a smaller blast radius.
