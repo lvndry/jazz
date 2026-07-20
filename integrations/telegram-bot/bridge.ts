@@ -743,40 +743,44 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       ? createProgressReporter(config, chatId, messageId, runToken)
       : undefined;
 
-  const envelope = await runJazz(
-    config,
-    chatId,
-    text,
-    (event) => reporter?.onEvent(event),
-    runToken,
-  );
-  const cancelled = activeRuns.get(runToken)?.cancelled ?? false;
-  activeRuns.delete(runToken);
+  try {
+    const envelope = await runJazz(
+      config,
+      chatId,
+      text,
+      (event) => reporter?.onEvent(event),
+      runToken,
+    );
+    const cancelled = activeRuns.get(runToken)?.cancelled ?? false;
 
-  if (cancelled) {
-    await reporter?.finish("⏹ <b>Cancelled</b>");
-    return;
-  }
+    if (cancelled) {
+      await reporter?.finish("⏹ <b>Cancelled</b>");
+      return;
+    }
 
-  if (envelope.ok) {
-    recordUsage(config, envelope.costUSD, envelope.tokenUsage?.totalTokens ?? 0);
-    const used = reporter?.toolsUsed() ?? [];
-    const parts = ["✅ <b>Done</b>"];
-    if (used.length > 0) {
-      parts.push(used.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(" "));
+    if (envelope.ok) {
+      recordUsage(config, envelope.costUSD, envelope.tokenUsage?.totalTokens ?? 0);
+      const used = reporter?.toolsUsed() ?? [];
+      const parts = ["✅ <b>Done</b>"];
+      if (used.length > 0) {
+        parts.push(used.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(" "));
+      }
+      const totalTokens = envelope.tokenUsage?.totalTokens;
+      if (typeof totalTokens === "number" && totalTokens > 0) {
+        parts.push(`${formatTokenCount(totalTokens)} tok`);
+      }
+      if (envelope.costUSD > 0) {
+        parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
+      }
+      await reporter?.finish(parts.join(" · "));
+      await sendReply(config, chatId, envelope.answer, followupKeyboard());
+    } else {
+      await reporter?.finish("⚠️ <b>Failed</b>");
+      await sendReply(config, chatId, `⚠️ ${envelope.error}`);
     }
-    const totalTokens = envelope.tokenUsage?.totalTokens;
-    if (typeof totalTokens === "number" && totalTokens > 0) {
-      parts.push(`${formatTokenCount(totalTokens)} tok`);
-    }
-    if (envelope.costUSD > 0) {
-      parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
-    }
-    await reporter?.finish(parts.join(" · "));
-    await sendReply(config, chatId, envelope.answer, followupKeyboard());
-  } else {
-    await reporter?.finish("⚠️ <b>Failed</b>");
-    await sendReply(config, chatId, `⚠️ ${envelope.error}`);
+  } finally {
+    // Always release the run slot, even if runJazz or a reply throws.
+    activeRuns.delete(runToken);
   }
 }
 
