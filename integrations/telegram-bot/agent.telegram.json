@@ -1,0 +1,31 @@
+{
+  "id": "telegram",
+  "name": "telegram",
+  "description": "Everyday assistant reachable from Telegram, powered by local Ollama.",
+  "model": "ollama/__JAZZ_MODEL__",
+  "config": {
+    "agentType": "default",
+    "llmProvider": "ollama",
+    "llmModel": "__JAZZ_MODEL__",
+    "reasoningEffort": "__JAZZ_REASONING__",
+    "persona": "default",
+    "tools": [
+      "cd",
+      "find",
+      "grep",
+      "head",
+      "ls",
+      "pwd",
+      "read_file",
+      "read_pdf",
+      "stat",
+      "tail",
+      "write_file",
+      "mkdir",
+      "web_search",
+      "http_request"
+    ]
+  },
+  "createdAt": "2026-07-20T00:00:00.000Z",
+  "updatedAt": "2026-07-20T00:00:00.000Z"
+}

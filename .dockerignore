@@ -1,0 +1,15 @@
+.git
+node_modules
+dist
+logs
+.jazz
+.worktrees
+.superpowers
+.agent
+docs/superpowers
+evals
+examples
+**/.env
+*.tsbuildinfo
+.eslintcache
+.DS_Store

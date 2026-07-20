@@ -1,0 +1,34 @@
+services:
+  jazz-telegram:
+    build:
+      context: ../..
+      dockerfile: integrations/telegram-bot/Dockerfile
+    image: jazz-telegram-bridge:latest
+    container_name: jazz-telegram
+    restart: always
+    env_file: .env
+    # No published port: polling is outbound-only and /health is checked
+    # inside the container. Add a `ports:` mapping only for webhook mode.
+    volumes:
+      - jazz_data:/data
+    # Reach the Ollama container's published port via the host gateway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://localhost:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  jazz_data:
