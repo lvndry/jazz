@@ -361,18 +361,22 @@ async function streamLines(
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let newlineIndex = buffer.indexOf("\n");
-    while (newlineIndex >= 0) {
-      onLine(buffer.slice(0, newlineIndex));
-      buffer = buffer.slice(newlineIndex + 1);
-      newlineIndex = buffer.indexOf("\n");
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        onLine(buffer.slice(0, newlineIndex));
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf("\n");
+      }
     }
+    if (buffer.length > 0) onLine(buffer);
+  } finally {
+    reader.releaseLock();
   }
-  if (buffer.length > 0) onLine(buffer);
 }
 
 /**
