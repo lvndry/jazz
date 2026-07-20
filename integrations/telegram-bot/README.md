@@ -1,0 +1,122 @@
+# Telegram bridge
+
+Chat with a [Jazz](../../README.md) agent from Telegram. A small Bun service
+bridges Telegram to the `jazz` CLI: every message runs the agent once and replies
+with the answer — with per-person model/persona switching, per-chat memory, and
+Markdown rendering.
+
+Works with any Jazz provider. **Defaults to OpenAI `gpt-5.4`**; point it at a
+local [Ollama](https://ollama.com) instead for fully self-hosted, no-cloud use.
+
+```
+Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --json──▶  OpenAI / Ollama / …
+```
+
+## Features
+
+- 🤖 **Any Jazz agent over Telegram** — a full tool-using agent, not an echo bot.
+- 🔌 **Bring your own model** — OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama, no keys/cost).
+- 🎛️ **Per-person `/model` and `/persona`** — each user picks their own via inline keyboards; choices persist.
+- ♻️ **Auto reasoning** — switching to an Ollama model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
+- 💬 **Per-chat memory**, ✍️ **Markdown rendering** (with plain-text fallback), 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
+
+## Requirements
+
+- Docker + Docker Compose.
+- A Telegram bot token from [@BotFather](https://t.me/BotFather).
+- A model backend — **either** an API key for a cloud provider (OpenAI by default)
+  **or** a local [Ollama](https://ollama.com) with a tool-capable model pulled.
+- Outbound HTTPS to `api.telegram.org`.
+
+## Quick start
+
+**1. Create a bot.** Message [@BotFather](https://t.me/BotFather), `/newbot`, pick a
+name and a username ending in `bot`, copy the token. Get your numeric chat id from
+[@userinfobot](https://t.me/userinfobot).
+
+**2. Configure.** From this directory (`integrations/telegram-bot/` in the Jazz repo):
+
+```sh
+cp .env.example .env
+```
+
+Set at least `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_IDS`, and your model
+backend — by default `OPENAI_API_KEY` (uses `gpt-5.4`). To go local instead, set
+`JAZZ_TELEGRAM_PROVIDER=ollama` + `JAZZ_TELEGRAM_MODEL=<pulled model>`.
+
+**3. Run.** The image builds Jazz from the repo source, so the compose build
+context is the repo root (already wired):
+
+```sh
+docker compose up -d --build
+docker compose logs -f          # expect "Polling Telegram for updates…"
+```
+
+Message your bot: it shows a "typing…" indicator, then the agent's reply.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| _(any message)_ | Answered by your agent |
+| `/model` | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model) |
+| `/persona` | Inline keyboard of available personas |
+| `/help` | Usage |
+
+Each Telegram user gets an independent agent (`tg_<chat_id>.json`, cloned from the
+`telegram` template on first contact), so `/model` and `/persona` change only *your*
+experience. `JAZZ_TELEGRAM_PROVIDER` / `JAZZ_TELEGRAM_MODEL` / `JAZZ_REASONING` set
+the defaults new chats start from. (`/model` lists Ollama models — handy when you
+run Ollama; cloud users typically just keep the default.)
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | — | **Required.** Bot token from @BotFather. |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | — | **Required.** Comma-separated chat ids allowed to use the bot. |
+| `JAZZ_TELEGRAM_PROVIDER` | `openai` | LLM provider — `openai`, `openrouter`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `ollama`, … |
+| `JAZZ_TELEGRAM_MODEL` | `gpt-5.4` | Default model id for the provider. |
+| `OPENAI_API_KEY` (or provider's key) | — | API key for the chosen provider (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, …). Not needed for `ollama`. |
+| `JAZZ_REASONING` | `medium` | `disable`\|`low`\|`medium`\|`high`. |
+| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`). |
+| `JAZZ_APPROVAL_POLICY` | `low-risk` | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. |
+| `JAZZ_RUN_TIMEOUT_MS` | `300000` | Per-message agent timeout. |
+| `TELEGRAM_MODE` | `polling` | `polling` or `webhook`. |
+| `PORT` | `8080` | In-container health-check port. |
+
+> **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
+> `medium`/`high`; models without it (mistral-small, gemma, …) error unless
+> reasoning is `disable`. `/model` sets this automatically for Ollama models.
+
+## How it works
+
+For each allowed message the bridge runs:
+
+```
+jazz run --no-tui --json --agent tg_<chat_id> --conversation <chat_id> "<text>"
+```
+
+`--conversation` gives per-chat memory; the per-chat agent file supplies the
+provider/model/persona. Data lives in the `jazz_data` volume (`JAZZ_HOME=/data`):
+agents in `/data/agents`, transcripts in `/data/history` (keyed by chat id,
+**plaintext JSON** — treat the volume as sensitive), logs in `/data/logs`.
+
+## Webhook mode
+
+Long-polling (default) needs no public endpoint. For a webhook, expose the bridge
+over HTTPS and set `TELEGRAM_MODE=webhook`, `TELEGRAM_WEBHOOK_SECRET`
+(`openssl rand -hex 32`), and `TELEGRAM_WEBHOOK_URL=https://your.host/telegram/webhook`.
+Add a `ports:` mapping to `docker-compose.yml` to expose the port. The bridge calls
+`setWebhook` on startup and verifies Telegram's secret header.
+
+## Security notes
+
+- Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is ignored.
+- The agent ships with the **full toolset** — filesystem (incl. write/delete),
+  `execute_command`, git (incl. push), HTTP, and web search — and runs
+  **without a human in the loop**. `JAZZ_APPROVAL_POLICY` is the gate: at the
+  default `low-risk`, higher-risk actions (shell, delete, push, …) are
+  auto-declined; raise it to `high-risk` only if you understand that a prompt
+  (or prompt injection) could then run arbitrary commands on the host. Trim the
+  toolset in `agent.telegram.json` if you want a smaller blast radius.

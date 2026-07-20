@@ -22,7 +22,7 @@ export default [
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
     files: ["**/*.{ts,tsx}"],
-    ignores: ["**/*.test.ts", "test-preload.ts", "examples/**"],
+    ignores: ["**/*.test.ts", "test-preload.ts", "examples/**", "integrations/**"],
   })),
   prettierConfig,
   nodePlugin.configs["flat/recommended-script"],
@@ -35,7 +35,7 @@ export default [
   },
   {
     files: ["**/*.{ts,tsx}"],
-    ignores: ["**/*.test.ts", "test-preload.ts", "examples/**"],
+    ignores: ["**/*.test.ts", "test-preload.ts", "examples/**", "integrations/**"],
     languageOptions: {
       parserOptions: {
         project: ["./tsconfig.json", "./tsconfig.build.json"],
@@ -57,6 +57,21 @@ export default [
       "n/no-unsupported-features/es-syntax": "off",
       "n/no-unsupported-features/node-builtins": ["error", { allowExperimental: true }],
       "n/no-process-exit": "off",
+    },
+  },
+  {
+    // Standalone integrations (run under Bun, not part of the src tsconfig).
+    files: ["integrations/**/*.{ts,tsx}"],
+    languageOptions: {
+      globals: {
+        ...nodeGlobals,
+      },
+    },
+    rules: {
+      "n/no-process-exit": "off",
+      "n/no-missing-import": "off",
+      "n/no-unsupported-features/es-syntax": "off",
+      "n/no-unsupported-features/node-builtins": ["error", { allowExperimental: true }],
     },
   },
   {
