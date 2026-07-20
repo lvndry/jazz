@@ -38,6 +38,11 @@ const PROGRESS_MIN_INTERVAL_MS = 2_000;
 const PROGRESS_MAX_TOOLS_SHOWN = 8;
 const PROGRESS_REASONING_CHARS = 180;
 
+const BRIDGE_STARTED_AT = Date.now();
+// In-flight runs keyed by a per-run token, so the ⏹ Cancel button can kill the
+// right jazz process.
+const activeRuns = new Map<string, { child: Bun.Subprocess; cancelled: boolean }>();
+
 type TransportMode = "polling" | "webhook";
 
 interface BridgeConfig {
@@ -54,6 +59,8 @@ interface BridgeConfig {
   readonly ollamaBaseUrl: string;
   readonly builtinPersonasDir: string;
   readonly port: number;
+  /** Per-day spend ceiling in USD across all chats; 0 disables the cap. */
+  readonly dailyCostCapUsd: number;
 }
 
 interface AgentConfig {
@@ -130,6 +137,7 @@ function loadConfig(): BridgeConfig {
     ollamaBaseUrl: process.env["OLLAMA_BASE_URL"]?.trim() || "http://localhost:11434/api",
     builtinPersonasDir: process.env["JAZZ_BUILTIN_PERSONAS_DIR"]?.trim() || "/opt/jazz/personas",
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
+    dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
   };
 }
 
@@ -238,6 +246,77 @@ function startNewConversation(config: BridgeConfig, chatId: number): void {
   const next = epochs ?? {};
   next[String(chatId)] = (next[String(chatId)] ?? 0) + 1;
   writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+}
+
+// --- Daily usage tracking -------------------------------------------------
+
+interface DailyUsage {
+  costUSD: number;
+  tokens: number;
+  runs: number;
+}
+
+function usagePath(config: BridgeConfig): string {
+  return join(config.jazzHome, "tg-usage.json");
+}
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function readUsage(config: BridgeConfig): Record<string, DailyUsage> {
+  try {
+    const path = usagePath(config);
+    if (!existsSync(path)) return {};
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, DailyUsage>;
+    }
+  } catch {
+    // ignore — treat as empty
+  }
+  return {};
+}
+
+function todayUsage(config: BridgeConfig): DailyUsage {
+  return readUsage(config)[todayKey()] ?? { costUSD: 0, tokens: 0, runs: 0 };
+}
+
+function recordUsage(config: BridgeConfig, costUSD: number, tokens: number): void {
+  const usage = readUsage(config);
+  const key = todayKey();
+  const day = usage[key] ?? { costUSD: 0, tokens: 0, runs: 0 };
+  usage[key] = {
+    costUSD: day.costUSD + costUSD,
+    tokens: day.tokens + tokens,
+    runs: day.runs + 1,
+  };
+  // Keep the file bounded — drop entries older than 30 days.
+  const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  for (const date of Object.keys(usage)) {
+    if (date < cutoff) delete usage[date];
+  }
+  try {
+    writeFileSync(usagePath(config), `${JSON.stringify(usage, null, 2)}\n`);
+  } catch (error) {
+    console.error(`Failed to write usage: ${String(error)}`);
+  }
+}
+
+function formatUptime(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60_000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(" ");
+}
+
+function newRunToken(): string {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 // --- Ollama model discovery -----------------------------------------------
@@ -386,19 +465,46 @@ function splitForTelegram(text: string): string[] {
   return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk.length > 0);
 }
 
-async function sendReply(config: BridgeConfig, chatId: number, text: string): Promise<void> {
-  for (const chunk of splitForTelegram(text)) {
+async function sendReply(
+  config: BridgeConfig,
+  chatId: number,
+  text: string,
+  lastMarkup?: Record<string, unknown>,
+): Promise<void> {
+  const chunks = splitForTelegram(text);
+  for (const [index, chunk] of chunks.entries()) {
+    const markup = lastMarkup !== undefined && index === chunks.length - 1 ? lastMarkup : undefined;
     const rendered = await callTelegram(config, "sendMessage", {
       chat_id: chatId,
       text: markdownToTelegramHtml(chunk),
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
+      ...(markup ? { reply_markup: markup } : {}),
     });
     if (!isOkResponse(rendered)) {
       // Rendering was rejected (malformed entities, too long, …) — send raw text.
-      await callTelegram(config, "sendMessage", { chat_id: chatId, text: chunk });
+      await callTelegram(config, "sendMessage", {
+        chat_id: chatId,
+        text: chunk,
+        ...(markup ? { reply_markup: markup } : {}),
+      });
     }
   }
+}
+
+function cancelKeyboard(runToken: string): Record<string, unknown> {
+  return { inline_keyboard: [[{ text: "⏹ Cancel", callback_data: `x:${runToken}` }]] };
+}
+
+function followupKeyboard(): Record<string, unknown> {
+  return {
+    inline_keyboard: [
+      [
+        { text: "🔍 Go deeper", callback_data: "f:deeper" },
+        { text: "✂️ Shorter", callback_data: "f:shorter" },
+      ],
+    ],
+  };
 }
 
 // --- Live progress --------------------------------------------------------
@@ -447,7 +553,12 @@ function formatTokenCount(tokens: number): string {
   return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
 }
 
-function createProgressReporter(config: BridgeConfig, chatId: number, messageId: number) {
+function createProgressReporter(
+  config: BridgeConfig,
+  chatId: number,
+  messageId: number,
+  runToken: string,
+) {
   const tools: string[] = [];
   const subagents: string[] = [];
   const declined: string[] = [];
@@ -473,7 +584,7 @@ function createProgressReporter(config: BridgeConfig, chatId: number, messageId:
     return lines.join("\n");
   };
 
-  const edit = async (text: string): Promise<void> => {
+  const edit = async (text: string, markup: Record<string, unknown>): Promise<void> => {
     if (text === lastText || editing) return;
     editing = true;
     lastText = text;
@@ -485,6 +596,7 @@ function createProgressReporter(config: BridgeConfig, chatId: number, messageId:
         text,
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
+        reply_markup: markup,
       });
     } finally {
       editing = false;
@@ -519,10 +631,11 @@ function createProgressReporter(config: BridgeConfig, chatId: number, messageId:
           break;
       }
       if (Date.now() - lastEditAt >= PROGRESS_MIN_INTERVAL_MS) {
-        void edit(render());
+        void edit(render(), cancelKeyboard(runToken));
       }
     },
-    finish: (summary: string): Promise<void> => edit(summary),
+    // Final edit drops the Cancel button (empty keyboard).
+    finish: (summary: string): Promise<void> => edit(summary, { inline_keyboard: [] }),
     toolsUsed: (): string[] => [...new Set(tools)],
   };
 }
@@ -534,6 +647,7 @@ async function runJazz(
   chatId: number,
   prompt: string,
   onEvent: (event: JazzEvent) => void,
+  runToken: string,
 ): Promise<JazzEnvelope> {
   const child = Bun.spawn(
     [
@@ -555,6 +669,8 @@ async function runJazz(
     ],
     { stdout: "pipe", stderr: "pipe", env: { ...process.env } },
   );
+  // Register so the ⏹ Cancel button can find and kill this process.
+  activeRuns.set(runToken, { child, cancelled: false });
 
   const timeout = setTimeout(() => child.kill(), config.runTimeoutMs + 15_000);
   const stderrTail: string[] = [];
@@ -600,41 +716,80 @@ async function runJazz(
 
 async function handleMessage(config: BridgeConfig, chatId: number, text: string): Promise<void> {
   ensureChatAgent(config, chatId);
+
+  if (config.dailyCostCapUsd > 0 && todayUsage(config).costUSD >= config.dailyCostCapUsd) {
+    await sendReply(
+      config,
+      chatId,
+      `⚠️ Daily cost cap ($${config.dailyCostCapUsd.toFixed(2)}) reached. Try again tomorrow, or raise JAZZ_DAILY_COST_CAP_USD.`,
+    );
+    return;
+  }
+
   await callTelegram(config, "sendChatAction", { chat_id: chatId, action: "typing" });
 
-  // A live-updated progress bubble. The final answer is sent as a *new* message
-  // so it pushes a notification (edits don't).
+  const runToken = newRunToken();
+  // A live-updated progress bubble with a ⏹ Cancel button. The final answer is
+  // sent as a *new* message so it pushes a notification (edits don't).
   const sent = (await callTelegram(config, "sendMessage", {
     chat_id: chatId,
     text: "🤔 <b>Working…</b>",
     parse_mode: "HTML",
+    reply_markup: cancelKeyboard(runToken),
   })) as { result?: { message_id?: number } } | undefined;
   const messageId = sent?.result?.message_id;
   const reporter =
-    typeof messageId === "number" ? createProgressReporter(config, chatId, messageId) : undefined;
+    typeof messageId === "number"
+      ? createProgressReporter(config, chatId, messageId, runToken)
+      : undefined;
 
-  const envelope = await runJazz(config, chatId, text, (event) => reporter?.onEvent(event));
+  try {
+    const envelope = await runJazz(
+      config,
+      chatId,
+      text,
+      (event) => reporter?.onEvent(event),
+      runToken,
+    );
+    const cancelled = activeRuns.get(runToken)?.cancelled ?? false;
 
-  if (envelope.ok) {
-    const used = reporter?.toolsUsed() ?? [];
-    const parts = ["✅ <b>Done</b>"];
-    if (used.length > 0) {
-      parts.push(used.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(" "));
+    if (cancelled) {
+      await reporter?.finish("⏹ <b>Cancelled</b>");
+      return;
     }
-    const totalTokens = envelope.tokenUsage?.totalTokens;
-    if (typeof totalTokens === "number" && totalTokens > 0) {
-      parts.push(`${formatTokenCount(totalTokens)} tok`);
+
+    if (envelope.ok) {
+      recordUsage(config, envelope.costUSD, envelope.tokenUsage?.totalTokens ?? 0);
+      const used = reporter?.toolsUsed() ?? [];
+      const parts = ["✅ <b>Done</b>"];
+      if (used.length > 0) {
+        parts.push(used.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(" "));
+      }
+      const totalTokens = envelope.tokenUsage?.totalTokens;
+      if (typeof totalTokens === "number" && totalTokens > 0) {
+        parts.push(`${formatTokenCount(totalTokens)} tok`);
+      }
+      if (envelope.costUSD > 0) {
+        parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
+      }
+      await reporter?.finish(parts.join(" · "));
+      await sendReply(config, chatId, envelope.answer, followupKeyboard());
+    } else {
+      await reporter?.finish("⚠️ <b>Failed</b>");
+      await sendReply(config, chatId, `⚠️ ${envelope.error}`);
     }
-    if (envelope.costUSD > 0) {
-      parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
-    }
-    await reporter?.finish(parts.join(" · "));
-    await sendReply(config, chatId, envelope.answer);
-  } else {
-    await reporter?.finish("⚠️ <b>Failed</b>");
-    await sendReply(config, chatId, `⚠️ ${envelope.error}`);
+  } finally {
+    // Always release the run slot, even if runJazz or a reply throws.
+    activeRuns.delete(runToken);
   }
 }
+
+const FOLLOWUP_PROMPTS: Record<string, string> = {
+  deeper:
+    "Go deeper on your previous answer: add more detail, concrete specifics, and any important nuances or caveats.",
+  shorter:
+    "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
+};
 
 // --- Commands & inline keyboards ------------------------------------------
 
@@ -645,6 +800,7 @@ const HELP_TEXT = [
   "/model — pick which Ollama model I use (just for you)",
   "/persona — pick my persona / style",
   "/new — start a fresh conversation (clears earlier context)",
+  "/status — model, today's usage, uptime",
   "/help — show this",
 ].join("\n");
 
@@ -669,6 +825,20 @@ async function handleCommand(config: BridgeConfig, chatId: number, command: stri
       chatId,
       "🆕 Fresh conversation — I've cleared the earlier context. Your model and persona stay the same.",
     );
+    return;
+  }
+
+  if (command === "status") {
+    const day = todayUsage(config);
+    const cap = config.dailyCostCapUsd;
+    const lines = [
+      "📊 <b>Status</b>",
+      `Model: <code>${escapeHtml(agent.config.llmProvider)}/${escapeHtml(agent.config.llmModel)}</code> (reasoning: ${escapeHtml(agent.config.reasoningEffort)})`,
+      `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}`,
+      `Daily cap: ${cap > 0 ? `$${cap.toFixed(2)}` : "none"}`,
+      `Uptime: ${formatUptime(Date.now() - BRIDGE_STARTED_AT)}`,
+    ];
+    await sendReply(config, chatId, lines.join("\n"));
     return;
   }
 
@@ -719,6 +889,39 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   }
 
   const [kind, indexRaw] = data.split(":");
+
+  if (kind === "x") {
+    const run = activeRuns.get(indexRaw ?? "");
+    if (run) {
+      run.cancelled = true;
+      run.child.kill();
+    }
+    await callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text: run ? "Cancelling…" : "Already finished.",
+    });
+    return;
+  }
+
+  if (kind === "f") {
+    const prompt = FOLLOWUP_PROMPTS[indexRaw ?? ""];
+    await callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      ...(prompt ? {} : { text: "Unknown action" }),
+    });
+    if (!prompt) return;
+    // Drop the follow-up buttons so they can't be tapped twice.
+    await callTelegram(config, "editMessageReplyMarkup", {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: { inline_keyboard: [] },
+    });
+    void handleMessage(config, chatId, prompt).catch((error) =>
+      console.error(`Follow-up failed for chat ${chatId}: ${String(error)}`),
+    );
+    return;
+  }
+
   const index = Number.parseInt(indexRaw ?? "", 10);
   const agent = ensureChatAgent(config, chatId);
   let confirmation: string;
