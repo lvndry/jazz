@@ -1,11 +1,11 @@
 {
   "id": "telegram",
   "name": "telegram",
-  "description": "Everyday assistant reachable from Telegram, powered by local Ollama.",
-  "model": "ollama/__JAZZ_MODEL__",
+  "description": "Everyday assistant reachable from Telegram.",
+  "model": "__JAZZ_PROVIDER__/__JAZZ_MODEL__",
   "config": {
     "agentType": "default",
-    "llmProvider": "ollama",
+    "llmProvider": "__JAZZ_PROVIDER__",
     "llmModel": "__JAZZ_MODEL__",
     "reasoningEffort": "__JAZZ_REASONING__",
     "persona": "default",

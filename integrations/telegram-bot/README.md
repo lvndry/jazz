@@ -1,29 +1,31 @@
 # Telegram bridge
 
-Chat with a [Jazz](../../README.md) agent from Telegram, backed by your own local
-models via [Ollama](https://ollama.com). A small Bun service bridges Telegram to
-the `jazz` CLI: every message runs the agent once and replies with the answer —
-with per-person model/persona switching, per-chat memory, and Markdown rendering.
+Chat with a [Jazz](../../README.md) agent from Telegram. A small Bun service
+bridges Telegram to the `jazz` CLI: every message runs the agent once and replies
+with the answer — with per-person model/persona switching, per-chat memory, and
+Markdown rendering.
 
-Self-hosted, allowlist-gated, no cloud LLM required.
+Works with any Jazz provider. **Defaults to OpenAI `gpt-5.4`**; point it at a
+local [Ollama](https://ollama.com) instead for fully self-hosted, no-cloud use.
 
 ```
-Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --json──▶  Ollama
+Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --json──▶  OpenAI / Ollama / …
 ```
 
 ## Features
 
 - 🤖 **Any Jazz agent over Telegram** — a full tool-using agent, not an echo bot.
-- 🧠 **Local models via Ollama** — no API keys, no per-token cost.
+- 🔌 **Bring your own model** — OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama, no keys/cost).
 - 🎛️ **Per-person `/model` and `/persona`** — each user picks their own via inline keyboards; choices persist.
-- ♻️ **Auto reasoning** — switching models reads Ollama's advertised capabilities and enables/disables thinking so non-thinking models don't error.
+- ♻️ **Auto reasoning** — switching to an Ollama model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
 - 💬 **Per-chat memory**, ✍️ **Markdown rendering** (with plain-text fallback), 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
 
 ## Requirements
 
-- [Ollama](https://ollama.com) running with a **tool-capable** model pulled (`ollama list`).
 - Docker + Docker Compose.
 - A Telegram bot token from [@BotFather](https://t.me/BotFather).
+- A model backend — **either** an API key for a cloud provider (OpenAI by default)
+  **or** a local [Ollama](https://ollama.com) with a tool-capable model pulled.
 - Outbound HTTPS to `api.telegram.org`.
 
 ## Quick start
@@ -38,8 +40,9 @@ name and a username ending in `bot`, copy the token. Get your numeric chat id fr
 cp .env.example .env
 ```
 
-Set at least `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_IDS`, and
-`JAZZ_TELEGRAM_MODEL` (a model from your `ollama list`).
+Set at least `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_IDS`, and your model
+backend — by default `OPENAI_API_KEY` (uses `gpt-5.4`). To go local instead, set
+`JAZZ_TELEGRAM_PROVIDER=ollama` + `JAZZ_TELEGRAM_MODEL=<pulled model>`.
 
 **3. Run.** The image builds Jazz from the repo source, so the compose build
 context is the repo root (already wired):
@@ -56,14 +59,15 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | Command | What it does |
 |---|---|
 | _(any message)_ | Answered by your agent |
-| `/model` | Inline keyboard of pulled Ollama models — pick yours |
+| `/model` | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model) |
 | `/persona` | Inline keyboard of available personas |
 | `/help` | Usage |
 
 Each Telegram user gets an independent agent (`tg_<chat_id>.json`, cloned from the
 `telegram` template on first contact), so `/model` and `/persona` change only *your*
-experience. `JAZZ_TELEGRAM_MODEL` / `JAZZ_REASONING` set the defaults new chats
-start from.
+experience. `JAZZ_TELEGRAM_PROVIDER` / `JAZZ_TELEGRAM_MODEL` / `JAZZ_REASONING` set
+the defaults new chats start from. (`/model` lists Ollama models — handy when you
+run Ollama; cloud users typically just keep the default.)
 
 ## Configuration
 
@@ -71,17 +75,19 @@ start from.
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | — | **Required.** Bot token from @BotFather. |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | — | **Required.** Comma-separated chat ids allowed to use the bot. |
-| `JAZZ_TELEGRAM_MODEL` | `qwen3.6:27b` | Default Ollama model (must be pulled). |
-| `JAZZ_REASONING` | `medium` | Default reasoning: `disable`\|`low`\|`medium`\|`high`. |
-| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434/api` | Ollama endpoint reachable from the container. |
+| `JAZZ_TELEGRAM_PROVIDER` | `openai` | LLM provider (`openai`, `ollama`, …). |
+| `JAZZ_TELEGRAM_MODEL` | `gpt-5.4` | Default model for the provider. |
+| `OPENAI_API_KEY` | — | API key for the provider (set the one yours needs). Not needed for `ollama`. |
+| `JAZZ_REASONING` | `medium` | `disable`\|`low`\|`medium`\|`high`. |
+| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`). |
 | `JAZZ_APPROVAL_POLICY` | `low-risk` | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. |
 | `JAZZ_RUN_TIMEOUT_MS` | `300000` | Per-message agent timeout. |
 | `TELEGRAM_MODE` | `polling` | `polling` or `webhook`. |
 | `PORT` | `8080` | In-container health-check port. |
 
-> **Model ↔ reasoning:** thinking-capable models (qwen3, …) work with
-> `medium`/`high`; models without a thinking capability (mistral-small, gemma, …)
-> error unless reasoning is `disable`. `/model` sets this automatically.
+> **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
+> `medium`/`high`; models without it (mistral-small, gemma, …) error unless
+> reasoning is `disable`. `/model` sets this automatically for Ollama models.
 
 ## How it works
 
@@ -92,9 +98,9 @@ jazz run --no-tui --json --agent tg_<chat_id> --conversation <chat_id> "<text>"
 ```
 
 `--conversation` gives per-chat memory; the per-chat agent file supplies the
-model/persona. Data lives in the `jazz_data` volume (`JAZZ_HOME=/data`): agents in
-`/data/agents`, transcripts in `/data/history` (keyed by chat id, **plaintext
-JSON** — treat the volume as sensitive), logs in `/data/logs`.
+provider/model/persona. Data lives in the `jazz_data` volume (`JAZZ_HOME=/data`):
+agents in `/data/agents`, transcripts in `/data/history` (keyed by chat id,
+**plaintext JSON** — treat the volume as sensitive), logs in `/data/logs`.
 
 ## Webhook mode
 
