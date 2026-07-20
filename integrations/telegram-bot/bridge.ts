@@ -71,6 +71,7 @@ interface JazzSuccessEnvelope {
   readonly ok: true;
   readonly answer: string;
   readonly costUSD: number;
+  readonly tokenUsage?: { readonly totalTokens?: number };
 }
 
 interface JazzErrorEnvelope {
@@ -351,6 +352,8 @@ interface JazzEvent {
   readonly type: string;
   readonly toolName?: string;
   readonly content?: string;
+  readonly approved?: boolean;
+  readonly task?: string;
 }
 
 /** Read a byte stream and invoke onLine for each newline-delimited line. */
@@ -384,8 +387,14 @@ async function streamLines(
  * current thinking, tools being called, and the writing phase. Edits are
  * throttled and serialized so we never spam or race Telegram's edit API.
  */
+function formatTokenCount(tokens: number): string {
+  return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
+}
+
 function createProgressReporter(config: BridgeConfig, chatId: number, messageId: number) {
   const tools: string[] = [];
+  const subagents: string[] = [];
+  const declined: string[] = [];
   let reasoning = "";
   let writing = false;
   let lastText = "";
@@ -397,6 +406,12 @@ function createProgressReporter(config: BridgeConfig, chatId: number, messageId:
     if (reasoning) lines.push(`💭 ${escapeHtml(reasoning)}`);
     for (const tool of tools.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
       lines.push(`🔧 <code>${escapeHtml(tool)}</code>`);
+    }
+    for (const task of subagents.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
+      lines.push(`🤖 ${escapeHtml(task)}`);
+    }
+    for (const tool of declined) {
+      lines.push(`⛔ <code>${escapeHtml(tool)}</code> declined (needs approval)`);
     }
     if (writing) lines.push("✍️ writing the answer…");
     return lines.join("\n");
@@ -434,6 +449,14 @@ function createProgressReporter(config: BridgeConfig, chatId: number, messageId:
         case "tool_execution_start":
           if (typeof event.toolName === "string") tools.push(event.toolName);
           break;
+        case "subagent_start":
+          subagents.push(event.task?.trim() || "sub-agent");
+          break;
+        case "approval_resolved":
+          if (event.approved === false && typeof event.toolName === "string") {
+            declined.push(event.toolName);
+          }
+          break;
         case "text_start":
         case "text_chunk":
           writing = true;
@@ -463,7 +486,7 @@ async function runJazz(
       "--no-tui",
       "--json",
       "--events",
-      "tools,reasoning,text",
+      "tools,reasoning,text,approval,subagent",
       "--agent",
       agentIdForChat(chatId),
       "--approval-policy",
@@ -538,11 +561,18 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
 
   if (envelope.ok) {
     const used = reporter?.toolsUsed() ?? [];
-    const summary =
-      used.length > 0
-        ? `✅ <b>Done</b> · ${used.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(" ")}`
-        : "✅ <b>Done</b>";
-    await reporter?.finish(summary);
+    const parts = ["✅ <b>Done</b>"];
+    if (used.length > 0) {
+      parts.push(used.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(" "));
+    }
+    const totalTokens = envelope.tokenUsage?.totalTokens;
+    if (typeof totalTokens === "number" && totalTokens > 0) {
+      parts.push(`${formatTokenCount(totalTokens)} tok`);
+    }
+    if (envelope.costUSD > 0) {
+      parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
+    }
+    await reporter?.finish(parts.join(" · "));
     await sendReply(config, chatId, envelope.answer);
   } else {
     await reporter?.finish("⚠️ <b>Failed</b>");
