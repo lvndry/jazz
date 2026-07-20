@@ -22,7 +22,7 @@ export default [
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
     files: ["**/*.{ts,tsx}"],
-    ignores: ["**/*.test.ts", "test-preload.ts", "examples/**"],
+    ignores: ["**/*.test.ts", "test-preload.ts", "examples/**", "scripts/**"],
   })),
   prettierConfig,
   nodePlugin.configs["flat/recommended-script"],
@@ -35,7 +35,7 @@ export default [
   },
   {
     files: ["**/*.{ts,tsx}"],
-    ignores: ["**/*.test.ts", "test-preload.ts", "examples/**"],
+    ignores: ["**/*.test.ts", "test-preload.ts", "examples/**", "scripts/**"],
     languageOptions: {
       parserOptions: {
         project: ["./tsconfig.json", "./tsconfig.build.json"],
