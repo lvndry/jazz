@@ -319,6 +319,130 @@ function newRunToken(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// --- Reminders ------------------------------------------------------------
+
+interface Reminder {
+  id: string;
+  chatId: number;
+  fireAt: number;
+  text: string;
+  createdAt: number;
+}
+
+const REMINDER_SWEEP_MS = 20_000;
+let reminderSweepRunning = false;
+
+function remindersPath(config: BridgeConfig): string {
+  return join(config.jazzHome, "tg-reminders.json");
+}
+
+function readReminders(config: BridgeConfig): Reminder[] {
+  try {
+    const path = remindersPath(config);
+    if (!existsSync(path)) return [];
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (Array.isArray(parsed)) return parsed as Reminder[];
+  } catch {
+    // ignore — treat as empty
+  }
+  return [];
+}
+
+function writeReminders(config: BridgeConfig, reminders: Reminder[]): void {
+  try {
+    writeFileSync(remindersPath(config), `${JSON.stringify(reminders, null, 2)}\n`);
+  } catch (error) {
+    console.error(`Failed to write reminders: ${String(error)}`);
+  }
+}
+
+function addReminder(config: BridgeConfig, chatId: number, fireAt: number, text: string): void {
+  const reminders = readReminders(config);
+  reminders.push({ id: newRunToken(), chatId, fireAt, text, createdAt: Date.now() });
+  writeReminders(config, reminders);
+}
+
+function cancelReminder(config: BridgeConfig, chatId: number, id: string): boolean {
+  const reminders = readReminders(config);
+  const remaining = reminders.filter(
+    (reminder) => !(reminder.id === id && reminder.chatId === chatId),
+  );
+  if (remaining.length === reminders.length) return false;
+  writeReminders(config, remaining);
+  return true;
+}
+
+const DURATION_UNIT_MS: Record<string, number> = {
+  s: 1_000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+};
+
+/**
+ * Parse a "when" spec into an absolute epoch-ms, or null if unparseable.
+ * Supports relative durations (30m, 2h, 1h30m, 90s, 1d), a 24h clock time
+ * (HH:MM → next occurrence), and "tomorrow HH:MM". Clock times use the
+ * container's timezone — set TZ in .env to your own.
+ */
+function parseWhen(spec: string, now: number): number | null {
+  const trimmed = spec.trim().toLowerCase();
+
+  const tomorrow = /^tomorrow\s+(\d{1,2}):(\d{2})$/.exec(trimmed);
+  const clock = tomorrow ?? /^(\d{1,2}):(\d{2})$/.exec(trimmed);
+  if (clock) {
+    const hours = Number(clock[1]);
+    const minutes = Number(clock[2]);
+    if (hours > 23 || minutes > 59) return null;
+    const when = new Date(now);
+    if (tomorrow) when.setDate(when.getDate() + 1);
+    when.setHours(hours, minutes, 0, 0);
+    if (!tomorrow && when.getTime() <= now) when.setDate(when.getDate() + 1);
+    return when.getTime();
+  }
+
+  let totalMs = 0;
+  for (const match of trimmed.matchAll(/(\d+)\s*([smhd])/g)) {
+    totalMs += Number(match[1]) * (DURATION_UNIT_MS[match[2] ?? ""] ?? 0);
+  }
+  const leftover = trimmed.replace(/(\d+)\s*([smhd])/g, "").trim();
+  if (totalMs > 0 && leftover === "") return now + totalMs;
+
+  return null;
+}
+
+async function fireDueReminders(config: BridgeConfig): Promise<void> {
+  if (reminderSweepRunning) return;
+  reminderSweepRunning = true;
+  try {
+    const now = Date.now();
+    const reminders = readReminders(config);
+    const due = reminders.filter((reminder) => reminder.fireAt <= now);
+    if (due.length === 0) return;
+    // Remove first so a delivery failure can't loop-fire the same reminder.
+    writeReminders(
+      config,
+      reminders.filter((reminder) => reminder.fireAt > now),
+    );
+    for (const reminder of due) {
+      const late = now - reminder.fireAt > 90_000 ? " (delayed)" : "";
+      await sendReply(config, reminder.chatId, `⏰ <b>Reminder</b>${late}\n${reminder.text}`);
+    }
+  } finally {
+    reminderSweepRunning = false;
+  }
+}
+
+function startReminderSweep(config: BridgeConfig): void {
+  const sweep = (): void => {
+    void fireDueReminders(config).catch((error) =>
+      console.error(`Reminder sweep failed: ${String(error)}`),
+    );
+  };
+  sweep(); // deliver anything that came due while the bridge was down
+  setInterval(sweep, REMINDER_SWEEP_MS);
+}
+
 // --- Ollama model discovery -----------------------------------------------
 
 async function listOllamaModels(config: BridgeConfig): Promise<string[]> {
@@ -800,6 +924,8 @@ const HELP_TEXT = [
   "/model — pick which Ollama model I use (just for you)",
   "/persona — pick my persona / style",
   "/new — start a fresh conversation (clears earlier context)",
+  "/remind <when> <text> — e.g. /remind 30m take pizza out",
+  "/reminders — list & cancel your reminders",
   "/status — model, today's usage, uptime",
   "/help — show this",
 ].join("\n");
@@ -815,8 +941,88 @@ function keyboardFrom(options: string[], current: string, prefix: string): Inlin
   ]);
 }
 
-async function handleCommand(config: BridgeConfig, chatId: number, command: string): Promise<void> {
+async function handleRemind(config: BridgeConfig, chatId: number, args: string): Promise<void> {
+  const usage =
+    "Usage: <code>/remind &lt;when&gt; &lt;text&gt;</code>\n" +
+    "Examples: <code>/remind 30m take pizza out</code>, <code>/remind 1h30m stretch</code>, " +
+    "<code>/remind 18:00 standup</code>, <code>/remind tomorrow 09:00 gym</code>";
+  const words = args.split(/\s+/).filter((word) => word.length > 0);
+  if (words.length === 0) {
+    await sendReply(config, chatId, usage);
+    return;
+  }
+
+  const now = Date.now();
+  let fireAt: number | null = null;
+  let text = "";
+  if (words.length >= 2 && words[0]?.toLowerCase() === "tomorrow") {
+    fireAt = parseWhen(`tomorrow ${words[1]}`, now);
+    if (fireAt !== null) text = words.slice(2).join(" ");
+  }
+  if (fireAt === null) {
+    fireAt = parseWhen(words[0] ?? "", now);
+    if (fireAt !== null) text = words.slice(1).join(" ");
+  }
+
+  if (fireAt === null) {
+    await sendReply(config, chatId, `I couldn't read the time.\n${usage}`);
+    return;
+  }
+  if (text.trim().length === 0) {
+    await sendReply(
+      config,
+      chatId,
+      "What should I remind you about? e.g. <code>/remind 30m call the plumber</code>",
+    );
+    return;
+  }
+
+  addReminder(config, chatId, fireAt, text.trim());
+  await sendReply(
+    config,
+    chatId,
+    `⏰ Reminder set — in ${formatUptime(fireAt - now)}.\n“${escapeHtml(text.trim())}”`,
+  );
+}
+
+async function handleCommand(
+  config: BridgeConfig,
+  chatId: number,
+  command: string,
+  args: string,
+): Promise<void> {
   const agent = ensureChatAgent(config, chatId);
+
+  if (command === "remind") {
+    await handleRemind(config, chatId, args);
+    return;
+  }
+
+  if (command === "reminders") {
+    const mine = readReminders(config)
+      .filter((reminder) => reminder.chatId === chatId)
+      .sort((left, right) => left.fireAt - right.fireAt);
+    if (mine.length === 0) {
+      await sendReply(
+        config,
+        chatId,
+        "No reminders set. Use <code>/remind &lt;when&gt; &lt;text&gt;</code>.",
+      );
+      return;
+    }
+    const rows = mine.map((reminder) => [
+      {
+        text: `❌ ${new Date(reminder.fireAt).toISOString().slice(5, 16).replace("T", " ")} — ${reminder.text.slice(0, 24)}`,
+        callback_data: `r:${reminder.id}`,
+      },
+    ]);
+    await callTelegram(config, "sendMessage", {
+      chat_id: chatId,
+      text: "Pending reminders (tap to cancel · times UTC):",
+      reply_markup: { inline_keyboard: rows },
+    });
+    return;
+  }
 
   if (command === "new" || command === "reset") {
     startNewConversation(config, chatId);
@@ -922,6 +1128,20 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     return;
   }
 
+  if (kind === "r") {
+    const cancelled = cancelReminder(config, chatId, indexRaw ?? "");
+    await callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text: cancelled ? "Reminder cancelled" : "Not found",
+    });
+    await callTelegram(config, "editMessageReplyMarkup", {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: { inline_keyboard: [] },
+    });
+    return;
+  }
+
   const index = Number.parseInt(indexRaw ?? "", 10);
   const agent = ensureChatAgent(config, chatId);
   let confirmation: string;
@@ -986,9 +1206,11 @@ interface TelegramUpdate {
   readonly callback_query?: CallbackQuery;
 }
 
-function parseCommand(text: string): string | undefined {
-  const match = /^\/([A-Za-z0-9_]+)(?:@\S+)?/.exec(text.trim());
-  return match?.[1]?.toLowerCase();
+function parseCommand(text: string): { command: string; args: string } | undefined {
+  const match = /^\/([A-Za-z0-9_]+)(?:@\S+)?\s*([\s\S]*)$/.exec(text.trim());
+  const command = match?.[1];
+  if (command === undefined) return undefined;
+  return { command: command.toLowerCase(), args: (match?.[2] ?? "").trim() };
 }
 
 function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefined): void {
@@ -1002,10 +1224,10 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
     return;
   }
 
-  const command = parseCommand(text);
+  const parsed = parseCommand(text);
   const work =
-    command !== undefined
-      ? handleCommand(config, chatId, command)
+    parsed !== undefined
+      ? handleCommand(config, chatId, parsed.command, parsed.args)
       : handleMessage(config, chatId, text);
   work.catch((error) => {
     console.error(`Handling failed for chat ${chatId}: ${String(error)}`);
@@ -1114,6 +1336,7 @@ async function pollLoop(config: BridgeConfig): Promise<void> {
 async function start(): Promise<void> {
   const config = loadConfig();
   startHealthServer(config);
+  startReminderSweep(config);
   console.log(
     `Telegram → Jazz bridge started (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}")`,
   );
