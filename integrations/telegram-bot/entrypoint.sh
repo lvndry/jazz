@@ -12,6 +12,11 @@ AGENT_TEMPLATE="/app/integrations/telegram-bot/agent.telegram.json"
 
 mkdir -p "${JAZZ_HOME}/agents"
 
+# Enable streaming so `jazz run --events` actually emits live-progress events.
+# Without this, non-TTY runs (like this bridge) fall back to batch mode and
+# emit nothing, and the progress bubble would never update.
+printf '{"output":{"streaming":{"enabled":true}}}\n' > "${JAZZ_HOME}/config.json"
+
 # Seed / refresh the template agent that per-chat agents are cloned from.
 sed -e "s#__JAZZ_PROVIDER__#${JAZZ_TELEGRAM_PROVIDER}#g" \
     -e "s#__JAZZ_MODEL__#${JAZZ_TELEGRAM_MODEL}#g" \
