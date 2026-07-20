@@ -184,6 +184,38 @@ function ensureChatAgent(config: BridgeConfig, chatId: number): AgentFile {
   return template;
 }
 
+// --- Per-chat conversation sessions ---------------------------------------
+// A DM has one chat id, so history would grow forever. A per-chat "epoch"
+// lets /new rotate to a fresh conversation key (a breakpoint) while the chat's
+// agent — and thus its model/persona — stays put. Old segments remain on disk.
+
+function sessionsPath(config: BridgeConfig): string {
+  return join(config.jazzHome, "tg-sessions.json");
+}
+
+function readSessionEpochs(config: BridgeConfig): Record<string, number> {
+  try {
+    const path = sessionsPath(config);
+    if (!existsSync(path)) return {};
+    return JSON.parse(readFileSync(path, "utf8")) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
+/** Conversation key for the chat's current session (epoch 0 keeps the raw id). */
+function conversationKey(config: BridgeConfig, chatId: number): string {
+  const epoch = readSessionEpochs(config)[String(chatId)] ?? 0;
+  return epoch > 0 ? `${chatId}-${epoch}` : String(chatId);
+}
+
+/** Bump the chat's session epoch so the next run starts a fresh conversation. */
+function startNewConversation(config: BridgeConfig, chatId: number): void {
+  const epochs = readSessionEpochs(config);
+  epochs[String(chatId)] = (epochs[String(chatId)] ?? 0) + 1;
+  writeFileSync(sessionsPath(config), `${JSON.stringify(epochs, null, 2)}\n`);
+}
+
 // --- Ollama model discovery -----------------------------------------------
 
 async function listOllamaModels(config: BridgeConfig): Promise<string[]> {
@@ -492,7 +524,7 @@ async function runJazz(
       "--approval-policy",
       config.approvalPolicy,
       "--conversation",
-      String(chatId),
+      conversationKey(config, chatId),
       "--timeout",
       String(config.runTimeoutMs),
       prompt,
@@ -588,6 +620,7 @@ const HELP_TEXT = [
   "Commands:",
   "/model — pick which Ollama model I use (just for you)",
   "/persona — pick my persona / style",
+  "/new — start a fresh conversation (clears earlier context)",
   "/help — show this",
 ].join("\n");
 
@@ -604,6 +637,16 @@ function keyboardFrom(options: string[], current: string, prefix: string): Inlin
 
 async function handleCommand(config: BridgeConfig, chatId: number, command: string): Promise<void> {
   const agent = ensureChatAgent(config, chatId);
+
+  if (command === "new" || command === "reset") {
+    startNewConversation(config, chatId);
+    await sendReply(
+      config,
+      chatId,
+      "🆕 Fresh conversation — I've cleared the earlier context. Your model and persona stay the same.",
+    );
+    return;
+  }
 
   if (command === "model") {
     const models = await listOllamaModels(config);

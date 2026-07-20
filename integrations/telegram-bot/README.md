@@ -62,6 +62,7 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | _(any message)_ | Answered by your agent |
 | `/model` | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model) |
 | `/persona` | Inline keyboard of available personas |
+| `/new` (`/reset`) | Start a fresh conversation — clears earlier context; keeps your model/persona |
 | `/help` | Usage |
 
 Each Telegram user gets an independent agent (`tg_<chat_id>.json`, cloned from the
