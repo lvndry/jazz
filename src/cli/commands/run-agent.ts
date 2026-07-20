@@ -107,6 +107,11 @@ export interface RunAgentOnceOptions {
   readonly maxIterations?: number | undefined;
   readonly eventTypes?: ReadonlySet<StreamEvent["type"]> | undefined;
   /**
+   * Force streaming on/off. Streaming auto-disables for non-TTY stdout, which
+   * suppresses `--events`; setting this true re-enables it for scripts/webhooks.
+   */
+  readonly stream?: boolean | undefined;
+  /**
    * Caller-supplied stable conversation key (e.g. a Telegram chat id). When
    * set, prior history for this conversation is loaded before the run and the
    * updated transcript is saved back after — giving stateless webhook bridges
@@ -305,6 +310,7 @@ export function runAgentOnceCommand(
       ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
+      ...(options.stream !== undefined ? { stream: options.stream } : {}),
     });
 
     const runResult = yield* options.timeoutMs != null
