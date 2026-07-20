@@ -83,7 +83,11 @@ export type StreamEvent =
     }
 
   // Usage updates (optional, for real-time token tracking)
-  | { type: "usage_update"; usage: TokenUsage };
+  | { type: "usage_update"; usage: TokenUsage }
+
+  // Tool approval flow (headless consumers can surface gated/declined tools)
+  | { type: "approval_required"; toolName: string; riskLevel?: string; autoApprovePolicy?: string }
+  | { type: "approval_resolved"; toolName: string; approved: boolean; auto: boolean };
 
 export interface StreamingResult {
   readonly stream: Stream.Stream<StreamEvent, LLMError>;
