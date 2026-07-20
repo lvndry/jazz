@@ -10,6 +10,7 @@ import type { ChatMessage, ConversationMessages } from "@/core/types";
 import type { ChatCompletionResponse } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
+import type { StreamEvent } from "@/core/types/streaming";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { AgentLoopObserver } from "./agent-loop-observer";
@@ -310,6 +311,7 @@ function handleToolPhase(
       state.recentToolCalls.length = 0;
     }
 
+    const toolRenderer = strategy.getRenderer();
     const contextWithTokenStats = {
       ...context,
       tokenStats: {
@@ -328,13 +330,18 @@ function handleToolPhase(
       recordChildCost: (costUSD: number) => {
         runMetrics.childCostUSD += costUSD;
       },
+      // Let tools surface live progress (e.g. spawn_subagent lifecycle) through
+      // the same event stream, when a streaming renderer is present.
+      ...(toolRenderer
+        ? { emitEvent: (event: StreamEvent) => toolRenderer.handleEvent(event) }
+        : {}),
     };
 
     const toolResults = yield* ToolExecutor.executeToolCalls(
       toolCalls,
       contextWithTokenStats,
       displayConfig,
-      strategy.getRenderer(),
+      toolRenderer,
       runMetrics,
       agent.id,
       actualConversationId,

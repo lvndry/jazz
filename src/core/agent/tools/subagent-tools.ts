@@ -142,6 +142,14 @@ Rules:
 TASK:
 ${args.task}`;
 
+          if (context.emitEvent) {
+            yield* context.emitEvent({
+              type: "subagent_start",
+              task: taskPreview,
+              agentName: subagentLabel,
+            });
+          }
+
           const response = yield* AgentRunner.runRecursive({
             agent: subAgent,
             userInput: wrappedTask,
@@ -181,6 +189,10 @@ ${args.task}`;
                   durationMs: Date.now() - startedAt,
                 }),
               ),
+            ),
+            // Bracket the sub-run for --events consumers, whatever the outcome.
+            Effect.ensuring(
+              context.emitEvent ? context.emitEvent({ type: "subagent_complete" }) : Effect.void,
             ),
           );
 

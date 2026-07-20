@@ -163,6 +163,7 @@ const EVENT_CATEGORY_TYPES = {
   text: ["text_start", "text_chunk"],
   usage: ["stream_start", "usage_update", "complete"],
   approval: ["approval_required", "approval_resolved"],
+  subagent: ["subagent_start", "subagent_complete"],
 } as const satisfies Record<string, readonly StreamEvent["type"][]>;
 
 type EventCategory = keyof typeof EVENT_CATEGORY_TYPES;
@@ -197,7 +198,7 @@ export function parseEventCategories(
     if (!isEventCategory(category)) {
       return {
         ok: false,
-        error: `Invalid --events category "${category}". Expected: tools, reasoning, text, usage, approval, all.`,
+        error: `Invalid --events category "${category}". Expected: tools, reasoning, text, usage, approval, subagent, all.`,
       };
     }
     for (const eventType of EVENT_CATEGORY_TYPES[category]) {

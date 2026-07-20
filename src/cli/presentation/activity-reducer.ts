@@ -476,6 +476,8 @@ export function reduceEvent(
     case "usage_update":
     case "approval_required":
     case "approval_resolved":
+    case "subagent_start":
+    case "subagent_complete":
       return { activity: null, outputs };
 
     // ---- Error ----------------------------------------------------------

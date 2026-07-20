@@ -87,7 +87,11 @@ export type StreamEvent =
 
   // Tool approval flow (headless consumers can surface gated/declined tools)
   | { type: "approval_required"; toolName: string; riskLevel?: string; autoApprovePolicy?: string }
-  | { type: "approval_resolved"; toolName: string; approved: boolean; auto: boolean };
+  | { type: "approval_resolved"; toolName: string; approved: boolean; auto: boolean }
+
+  // Sub-agent lifecycle (delegated spawn_subagent runs)
+  | { type: "subagent_start"; task?: string; agentName?: string }
+  | { type: "subagent_complete" };
 
 export interface StreamingResult {
   readonly stream: Stream.Stream<StreamEvent, LLMError>;
