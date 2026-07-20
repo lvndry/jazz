@@ -63,7 +63,12 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | `/model` | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model) |
 | `/persona` | Inline keyboard of available personas |
 | `/new` (`/reset`) | Start a fresh conversation — clears earlier context; keeps your model/persona |
+| `/status` | Current model, today's runs/tokens/cost, daily cap, uptime |
 | `/help` | Usage |
+
+While a message is processing, the progress bubble carries a **⏹ Cancel** button
+that kills the run; each answer offers **🔍 Go deeper** / **✂️ Shorter** follow-ups.
+Set `JAZZ_DAILY_COST_CAP_USD` to cap total spend per day (0 = no cap).
 
 Each Telegram user gets an independent agent (`tg_<chat_id>.json`, cloned from the
 `telegram` template on first contact), so `/model` and `/persona` change only *your*
