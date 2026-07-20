@@ -244,7 +244,12 @@ function listPersonas(config: BridgeConfig): string[] {
 // --- Markdown → Telegram HTML --------------------------------------------
 
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 /**
@@ -257,6 +262,11 @@ function escapeHtml(text: string): string {
 function markdownToTelegramHtml(markdown: string): string {
   const codeBlocks: string[] = [];
   const inlineCodes: string[] = [];
+  // Per-call random token in the placeholders so they can't collide with
+  // anything the user actually typed.
+  const token = Math.random().toString(36).slice(2);
+  const placeholder = (kind: string, index: number): string => ` ${kind}_${token}_${index} `;
+  const restoreRegex = (kind: string): RegExp => new RegExp(` ${kind}_${token}_(\\d+) `, "g");
 
   let text = markdown.replace(
     /```[ \t]*([\w+-]*)\n?([\s\S]*?)```/g,
@@ -265,13 +275,13 @@ function markdownToTelegramHtml(markdown: string): string {
       codeBlocks.push(
         `<pre><code${languageClass}>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`,
       );
-      return ` CB${codeBlocks.length - 1} `;
+      return placeholder("CB", codeBlocks.length - 1);
     },
   );
 
   text = text.replace(/`([^`\n]+)`/g, (_match, code: string) => {
     inlineCodes.push(`<code>${escapeHtml(code)}</code>`);
-    return ` IC${inlineCodes.length - 1} `;
+    return placeholder("IC", inlineCodes.length - 1);
   });
 
   text = escapeHtml(text);
@@ -285,8 +295,14 @@ function markdownToTelegramHtml(markdown: string): string {
     (_match, label: string, url: string) => `<a href="${url}">${label}</a>`,
   );
 
-  text = text.replace(/ IC(\d+) /g, (_match, index: string) => inlineCodes[Number(index)] ?? "");
-  text = text.replace(/ CB(\d+) /g, (_match, index: string) => codeBlocks[Number(index)] ?? "");
+  text = text.replace(
+    restoreRegex("IC"),
+    (_match, index: string) => inlineCodes[Number(index)] ?? "",
+  );
+  text = text.replace(
+    restoreRegex("CB"),
+    (_match, index: string) => codeBlocks[Number(index)] ?? "",
+  );
   return text;
 }
 
@@ -548,7 +564,11 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
       : handleMessage(config, chatId, text);
   work.catch((error) => {
     console.error(`Handling failed for chat ${chatId}: ${String(error)}`);
-    void sendReply(config, chatId, "⚠️ Something went wrong handling your message.");
+    // Guard the notification itself so a failed reply can't become an
+    // unhandled rejection.
+    void sendReply(config, chatId, "⚠️ Something went wrong handling your message.").catch(
+      (replyError) => console.error(`Failed to notify chat ${chatId}: ${String(replyError)}`),
+    );
   });
 }
 
@@ -627,7 +647,13 @@ async function pollLoop(config: BridgeConfig): Promise<void> {
         allowed_updates: ALLOWED_UPDATES,
       })) as { ok?: boolean; result?: TelegramUpdate[] } | undefined;
 
-      for (const update of response?.result ?? []) {
+      if (response?.ok !== true) {
+        // Fall into the catch so we back off instead of tight-looping on a
+        // persistent failure (bad token, 409 conflict, rate limit, …).
+        throw new Error("getUpdates returned a non-ok response");
+      }
+
+      for (const update of response.result ?? []) {
         if (typeof update.update_id === "number") {
           offset = update.update_id + 1;
         }
