@@ -724,6 +724,20 @@ function formatTokenCount(tokens: number): string {
   return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
 }
 
+/**
+ * Show the latest slice of a streaming thought. Short thoughts render whole;
+ * longer ones show the tail from a word boundary with a leading ellipsis, so
+ * the line reads as a continuation rather than a chopped-off first word.
+ */
+function reasoningSnippet(reasoning: string): string {
+  const normalized = reasoning.replace(/\s+/g, " ").trim();
+  if (normalized.length <= PROGRESS_REASONING_CHARS) return normalized;
+  let tail = normalized.slice(-PROGRESS_REASONING_CHARS).trimStart();
+  const firstSpace = tail.indexOf(" ");
+  if (firstSpace > 0 && firstSpace < 40) tail = tail.slice(firstSpace + 1);
+  return `… ${tail}`;
+}
+
 function createProgressReporter(
   config: BridgeConfig,
   chatId: number,
@@ -741,7 +755,8 @@ function createProgressReporter(
 
   const render = (): string => {
     const lines = ["🤔 <b>Working…</b>"];
-    if (reasoning) lines.push(`💭 ${escapeHtml(reasoning)}`);
+    const thought = reasoningSnippet(reasoning);
+    if (thought) lines.push(`💭 ${escapeHtml(thought)}`);
     for (const tool of tools.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
       lines.push(`🔧 <code>${escapeHtml(tool)}</code>`);
     }
@@ -778,12 +793,9 @@ function createProgressReporter(
     onEvent(event: JazzEvent): void {
       switch (event.type) {
         case "thinking_chunk":
-          if (typeof event.content === "string") {
-            reasoning = (reasoning + event.content)
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(-PROGRESS_REASONING_CHARS);
-          }
+          // Accumulate raw so a lone-space chunk isn't trimmed away (which would
+          // glue the surrounding words); normalization happens at render time.
+          if (typeof event.content === "string") reasoning += event.content;
           break;
         case "tool_execution_start":
           if (typeof event.toolName === "string") tools.push(event.toolName);
