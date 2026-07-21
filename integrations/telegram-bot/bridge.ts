@@ -61,6 +61,8 @@ interface BridgeConfig {
   readonly port: number;
   /** Per-day spend ceiling in USD across all chats; 0 disables the cap. */
   readonly dailyCostCapUsd: number;
+  /** Reverse-geocoder base URL for shared locations; empty string disables it. */
+  readonly geocodeUrl: string;
 }
 
 interface AgentConfig {
@@ -138,6 +140,7 @@ function loadConfig(): BridgeConfig {
     builtinPersonasDir: process.env["JAZZ_BUILTIN_PERSONAS_DIR"]?.trim() || "/opt/jazz/personas",
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
+    geocodeUrl: process.env["NOMINATIM_BASE_URL"]?.trim() ?? "https://nominatim.openstreetmap.org",
   };
 }
 
@@ -441,6 +444,50 @@ function startReminderSweep(config: BridgeConfig): void {
   };
   sweep(); // deliver anything that came due while the bridge was down
   setInterval(sweep, REMINDER_SWEEP_MS);
+}
+
+// --- Location -------------------------------------------------------------
+
+/** Reverse-geocode coordinates to a human address, or null on failure/disabled. */
+async function reverseGeocode(
+  config: BridgeConfig,
+  latitude: number,
+  longitude: number,
+): Promise<string | null> {
+  if (config.geocodeUrl.length === 0) return null;
+  try {
+    const base = config.geocodeUrl.replace(/\/$/, "");
+    const url = `${base}/reverse?format=jsonv2&zoom=18&addressdetails=0&lat=${latitude}&lon=${longitude}`;
+    const response = await fetch(url, {
+      headers: { "user-agent": "jazz-telegram-bot/1.0 (+https://github.com/lvndry/jazz)" },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { display_name?: string };
+    return typeof data.display_name === "string" ? data.display_name : null;
+  } catch (error) {
+    console.error(`Reverse geocode failed: ${String(error)}`);
+    return null;
+  }
+}
+
+/** Turn a shared location into a prompt and run it through the normal pipeline. */
+async function handleLocation(
+  config: BridgeConfig,
+  chatId: number,
+  latitude: number,
+  longitude: number,
+): Promise<void> {
+  const address = await reverseGeocode(config, latitude, longitude);
+  const mapLink = `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=17/${latitude}/${longitude}`;
+  const prompt =
+    "[The user shared their current location.]\n" +
+    `Coordinates: latitude ${latitude}, longitude ${longitude}\n` +
+    (address ? `Approximate address (reverse-geocoded): ${address}\n` : "") +
+    `Map: ${mapLink}\n\n` +
+    "Tell me briefly where this is (neighborhood and a nearby landmark), then ask what I need — " +
+    "directions to a place, the nearest something, etc. Use web search for anything nearby or for routing.";
+  await handleMessage(config, chatId, prompt);
 }
 
 // --- Ollama model discovery -----------------------------------------------
@@ -928,6 +975,8 @@ const HELP_TEXT = [
   "/reminders — list & cancel your reminders",
   "/status — model, today's usage, uptime",
   "/help — show this",
+  "",
+  "📍 Share your location (📎 → Location) and I'll tell you where you are and find nearby places.",
 ].join("\n");
 
 interface InlineButton {
@@ -1198,6 +1247,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 interface TelegramMessage {
   readonly chat?: { readonly id?: number };
   readonly text?: string;
+  readonly location?: { readonly latitude?: number; readonly longitude?: number };
 }
 
 interface TelegramUpdate {
@@ -1215,20 +1265,35 @@ function parseCommand(text: string): { command: string; args: string } | undefin
 
 function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefined): void {
   const chatId = message?.chat?.id;
-  const text = message?.text?.trim();
-  if (typeof chatId !== "number" || typeof text !== "string" || text.length === 0) {
-    return;
-  }
+  if (typeof chatId !== "number") return;
   if (!config.allowedChatIds.has(chatId)) {
     console.warn(`Ignoring message from non-allowed chat ${chatId}`);
     return;
   }
 
-  const parsed = parseCommand(text);
-  const work =
-    parsed !== undefined
-      ? handleCommand(config, chatId, parsed.command, parsed.args)
-      : handleMessage(config, chatId, text);
+  const text = message?.text?.trim();
+  const latitude = message?.location?.latitude;
+  const longitude = message?.location?.longitude;
+
+  let work: Promise<void> | undefined;
+  if (typeof text === "string" && text.length > 0) {
+    const parsed = parseCommand(text);
+    work =
+      parsed !== undefined
+        ? handleCommand(config, chatId, parsed.command, parsed.args)
+        : handleMessage(config, chatId, text);
+  } else if (
+    typeof latitude === "number" &&
+    Number.isFinite(latitude) &&
+    typeof longitude === "number" &&
+    Number.isFinite(longitude)
+  ) {
+    work = handleLocation(config, chatId, latitude, longitude);
+  }
+
+  // Other message types (photo, sticker, …) aren't handled yet.
+  if (work === undefined) return;
+
   work.catch((error) => {
     console.error(`Handling failed for chat ${chatId}: ${String(error)}`);
     // Guard the notification itself so a failed reply can't become an
