@@ -1056,13 +1056,29 @@ async function jazzJson(
   }
 }
 
+const SUGGEST_AGENT_ID = "tg_suggest";
+
+/**
+ * A tool-less clone of the template agent used only to generate CTAs. Dropping
+ * the tool schemas cuts the prompt from ~11k tokens to a few hundred, so the
+ * button upgrade lands in a couple of seconds instead of ~20.
+ */
+function ensureSuggestAgent(config: BridgeConfig): void {
+  const template = readAgentFile(config, config.baseAgentId);
+  template.id = SUGGEST_AGENT_ID;
+  template.name = SUGGEST_AGENT_ID;
+  template.config.tools = [];
+  template.config.reasoningEffort = "disable";
+  writeAgentFile(config, template);
+}
+
 /** Ask the model for 2-4 contextual next-step CTAs based on the exchange. */
 async function generateSuggestions(
   config: BridgeConfig,
-  chatId: number,
   question: string,
   answer: string,
 ): Promise<Suggestion[]> {
+  ensureSuggestAgent(config);
   const metaPrompt =
     `Conversation:\nUser: ${question.slice(0, 500)}\nAssistant: ${answer.slice(0, 1200)}\n\n` +
     "Propose 2-4 useful next actions the user might tap. Reply with ONLY a JSON array — no prose, " +
@@ -1070,7 +1086,7 @@ async function generateSuggestions(
     '[{"label":"short button text, <=24 chars, may start with an emoji","prompt":"the message to ' +
     'send if tapped, written first-person as the user"}]\n' +
     'Make them specific to THIS exchange. Include one "🔍 Go deeper" style option.';
-  const envelope = await jazzJson(config, agentIdForChat(chatId), metaPrompt, [
+  const envelope = await jazzJson(config, SUGGEST_AGENT_ID, metaPrompt, [
     "--reasoning",
     "disable",
     "--max-iterations",
@@ -1078,7 +1094,7 @@ async function generateSuggestions(
     "--approval-policy",
     "read-only",
     "--timeout",
-    "90000",
+    "60000",
   ]);
   if (!envelope.ok) return [];
 
@@ -1120,7 +1136,8 @@ async function upgradeToDynamicCtas(
   answer: string,
 ): Promise<void> {
   try {
-    const items = await generateSuggestions(config, chatId, question, answer);
+    const items = await generateSuggestions(config, question, answer);
+    console.log(`[cta] chat ${chatId}: ${items.length} contextual suggestion(s)`);
     if (items.length === 0) return; // keep the static fallback already attached
     const token = storeSuggestions(items);
     await callTelegram(config, "editMessageReplyMarkup", {
