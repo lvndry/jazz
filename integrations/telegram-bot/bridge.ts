@@ -724,6 +724,19 @@ function formatTokenCount(tokens: number): string {
   return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
 }
 
+/**
+ * Show the latest slice of a streaming thought. Short thoughts render whole;
+ * longer ones show the tail from a word boundary with a leading ellipsis, so
+ * the line reads as a continuation rather than a chopped-off first word.
+ */
+function reasoningSnippet(reasoning: string): string {
+  if (reasoning.length <= PROGRESS_REASONING_CHARS) return reasoning;
+  const tail = reasoning.slice(-PROGRESS_REASONING_CHARS);
+  const firstSpace = tail.indexOf(" ");
+  const aligned = firstSpace > 0 && firstSpace < 40 ? tail.slice(firstSpace + 1) : tail;
+  return `… ${aligned}`;
+}
+
 function createProgressReporter(
   config: BridgeConfig,
   chatId: number,
@@ -741,7 +754,7 @@ function createProgressReporter(
 
   const render = (): string => {
     const lines = ["🤔 <b>Working…</b>"];
-    if (reasoning) lines.push(`💭 ${escapeHtml(reasoning)}`);
+    if (reasoning) lines.push(`💭 ${escapeHtml(reasoningSnippet(reasoning))}`);
     for (const tool of tools.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
       lines.push(`🔧 <code>${escapeHtml(tool)}</code>`);
     }
@@ -779,10 +792,8 @@ function createProgressReporter(
       switch (event.type) {
         case "thinking_chunk":
           if (typeof event.content === "string") {
-            reasoning = (reasoning + event.content)
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(-PROGRESS_REASONING_CHARS);
+            // Keep the whole thought; render truncates the tail for display.
+            reasoning = (reasoning + event.content).replace(/\s+/g, " ").trim();
           }
           break;
         case "tool_execution_start":
