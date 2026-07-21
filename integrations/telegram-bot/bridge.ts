@@ -730,11 +730,12 @@ function formatTokenCount(tokens: number): string {
  * the line reads as a continuation rather than a chopped-off first word.
  */
 function reasoningSnippet(reasoning: string): string {
-  if (reasoning.length <= PROGRESS_REASONING_CHARS) return reasoning;
-  const tail = reasoning.slice(-PROGRESS_REASONING_CHARS);
+  const normalized = reasoning.replace(/\s+/g, " ").trim();
+  if (normalized.length <= PROGRESS_REASONING_CHARS) return normalized;
+  let tail = normalized.slice(-PROGRESS_REASONING_CHARS).trimStart();
   const firstSpace = tail.indexOf(" ");
-  const aligned = firstSpace > 0 && firstSpace < 40 ? tail.slice(firstSpace + 1) : tail;
-  return `… ${aligned}`;
+  if (firstSpace > 0 && firstSpace < 40) tail = tail.slice(firstSpace + 1);
+  return `… ${tail}`;
 }
 
 function createProgressReporter(
@@ -754,7 +755,8 @@ function createProgressReporter(
 
   const render = (): string => {
     const lines = ["🤔 <b>Working…</b>"];
-    if (reasoning) lines.push(`💭 ${escapeHtml(reasoningSnippet(reasoning))}`);
+    const thought = reasoningSnippet(reasoning);
+    if (thought) lines.push(`💭 ${escapeHtml(thought)}`);
     for (const tool of tools.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
       lines.push(`🔧 <code>${escapeHtml(tool)}</code>`);
     }
@@ -791,10 +793,9 @@ function createProgressReporter(
     onEvent(event: JazzEvent): void {
       switch (event.type) {
         case "thinking_chunk":
-          if (typeof event.content === "string") {
-            // Keep the whole thought; render truncates the tail for display.
-            reasoning = (reasoning + event.content).replace(/\s+/g, " ").trim();
-          }
+          // Accumulate raw so a lone-space chunk isn't trimmed away (which would
+          // glue the surrounding words); normalization happens at render time.
+          if (typeof event.content === "string") reasoning += event.content;
           break;
         case "tool_execution_start":
           if (typeof event.toolName === "string") tools.push(event.toolName);
