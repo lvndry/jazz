@@ -22,6 +22,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -1064,6 +1065,7 @@ const SUGGEST_AGENT_ID = "tg_suggest";
  * button upgrade lands in a couple of seconds instead of ~20.
  */
 function ensureSuggestAgent(config: BridgeConfig): void {
+  if (existsSync(agentPath(config, SUGGEST_AGENT_ID))) return;
   const template = readAgentFile(config, config.baseAgentId);
   template.id = SUGGEST_AGENT_ID;
   template.name = SUGGEST_AGENT_ID;
@@ -1610,6 +1612,9 @@ async function pollLoop(config: BridgeConfig): Promise<void> {
 
 async function start(): Promise<void> {
   const config = loadConfig();
+  // Drop the cached CTA agent so it re-seeds from the current template (picks
+  // up a changed default model on redeploy); ensureSuggestAgent recreates it.
+  rmSync(agentPath(config, SUGGEST_AGENT_ID), { force: true });
   startHealthServer(config);
   startReminderSweep(config);
   console.log(
