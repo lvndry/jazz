@@ -178,6 +178,7 @@ function handleNewCommand(
   agent: CommandContext["agent"],
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
+    yield* terminal.clear();
     yield* terminal.info("Starting new conversation...");
     yield* terminal.log(fmt.item("Conversation context cleared"));
     yield* terminal.log(fmt.item("Fresh start with the agent"));
