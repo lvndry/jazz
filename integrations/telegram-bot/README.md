@@ -72,6 +72,13 @@ While a message is processing, the progress bubble carries a **⏹ Cancel** butt
 that kills the run; each answer offers **🔍 Go deeper** / **✂️ Shorter** follow-ups.
 Set `JAZZ_DAILY_COST_CAP_USD` to cap total spend per day (0 = no cap).
 
+**Location.** Share a location (📎 → Location) and the bot reverse-geocodes it
+(OpenStreetMap Nominatim) and hands the agent the coordinates + address, so you
+can ask "where am I", "nearest pharmacy", or "directions to …". The coordinates
+are stored in the conversation history (plaintext) and sent to the geocoder — set
+`NOMINATIM_BASE_URL=""` to disable reverse-geocoding (coords still passed to the
+agent), or point it at a self-hosted Nominatim.
+
 Reminders are persisted in `tg-reminders.json` and delivered by a sweep, so they
 survive restarts (a reminder due while the bridge was down fires on next start,
 marked `(delayed)`). Clock times (`18:00`, `tomorrow 09:00`) use the container's
