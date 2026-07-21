@@ -63,6 +63,8 @@ interface BridgeConfig {
   readonly dailyCostCapUsd: number;
   /** Reverse-geocoder base URL for shared locations; empty string disables it. */
   readonly geocodeUrl: string;
+  /** Generate contextual follow-up CTAs per answer (a second short LLM call). */
+  readonly dynamicCta: boolean;
 }
 
 interface AgentConfig {
@@ -141,6 +143,9 @@ function loadConfig(): BridgeConfig {
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
     geocodeUrl: process.env["NOMINATIM_BASE_URL"]?.trim() ?? "https://nominatim.openstreetmap.org",
+    dynamicCta: !["0", "false", "off"].includes(
+      process.env["JAZZ_TELEGRAM_DYNAMIC_CTA"]?.trim().toLowerCase() ?? "",
+    ),
   };
 }
 
@@ -636,13 +641,19 @@ function splitForTelegram(text: string): string[] {
   return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk.length > 0);
 }
 
+function messageIdOf(response: unknown): number | undefined {
+  const id = (response as { result?: { message_id?: number } } | undefined)?.result?.message_id;
+  return typeof id === "number" ? id : undefined;
+}
+
 async function sendReply(
   config: BridgeConfig,
   chatId: number,
   text: string,
   lastMarkup?: Record<string, unknown>,
-): Promise<void> {
+): Promise<number | undefined> {
   const chunks = splitForTelegram(text);
+  let lastMessageId: number | undefined;
   for (const [index, chunk] of chunks.entries()) {
     const markup = lastMarkup !== undefined && index === chunks.length - 1 ? lastMarkup : undefined;
     const rendered = await callTelegram(config, "sendMessage", {
@@ -652,15 +663,19 @@ async function sendReply(
       link_preview_options: { is_disabled: true },
       ...(markup ? { reply_markup: markup } : {}),
     });
-    if (!isOkResponse(rendered)) {
+    if (isOkResponse(rendered)) {
+      lastMessageId = messageIdOf(rendered) ?? lastMessageId;
+    } else {
       // Rendering was rejected (malformed entities, too long, …) — send raw text.
-      await callTelegram(config, "sendMessage", {
+      const plain = await callTelegram(config, "sendMessage", {
         chat_id: chatId,
         text: chunk,
         ...(markup ? { reply_markup: markup } : {}),
       });
+      lastMessageId = messageIdOf(plain) ?? lastMessageId;
     }
   }
+  return lastMessageId;
 }
 
 function cancelKeyboard(runToken: string): Record<string, unknown> {
@@ -956,7 +971,12 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
         parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
       }
       await reporter?.finish(parts.join(" · "));
-      await sendReply(config, chatId, envelope.answer, followupKeyboard());
+      // Send with static CTAs immediately, then (optionally) upgrade to
+      // contextual ones once a quick follow-up generation returns.
+      const answerMessageId = await sendReply(config, chatId, envelope.answer, followupKeyboard());
+      if (config.dynamicCta && answerMessageId !== undefined) {
+        void upgradeToDynamicCtas(config, chatId, answerMessageId, text, envelope.answer);
+      }
     } else {
       await reporter?.finish("⚠️ <b>Failed</b>");
       await sendReply(config, chatId, `⚠️ ${envelope.error}`);
@@ -973,6 +993,145 @@ const FOLLOWUP_PROMPTS: Record<string, string> = {
   shorter:
     "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
 };
+
+// --- Dynamic contextual CTAs ----------------------------------------------
+
+interface Suggestion {
+  label: string;
+  prompt: string;
+}
+
+const SUGGESTION_STORE_MAX = 500;
+// callback_data can't hold a full prompt (64-byte cap), so suggestions live
+// here keyed by a token; the button carries just the token + index.
+const suggestionStore = new Map<string, Suggestion[]>();
+
+function storeSuggestions(items: Suggestion[]): string {
+  const token = newRunToken();
+  suggestionStore.set(token, items);
+  while (suggestionStore.size > SUGGESTION_STORE_MAX) {
+    const oldest = suggestionStore.keys().next().value;
+    if (oldest === undefined) break;
+    suggestionStore.delete(oldest);
+  }
+  return token;
+}
+
+function suggestionKeyboard(token: string, items: Suggestion[]): Record<string, unknown> {
+  return {
+    inline_keyboard: items.map((item, index) => [
+      { text: item.label, callback_data: `s:${token}:${index}` },
+    ]),
+  };
+}
+
+/** One-shot, stateless `jazz run --json` (no progress/events/history). */
+async function jazzJson(
+  config: BridgeConfig,
+  agentId: string,
+  prompt: string,
+  extraArgs: string[],
+): Promise<JazzEnvelope> {
+  const child = Bun.spawn(
+    [config.jazzBinary, "run", "--no-tui", "--json", "--agent", agentId, ...extraArgs, prompt],
+    { stdout: "pipe", stderr: "pipe", env: { ...process.env } },
+  );
+  const timeout = setTimeout(() => child.kill(), 90_000);
+  const [stdout] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  clearTimeout(timeout);
+  const line = stdout
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.startsWith("{"))
+    .at(-1);
+  if (line === undefined) return { ok: false, error: "no output" };
+  try {
+    return JSON.parse(line) as JazzEnvelope;
+  } catch {
+    return { ok: false, error: "unparseable output" };
+  }
+}
+
+/** Ask the model for 2-4 contextual next-step CTAs based on the exchange. */
+async function generateSuggestions(
+  config: BridgeConfig,
+  chatId: number,
+  question: string,
+  answer: string,
+): Promise<Suggestion[]> {
+  const metaPrompt =
+    `Conversation:\nUser: ${question.slice(0, 500)}\nAssistant: ${answer.slice(0, 1200)}\n\n` +
+    "Propose 2-4 useful next actions the user might tap. Reply with ONLY a JSON array — no prose, " +
+    "no code fences:\n" +
+    '[{"label":"short button text, <=24 chars, may start with an emoji","prompt":"the message to ' +
+    'send if tapped, written first-person as the user"}]\n' +
+    'Make them specific to THIS exchange. Include one "🔍 Go deeper" style option.';
+  const envelope = await jazzJson(config, agentIdForChat(chatId), metaPrompt, [
+    "--reasoning",
+    "disable",
+    "--max-iterations",
+    "1",
+    "--approval-policy",
+    "read-only",
+    "--timeout",
+    "90000",
+  ]);
+  if (!envelope.ok) return [];
+
+  const match = /\[[\s\S]*\]/.exec(envelope.answer);
+  if (!match) return [];
+  try {
+    const parsed = JSON.parse(match[0]) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const items: Suggestion[] = [];
+    for (const entry of parsed) {
+      if (entry && typeof entry === "object") {
+        const record = entry as { label?: unknown; prompt?: unknown };
+        if (
+          typeof record.label === "string" &&
+          typeof record.prompt === "string" &&
+          record.label.trim().length > 0 &&
+          record.prompt.trim().length > 0
+        ) {
+          items.push({
+            label: record.label.trim().slice(0, 40),
+            prompt: record.prompt.trim().slice(0, 500),
+          });
+        }
+      }
+      if (items.length >= 4) break;
+    }
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+/** Replace the static follow-up buttons on an answer with contextual ones. */
+async function upgradeToDynamicCtas(
+  config: BridgeConfig,
+  chatId: number,
+  messageId: number,
+  question: string,
+  answer: string,
+): Promise<void> {
+  try {
+    const items = await generateSuggestions(config, chatId, question, answer);
+    if (items.length === 0) return; // keep the static fallback already attached
+    const token = storeSuggestions(items);
+    await callTelegram(config, "editMessageReplyMarkup", {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: suggestionKeyboard(token, items),
+    });
+  } catch (error) {
+    console.error(`Dynamic CTA generation failed: ${String(error)}`);
+  }
+}
 
 // --- Commands & inline keyboards ------------------------------------------
 
@@ -1155,7 +1314,29 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     return;
   }
 
-  const [kind, indexRaw] = data.split(":");
+  const parts = data.split(":");
+  const kind = parts[0];
+  const indexRaw = parts[1];
+
+  if (kind === "s") {
+    const items = suggestionStore.get(parts[1] ?? "");
+    const index = Number.parseInt(parts[2] ?? "", 10);
+    const item = items !== undefined && Number.isInteger(index) ? items[index] : undefined;
+    await callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      ...(item ? {} : { text: "That suggestion expired — just ask me directly." }),
+    });
+    if (!item) return;
+    await callTelegram(config, "editMessageReplyMarkup", {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: { inline_keyboard: [] },
+    });
+    void handleMessage(config, chatId, item.prompt).catch((error) =>
+      console.error(`Suggestion follow-up failed for chat ${chatId}: ${String(error)}`),
+    );
+    return;
+  }
 
   if (kind === "x") {
     const run = activeRuns.get(indexRaw ?? "");
