@@ -69,7 +69,12 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | `/help` | Usage |
 
 While a message is processing, the progress bubble carries a **⏹ Cancel** button
-that kills the run; each answer offers **🔍 Go deeper** / **✂️ Shorter** follow-ups.
+that kills the run. Each answer gets **contextual follow-up buttons** — a quick
+second generation proposes next steps specific to the exchange (e.g. after "where's
+the nearest pharmacy" → "🧭 Directions", "🕒 Opening hours", "🔍 Go deeper"); tapping
+one sends it as your next message. Answers appear instantly with static
+`🔍 Go deeper` / `✂️ Shorter` buttons that upgrade to the contextual set a beat
+later; set `JAZZ_TELEGRAM_DYNAMIC_CTA=0` to keep only the static ones.
 Set `JAZZ_DAILY_COST_CAP_USD` to cap total spend per day (0 = no cap).
 
 **Location.** Share a location (📎 → Location) and the bot reverse-geocodes it
