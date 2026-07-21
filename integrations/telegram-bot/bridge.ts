@@ -460,6 +460,7 @@ async function reverseGeocode(
     const url = `${base}/reverse?format=jsonv2&zoom=18&addressdetails=0&lat=${latitude}&lon=${longitude}`;
     const response = await fetch(url, {
       headers: { "user-agent": "jazz-telegram-bot/1.0 (+https://github.com/lvndry/jazz)" },
+      signal: AbortSignal.timeout(8_000),
     });
     if (!response.ok) return null;
     const data = (await response.json()) as { display_name?: string };
@@ -1271,7 +1272,8 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
   }
 
   const text = message?.text?.trim();
-  const location = message?.location;
+  const latitude = message?.location?.latitude;
+  const longitude = message?.location?.longitude;
 
   let work: Promise<void> | undefined;
   if (typeof text === "string" && text.length > 0) {
@@ -1280,8 +1282,13 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
       parsed !== undefined
         ? handleCommand(config, chatId, parsed.command, parsed.args)
         : handleMessage(config, chatId, text);
-  } else if (typeof location?.latitude === "number" && typeof location.longitude === "number") {
-    work = handleLocation(config, chatId, location.latitude, location.longitude);
+  } else if (
+    typeof latitude === "number" &&
+    Number.isFinite(latitude) &&
+    typeof longitude === "number" &&
+    Number.isFinite(longitude)
+  ) {
+    work = handleLocation(config, chatId, latitude, longitude);
   }
 
   // Other message types (photo, sticker, …) aren't handled yet.
