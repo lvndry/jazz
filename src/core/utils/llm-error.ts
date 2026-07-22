@@ -169,6 +169,68 @@ export function extractCleanErrorMessage(error: unknown): string {
 }
 
 /**
+ * Local providers Jazz talks to over a user-managed HTTP server. A connection
+ * failure against these usually means the server simply is not running.
+ */
+const LOCAL_SERVER_PROVIDERS = {
+  llamacpp: {
+    name: "llama.cpp",
+    defaultUrl: "http://localhost:8080",
+    startHint: "llama-server -m <model>.gguf --port 8080 --jinja",
+  },
+  ollama: {
+    name: "Ollama",
+    defaultUrl: "http://localhost:11434",
+    startHint: "ollama serve",
+  },
+} as const satisfies Partial<Record<ProviderName, unknown>>;
+
+/**
+ * Detect errors that mean the request never reached a server: connection
+ * refused/reset, DNS failure, or the generic `fetch failed` wrapper Node/Bun
+ * throw for those. The check walks nested causes (fetch wraps the OS error).
+ */
+export function isConnectionError(error: unknown): boolean {
+  const markers = [
+    "econnrefused",
+    "econnreset",
+    "enotfound",
+    "eai_again",
+    "fetch failed",
+    "failed to fetch",
+    "unable to connect",
+    "connection refused",
+    "connect etimedout",
+  ];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const record = current as { message?: unknown; code?: unknown; cause?: unknown };
+    const haystack = `${typeof record.message === "string" ? record.message : ""} ${
+      typeof record.code === "string" ? record.code : ""
+    }`.toLowerCase();
+    if (markers.some((marker) => haystack.includes(marker))) {
+      return true;
+    }
+    current = record.cause;
+  }
+  return false;
+}
+
+/**
+ * Actionable message for a local server that could not be reached, telling the
+ * user how to start it. Returns undefined for non-local providers.
+ */
+export function localServerUnreachableMessage(providerName: ProviderName): string | undefined {
+  if (!(providerName in LOCAL_SERVER_PROVIDERS)) {
+    return undefined;
+  }
+  const local = LOCAL_SERVER_PROVIDERS[providerName as keyof typeof LOCAL_SERVER_PROVIDERS];
+  return `Cannot reach the ${local.name} server (expected at ${local.defaultUrl}). Make sure it is running — start it with:\n  ${local.startHint}\nIf it listens elsewhere, set the base URL via 'jazz config set llm.${providerName}.base_url <url>'.`;
+}
+
+/**
  * Convert unknown error to appropriate LLMError type.
  * Handles API call errors, HTTP status codes, and error message parsing
  * to create the most appropriate LLM error type.
@@ -181,6 +243,16 @@ export function extractCleanErrorMessage(error: unknown): string {
 export function convertToLLMError(error: unknown, providerName: ProviderName): LLMError {
   // Use clean message for user-facing error (keeps terminal output readable)
   const cleanMessage = extractCleanErrorMessage(error);
+
+  // A connection failure against a local server is almost always "server not
+  // running" — surface how to start it instead of a bare "fetch failed".
+  // No statusCode keeps it retryable, so a server that comes up mid-retry recovers.
+  if (isConnectionError(error)) {
+    const localMessage = localServerUnreachableMessage(providerName);
+    if (localMessage) {
+      return new LLMRequestError({ provider: providerName, message: localMessage });
+    }
+  }
 
   if (APICallError.isInstance(error)) {
     if (error.statusCode === 401 || error.statusCode === 403) {

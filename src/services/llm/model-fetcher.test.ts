@@ -270,6 +270,20 @@ describe("ModelFetcher", () => {
     }
   });
 
+  it("returns an actionable error when the llama.cpp server is unreachable", async () => {
+    global.fetch = mock(() => Promise.reject(new Error("fetch failed"))) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("llamacpp", "http://localhost:8080/v1", "/models");
+    const result = await Effect.runPromiseExit(program);
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      const msg = String(result.cause);
+      expect(msg).toMatch(/llama-server/i);
+      expect(msg).not.toMatch(/model discovery failed/i);
+    }
+  });
+
   it("captures template and capabilities from ollama /api/show onto every ModelInfo", async () => {
     const mockTagsResponse = {
       models: [{ name: "qwen3:8b", details: { metadata: {} } }],

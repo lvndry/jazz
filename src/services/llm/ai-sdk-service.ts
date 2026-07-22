@@ -898,6 +898,36 @@ export function buildProviderOptions(
       }
       break;
     }
+    case "llamacpp": {
+      // llama.cpp exposes reasoning control through its own request-body fields,
+      // which the openai-compatible provider forwards verbatim when they are not
+      // recognized SDK options. `reasoning_budget` is the model-agnostic switch
+      // (0 stops thinking immediately, N caps the thinking token budget), and
+      // `enable_thinking` toggles the Qwen3-family chat templates that gate it.
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort === "disable") {
+        return {
+          llamacpp: {
+            reasoning_budget: 0,
+            chat_template_kwargs: { enable_thinking: false },
+          },
+        };
+      }
+      if (reasoningEffort) {
+        const budgetMap: Record<string, number> = {
+          low: 1024,
+          medium: 4096,
+          high: 16384,
+        };
+        return {
+          llamacpp: {
+            reasoning_budget: budgetMap[reasoningEffort] ?? 4096,
+            chat_template_kwargs: { enable_thinking: true },
+          },
+        };
+      }
+      break;
+    }
     case "fireworks": {
       const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {

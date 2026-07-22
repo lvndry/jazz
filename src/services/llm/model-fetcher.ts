@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@/core/constants/models";
 import type { ModelInfo } from "@/core/types";
 import { LLMConfigurationError } from "@/core/types/errors";
+import { isConnectionError, localServerUnreachableMessage } from "@/core/utils/llm-error";
 import {
   getMetadataFromMap,
   getModelsDevMap,
@@ -545,11 +546,18 @@ export function createModelFetcher(): ModelFetcherService {
           const raw = extractor(data);
           return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
         },
-        catch: (error) =>
-          new LLMConfigurationError({
+        catch: (error) => {
+          if (isConnectionError(error)) {
+            const localMessage = localServerUnreachableMessage(providerName);
+            if (localMessage) {
+              return new LLMConfigurationError({ provider: providerName, message: localMessage });
+            }
+          }
+          return new LLMConfigurationError({
             provider: providerName,
             message: `Model discovery failed: ${error instanceof Error ? error.message : String(error)}`,
-          }),
+          });
+        },
       }),
   };
 }

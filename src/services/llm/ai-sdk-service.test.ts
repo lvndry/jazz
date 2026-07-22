@@ -994,6 +994,41 @@ describe("buildProviderOptions - ollama reasoning", () => {
   });
 });
 
+describe("buildProviderOptions - llamacpp reasoning", () => {
+  function llamacppOptions(
+    reasoningEffort: ChatCompletionOptions["reasoning_effort"],
+  ): ChatCompletionOptions {
+    return {
+      model: "qwen3-8b",
+      messages: [{ role: "user", content: "hi" }],
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+    };
+  }
+
+  it("stops thinking with reasoning_budget:0 when disabled", () => {
+    const result = buildProviderOptions("llamacpp", llamacppOptions("disable"));
+    expect(result).toEqual({
+      llamacpp: { reasoning_budget: 0, chat_template_kwargs: { enable_thinking: false } },
+    });
+  });
+
+  it("maps low/medium/high to an increasing reasoning_budget", () => {
+    expect(buildProviderOptions("llamacpp", llamacppOptions("low"))).toEqual({
+      llamacpp: { reasoning_budget: 1024, chat_template_kwargs: { enable_thinking: true } },
+    });
+    expect(buildProviderOptions("llamacpp", llamacppOptions("medium"))).toEqual({
+      llamacpp: { reasoning_budget: 4096, chat_template_kwargs: { enable_thinking: true } },
+    });
+    expect(buildProviderOptions("llamacpp", llamacppOptions("high"))).toEqual({
+      llamacpp: { reasoning_budget: 16384, chat_template_kwargs: { enable_thinking: true } },
+    });
+  });
+
+  it("stays backward-compatible (no options) when no reasoning effort is set", () => {
+    expect(buildProviderOptions("llamacpp", llamacppOptions(undefined))).toBeUndefined();
+  });
+});
+
 describe("buildProviderOptions - openai reasoning round-trip", () => {
   const openaiOptions = (
     reasoningEffort: "disable" | "low" | "medium" | "high" | undefined,
