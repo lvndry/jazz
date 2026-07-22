@@ -44,6 +44,7 @@ import { Chunk, Effect, Layer, Option, Stream } from "effect";
 import { createOllama } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { minimax } from "vercel-minimax-ai-provider";
+import { createZhipu, zhipu } from "zhipu-ai-provider";
 import { z } from "zod";
 import { DEFAULT_MAX_ITERATIONS, AI_SDK_MAX_RETRIES } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
@@ -480,6 +481,7 @@ const PROVIDER_ENV_VARS: Record<string, string> = {
   openrouter: "OPENROUTER_API_KEY",
   togetherai: "TOGETHER_AI_API_KEY",
   xai: "XAI_API_KEY",
+  zhipuai: "ZHIPU_API_KEY",
 };
 
 function getConfiguredProviders(
@@ -552,6 +554,10 @@ function getConfiguredProviders(
     if (llmConfig.xai?.api_key) {
       providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
       addedProviders.add("xai");
+    }
+    if (llmConfig.zhipuai?.api_key) {
+      providers.push({ name: "zhipuai", apiKey: llmConfig.zhipuai.api_key });
+      addedProviders.add("zhipuai");
     }
   }
 
@@ -665,8 +671,6 @@ function selectModel(
       const ollamaInstance = createOllama({
         baseURL,
         headers,
-        // ollama-ai-provider-v2 drops keep_alive on the chat path, so inject it
-        // into the request body via a fetch middleware when configured.
         ...(keepAlive ? { fetch: makeOllamaKeepAliveFetch(keepAlive) } : {}),
       });
       model = ollamaInstance(modelId);
@@ -712,6 +716,11 @@ function selectModel(
       model = groq(modelId);
       break;
     }
+    case "zhipuai": {
+      const apiKey = resolveApiKey("zhipuai");
+      model = apiKey ? createZhipu({ apiKey })(modelId) : zhipu(modelId);
+      break;
+    }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
   }
@@ -721,12 +730,8 @@ function selectModel(
   return model;
 }
 
-/**
- * Wrap fetch to add Ollama's `keep_alive` to chat request bodies. The
- * ollama-ai-provider-v2 chat model builds the body as `{model, messages, think,
- * options}` and drops `keep_alive`, so we splice it in here. Only touches POST
- * requests to `/api/chat` with a JSON body, and never overrides an existing value.
- */
+// ollama-ai-provider-v2 drops keep_alive from the chat body, so splice it into
+// POST /api/chat requests here (never overriding an existing value).
 export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.fetch {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (init?.method === "POST" && typeof init.body === "string") {
@@ -849,14 +854,10 @@ export function buildProviderOptions(
       break;
     }
     case "ollama": {
-      // Thinking-capable ollama models default thinking ON when no flag is sent,
-      // which makes the ai-sdk ollama provider emit reasoning into a separate
-      // field and return empty content/no tool calls. Disabling reasoning must
-      // therefore explicitly turn thinking off.
+      // Ollama defaults thinking ON when no flag is sent, which empties content and
+      // drops tool calls, so disabling must explicitly send think:false.
       const think = !!(options.reasoning_effort && options.reasoning_effort !== "disable");
-      // num_ctx must be nested under `options` (Ollama's runtime request options).
-      // Without it Ollama caps the context to a small default and silently
-      // truncates long conversations regardless of the model's trained size.
+      // num_ctx nests under `options`; without it Ollama truncates to a small default.
       const numCtx =
         typeof options.num_ctx === "number" && options.num_ctx > 0 ? options.num_ctx : undefined;
       return {
@@ -935,6 +936,33 @@ export function buildProviderOptions(
       }
       break;
     }
+    case "llamacpp": {
+      // reasoning_budget (0 = off, N = token budget) rides through the
+      // openai-compatible provider's passthrough of unrecognized body keys.
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort === "disable") {
+        return {
+          llamacpp: {
+            reasoning_budget: 0,
+            chat_template_kwargs: { enable_thinking: false },
+          },
+        };
+      }
+      if (reasoningEffort) {
+        const budgetMap: Record<string, number> = {
+          low: 1024,
+          medium: 4096,
+          high: 16384,
+        };
+        return {
+          llamacpp: {
+            reasoning_budget: budgetMap[reasoningEffort] ?? 4096,
+            chat_template_kwargs: { enable_thinking: true },
+          },
+        };
+      }
+      break;
+    }
     case "fireworks": {
       const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
@@ -949,6 +977,20 @@ export function buildProviderOptions(
             reasoningHistory: "interleaved",
           } satisfies FireworksLanguageModelOptions,
         };
+      }
+      break;
+    }
+    case "zhipuai": {
+      // The zhipu provider spreads providerOptions.zhipu verbatim into the request
+      // body, so `thinking` is passed in the API's native snake_case shape. GLM-4.5+
+      // models toggle reasoning on/off only (no effort levels or token budget), so
+      // any non-disable effort maps to "enabled".
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort === "disable") {
+        return { zhipu: { thinking: { type: "disabled" } } };
+      }
+      if (reasoningEffort) {
+        return { zhipu: { thinking: { type: "enabled" } } };
       }
       break;
     }

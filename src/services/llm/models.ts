@@ -55,6 +55,7 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/v1/models",
     defaultBaseUrl: "https://api.together.xyz",
   },
+  zhipuai: { type: "models-dev" },
 } as const;
 
 /**

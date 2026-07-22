@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@/core/constants/models";
 import type { ModelInfo } from "@/core/types";
 import { LLMConfigurationError } from "@/core/types/errors";
+import { isConnectionError, localServerUnreachableMessage } from "@/core/utils/llm-error";
 import {
   getMetadataFromMap,
   getModelsDevMap,
@@ -444,12 +445,8 @@ async function transformOllamaModels(
   return results;
 }
 
-/**
- * llama.cpp: list from /v1/models, enrich via /props once.
- *  - contextWindow: props.default_generation_settings.n_ctx (else DEFAULT_CONTEXT_WINDOW)
- *  - supportsTools: props.chat_template_caps.supports_tools && supports_tool_calls
- *    (both required; populated by jinja::caps when llama-server runs with --jinja)
- */
+// Lists /v1/models, enriches from /props. supportsTools needs both caps flags,
+// which llama-server only populates under --jinja.
 async function transformLlamaCppModels(
   data: unknown,
   baseUrl: string,
@@ -545,11 +542,18 @@ export function createModelFetcher(): ModelFetcherService {
           const raw = extractor(data);
           return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
         },
-        catch: (error) =>
-          new LLMConfigurationError({
+        catch: (error) => {
+          if (isConnectionError(error)) {
+            const localMessage = localServerUnreachableMessage(providerName);
+            if (localMessage) {
+              return new LLMConfigurationError({ provider: providerName, message: localMessage });
+            }
+          }
+          return new LLMConfigurationError({
             provider: providerName,
             message: `Model discovery failed: ${error instanceof Error ? error.message : String(error)}`,
-          }),
+          });
+        },
       }),
   };
 }

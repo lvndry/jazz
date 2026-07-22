@@ -1,6 +1,7 @@
 import { APICallError, RetryError } from "ai";
 import { Duration, Schedule } from "effect";
 import { MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
+import { LOCAL_SERVER_PROVIDERS } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
 import {
   LLMAuthenticationError,
@@ -168,6 +169,45 @@ export function extractCleanErrorMessage(error: unknown): string {
   return errorString;
 }
 
+// Detects connection failures (refused/reset/DNS/`fetch failed`), walking nested
+// causes since fetch wraps the underlying OS error.
+export function isConnectionError(error: unknown): boolean {
+  const markers = [
+    "econnrefused",
+    "econnreset",
+    "enotfound",
+    "eai_again",
+    "fetch failed",
+    "failed to fetch",
+    "unable to connect",
+    "connection refused",
+    "connect etimedout",
+  ];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const record = current as { message?: unknown; code?: unknown; cause?: unknown };
+    const haystack = `${typeof record.message === "string" ? record.message : ""} ${
+      typeof record.code === "string" ? record.code : ""
+    }`.toLowerCase();
+    if (markers.some((marker) => haystack.includes(marker))) {
+      return true;
+    }
+    current = record.cause;
+  }
+  return false;
+}
+
+// Start-the-server guidance for local providers; undefined for everything else.
+export function localServerUnreachableMessage(providerName: ProviderName): string | undefined {
+  if (!(providerName in LOCAL_SERVER_PROVIDERS)) {
+    return undefined;
+  }
+  const local = LOCAL_SERVER_PROVIDERS[providerName as keyof typeof LOCAL_SERVER_PROVIDERS];
+  return `Cannot reach the ${local.name} server (expected at ${local.defaultUrl}). Make sure it is running — start it with:\n  ${local.startHint}\nIf it listens elsewhere, set the base URL via 'jazz config set llm.${providerName}.base_url <url>'.`;
+}
+
 /**
  * Convert unknown error to appropriate LLMError type.
  * Handles API call errors, HTTP status codes, and error message parsing
@@ -181,6 +221,14 @@ export function extractCleanErrorMessage(error: unknown): string {
 export function convertToLLMError(error: unknown, providerName: ProviderName): LLMError {
   // Use clean message for user-facing error (keeps terminal output readable)
   const cleanMessage = extractCleanErrorMessage(error);
+
+  // No statusCode keeps this retryable, so a server that starts mid-retry recovers.
+  if (isConnectionError(error)) {
+    const localMessage = localServerUnreachableMessage(providerName);
+    if (localMessage) {
+      return new LLMRequestError({ provider: providerName, message: localMessage });
+    }
+  }
 
   if (APICallError.isInstance(error)) {
     if (error.statusCode === 401 || error.statusCode === 403) {

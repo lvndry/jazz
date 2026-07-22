@@ -124,8 +124,10 @@ export function inferFamily(hint: ModelHint): ModelFamily {
   if (
     provider === "moonshotai" ||
     provider === "minimax" ||
+    provider === "zhipuai" ||
     id.includes("kimi") ||
-    id.includes("minimax")
+    id.includes("minimax") ||
+    id.includes("glm")
   ) {
     return "qwen"; // Chinese-language BPE family, ratio close to qwen
   }

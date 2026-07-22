@@ -1,7 +1,14 @@
 import { APICallError, RetryError } from "ai";
 import { describe, expect, it } from "bun:test";
 import { LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
-import { describeRetryableLLMError, extractCleanErrorMessage } from "./llm-error";
+import {
+  convertToLLMError,
+  describeRetryableLLMError,
+  extractCleanErrorMessage,
+  isConnectionError,
+  isRetryableLLMError,
+  localServerUnreachableMessage,
+} from "./llm-error";
 
 describe("extractCleanErrorMessage", () => {
   it("unwraps AI SDK RetryError to the last nested error message", () => {
@@ -19,6 +26,55 @@ describe("extractCleanErrorMessage", () => {
     expect(extractCleanErrorMessage(retryError)).toBe(
       "Cannot connect to API: Connect Timeout Error",
     );
+  });
+});
+
+describe("isConnectionError", () => {
+  it("detects a bare fetch-failed error", () => {
+    expect(isConnectionError(new Error("fetch failed"))).toBe(true);
+  });
+
+  it("detects an ECONNREFUSED code on the error", () => {
+    expect(isConnectionError(Object.assign(new Error("connect"), { code: "ECONNREFUSED" }))).toBe(
+      true,
+    );
+  });
+
+  it("walks the cause chain that fetch wraps around the OS error", () => {
+    const cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8080"), {
+      code: "ECONNREFUSED",
+    });
+    expect(isConnectionError(new Error("fetch failed", { cause }))).toBe(true);
+  });
+
+  it("does not flag an ordinary 4xx error", () => {
+    expect(isConnectionError(new Error("400 Bad Request"))).toBe(false);
+  });
+});
+
+describe("localServerUnreachableMessage", () => {
+  it("gives a llama-server start hint for llamacpp", () => {
+    const message = localServerUnreachableMessage("llamacpp");
+    expect(message).toContain("llama.cpp");
+    expect(message).toContain("llama-server");
+  });
+
+  it("returns undefined for a cloud provider", () => {
+    expect(localServerUnreachableMessage("openai")).toBeUndefined();
+  });
+});
+
+describe("convertToLLMError - local server diagnostics", () => {
+  it("turns a connection failure against llamacpp into an actionable, retryable error", () => {
+    const error = convertToLLMError(new Error("fetch failed"), "llamacpp");
+    expect(error).toBeInstanceOf(LLMRequestError);
+    expect(error.message).toContain("llama-server");
+    expect(isRetryableLLMError(error)).toBe(true);
+  });
+
+  it("leaves connection failures against cloud providers unchanged", () => {
+    const error = convertToLLMError(new Error("fetch failed"), "openai");
+    expect(error.message).not.toContain("llama-server");
   });
 });
 

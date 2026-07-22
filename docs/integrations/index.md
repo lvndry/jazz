@@ -177,6 +177,10 @@ Running on a server without internet access? See the [Airgapped & Self-Hosted gu
 
 **Capabilities**: Run any GGUF model locally via [`llama-server`](https://github.com/ggml-org/llama.cpp). Tool calling supported when `llama-server` is started with `--jinja` (see [function calling guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/function-calling.md)). Context window and tool support are auto-detected from the server's `/props` endpoint.
 
+**Reasoning**: An agent's reasoning effort is honored for reasoning models. Jazz maps it to llama.cpp's `reasoning_budget` (and `enable_thinking` for Qwen3-style templates): `disable` stops thinking (`reasoning_budget: 0`), while `low`/`medium`/`high` raise the thinking token budget. Reasoning traces are parsed from the server's `reasoning_content` field or inline `<think>` tags. This requires a recent `llama-server` with `--reasoning-budget` support.
+
+**Diagnostics**: If `llama-server` is not running, Jazz reports how to start it (with the expected URL) instead of a raw connection error.
+
 **Setup**:
 
 1. Build or install `llama-server` from the [llama.cpp repo](https://github.com/ggml-org/llama.cpp).

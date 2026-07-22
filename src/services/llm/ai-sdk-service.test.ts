@@ -1021,6 +1021,71 @@ describe("buildProviderOptions - ollama reasoning", () => {
   });
 });
 
+describe("buildProviderOptions - llamacpp reasoning", () => {
+  function llamacppOptions(
+    reasoningEffort: ChatCompletionOptions["reasoning_effort"],
+  ): ChatCompletionOptions {
+    return {
+      model: "qwen3-8b",
+      messages: [{ role: "user", content: "hi" }],
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+    };
+  }
+
+  it("stops thinking with reasoning_budget:0 when disabled", () => {
+    const result = buildProviderOptions("llamacpp", llamacppOptions("disable"));
+    expect(result).toEqual({
+      llamacpp: { reasoning_budget: 0, chat_template_kwargs: { enable_thinking: false } },
+    });
+  });
+
+  it("maps low/medium/high to an increasing reasoning_budget", () => {
+    expect(buildProviderOptions("llamacpp", llamacppOptions("low"))).toEqual({
+      llamacpp: { reasoning_budget: 1024, chat_template_kwargs: { enable_thinking: true } },
+    });
+    expect(buildProviderOptions("llamacpp", llamacppOptions("medium"))).toEqual({
+      llamacpp: { reasoning_budget: 4096, chat_template_kwargs: { enable_thinking: true } },
+    });
+    expect(buildProviderOptions("llamacpp", llamacppOptions("high"))).toEqual({
+      llamacpp: { reasoning_budget: 16384, chat_template_kwargs: { enable_thinking: true } },
+    });
+  });
+
+  it("stays backward-compatible (no options) when no reasoning effort is set", () => {
+    expect(buildProviderOptions("llamacpp", llamacppOptions(undefined))).toBeUndefined();
+  });
+});
+
+describe("buildProviderOptions - zhipuai reasoning", () => {
+  function zhipuOptions(
+    reasoningEffort: ChatCompletionOptions["reasoning_effort"],
+  ): ChatCompletionOptions {
+    return {
+      model: "glm-4.6",
+      messages: [{ role: "user", content: "hi" }],
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+    };
+  }
+
+  it("disables thinking when reasoning is disabled", () => {
+    expect(buildProviderOptions("zhipuai", zhipuOptions("disable"))).toEqual({
+      zhipu: { thinking: { type: "disabled" } },
+    });
+  });
+
+  it("enables thinking for any non-disable effort (GLM has no effort levels)", () => {
+    for (const effort of ["low", "medium", "high"] as const) {
+      expect(buildProviderOptions("zhipuai", zhipuOptions(effort))).toEqual({
+        zhipu: { thinking: { type: "enabled" } },
+      });
+    }
+  });
+
+  it("leaves options untouched when no reasoning effort is set", () => {
+    expect(buildProviderOptions("zhipuai", zhipuOptions(undefined))).toBeUndefined();
+  });
+});
+
 describe("makeOllamaKeepAliveFetch", () => {
   function capturingFetch() {
     const calls: Array<{ url: string; body: unknown }> = [];
