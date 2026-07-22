@@ -17,7 +17,7 @@ import {
 } from "@ai-sdk/moonshotai";
 import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { createProviderToolFactory } from "@ai-sdk/provider-utils";
+import { createProviderDefinedToolFactory } from "@ai-sdk/provider-utils";
 import { createTogetherAI, togetherai } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import {
@@ -430,7 +430,7 @@ function getProviderNativeWebSearchTool(
   }
 }
 
-const openrouterWebFetchTool = createProviderToolFactory<unknown, Record<string, never>>({
+const openrouterWebFetchTool = createProviderDefinedToolFactory<unknown, Record<string, never>>({
   id: "openrouter.web_fetch",
   inputSchema: z.object({ url: z.string().url().describe("The URL to fetch content from") }),
 });
@@ -671,8 +671,6 @@ function selectModel(
       const ollamaInstance = createOllama({
         baseURL,
         headers,
-        // ollama-ai-provider-v2 drops keep_alive on the chat path, so inject it
-        // into the request body via a fetch middleware when configured.
         ...(keepAlive ? { fetch: makeOllamaKeepAliveFetch(keepAlive) } : {}),
       });
       model = ollamaInstance(modelId);
@@ -732,12 +730,8 @@ function selectModel(
   return model;
 }
 
-/**
- * Wrap fetch to add Ollama's `keep_alive` to chat request bodies. The
- * ollama-ai-provider-v2 chat model builds the body as `{model, messages, think,
- * options}` and drops `keep_alive`, so we splice it in here. Only touches POST
- * requests to `/api/chat` with a JSON body, and never overrides an existing value.
- */
+// ollama-ai-provider-v2 drops keep_alive from the chat body, so splice it into
+// POST /api/chat requests here (never overriding an existing value).
 export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.fetch {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (init?.method === "POST" && typeof init.body === "string") {
@@ -860,14 +854,10 @@ export function buildProviderOptions(
       break;
     }
     case "ollama": {
-      // Thinking-capable ollama models default thinking ON when no flag is sent,
-      // which makes the ai-sdk ollama provider emit reasoning into a separate
-      // field and return empty content/no tool calls. Disabling reasoning must
-      // therefore explicitly turn thinking off.
+      // Ollama defaults thinking ON when no flag is sent, which empties content and
+      // drops tool calls, so disabling must explicitly send think:false.
       const think = !!(options.reasoning_effort && options.reasoning_effort !== "disable");
-      // num_ctx must be nested under `options` (Ollama's runtime request options).
-      // Without it Ollama caps the context to a small default and silently
-      // truncates long conversations regardless of the model's trained size.
+      // num_ctx nests under `options`; without it Ollama truncates to a small default.
       const numCtx =
         typeof options.num_ctx === "number" && options.num_ctx > 0 ? options.num_ctx : undefined;
       return {
@@ -947,11 +937,8 @@ export function buildProviderOptions(
       break;
     }
     case "llamacpp": {
-      // llama.cpp exposes reasoning control through its own request-body fields,
-      // which the openai-compatible provider forwards verbatim when they are not
-      // recognized SDK options. `reasoning_budget` is the model-agnostic switch
-      // (0 stops thinking immediately, N caps the thinking token budget), and
-      // `enable_thinking` toggles the Qwen3-family chat templates that gate it.
+      // reasoning_budget (0 = off, N = token budget) rides through the
+      // openai-compatible provider's passthrough of unrecognized body keys.
       const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort === "disable") {
         return {

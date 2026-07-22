@@ -61,11 +61,7 @@ export interface AgentConfig {
   /** Optional per-agent API key overrides by provider. Falls back to global config, then env vars. */
   readonly llmApiKeys?: Partial<Record<ProviderName, string>>;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
-  /**
-   * Ollama runtime context window (`num_ctx`) in tokens, chosen when the agent
-   * is created. Ollama otherwise truncates conversations to a small default
-   * regardless of the model's trained context. Only meaningful for Ollama agents.
-   */
+  /** Ollama context window (`num_ctx`) in tokens, chosen at agent creation. */
   readonly numCtx?: number;
   readonly temperature?: number;
   readonly tools?: readonly string[];

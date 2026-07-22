@@ -445,12 +445,8 @@ async function transformOllamaModels(
   return results;
 }
 
-/**
- * llama.cpp: list from /v1/models, enrich via /props once.
- *  - contextWindow: props.default_generation_settings.n_ctx (else DEFAULT_CONTEXT_WINDOW)
- *  - supportsTools: props.chat_template_caps.supports_tools && supports_tool_calls
- *    (both required; populated by jinja::caps when llama-server runs with --jinja)
- */
+// Lists /v1/models, enriches from /props. supportsTools needs both caps flags,
+// which llama-server only populates under --jinja.
 async function transformLlamaCppModels(
   data: unknown,
   baseUrl: string,

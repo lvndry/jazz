@@ -169,11 +169,8 @@ export function extractCleanErrorMessage(error: unknown): string {
   return errorString;
 }
 
-/**
- * Detect errors that mean the request never reached a server: connection
- * refused/reset, DNS failure, or the generic `fetch failed` wrapper Node/Bun
- * throw for those. The check walks nested causes (fetch wraps the OS error).
- */
+// Detects connection failures (refused/reset/DNS/`fetch failed`), walking nested
+// causes since fetch wraps the underlying OS error.
 export function isConnectionError(error: unknown): boolean {
   const markers = [
     "econnrefused",
@@ -202,10 +199,7 @@ export function isConnectionError(error: unknown): boolean {
   return false;
 }
 
-/**
- * Actionable message for a local server that could not be reached, telling the
- * user how to start it. Returns undefined for non-local providers.
- */
+// Start-the-server guidance for local providers; undefined for everything else.
 export function localServerUnreachableMessage(providerName: ProviderName): string | undefined {
   if (!(providerName in LOCAL_SERVER_PROVIDERS)) {
     return undefined;
@@ -228,9 +222,7 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
   // Use clean message for user-facing error (keeps terminal output readable)
   const cleanMessage = extractCleanErrorMessage(error);
 
-  // A connection failure against a local server is almost always "server not
-  // running" — surface how to start it instead of a bare "fetch failed".
-  // No statusCode keeps it retryable, so a server that comes up mid-retry recovers.
+  // No statusCode keeps this retryable, so a server that starts mid-retry recovers.
   if (isConnectionError(error)) {
     const localMessage = localServerUnreachableMessage(providerName);
     if (localMessage) {

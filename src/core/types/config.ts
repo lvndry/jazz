@@ -75,12 +75,7 @@ export interface LLMProviderConfig {
 export interface OllamaProviderConfig {
   readonly api_key?: string;
   readonly base_url?: string;
-  /**
-   * How long Ollama keeps the model loaded in memory after a request, e.g.
-   * "30m" or "-1" to keep it resident indefinitely. When set, it is sent as
-   * `keep_alive` on every Ollama chat request, avoiding model reload latency
-   * between agent turns. Unset leaves Ollama's own default (5m) in place.
-   */
+  /** Ollama `keep_alive` (e.g. "30m", "-1"); how long the model stays loaded. Unset = Ollama default. */
   readonly keep_alive?: string;
 }
 
@@ -111,7 +106,12 @@ export interface LLMConfig {
 }
 
 export type WebSearchProviderName =
-  "exa" | "parallel" | "tavily" | "brave" | "perplexity" | "linkup";
+  | "exa"
+  | "parallel"
+  | "tavily"
+  | "brave"
+  | "perplexity"
+  | "linkup";
 
 export interface WebSearchProviderConfig {
   readonly api_key: string;
