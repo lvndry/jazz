@@ -220,6 +220,46 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   /**
+   * Render a sub-agent's tool activity as compact, single-line entries in its
+   * bounded ephemeral panel. Mirrors the scrollback tool cards (a start line,
+   * then a result summary) but as plain text routed through the same buffered
+   * ephemeral path as reasoning/response, so the region's last-N-lines cap
+   * (store.appendEphemeral) crops old tool output exactly the way it crops
+   * reasoning — keeping the panel a fixed height instead of growing forever.
+   *
+   * `tools_detected` is intentionally dropped: the per-tool start lines below
+   * already convey what is running, and the badge is redundant noise in a
+   * height-limited panel. Each line is prefixed with a newline so it always
+   * begins on its own row rather than merging onto a partial reasoning line.
+   */
+  private appendToolActivityToEphemeral(
+    event: StreamEvent,
+    regionId: string,
+    completedToolName: string | undefined,
+  ): void {
+    if (event.type === "tool_execution_start") {
+      const args = formatToolArguments(
+        event.toolName,
+        event.arguments,
+        event.metadata !== undefined ? { metadata: event.metadata } : undefined,
+      );
+      const line = `${event.toolName}${args.length > 0 ? ` ${args}` : ""}`;
+      this.bufferStreamDelta({ target: "ephemeral", regionId, delta: `\n${line}` });
+      return;
+    }
+    if (event.type === "tool_execution_complete") {
+      const summary =
+        event.summary?.trim() ||
+        (completedToolName ? formatToolResult(completedToolName, event.result) : "") ||
+        completedToolName ||
+        "Tool";
+      const firstLine = summary.split("\n")[0] ?? summary;
+      const line = `${getGlyphs().success} ${firstLine} (${event.durationMs}ms)`;
+      this.bufferStreamDelta({ target: "ephemeral", regionId, delta: `\n${line}` });
+    }
+  }
+
+  /**
    * Schedule a flush. The handler checks the open-structure heuristic before
    * flushing: if we're mid-table or mid-code-fence (and within the adaptive
    * wait cap), reschedule for another `textBufferMs` window so partial
@@ -486,19 +526,39 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "tool_execution_start" && !event.longRunning) {
         this.setupToolTimeout(event.toolCallId, event.toolName);
       }
+      // Capture the tool name from the accumulator before the reducer clears
+      // it on completion — the sub-agent panel line needs it to format the
+      // result summary.
+      const completedToolName =
+        event.type === "tool_execution_complete"
+          ? this.acc.activeTools.get(event.toolCallId)?.toolName
+          : undefined;
       if (event.type === "tool_execution_complete") {
         this.clearToolTimeout(event.toolCallId);
-        this.storeExpandableDiff(
-          this.acc.activeTools.get(event.toolCallId)?.toolName,
-          event.result,
-        );
+        this.storeExpandableDiff(completedToolName, event.result);
       }
 
       // Run the pure reducer for activity state + Static side-effects.
       const result = reduceEvent(this.acc, event, ink);
 
-      for (const entry of result.outputs) {
-        store.printOutput(entry);
+      // Sub-agent runs stream into a bounded ephemeral panel. Their tool
+      // activity must share that capped height with their reasoning/response
+      // (both already routed to the region) instead of accumulating unbounded
+      // in the global scrollback — so route tool events into the region as
+      // compact lines and drop the scrollback cards. Non-tool outputs (errors,
+      // headers) still go to scrollback so failures aren't cropped away.
+      const isSubagentToolEvent =
+        this.streamTarget.kind === "ephemeral" &&
+        (event.type === "tools_detected" ||
+          event.type === "tool_execution_start" ||
+          event.type === "tool_execution_complete");
+
+      if (isSubagentToolEvent && this.streamTarget.kind === "ephemeral") {
+        this.appendToolActivityToEphemeral(event, this.streamTarget.regionId, completedToolName);
+      } else {
+        for (const entry of result.outputs) {
+          store.printOutput(entry);
+        }
       }
 
       if (event.type === "text_start") {

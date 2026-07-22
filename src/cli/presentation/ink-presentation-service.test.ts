@@ -517,6 +517,66 @@ describe("InkStreamingRenderer", () => {
     });
   });
 
+  describe("sub-agent tool routing", () => {
+    test("routes sub-agent tool activity into its ephemeral panel, not scrollback", async () => {
+      const ephemeralAppends: Array<{ id: string; text: string }> = [];
+      const originalAppend = store.appendEphemeral;
+      store.appendEphemeral = (id, text) => {
+        ephemeralAppends.push({ id, text });
+        return originalAppend(id, text);
+      };
+
+      const renderer = new InkStreamingRenderer(
+        "SubAgent",
+        false,
+        { showThinking: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+        { textBufferMs: 0 },
+        0,
+        { kind: "ephemeral", regionId: "eph-sub-1" },
+      );
+
+      try {
+        emitStreamStart(renderer);
+        // stream_start writes an agent header to scrollback even for a
+        // sub-agent; baseline here so the assertion below isolates tool cards.
+        const scrollbackBaseline = printOutputCalls.length;
+
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "tool_execution_start",
+            toolName: "read_file",
+            toolCallId: "tc-1",
+            arguments: { path: "a.ts" },
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "tool_execution_complete",
+            toolCallId: "tc-1",
+            result: "ok",
+            durationMs: 42,
+            summary: "read a.ts",
+          }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+
+        const combined = ephemeralAppends
+          .filter((entry) => entry.id === "eph-sub-1")
+          .map((entry) => entry.text)
+          .join("");
+        expect(combined).toContain("read_file");
+        expect(combined).toContain("read a.ts");
+        expect(combined).toContain("42ms");
+
+        // The bordered tool card must NOT reach the unbounded global scrollback.
+        expect(printOutputCalls.length).toBe(scrollbackBaseline);
+      } finally {
+        store.appendEphemeral = originalAppend;
+        Effect.runSync(renderer.reset());
+      }
+    });
+  });
+
   describe("complete phase", () => {
     test("prints response to Static before clearing activity to idle", async () => {
       const renderer = createRenderer();
