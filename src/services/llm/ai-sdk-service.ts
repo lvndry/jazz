@@ -17,7 +17,7 @@ import {
 } from "@ai-sdk/moonshotai";
 import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { createProviderToolFactory } from "@ai-sdk/provider-utils";
+import { createProviderDefinedToolFactory } from "@ai-sdk/provider-utils";
 import { createTogetherAI, togetherai } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import {
@@ -429,7 +429,7 @@ function getProviderNativeWebSearchTool(
   }
 }
 
-const openrouterWebFetchTool = createProviderToolFactory<unknown, Record<string, never>>({
+const openrouterWebFetchTool = createProviderDefinedToolFactory<unknown, Record<string, never>>({
   id: "openrouter.web_fetch",
   inputSchema: z.object({ url: z.string().url().describe("The URL to fetch content from") }),
 });
