@@ -320,6 +320,94 @@ describe("markdown-formatter", () => {
     });
   });
 
+  describe("wrapToWidth — long hyperlink (URL) wrapping", () => {
+    /** Non-empty OSC 8 targets (excludes the empty `\x1b]8;;\x07` closer). */
+    const linkTargets = (text: string): string[] => {
+      // eslint-disable-next-line no-control-regex
+      const matches = [...text.matchAll(/\x1b\]8;;([^\x07]*)\x07/g)];
+      return matches.map((m) => m[1]!).filter((t) => t !== "");
+    };
+    /** Visible text with wrap newlines removed — what the URL "reads as" unwrapped. */
+    const visibleUnwrapped = (text: string): string => stripAnsiCodes(text).replace(/\n/g, "");
+
+    // A real-world offender: a very long slug with only a handful of separators.
+    const sparseUrl =
+      "https://www.mediacongo.net/publireportage-reportage-114852fpilafermeavicolecongoufdelubumbashimerite-ladiversificationdesesactivitesmartinmudimutshisekedi.html";
+    // A separator-rich slug that should break cleanly at hyphens.
+    const hyphenUrl =
+      "https://en.wikipedia.org/wiki/List-of-the-largest-suspension-bridges-in-the-world-by-total-length";
+
+    it("keeps every OSC 8 target byte-for-byte identical to the source URL (no A-shows-B)", () => {
+      for (const url of [sparseUrl, hyphenUrl]) {
+        for (const width of [30, 50, 80, 120]) {
+          const wrapped = wrapToWidth(formatMarkdown(`Source: ${url}`), width);
+          const targets = linkTargets(wrapped);
+          expect(targets.length).toBeGreaterThan(0);
+          for (const target of targets) expect(target).toBe(url);
+        }
+      }
+    });
+
+    it("preserves the full URL in the visible text (never truncates or relabels)", () => {
+      for (const url of [sparseUrl, hyphenUrl]) {
+        for (const width of [30, 50, 80, 120]) {
+          const wrapped = wrapToWidth(formatMarkdown(`Source: ${url}`), width);
+          expect(visibleUnwrapped(wrapped)).toBe(`Source: ${url}`);
+        }
+      }
+    });
+
+    it("keeps every wrapped line within the width", () => {
+      for (const url of [sparseUrl, hyphenUrl]) {
+        for (const width of [30, 50, 80, 120]) {
+          const wrapped = wrapToWidth(formatMarkdown(`Source: ${url}`), width);
+          for (const line of stripAnsiCodes(wrapped).split("\n")) {
+            expect(line.length).toBeLessThanOrEqual(width);
+          }
+        }
+      }
+    });
+
+    it("prefers separator boundaries over arbitrary mid-token breaks", () => {
+      const wrapped = wrapToWidth(formatMarkdown(`Source: ${hyphenUrl}`), 50);
+      const lines = stripAnsiCodes(wrapped).split("\n");
+      // More than one line (it must wrap) and every non-final line ends at a separator.
+      expect(lines.length).toBeGreaterThan(1);
+      for (const line of lines.slice(0, -1)) {
+        expect("/-._~?#&=+,;@%").toContain(line.at(-1)!);
+      }
+    });
+
+    it("still hard-breaks a separator-free run that exceeds the width", () => {
+      const noSep = "https://example.com/" + "a".repeat(200);
+      const wrapped = wrapToWidth(formatMarkdown(noSep), 40);
+      const lines = stripAnsiCodes(wrapped).split("\n");
+      expect(lines.length).toBeGreaterThan(1);
+      for (const line of lines) expect(line.length).toBeLessThanOrEqual(40);
+      expect(visibleUnwrapped(wrapped)).toBe(noSep);
+      expect(linkTargets(wrapped).every((t) => t === noSep)).toBe(true);
+    });
+
+    it("leaves a URL that fits as a single unbroken hyperlink", () => {
+      const shortUrl = "https://example.com/page";
+      const wrapped = wrapToWidth(formatMarkdown(`See ${shortUrl}`), 80);
+      expect(wrapped.split("\n")).toHaveLength(1);
+      expect(linkTargets(wrapped)).toEqual([shortUrl]);
+    });
+
+    it("does not apply separator-preference to non-link text (only hyperlinks)", () => {
+      // A long, separator-rich token that is NOT a hyperlink must still hard-break
+      // at the column boundary — separator-preference is scoped to OSC 8 links.
+      const token = "a-b-c-d-".repeat(20); // 160 chars, hyphens every 2 chars, no URL scheme
+      const wrapped = wrapToWidth(token, 40);
+      expect(countOsc8(wrapped)).toBe(0);
+      const lines = wrapped.split("\n");
+      // Hard break fills lines to the full width (would be shorter if it broke at hyphens).
+      expect(lines[0]!.length).toBe(40);
+      expect(wrapped.replace(/\n/g, "")).toBe(token);
+    });
+  });
+
   describe("getTerminalWidth", () => {
     it("should return a positive number", () => {
       const width = getTerminalWidth();
