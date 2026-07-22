@@ -17,6 +17,7 @@ import {
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
+import { buildOllamaContextChoices, defaultOllamaContextWindow } from "@/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -55,6 +56,7 @@ interface AgentEditAnswers {
   llmApiKeyProvider?: ProviderName;
   llmApiKeyValue?: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
+  numCtx?: number;
   tools?: string[];
   webSearchProvider?: WebSearchProviderName;
 }
@@ -184,6 +186,9 @@ export function editAgentCommand(
           value: "tools",
           disabled: !supportsTools,
         },
+        ...(agent.config.llmProvider === "ollama"
+          ? [{ name: "Context Window", value: "contextWindow" }]
+          : []),
       ],
     });
 
@@ -480,6 +485,7 @@ export function editAgentCommand(
       ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
       ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
       ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
+      ...(typeof editAnswers.numCtx === "number" && { numCtx: editAnswers.numCtx }),
       ...(editAnswers.tools &&
         editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
       ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
@@ -883,6 +889,21 @@ async function promptForAgentUpdates(
 
   if (fieldToUpdate === "reasoningEffort") {
     answers.reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
+  }
+
+  if (fieldToUpdate === "contextWindow") {
+    const detectedContextWindow = currentProviderInfo?.supportedModels.find(
+      (model) => model.id === currentAgent.config.llmModel,
+    )?.contextWindow;
+    const result = await Effect.runPromise(
+      terminal.select<number>("What context window should this agent use?", {
+        choices: buildOllamaContextChoices(detectedContextWindow),
+        default: currentAgent.config.numCtx ?? defaultOllamaContextWindow(detectedContextWindow),
+      }),
+    );
+    if (result !== undefined) {
+      answers.numCtx = result;
+    }
   }
 
   return answers;
