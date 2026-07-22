@@ -375,7 +375,7 @@ function startChatWithAgent(
       `${agent.model} - Reasoning: ${agent.config.reasoningEffort ?? "disabled"}`,
     );
     if (agent.description) {
-      yield* terminal.log(`   Description: ${agent.description}`);
+      yield* terminal.log(`Description: ${agent.description}`);
     }
     yield* terminal.log("");
     yield* terminal.info("Type '/help' to see available special commands.");
