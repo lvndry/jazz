@@ -537,8 +537,8 @@ describe("InkStreamingRenderer", () => {
 
       try {
         emitStreamStart(renderer);
-        // stream_start writes an agent header to scrollback even for a
-        // sub-agent; baseline here so the assertion below isolates tool cards.
+        // stream_start writes an agent header to scrollback; baseline past it
+        // so the assertion below isolates tool cards.
         const scrollbackBaseline = printOutputCalls.length;
 
         Effect.runSync(
@@ -568,7 +568,6 @@ describe("InkStreamingRenderer", () => {
         expect(combined).toContain("read a.ts");
         expect(combined).toContain("42ms");
 
-        // The bordered tool card must NOT reach the unbounded global scrollback.
         expect(printOutputCalls.length).toBe(scrollbackBaseline);
       } finally {
         store.appendEphemeral = originalAppend;
