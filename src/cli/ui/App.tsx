@@ -5,6 +5,7 @@ import { ActivityView } from "./ActivityView";
 import { useTerminalOutputAdapter } from "./adapters/terminal-output-adapter";
 import type { PendingStream } from "./adapters/terminal-output-adapter";
 import { PreWrappedText } from "./components/PreWrappedText";
+import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
 import ErrorBoundary from "./ErrorBoundary";
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
@@ -19,7 +20,6 @@ import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId, PromptState } from "./types";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
 import { InputPriority, InputResults } from "../services/input-service";
-import { getTerminalWidth } from "../utils/string-utils";
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response
@@ -154,7 +154,7 @@ const StatusFooterIsland = React.memo(StatusFooterIslandComponent);
 // Uses TerminalOutputAdapter for two-tier Static/live rendering.
 // ============================================================================
 
-function renderPendingStream(pending: PendingStream): string {
+function renderPendingStream(pending: PendingStream, cols: number): string {
   // The renderer's display config is wired up via store; for this island we
   // default to formatMarkdown. If the user's display config is `hybrid`, the
   // renderer will set its own pending text via store.appendStream — the buffer
@@ -169,13 +169,18 @@ function renderPendingStream(pending: PendingStream): string {
   // in ink-presentation-service.ts.
   const formatted = formatMarkdown(pending.rawTail);
   const dimmed = pending.kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
-  const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content - RAIL_WIDTH);
+  const width = Math.max(20, cols - PADDING_BUDGET - PADDING.content - RAIL_WIDTH);
   // Same speaker rail as settled slices so the live tail is seamless.
   return railStreamLines(wrapToWidth(dimmed, width), pending.kind);
 }
 
 function OutputIslandComponent(): React.ReactElement {
   const { state, appendStatic, appendStream, finalizeStream, clear } = useTerminalOutputAdapter();
+  // Subscribe to terminal size so the live streaming tail re-wraps when the
+  // window is resized. Ink re-runs Yoga layout on resize but does NOT re-run
+  // React, so a JS-computed wrap width would otherwise stay frozen at its
+  // print-time value until the next stream delta arrives.
+  const { cols } = useTerminalDimensions();
   const initializedRef = useRef(false);
 
   const printOutput = useCallback(
@@ -229,7 +234,7 @@ function OutputIslandComponent(): React.ReactElement {
 
       {pending !== null && (
         <Box paddingLeft={PADDING.content}>
-          <PreWrappedText>{renderPendingStream(pending)}</PreWrappedText>
+          <PreWrappedText>{renderPendingStream(pending, cols)}</PreWrappedText>
         </Box>
       )}
     </Box>
