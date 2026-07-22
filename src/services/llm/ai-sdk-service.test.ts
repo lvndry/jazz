@@ -20,7 +20,12 @@ import {
 import type { AppConfig, LLMConfig, StreamEvent } from "../../core/types/index";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
-import { buildProviderOptions, createAISDKServiceLayer, toCoreMessages } from "./ai-sdk-service";
+import {
+  buildProviderOptions,
+  createAISDKServiceLayer,
+  makeOllamaKeepAliveFetch,
+  toCoreMessages,
+} from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
 
 // Bun module mocks are process-global: snapshot the real exports so afterAll can
@@ -991,6 +996,83 @@ describe("buildProviderOptions - ollama reasoning", () => {
   it("sends think:true when reasoning effort is low", () => {
     const result = buildProviderOptions("ollama", ollamaOptions("low"));
     expect(result).toEqual({ ollama: { think: true } });
+  });
+
+  it("nests num_ctx under options when the agent has a context window", () => {
+    const result = buildProviderOptions("ollama", {
+      ...ollamaOptions("disable"),
+      num_ctx: 32768,
+    });
+    expect(result).toEqual({ ollama: { think: false, options: { num_ctx: 32768 } } });
+  });
+
+  it("keeps think and num_ctx together when both are set", () => {
+    const result = buildProviderOptions("ollama", {
+      ...ollamaOptions("high"),
+      num_ctx: 8192,
+    });
+    expect(result).toEqual({ ollama: { think: true, options: { num_ctx: 8192 } } });
+  });
+
+  it("omits options when num_ctx is not a positive number", () => {
+    expect(buildProviderOptions("ollama", { ...ollamaOptions("low"), num_ctx: 0 })).toEqual({
+      ollama: { think: true },
+    });
+  });
+});
+
+describe("makeOllamaKeepAliveFetch", () => {
+  function capturingFetch() {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      calls.push({
+        url,
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : init?.body,
+      });
+      return Promise.resolve(new Response("{}"));
+    }) as typeof globalThis.fetch;
+    return { calls, restore: () => (globalThis.fetch = original) };
+  }
+
+  it("injects keep_alive into /api/chat request bodies", async () => {
+    const { calls, restore } = capturingFetch();
+    try {
+      const wrapped = makeOllamaKeepAliveFetch("30m");
+      await wrapped("http://localhost:11434/api/chat", {
+        method: "POST",
+        body: JSON.stringify({ model: "qwen3", messages: [] }),
+      });
+      expect(calls[0]!.body).toMatchObject({ model: "qwen3", keep_alive: "30m" });
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not override a keep_alive already present", async () => {
+    const { calls, restore } = capturingFetch();
+    try {
+      const wrapped = makeOllamaKeepAliveFetch("30m");
+      await wrapped("http://localhost:11434/api/chat", {
+        method: "POST",
+        body: JSON.stringify({ model: "qwen3", keep_alive: "-1" }),
+      });
+      expect((calls[0]!.body as { keep_alive: string }).keep_alive).toBe("-1");
+    } finally {
+      restore();
+    }
+  });
+
+  it("leaves non-chat requests untouched", async () => {
+    const { calls, restore } = capturingFetch();
+    try {
+      const wrapped = makeOllamaKeepAliveFetch("30m");
+      await wrapped("http://localhost:11434/api/tags", { method: "GET" });
+      expect(calls[0]!.body).toBeUndefined();
+    } finally {
+      restore();
+    }
   });
 });
 

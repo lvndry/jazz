@@ -75,6 +75,13 @@ export interface LLMProviderConfig {
 export interface OllamaProviderConfig {
   readonly api_key?: string;
   readonly base_url?: string;
+  /**
+   * How long Ollama keeps the model loaded in memory after a request, e.g.
+   * "30m" or "-1" to keep it resident indefinitely. When set, it is sent as
+   * `keep_alive` on every Ollama chat request, avoiding model reload latency
+   * between agent turns. Unset leaves Ollama's own default (5m) in place.
+   */
+  readonly keep_alive?: string;
 }
 
 export interface LlamaCppProviderConfig {

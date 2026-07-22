@@ -110,6 +110,7 @@ export function executeWithStreaming(
             ...(typeof agent.config.temperature === "number"
               ? { temperature: agent.config.temperature }
               : {}),
+            ...(typeof agent.config.numCtx === "number" ? { num_ctx: agent.config.numCtx } : {}),
             ...(agent.config.llmApiKeys ? { providerApiKeys: agent.config.llmApiKeys } : {}),
           };
 
