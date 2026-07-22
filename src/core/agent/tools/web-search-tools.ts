@@ -208,13 +208,7 @@ function executeExaSearch(
   apiKey: string,
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   type ExaCategory =
-    | "company"
-    | "research paper"
-    | "news"
-    | "pdf"
-    | "personal site"
-    | "financial report"
-    | "people";
+    "company" | "research paper" | "news" | "pdf" | "personal site" | "financial report" | "people";
   type ExaSearchType = "auto" | "fast" | "instant" | "deep-lite" | "deep" | "deep-reasoning";
 
   const sourceTypeToCategory: Partial<Record<SourceType, ExaCategory>> = {

@@ -122,6 +122,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openrouter: "OpenRouter",
   togetherai: "Together AI",
   xai: "xAI",
+  zhipuai: "Zhipu AI",
 };
 
 /**

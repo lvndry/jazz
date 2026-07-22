@@ -41,6 +41,7 @@ export const AVAILABLE_PROVIDERS = [
   "moonshotai",
   "ollama",
   "togetherai",
+  "zhipuai",
 ] as const;
 
 export type ProviderName = (typeof AVAILABLE_PROVIDERS)[number];

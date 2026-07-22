@@ -40,6 +40,12 @@ export interface ChatCompletionOptions {
   toolChoice?: "auto" | "none" | { type: "function"; function: { name: string } };
   stream?: boolean;
   reasoning_effort?: "disable" | "low" | "medium" | "high";
+  /**
+   * Ollama runtime context window (`num_ctx`). Passed through to Ollama so long
+   * conversations are not silently truncated to its small default. Ignored by
+   * providers other than Ollama.
+   */
+  num_ctx?: number;
   /** Optional per-request API key overrides by provider (typically from agent config). */
   providerApiKeys?: Partial<Record<ProviderName, string>>;
 }

@@ -110,6 +110,7 @@ export function executeWithStreaming(
             ...(typeof agent.config.temperature === "number"
               ? { temperature: agent.config.temperature }
               : {}),
+            ...(typeof agent.config.numCtx === "number" ? { num_ctx: agent.config.numCtx } : {}),
             ...(agent.config.llmApiKeys ? { providerApiKeys: agent.config.llmApiKeys } : {}),
           };
 
@@ -233,9 +234,7 @@ export function executeWithStreaming(
                 }
                 if (event.type === "error") {
                   const error = event.error as
-                    | LLMAuthenticationError
-                    | LLMRateLimitError
-                    | LLMRequestError;
+                    LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
                   yield* logger.error("Stream event error", {
                     provider,
                     model: agent.config.llmModel,

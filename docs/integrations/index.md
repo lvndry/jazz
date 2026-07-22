@@ -158,13 +158,18 @@ You can set or update your API keys in config by running `jazz` -> `update confi
   "llm": {
     "ollama": {
       "base_url": "http://localhost:11434/api",
-      "api_key": "optional-bearer-token"
+      "api_key": "optional-bearer-token",
+      "keep_alive": "30m"
     }
   }
 }
 ```
 
-Both fields are optional. When `base_url` is omitted, Jazz uses `http://localhost:11434/api`. You can also set `OLLAMA_BASE_URL` (config takes precedence over env).
+All fields are optional. When `base_url` is omitted, Jazz uses `http://localhost:11434/api`. You can also set `OLLAMA_BASE_URL` (config takes precedence over env).
+
+**Context window**: When you create an Ollama agent, Jazz asks you to pick a context window from a list capped to the model's real maximum. Ollama otherwise caps the runtime context to a small default (~4096 tokens) and silently truncates long conversations regardless of the model's trained size. The choice is stored per agent (`numCtx`) and sent as `num_ctx` on every request; change it later with `jazz agent edit`.
+
+**Keep-alive**: Set `keep_alive` (e.g. `"30m"`, or `"-1"` to keep the model resident indefinitely) to avoid model-reload latency between agent turns. When unset, Ollama's own default (5 minutes) applies.
 
 Running on a server without internet access? See the [Airgapped & Self-Hosted guide](../guide/airgapped.md) — set `JAZZ_OFFLINE=1` to disable all outbound requests Jazz makes on its own.
 

@@ -29,6 +29,8 @@ describe("inferFamily", () => {
     [{ provider: "alibaba", modelId: "qwen3-max" }, "qwen"],
     [{ provider: "moonshotai", modelId: "kimi-k2" }, "qwen"],
     [{ provider: "minimax", modelId: "MiniMax-M2" }, "qwen"],
+    [{ provider: "zhipuai", modelId: "glm-4.6" }, "qwen"],
+    [{ provider: "openrouter", modelId: "z-ai/glm-4.6" }, "qwen"],
     [{ provider: "deepseek", modelId: "deepseek-chat" }, "deepseek"],
     [{ provider: "xai", modelId: "grok-4-fast-reasoning" }, "unknown"],
     [{ provider: "", modelId: "" }, "unknown"],

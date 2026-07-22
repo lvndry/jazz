@@ -16,6 +16,7 @@ import {
   WEB_SEARCH_CATEGORY,
 } from "@/core/agent/tools/register-tools";
 import type { ProviderName } from "@/core/constants/models";
+import { buildOllamaContextChoices, defaultOllamaContextWindow } from "@/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -92,6 +93,7 @@ interface AIAgentCreationAnswers {
   llmProvider: ProviderName;
   llmModel: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
+  numCtx?: number;
   tools: string[];
   webSearchProvider?: WebSearchProviderName;
 }
@@ -182,8 +184,8 @@ export function createAgentCommand(): Effect.Effect<
 
     // Register tools for selected MCP servers
     if (selectedMCPDisplayNames.length > 0) {
-      const selectedServerNames = selectedMCPDisplayNames.map(
-        (displayName) => mcpServerData.displayNameToServerName.get(displayName)!,
+      const selectedServerNames = selectedMCPDisplayNames.map((displayName) =>
+        mcpServerData.displayNameToServerName.get(displayName)!,
       );
       const allServers = yield* mcpManager.listServers();
       const selectedServers = allServers.filter((server) =>
@@ -300,6 +302,7 @@ export function createAgentCommand(): Effect.Effect<
       llmProvider: agentAnswers.llmProvider,
       llmModel: selectedModel,
       ...(agentAnswers.reasoningEffort && { reasoningEffort: agentAnswers.reasoningEffort }),
+      ...(typeof agentAnswers.numCtx === "number" && { numCtx: agentAnswers.numCtx }),
       ...(uniqueToolNames.length > 0 && { tools: uniqueToolNames }),
       ...(agentAnswers.webSearchProvider && { webSearchProvider: agentAnswers.webSearchProvider }),
     };
@@ -322,6 +325,9 @@ export function createAgentCommand(): Effect.Effect<
     yield* terminal.log(`   LLM Provider: ${formatProviderDisplayName(config.llmProvider)}`);
     yield* terminal.log(`   LLM Model: ${config.llmModel}`);
     yield* terminal.log(`   Reasoning: ${config.reasoningEffort}`);
+    if (typeof config.numCtx === "number") {
+      yield* terminal.log(`   Context Window: ${config.numCtx.toLocaleString()} tokens`);
+    }
     yield* terminal.log(`   Tool Categories: ${agentAnswers.tools.join(", ") || "None"}`);
     yield* terminal.log(`   Total Tools: ${uniqueToolNames.length}`);
     yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
@@ -339,6 +345,7 @@ type WizardStep =
   | "provider"
   | "model"
   | "reasoning"
+  | "ollamaContext"
   | "persona"
   | "name"
   | "description"
@@ -354,6 +361,8 @@ interface WizardState {
   llmProvider?: ProviderName;
   llmModel?: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
+  numCtx?: number;
+  detectedContextWindow?: number;
   persona?: string;
   name?: string;
   description?: string;
@@ -364,6 +373,17 @@ interface WizardState {
   providerInfo?: LLMProvider;
   isReasoningModel?: boolean;
   supportsTools?: boolean;
+}
+
+/** After model/reasoning, Ollama agents pick a context window before the persona. */
+function stepAfterReasoning(state: WizardState): WizardStep {
+  return state.llmProvider === "ollama" ? "ollamaContext" : "persona";
+}
+
+/** Where the persona step goes when the user presses ESC to go back. */
+function personaBackStep(state: WizardState): WizardStep {
+  if (state.llmProvider === "ollama") return "ollamaContext";
+  return state.isReasoningModel ? "reasoning" : "model";
 }
 
 /**
@@ -499,8 +519,11 @@ async function promptForAgentInfo(
         const selectedModel = state.providerInfo!.supportedModels.find((m) => m.id === result);
         state.isReasoningModel = selectedModel?.isReasoningModel ?? false;
         state.supportsTools = selectedModel?.supportsTools ?? false;
+        if (typeof selectedModel?.contextWindow === "number") {
+          state.detectedContextWindow = selectedModel.contextWindow;
+        }
 
-        state.step = state.isReasoningModel ? "reasoning" : "persona";
+        state.step = state.isReasoningModel ? "reasoning" : stepAfterReasoning(state);
         break;
       }
 
@@ -532,6 +555,28 @@ async function promptForAgentInfo(
         }
 
         state.reasoningEffort = result;
+        state.step = stepAfterReasoning(state);
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // STEP 3b: Ollama context window (only for Ollama agents)
+      // ═══════════════════════════════════════════════════════════════════════
+      case "ollamaContext": {
+        const choices = buildOllamaContextChoices(state.detectedContextWindow);
+        const result = await Effect.runPromise(
+          terminal.select<number>(`What context window should this agent use? ${hint}`, {
+            choices,
+            default: state.numCtx ?? defaultOllamaContextWindow(state.detectedContextWindow),
+          }),
+        );
+
+        if (result === undefined) {
+          state.step = state.isReasoningModel ? "reasoning" : "model";
+          break;
+        }
+
+        state.numCtx = result;
         state.step = "persona";
         break;
       }
@@ -548,7 +593,7 @@ async function promptForAgentInfo(
         );
 
         if (result === undefined) {
-          state.step = state.isReasoningModel ? "reasoning" : "model";
+          state.step = personaBackStep(state);
           break;
         }
 
@@ -791,6 +836,7 @@ async function promptForAgentInfo(
     llmProvider: state.llmProvider!,
     llmModel: state.llmModel!,
     ...(state.reasoningEffort && { reasoningEffort: state.reasoningEffort }),
+    ...(typeof state.numCtx === "number" && { numCtx: state.numCtx }),
     persona: state.persona!,
     name: state.name!,
     ...(state.description && { description: state.description }),

@@ -41,9 +41,10 @@ import {
   type TypedToolCall,
 } from "ai";
 import { Chunk, Effect, Layer, Option, Stream } from "effect";
-import { createOllama, type OllamaCompletionProviderOptions } from "ollama-ai-provider-v2";
+import { createOllama } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { minimax } from "vercel-minimax-ai-provider";
+import { createZhipu, zhipu } from "zhipu-ai-provider";
 import { z } from "zod";
 import { DEFAULT_MAX_ITERATIONS, AI_SDK_MAX_RETRIES } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
@@ -480,6 +481,7 @@ const PROVIDER_ENV_VARS: Record<string, string> = {
   openrouter: "OPENROUTER_API_KEY",
   togetherai: "TOGETHER_AI_API_KEY",
   xai: "XAI_API_KEY",
+  zhipuai: "ZHIPU_API_KEY",
 };
 
 function getConfiguredProviders(
@@ -552,6 +554,10 @@ function getConfiguredProviders(
     if (llmConfig.xai?.api_key) {
       providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
       addedProviders.add("xai");
+    }
+    if (llmConfig.zhipuai?.api_key) {
+      providers.push({ name: "zhipuai", apiKey: llmConfig.zhipuai.api_key });
+      addedProviders.add("zhipuai");
     }
   }
 
@@ -661,7 +667,14 @@ function selectModel(
         ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` }
         : {};
       const baseURL = resolveLocalProviderBaseUrl("ollama", llmConfig);
-      const ollamaInstance = createOllama({ baseURL, headers });
+      const keepAlive = llmConfig?.ollama?.keep_alive;
+      const ollamaInstance = createOllama({
+        baseURL,
+        headers,
+        // ollama-ai-provider-v2 drops keep_alive on the chat path, so inject it
+        // into the request body via a fetch middleware when configured.
+        ...(keepAlive ? { fetch: makeOllamaKeepAliveFetch(keepAlive) } : {}),
+      });
       model = ollamaInstance(modelId);
       break;
     }
@@ -705,6 +718,11 @@ function selectModel(
       model = groq(modelId);
       break;
     }
+    case "zhipuai": {
+      const apiKey = resolveApiKey("zhipuai");
+      model = apiKey ? createZhipu({ apiKey })(modelId) : zhipu(modelId);
+      break;
+    }
     default:
       throw new Error(`Unsupported provider: ${providerName}`);
   }
@@ -714,13 +732,43 @@ function selectModel(
   return model;
 }
 
+/**
+ * Wrap fetch to add Ollama's `keep_alive` to chat request bodies. The
+ * ollama-ai-provider-v2 chat model builds the body as `{model, messages, think,
+ * options}` and drops `keep_alive`, so we splice it in here. Only touches POST
+ * requests to `/api/chat` with a JSON body, and never overrides an existing value.
+ */
+export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    if (init?.method === "POST" && typeof init.body === "string") {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/api/chat")) {
+        try {
+          const parsedBody: unknown = JSON.parse(init.body);
+          if (
+            parsedBody &&
+            typeof parsedBody === "object" &&
+            (parsedBody as Record<string, unknown>)["keep_alive"] === undefined
+          ) {
+            (parsedBody as Record<string, unknown>)["keep_alive"] = keepAlive;
+            return fetch(input, { ...init, body: JSON.stringify(parsedBody) });
+          }
+        } catch {
+          // Non-JSON body — forward unchanged.
+        }
+      }
+    }
+    return fetch(input, init);
+  };
+}
+
 function buildProviderCacheFingerprint(providerName: ProviderName, llmConfig?: LLMConfig): string {
   if (!llmConfig) return "";
 
   switch (providerName) {
     case "ollama": {
       const cfg = llmConfig.ollama;
-      return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}`;
+      return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}|${cfg?.keep_alive ?? ""}`;
     }
     case "llamacpp": {
       const cfg = llmConfig.llamacpp;
@@ -812,21 +860,21 @@ export function buildProviderOptions(
       break;
     }
     case "ollama": {
-      if (options.reasoning_effort && options.reasoning_effort !== "disable") {
-        return {
-          ollama: {
-            think: true,
-          } satisfies OllamaCompletionProviderOptions,
-        };
-      }
       // Thinking-capable ollama models default thinking ON when no flag is sent,
       // which makes the ai-sdk ollama provider emit reasoning into a separate
       // field and return empty content/no tool calls. Disabling reasoning must
       // therefore explicitly turn thinking off.
+      const think = !!(options.reasoning_effort && options.reasoning_effort !== "disable");
+      // num_ctx must be nested under `options` (Ollama's runtime request options).
+      // Without it Ollama caps the context to a small default and silently
+      // truncates long conversations regardless of the model's trained size.
+      const numCtx =
+        typeof options.num_ctx === "number" && options.num_ctx > 0 ? options.num_ctx : undefined;
       return {
         ollama: {
-          think: false,
-        } satisfies OllamaCompletionProviderOptions,
+          think,
+          ...(numCtx ? { options: { num_ctx: numCtx } } : {}),
+        },
       };
     }
     case "openrouter": {
@@ -942,6 +990,20 @@ export function buildProviderOptions(
             reasoningHistory: "interleaved",
           } satisfies FireworksLanguageModelOptions,
         };
+      }
+      break;
+    }
+    case "zhipuai": {
+      // The zhipu provider spreads providerOptions.zhipu verbatim into the request
+      // body, so `thinking` is passed in the API's native snake_case shape. GLM-4.5+
+      // models toggle reasoning on/off only (no effort levels or token budget), so
+      // any non-disable effort maps to "enabled".
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort === "disable") {
+        return { zhipu: { thinking: { type: "disabled" } } };
+      }
+      if (reasoningEffort) {
+        return { zhipu: { thinking: { type: "enabled" } } };
       }
       break;
     }
