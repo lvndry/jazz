@@ -129,7 +129,8 @@ export class AgentConfigServiceImpl implements AgentConfigService {
       const next = extractMcpOverride(val) ?? {};
       this.mcpOverrides[serverName] = { ...this.mcpOverrides[serverName], ...next };
       const cfg = this.currentConfig.mcpServers?.[serverName] as
-        Record<string, unknown> | undefined;
+        | Record<string, unknown>
+        | undefined;
       deepSet(this.currentConfig as unknown as Record<string, unknown>, key, {
         ...cfg,
         ...val,

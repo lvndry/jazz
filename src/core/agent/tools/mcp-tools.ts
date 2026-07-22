@@ -25,7 +25,11 @@ import { defineTool } from "./base-tool";
  * PresentationService is used for status display (connection progress, success/failure).
  */
 export type MCPToolDependencies =
-  AgentConfigService | LoggerService | MCPServerManager | TerminalService | PresentationService;
+  | AgentConfigService
+  | LoggerService
+  | MCPServerManager
+  | TerminalService
+  | PresentationService;
 
 /**
  * Adapt an MCP tool to a Jazz tool with lazy connection support

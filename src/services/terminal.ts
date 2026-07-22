@@ -334,7 +334,8 @@ export class InkTerminalService implements TerminalService {
     message: string,
     options: {
       choices: readonly (
-        string | { name: string; value: T; description?: string; disabled?: boolean }
+        | string
+        | { name: string; value: T; description?: string; disabled?: boolean }
       )[];
       default?: T;
     },
@@ -573,7 +574,8 @@ export class PlainTerminalService implements TerminalService {
     _message: string,
     options: {
       choices: readonly (
-        string | { name: string; value: T; description?: string; disabled?: boolean }
+        | string
+        | { name: string; value: T; description?: string; disabled?: boolean }
       )[];
       default?: T;
     },

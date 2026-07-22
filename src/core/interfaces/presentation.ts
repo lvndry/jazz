@@ -233,7 +233,8 @@ export interface PresentationService {
  *   subagent runs and (later) reasoning that should not occupy scrollback.
  */
 export type StreamTarget =
-  { readonly kind: "scrollback" } | { readonly kind: "ephemeral"; readonly regionId: string };
+  | { readonly kind: "scrollback" }
+  | { readonly kind: "ephemeral"; readonly regionId: string };
 
 /**
  * Configuration for creating a streaming renderer

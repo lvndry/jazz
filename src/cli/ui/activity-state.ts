@@ -18,7 +18,13 @@ export interface TodoSnapshotItem {
 }
 
 export type ActivityPhase =
-  "idle" | "awaiting" | "thinking" | "streaming" | "tool-execution" | "complete" | "error";
+  | "idle"
+  | "awaiting"
+  | "thinking"
+  | "streaming"
+  | "tool-execution"
+  | "complete"
+  | "error";
 
 export type ActivityState =
   | { phase: "idle" }

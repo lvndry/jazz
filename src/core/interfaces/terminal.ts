@@ -137,7 +137,8 @@ export interface TerminalService {
     message: string,
     options: {
       choices: readonly (
-        string | { name: string; value: T; description?: string; disabled?: boolean }
+        | string
+        | { name: string; value: T; description?: string; disabled?: boolean }
       )[];
       default?: T;
     },

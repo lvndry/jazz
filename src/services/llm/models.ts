@@ -7,7 +7,8 @@ import type { LLMConfig } from "@/core/types/config";
  * Dynamic models are fetched from provider API endpoints.
  */
 export type ModelSource =
-  { type: "models-dev" } | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
+  | { type: "models-dev" }
+  | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api";
 export const DEFAULT_LLAMACPP_BASE_URL = "http://localhost:8080/v1";

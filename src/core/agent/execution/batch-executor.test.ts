@@ -213,7 +213,8 @@ describe("executeWithoutStreaming tool event emission", () => {
     expect(eventTypes).toContain("tool_execution_complete");
 
     const startEvent = events.find((event) => event.type === "tool_execution_start") as
-      Extract<StreamEvent, { type: "tool_execution_start" }> | undefined;
+      | Extract<StreamEvent, { type: "tool_execution_start" }>
+      | undefined;
     expect(startEvent?.toolName).toBe("ls");
   });
 

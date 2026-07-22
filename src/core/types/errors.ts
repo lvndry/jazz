@@ -308,7 +308,10 @@ export class TelemetryWriteError extends Data.TaggedError("TelemetryWriteError")
 }> {}
 
 export type LLMError =
-  LLMAuthenticationError | LLMRequestError | LLMRateLimitError | LLMConfigurationError;
+  | LLMAuthenticationError
+  | LLMRequestError
+  | LLMRateLimitError
+  | LLMConfigurationError;
 
 export type ExecutorError = LLMError | AgentExecutionError | GenerationInterruptedError;
 

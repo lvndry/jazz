@@ -12,7 +12,12 @@
  */
 
 export type JsonValue =
-  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
 
 export interface StoredReasoningPart {
   /** Stored verbatim — never sanitized or trimmed; provider signatures validate exact bytes. */

@@ -1,7 +1,14 @@
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 
 export type OutputType =
-  "info" | "success" | "warn" | "error" | "debug" | "log" | "user" | "streamContent";
+  | "info"
+  | "success"
+  | "warn"
+  | "error"
+  | "debug"
+  | "log"
+  | "user"
+  | "streamContent";
 
 /** Input type for adding output entries - id is auto-generated */
 export interface OutputEntry {
