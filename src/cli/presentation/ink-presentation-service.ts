@@ -220,6 +220,41 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   /**
+   * Render a sub-agent's tool activity as compact plain-text lines in its
+   * bounded ephemeral panel so the region's last-N-lines cap crops them the
+   * same way it crops reasoning, instead of growing unbounded in scrollback.
+   * `tools_detected` is dropped as redundant with the per-tool start lines.
+   */
+  private appendToolActivityToEphemeral(
+    event: StreamEvent,
+    regionId: string,
+    completedToolName: string | undefined,
+  ): void {
+    if (event.type === "tool_execution_start") {
+      const args = formatToolArguments(
+        event.toolName,
+        event.arguments,
+        event.metadata !== undefined ? { metadata: event.metadata } : undefined,
+      );
+      const line = `${event.toolName}${args.length > 0 ? ` ${args}` : ""}`;
+      // Leading newline so the line starts its own row rather than merging
+      // onto a partial reasoning line already in the region.
+      this.bufferStreamDelta({ target: "ephemeral", regionId, delta: `\n${line}` });
+      return;
+    }
+    if (event.type === "tool_execution_complete") {
+      const summary =
+        event.summary?.trim() ||
+        (completedToolName ? formatToolResult(completedToolName, event.result) : "") ||
+        completedToolName ||
+        "Tool";
+      const firstLine = summary.split("\n")[0] ?? summary;
+      const line = `${getGlyphs().success} ${firstLine} (${event.durationMs}ms)`;
+      this.bufferStreamDelta({ target: "ephemeral", regionId, delta: `\n${line}` });
+    }
+  }
+
+  /**
    * Schedule a flush. The handler checks the open-structure heuristic before
    * flushing: if we're mid-table or mid-code-fence (and within the adaptive
    * wait cap), reschedule for another `textBufferMs` window so partial
@@ -486,19 +521,34 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "tool_execution_start" && !event.longRunning) {
         this.setupToolTimeout(event.toolCallId, event.toolName);
       }
+      // Read before reduceEvent clears the entry on completion; the panel
+      // line needs the tool name to format its result summary.
+      const completedToolName =
+        event.type === "tool_execution_complete"
+          ? this.acc.activeTools.get(event.toolCallId)?.toolName
+          : undefined;
       if (event.type === "tool_execution_complete") {
         this.clearToolTimeout(event.toolCallId);
-        this.storeExpandableDiff(
-          this.acc.activeTools.get(event.toolCallId)?.toolName,
-          event.result,
-        );
+        this.storeExpandableDiff(completedToolName, event.result);
       }
 
-      // Run the pure reducer for activity state + Static side-effects.
       const result = reduceEvent(this.acc, event, ink);
 
-      for (const entry of result.outputs) {
-        store.printOutput(entry);
+      // Sub-agent tool activity goes into its bounded panel (capped height)
+      // rather than unbounded scrollback; non-tool outputs (errors, headers)
+      // still reach scrollback so failures aren't cropped away.
+      const isSubagentToolEvent =
+        this.streamTarget.kind === "ephemeral" &&
+        (event.type === "tools_detected" ||
+          event.type === "tool_execution_start" ||
+          event.type === "tool_execution_complete");
+
+      if (isSubagentToolEvent && this.streamTarget.kind === "ephemeral") {
+        this.appendToolActivityToEphemeral(event, this.streamTarget.regionId, completedToolName);
+      } else {
+        for (const entry of result.outputs) {
+          store.printOutput(entry);
+        }
       }
 
       if (event.type === "text_start") {
