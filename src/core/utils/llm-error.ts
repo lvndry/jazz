@@ -1,6 +1,7 @@
 import { APICallError, RetryError } from "ai";
 import { Duration, Schedule } from "effect";
 import { MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
+import { LOCAL_SERVER_PROVIDERS } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
 import {
   LLMAuthenticationError,
@@ -167,23 +168,6 @@ export function extractCleanErrorMessage(error: unknown): string {
   }
   return errorString;
 }
-
-/**
- * Local providers Jazz talks to over a user-managed HTTP server. A connection
- * failure against these usually means the server simply is not running.
- */
-const LOCAL_SERVER_PROVIDERS = {
-  llamacpp: {
-    name: "llama.cpp",
-    defaultUrl: "http://localhost:8080",
-    startHint: "llama-server -m <model>.gguf --port 8080 --jinja",
-  },
-  ollama: {
-    name: "Ollama",
-    defaultUrl: "http://localhost:11434",
-    startHint: "ollama serve",
-  },
-} as const satisfies Partial<Record<ProviderName, unknown>>;
 
 /**
  * Detect errors that mean the request never reached a server: connection
