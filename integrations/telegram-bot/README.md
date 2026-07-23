@@ -137,6 +137,28 @@ over HTTPS and set `TELEGRAM_MODE=webhook`, `TELEGRAM_WEBHOOK_SECRET`
 Add a `ports:` mapping to `docker-compose.yml` to expose the port. The bridge calls
 `setWebhook` on startup and verifies Telegram's secret header.
 
+## Updating Jazz
+
+The image builds Jazz **from this repo's source** at `docker compose up --build`
+time, so the deployed version is pinned to the checkout's commit — it does **not**
+update on its own. To update manually:
+
+```sh
+cd <repo> && git pull origin main
+cd integrations/telegram-bot && docker compose -p jazz-telegram up -d --build
+```
+
+**Nightly auto-update:** `auto-update.sh` fast-forwards to the latest `origin/main`,
+rebuilds only if it changed, and rolls back if the new build isn't healthy.
+Install it (as the deploy user):
+
+```sh
+(crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/integrations/telegram-bot/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
+```
+
+It tracks `main` (bleeding edge); the health-gated rollback guards against a bad
+commit. Check `~/jazz-autoupdate.log` for the run history.
+
 ## Security notes
 
 - Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is ignored.
