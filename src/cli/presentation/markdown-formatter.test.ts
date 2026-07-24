@@ -113,6 +113,24 @@ describe("markdown-formatter", () => {
     it("preserves underscores in a path in hybrid mode", () => {
       expect(stripAnsiCodes(formatMarkdownHybrid(path))).toBe(path);
     });
+
+    // Boundary contract, asserted identically for both renderers: emphasis needs
+    // a boundary on BOTH sides. `_word_` closes on end-of-line/whitespace, so it
+    // is emphasis; a lone trailing `word_` has no opener and stays literal.
+    it("documents the word-boundary contract (rendered and hybrid agree)", () => {
+      // `_trailing_` at end-of-line: closer boundary is `$` → emphasis.
+      expect(stripAnsiCodes(formatMarkdown("a _trailing_"))).toBe("a trailing");
+      expect(stripAnsiCodes(formatMarkdownHybrid("a _trailing_"))).toBe("a _trailing_");
+
+      // Lone trailing underscore `trailing_`: no matching opener → left literal.
+      expect(stripAnsiCodes(formatMarkdown("say trailing_"))).toBe("say trailing_");
+      expect(stripAnsiCodes(formatMarkdownHybrid("say trailing_"))).toBe("say trailing_");
+
+      // Intraword underscore after a hyphen (`non-word_test`): the `_` is flanked
+      // by letters → not emphasis in either mode.
+      expect(stripAnsiCodes(formatMarkdown("non-word_test"))).toBe("non-word_test");
+      expect(stripAnsiCodes(formatMarkdownHybrid("non-word_test"))).toBe("non-word_test");
+    });
   });
 
   describe("formatBlockquotes", () => {
