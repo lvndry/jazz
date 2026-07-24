@@ -195,7 +195,7 @@ describe("Shell Tools", () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("potentially dangerous");
+      expect(result.error).toContain("blocked by the built-in safety denylist");
     }
   });
 

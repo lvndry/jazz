@@ -27,130 +27,349 @@ import { buildKeyFromContext } from "./context-utils";
  * See `shell-tools.security.test.ts` for the regression suite and the
  * documented set of known bypasses.
  */
-export const FORBIDDEN_COMMANDS: readonly RegExp[] = [
+/** An inline `mktemp` command substitution — `$(mktemp …)` or `` `mktemp …` ``. */
+const MKTEMP_INLINE = /\$\(\s*mktemp\b[^)]*\)|`\s*mktemp\b[^`]*`/g;
+
+/** A placeholder standing in for an inline `mktemp` so it survives whitespace splitting. */
+const MKTEMP_SENTINEL = "MKTEMP_TEMPDIR_SENTINEL";
+
+/**
+ * Variable assignments whose value comes from `mktemp` (either `$(mktemp …)` or
+ * a backtick form), e.g. `tmp="$(mktemp -d)"`. Global flag so `matchAll` walks
+ * every assignment in a multi-line command.
+ */
+const MKTEMP_ASSIGNMENT = /(\w+)=["']?(?:\$\(\s*mktemp\b[^)]*\)|`\s*mktemp\b[^`]*`)["']?/g;
+
+function collectMktempVars(command: string): Set<string> {
+  const vars = new Set<string>();
+  for (const match of command.matchAll(MKTEMP_ASSIGNMENT)) {
+    const name = match[1];
+    if (name) vars.add(name);
+  }
+  return vars;
+}
+
+/**
+ * Is `token` (already normalized — quotes stripped, inline `mktemp` replaced
+ * with {@link MKTEMP_SENTINEL}) a temp target: an inline `mktemp`, a
+ * `$TMPDIR`/`${TMPDIR}` path, or a `$var`/`${var}` (optionally with a
+ * `/subpath`) whose value was assigned from `mktemp` earlier in the command?
+ */
+function isTempPathToken(token: string, mktempVars: Set<string>): boolean {
+  if (token === MKTEMP_SENTINEL) return true; // inline $(mktemp …) / `mktemp …`
+  if (/^\$\{?TMPDIR\}?(?:\/.*)?$/.test(token)) return true; // $TMPDIR or ${TMPDIR}[/…]
+  const varName = token.match(/^\$\{?(\w+)\}?(?:\/.*)?$/)?.[1]; // $var / ${var}[/…]
+  return varName !== undefined && mktempVars.has(varName);
+}
+
+/**
+ * True when every destructive `rm` in the command targets only temp locations
+ * created via `mktemp` (directly or through a variable) or under `$TMPDIR`.
+ *
+ * Lets routine temp-dir cleanup — `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` — pass
+ * the denylist, while `rm -rf` against a real path (or a mix of temp and real
+ * targets) stays blocked. Deliberately narrow: literal `/tmp/…` paths are NOT
+ * exempted, matching the existing policy that treats them as dangerous.
+ */
+function isTempCleanupRm(command: string): boolean {
+  const mktempVars = collectMktempVars(command);
+  const rmInvocations = command.match(/\brm\b[^\n;&|]*/g);
+  if (!rmInvocations || rmInvocations.length === 0) return false;
+  return rmInvocations.every((invocation) => {
+    const targets = invocation
+      .slice(2) // drop the leading "rm"
+      .replace(/['"]/g, "") // shell quoting can sit mid-token (e.g. "$dir"/*)
+      .replace(MKTEMP_INLINE, ` ${MKTEMP_SENTINEL} `) // keep inline mktemp as one token
+      .trim()
+      .split(/\s+/)
+      .filter((token) => token.length > 0 && !token.startsWith("-"));
+    return targets.length > 0 && targets.every((token) => isTempPathToken(token, mktempVars));
+  });
+}
+
+/**
+ * A named carve-out for a forbidden rule. When a command trips a rule, it is
+ * still allowed if any of the rule's exemptions matches the command. Add new
+ * entries here (and reference them from a rule's `exemptions`) to grow the set
+ * of safe exceptions without special-casing the matcher.
+ */
+type CommandExemption = {
+  /** Stable identifier, handy for logging/telemetry and tests. */
+  readonly name: string;
+  /** True when this exemption applies to the given command. */
+  readonly matches: (command: string) => boolean;
+};
+
+/**
+ * Temp-dir cleanup: an `rm` whose every target is a mktemp/$TMPDIR temp path.
+ * Lets `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` through without opening up
+ * `rm -rf` against real paths.
+ */
+const TEMP_CLEANUP_EXEMPTION: CommandExemption = {
+  name: "temp-cleanup",
+  matches: isTempCleanupRm,
+};
+
+/**
+ * A single denylist entry: the pattern that flags a command, plus a short,
+ * agent-readable `reason` explaining *why* it was blocked. The reason is
+ * surfaced verbatim in the tool error so the model (and user) learn the exact
+ * cause — e.g. "`rm` with a recursive/force flag" — instead of a generic
+ * "this command was blocked".
+ */
+type ForbiddenRule = {
+  readonly pattern: RegExp;
+  readonly reason: string;
+  /**
+   * Named carve-outs: if any listed exemption matches the command, this rule is
+   * skipped. Lets a rule stay broad while allowing known-safe shapes (e.g. the
+   * {@link TEMP_CLEANUP_EXEMPTION} for temp-dir cleanup).
+   */
+  readonly exemptions?: readonly CommandExemption[];
+};
+
+export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
   // File-system destruction (rm with any -r/-f flag combination, root paths,
   // home, or wildcards)
-  /\brm\s+-[a-z]*[rf][a-z]*\s+/i, // rm -r / -f / -rf / -fr / -Rfv / -rfvI etc.
-  /\brm\s+-[rfRF]\s+-[rfRF]\b/, // rm -r -f, rm -f -r
-  /\brm\s+(?:.*\s+)?\/\s*$/, // rm targeting / (end of line, with or without other args)
-  /\brm\s+(?:.*\s+)?\/(?:\s|$)/, // rm targeting / followed by space or end
+  {
+    pattern: /\brm\s+-[a-z]*[rf][a-z]*\s+/i, // rm -r / -f / -rf / -fr / -Rfv / -rfvI etc.
+    reason:
+      "`rm` with a recursive/force flag (-r/-f) is on the blocked list (exempt only when the target is a mktemp/$TMPDIR temp path)",
+    exemptions: [TEMP_CLEANUP_EXEMPTION],
+  },
+  {
+    pattern: /\brm\s+-[rfRF]\s+-[rfRF]\b/, // rm -r -f, rm -f -r
+    reason:
+      "`rm` with split recursive/force flags (-r -f) is on the blocked list (exempt only when the target is a mktemp/$TMPDIR temp path)",
+    exemptions: [TEMP_CLEANUP_EXEMPTION],
+  },
+  {
+    pattern: /\brm\s+(?:.*\s+)?\/\s*$/, // rm targeting / (end of line, with or without other args)
+    reason: "`rm` targeting the filesystem root (/) is on the blocked list",
+  },
+  {
+    pattern: /\brm\s+(?:.*\s+)?\/(?:\s|$)/, // rm targeting / followed by space or end
+    reason: "`rm` targeting the filesystem root (/) is on the blocked list",
+  },
   // rm targeting home — only when `~` starts an argument (after `rm` or
   // whitespace). Avoids false positives on Emacs-style backup files like
   // `rm file.txt~` or `rm src/*~`.
-  /\brm\s+(?:.*?\s)?~/,
-  /\brm\s+.*\*/, // rm with glob (no required space before *)
+  {
+    pattern: /\brm\s+(?:.*?\s)?~/,
+    reason: "`rm` targeting the home directory (~) is on the blocked list",
+  },
+  {
+    pattern: /\brm\s+.*\*/, // rm with glob (no required space before *)
+    reason:
+      "`rm` with a wildcard (*) is on the blocked list (exempt only when the target is a mktemp/$TMPDIR temp path)",
+    exemptions: [TEMP_CLEANUP_EXEMPTION],
+  },
 
   // Privilege escalation
-  /\bsudo\b/, // sudo in any position
-  /\bsu\s+/, // su <user>
-  /\bdoas\b/, // OpenBSD/Linux sudo alternative
+  { pattern: /\bsudo\b/, reason: "`sudo` (privilege escalation) is on the blocked list" },
+  { pattern: /\bsu\s+/, reason: "`su` (switch user) is on the blocked list" },
+  { pattern: /\bdoas\b/, reason: "`doas` (privilege escalation) is on the blocked list" },
 
   // Device-level destruction
-  /\bmkfs\b/, // mkfs.<fs> formatting
-  /\bdd\s+.*\bof=\/dev\//, // dd to a device, in any arg order
-  /\bdd\s+.*\bif=\/dev\/(?:zero|random|urandom)\b/, // dd from /dev/zero etc.
+  { pattern: /\bmkfs\b/, reason: "`mkfs` (filesystem formatting) is on the blocked list" },
+  {
+    pattern: /\bdd\s+.*\bof=\/dev\//, // dd to a device, in any arg order
+    reason: "`dd` writing to a device (of=/dev/...) is on the blocked list",
+  },
+  {
+    pattern: /\bdd\s+.*\bif=\/dev\/(?:zero|random|urandom)\b/, // dd from /dev/zero etc.
+    reason: "`dd` reading from /dev/zero|random|urandom is on the blocked list",
+  },
 
   // Power / runlevel
-  /\bshutdown\b/,
-  /\breboot\b/,
-  /\bhalt\b/,
-  /\bpoweroff\b/,
-  /\binit\s+[0-6]\b/,
+  { pattern: /\bshutdown\b/, reason: "`shutdown` (power/runlevel change) is on the blocked list" },
+  { pattern: /\breboot\b/, reason: "`reboot` (power/runlevel change) is on the blocked list" },
+  { pattern: /\bhalt\b/, reason: "`halt` (power/runlevel change) is on the blocked list" },
+  { pattern: /\bpoweroff\b/, reason: "`poweroff` (power/runlevel change) is on the blocked list" },
+  { pattern: /\binit\s+[0-6]\b/, reason: "`init <runlevel>` is on the blocked list" },
 
   // Remote-code-fetch piped to a shell (the classic curl|sh footgun)
-  /\bcurl\b.*\|\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
-  /\bwget\b.*\|\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
-  /\bcurl\b\s+(?:-s\s+)?https?:\/\/.*\s*\|\s*\S/, // any pipe after curl URL
-  /\bwget\b\s+(?:-q?O-?\s+)?https?:\/\/.*\s*\|\s*\S/, // wget -O- URL | ...
+  {
+    pattern: /\bcurl\b.*\|\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
+    reason: "piping a remote download (curl) into a shell/interpreter is on the blocked list",
+  },
+  {
+    pattern: /\bwget\b.*\|\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
+    reason: "piping a remote download (wget) into a shell/interpreter is on the blocked list",
+  },
+  {
+    pattern: /\bcurl\b\s+(?:-s\s+)?https?:\/\/.*\s*\|\s*\S/, // any pipe after curl URL
+    reason: "piping a curl download into another command is on the blocked list",
+  },
+  {
+    pattern: /\bwget\b\s+(?:-q?O-?\s+)?https?:\/\/.*\s*\|\s*\S/, // wget -O- URL | ...
+    reason: "piping a wget download into another command is on the blocked list",
+  },
 
   // In-process code execution via interpreters
-  /\b(?:python\d?|ruby|perl|node|deno|bun)\s+-[ce]\b/, // -c / -e flags
-  /\b(?:bash|sh|zsh|fish|ksh|dash)\s+-c\b/,
-  /\beval\s+/, // eval ... (anything)
+  {
+    pattern: /\b(?:python\d?|ruby|perl|node|deno|bun)\s+-[ce]\b/, // -c / -e flags
+    reason:
+      "running inline code via an interpreter flag (-c/-e) is on the blocked list; write the code to a temp file and run that instead",
+  },
+  {
+    pattern: /\b(?:bash|sh|zsh|fish|ksh|dash)\s+-c\b/,
+    reason:
+      "running inline code via a shell -c flag is on the blocked list; write the code to a temp file and run that instead",
+  },
+  { pattern: /\beval\s+/, reason: "`eval` is on the blocked list" },
 
   // Process manipulation
-  /\bkill\s+(?:-9|-KILL|-SIGKILL)\b/,
-  /\bpkill\b/,
-  /\bkillall\b/,
+  {
+    pattern: /\bkill\s+(?:-9|-KILL|-SIGKILL)\b/,
+    reason: "`kill -9`/SIGKILL is on the blocked list",
+  },
+  { pattern: /\bpkill\b/, reason: "`pkill` is on the blocked list" },
+  { pattern: /\bkillall\b/, reason: "`killall` is on the blocked list" },
 
   // Fork-bomb shapes — match a function defined as `<name>(){<...>:|<name>&...}`
   // The classic `:(){ :|:& };:` and any single-letter-renamed variant. The
   // function name can be `:` (non-word), so we anchor on the preceding
   // boundary instead of `\b` which doesn't fire before `:`.
-  /(?:^|[\s;&|])\S+\s*\(\s*\)\s*\{[^}]*\|\s*\S+\s*&[^}]*\}\s*;\s*\S+/,
-  /\bwhile\s+(?:true|:)(?:\s|;|$)/, // while true / while :
+  {
+    pattern: /(?:^|[\s;&|])\S+\s*\(\s*\)\s*\{[^}]*\|\s*\S+\s*&[^}]*\}\s*;\s*\S+/,
+    reason: "a fork-bomb shape is on the blocked list",
+  },
+  {
+    pattern: /\bwhile\s+(?:true|:)(?:\s|;|$)/, // while true / while :
+    reason: "`while true`/`while :` infinite loop is on the blocked list",
+  },
 
   // Permission widening
-  /\bchmod\s+(?:0?777|a\+rwx|a=rwx|ugo\+rwx)\b/,
-  /\bchmod\s+[ugoa]*[+=][rwxst]*s/, // setuid / setgid via symbolic mode
-  /\bchmod\s+[246][0-7]{3}\b/, // setuid (4xxx) / setgid (2xxx) via numeric mode
-  /\bchown\s+(?:root|0)\b/,
+  {
+    pattern: /\bchmod\s+(?:0?777|a\+rwx|a=rwx|ugo\+rwx)\b/,
+    reason: "`chmod 777`/a+rwx (world-writable) is on the blocked list",
+  },
+  {
+    pattern: /\bchmod\s+[ugoa]*[+=][rwxst]*s/, // setuid / setgid via symbolic mode
+    reason: "`chmod` setting setuid/setgid (symbolic mode) is on the blocked list",
+  },
+  {
+    pattern: /\bchmod\s+[246][0-7]{3}\b/, // setuid (4xxx) / setgid (2xxx) via numeric mode
+    reason: "`chmod` setting setuid/setgid (numeric mode) is on the blocked list",
+  },
+  { pattern: /\bchown\s+(?:root|0)\b/, reason: "`chown root` is on the blocked list" },
 
   // Filesystem mounting
-  /\bmount\s+/,
-  /\bumount\s+/,
+  { pattern: /\bmount\s+/, reason: "`mount` is on the blocked list" },
+  { pattern: /\bumount\s+/, reason: "`umount` is on the blocked list" },
 
   // Firewall / network surface manipulation
-  /\biptables\b/,
-  /\bnftables\b/,
-  /\bufw\s+/,
+  { pattern: /\biptables\b/, reason: "firewall manipulation (iptables) is on the blocked list" },
+  { pattern: /\bnftables\b/, reason: "firewall manipulation (nftables) is on the blocked list" },
+  { pattern: /\bufw\s+/, reason: "firewall manipulation (ufw) is on the blocked list" },
 
   // Sensitive file disclosure — common readers targeting /etc/passwd, /etc/shadow, /etc/sudoers.
-  /\b(?:cat|tac|less|more|head|tail|awk|grep|strings|od|xxd|nl|cut|sed)\s+[^|;&]*\/etc\/(?:passwd|shadow|sudoers)\b/,
+  {
+    pattern:
+      /\b(?:cat|tac|less|more|head|tail|awk|grep|strings|od|xxd|nl|cut|sed)\s+[^|;&]*\/etc\/(?:passwd|shadow|sudoers)\b/,
+    reason: "reading sensitive system files (/etc/passwd|shadow|sudoers) is on the blocked list",
+  },
 
   // Crypto-key disclosure — readers targeting private-key paths.
-  /\b(?:cat|tac|less|more|head|tail|awk|grep|strings|od|xxd|nl)\s+[^|;&]*(?:\.ssh\/(?:id_(?:rsa|ed25519|ecdsa|dsa)|authorized_keys|known_hosts)|\.aws\/credentials|\.gnupg\/private-keys-v1\.d)\b/,
+  {
+    pattern:
+      /\b(?:cat|tac|less|more|head|tail|awk|grep|strings|od|xxd|nl)\s+[^|;&]*(?:\.ssh\/(?:id_(?:rsa|ed25519|ecdsa|dsa)|authorized_keys|known_hosts)|\.aws\/credentials|\.gnupg\/private-keys-v1\.d)\b/,
+    reason: "reading private keys/credentials is on the blocked list",
+  },
 
   // Sensitive file copying / exfiltration
-  /\bcp\b[^|;&]*\/etc\/(?:passwd|shadow|sudoers)\b/,
-  /\b(?:scp|rsync)\b[^|;&]*(?:\/etc\/(?:passwd|shadow|sudoers)|\.ssh\/(?:id_(?:rsa|ed25519|ecdsa|dsa)|authorized_keys)|\.aws\/credentials)\b/,
+  {
+    pattern: /\bcp\b[^|;&]*\/etc\/(?:passwd|shadow|sudoers)\b/,
+    reason: "copying sensitive system files (/etc/passwd|shadow|sudoers) is on the blocked list",
+  },
+  {
+    pattern:
+      /\b(?:scp|rsync)\b[^|;&]*(?:\/etc\/(?:passwd|shadow|sudoers)|\.ssh\/(?:id_(?:rsa|ed25519|ecdsa|dsa)|authorized_keys)|\.aws\/credentials)\b/,
+    reason: "copying/exfiltrating sensitive files (scp/rsync) is on the blocked list",
+  },
 
   // Writing backdoors into SSH authorized_keys
-  /\b(?:echo|printf)\b[^|;&]*>>?\s*~\/\.ssh\/authorized_keys/,
-  /\btee\b[^|;&]*~\/\.ssh\/authorized_keys/, // tee uses -a flag, not >>
+  {
+    pattern: /\b(?:echo|printf)\b[^|;&]*>>?\s*~\/\.ssh\/authorized_keys/,
+    reason: "writing to ~/.ssh/authorized_keys is on the blocked list",
+  },
+  {
+    pattern: /\btee\b[^|;&]*~\/\.ssh\/authorized_keys/, // tee uses -a flag, not >>
+    reason: "writing to ~/.ssh/authorized_keys (tee) is on the blocked list",
+  },
 
   // rm safety bypass
-  /\brm\b.*--no-preserve-root/,
+  {
+    pattern: /\brm\b.*--no-preserve-root/,
+    reason: "`rm --no-preserve-root` is on the blocked list",
+  },
 
   // Secure file wiping (unrecoverable)
-  /\bshred\b/,
-  /\btruncate\b/,
-  /\bwipefs\b/,
-  /\bblkdiscard\b/,
-  /\bhdparm\b.*--security-erase\b/,
+  { pattern: /\bshred\b/, reason: "`shred` (unrecoverable wipe) is on the blocked list" },
+  { pattern: /\btruncate\b/, reason: "`truncate` is on the blocked list" },
+  { pattern: /\bwipefs\b/, reason: "`wipefs` (disk erase) is on the blocked list" },
+  { pattern: /\bblkdiscard\b/, reason: "`blkdiscard` (disk erase) is on the blocked list" },
+  {
+    pattern: /\bhdparm\b.*--security-erase\b/,
+    reason: "`hdparm --security-erase` (disk erase) is on the blocked list",
+  },
 
   // Reverse shells via netcat / socat
-  /\bnc(?:at)?\b.*-[ec]\b/i,
-  /\bsocat\b.*\bEXEC:/i,
+  { pattern: /\bnc(?:at)?\b.*-[ec]\b/i, reason: "reverse shell via netcat is on the blocked list" },
+  { pattern: /\bsocat\b.*\bEXEC:/i, reason: "reverse shell via socat is on the blocked list" },
 
   // Remote fetch then execute (two-step, without pipe — the pipe form is above)
-  /\bcurl\b.*&&\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
-  /\bwget\b.*&&\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
+  {
+    pattern: /\bcurl\b.*&&\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
+    reason: "download-then-execute (curl && shell) is on the blocked list",
+  },
+  {
+    pattern: /\bwget\b.*&&\s*(?:sh|bash|zsh|fish|python\d?)\b/i,
+    reason: "download-then-execute (wget && shell) is on the blocked list",
+  },
 
   // Crontab manipulation (persistence / destruction)
-  /\bcrontab\s+-[er]\b/,
+  { pattern: /\bcrontab\s+-[er]\b/, reason: "crontab modification (-e/-r) is on the blocked list" },
 
   // Shell history wiping (cover-your-tracks)
-  /\bhistory\s+-[cwda]\b/,
+  { pattern: /\bhistory\s+-[cwda]\b/, reason: "shell-history wiping is on the blocked list" },
 
   // User account management — backdoor creation or account destruction
-  /\b(?:useradd|userdel|usermod|groupadd|groupdel|groupmod)\b/,
+  {
+    pattern: /\b(?:useradd|userdel|usermod|groupadd|groupdel|groupmod)\b/,
+    reason: "user/group account management is on the blocked list",
+  },
 
   // Password changes on other accounts
-  /\bpasswd\s+\S/,
+  { pattern: /\bpasswd\s+\S/, reason: "`passwd` on an account is on the blocked list" },
 
   // sudoers editor
-  /\bvisudo\b/,
+  { pattern: /\bvisudo\b/, reason: "`visudo` is on the blocked list" },
 ];
 
 /**
- * Pure check: does this command match any forbidden pattern?
+ * Find the first denylist rule a command trips, or null if none. A matched rule
+ * is skipped when any of its {@link ForbiddenRule.exemptions} applies to the
+ * command (e.g. an `rm` whose only targets are mktemp/$TMPDIR temp paths).
  *
  * Exposed for testing and reuse. Callers must still treat the result as
  * advisory — see the doc on FORBIDDEN_COMMANDS about the limits of denylists.
  */
+export function matchForbiddenCommand(command: string): ForbiddenRule | null {
+  for (const rule of FORBIDDEN_COMMANDS) {
+    if (!rule.pattern.test(command)) continue;
+    if (rule.exemptions?.some((exemption) => exemption.matches(command))) continue;
+    return rule;
+  }
+  return null;
+}
+
+/**
+ * Pure check: does this command match any forbidden pattern?
+ */
 export function isDangerousCommand(command: string): boolean {
-  return FORBIDDEN_COMMANDS.some((pattern) => pattern.test(command));
+  return matchForbiddenCommand(command) !== null;
 }
 
 const executeCommandParameters = z
@@ -238,13 +457,12 @@ This command will be executed on your system. Only approve commands you trust.`;
           };
         }
 
-        const isDangerous = FORBIDDEN_COMMANDS.some((pattern) => pattern.test(command));
-        if (isDangerous) {
+        const forbidden = matchForbiddenCommand(command);
+        if (forbidden) {
           return {
             success: false,
             result: null,
-            error:
-              "Command appears to be potentially dangerous and was blocked for safety. If you need to run this command, please execute it manually.",
+            error: `Command blocked by the built-in safety denylist: ${forbidden.reason}. This is a specific pattern match on this command — not a general restriction on running shell commands (other commands still run normally), and tool approval does not override it. If this command is genuinely safe and necessary, ask the user to run it manually.`,
           };
         }
 

@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { isDangerousCommand } from "./shell-tools";
+import { isDangerousCommand, matchForbiddenCommand } from "./shell-tools";
 
 describe("shell denylist — blocks dangerous commands", () => {
   describe("rm with destructive flags", () => {
@@ -404,6 +404,14 @@ describe("shell denylist — allows safe commands", () => {
     // legitimate rm of single files (no destructive flags)
     "rm tmpfile.txt",
     "rm ./build.log",
+    // temp-dir cleanup — rm -rf against a mktemp/$TMPDIR target is exempt
+    'tmp="$(mktemp -d)"; do_work "$tmp"; rm -rf "$tmp"',
+    'rm -rf "$(mktemp -d)"',
+    "rm -rf ${TMPDIR}/jazz-build",
+    'rm -rf "$TMPDIR"',
+    'tmpdir="$(mktemp -d)"\npdfseparate "$in" "$tmpdir/page-%d.pdf"\nrm -rf "$tmpdir"',
+    'work=`mktemp -d`; rm -rf "$work"',
+    'scratch="$(mktemp -d)"; rm -rf "$scratch"/*',
     // editor backup files (trailing `~`) — must NOT be treated as a home-dir target
     "rm file.txt~",
     "rm ./notes.md~",
@@ -428,6 +436,46 @@ describe("shell denylist — allows safe commands", () => {
       expect(isDangerousCommand(cmd)).toBe(false);
     });
   }
+});
+
+describe("shell denylist — temp-cleanup rm exemption boundaries", () => {
+  // The exemption is deliberately narrow: only mktemp-derived and $TMPDIR
+  // targets are safe. Anything mixing in a real path, or an rm on a variable
+  // NOT assigned from mktemp, must stay blocked.
+  const stillBlocked = [
+    // mixes a temp target with the filesystem root
+    'tmp="$(mktemp -d)"; rm -rf "$tmp" /',
+    // variable not assigned from mktemp — could be anything
+    'rm -rf "$HOME"',
+    'dir="/Users/me/project"; rm -rf "$dir"',
+    // literal /tmp paths are intentionally NOT exempt
+    "rm -rf /tmp/foo",
+    "rm -rf /tmp",
+    // a second rm targets a real path
+    'tmp="$(mktemp -d)"; rm -rf "$tmp"; rm -rf ./build',
+  ];
+  for (const cmd of stillBlocked) {
+    it(`still blocks ${JSON.stringify(cmd)}`, () => {
+      expect(isDangerousCommand(cmd)).toBe(true);
+    });
+  }
+});
+
+describe("shell denylist — blocks carry a specific reason", () => {
+  it("names the rm rule when rm -rf is blocked", () => {
+    const match = matchForbiddenCommand("rm -rf /some/real/path");
+    expect(match).not.toBeNull();
+    expect(match?.reason).toContain("rm");
+  });
+
+  it("names sudo when sudo is blocked", () => {
+    const match = matchForbiddenCommand("sudo apt-get install foo");
+    expect(match?.reason).toContain("sudo");
+  });
+
+  it("returns null for a safe command", () => {
+    expect(matchForbiddenCommand("git status")).toBeNull();
+  });
 });
 
 describe("shell denylist — known bypasses (documented gaps)", () => {
