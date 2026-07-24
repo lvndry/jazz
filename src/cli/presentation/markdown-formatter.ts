@@ -46,7 +46,15 @@ const STRIKETHROUGH_REGEX = /~~([^~\n]+?)~~/g;
 /** Matches **bold** or __bold__. Each branch only rejects its own delimiter inside the content. */
 const BOLD_REGEX = /\*\*([^*\n]+?)\*\*|__([^_\n]+?)__/g;
 const ITALIC_ASTERISK_REGEX = /(?<!\*)\*([^*\n]+?)\*(?!\*)/g;
-const ITALIC_UNDERSCORE_REGEX = /(?<!_)_([^_\n]+?)_(?!_)/g;
+/**
+ * Underscore italics, matched only at word boundaries. Per CommonMark, an
+ * underscore flanked by alphanumerics does NOT open or close emphasis, so
+ * intraword underscores in file paths (`bail_logement_loue`) and URLs
+ * (`foo_bar_baz`) are left untouched instead of being stripped. The opener must
+ * follow start-of-line / whitespace / `[` / `(`; the closer must precede
+ * end-of-line / whitespace / closing punctuation.
+ */
+const ITALIC_UNDERSCORE_REGEX = /(?<=^|[\s[(])_([^_\n]+?)_(?=$|[\s\].,!?)])/gm;
 const INLINE_CODE_REGEX = /`([^`\n]+?)`/g;
 /**
  * ATX headings: CommonMark allows 0–3 spaces before `#`; models often indent further
@@ -1532,10 +1540,6 @@ export function formatMarkdown(text: string): string {
 // Hybrid Mode Formatting - Preserves markdown syntax while adding styling
 // ============================================================================
 
-// Hybrid regex for safe underscore handling - only match standalone underscores
-// This prevents matching underscores in identifiers like hello_world
-const HYBRID_ITALIC_UNDERSCORE_REGEX = /(?<=^|[\s[(])_([^_\n]+?)_(?=[\s\],.!?)]|$)/gm;
-
 /**
  * Format bold text in hybrid mode - keeps ** markers visible
  */
@@ -1569,7 +1573,7 @@ export function formatItalicHybrid(text: string): string {
 
   // Underscore italics - only match if surrounded by whitespace/punctuation
   formatted = formatted.replace(
-    HYBRID_ITALIC_UNDERSCORE_REGEX,
+    ITALIC_UNDERSCORE_REGEX,
     (_match: string, content: string) => `_${ITALIC_MUTED(content)}_`,
   );
 
