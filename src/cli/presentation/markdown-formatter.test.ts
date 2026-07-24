@@ -82,6 +82,39 @@ describe("markdown-formatter", () => {
     });
   });
 
+  describe("underscore italics — intraword underscores are not emphasis", () => {
+    // CommonMark: an underscore flanked by alphanumerics neither opens nor
+    // closes emphasis, so paths and URLs must survive verbatim.
+    const path =
+      "/Users/lvndry/Documents/admin/bail_logement_loue_meuble_a_usage_de_residence_principale.pdf";
+    const url = "https://example.com/foo_bar_baz_qux";
+
+    it("preserves underscores in a file path (rendered mode)", () => {
+      expect(stripAnsiCodes(formatMarkdown(path))).toBe(path);
+    });
+
+    it("preserves underscores in a URL (rendered mode)", () => {
+      expect(stripAnsiCodes(formatMarkdown(url))).toBe(url);
+    });
+
+    it("preserves intraword underscores in prose but still italicises real emphasis", () => {
+      const out = stripAnsiCodes(formatMarkdown("say _hello_ to foo_bar_baz please"));
+      // `_hello_` is real emphasis → markers removed; `foo_bar_baz` is intraword → untouched.
+      expect(out).toBe("say hello to foo_bar_baz please");
+    });
+
+    it("still treats genuine _emphasis_ as italic (markers consumed)", () => {
+      // Rendered mode strips the underscore markers when emphasis is applied;
+      // colour styling itself is env-dependent (chalk is a no-op without a TTY),
+      // so we assert the markers were consumed rather than the ANSI bytes.
+      expect(stripAnsiCodes(formatMarkdown("a _word_ here"))).toBe("a word here");
+    });
+
+    it("preserves underscores in a path in hybrid mode", () => {
+      expect(stripAnsiCodes(formatMarkdownHybrid(path))).toBe(path);
+    });
+  });
+
   describe("formatBlockquotes", () => {
     it("should tint blockquotes with the reasoning accent", () => {
       const input = "> Thinking aloud";
