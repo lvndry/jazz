@@ -27,6 +27,89 @@ import { buildKeyFromContext } from "./context-utils";
  * See `shell-tools.security.test.ts` for the regression suite and the
  * documented set of known bypasses.
  */
+/** An inline `mktemp` command substitution — `$(mktemp …)` or `` `mktemp …` ``. */
+const MKTEMP_INLINE = /\$\(\s*mktemp\b[^)]*\)|`\s*mktemp\b[^`]*`/g;
+
+/** A placeholder standing in for an inline `mktemp` so it survives whitespace splitting. */
+const MKTEMP_SENTINEL = "MKTEMP_TEMPDIR_SENTINEL";
+
+/**
+ * Variable assignments whose value comes from `mktemp` (either `$(mktemp …)` or
+ * a backtick form), e.g. `tmp="$(mktemp -d)"`. Global flag so `matchAll` walks
+ * every assignment in a multi-line command.
+ */
+const MKTEMP_ASSIGNMENT = /(\w+)=["']?(?:\$\(\s*mktemp\b[^)]*\)|`\s*mktemp\b[^`]*`)["']?/g;
+
+function collectMktempVars(command: string): Set<string> {
+  const vars = new Set<string>();
+  for (const match of command.matchAll(MKTEMP_ASSIGNMENT)) {
+    const name = match[1];
+    if (name) vars.add(name);
+  }
+  return vars;
+}
+
+/**
+ * Is `token` (already normalized — quotes stripped, inline `mktemp` replaced
+ * with {@link MKTEMP_SENTINEL}) a temp target: an inline `mktemp`, a
+ * `$TMPDIR`/`${TMPDIR}` path, or a `$var`/`${var}` (optionally with a
+ * `/subpath`) whose value was assigned from `mktemp` earlier in the command?
+ */
+function isTempPathToken(token: string, mktempVars: Set<string>): boolean {
+  if (token === MKTEMP_SENTINEL) return true; // inline $(mktemp …) / `mktemp …`
+  if (/^\$\{?TMPDIR\}?(?:\/.*)?$/.test(token)) return true; // $TMPDIR or ${TMPDIR}[/…]
+  const varName = token.match(/^\$\{?(\w+)\}?(?:\/.*)?$/)?.[1]; // $var / ${var}[/…]
+  return varName !== undefined && mktempVars.has(varName);
+}
+
+/**
+ * True when every destructive `rm` in the command targets only temp locations
+ * created via `mktemp` (directly or through a variable) or under `$TMPDIR`.
+ *
+ * Lets routine temp-dir cleanup — `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` — pass
+ * the denylist, while `rm -rf` against a real path (or a mix of temp and real
+ * targets) stays blocked. Deliberately narrow: literal `/tmp/…` paths are NOT
+ * exempted, matching the existing policy that treats them as dangerous.
+ */
+function isTempCleanupRm(command: string): boolean {
+  const mktempVars = collectMktempVars(command);
+  const rmInvocations = command.match(/\brm\b[^\n;&|]*/g);
+  if (!rmInvocations || rmInvocations.length === 0) return false;
+  return rmInvocations.every((invocation) => {
+    const targets = invocation
+      .slice(2) // drop the leading "rm"
+      .replace(/['"]/g, "") // shell quoting can sit mid-token (e.g. "$dir"/*)
+      .replace(MKTEMP_INLINE, ` ${MKTEMP_SENTINEL} `) // keep inline mktemp as one token
+      .trim()
+      .split(/\s+/)
+      .filter((token) => token.length > 0 && !token.startsWith("-"));
+    return targets.length > 0 && targets.every((token) => isTempPathToken(token, mktempVars));
+  });
+}
+
+/**
+ * A named carve-out for a forbidden rule. When a command trips a rule, it is
+ * still allowed if any of the rule's exemptions matches the command. Add new
+ * entries here (and reference them from a rule's `exemptions`) to grow the set
+ * of safe exceptions without special-casing the matcher.
+ */
+type CommandExemption = {
+  /** Stable identifier, handy for logging/telemetry and tests. */
+  readonly name: string;
+  /** True when this exemption applies to the given command. */
+  readonly matches: (command: string) => boolean;
+};
+
+/**
+ * Temp-dir cleanup: an `rm` whose every target is a mktemp/$TMPDIR temp path.
+ * Lets `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` through without opening up
+ * `rm -rf` against real paths.
+ */
+const TEMP_CLEANUP_EXEMPTION: CommandExemption = {
+  name: "temp-cleanup",
+  matches: isTempCleanupRm,
+};
+
 /**
  * A single denylist entry: the pattern that flags a command, plus a short,
  * agent-readable `reason` explaining *why* it was blocked. The reason is
@@ -38,12 +121,11 @@ type ForbiddenRule = {
   readonly pattern: RegExp;
   readonly reason: string;
   /**
-   * When true, this `rm`-family rule is skipped if every target is a temp
-   * location created via `mktemp` (directly or through a variable) or under
-   * `$TMPDIR`. Lets routine temp-dir cleanup through without opening up
-   * `rm -rf` against real paths. See {@link isTempCleanupRm}.
+   * Named carve-outs: if any listed exemption matches the command, this rule is
+   * skipped. Lets a rule stay broad while allowing known-safe shapes (e.g. the
+   * {@link TEMP_CLEANUP_EXEMPTION} for temp-dir cleanup).
    */
-  readonly tempExempt?: boolean;
+  readonly exemptions?: readonly CommandExemption[];
 };
 
 export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
@@ -53,13 +135,13 @@ export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
     pattern: /\brm\s+-[a-z]*[rf][a-z]*\s+/i, // rm -r / -f / -rf / -fr / -Rfv / -rfvI etc.
     reason:
       "`rm` with a recursive/force flag (-r/-f) is on the blocked list (exempt only when the target is a mktemp/$TMPDIR temp path)",
-    tempExempt: true,
+    exemptions: [TEMP_CLEANUP_EXEMPTION],
   },
   {
     pattern: /\brm\s+-[rfRF]\s+-[rfRF]\b/, // rm -r -f, rm -f -r
     reason:
       "`rm` with split recursive/force flags (-r -f) is on the blocked list (exempt only when the target is a mktemp/$TMPDIR temp path)",
-    tempExempt: true,
+    exemptions: [TEMP_CLEANUP_EXEMPTION],
   },
   {
     pattern: /\brm\s+(?:.*\s+)?\/\s*$/, // rm targeting / (end of line, with or without other args)
@@ -80,7 +162,7 @@ export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
     pattern: /\brm\s+.*\*/, // rm with glob (no required space before *)
     reason:
       "`rm` with a wildcard (*) is on the blocked list (exempt only when the target is a mktemp/$TMPDIR temp path)",
-    tempExempt: true,
+    exemptions: [TEMP_CLEANUP_EXEMPTION],
   },
 
   // Privilege escalation
@@ -267,69 +349,9 @@ export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
 ];
 
 /**
- * Variable assignments whose value comes from `mktemp` (either `$(mktemp …)` or
- * a backtick form), e.g. `tmp="$(mktemp -d)"`. Global flag so `matchAll` walks
- * every assignment in a multi-line command.
- */
-/** An inline `mktemp` command substitution — `$(mktemp …)` or `` `mktemp …` ``. */
-const MKTEMP_INLINE = /\$\(\s*mktemp\b[^)]*\)|`\s*mktemp\b[^`]*`/g;
-
-/** A placeholder standing in for an inline `mktemp` so it survives whitespace splitting. */
-const MKTEMP_SENTINEL = "MKTEMP_TEMPDIR_SENTINEL";
-
-const MKTEMP_ASSIGNMENT = /(\w+)=["']?(?:\$\(\s*mktemp\b[^)]*\)|`\s*mktemp\b[^`]*`)["']?/g;
-
-function collectMktempVars(command: string): Set<string> {
-  const vars = new Set<string>();
-  for (const match of command.matchAll(MKTEMP_ASSIGNMENT)) {
-    const name = match[1];
-    if (name) vars.add(name);
-  }
-  return vars;
-}
-
-/**
- * Is `token` (already normalized — quotes stripped, inline `mktemp` replaced
- * with {@link MKTEMP_SENTINEL}) a temp target: an inline `mktemp`, a
- * `$TMPDIR`/`${TMPDIR}` path, or a `$var`/`${var}` (optionally with a
- * `/subpath`) whose value was assigned from `mktemp` earlier in the command?
- */
-function isTempPathToken(token: string, mktempVars: Set<string>): boolean {
-  if (token === MKTEMP_SENTINEL) return true; // inline $(mktemp …) / `mktemp …`
-  if (/^\$\{?TMPDIR\}?(?:\/.*)?$/.test(token)) return true; // $TMPDIR or ${TMPDIR}[/…]
-  const varName = token.match(/^\$\{?(\w+)\}?(?:\/.*)?$/)?.[1]; // $var / ${var}[/…]
-  return varName !== undefined && mktempVars.has(varName);
-}
-
-/**
- * True when every destructive `rm` in the command targets only temp locations
- * created via `mktemp` (directly or through a variable) or under `$TMPDIR`.
- *
- * Lets routine temp-dir cleanup — `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` — pass
- * the denylist, while `rm -rf` against a real path (or a mix of temp and real
- * targets) stays blocked. Deliberately narrow: literal `/tmp/…` paths are NOT
- * exempted, matching the existing policy that treats them as dangerous.
- */
-function isTempCleanupRm(command: string): boolean {
-  const mktempVars = collectMktempVars(command);
-  const rmInvocations = command.match(/\brm\b[^\n;&|]*/g);
-  if (!rmInvocations || rmInvocations.length === 0) return false;
-  return rmInvocations.every((invocation) => {
-    const targets = invocation
-      .slice(2) // drop the leading "rm"
-      .replace(/['"]/g, "") // shell quoting can sit mid-token (e.g. "$dir"/*)
-      .replace(MKTEMP_INLINE, ` ${MKTEMP_SENTINEL} `) // keep inline mktemp as one token
-      .trim()
-      .split(/\s+/)
-      .filter((token) => token.length > 0 && !token.startsWith("-"));
-    return targets.length > 0 && targets.every((token) => isTempPathToken(token, mktempVars));
-  });
-}
-
-/**
- * Find the first denylist rule a command trips, or null if none. Rules flagged
- * {@link ForbiddenRule.tempExempt} are skipped when the command is a temp-only
- * `rm` cleanup ({@link isTempCleanupRm}).
+ * Find the first denylist rule a command trips, or null if none. A matched rule
+ * is skipped when any of its {@link ForbiddenRule.exemptions} applies to the
+ * command (e.g. an `rm` whose only targets are mktemp/$TMPDIR temp paths).
  *
  * Exposed for testing and reuse. Callers must still treat the result as
  * advisory — see the doc on FORBIDDEN_COMMANDS about the limits of denylists.
@@ -337,7 +359,7 @@ function isTempCleanupRm(command: string): boolean {
 export function matchForbiddenCommand(command: string): ForbiddenRule | null {
   for (const rule of FORBIDDEN_COMMANDS) {
     if (!rule.pattern.test(command)) continue;
-    if (rule.tempExempt && isTempCleanupRm(command)) continue;
+    if (rule.exemptions?.some((exemption) => exemption.matches(command))) continue;
     return rule;
   }
   return null;
