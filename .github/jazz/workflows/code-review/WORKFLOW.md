@@ -46,7 +46,17 @@ Your output must contain exactly two fenced blocks, in this order, with no text 
    - `line`: target line from the diff
    - `start_line`: optional, for ranges
    - `side`: `RIGHT` for added/modified lines, `LEFT` for deleted
-   - `body`: markdown with severity, explanation, and fix guidance
+   - `body`: markdown starting with a bold label, then explanation and fix guidance
+
+### Comment labels
+
+Use one label per comment, matching what it actually is — never label a positive observation as an issue severity:
+
+- **Critical**: a real bug, security risk, or behavior regression with a concrete failure path. Must include a fix direction.
+- **Warning**: a real but lower-impact correctness or robustness gap (edge case, missing validation) — still a concrete, reachable issue.
+- **Very Good** / **Good** / **Nice**: a deliberate, non-obvious design choice worth calling out positively (e.g. a subtle fix, a well-reasoned tradeoff, a clean boundary). Use sparingly — only when it's genuinely non-obvious, not for routine correct code.
+
+Only emit positive comments alongside real findings or when the verdict text already says the diff looks sound; don't manufacture praise to pad the output.
 
 ### Inline comment line accuracy (GitHub rejects comments on lines outside diff hunks)
 
