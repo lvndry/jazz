@@ -1,6 +1,19 @@
 import { Effect } from "effect";
 import { createCLIApp } from "./cli/cli-app";
 
+// The `ai` SDK's default warning logger writes its one-time banner via console.info, which is
+// STDOUT — this corrupts `jazz run --json`'s output contract (stdout must be JSON only), and
+// crashes JSON.parse for any consumer parsing it. Route warnings to stderr instead, where CLI
+// diagnostics belong and where they can't break structured output.
+globalThis.AI_SDK_LOG_WARNINGS = (options) => {
+  console.error(
+    "AI SDK warning:",
+    JSON.stringify(options.warnings),
+    options.provider,
+    options.model,
+  );
+};
+
 /**
  * Main entry point for the Jazz CLI
  */
