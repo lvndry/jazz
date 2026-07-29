@@ -1,0 +1,38 @@
+{
+  // Markdown style checks for docs and root Markdown. Formatting only — this does NOT
+  // validate that relative links resolve (markdownlint has no such rule; MD051 only checks
+  // in-file #anchors). `bun run docs:check-links` covers that.
+  // Scoped to prose we author. Deliberately excludes node_modules, and excludes
+  // skills/ workflows/ examples/ — those are agent-facing templates where rules like
+  // "fenced blocks need a language" fight the format rather than help it.
+  "globs": ["docs/**/*.md", "*.md"],
+  "ignores": ["node_modules/**", "dist/**", "docs/superpowers/**"],
+  "config": {
+    // Prose is hard-wrapped at ~100, not 80, and tables legitimately exceed any limit.
+    // Enforcing a column count on documentation produces thousands of findings and no value.
+    "MD013": false,
+
+    // The README uses <div align="center"> and <img> for the header and demo GIF, which
+    // Markdown cannot express.
+    "MD033": false,
+
+    // Table cell padding/alignment. Cosmetic, invisible when rendered, and noisy.
+    "MD060": false,
+
+    // Duplicate headings are fine across different sections ("Related", "Next steps").
+    "MD024": { "siblings_only": true },
+
+    // Accept either 1./2./3. or all-1. numbering. A fenced block indented inside a list
+    // item makes most parsers see the next item as a new list, so forcing one style here
+    // fights valid Markdown rather than improving it.
+    "MD029": { "style": "one_or_ordered" },
+
+    // The README opens with a centered <div> and uses an h3 tagline under the h1 title.
+    // Both are deliberate layout, and neither affects how the page reads.
+    "MD041": false,
+    "MD001": false,
+
+    // Taglines and section headers end in a period where it reads better.
+    "MD026": false
+  }
+}

@@ -4,14 +4,13 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![npm version](https://img.shields.io/npm/v/jazz-ai.svg)](https://www.npmjs.com/package/jazz-ai)
 
-### Your terminal. Your agent. Your rules.
+### One agent. Every surface. Your rules
 
-Jazz is an AI agent that lives in your terminal and actually does things.
-Not a chatbot. Not a wrapper around an API. A personal assistant you control,
-that reads your files, manages your git, searches the web, handles your email,
-and automates the workflows you're tired of doing by hand.
+Jazz is an AI agent you install once and run everywhere: your terminal, a CI pipeline, a
+cron schedule, a Telegram thread, a pull request. Same agent, same tools, same memory,
+any model.
 
-[Quick Start](#quick-start) · [What Can It Do?](#what-can-it-do) · [Workflows](#workflows-automate-everything) · [CI/CD](#we-use-jazz-to-build-jazz) · [Docs](docs/README.md) · [Discord](https://discord.gg/yBDbS2NZju)
+[Quick Start](#quick-start) · [Where It Runs](#where-jazz-runs) · [Reliability](#reliability) · [Workflows](#workflows) · [Docs](docs/index.md) · [Discord](https://discord.gg/yBDbS2NZju)
 
 </div>
 
@@ -19,334 +18,212 @@ and automates the workflows you're tired of doing by hand.
 
 ## Why Jazz?
 
-Because your terminal should be smarter than a blinking cursor.
+A chatbot answers you. Jazz does the thing, wherever the work actually happens.
 
-Jazz is a personal assistant that lives where you already work. It can read your filesystem, manage your git repos, search the web, handle your email, run shell commands, talk to APIs -- and it does all of it autonomously, step by step, without you having to hold its hand. It's LLM provider agnostic, supports agent skills, and connects to anything through MCP.
+- **Runs anywhere**: the same agent works in your terminal, in a script, on a schedule, on a pull request, or behind a chat bot.
+- **Any model**: every major provider, swap mid-conversation, or run fully local with no API key.
+- **Yours**: MIT-licensed, runs on your own machine or server, works offline, nothing leaves your disk.
+- **Built for long jobs**: tracks its own progress, summarizes as it goes, delegates to helper agents, and tells you what it spent.
 
-Tell it to "analyze yesterday's unread emails and archive the newsletters" -- it connects to Gmail, reads your inbox, categorizes messages, and archives them. Tell it to "commit my changes with a good message" -- it runs `git diff`, reads the changes, writes a semantic commit message, and commits. Tell it to "find all security vulnerabilities in this codebase" -- it scans your files, analyzes patterns, and gives you a prioritized report.
-
-You describe what you want. Jazz figures out how to do it.
+You describe the outcome. Jazz plans, calls tools, checks its own work, and reports back.
 
 ---
 
 ## Quick Start
 
 ```bash
-# Install
 npm install -g jazz-ai
-bun add -g jazz-ai
-pnpm add -g jazz-ai
-yarn global add jazz-ai
-
-# Start chatting
 jazz
 ```
 
-That's it. Jazz walks you through provider setup on first run.
+Jazz walks you through provider setup on first run. Update anytime with `jazz update`.
 
-> **Start using Jazz for free** -- choose [OpenRouter](https://openrouter.ai) as your provider and select the [`Free Models Router`](https://openrouter.ai/openrouter/free). No credit card, no commitment.
+Free option: [OpenRouter](https://openrouter.ai) with the
+[`Free Models Router`](https://openrouter.ai/openrouter/free) model, no credit card. Private
+option: `ollama`, fully local.
 
-Keep it updated:
-
-```bash
-jazz update
+```text
+> review the last 5 commits and flag anything risky
+> check my unread email, summarize what matters, archive the rest
+> deep-research the Three-Body Problem and write it into my Obsidian vault
+> find every TODO in this repo, group by priority, and open an issue for the top 3
 ```
 
 ---
 
-## What Can It Do?
+## Where Jazz runs
 
-### The short answer: almost anything you can describe.
+Your agent isn't trapped in a terminal. `jazz run` is the one command behind every surface
+below. It prints the answer and nothing else, so any script, bot, or CI job can call it.
+Full contract: [Surfaces → Headless](docs/surfaces/headless.md).
 
-Jazz understands your filesystem, your git history, your shell, HTTP APIs, the web, PDFs and it can connect to external services through MCP. But capabilities are just the foundation. What makes Jazz different is how it _combines_ them to solve your actual problems.
+| Surface | How you run it |
+| --- | --- |
+| Terminal | `jazz` |
+| Scripts & pipes | `jazz run --json --agent dev "…"` |
+| Cron / launchd | `jazz workflow schedule <name>` |
+| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo |
+| Telegram | [`integrations/telegram-bot/`](integrations/telegram-bot/), `docker compose up` |
 
-### Real examples, real workflows
-
-**Development**
-
-```
-> review the last 5 commits and flag anything that looks risky
-> find all TODO comments, group them by priority, and create a summary
-> refactor this function to use async/await and update all callers
-> generate a PR description from the current branch diff
-```
-
-**Email & Communication**
-
-```
-> check my unread emails, summarize anything important, archive the rest
-> draft a reply to the latest email from Sarah about the project timeline
-```
-
-**Research & Analysis**
-
-```
-> research the latest developments in WebAssembly and write a 2-page summary
-> compare React Server Components vs Astro islands architecture with pros and cons
-> analyze this PDF report and extract the key financial metrics
-```
-
-**Knowledge Management**
-
-```
-> do deep research on the Three-Body Problem and write it in my Obsidian vault
-```
-
-### LLM Provider Agnostic
-
-Jazz doesn't lock you in. Use whichever model fits the task or switch mid-conversation. Run locally with Ollama, go through OpenRouter for access to hundreds of models, or plug in your own endpoint.
-
-OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Groq, Cerebras, Fireworks, TogetherAI, Ollama, llama.cpp, OpenRouter, and more.
-
-### MCP: Connect to Everything
-
-Jazz speaks [Model Context Protocol](https://modelcontextprotocol.io/). One config block, and your agent can talk to any MCP-compatible service:
-
-Simply run `jazz mcp add` and input the MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "notion": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.notion.com/mcp"]
-    },
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"]
-    }
-  }
-}
-```
-
-### Skills: Extend Your Agent
-
-Skills are packaged expertise your agent loads on demand—proven playbooks for complex tasks instead of winging it every time. Think deep research with multi-source verification, structured code review, meeting notes that follow your format, PR descriptions from your conventions. You get consistency and domain expertise without stuffing the context window.
-
-Jazz ships with **15+ built-in skills**—deep research, email, calendar, browser automation, Obsidian, and more. Add your own from the ecosystem: Jazz follows the [`.agents` convention](https://agentskills.io), so any skill works. Run `npx skills add` to browse and install, or drop a skill in `~/.jazz/skills/` (global) or `./skills/` (project-local). Use `/skills` in chat to browse what's available.
+Want Slack, Google Chat, or Discord instead? The same `jazz run` contract works there too, as
+a bridge you write yourself (~100 lines). See [Chat platforms](docs/surfaces/chat-platforms.md).
 
 ---
 
-## Workflows: Automate Everything
+## Model providers
 
-A workflow is a Markdown file that describes what your agent should do, when it should do it, and how much autonomy it gets. Schedule them with cron, run them headless, and let Jazz handle the boring parts of your day.
+Every major LLM provider, plus `ollama` and `llama.cpp` for running models locally with no
+API key. Switch with `/model` mid-conversation, or point different agents at different
+providers. Full list: [Providers](docs/integrations/providers.md).
 
-### Built-in Workflows
+Fully airgapped mode is supported: `JAZZ_OFFLINE=1` stops all outbound requests except
+inference itself. See [Airgapped & Self-Hosted](docs/guide/airgapped.md).
 
-Jazz ships with workflows ready to go:
+---
 
-| Workflow             | Schedule      | What it does                                                      |
-| -------------------- | ------------- | ----------------------------------------------------------------- |
-| **email-cleanup**    | Hourly        | Archive newsletters, organize promotions, flag important messages |
-| **weather-briefing** | Every morning | Weather forecast + outfit recommendations for your location       |
-| **market-analysis**  | Daily         | Stock/crypto analysis with buy/sell signals                       |
+## Reliability
 
-### Create Your Own
+Most agent tools fall apart on tasks longer than a couple of minutes. Jazz is built for
+tasks that take a while:
 
-Any task you do repeatedly can become a workflow. Write a `WORKFLOW.md`:
+- **Budgeted iterations** that warn themselves to wrap up as they approach the limit.
+- **Loop detection** that catches an agent repeating itself and forces a different approach.
+- **Automatic context compaction** that summarizes and continues instead of truncating or crashing.
+- **Sub-agents** for delegating research or coding work without blowing the parent's context.
+- **Cost tracking** on every run, with a daily spend cap for unattended use.
+
+Built on TypeScript and [Effect-TS](https://effect.website/), so failures have a typed
+recovery path instead of crashing silently. Details:
+[Agent loop](docs/internals/agent-loop.md) ·
+[Design decisions](docs/internals/design-decisions.md).
+
+---
+
+## Tools & integrations
+
+**43 built-in tools**: files, git, shell, web search and fetch, HTTP, todos, sub-agents.
+Each has a documented risk level. See [Tools reference](docs/reference/tools.md).
+
+**Skills** are playbooks the agent loads on demand: deep research, code review, meeting
+notes, commit conventions. 18+ ship built in, and Jazz follows the
+[`.agents` convention](https://agentskills.io), so anything from the ecosystem works. Add
+your own to `~/.jazz/skills/` or `./skills/`, or run `npx skills add`.
+
+**Personas** control tone and style independently of the model: `default`, `coder`,
+`researcher`, or your own with `jazz persona create`.
+
+**Custom tools** let you add a capability with no code: a name, a schema, and a shell
+command or HTTP call in the agent's config. See
+[Configuration](docs/reference/configuration.md#agent-config-customtools).
+
+**MCP** connects Jazz to anything else. `jazz mcp add`, paste a server config, and its
+tools are available to any agent that requests them.
+
+---
+
+## Workflows
+
+A workflow is a Markdown file that says what to do, when, and how much autonomy it gets.
 
 ```yaml
 ---
 name: daily-standup-prep
-description: Prepare my daily standup notes
-schedule: "0 9 * * 1-5" # 9 AM, weekdays
-agent: my-dev-agent
+schedule: "0 9 * * 1-5" # weekdays, 9am
 autoApprove: read-only
 ---
+Check my git activity from yesterday and summarize what I worked on as bullet points.
 ```
-
-```markdown
-Check my git activity from yesterday across all repos in ~/projects/.
-Summarize what I worked on, what PRs I opened or reviewed,
-and any blockers I mentioned in commit messages.
-Format it as bullet points I can paste into Slack.
-```
-
-Then schedule it:
 
 ```bash
 jazz workflow schedule daily-standup-prep
 ```
 
-Jazz uses `launchd` on macOS and `cron` on Linux. If your machine was asleep when a workflow was supposed to run, Jazz can catch up automatically on next launch.
-
-### Auto-Approve Policies
-
-Control how much autonomy each workflow gets:
-
-| Policy      | What it auto-approves                       |
-| ----------- | ------------------------------------------- |
-| `false`     | Nothing -- always asks                      |
-| `read-only` | Reading files, searching, web requests      |
-| `low-risk`  | + archiving email, creating calendar events |
-| `high-risk` | + file changes, shell commands, git push    |
+Jazz schedules through `launchd` on macOS and `cron` on Linux, and can catch up runs your
+laptop slept through. Three workflows ship built in; the
+[Cookbook](docs/cookbook/index.md) has seven more ready to copy.
 
 ---
 
-## We use Jazz to build Jazz.
+## We use Jazz to build Jazz
 
-Jazz isn't just a local tool. It runs in CI/CD pipelines with `--output raw` and `--auto-approve` flags, purpose-built for automation.
+Every pull request to this repo is reviewed by a Jazz agent, which posts inline comments on
+the diff. Comment `/jazz-review` to re-run it, or `/jazz <question>` to ask about the PR.
+Release notes are drafted the same way, from the commits since the last tag.
 
-### Automated Code Review
+Copy [`.github/jazz/`](.github/jazz/) and [`jazz.yml`](.github/workflows/jazz.yml) into your
+own repo and add one provider secret to get the same setup. Guide:
+[`.github/jazz/README.md`](.github/jazz/README.md).
 
-Every pull request to Jazz gets reviewed by a Jazz agent. The [`jazz.yml`](.github/workflows/jazz.yml) workflow:
+---
 
-1. Installs `jazz-ai` in the CI runner
-2. Runs a code review workflow against the PR diff
-3. Posts **inline review comments** directly on the PR -- on specific lines, with context
+## Safety & permissions
 
-```yaml
-# .github/workflows/jazz.yml (simplified)
-- name: Run Jazz code review
-  run: jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer
-  env:
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+Nothing runs without a say-so. One dial controls what's allowed to run unattended, for the
+terminal, CI, and any bot the same way:
+
+| Policy | Auto-approves |
+| --- | --- |
+| `false` | Nothing, always asks |
+| `read-only` | Reading files, search, web requests |
+| `low-risk` | + todo tracking, spawning sub-agents |
+| `high-risk` | + file changes, shell commands, git commit and push |
+
+Every gated action is proposed before it executes, so you see exactly what will happen
+before it happens. Details: [Tools & approval](docs/internals/tools-and-approval.md).
+Reporting a vulnerability: [SECURITY.md](SECURITY.md).
+
+---
+
+## Command reference
+
+```bash
+jazz                              # start chatting
+jazz run --agent <a> "<prompt>"   # one-shot, headless
+jazz agent create|list|show|edit|delete|chat
+jazz workflow list|show|run|schedule|unschedule|scheduled|catchup|history
+jazz mcp add|list|remove|enable|disable
+jazz persona create|list|show|edit|delete
+jazz config show|get|set
+jazz update
 ```
 
-Comment `/jazz-review` on a pull request to trigger a review on demand, or `/jazz <request>` to ask the PR assistant anything.
-The review agent checks for correctness, security issues, TypeScript best practices, Effect-TS patterns, and performance concerns. Real reviews, on real code, every PR.
-
-### Automated Release Notes
-
-Every release gets its notes written by Jazz. The [`release.yml`](.github/workflows/release.yml) workflow:
-
-1. Bumps the version and creates a git tag
-2. Runs a Jazz agent to analyze all commits since the last release
-3. Generates release notes grouped by feature area
-4. Creates the GitHub Release with those notes
-
-No more "what changed in this release?" -- Jazz reads the commits, understands the changes, and writes release notes that actually make sense.
-
-### Run Jazz in Your Own Pipelines
-
-```yaml
-# Your .github/workflows/review.yml
-name: AI Code Review
-on: pull_request
-
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - run: npm install -g jazz-ai
-
-      - name: Run review
-        run: jazz --output raw workflow run my-review --auto-approve
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-```
-
-See [`.github/jazz/`](.github/jazz/) for the full agent configs and workflow templates we use.
+In chat: `/tools` `/skills` `/model` `/mode` `/cost` `/context` `/compact` `/switch`
+`/workflows`, or `/help`. Full reference: [CLI](docs/reference/cli.md).
 
 ---
 
-## You Stay in Control
+## Documentation
 
-Jazz is powerful, but it never acts without your say-so.
+Start at **[`docs/index.md`](docs/index.md)**.
 
-**Requires approval:** File changes, git commits, shell commands, sending emails, API mutations
-**Runs freely:** Reading files, searching, analyzing code, web lookups, viewing data
+| Topic | Links |
+| --- | --- |
+| Getting started | [Quick Start](docs/guide/quick-start.md) · [Creating Agents](docs/guide/creating-agents.md) |
+| Where it runs | [Surfaces](docs/surfaces/index.md) · [Headless](docs/surfaces/headless.md) · [Chat platforms](docs/surfaces/chat-platforms.md) · [CI/CD](docs/surfaces/ci-cd.md) · [Scheduled](docs/surfaces/scheduled.md) |
+| Examples | [Use Cases](docs/guide/index.md#end-to-end-use-cases) · [Cookbook](docs/cookbook/index.md) · [Examples](examples/) |
+| Concepts | [Agents](docs/concepts/agents.md) · [Personas](docs/concepts/personas.md) · [Skills](docs/concepts/skills.md) · [Tools](docs/concepts/tools.md) · [Workflows](docs/concepts/workflows.md) |
+| Self-hosting | [Airgapped](docs/guide/airgapped.md) · [Telegram bridge](integrations/telegram-bot/) |
+| Reference | [CLI](docs/reference/cli.md) · [Configuration](docs/reference/configuration.md) · [Tools](docs/reference/tools.md) |
+| Internals | [Agent loop](docs/internals/agent-loop.md) · [Context management](docs/internals/context-management.md) · [Design decisions](docs/internals/design-decisions.md) |
 
-Every action is logged. You see exactly what Jazz wants to do before it does it. You can review, approve, deny, or modify. Full audit trail, always.
-
-Credentials are stored securely (OAuth2 for Gmail, API keys in config). Nothing is logged or exposed.
-
----
-
-## Command Reference
-
-**Agents**
-
-| Command                       | Description                |
-| ----------------------------- | -------------------------- |
-| `jazz`                        | Start chatting             |
-| `jazz agent create`           | Create a new agent         |
-| `jazz agent list`             | List all agents            |
-| `jazz agent show <id>`        | Show agent details         |
-| `jazz agent edit <id>`        | Edit an agent              |
-| `jazz agent delete <id>`      | Delete an agent            |
-| `jazz agent chat <name>`      | Chat with a specific agent |
-
-**Workflows**
-
-| Command                           | Description                    |
-| --------------------------------- | ------------------------------ |
-| `jazz workflow list`              | List available workflows       |
-| `jazz workflow show <name>`       | Show workflow details          |
-| `jazz workflow run <name>`        | Run a workflow                 |
-| `jazz workflow schedule <name>`   | Schedule a workflow            |
-| `jazz workflow unschedule <name>` | Remove a workflow schedule     |
-| `jazz workflow scheduled`         | List scheduled workflows       |
-| `jazz workflow catchup`           | Run missed scheduled workflows |
-| `jazz workflow history [name]`    | View workflow run history      |
-
-**MCP, Personas & Config**
-
-| Command                    | Description            |
-| -------------------------- | ---------------------- |
-| `jazz mcp add`             | Add an MCP server      |
-| `jazz mcp list`            | List MCP servers       |
-| `jazz mcp remove`          | Remove an MCP server   |
-| `jazz mcp enable`          | Enable an MCP server   |
-| `jazz mcp disable`         | Disable an MCP server  |
-| `jazz persona create`      | Create a persona       |
-| `jazz persona list`        | List personas          |
-| `jazz persona show <id>`   | Show persona details   |
-| `jazz persona edit <id>`   | Edit a persona         |
-| `jazz persona delete <id>` | Delete a persona       |
-| `jazz config show`         | View configuration     |
-| `jazz config get <key>`    | Get a config value     |
-| `jazz config set <key>`    | Set a config value     |
-| `jazz update`              | Update to latest version |
-
-**In-chat commands:** `/tools`, `/skills`, `/model`, `/mode`, `/cost`, `/context`, `/compact`, `/switch`, `/workflows`, and more. Type `/help` during chat.
-
----
-
-## Built to Be Reliable
-
-Jazz is 100% TypeScript with [Effect-TS](https://effect.website/) under the hood. That means every error has a recovery path, every side effect is tracked, and nothing silently fails.
-
-It manages its own context window (auto-summarizes when things get long), delegates deep tasks to sub-agents, and gracefully recovers from timeouts and failures. You can throw complex, multi-step problems at it and trust that it won't fall apart halfway through.
-
----
-
-## Documentation & Community
-
-|                        |                                                                  |
-| ---------------------- | ---------------------------------------------------------------- |
-| **Full Documentation** | [`docs/README.md`](docs/README.md)                               |
-| **Tools Reference**    | [`docs/tools-reference.md`](docs/tools-reference.md)             |
-| **Integrations**       | [`docs/integrations.md`](docs/integrations.md)                   |
-| **Examples** (20+)     | [`examples/`](examples/)                                         |
-| **Research & Roadmap** | [`docs/exploration/`](docs/exploration/)                         |
-| **Discord**            | [Join the community](https://discord.gg/yBDbS2NZju)              |
-| **Discussions**        | [GitHub Discussions](https://github.com/lvndry/jazz/discussions) |
-| **Issues**             | [Report a bug](https://github.com/lvndry/jazz/issues)            |
+**Community:** [Discord](https://discord.gg/yBDbS2NZju) ·
+[Discussions](https://github.com/lvndry/jazz/discussions) ·
+[Issues](https://github.com/lvndry/jazz/issues)
 
 ---
 
 ## Contributing
 
-We welcome contributions -- bug fixes, docs, tests, features, and ideas.
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the contributor guide.
-
----
+Bug fixes, docs, tests, features, and ideas all welcome. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 
-MIT -- see [`LICENSE`](LICENSE).
+MIT. See [`LICENSE`](LICENSE).
 
 ---
 
 <div align="center">
-
-**The sky is the limit.** Start automating.
 
 ```bash
 npm install -g jazz-ai && jazz

@@ -104,7 +104,8 @@ Show counts of zero as `(0)` and skip the section body. If every section is empt
 - Read-only. Never comment, label, merge, close, or approve.
 - If a repo errors (404, rate limit), note it under the digest in a `## Errors` section and continue with the rest.
 - Do not invent PRs that aren't in the `gh pr list` output.
-```
+
+```text
 
 ## How to install
 

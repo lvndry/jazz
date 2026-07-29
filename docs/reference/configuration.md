@@ -44,13 +44,79 @@ Use for project-specific settings such as MCP enable/disable flags or logging le
 
 ## Environment Variables
 
-You can override settings or provide API keys via `.env` or system environment variables.
+Override settings or provide API keys via `.env` or the process environment.
 
-- `OPENAI_API_KEY`: Key for OpenAI models.
-- `ANTHROPIC_API_KEY`: Key for Anthropic models.
-- `JAZZ_HOME`: Override the Jazz home directory (default: `~/.jazz`). Use when developing Jazz to isolate test data.
-- `JAZZ_CONFIG_PATH`: Override the global config file path.
-- `DEBUG`: Set to `true` for verbose logging.
+### Paths and data
+
+| Variable | Effect |
+| --- | --- |
+| `JAZZ_HOME` | Jazz home directory (default `~/.jazz`). Holds agents, history, logs, telemetry, and the model-catalog snapshot. Use it to isolate test data when developing Jazz |
+| `JAZZ_CONFIG_PATH` | Global config file path (same as `--config`) |
+| `JAZZ_LOG_DIR` | Log directory override |
+
+### Network behavior
+
+| Variable | Effect |
+| --- | --- |
+| `JAZZ_OFFLINE` | `1`/`true`: make no outbound request of Jazz's own — skips the update check *and* the models.dev catalog fetch. See [Airgapped](../guide/airgapped.md) |
+| `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the npm version check |
+| `JAZZ_MODELS_DEV_URL` | Point the model catalog at an internal mirror of `https://models.dev/api.json` |
+
+### Providers
+
+| Variable | Effect |
+| --- | --- |
+| `OPENAI_API_KEY` | OpenAI |
+| `ANTHROPIC_API_KEY` | Anthropic |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini |
+| `OPENROUTER_API_KEY` | OpenRouter |
+| `OLLAMA_BASE_URL` | Ollama endpoint (default `http://localhost:11434/api`; `/api` is appended automatically) |
+| `LLAMACPP_BASE_URL` | llama.cpp endpoint (default `http://localhost:8080/v1`) |
+
+Other providers follow the same `<PROVIDER>_API_KEY` convention — see
+[Integrations → Providers](../integrations/providers.md).
+
+### Output and terminal
+
+| Variable | Effect |
+| --- | --- |
+| `JAZZ_NO_TUI` | `1`: disable the Ink TUI, plain output (same as `--no-tui`) |
+| `JAZZ_OUTPUT_MODE` | `rendered` \| `hybrid` \| `raw` \| `quiet` (same as `--output`) |
+| `JAZZ_THEME` | Colour theme |
+| `JAZZ_UI_GLYPHS` | `unicode` \| `ascii` — override glyph detection for terminals that misreport |
+| `JAZZ_TABLE_STYLE` | Table rendering style |
+| `NO_COLOR` | Standard: disable colour output |
+
+### Scheduling
+
+| Variable | Effect |
+| --- | --- |
+| `JAZZ_DISABLE_CATCH_UP` | `1`: never offer missed scheduled runs on startup |
+
+### Notifications
+
+| Variable | Effect |
+| --- | --- |
+| `JAZZ_TERMINAL_NOTIFIER` / `TERMINAL_NOTIFIER` | Path to a `terminal-notifier` binary for desktop notifications |
+| `JAZZ_TERMINAL` | Terminal identity used for notification attribution |
+
+## `autoApprovedCommands`
+
+A persisted allowlist for `execute_command`, set at the top level of `~/.jazz/config.json`:
+
+```json
+{ "autoApprovedCommands": ["himalaya", "khal", "git status"] }
+```
+
+Each entry lets one command through **without** raising the whole approval tier. This is the
+right tool when a scheduled workflow needs a skill that shells out — email, calendar, and
+Obsidian all run through `execute_command`, which is `high-risk`, so a `low-risk` workflow
+cannot use them otherwise.
+
+Matching uses a parsed key (binary + first subcommand) with exact or word-boundary
+comparison, never a raw string prefix — so `git status` does not also permit
+`git status && rm -rf /`. See
+[Tools & approval](../internals/tools-and-approval.md#two-sharper-controls).
 
 ## Agent Config: `customTools`
 

@@ -1,45 +1,109 @@
-# Concept: Agents
+# Agents
 
-## What is an Agent?
+**Reader job:** understand what an agent is made of, so you can configure one deliberately.
 
-In Jazz, an **Agent** is the autonomous entity that performs tasks for you. Unlike a simple chatbot that executes one prompt and stops, a Jazz Agent is designed to be persistent, context-aware, and capable of executing multi-step workflows.
+An agent is the thing that does the work. Unlike a chatbot that answers one prompt and stops,
+an agent runs a loop: it reads the situation, calls tools, observes what came back, and keeps
+going until the task is done or its budget runs out.
 
-## Anatomy of an Agent
+---
 
-### 1. Identify & Configuration
+## What an agent is made of
 
-Every agent has a unique identity and configuration:
+```mermaid
+flowchart TB
+    A["<b>Agent</b><br/>~/.jazz/agents/&lt;id&gt;.json"]
 
-- **Name**: A human-readable name (e.g., "Senior Developer", "Researcher").
-- **Model**: The underlying LLM brain (e.g., `anthropic/claude-4-5-sonnet`, `openai/gpt-5.2`).
-- **System Prompt**: Instructions that define its personality, constraints, and base capabilities.
-- **Persona**: The [persona](./personas.md) that shapes the agent's tone, style, and behavior. Built-in options include `default`, `coder`, and `researcher`; you can also use custom personas.
+    A --> ID["<b>Identity</b><br/>id · name"]
+    A --> M["<b>Model</b><br/>llmProvider + llmModel<br/><i>e.g. openrouter/qwen3</i>"]
+    A --> P["<b>Persona</b><br/>tone and style<br/><i>default · coder · researcher</i>"]
+    A --> T["<b>Toolset</b><br/>explicit list of tool names<br/><i>omission is a security control</i>"]
+    A --> S["<b>Skills</b><br/>playbooks it may load"]
+    A --> X["<b>Extras</b><br/>reasoningEffort · summarizerModel<br/>customTools · envAllowlist"]
 
-### 2. Skills
+    classDef key fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
+    class T key
+```
 
-Agents are granted **Skills**, which are bundles of tools and knowledge.
+### Model
 
-- A "Coder" agent might have `git`, `fs` (filesystem), and `code-review` skills.
-- A "Secretary" agent might have `calendar`, `email`, and `reminder` skills.
+Written `provider/model` with a **slash** — `openrouter/qwen/qwen3-next-80b-a3b-instruct:free`,
+`anthropic/claude-sonnet-4-5`, `ollama/qwen3`. Stored split into `llmProvider` and `llmModel`.
+Eighteen providers are available; see [Providers](../integrations/providers.md).
 
-### 3. Loop & Execution
+### Persona
 
-When you give an agent a task, it enters an **Execution Loop**:
+Shapes *how* the agent communicates — tone, style, vocabulary — independently of the model.
+See [Personas](./personas.md).
 
-1.  **Think**: The agent analyzes the history and the current request.
-2.  **Act**: It decides to call a tool (e.g., "read file", "search web").
-3.  **Observe**: The tool executes and returns a result to the agent.
-4.  **Repeat**: The agent uses this new information to decide the next step.
-5.  **Respond**: Once the task is done, it communicates the final result to you.
+### Toolset
 
-## Types of Agents (Patterns)
+An explicit list of tool names the agent may call, e.g. `read_file`, `grep`, `git_commit`.
+**This is the strongest safety control available:** an agent whose list omits
+`execute_command` cannot run shell commands, no matter what approval policy is set. Give each
+agent the fewest tools its job needs. See [Tools](./tools.md).
 
-While all agents share the same code structure, you can create different "types" by varying their configuration:
+### Skills
 
-- **Generalist**: Has a wide array of tools (Web, File, Git). Good for generic tasks.
-- **Specialist**: Has a narrow set of tools context. (e.g., an "Editor" that can only read files and suggest changes, but not write).
-- **Router**: An agent designed to delegate work to other sub-agents or workflows (future concept).
+Skills are **not** bundles of tools — they are playbooks: markdown instructions the agent loads
+on demand when a task matches. Two agents can have identical toolsets and differ entirely in
+which skills they reach for. See [Skills](./skills.md).
 
-## Agent Storage
+---
 
-Agents are persisted in `~/.jazz/agents.json`. This allows them to "remember" who they are across different CLI sessions, although currently, conversation history is session-based.
+## The execution loop
+
+```mermaid
+flowchart LR
+    T["Task"] --> TH["<b>Think</b><br/>read history,<br/>decide next step"]
+    TH --> AC["<b>Act</b><br/>call one or more tools<br/>(gated ones ask first)"]
+    AC --> OB["<b>Observe</b><br/>results enter context"]
+    OB --> Q{"Done?"}
+    Q -->|no| TH
+    Q -->|yes| R["<b>Respond</b>"]
+
+    classDef act fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
+    class AC act
+```
+
+Up to 80 iterations by default, with guards that keep long runs from spiralling — budget
+pressure, loop detection, and automatic context compaction. The full mechanism:
+[Agent loop](../internals/agent-loop.md).
+
+---
+
+## Patterns worth copying
+
+| Pattern | Toolset | Good for |
+| --- | --- | --- |
+| **Generalist** | broad — files, git, web, shell | Daily driver in your terminal |
+| **Specialist** | narrow — e.g. reads and greps only | CI review, anything unattended |
+| **Delegator** | includes `spawn_subagent` | Deep research, work that would blow one context window |
+
+The delegator pattern works today: `spawn_subagent` hands a task to a child agent with its own
+context window, which returns a summary rather than 100k tokens of raw sources. See
+[Sub-agents](../internals/subagents.md).
+
+---
+
+## Storage and memory
+
+**Agents** live one JSON file each in `~/.jazz/agents/<id>.json`. Edit them with
+`jazz agent edit <id>`, or by hand.
+
+**Conversations persist.** Transcripts are stored per conversation id under
+`~/.jazz/history/`, LRU-bounded to 100 conversations per agent. In the terminal you switch
+between them with `/switch`; headless callers pass `--conversation <id>` and get the same thread
+back across invocations — which is what gives a chat bridge memory without storing anything
+itself. See [Headless](../surfaces/headless.md#memory-without-a-database).
+
+Transcripts are plaintext JSON. Treat that directory as sensitive.
+
+---
+
+## Related
+
+- [Creating agents](../guide/creating-agents.md) — the practical walkthrough
+- [Personas](./personas.md) · [Skills](./skills.md) · [Tools](./tools.md)
+- [Agent loop](../internals/agent-loop.md) — what happens during a run
+- [Configuration](../reference/configuration.md) — every agent config field

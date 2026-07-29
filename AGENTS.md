@@ -1,221 +1,187 @@
-# Jazz CLI/AI/Product Engineer
+# Working on Jazz
 
-## Project Vision & Mission
-
-### What is Jazz?
-
-Jazz is a **agentic automation CLI** that empowers users to create, manage, and orchestrate autonomous AI agents for complex daily life workflows. Think of it as your personal army of AI assistants that can handle everything from email management to code deployment, from data analysis to content creation.
-
-**Read the [README.md](../../README.md) and [docs/](../docs/) folder to understand the product, current capabilities, use cases, and future vision.**
-
-### Core Philosophy
-
-**"Automation should be intelligent, not just mechanical"** - Jazz goes beyond simple scripts by combining:
-
-- **AI-powered decision making** through LLM integration
-- **Contextual awareness** of your environment and preferences
-- **Adaptive workflows** that learn and improve over time
-- **Seamless integration** with your existing tools and services
-
-### Project Strengths
-
-**🚀 Technical Excellence:**
-
-- **Type-Safe by Design**: 100% TypeScript with Effect-TS for bulletproof reliability
-- **Functional Programming**: Immutable, composable, and predictable code
-- **Extensible Architecture**: Plugin system for unlimited customization
-- **Robust Error Handling**: Graceful failure recovery and comprehensive logging
-
-**🧠 AI-First Approach:**
-
-- **Multi-LLM Support**: OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama
-- **Context Management**: Intelligent conversation memory and summarization
-- **Tool Integration**: Rich ecosystem of pre-built tools (Git, Gmail, Shell, etc.)
-- **Adaptive Behavior**: Agents that learn from interactions and improve
-
-**⚡ Developer Experience:**
-
-- **CLI-First**: Powerful command-line interface with intuitive commands
-- **Configuration-Driven**: JSON-based configuration with sensible defaults
-- **Hot Reloading**: Instant feedback during development
-- **Comprehensive Testing**: Built-in testing patterns and mocking support
-
-**🔒 Production Ready:**
-
-- **Security-First**: Secure credential management and input validation
-- **Performance Optimized**: Parallel execution and resource management
-- **Monitoring Built-in**: Structured logging and execution tracking
-- **Scalable Architecture**: Designed to handle complex, long-running workflows
-
-## Mindset & Thinking Patterns
-
-### The Jazz Developer Mindset
-
-When building features for Jazz, think like a **product engineer** who understands both the technical implementation and the user's workflow needs. Your goal is to create tools that feel magical to use while being rock-solid reliable.
-
-**🎯 Think User-First:**
-
-- **What problem am I solving?** - Always start with the user's pain point
-- **How does this fit into their workflow?** - Consider the broader context
-- **What happens when things go wrong?** - Plan for graceful failure
-- **How can this be made simpler?** - Reduce cognitive load
-
-**🧠 Think Agentically:**
-
-- **Autonomous Decision Making**: Agents should make smart choices without constant supervision
-- **Context Awareness**: Agents should understand their environment and user preferences
-- **Adaptive Behavior**: Agents should learn and improve from interactions
-- **Tool Orchestration**: Agents should seamlessly combine multiple tools and services
-
-**⚡ Think Functionally:**
-
-- **Composability**: Every function should be a building block for larger workflows
-- **Immutability**: State changes should be explicit and traceable
-- **Error Handling**: Every operation should have a clear failure mode and recovery path
-- **Testing**: Every feature should be testable in isolation and integration
-
-### Research-Driven Development
-
-**🔬 AI/ML Research First:**
-
-- **Use Exploration Docs**: Reference [docs/exploration/](../docs/exploration/) for research-inspired patterns (verification-refinement pipelines, agent skills, token-efficient formats, etc.)
-- **Apply Research Patterns**: When implementing features, consider research-backed approaches
-- **Experiment Boldly**: Don't be afraid to implement cutting-edge patterns from the exploration docs (speculative execution, agent skills, verification-refinement, etc.)
-- **Measure Everything**: Benchmark improvements, track metrics, validate hypotheses when implementing research-inspired features
-- **Think Research-Inspired**: When designing new features, consider how research patterns (multi-model consensus, semantic search, agent orchestration) could apply
-- **R&D Mindset**: Treat every feature as an opportunity to push boundaries using patterns from the exploration docs
-
-### Innovation Over Compatibility
-
-**🚀 Break Things to Make Them Better:**
-
-- **Don't Fear Breaking Changes**: If a better solution requires breaking the API, do it. We prioritize excellence over backward compatibility
-- **NEVER Keep Deprecated Code**: When renaming or restructuring, update all usages immediately and remove old code. No `@deprecated` aliases, no backward compatibility shims. Clean breaks only.
-- **Think Multiple Solutions**: Always consider 3-5 different approaches before implementing. Choose the best one, even if it's more disruptive
-- **Question Assumptions**: Challenge existing patterns. Is Effect-TS the right choice? Could we use a different architecture? What if we redesigned from scratch?
-- **Go Beyond Current Design**: Use the current codebase as a reference, but don't be constrained by it. If you see a better way, implement it
-- **Evolutionary Architecture**: The codebase should evolve continuously. Refactor aggressively, redesign when needed, optimize relentlessly
-
-**Implementation Philosophy:**
-
-1. **Research First**: Understand the problem deeply, explore, study similar systems
-2. **Design Multiple Solutions**: Brainstorm 3-5 different approaches, each with trade-offs
-3. **Choose the Best**: Pick the solution that's best long-term, not the easiest short-term
-4. **Implement Boldly**: Don't hold back. If it requires breaking changes, make them immediately and update all affected code
-5. **Measure & Iterate**: Track metrics, gather feedback, refine continuously
-
-## Behavior & Standards
-
-### Development Mindset
-
-- **Ask Clarification Questions**: Implement solutions with minimum ambiguity
-- **Think User Workflow**: Consider how features fit into daily routines
-- **Consider Agent Perspective**: How would an AI agent use this feature?
-- **Plan for Edge Cases**: Identify all possible failure points from the beginning
-- **Design for Extensibility**: Make features customizable and extensible
-- **Research Before Building**: Check [docs/exploration/](../docs/exploration/) for patterns, study similar systems, understand the problem deeply
-- **Think Multiple Solutions**: Always consider 3-5 alternatives, choose the best one
-- **Break When Needed**: Don't hesitate to make breaking changes if they lead to better solutions
-
-### 🔒 Security
-
-- **Security-First Design**: Every feature must consider security implications from day one
-- **Input Validation**: All external inputs validated using Schema, sanitized, and validated again
-- **Credential Management**: Use secure storage, never log secrets, encrypt sensitive data
-- **Audit Trails**: Log all security-sensitive operations with full context
-- **Threat Modeling**: Consider attack vectors, injection risks, privilege escalation
-- **Regular Audits**: Review security practices, update dependencies, patch vulnerabilities
-- **Zero Trust**: Assume nothing is safe, validate everything, require explicit approval for dangerous operations
-
-### 📖 Documentation
-
-- **Comprehensive Coverage**: Every public API, every feature, every pattern must be documented
-- **Document Everything**: Code, APIs, decisions, trade-offs, future ideas
-- **Clear Examples**: Provide real-world examples, not just API references
-- **Keep It Updated**: Documentation must evolve with code. Outdated docs are worse than no docs
-- **Multiple Formats**: Code comments, JSDoc, README files, architecture docs, user guides
-- **Accessibility**: Documentation should be discoverable, searchable, and easy to navigate
-- **Error Documentation**: Document all error scenarios, recovery strategies, and troubleshooting steps
-
-### 🧪 Testing
-
-- **Comprehensive Test Coverage**: Unit tests, integration tests, end-to-end tests
-- **Property-Based Testing**: Use Effect's testing patterns for robust validation
-- **Error Scenarios**: Test all failure modes, edge cases, and error recovery
-- **Performance Tests**: Benchmark critical paths, track regressions
-- **Security Tests**: Test input validation, credential handling, permission checks
-
-### ⚡ Performance
-
-- **Measure Everything**: Profile code, track metrics, identify bottlenecks, optimize continuously
-- **Optimize Aggressively**: Cache expensive operations, parallelize where possible, lazy evaluation
-- **Resource Management**: Proper cleanup, memory management, connection pooling
-- **Cost Optimization**: Minimize LLM calls, use efficient formats, smart routing
-
-## Core Technologies
-
-- **TypeScript**: 100% TypeScript codebase, strict mode enabled
-- **Effect-TS**: Primary library for functional programming, error handling, and async operations
-- **CLI Framework**: Use a robust CLI library (Commander.js recommended with Effect integration)
-- **Node.js**: Runtime environment
-
-## Code Style & Best Practices
-
-### Function Declarations
-
-- **ALWAYS** use function declarations instead of arrow functions for top-level functions
-- Use arrow functions only for callbacks, array methods, and inline operations
-- Prefer named functions for better stack traces and debugging
-
-### TypeScript Standards
-
-- Use strict TypeScript configuration
-- Prefer `interface` over `type` for object shapes
-- Use discriminated unions for variant types
-- Always specify return types for public functions
-- Use `readonly` arrays and objects where appropriate
-- Leverage Template Literal Types for string validation
-- Never use `any` outside of test files
-
-### Effect-TS Patterns
-
-- Wrap all side effects in Effect
-- Use Effect.gen for async workflows (Effect's equivalent of async/await)
-- Implement proper error handling with tagged errors
-- Use Effect.Layer for dependency injection
-- Leverage Schema for runtime validation
-- Use Effect.Ref for mutable state management
-
-### CLI Architecture
-
-- Structure CLI commands hierarchically: `jazz agent <action>`
-- Each command should be a separate module
-- Use Effect.Layer for CLI dependencies (config, logging, etc.)
-- Implement proper help text and validation
-- Support both interactive and programmatic usage
-
-### Error Handling
-
-- Create specific error types using Data.TaggedError
-- Provide actionable error messages
-- Use Effect's built-in error recovery mechanisms
-- Log errors appropriately without exposing sensitive data
-
-### Naming Conventions
-
-- Use PascalCase for classes, interfaces, types, and enums
-- Use camelCase for functions, variables, and methods
-- Use SNAKE_CASE for constants
-- Use kebab-case for CLI command names
-- Prefix interfaces with 'I' only when distinguishing from implementation classes
-
-### Async Operations
-
-- Always use Effect.gen instead of async/await
-- Chain operations using pipe() for better composition
-- Use Effect.all for parallel operations
-- Implement proper timeout and retry logic
+Instructions for AI agents contributing to this codebase. Read
+[README.md](README.md) and [docs/](docs/index.md) first for what the product does;
+[docs/internals/](docs/internals/index.md) for how the harness works and
+[design-decisions.md](docs/internals/design-decisions.md) for why it works that way.
 
 ---
 
-**Remember**: Jazz is 100% production-ready and open source. Don't compromise. Break things if needed to make them better. Never keep deprecated code—clean breaks only. Research deeply. Think multiple solutions. Choose the best one. Document everything. Test thoroughly. Optimize continuously.
+## What Jazz is
+
+An agentic automation CLI: users define autonomous agents that carry out real tasks —
+reading and writing files, driving git, searching the web, running shell commands, calling
+APIs — with an approval gate in front of anything destructive.
+
+The thesis is that **automation should decide, not just execute**. A shell script follows a
+fixed path; a Jazz agent reads the situation, picks tools, checks its own work, and reports
+what it did. Everything in the codebase serves that difference.
+
+Jazz is pre-1.0 and ships frequently. It is not "done", and pretending otherwise in docs or
+commit messages helps nobody.
+
+---
+
+## What already exists
+
+Know these before proposing to build them:
+
+| Area | Reality |
+| --- | --- |
+| Providers | 18 behind one AI SDK adapter, including local Ollama and llama.cpp |
+| Tools | 43 agent-facing, 15 of them approval-gated, plus MCP and declarative custom tools |
+| Context | Two-tier token counting with per-model calibration, turn-aware trimming, compaction at 80% |
+| Long runs | 80-iteration budget with pressure injection at 70%/90%, meltdown detection, sub-agents with isolated context |
+| Surfaces | Terminal TUI, headless `jazz run`, launchd/cron, GitHub Actions, a Telegram bridge |
+| Measurement | An eval harness with pass@k, Pass^k reliability, bootstrap CIs, and A/B between harness configs |
+
+There is **no** plugin system, and agents do **not** learn across runs. Don't describe either
+as if it exists.
+
+---
+
+## How to approach a change
+
+### Understand before building
+
+Read the code paths you're about to touch, and the tests around them. Check
+`docs/internals/` for whether the pattern already exists — several things that look missing
+are implemented under a different name.
+
+### Consider more than one design
+
+For anything non-trivial, sketch two or three approaches and pick deliberately. Say in the PR
+why you rejected the others; that reasoning is the part reviewers can't reconstruct.
+
+### Work at the frontier, then prove the lift
+
+Jazz exists to find out how much of the gap between a weak model and a strong one is closable
+by the harness rather than the model. So novel patterns are welcome — speculative execution,
+verification-refinement loops, multi-model consensus, better context strategies — but a claim
+about agent quality is worth only as much as its measurement.
+
+The eval harness exists for exactly this: `bun run evals --agent eval-sut --ab eval-sut-variant`
+A/Bs the same tasks across two configs and attributes the difference. If you change the
+harness, run it. See [evals/README.md](evals/README.md) and
+[docs/internals/evals.md](docs/internals/evals.md).
+
+### Prefer clean breaks to compatibility shims
+
+This is a pre-1.0 CLI, not a library with downstream consumers. When you rename or
+restructure, update every usage and delete the old path in the same change. **No
+`@deprecated` aliases, no back-compat shims, no dead code left behind.**
+
+That licenses breaking changes *within the work you were asked to do*. It is not a licence to
+rewrite adjacent subsystems you happen to be passing through — scope creep is still scope
+creep, and an unrequested redesign is a review burden rather than a contribution. If you spot
+something worth changing outside your scope, say so instead of doing it.
+
+---
+
+## Standards
+
+### Security
+
+Jazz executes real actions on a user's machine, so this is load-bearing rather than
+box-ticking. See [SECURITY.md](SECURITY.md) for the model.
+
+- Validate every external input with a Zod schema at the boundary
+- Never log credentials, tokens, or secrets — and check what your error messages interpolate
+- New tools declare an honest `riskLevel`; anything mutating is gated, no exceptions
+- A tool that shells out inherits `execute_command`'s risk, not its own optimism
+- Threat-model the untrusted-input surfaces: chat bridges, fetched web content, PR diffs
+
+### Testing
+
+- `bun test` (bun:test, not vitest). Tests live beside the code they cover
+- Cover the failure modes, not just the happy path — timeouts, malformed tool arguments, provider errors
+- Effect code gets tested with mock Layers; pure functions get tested directly
+- A test that cannot fail is worse than no test. Break your own assertion once to confirm it catches the thing
+- Security-relevant behavior gets a regression test (see `shell-tools.security.test.ts`)
+
+### Documentation
+
+Match the level of documentation to how non-obvious the thing is.
+
+- **Code comments: default to none.** Add one only when the *why* isn't evident from the code. Never narrate what the next line does
+- Document *decisions* rather than mechanics — a reader can see what the code does, not what you rejected
+- Public tools, config fields, and CLI flags need reference entries. `docs/reference/tools.md` is verified by a test and will fail if you add a tool without updating it
+- Outdated docs are worse than absent ones: if you change behavior, fix the page that described it
+- Run `bun run docs:check-links` before you claim the docs are fine
+
+### Performance
+
+- Profile before optimizing; "this feels slow" is a hypothesis, not a finding
+- The dominant costs in an agent run are LLM round trips and tool output volume, in that order — optimize those before micro-optimizing TypeScript
+- Parallelize independent tool calls; cache what's expensive and stable
+- Lazy-load anything that spawns a process. MCP servers connect on first use for this reason
+
+---
+
+## Stack
+
+- **Bun** — runtime, test runner, and bundler
+- **TypeScript**, strict mode, 100% of the codebase
+- **Effect-TS** — typed errors, tracked effects, `Layer`-based dependency injection
+- **Commander.js** — CLI parsing
+- **Ink** (React for terminals) — the interactive TUI
+- **Vercel AI SDK** — the provider port
+
+Commands: `bun test` · `bun run typecheck` · `bun run lint` · `bun run build` ·
+`bun run docs:check-links` · `bun run evals`
+
+---
+
+## Code style
+
+### Functions
+
+- Use function declarations for top-level functions, not arrow consts — better stack traces
+- Arrow functions for callbacks, array methods, and inline operations
+- No one-letter names or abbreviations. `agentConfiguration`, not `cfg`
+
+### TypeScript
+
+- `interface` over `type` for object shapes
+- Discriminated unions for variants; exhaustive switches over them
+- Explicit return types on exported functions
+- `readonly` on arrays and object fields that shouldn't be mutated
+- Never `any` outside tests. `unknown` plus a narrowing check instead
+
+### Effect-TS
+
+- Every side effect returns an `Effect`
+- `Effect.gen` for sequential work, `pipe()` for composition, `Effect.all` for parallel
+- Errors are `Data.TaggedError` subclasses, so callers can match on the tag
+- Dependencies arrive as `Layer`s; a service is an interface in `core/interfaces/` plus a `Context.Tag`
+- `Effect.Ref` for mutable state
+- To break a dependency cycle, pass a function parameter rather than importing across layers (see how `summarizer.ts` takes a `RecursiveRunner`)
+
+### Architecture boundaries
+
+`core/` imports nothing from `services/` — the rule is enforced, and breaking it is how the
+codebase stops being testable. `core/` defines ports, `services/` implements them, `cli/`
+wires the Layers. See [code-map.md](docs/internals/code-map.md).
+
+CLI commands are hierarchical (`jazz agent <action>`), one module each, and must work both
+interactively and headlessly.
+
+### Errors
+
+- Specific tagged error types, never a bare `Error` for a known failure mode
+- Messages state what failed and what the user can do about it
+- A tool failure returns a failed result the agent can reason about; it does not throw and kill the run
+
+### Naming
+
+`PascalCase` types and classes · `camelCase` functions and variables · `SCREAMING_SNAKE_CASE`
+constants · `kebab-case` CLI commands and filenames. Don't prefix interfaces with `I`.
+
+---
+
+## Git
+
+- **Never push to `main`.** Feature branches only, and `git pull origin main` before branching
+- No `Co-Authored-By: Claude` trailers
+- Never stash, reset, or discard uncommitted work without asking first
+- Nothing under `docs/superpowers/` is ever committed — it's gitignored deliberately

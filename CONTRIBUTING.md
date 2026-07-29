@@ -1,6 +1,6 @@
 # Contributing to Jazz
 
-Thank you for your interest in contributing to Jazz! Please read the [Getting Started](docs/getting-started.md) guide for a quick overview of how to set up and develop Jazz locally.
+Thank you for your interest in contributing to Jazz! Please read the [Quick Start](docs/guide/quick-start.md) guide, and the [Code map](docs/internals/code-map.md) for how the codebase is organized.
 
 ## Project Structure
 
@@ -14,7 +14,8 @@ Jazz uses clean architecture with strict dependency rules:
 
 Read the READMEs:
 
-- `docs/getting-started.md` - Setup and development workflow
+- `docs/guide/quick-start.md` - Install and first run
+- `docs/internals/code-map.md` - Code organization and conventions
 - `src/core/README.md` - Core layer patterns
 - `src/services/README.md` - Service implementations
 - `src/cli/README.md` - CLI commands

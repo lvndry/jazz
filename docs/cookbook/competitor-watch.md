@@ -92,7 +92,8 @@ If using Obsidian: target path `Competitive/Weekly/Week of <YYYY-MM-DD>.md`. Use
 - Don't editorialize beyond "Why it matters". One sentence is enough.
 - Read-only on the web. Never POST anywhere.
 - Never overwrite an existing weekly file — suffix `-2`, `-3`, etc.
-```
+
+```text
 
 ## How to install
 
