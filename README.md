@@ -57,14 +57,16 @@ Your agent isn't trapped in a terminal. `jazz run` is the one command behind eve
 below. It prints the answer and nothing else, so any script, bot, or CI job can call it.
 Full contract: [Surfaces → Headless](docs/surfaces/headless.md).
 
-| Surface | How you run it | Status |
-| --- | --- | --- |
-| Terminal | `jazz` | Shipped |
-| Scripts & pipes | `jazz run --json --agent dev "…"` | Shipped |
-| Cron / launchd | `jazz workflow schedule <name>` | Shipped |
-| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/) | Shipped, reviews every PR in this repo |
-| Telegram | [`integrations/telegram-bot/`](integrations/telegram-bot/) | Shipped, `docker compose up` |
-| Slack, Google Chat, Discord, your own app | your webhook → `jazz run` | Bring your own bridge (~100 lines), see [Chat platforms](docs/surfaces/chat-platforms.md) |
+| Surface | How you run it |
+| --- | --- |
+| Terminal | `jazz` |
+| Scripts & pipes | `jazz run --json --agent dev "…"` |
+| Cron / launchd | `jazz workflow schedule <name>` |
+| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo |
+| Telegram | [`integrations/telegram-bot/`](integrations/telegram-bot/), `docker compose up` |
+
+Want Slack, Google Chat, or Discord instead? The same `jazz run` contract works there too, as
+a bridge you write yourself (~100 lines). See [Chat platforms](docs/surfaces/chat-platforms.md).
 
 ---
 
