@@ -26,6 +26,16 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import tzlookup from "tz-lookup";
+import {
+  formatWhen,
+  hasChatTz,
+  isValidTimeZone,
+  setTzForChat,
+  tzForChat,
+  wallClockToEpoch,
+  zonedDateParts,
+} from "./timezone";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 // Telegram's hard limit is 4096; split lower so HTML tags/entities added by
@@ -391,10 +401,10 @@ const DURATION_UNIT_MS: Record<string, number> = {
 /**
  * Parse a "when" spec into an absolute epoch-ms, or null if unparseable.
  * Supports relative durations (30m, 2h, 1h30m, 90s, 1d), a 24h clock time
- * (HH:MM → next occurrence), and "tomorrow HH:MM". Clock times use the
- * container's timezone — set TZ in .env to your own.
+ * (HH:MM → next occurrence), and "tomorrow HH:MM". Clock times are interpreted
+ * in the caller's `tz` so "18:00" means 6pm where the sender is.
  */
-function parseWhen(spec: string, now: number): number | null {
+function parseWhen(spec: string, now: number, tz: string): number | null {
   const trimmed = spec.trim().toLowerCase();
 
   const tomorrow = /^tomorrow\s+(\d{1,2}):(\d{2})$/.exec(trimmed);
@@ -403,11 +413,20 @@ function parseWhen(spec: string, now: number): number | null {
     const hours = Number(clock[1]);
     const minutes = Number(clock[2]);
     if (hours > 23 || minutes > 59) return null;
-    const when = new Date(now);
-    if (tomorrow) when.setDate(when.getDate() + 1);
-    when.setHours(hours, minutes, 0, 0);
-    if (!tomorrow && when.getTime() <= now) when.setDate(when.getDate() + 1);
-    return when.getTime();
+    const today = zonedDateParts(now, tz);
+    const dayOffset = tomorrow ? 1 : 0;
+    let fireAt = wallClockToEpoch(
+      today.year,
+      today.month,
+      today.day + dayOffset,
+      hours,
+      minutes,
+      tz,
+    );
+    if (!tomorrow && fireAt <= now) {
+      fireAt = wallClockToEpoch(today.year, today.month, today.day + 1, hours, minutes, tz);
+    }
+    return fireAt;
   }
 
   let totalMs = 0;
@@ -478,12 +497,38 @@ async function reverseGeocode(
 }
 
 /** Turn a shared location into a prompt and run it through the normal pipeline. */
+/** Best-effort: set the chat's timezone from shared coordinates, and tell them. */
+async function maybeSetTzFromLocation(
+  config: BridgeConfig,
+  chatId: number,
+  latitude: number,
+  longitude: number,
+): Promise<void> {
+  let detected: string;
+  try {
+    detected = tzlookup(latitude, longitude);
+  } catch {
+    return; // outside the lookup's coverage — leave the zone as-is
+  }
+  if (!isValidTimeZone(detected)) return;
+  const previous = setTzForChat(config.jazzHome, chatId, detected);
+  if (previous === detected) return; // already on this zone — nothing to announce
+  const hadZone = typeof previous === "string" && isValidTimeZone(previous);
+  await sendReply(
+    config,
+    chatId,
+    `🌍 ${hadZone ? "Updated" : "Set"} your timezone to <code>${escapeHtml(detected)}</code> ` +
+      "from this location — reminders will use it. Change it anytime with <code>/tz</code>.",
+  );
+}
+
 async function handleLocation(
   config: BridgeConfig,
   chatId: number,
   latitude: number,
   longitude: number,
 ): Promise<void> {
+  await maybeSetTzFromLocation(config, chatId, latitude, longitude);
   const address = await reverseGeocode(config, latitude, longitude);
   const mapLink = `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=17/${latitude}/${longitude}`;
   const prompt =
@@ -931,13 +976,14 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   // 2pm for X") are handled here instead of a full agent turn. If the time can't
   // be parsed, fall through to a normal answer (so "remind me what X is" works).
   if (looksLikeReminderRequest(text)) {
-    const reminder = await parseReminderNL(config, text, Date.now());
+    const now = Date.now();
+    const reminder = await parseReminderNL(config, text, now, tzForChat(config.jazzHome, chatId));
     if (reminder) {
       addReminder(config, chatId, reminder.fireAt, reminder.text);
       await sendReply(
         config,
         chatId,
-        reminderConfirmation(reminder.fireAt, Date.now(), reminder.text),
+        reminderConfirmation(config, chatId, reminder.fireAt, now, reminder.text),
       );
       return;
     }
@@ -1085,7 +1131,7 @@ function ensureSuggestAgent(config: BridgeConfig): void {
   const template = readAgentFile(config, config.baseAgentId);
   template.id = SUGGEST_AGENT_ID;
   template.name = SUGGEST_AGENT_ID;
-  template.config.tools = [];
+  template.config["tools"] = [];
   template.config.reasoningEffort = "disable";
   writeAgentFile(config, template);
 }
@@ -1180,10 +1226,11 @@ const HELP_TEXT = [
   "/remind <when> <text> — e.g. /remind 30m take pizza out",
   "  …or just say it: “remind me to call the dentist in 2 hours”, “send reminder next friday 2pm for review”",
   "/reminders — list & cancel your reminders",
+  "/tz — set your timezone so reminder times are local (e.g. /tz Europe/Paris)",
   "/status — model, today's usage, uptime",
   "/help — show this",
   "",
-  "📍 Share your location (📎 → Location) and I'll tell you where you are and find nearby places.",
+  "📍 Share your location (📎 → Location) and I'll tell you where you are, find nearby places, and set your timezone.",
 ].join("\n");
 
 interface InlineButton {
@@ -1197,21 +1244,17 @@ function keyboardFrom(options: string[], current: string, prefix: string): Inlin
   ]);
 }
 
-function formatWhen(fireAt: number): string {
-  const tz = process.env["TZ"]?.trim() || "UTC";
-  try {
-    return new Date(fireAt).toLocaleString("en-GB", {
-      timeZone: tz,
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  } catch {
-    return `${new Date(fireAt).toISOString().replace("T", " ").slice(0, 16)} UTC`;
-  }
-}
-
-function reminderConfirmation(fireAt: number, now: number, text: string): string {
-  return `⏰ Reminder set for ${formatWhen(fireAt)} (in ${formatUptime(fireAt - now)}).\n“${escapeHtml(text)}”`;
+function reminderConfirmation(
+  config: BridgeConfig,
+  chatId: number,
+  fireAt: number,
+  now: number,
+  text: string,
+): string {
+  const tz = tzForChat(config.jazzHome, chatId);
+  const base = `⏰ Reminder set for ${formatWhen(fireAt, tz)} <i>(${escapeHtml(tz)})</i> — in ${formatUptime(fireAt - now)}.\n“${escapeHtml(text)}”`;
+  if (hasChatTz(config.jazzHome, chatId)) return base;
+  return `${base}\n\n🌍 Times are in <code>${escapeHtml(tz)}</code>. Set yours with <code>/tz Europe/Paris</code> or share your location.`;
 }
 
 /** True when a free-text message reads like a request to schedule a reminder. */
@@ -1231,11 +1274,13 @@ async function parseReminderNL(
   config: BridgeConfig,
   request: string,
   now: number,
+  tz: string,
 ): Promise<{ fireAt: number; text: string } | null> {
   ensureSuggestAgent(config);
-  const tz = process.env["TZ"]?.trim() || "UTC";
+  const localNow = formatWhen(now, tz);
   const prompt =
-    `Current date and time: ${new Date(now).toISOString()} (timezone: ${tz}).\n` +
+    `Current date and time: ${new Date(now).toISOString()} — that is ${localNow} in the user's ` +
+    `timezone (${tz}).\n` +
     `The user wants a reminder. Their request: "${request}"\n\n` +
     "Work out the absolute time it should fire and what to remind them about. Reply with ONLY " +
     "JSON, no prose or code fences:\n" +
@@ -1282,23 +1327,28 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
   }
 
   const now = Date.now();
+  const tz = tzForChat(config.jazzHome, chatId);
   let fireAt: number | null = null;
   let text = "";
   if (words.length >= 2 && words[0]?.toLowerCase() === "tomorrow") {
-    fireAt = parseWhen(`tomorrow ${words[1]}`, now);
+    fireAt = parseWhen(`tomorrow ${words[1]}`, now, tz);
     if (fireAt !== null) text = words.slice(2).join(" ");
   }
   if (fireAt === null) {
-    fireAt = parseWhen(words[0] ?? "", now);
+    fireAt = parseWhen(words[0] ?? "", now, tz);
     if (fireAt !== null) text = words.slice(1).join(" ");
   }
 
   // Structured parse failed — fall back to natural-language understanding.
   if (fireAt === null) {
-    const nl = await parseReminderNL(config, args, now);
+    const nl = await parseReminderNL(config, args, now, tz);
     if (nl) {
       addReminder(config, chatId, nl.fireAt, nl.text);
-      await sendReply(config, chatId, reminderConfirmation(nl.fireAt, now, nl.text));
+      await sendReply(
+        config,
+        chatId,
+        reminderConfirmation(config, chatId, nl.fireAt, now, nl.text),
+      );
       return;
     }
     await sendReply(config, chatId, `I couldn't work out when to remind you.\n${usage}`);
@@ -1314,7 +1364,41 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
   }
 
   addReminder(config, chatId, fireAt, text.trim());
-  await sendReply(config, chatId, reminderConfirmation(fireAt, now, text.trim()));
+  await sendReply(config, chatId, reminderConfirmation(config, chatId, fireAt, now, text.trim()));
+}
+
+async function handleTz(config: BridgeConfig, chatId: number, args: string): Promise<void> {
+  const requested = args.trim();
+  if (requested.length === 0) {
+    const current = tzForChat(config.jazzHome, chatId);
+    const suffix = hasChatTz(config.jazzHome, chatId) ? "" : " (default — not set by you yet)";
+    await sendReply(
+      config,
+      chatId,
+      `🌍 Your timezone: <code>${escapeHtml(current)}</code>${suffix}\n` +
+        `Local time now: ${formatWhen(Date.now(), current)}\n\n` +
+        "Change it with <code>/tz Europe/Paris</code> (an IANA name like " +
+        "<code>America/New_York</code>, <code>Asia/Tokyo</code>), or just share your location " +
+        "(📎 → Location) and I'll set it for you.",
+    );
+    return;
+  }
+  if (!isValidTimeZone(requested)) {
+    await sendReply(
+      config,
+      chatId,
+      `I don't recognise “${escapeHtml(requested)}”. Use an IANA name such as ` +
+        "<code>Europe/Paris</code>, <code>America/New_York</code>, or <code>Asia/Tokyo</code>.",
+    );
+    return;
+  }
+  setTzForChat(config.jazzHome, chatId, requested);
+  await sendReply(
+    config,
+    chatId,
+    `✅ Timezone set to <code>${escapeHtml(requested)}</code>. Local time now: ` +
+      `${formatWhen(Date.now(), requested)}.\nReminders will use this from now on.`,
+  );
 }
 
 async function handleCommand(
@@ -1330,6 +1414,11 @@ async function handleCommand(
     return;
   }
 
+  if (command === "tz" || command === "timezone") {
+    await handleTz(config, chatId, args);
+    return;
+  }
+
   if (command === "reminders") {
     const mine = readReminders(config)
       .filter((reminder) => reminder.chatId === chatId)
@@ -1342,15 +1431,16 @@ async function handleCommand(
       );
       return;
     }
+    const tz = tzForChat(config.jazzHome, chatId);
     const rows = mine.map((reminder) => [
       {
-        text: `❌ ${new Date(reminder.fireAt).toISOString().slice(5, 16).replace("T", " ")} — ${reminder.text.slice(0, 24)}`,
+        text: `❌ ${formatWhen(reminder.fireAt, tz)} — ${reminder.text.slice(0, 24)}`,
         callback_data: `r:${reminder.id}`,
       },
     ]);
     await callTelegram(config, "sendMessage", {
       chat_id: chatId,
-      text: "Pending reminders (tap to cancel · times UTC):",
+      text: `Pending reminders (tap to cancel · times in ${tz}):`,
       reply_markup: { inline_keyboard: rows },
     });
     return;
@@ -1372,6 +1462,7 @@ async function handleCommand(
     const lines = [
       "📊 <b>Status</b>",
       `Model: <code>${escapeHtml(agent.config.llmProvider)}/${escapeHtml(agent.config.llmModel)}</code> (reasoning: ${escapeHtml(agent.config.reasoningEffort)})`,
+      `Timezone: <code>${escapeHtml(tzForChat(config.jazzHome, chatId))}</code>${hasChatTz(config.jazzHome, chatId) ? "" : " (default)"}`,
       `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}`,
       `Daily cap: ${cap > 0 ? `$${cap.toFixed(2)}` : "none"}`,
       `Uptime: ${formatUptime(Date.now() - BRIDGE_STARTED_AT)}`,
