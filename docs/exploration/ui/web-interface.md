@@ -1,5 +1,8 @@
 # Web Interface for Jazz Agents
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../internals/index.md).
+
+
 ## Overview
 
 This document outlines the implementation plan for a `jazz ui` command that spawns a web-based chat interface on `localhost:3000`, allowing users to interact with Jazz agents through a browser instead of the CLI.

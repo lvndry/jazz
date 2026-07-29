@@ -58,6 +58,7 @@
     "format": "bun prettier --write src",
     "test": "bun test",
     "test:watch": "bun test --watch",
+    "docs:check-links": "bun run scripts/check-docs-links.ts",
     "test:typecheck": "bunx tsc --project tsconfig.test.json",
     "clean": "rm -rf dist",
     "prebuild": "bun run clean",

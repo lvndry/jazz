@@ -1,8 +1,15 @@
 # Jazz Exploration Documents
 
+> ⚠️ **Nothing in this directory is shipped.** These are design explorations and blueprints
+> for possible future work. Code samples here may not compile, APIs described may not exist,
+> and some linked pages were never written. Do not rely on anything here as documentation of
+> current behavior.
+>
+> For how Jazz actually works today: **[Internals](../internals/index.md)**.
+> For what you can use today: **[Guide](../guide/index.md)** and **[Surfaces](../surfaces/index.md)**.
+
 This directory contains forward-thinking exploration of advanced features, patterns, and
-architectures for Jazz. These documents represent **design explorations** rather than implemented
-features, serving as blueprints for future development.
+architectures for Jazz, serving as blueprints for future development.
 
 ## 📑 Table of Contents
 
@@ -44,7 +51,7 @@ Advanced patterns for coordinating multiple agents and complex workflows.
 
 Time-based and recurring agent execution.
 
-- **[Scheduled Agents](./scheduling/scheduled-agents.md)**
+- **Scheduled Agents *(not written yet)***
   - Cron-based agent execution
   - Dynamic prompt templates
   - Multiple schedule types (cron, interval, one-time)
@@ -86,7 +93,7 @@ Security patterns and approval management.
 
 Dynamic and intelligent tool management.
 
-- **[Dynamic Tool Loading](./tools/dynamic-tool-loading.md)**
+- **Dynamic Tool Loading *(not written yet)***
   - Intent-based tool selection
   - Semantic matching with embeddings
   - Progressive tool loading
@@ -114,7 +121,7 @@ Research-inspired patterns for building more capable agents.
 
 Performance and cost optimization strategies.
 
-- **[Token-Efficient Formats](./optimization/token-efficient-formats.md)**
+- **Token-Efficient Formats *(not written yet)***
   - TOON vs JSON comparison (50-55% token reduction)
   - Cost impact analysis ($15-900/month savings)
   - Use cases in Jazz (tool results, conversation history, memory)
@@ -123,7 +130,7 @@ Performance and cost optimization strategies.
   - Alternative formats exploration (YAML, custom DSLs)
   - Real-world benchmarks and metrics
 
-- **[Agent Loop Performance](./optimization/agent-loop-performance.md)**
+- **Agent Loop Performance *(not written yet)***
   - Quick wins: Streaming, parallel tools, caching (60-70% faster)
   - Smart model routing (2-5x faster for simple queries)
   - Speculative execution (30-50% faster)
@@ -210,8 +217,7 @@ Have ideas for new patterns or improvements to existing designs?
 ### Jazz Core Documentation
 
 - [Main README](../../README.md)
-- [TODO List](../../TODO.md)
-- [Project Structure](../../src/README.md)
+- [Code map](../internals/code-map.md)
 
 ### External Inspiration
 
@@ -233,7 +239,7 @@ Have ideas for new patterns or improvements to existing designs?
 
 ### 🎯 "I want agents to run automatically"
 
-→ Read [Scheduled Agents](./scheduling/scheduled-agents.md)
+→ Read Scheduled Agents *(not written yet)*
 
 ### 🤖 "I want multiple agents to work together"
 
@@ -263,15 +269,15 @@ Have ideas for new patterns or improvements to existing designs?
 
 ### 🔧 "I want better tool selection"
 
-→ Read [Dynamic Tool Loading](./tools/dynamic-tool-loading.md)
+→ Read Dynamic Tool Loading *(not written yet)*
 
 ### 💰 "I want to reduce LLM costs"
 
-→ Read [Token-Efficient Formats](./optimization/token-efficient-formats.md)
+→ Read Token-Efficient Formats *(not written yet)*
 
 ### ⚡ "I want faster agent responses"
 
-→ Read [Agent Loop Performance](./optimization/agent-loop-performance.md)
+→ Read Agent Loop Performance *(not written yet)*
 
 ### 🎯 "I want more reliable agent results"
 

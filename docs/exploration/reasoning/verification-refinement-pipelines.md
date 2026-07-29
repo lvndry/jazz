@@ -1,5 +1,8 @@
 # Verification-and-Refinement Pipelines for Jazz
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../internals/index.md).
+
+
 ## Overview
 
 Inspired by recent breakthrough research on IMO 2025([Huang & Yang, 2025](https://arxiv.org/pdf/2507.15855)), where a verification-and-refinement pipeline achieved 85.7% accuracy on Olympiad-level mathematics (compared to 21-38% baseline), we explore how Jazz can incorporate advanced reasoning patterns to build more powerful, reliable agents.
@@ -945,7 +948,7 @@ Verification-and-refinement pipelines represent a **fundamental shift** in how w
 
 - [Huang & Yang, 2025 - Winning Gold at IMO 2025](https://arxiv.org/pdf/2507.15855) - Model-agnostic
   verification-refinement pipeline
-- [Agent Loop Performance](./agent-loop-performance.md) - Speed optimization strategies
+- Agent Loop Performance *(not written yet)* - Speed optimization strategies
 - [Context Window Strategies](../context-management/context-window-strategies.md) - Managing
   verification context
 - [Agent Skills System](../skills/agent-skills-system.md) - Integrating verification with skills

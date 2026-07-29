@@ -1,3 +1,6 @@
+
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../internals/index.md).
+
 :construction: Jazz Tool Performance Optimization - Tracking Todo
 
 **Goal**: Reduce tool token overhead by 80% (17,500 → 3,500 tokens/request)

@@ -1,5 +1,8 @@
 # Context Window Management Strategies
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../internals/index.md).
+
+
 ## Overview
 
 As agent conversations grow longer, context windows fill up with message history, tool calls, and

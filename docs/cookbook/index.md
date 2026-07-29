@@ -43,7 +43,7 @@ Set `autoApprove:` in frontmatter:
 | --- | --- |
 | `false` | Nothing — always asks (not useful for headless runs) |
 | `read-only` | File reads, search, web requests, `git status`/`log`/`diff` |
-| `low-risk` | + email archive, calendar create, file write to scratch dirs |
+| `low-risk` | + `manage_todos`, `spawn_subagent` — **not** email, calendar, or file writes |
 | `high-risk` | + edits to your repo, shell commands, git commits, git push |
 | `true` | Same as `high-risk` |
 
@@ -65,4 +65,3 @@ jazz workflow catchup                 # run any that missed their slot
 
 Logs land in `~/.jazz/logs/<workflow>.log` and `~/.jazz/logs/<workflow>.error.log` once scheduled.
 
-See [`SUMMARY.md`](./SUMMARY.md) for notes on what was verified against the codebase and what is left to confirm.

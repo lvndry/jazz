@@ -1,5 +1,8 @@
 # Research: Adaptive Context Compression via Sub-agent Orchestration
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../internals/index.md).
+
+
 ## Objective
 
 To implement an automated, token-aware context compression system that maintains agent performance over extremely long conversations by replacing older message history with concise, semantically-rich summaries produced by specialized sub-agents.

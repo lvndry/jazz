@@ -1,5 +1,8 @@
 # Self-Improving Jam Sessions
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../internals/index.md).
+
+
 > **Status:** Exploration
 > **Audience:** Runtime, CLI, Tools, Memory workstreams
 

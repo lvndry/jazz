@@ -1,5 +1,8 @@
 # Critical Security Issue: Command Approval Bypass
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../internals/index.md).
+
+
 ## Problem Statement
 
 There is a **critical security vulnerability** in the command approval flow where an agent can execute a different command than what the user approved.

@@ -39,7 +39,7 @@ Shell commands run with sanitized environment variables that exclude:
 - Tokens (vars containing "TOKEN", "PASSWORD")
 - Credentials (vars containing "CREDENTIAL", "AUTH")
 
-**Implementation:** [`src/core/agent/tools/env-utils.ts`](../src/core/agent/tools/env-utils.ts)
+**Implementation:** [`src/core/utils/env-utils.ts`](../src/core/utils/env-utils.ts)
 
 ### 4. Security Logging
 
@@ -182,7 +182,7 @@ Use dedicated accounts for automation:
 
 **Report Security Vulnerabilities:**
 
-- See [SECURITY.md](../SECURITY.md) for responsible disclosure
+- Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/lvndry/jazz/security/advisories/new)
 - Do NOT post vulnerabilities in public issues
 
 ---

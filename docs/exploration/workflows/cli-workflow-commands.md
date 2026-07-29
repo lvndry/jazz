@@ -1,5 +1,8 @@
 # `jazz agent run <workflow>` — CLI Workflows Exploration
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../internals/index.md).
+
+
 > Status: **Exploration / Design** — not implemented yet
 >
 > Goal: Define how `jazz agent run <workflow>` could provide reproducible, project-scoped workflows that feel like "agentic make targets" — including long-running (30–60+ min) jobs like deployments or deep research.

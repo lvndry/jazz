@@ -277,7 +277,7 @@ jazz workflow history market-analysis
 - [Workflow System Overview](./workflows.md)
 - [Creating Workflows](./workflows.md#quick-start)
 - [Troubleshooting Workflows](./workflows.md#troubleshooting)
-- [Running Jazz on a Server](./deployment.md) *(future)*
+- [Airgapped & Self-Hosted](../guide/airgapped.md)
 
 ---
 

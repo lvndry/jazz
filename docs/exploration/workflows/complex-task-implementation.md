@@ -1,5 +1,8 @@
 # Complex Task Implementation: A Deep Dive
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../internals/index.md).
+
+
 ## Overview
 
 This document investigates how complex agent workflows described in the product vision (Social Media Manager, Blog Content Agent, Infrastructure Monitor, Security Scanner) would be implemented in Jazz's current architecture. We analyze the gap between the vision and current capabilities, identify implementation patterns, and propose a roadmap.

@@ -1,5 +1,8 @@
 # Jazz LLM Layer Enhancement Roadmap
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../internals/index.md).
+
+
 
 > Note: This roadmap focuses on the LLM layer (tool selection, context, chains). For product positioning and long-term differentiation, see:
 > - [Jazz Differentiation Thesis: Capability OS + Terminal Workstation](./jazz-capability-os-terminal-workstation.md)

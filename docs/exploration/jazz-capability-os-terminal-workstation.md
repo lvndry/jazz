@@ -1,5 +1,8 @@
 # Jazz Differentiation Thesis: Capability OS + Terminal Workstation
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../internals/index.md).
+
+
 ## Why this doc exists
 Jazz risks drifting into “a smaller OpenClaw” if its identity becomes “an assistant that can do things.”
 

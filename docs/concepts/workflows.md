@@ -54,16 +54,20 @@ jazz workflow history email-cleanup
 
 ### Frontmatter Fields
 
-| Field              | Required | Description                                       | Example                                               |
-| ------------------ | -------- | ------------------------------------------------- | ----------------------------------------------------- |
-| `name`             | ✓        | Unique workflow identifier                        | `email-cleanup`                                       |
-| `description`      | ✓        | Human-readable summary                            | `Clean up old emails`                                 |
-| `schedule`         |          | Cron expression for scheduling                    | `0 8 * * *` (daily at 8 AM)                           |
-| `agent`            |          | Agent ID/name to use (defaults to user selection) | `research-bot`                                        |
-| `autoApprove`      |          | Auto-approval policy for unattended runs          | `true`, `false`, `read-only`, `low-risk`, `high-risk` |
-| `skills`           |          | Skills to load for this workflow                  | `["email", "calendar"]`                               |
-| `catchUpOnStartup` |          | Run missed workflows on startup                   | `true`                                                |
-| `maxCatchUpAge`    |          | Max age (seconds) for catch-up runs               | `43200` (12 hours)                                    |
+| Field | Required | Description |
+| --- | --- | --- |
+| `name` | ✓ | Unique workflow identifier |
+| `description` | ✓ | Human-readable summary |
+| `schedule` | | Cron expression, required only to schedule it |
+| `agent` | | Agent id/name (defaults to user selection) |
+| `autoApprove` | | Autonomy tier for unattended runs |
+| `skills` | | Skills to make available |
+| `catchUpOnStartup` | | Offer a missed run on next launch |
+| `maxCatchUpAge` | | Max age in seconds for catch-up (default 86400) |
+| `maxIterations` | | Iteration cap (default 80) |
+
+**Full field reference, with types and the `autoApprove` gotcha:**
+[Reference → Workflow frontmatter](../reference/workflow-frontmatter.md).
 
 ### Cron Schedule Format
 
@@ -79,21 +83,25 @@ Standard 5-field cron format: `minute hour day-of-month month day-of-week`
 
 ### Auto-Approve Policies
 
-Auto-approve policies control which tools can execute without user confirmation during scheduled runs:
+`autoApprove` controls which tools may execute without confirmation during unattended runs.
+Tools above the tier are **declined**, not queued — there is nobody to ask.
 
-| Policy             | Behavior                                                               | Use Case                   |
-| ------------------ | ---------------------------------------------------------------------- | -------------------------- |
-| `false` or omitted | Always prompt for approval                                             | Interactive workflows      |
-| `read-only`        | Auto-approve read-only tools (web search, list emails, read files)     | Research, monitoring       |
-| `low-risk`         | Auto-approve read-only + low-risk tools (archive email, create events) | Email management, calendar |
-| `high-risk`        | Auto-approve all tools including high-risk (delete, send, execute)     | Fully trusted automation   |
-| `true`             | Same as `high-risk`                                                    | Fully trusted automation   |
+| Policy | Auto-approves | Use case |
+| --- | --- | --- |
+| `false` or omitted | Nothing | Interactive only — a scheduled run will stall |
+| `read-only` | Reads, search, web requests, `git status`/`log`/`diff` | Research, monitoring, digests |
+| `low-risk` | + `manage_todos`, `spawn_subagent` | Digests that track state |
+| `high-risk` | + writes, deletes, shell, `git commit`/`push` | Trusted automation, CI |
+| `true` | Same as `high-risk` | Trusted automation |
 
-**Safety Note**: Tools are categorized by risk level:
+> ⚠️ **`low-risk` adds exactly two tools.** It is not "moderately dangerous actions". Email,
+> calendar, and Obsidian are skills that shell out through `execute_command`, so they are
+> gated at `high-risk` — a `low-risk` workflow **cannot archive an email**. Keep the tier low
+> and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
+> `~/.jazz/config.json`.
 
-- **Read-only**: `web_search`, `read_file`, `list_emails`, `get_calendar`
-- **Low-risk**: `archive_email`, `create_calendar_event`, `label_email`
-- **High-risk**: `delete_file`, `send_email`, `execute_command`, `git_push`
+Exact per-tool tiers: [Tools reference](../reference/tools.md). The mechanism:
+[Internals → Tools & approval](../internals/tools-and-approval.md).
 
 ### Content (The Prompt)
 
@@ -166,7 +174,7 @@ Scheduled workflows use the **system scheduler** (launchd on macOS, cron on Linu
 - **Interactive catch-up**: If any workflow has `catchUpOnStartup: true` and missed its scheduled time (within `maxCatchUpAge`), the next time you run any `jazz` command (e.g. `jazz chat` or `jazz workflow list`), Jazz will notify you and ask if you'd like to catch them up. If you say yes, you can select which workflows to run (multi-select), and they'll run in the background while you continue with your original command.
 - **Manual catch-up**: Run `jazz workflow catchup` to see all workflows that need catch-up, choose which to run, and run them.
 
-For more detail (including why this happens and other options), see [Workflow scheduling: behavior & limitations](workflows-scheduling.md).
+For more detail (including why this happens and other options), see [Scheduling](./scheduling.md).
 
 ### Catch-up missed runs
 
@@ -342,7 +350,7 @@ maxCatchUpAge: 43200 # seconds (12 hours)
 
 If a scheduled run was missed and is within `maxCatchUpAge`, Jazz will notify you when you run any command and ask if you'd like to catch up. You can select which workflows to run, and they'll execute in the background while you continue with your original command.
 
-See [Workflow Scheduling Behavior](./workflows-scheduling.md) for detailed information and workarounds.
+See [Scheduling](./scheduling.md) for detailed information and workarounds.
 
 ## Run History & Logs
 
@@ -362,7 +370,7 @@ jazz workflow history
 
 ### 1. Start Conservative
 
-Use `autoApprove: read-only` for research/monitoring workflows, then increase to `low-risk` or `high-risk` once you trust the workflow.
+Use `autoApprove: read-only` for research/monitoring workflows, then increase once you trust it. Note that `low-risk` adds only `manage_todos` and `spawn_subagent` — anything that writes a file or shells out needs `high-risk`, or a `autoApprovedCommands` entry.
 
 ### 2. Be Explicit About Safety
 
@@ -514,13 +522,12 @@ Future enhancements planned:
 - **Retry policies**: Automatic retry on failure
 - **Notifications**: Desktop/email notifications on completion
 
-See [`TODO.md`](../TODO.md) for the full roadmap.
+See [Research & Roadmap](../exploration/README.md) for the full roadmap.
 
 ## Examples
 
 See the `workflows/` directory for complete examples:
 
-- [`workflows/email-cleanup/`](../workflows/email-cleanup/WORKFLOW.md) - Hourly email management
-- [`workflows/weather-briefing/`](../workflows/weather-briefing/WORKFLOW.md) - Morning weather check
-- [`workflows/tech-digest/`](../workflows/tech-digest/WORKFLOW.md) - Daily AI/tech news digest
-- [`workflows/market-analysis/`](../workflows/market-analysis/WORKFLOW.md) - Daily stock market & crypto analysis
+- [`workflows/email-cleanup/`](../../workflows/email-cleanup/WORKFLOW.md) - Hourly email management
+- [`workflows/weather-briefing/`](../../workflows/weather-briefing/WORKFLOW.md) - Morning weather check
+- [`workflows/market-analysis/`](../../workflows/market-analysis/WORKFLOW.md) - Daily stock market & crypto analysis

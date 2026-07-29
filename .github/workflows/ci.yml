@@ -54,6 +54,9 @@ jobs:
       - name: Lint
         run: bun run lint --no-color
 
+      - name: Check docs links
+        run: bun run docs:check-links
+
       - name: Build
         run: bun run build
 

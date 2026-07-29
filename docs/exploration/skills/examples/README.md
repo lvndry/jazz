@@ -1,5 +1,8 @@
 # Jazz Skills - Examples
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../../internals/index.md).
+
+
 This directory contains comprehensive, production-ready skill examples demonstrating the Agent
 Skills system.
 
@@ -296,7 +299,7 @@ We're building a community skill marketplace where users can:
 - Rate and review skills
 - Contribute improvements
 
-**Want to contribute?** See [CONTRIBUTING.md](../CONTRIBUTING.md)
+**Want to contribute?** See CONTRIBUTING.md *(not written yet)*
 
 ---
 
@@ -320,9 +323,9 @@ jazz skill test email-triage --benchmark
 ## Additional Resources
 
 - [Agent Skills System Overview](../agent-skills-system.md)
-- [Creating Custom Skills Guide](../guides/creating-skills.md)
-- [Skill Development Best Practices](../guides/best-practices.md)
-- [Skill API Reference](../api/skill-api.md)
+- Creating Custom Skills Guide *(not written yet)*
+- Skill Development Best Practices *(not written yet)*
+- Skill API Reference *(not written yet)*
 
 ---
 

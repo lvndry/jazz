@@ -1,5 +1,8 @@
 # Example: Data Analysis Skill
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../../internals/index.md).
+
+
 A comprehensive skill for data exploration, visualization, and insights generation.
 
 ## Directory Structure

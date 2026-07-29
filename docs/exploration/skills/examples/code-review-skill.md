@@ -1,5 +1,8 @@
 # Example: Code Review Skill
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../../internals/index.md).
+
+
 A comprehensive skill for automated code review following best practices and security guidelines.
 
 ## Directory Structure

@@ -1,5 +1,8 @@
 # Example: Complete Deployment Skill
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../../internals/index.md).
+
+
 This is a production-ready skill that demonstrates all key concepts of Jazz's Agent Skills system.
 
 ## Directory Structure

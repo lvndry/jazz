@@ -1,5 +1,8 @@
 # Agent Template Ideas
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../../internals/index.md).
+
+
 ## Overview
 
 This document explores specialized agent templates that would extend Jazz's capabilities beyond the current default, Gmail, and Coder agents. Each template is designed for specific domains and use cases, providing users with pre-configured expertise and behaviors optimized for particular workflows.

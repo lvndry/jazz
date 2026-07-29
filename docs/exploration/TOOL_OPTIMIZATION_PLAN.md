@@ -1,5 +1,8 @@
 # Jazz Tool Performance Optimization - Implementation Plan
 
+> ⚠️ **Design exploration — not shipped.** This page describes possible future work. Code samples may not compile and APIs described may not exist. For how Jazz works today, see [Internals](../internals/index.md).
+
+
 ## Overview
 Target: Reduce token overhead by 80%+ through intelligent tool selection and response management
 
