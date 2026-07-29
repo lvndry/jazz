@@ -16,31 +16,29 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import tzlookup from "tz-lookup";
 import {
-  formatWhen,
-  hasChatTz,
-  isValidTimeZone,
-  setTzForChat,
-  tzForChat,
-  wallClockToEpoch,
-  zonedDateParts,
-} from "./timezone";
+  agentIdForChat,
+  agentPath,
+  ensureChatAgent,
+  readAgentFile,
+  writeAgentFile,
+} from "./agents";
+import {
+  addReminder,
+  cancelReminder,
+  parseWhen,
+  readReminders,
+  startReminderSweep,
+} from "./reminders";
+import { conversationKey, startNewConversation } from "./sessions";
+import { escapeHtml, markdownToTelegramHtml, splitForTelegram } from "./telegram-html";
+import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
+import { recordUsage, todayUsage } from "./usage";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
-// Telegram's hard limit is 4096; split lower so HTML tags/entities added by
-// markdown rendering can't push a chunk over the limit.
-const TELEGRAM_SPLIT_LENGTH = 3500;
 const GETUPDATES_TIMEOUT_SECONDS = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
 const ALLOWED_UPDATES = ["message", "callback_query"];
@@ -76,24 +74,6 @@ interface BridgeConfig {
   readonly geocodeUrl: string;
   /** Generate contextual follow-up CTAs per answer (a second short LLM call). */
   readonly dynamicCta: boolean;
-}
-
-interface AgentConfig {
-  llmProvider: string;
-  llmModel: string;
-  reasoningEffort: string;
-  persona: string;
-  [key: string]: unknown;
-}
-
-interface AgentFile {
-  id: string;
-  name: string;
-  model: string;
-  config: AgentConfig;
-  createdAt?: string;
-  updatedAt?: string;
-  [key: string]: unknown;
 }
 
 interface JazzSuccessEnvelope {
@@ -183,144 +163,7 @@ function isOkResponse(response: unknown): boolean {
   );
 }
 
-// --- Per-chat agent files -------------------------------------------------
-
-function agentIdForChat(chatId: number): string {
-  // Group chat ids are negative; keep the id filename/name-safe.
-  return `tg_${String(chatId).replace("-", "n")}`;
-}
-
-function agentPath(config: BridgeConfig, agentId: string): string {
-  return join(config.jazzHome, "agents", `${agentId}.json`);
-}
-
-function readAgentFile(config: BridgeConfig, agentId: string): AgentFile {
-  return JSON.parse(readFileSync(agentPath(config, agentId), "utf8")) as AgentFile;
-}
-
-function writeAgentFile(config: BridgeConfig, agent: AgentFile): void {
-  agent.updatedAt = new Date().toISOString();
-  writeFileSync(agentPath(config, agent.id), `${JSON.stringify(agent, null, 2)}\n`);
-}
-
-/** Ensure a chat has its own agent, cloned from the seeded template on first use. */
-function ensureChatAgent(config: BridgeConfig, chatId: number): AgentFile {
-  const agentId = agentIdForChat(chatId);
-  const path = agentPath(config, agentId);
-  if (existsSync(path)) {
-    return readAgentFile(config, agentId);
-  }
-  mkdirSync(join(config.jazzHome, "agents"), { recursive: true });
-  const template = readAgentFile(config, config.baseAgentId);
-  template.id = agentId;
-  template.name = agentId;
-  writeAgentFile(config, template);
-  return template;
-}
-
-// --- Per-chat conversation sessions ---------------------------------------
-// A DM has one chat id, so history would grow forever. A per-chat "epoch"
-// lets /new rotate to a fresh conversation key (a breakpoint) while the chat's
-// agent — and thus its model/persona — stays put. Old segments remain on disk.
-
-function sessionsPath(config: BridgeConfig): string {
-  return join(config.jazzHome, "tg-sessions.json");
-}
-
-/** Parse the epoch map; returns null when the file is missing or unreadable. */
-function loadSessionEpochs(config: BridgeConfig): Record<string, number> | null {
-  const path = sessionsPath(config);
-  if (!existsSync(path)) return null;
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, number>;
-    }
-  } catch {
-    // fall through to null (treated as unreadable)
-  }
-  return null;
-}
-
-/** Conversation key for the chat's current session (epoch 0 keeps the raw id). */
-function conversationKey(config: BridgeConfig, chatId: number): string {
-  const epoch = loadSessionEpochs(config)?.[String(chatId)] ?? 0;
-  return epoch > 0 ? `${chatId}-${epoch}` : String(chatId);
-}
-
-/** Bump the chat's session epoch so the next run starts a fresh conversation. */
-function startNewConversation(config: BridgeConfig, chatId: number): void {
-  const path = sessionsPath(config);
-  const epochs = loadSessionEpochs(config);
-  if (epochs === null && existsSync(path)) {
-    // File exists but couldn't be parsed — preserve it rather than clobber
-    // every other chat's epoch on the write below.
-    try {
-      renameSync(path, `${path}.corrupt`);
-      console.error(`Corrupt ${path} preserved as ${path}.corrupt`);
-    } catch {
-      // best effort
-    }
-  }
-  const next = epochs ?? {};
-  next[String(chatId)] = (next[String(chatId)] ?? 0) + 1;
-  writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
-}
-
-// --- Daily usage tracking -------------------------------------------------
-
-interface DailyUsage {
-  costUSD: number;
-  tokens: number;
-  runs: number;
-}
-
-function usagePath(config: BridgeConfig): string {
-  return join(config.jazzHome, "tg-usage.json");
-}
-
-function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function readUsage(config: BridgeConfig): Record<string, DailyUsage> {
-  try {
-    const path = usagePath(config);
-    if (!existsSync(path)) return {};
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, DailyUsage>;
-    }
-  } catch {
-    // ignore — treat as empty
-  }
-  return {};
-}
-
-function todayUsage(config: BridgeConfig): DailyUsage {
-  return readUsage(config)[todayKey()] ?? { costUSD: 0, tokens: 0, runs: 0 };
-}
-
-function recordUsage(config: BridgeConfig, costUSD: number, tokens: number): void {
-  const usage = readUsage(config);
-  const key = todayKey();
-  const day = usage[key] ?? { costUSD: 0, tokens: 0, runs: 0 };
-  usage[key] = {
-    costUSD: day.costUSD + costUSD,
-    tokens: day.tokens + tokens,
-    runs: day.runs + 1,
-  };
-  // Keep the file bounded — drop entries older than 30 days.
-  const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
-  for (const date of Object.keys(usage)) {
-    if (date < cutoff) delete usage[date];
-  }
-  try {
-    writeFileSync(usagePath(config), `${JSON.stringify(usage, null, 2)}\n`);
-  } catch (error) {
-    console.error(`Failed to write usage: ${String(error)}`);
-  }
-}
+// --- Misc utilities -------------------------------------------------------
 
 function formatUptime(ms: number): string {
   const totalMinutes = Math.floor(ms / 60_000);
@@ -336,139 +179,6 @@ function formatUptime(ms: number): string {
 
 function newRunToken(): string {
   return Math.random().toString(36).slice(2, 10);
-}
-
-// --- Reminders ------------------------------------------------------------
-
-interface Reminder {
-  id: string;
-  chatId: number;
-  fireAt: number;
-  text: string;
-  createdAt: number;
-}
-
-const REMINDER_SWEEP_MS = 20_000;
-let reminderSweepRunning = false;
-
-function remindersPath(config: BridgeConfig): string {
-  return join(config.jazzHome, "tg-reminders.json");
-}
-
-function readReminders(config: BridgeConfig): Reminder[] {
-  try {
-    const path = remindersPath(config);
-    if (!existsSync(path)) return [];
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (Array.isArray(parsed)) return parsed as Reminder[];
-  } catch {
-    // ignore — treat as empty
-  }
-  return [];
-}
-
-function writeReminders(config: BridgeConfig, reminders: Reminder[]): void {
-  try {
-    writeFileSync(remindersPath(config), `${JSON.stringify(reminders, null, 2)}\n`);
-  } catch (error) {
-    console.error(`Failed to write reminders: ${String(error)}`);
-  }
-}
-
-function addReminder(config: BridgeConfig, chatId: number, fireAt: number, text: string): void {
-  const reminders = readReminders(config);
-  reminders.push({ id: newRunToken(), chatId, fireAt, text, createdAt: Date.now() });
-  writeReminders(config, reminders);
-}
-
-function cancelReminder(config: BridgeConfig, chatId: number, id: string): boolean {
-  const reminders = readReminders(config);
-  const remaining = reminders.filter(
-    (reminder) => !(reminder.id === id && reminder.chatId === chatId),
-  );
-  if (remaining.length === reminders.length) return false;
-  writeReminders(config, remaining);
-  return true;
-}
-
-const DURATION_UNIT_MS: Record<string, number> = {
-  s: 1_000,
-  m: 60_000,
-  h: 3_600_000,
-  d: 86_400_000,
-};
-
-/**
- * Parse a "when" spec into an absolute epoch-ms, or null if unparseable.
- * Supports relative durations (30m, 2h, 1h30m, 90s, 1d), a 24h clock time
- * (HH:MM → next occurrence), and "tomorrow HH:MM". Clock times are interpreted
- * in the caller's `tz` so "18:00" means 6pm where the sender is.
- */
-function parseWhen(spec: string, now: number, tz: string): number | null {
-  const trimmed = spec.trim().toLowerCase();
-
-  const tomorrow = /^tomorrow\s+(\d{1,2}):(\d{2})$/.exec(trimmed);
-  const clock = tomorrow ?? /^(\d{1,2}):(\d{2})$/.exec(trimmed);
-  if (clock) {
-    const hours = Number(clock[1]);
-    const minutes = Number(clock[2]);
-    if (hours > 23 || minutes > 59) return null;
-    const today = zonedDateParts(now, tz);
-    const dayOffset = tomorrow ? 1 : 0;
-    let fireAt = wallClockToEpoch(
-      today.year,
-      today.month,
-      today.day + dayOffset,
-      hours,
-      minutes,
-      tz,
-    );
-    if (!tomorrow && fireAt <= now) {
-      fireAt = wallClockToEpoch(today.year, today.month, today.day + 1, hours, minutes, tz);
-    }
-    return fireAt;
-  }
-
-  let totalMs = 0;
-  for (const match of trimmed.matchAll(/(\d+)\s*([smhd])/g)) {
-    totalMs += Number(match[1]) * (DURATION_UNIT_MS[match[2] ?? ""] ?? 0);
-  }
-  const leftover = trimmed.replace(/(\d+)\s*([smhd])/g, "").trim();
-  if (totalMs > 0 && leftover === "") return now + totalMs;
-
-  return null;
-}
-
-async function fireDueReminders(config: BridgeConfig): Promise<void> {
-  if (reminderSweepRunning) return;
-  reminderSweepRunning = true;
-  try {
-    const now = Date.now();
-    const reminders = readReminders(config);
-    const due = reminders.filter((reminder) => reminder.fireAt <= now);
-    if (due.length === 0) return;
-    // Remove first so a delivery failure can't loop-fire the same reminder.
-    writeReminders(
-      config,
-      reminders.filter((reminder) => reminder.fireAt > now),
-    );
-    for (const reminder of due) {
-      const late = now - reminder.fireAt > 90_000 ? " (delayed)" : "";
-      await sendReply(config, reminder.chatId, `⏰ <b>Reminder</b>${late}\n${reminder.text}`);
-    }
-  } finally {
-    reminderSweepRunning = false;
-  }
-}
-
-function startReminderSweep(config: BridgeConfig): void {
-  const sweep = (): void => {
-    void fireDueReminders(config).catch((error) =>
-      console.error(`Reminder sweep failed: ${String(error)}`),
-    );
-  };
-  sweep(); // deliver anything that came due while the bridge was down
-  setInterval(sweep, REMINDER_SWEEP_MS);
 }
 
 // --- Location -------------------------------------------------------------
@@ -601,90 +311,6 @@ function listPersonas(config: BridgeConfig): string[] {
     return ["default", "coder", "researcher"];
   }
   return names.sort((left, right) => left.localeCompare(right));
-}
-
-// --- Markdown → Telegram HTML --------------------------------------------
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-/**
- * Convert a subset of Markdown to Telegram's HTML flavor. Code spans/blocks are
- * extracted first so their contents aren't treated as markup, everything else
- * is HTML-escaped, then inline styles map to well-formed tags. The paired-tag
- * regexes only ever emit balanced HTML, so parsing can't fail; sendReply still
- * falls back to plain text on any Telegram error as a belt-and-braces guard.
- */
-function markdownToTelegramHtml(markdown: string): string {
-  const codeBlocks: string[] = [];
-  const inlineCodes: string[] = [];
-  // Per-call random token in the placeholders so they can't collide with
-  // anything the user actually typed.
-  const token = Math.random().toString(36).slice(2);
-  const placeholder = (kind: string, index: number): string => ` ${kind}_${token}_${index} `;
-  const restoreRegex = (kind: string): RegExp => new RegExp(` ${kind}_${token}_(\\d+) `, "g");
-
-  let text = markdown.replace(
-    /```[ \t]*([\w+-]*)\n?([\s\S]*?)```/g,
-    (_match, language: string, code: string) => {
-      const languageClass = language ? ` class="language-${escapeHtml(language)}"` : "";
-      codeBlocks.push(
-        `<pre><code${languageClass}>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`,
-      );
-      return placeholder("CB", codeBlocks.length - 1);
-    },
-  );
-
-  text = text.replace(/`([^`\n]+)`/g, (_match, code: string) => {
-    inlineCodes.push(`<code>${escapeHtml(code)}</code>`);
-    return placeholder("IC", inlineCodes.length - 1);
-  });
-
-  text = escapeHtml(text);
-  text = text.replace(/^#{1,6}[ \t]+(.+)$/gm, "<b>$1</b>");
-  text = text.replace(/\*\*([^\n*]+?)\*\*/g, "<b>$1</b>");
-  text = text.replace(/__([^\n_]+?)__/g, "<b>$1</b>");
-  text = text.replace(/(^|[^*])\*(\S|\S[^\n*]*?\S)\*(?!\*)/g, "$1<i>$2</i>");
-  text = text.replace(/~~([^\n~]+?)~~/g, "<s>$1</s>");
-  text = text.replace(
-    /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,
-    (_match, label: string, url: string) => `<a href="${url}">${label}</a>`,
-  );
-
-  text = text.replace(
-    restoreRegex("IC"),
-    (_match, index: string) => inlineCodes[Number(index)] ?? "",
-  );
-  text = text.replace(
-    restoreRegex("CB"),
-    (_match, index: string) => codeBlocks[Number(index)] ?? "",
-  );
-  return text;
-}
-
-function splitForTelegram(text: string): string[] {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) {
-    return ["(empty response)"];
-  }
-
-  const chunks: string[] = [];
-  let remaining = trimmed;
-  while (remaining.length > TELEGRAM_SPLIT_LENGTH) {
-    const window = remaining.slice(0, TELEGRAM_SPLIT_LENGTH);
-    const lastNewline = window.lastIndexOf("\n");
-    const splitAt = lastNewline > TELEGRAM_SPLIT_LENGTH * 0.5 ? lastNewline : window.length;
-    chunks.push(remaining.slice(0, splitAt));
-    remaining = remaining.slice(splitAt);
-  }
-  chunks.push(remaining);
-  return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk.length > 0);
 }
 
 function messageIdOf(response: unknown): number | undefined {
@@ -906,7 +532,7 @@ async function runJazz(
       "--approval-policy",
       config.approvalPolicy,
       "--conversation",
-      conversationKey(config, chatId),
+      conversationKey(config.jazzHome, chatId),
       "--timeout",
       String(config.runTimeoutMs),
       prompt,
@@ -959,9 +585,9 @@ async function runJazz(
 }
 
 async function handleMessage(config: BridgeConfig, chatId: number, text: string): Promise<void> {
-  ensureChatAgent(config, chatId);
+  ensureChatAgent(config.jazzHome, chatId, config.baseAgentId);
 
-  if (config.dailyCostCapUsd > 0 && todayUsage(config).costUSD >= config.dailyCostCapUsd) {
+  if (config.dailyCostCapUsd > 0 && todayUsage(config.jazzHome).costUSD >= config.dailyCostCapUsd) {
     await sendReply(
       config,
       chatId,
@@ -979,7 +605,7 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
     const now = Date.now();
     const reminder = await parseReminderNL(config, text, now, tzForChat(config.jazzHome, chatId));
     if (reminder) {
-      addReminder(config, chatId, reminder.fireAt, reminder.text);
+      addReminder(config.jazzHome, chatId, reminder.fireAt, reminder.text);
       await sendReply(
         config,
         chatId,
@@ -1020,7 +646,7 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
     }
 
     if (envelope.ok) {
-      recordUsage(config, envelope.costUSD, envelope.tokenUsage?.totalTokens ?? 0);
+      recordUsage(config.jazzHome, envelope.costUSD, envelope.tokenUsage?.totalTokens ?? 0);
       const used = reporter?.toolsUsed() ?? [];
       const parts = ["✅ <b>Done</b>"];
       if (used.length > 0) {
@@ -1127,13 +753,13 @@ const SUGGEST_AGENT_ID = "tg_suggest";
  * button upgrade lands in a couple of seconds instead of ~20.
  */
 function ensureSuggestAgent(config: BridgeConfig): void {
-  if (existsSync(agentPath(config, SUGGEST_AGENT_ID))) return;
-  const template = readAgentFile(config, config.baseAgentId);
+  if (existsSync(agentPath(config.jazzHome, SUGGEST_AGENT_ID))) return;
+  const template = readAgentFile(config.jazzHome, config.baseAgentId);
   template.id = SUGGEST_AGENT_ID;
   template.name = SUGGEST_AGENT_ID;
   template.config["tools"] = [];
   template.config.reasoningEffort = "disable";
-  writeAgentFile(config, template);
+  writeAgentFile(config.jazzHome, template);
 }
 
 /** Ask the model for 2-4 contextual next-step CTAs based on the exchange. */
@@ -1343,7 +969,7 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
   if (fireAt === null) {
     const nl = await parseReminderNL(config, args, now, tz);
     if (nl) {
-      addReminder(config, chatId, nl.fireAt, nl.text);
+      addReminder(config.jazzHome, chatId, nl.fireAt, nl.text);
       await sendReply(
         config,
         chatId,
@@ -1363,7 +989,7 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
     return;
   }
 
-  addReminder(config, chatId, fireAt, text.trim());
+  addReminder(config.jazzHome, chatId, fireAt, text.trim());
   await sendReply(config, chatId, reminderConfirmation(config, chatId, fireAt, now, text.trim()));
 }
 
@@ -1407,7 +1033,7 @@ async function handleCommand(
   command: string,
   args: string,
 ): Promise<void> {
-  const agent = ensureChatAgent(config, chatId);
+  const agent = ensureChatAgent(config.jazzHome, chatId, config.baseAgentId);
 
   if (command === "remind") {
     await handleRemind(config, chatId, args);
@@ -1420,7 +1046,7 @@ async function handleCommand(
   }
 
   if (command === "reminders") {
-    const mine = readReminders(config)
+    const mine = readReminders(config.jazzHome)
       .filter((reminder) => reminder.chatId === chatId)
       .sort((left, right) => left.fireAt - right.fireAt);
     if (mine.length === 0) {
@@ -1447,7 +1073,7 @@ async function handleCommand(
   }
 
   if (command === "new" || command === "reset") {
-    startNewConversation(config, chatId);
+    startNewConversation(config.jazzHome, chatId);
     await sendReply(
       config,
       chatId,
@@ -1457,7 +1083,7 @@ async function handleCommand(
   }
 
   if (command === "status") {
-    const day = todayUsage(config);
+    const day = todayUsage(config.jazzHome);
     const cap = config.dailyCostCapUsd;
     const lines = [
       "📊 <b>Status</b>",
@@ -1574,7 +1200,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   }
 
   if (kind === "r") {
-    const cancelled = cancelReminder(config, chatId, indexRaw ?? "");
+    const cancelled = cancelReminder(config.jazzHome, chatId, indexRaw ?? "");
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
       text: cancelled ? "Reminder cancelled" : "Not found",
@@ -1588,7 +1214,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   }
 
   const index = Number.parseInt(indexRaw ?? "", 10);
-  const agent = ensureChatAgent(config, chatId);
+  const agent = ensureChatAgent(config.jazzHome, chatId, config.baseAgentId);
   let confirmation: string;
 
   if (kind === "m") {
@@ -1606,7 +1232,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     agent.config.llmModel = model;
     agent.config.llmProvider = "ollama";
     agent.config.reasoningEffort = reasoning;
-    writeAgentFile(config, agent);
+    writeAgentFile(config.jazzHome, agent);
     confirmation = `✅ Model → ${model}\nReasoning: ${reasoning}`;
   } else if (kind === "p") {
     const personas = listPersonas(config);
@@ -1619,7 +1245,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       return;
     }
     agent.config.persona = persona;
-    writeAgentFile(config, agent);
+    writeAgentFile(config.jazzHome, agent);
     confirmation = `✅ Persona → ${persona}`;
   } else {
     await callTelegram(config, "answerCallbackQuery", { callback_query_id: callback.id });
@@ -1798,9 +1424,11 @@ async function start(): Promise<void> {
   const config = loadConfig();
   // Drop the cached CTA agent so it re-seeds from the current template (picks
   // up a changed default model on redeploy); ensureSuggestAgent recreates it.
-  rmSync(agentPath(config, SUGGEST_AGENT_ID), { force: true });
+  rmSync(agentPath(config.jazzHome, SUGGEST_AGENT_ID), { force: true });
   startHealthServer(config);
-  startReminderSweep(config);
+  startReminderSweep(config.jazzHome, (reminderChatId, html) =>
+    sendReply(config, reminderChatId, html),
+  );
   console.log(
     `Telegram → Jazz bridge started (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}")`,
   );
