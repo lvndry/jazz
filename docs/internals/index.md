@@ -8,7 +8,8 @@ Two different people need this section:
 - **Contributing to Jazz?** You want to know where your code goes. Read [Code map](./code-map.md).
 
 Everyone should read [Design decisions](./design-decisions.md) — the harness choices and
-what each one trades away.
+what each one trades away. If you're changing the harness, [Evals](./evals.md) is how you find
+out whether it helped.
 
 ---
 
@@ -97,6 +98,7 @@ Details and conventions: [Code map](./code-map.md).
 | [Sub-agents](./subagents.md) | Context isolation, personas, cost roll-up, when the model reaches for one |
 | [Skills loading](./skills-loading.md) | Progressive disclosure: `find_skills` → `load_skill` → `load_skill_section` |
 | [Providers & models](./providers-and-models.md) | The AI SDK port, model catalog, reasoning normalization, retries, cost |
+| [Evals](./evals.md) | Measuring whether a harness change helped: Pass^k, A/B, grounding checks, judge calibration |
 | [Design decisions](./design-decisions.md) | Every harness choice, and what it trades away |
 | [Code map](./code-map.md) | Directory structure, Effect patterns, how to add an adapter, testing |
 

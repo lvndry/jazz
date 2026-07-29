@@ -33,7 +33,7 @@ Perform deep web research on any topic and automatically save a formatted report
    - **Plans** a research strategy.
    - **Searches** the web using multiple queries.
    - **Reads** and analyzes relevant pages.
-   - **Synthesizes** findings into a comprehensive markdown report.
+   - **Synthesizes** findings into a markdown report with citations.
    - **Saves** the file to your specified Obsidian path (e.g., `/Users/you/Obsidian/Research/Quantum.md`).
 
 ## Demo

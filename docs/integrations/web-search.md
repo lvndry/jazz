@@ -14,7 +14,7 @@ Enable your agents to search the web and get current information.
 ## Why Linkup/Exa?
 
 - **AI-Optimized Results**: Structured data perfect for agents
-- **Deep Search Mode**: Comprehensive research capabilities
+- **Deep Search Mode**: multi-hop research across several sources in one query
 - **Source Attribution**: Always know where information comes from
 - **Fresh Content**: Access to current web information
 
@@ -39,7 +39,7 @@ jazz config set exa # jazz config set exa.api_key <YOUR_EXA_API_KEY>
 Your agents can now:
 
 - **Standard Search**: Quick results for common queries
-- **Deep Search**: Comprehensive research with multiple sources
+- **Deep Search**: multi-source research, slower and more expensive per query
 - **Sourced Answers**: AI-friendly format with citations
 - **Raw Results**: Direct search results for parsing
 - **Image Search**: Optional image results

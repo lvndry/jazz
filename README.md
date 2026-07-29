@@ -134,6 +134,26 @@ How each of these works, and what it trades away: [Agent loop](docs/internals/ag
 [Context management](docs/internals/context-management.md) ·
 [Design decisions](docs/internals/design-decisions.md).
 
+### And we measure it, rather than claiming it
+
+Jazz ships an eval harness, because "this prompt feels better" is not a result. It runs a task
+suite against a weak model and a strong one, so any harness improvement is expressed as a
+fraction of a known gap:
+
+```bash
+bun run evals --agent eval-sut --ab eval-sut-variant --samples 3
+```
+
+Same tasks, two configs, so a change's lift is **attributable**. It reports **Pass^k** — did
+it work on *every* one of k attempts — not just `pass@k`, because an agent that succeeds one
+time in three isn't two-thirds of a feature, it's an unreliable one. Bootstrap confidence
+intervals keep small-sample noise from being mistaken for progress, and the LLM judge has to
+correlate with human labels at Pearson ≥ 0.7 before its scores count.
+
+There's a grounding suite specifically for the failure mode that makes assistants feel useless
+while scoring fine on benchmarks: answering "how much RAM does this machine have" from training
+data instead of just checking. See [Evals](docs/internals/evals.md).
+
 ---
 
 ## What it can actually do
@@ -150,6 +170,18 @@ your format, commit messages in your convention. Jazz ships 18+ and follows the
 Drop one in `~/.jazz/skills/` or `./skills/`, or run `npx skills add`. Loading is
 progressive — Jazz finds a skill, then pulls only the sections it needs, so having a
 hundred skills costs you nothing in context.
+
+**Personas — how the agent talks, decoupled from what it knows.** A persona is a reusable
+identity: tone, style, vocabulary, behavioural rules. It's independent of the agent *and* the
+model, so the same persona works on GPT, Claude, or a local Llama. Four ship built in
+(`default`, `coder`, `researcher`, and `summarizer`, which Jazz uses internally for
+compaction); `jazz persona create` makes your own. Sub-agents take a persona too, so a
+research delegate can think like a researcher while its parent stays terse.
+
+**Custom tools — add a capability without writing code.** Declare a name, a description, a
+parameter schema, and a shell command or HTTP call in the agent's config, and it becomes a
+real tool the model can call. No plugin to build, no rebuild.
+See [Configuration](docs/reference/configuration.md#agent-config-customtools).
 
 **MCP — connect to everything else.** Jazz speaks
 [Model Context Protocol](https://modelcontextprotocol.io/). Run `jazz mcp add` and paste
@@ -272,10 +304,10 @@ Full docs: **[`docs/index.md`](docs/index.md)**
 | **Get running** | [Quick Start](docs/guide/quick-start.md) · [Creating Agents](docs/guide/creating-agents.md) |
 | **See where it can run** | [Surfaces](docs/surfaces/index.md) · [Headless (`jazz run`)](docs/surfaces/headless.md) · [Chat platforms](docs/surfaces/chat-platforms.md) · [CI/CD](docs/surfaces/ci-cd.md) · [Scheduled](docs/surfaces/scheduled.md) |
 | **See it solve something real** | [Use Cases](docs/guide/index.md#end-to-end-use-cases) · [Cookbook](docs/cookbook/index.md) · [Examples](examples/) |
-| **Understand the building blocks** | [Agents](docs/concepts/agents.md) · [Skills](docs/concepts/skills.md) · [Workflows](docs/concepts/workflows.md) · [Personas](docs/concepts/personas.md) · [Scheduling](docs/concepts/scheduling.md) |
+| **Understand the building blocks** | [Agents](docs/concepts/agents.md) · [Personas](docs/concepts/personas.md) · [Skills](docs/concepts/skills.md) · [Tools](docs/concepts/tools.md) · [Workflows](docs/concepts/workflows.md) · [Scheduling](docs/concepts/scheduling.md) |
 | **Run it my way** | [Airgapped & Self-Hosted](docs/guide/airgapped.md) · [Telegram bridge](integrations/telegram-bot/) · [GitHub Actions](.github/jazz/README.md) |
 | **Look up a flag or tool** | [CLI Reference](docs/reference/cli.md) · [Configuration](docs/reference/configuration.md) · [Tools](docs/reference/tools.md) · [Workflow frontmatter](docs/reference/workflow-frontmatter.md) |
-| **See how it works inside** | [Internals](docs/internals/index.md) · [Agent loop](docs/internals/agent-loop.md) · [Context management](docs/internals/context-management.md) · [Design decisions](docs/internals/design-decisions.md) |
+| **See how it works inside** | [Internals](docs/internals/index.md) · [Agent loop](docs/internals/agent-loop.md) · [Context management](docs/internals/context-management.md) · [Design decisions](docs/internals/design-decisions.md) · [Evals](docs/internals/evals.md) |
 | **Know what's coming** | [Discussions](https://github.com/lvndry/jazz/discussions) · [Issues](https://github.com/lvndry/jazz/issues) |
 
 **Community:** [Discord](https://discord.gg/yBDbS2NZju) ·

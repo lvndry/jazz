@@ -60,6 +60,7 @@ watchdog, competitor watch, tech-debt radar, research digest, CI reviewer, relea
 - [Context management](./internals/context-management.md) — token counting, trimming, compaction
 - [Tools & approval](./internals/tools-and-approval.md) — risk tiers, two-phase execution
 - [Sub-agents](./internals/subagents.md) · [Skills loading](./internals/skills-loading.md) · [Providers & models](./internals/providers-and-models.md)
+- [Evals](./internals/evals.md) — measuring whether a harness change actually helped
 - [Design decisions](./internals/design-decisions.md) — every harness choice and what it trades away
 - [Code map](./internals/code-map.md) — for contributors
 

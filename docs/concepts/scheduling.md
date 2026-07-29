@@ -78,7 +78,7 @@ Run Jazz on a machine that's always powered on:
 
 **Home Server Options:**
 - **Raspberry Pi 4/5** ($35-75): Perfect for running Jazz 24/7
-- **Intel NUC / Mac Mini**: More powerful, still energy efficient
+- **Intel NUC / Mac Mini**: more headroom, still low-power enough to leave on
 - **Old laptop**: Leave it plugged in and running
 - **NAS**: Synology, QNAP if it supports Node.js
 
