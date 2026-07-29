@@ -240,7 +240,7 @@ Approval is two-phase — propose, then execute — so interactive and headless 
 through exactly the same code path. Every action is logged; you see the full argument list
 before anything happens. Credentials stay local (OAuth2 for Gmail, API keys in your
 config). See [Tools & approval](docs/internals/tools-and-approval.md) and the
-[Security model](docs/security.md).
+[Security guide](docs/security.md). To report a vulnerability: [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -275,7 +275,7 @@ Full docs: **[`docs/index.md`](docs/index.md)**
 | **Run it my way** | [Airgapped & Self-Hosted](docs/guide/airgapped.md) · [Telegram bridge](integrations/telegram-bot/) · [GitHub Actions](.github/jazz/README.md) |
 | **Look up a flag or tool** | [CLI Reference](docs/reference/cli.md) · [Configuration](docs/reference/configuration.md) · [Tools](docs/reference/tools.md) · [Workflow frontmatter](docs/reference/workflow-frontmatter.md) |
 | **See how it works inside** | [Internals](docs/internals/index.md) · [Agent loop](docs/internals/agent-loop.md) · [Context management](docs/internals/context-management.md) · [Design decisions](docs/internals/design-decisions.md) |
-| **Know what's coming** | [Research & Roadmap](docs/exploration/) |
+| **Know what's coming** | [Discussions](https://github.com/lvndry/jazz/discussions) · [Issues](https://github.com/lvndry/jazz/issues) |
 
 **Community:** [Discord](https://discord.gg/yBDbS2NZju) ·
 [Discussions](https://github.com/lvndry/jazz/discussions) ·

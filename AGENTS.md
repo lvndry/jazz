@@ -6,7 +6,7 @@
 
 Jazz is a **agentic automation CLI** that empowers users to create, manage, and orchestrate autonomous AI agents for complex daily life workflows. Think of it as your personal army of AI assistants that can handle everything from email management to code deployment, from data analysis to content creation.
 
-**Read the [README.md](../../README.md) and [docs/](../docs/) folder to understand the product, current capabilities, use cases, and future vision.**
+**Read the [README.md](README.md) and [docs/](docs/index.md) to understand the product, current capabilities, and use cases.**
 
 ### Core Philosophy
 
@@ -78,12 +78,12 @@ When building features for Jazz, think like a **product engineer** who understan
 
 **🔬 AI/ML Research First:**
 
-- **Use Exploration Docs**: Reference [docs/exploration/](../docs/exploration/) for research-inspired patterns (verification-refinement pipelines, agent skills, token-efficient formats, etc.)
+- **Know the Harness**: Reference [docs/internals/](docs/internals/index.md) for how the agent loop, context management, and approval model actually work — and [design-decisions.md](docs/internals/design-decisions.md) for why
 - **Apply Research Patterns**: When implementing features, consider research-backed approaches
-- **Experiment Boldly**: Don't be afraid to implement cutting-edge patterns from the exploration docs (speculative execution, agent skills, verification-refinement, etc.)
+- **Experiment Boldly**: Don't be afraid to implement cutting-edge patterns (speculative execution, verification-refinement, multi-model consensus)
 - **Measure Everything**: Benchmark improvements, track metrics, validate hypotheses when implementing research-inspired features
 - **Think Research-Inspired**: When designing new features, consider how research patterns (multi-model consensus, semantic search, agent orchestration) could apply
-- **R&D Mindset**: Treat every feature as an opportunity to push boundaries using patterns from the exploration docs
+- **R&D Mindset**: Treat every feature as an opportunity to push boundaries
 
 ### Innovation Over Compatibility
 
@@ -113,7 +113,7 @@ When building features for Jazz, think like a **product engineer** who understan
 - **Consider Agent Perspective**: How would an AI agent use this feature?
 - **Plan for Edge Cases**: Identify all possible failure points from the beginning
 - **Design for Extensibility**: Make features customizable and extensible
-- **Research Before Building**: Check [docs/exploration/](../docs/exploration/) for patterns, study similar systems, understand the problem deeply
+- **Research Before Building**: Check [docs/internals/](docs/internals/index.md) for existing patterns, study similar systems, understand the problem deeply
 - **Think Multiple Solutions**: Always consider 3-5 alternatives, choose the best one
 - **Break When Needed**: Don't hesitate to make breaking changes if they lead to better solutions
 

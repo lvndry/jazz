@@ -293,4 +293,4 @@ hundred skills would consume the window before the user says anything.
 
 - [Agent loop](./agent-loop.md) · [Context management](./context-management.md) · [Tools & approval](./tools-and-approval.md)
 - [Code map](./code-map.md) — where the code for all of this lives
-- [Research & roadmap](../exploration/README.md) — decisions not yet made
+- [Discussions](https://github.com/lvndry/jazz/discussions) — decisions not yet made

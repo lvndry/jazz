@@ -79,7 +79,12 @@ function main(): void {
     }
   }
 
-  const files = ["README.md", ...markdownFiles("docs")];
+  // Root-level Markdown (README, SECURITY, CONTRIBUTING, AGENTS) links into docs/, so it
+  // belongs in the same check. Untracked root files (e.g. a local CLAUDE.md) are skipped.
+  const rootMarkdown = readdirSync(".")
+    .filter((entry) => entry.endsWith(".md") && tracked.has(entry))
+    .sort();
+  const files = [...rootMarkdown, ...markdownFiles("docs")];
   const broken: string[] = [];
 
   for (const file of files) {

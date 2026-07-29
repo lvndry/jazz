@@ -66,11 +66,7 @@ watchdog, competitor watch, tech-debt radar, research digest, CI reviewer, relea
 ### [Security](./security.md)
 
 Risk model, the approval system, and how to run agents that accept input from other people.
-
-### [Exploration](./exploration/README.md)
-
-Design explorations and roadmap. **Not shipped features** — read it for direction, not for
-behavior you can rely on.
+To report a vulnerability, see the [Security Policy](../SECURITY.md).
 
 ---
 

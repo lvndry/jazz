@@ -522,7 +522,7 @@ Future enhancements planned:
 - **Retry policies**: Automatic retry on failure
 - **Notifications**: Desktop/email notifications on completion
 
-See [Research & Roadmap](../exploration/README.md) for the full roadmap.
+See [Discussions](https://github.com/lvndry/jazz/discussions) for what's planned.
 
 ## Examples
 

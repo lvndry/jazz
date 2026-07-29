@@ -170,4 +170,4 @@ So the **full feature set** of skills is:
 
 ## Summary
 
-**Skills** in Jazz are how you give your agent **repeatable, domain-specific workflows** without bloating every conversation. The agent discovers them by name and description, loads full instructions only when relevant, and can pull in extra sections on demand. You get consistency, shareability, and context efficiency, and you can extend the system with your own skills in `./skills/` or `~/.jazz/skills/`. For the full design and future directions (e.g. tool declarations, risk levels, composition), see the exploration doc [Agent Skills System](../exploration/skills/agent-skills-system.md).
+**Skills** in Jazz are how you give your agent **repeatable, domain-specific workflows** without bloating every conversation. The agent discovers them by name and description, loads full instructions only when relevant, and can pull in extra sections on demand. You get consistency, shareability, and context efficiency, and you can extend the system with your own skills in `./skills/` or `~/.jazz/skills/`. For how loading works under the hood, see [Skills loading](../internals/skills-loading.md).

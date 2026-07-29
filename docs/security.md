@@ -1,5 +1,12 @@
 # Security Guide
 
+**Reader job:** run Jazz without handing an agent more power than you meant to.
+
+This is the practical guide — the approval system, best practices, and hardening. For
+**reporting a vulnerability**, see the [Security Policy](../SECURITY.md) at the repository
+root. For how the approval machinery works internally, see
+[Tools & approval](./internals/tools-and-approval.md).
+
 Jazz's security model: **trust-but-verify**. Agents are powerful, but you stay in control.
 
 ## Core Security Features
@@ -175,15 +182,20 @@ Use dedicated accounts for automation:
 
 ## Getting Help
 
-**Security Questions:**
+**Security questions:** [Discord](https://discord.gg/yBDbS2NZju) ·
+[GitHub Discussions](https://github.com/lvndry/jazz/discussions)
 
-- [Discord](https://discord.gg/yBDbS2NZju)
-- [GitHub Issues](https://github.com/lvndry/jazz/issues)
+**Reporting a vulnerability:** see the [Security Policy](../SECURITY.md). Report privately via
+[GitHub Security Advisories](https://github.com/lvndry/jazz/security/advisories/new) — never in
+a public issue.
 
-**Report Security Vulnerabilities:**
+## Related
 
-- Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/lvndry/jazz/security/advisories/new)
-- Do NOT post vulnerabilities in public issues
+- [Security Policy](../SECURITY.md) — reporting, scope, supported versions
+- [Tools & approval](./internals/tools-and-approval.md) — how risk tiers are enforced
+- [Tools reference](./reference/tools.md) — every tool and its tier
+- [Chat platforms → security](./surfaces/chat-platforms.md#security-for-chat-surfaces) — surfaces that accept input from other people
+- [Airgapped & self-hosted](./guide/airgapped.md) — removing outbound network entirely
 
 ---
 
