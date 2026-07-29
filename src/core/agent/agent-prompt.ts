@@ -3,7 +3,7 @@ import * as os from "os";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
-import { ENVIRONMENT_TEMPLATE, SKILLS_INSTRUCTIONS } from "./prompts/shared";
+import { ENVIRONMENT_TEMPLATE, MEMORY_INSTRUCTIONS, SKILLS_INSTRUCTIONS } from "./prompts/shared";
 
 function formatUtcOffsetLabel(date: Date): string {
   const offsetMinutes = -date.getTimezoneOffset();
@@ -147,6 +147,9 @@ export class AgentPromptBuilder {
     // injected detail block is rebuilt whenever the trigger match changes.
     if (options.triggeredSkillNames && options.triggeredSkillNames.length > 0) {
       hash.update(`triggered:${[...options.triggeredSkillNames].sort().join(",")}`);
+    }
+    if (options.toolNames?.includes("view_memory")) {
+      hash.update("memory:1");
     }
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
@@ -296,6 +299,10 @@ ${indexLines}
 </available_skills>
 ${triggeredBlock}`;
           systemPrompt = systemPrompt + skillsSection;
+        }
+
+        if (options.toolNames?.includes("view_memory")) {
+          systemPrompt = systemPrompt + MEMORY_INSTRUCTIONS;
         }
 
         // Cache the result

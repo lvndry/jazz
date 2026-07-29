@@ -31,6 +31,7 @@ import { createJazzStateServiceLayer } from "./services/jazz-state";
 import { createAISDKServiceLayer } from "./services/llm/ai-sdk-service";
 import { createLoggerLayer, setLogFormat, setLogLevel } from "./services/logger";
 import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
+import { createMemoryServiceLayer } from "./services/memory-service";
 import { NotificationServiceLayer } from "./services/notification";
 import { createPersonaServiceLayer } from "./services/persona-service";
 import { FileStorageService } from "./services/storage/file";
@@ -159,6 +160,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
 
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
   const personaLayer = createPersonaServiceLayer();
+  const memoryServiceLayer = createMemoryServiceLayer();
 
   const chatLayer = createChatServiceLayer().pipe(
     Layer.provide(terminalLayer),
@@ -195,6 +197,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     toolRegistrationLayer,
     agentLayer,
     personaLayer,
+    memoryServiceLayer,
     chatLayer,
     telemetryLayer,
     presentationLayer,
