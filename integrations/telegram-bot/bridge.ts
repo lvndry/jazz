@@ -927,6 +927,22 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
 
   await callTelegram(config, "sendChatAction", { chat_id: chatId, action: "typing" });
 
+  // Natural-language reminders ("remind me … in 2h", "send reminder next friday
+  // 2pm for X") are handled here instead of a full agent turn. If the time can't
+  // be parsed, fall through to a normal answer (so "remind me what X is" works).
+  if (looksLikeReminderRequest(text)) {
+    const reminder = await parseReminderNL(config, text, Date.now());
+    if (reminder) {
+      addReminder(config, chatId, reminder.fireAt, reminder.text);
+      await sendReply(
+        config,
+        chatId,
+        reminderConfirmation(reminder.fireAt, Date.now(), reminder.text),
+      );
+      return;
+    }
+  }
+
   const runToken = newRunToken();
   // A live-updated progress bubble with a ⏹ Cancel button. The final answer is
   // sent as a *new* message so it pushes a notification (edits don't).
@@ -1162,6 +1178,7 @@ const HELP_TEXT = [
   "/persona — pick my persona / style",
   "/new — start a fresh conversation (clears earlier context)",
   "/remind <when> <text> — e.g. /remind 30m take pizza out",
+  "  …or just say it: “remind me to call the dentist in 2 hours”, “send reminder next friday 2pm for review”",
   "/reminders — list & cancel your reminders",
   "/status — model, today's usage, uptime",
   "/help — show this",
@@ -1178,6 +1195,79 @@ function keyboardFrom(options: string[], current: string, prefix: string): Inlin
   return options.map((option, index) => [
     { text: `${option === current ? "✅ " : ""}${option}`, callback_data: `${prefix}:${index}` },
   ]);
+}
+
+function formatWhen(fireAt: number): string {
+  const tz = process.env["TZ"]?.trim() || "UTC";
+  try {
+    return new Date(fireAt).toLocaleString("en-GB", {
+      timeZone: tz,
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return `${new Date(fireAt).toISOString().replace("T", " ").slice(0, 16)} UTC`;
+  }
+}
+
+function reminderConfirmation(fireAt: number, now: number, text: string): string {
+  return `⏰ Reminder set for ${formatWhen(fireAt)} (in ${formatUptime(fireAt - now)}).\n“${escapeHtml(text)}”`;
+}
+
+/** True when a free-text message reads like a request to schedule a reminder. */
+function looksLikeReminderRequest(text: string): boolean {
+  return (
+    /^\s*(?:send|set|add|create|schedule)\s+(?:me\s+)?(?:a\s+)?reminder\b/i.test(text) ||
+    /\bremind me\b/i.test(text)
+  );
+}
+
+/**
+ * Use the model to turn a natural-language reminder ("next friday at 2pm for X",
+ * "in 2 hours", "september 23rd birthday") into an absolute time + text.
+ * Returns null when there's no clear future time.
+ */
+async function parseReminderNL(
+  config: BridgeConfig,
+  request: string,
+  now: number,
+): Promise<{ fireAt: number; text: string } | null> {
+  ensureSuggestAgent(config);
+  const tz = process.env["TZ"]?.trim() || "UTC";
+  const prompt =
+    `Current date and time: ${new Date(now).toISOString()} (timezone: ${tz}).\n` +
+    `The user wants a reminder. Their request: "${request}"\n\n` +
+    "Work out the absolute time it should fire and what to remind them about. Reply with ONLY " +
+    "JSON, no prose or code fences:\n" +
+    '{"when":"<ISO 8601 with timezone offset>","text":"<concise reminder text>"}\n' +
+    'Interpret relative ("in 2 hours") and vague ("next friday at 2pm", "september 23rd") times ' +
+    "against the current date/time and timezone; choose the next future occurrence for bare " +
+    'dates. If there is no clear future time, reply {"when":null,"text":""}.';
+  const envelope = await jazzJson(config, SUGGEST_AGENT_ID, prompt, [
+    "--reasoning",
+    "disable",
+    "--max-iterations",
+    "1",
+    "--approval-policy",
+    "read-only",
+    "--timeout",
+    "60000",
+  ]);
+  if (!envelope.ok) return null;
+
+  const match = /\{[\s\S]*\}/.exec(envelope.answer);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]) as { when?: unknown; text?: unknown };
+    if (typeof parsed.when !== "string" || typeof parsed.text !== "string") return null;
+    const fireAt = Date.parse(parsed.when);
+    if (!Number.isFinite(fireAt) || fireAt <= now) return null;
+    const text = parsed.text.trim();
+    if (text.length === 0) return null;
+    return { fireAt, text };
+  } catch {
+    return null;
+  }
 }
 
 async function handleRemind(config: BridgeConfig, chatId: number, args: string): Promise<void> {
@@ -1203,8 +1293,15 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
     if (fireAt !== null) text = words.slice(1).join(" ");
   }
 
+  // Structured parse failed — fall back to natural-language understanding.
   if (fireAt === null) {
-    await sendReply(config, chatId, `I couldn't read the time.\n${usage}`);
+    const nl = await parseReminderNL(config, args, now);
+    if (nl) {
+      addReminder(config, chatId, nl.fireAt, nl.text);
+      await sendReply(config, chatId, reminderConfirmation(nl.fireAt, now, nl.text));
+      return;
+    }
+    await sendReply(config, chatId, `I couldn't work out when to remind you.\n${usage}`);
     return;
   }
   if (text.trim().length === 0) {
@@ -1217,11 +1314,7 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
   }
 
   addReminder(config, chatId, fireAt, text.trim());
-  await sendReply(
-    config,
-    chatId,
-    `⏰ Reminder set — in ${formatUptime(fireAt - now)}.\n“${escapeHtml(text.trim())}”`,
-  );
+  await sendReply(config, chatId, reminderConfirmation(fireAt, now, text.trim()));
 }
 
 async function handleCommand(

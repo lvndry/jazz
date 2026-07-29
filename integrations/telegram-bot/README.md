@@ -64,6 +64,7 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | `/persona` | Inline keyboard of available personas |
 | `/new` (`/reset`) | Start a fresh conversation — clears earlier context; keeps your model/persona |
 | `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, or `tomorrow 09:00` |
+| _(natural language)_ | Just say it — "remind me to call the dentist in 2 hours", "send reminder next friday at 2pm for the review", "send reminder september 23rd for Sam's birthday". The model resolves the date/time and schedules it. |
 | `/reminders` | List your pending reminders; tap one to cancel |
 | `/status` | Current model, today's runs/tokens/cost, daily cap, uptime |
 | `/help` | Usage |
