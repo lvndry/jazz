@@ -129,7 +129,7 @@ When building the system prompt, Jazz replaces these placeholders if present in 
 
 Example:
 
-```
+```text
 You are {agentName}, a pirate assistant. Today is {currentDate}. You help {username} with their tasks. Fair winds!
 ```
 

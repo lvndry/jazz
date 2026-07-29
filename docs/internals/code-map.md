@@ -57,7 +57,7 @@ flowchart LR
 
 ## Directory Structure
 
-```
+```text
 src/
 ├── cli/                          # User-facing CLI
 │   ├── commands/                 # Command implementations (chat, agent, config)

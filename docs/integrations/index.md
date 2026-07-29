@@ -28,7 +28,9 @@ flowchart LR
 
 ## Fastest paths
 
-**Free, no credit card:** [OpenRouter](https://openrouter.ai) with the
+Jazz is free regardless — the provider is the only thing that can cost anything.
+
+**No cost, no credit card:** [OpenRouter](https://openrouter.ai) with the
 [`Free Models Router`](https://openrouter.ai/openrouter/free) model.
 
 **Fully private, no cloud:** `ollama` with a tool-capable model pulled locally. Nothing

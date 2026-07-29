@@ -36,10 +36,6 @@ Perform deep web research on any topic and automatically save a formatted report
    - **Synthesizes** findings into a markdown report with citations.
    - **Saves** the file to your specified Obsidian path (e.g., `/Users/you/Obsidian/Research/Quantum.md`).
 
-## Demo
-
-_(Video placeholder: Deep Research Flow)_
-
 ## Customization
 
 You can create a specialized "Researcher" agent with only these skills to keep it focused.

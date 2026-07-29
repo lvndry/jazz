@@ -202,6 +202,7 @@ answers.
 ### Command approval matches on a parsed key, never a raw prefix
 
 **Decision.** "Always approve `git status`" stores a key extracted from the command (binary
+
 + first subcommand) and matches exactly or on a word boundary.
 
 **Alternatives rejected.** Prefix-matching the raw command string. Then approving
@@ -291,6 +292,6 @@ hundred skills would consume the window before the user says anything.
 
 ## Related
 
-- [Agent loop](./agent-loop.md) · [Context management](./context-management.md) · [Tools & approval](./tools-and-approval.md)
-- [Code map](./code-map.md) — where the code for all of this lives
-- [Discussions](https://github.com/lvndry/jazz/discussions) — decisions not yet made
++ [Agent loop](./agent-loop.md) · [Context management](./context-management.md) · [Tools & approval](./tools-and-approval.md)
++ [Code map](./code-map.md) — where the code for all of this lives
++ [Discussions](https://github.com/lvndry/jazz/discussions) — decisions not yet made

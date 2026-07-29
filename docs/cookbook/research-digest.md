@@ -107,7 +107,8 @@ If the week was genuinely quiet, write `Quiet week. <2 sentences on what's *not*
 - Always include the URL on every item.
 - Skip anything you cannot verify is actually from the last 7 days.
 - Do not invent items. If you can't find 8, write fewer.
-```
+
+```text
 
 ## How to install
 
@@ -132,12 +133,14 @@ jazz workflow schedule research-digest
 ## How to customize
 
 - **Multiple topics** — clone the workflow:
+
   ```bash
   cp -r ~/.jazz/workflows/research-digest ~/.jazz/workflows/research-digest-rust-async
   $EDITOR ~/.jazz/workflows/research-digest-rust-async/WORKFLOW.md
   # Change `name:` and the "Topic:" line, schedule on a different day
   jazz workflow schedule research-digest-rust-async
   ```
+
 - **Save to Obsidian** — uncomment the `obsidian` skill in `skills:` and replace Step 4's path with `Research/<topic>/Week of <YYYY-MM-DD>.md`. Use `obsidian create path=...` (don't overwrite).
 - **Daily, not weekly** — tighten the window in Step 1 to 24h and change `schedule` to `0 8 * * *`. Cap to 5 items so you actually read them.
 - **Different output style** — the recipe pulls in the `digest` skill, which already enforces a "headline + one line + source" template. If you want long-form, drop `digest` from the skills list and ask in the prompt.

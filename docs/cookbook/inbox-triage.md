@@ -35,7 +35,8 @@ You are triaging my INBOX for the work day. The goal is a short, scannable summa
    ```bash
    himalaya envelope list --folder INBOX --output json --page-size 100 "after $(date -u -v-1d +%Y-%m-%d 2>/dev/null || date -u -d '1 day ago' +%Y-%m-%d)"
    ```
-3. Parse JSON. For each envelope keep `id`, `subject`, `from`, `date`, `flags`.
+
+1. Parse JSON. For each envelope keep `id`, `subject`, `from`, `date`, `flags`.
 
 ## Step 2 — Classify
 
@@ -50,9 +51,11 @@ Tag each message with exactly one bucket:
 ## Step 3 — Act
 
 - **Archive** all `newsletter` and `automated` messages older than 24h:
+
   ```bash
   himalaya message move <id> --folder Archive
   ```
+
   Batch IDs when possible. The `Archive` folder name varies by provider — check `himalaya folder list` first and use whatever maps to "All Mail" / "Archive".
 - **Do nothing** with `important`, `fyi`, or `unknown`. Never delete. Never mark seen. Never reply.
 
@@ -85,7 +88,8 @@ Write a markdown summary to `$HOME/.jazz/inbox-triage/$(date +%Y-%m-%d).md` with
 - Never reply, never forward, never send.
 - Never touch flags besides what you need to read the message.
 - If `himalaya account list` returns nothing or errors, write a one-line failure note to the summary file and stop.
-```
+
+```text
 
 ## How to install
 

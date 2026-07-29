@@ -132,7 +132,7 @@ Tiers are coarse on purpose. When you need precision:
 The command allowlist does **not** prefix-match raw strings. It extracts an approval key
 (binary + first subcommand) and matches exactly or on a word boundary:
 
-```
+```text
 approved: "git status"
   ✅ git status
   ✅ git status --short

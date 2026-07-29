@@ -55,6 +55,7 @@ Use the `grep` tool. Aggregate counts as:
 ## Step 3 — Categorize hotspots
 
 For each repo, identify the top 5 files by total marker count (any kind). For each hotspot file, list:
+
 - path (relative to repo root)
 - count
 - the 3 most recent markers in that file (line + the marker line text, truncated to 120 chars).
@@ -115,7 +116,8 @@ totals:
 - Never run `git pull` or any network git op. The local working copy is the source of truth.
 - Skip any path that isn't a git repo.
 - Skip vendored / generated dirs: `node_modules`, `dist`, `build`, `target`, `vendor`, `.next`, `.turbo`. Use `--exclude-dir=...` on `grep`.
-```
+
+```text
 
 ## How to install
 

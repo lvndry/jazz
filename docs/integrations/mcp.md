@@ -297,7 +297,6 @@ For MCP servers running over HTTP (Streamable HTTP transport):
 - Check that credentials have necessary permissions
 - Some servers require manual authorization flow
 
-
 ---
 
 ## Related

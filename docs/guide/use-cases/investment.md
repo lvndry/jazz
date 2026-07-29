@@ -23,6 +23,7 @@ Receive a consolidated report on market trends and specific assets every week.
    ```
 
 2. **Schedule**:
+
    ```bash
    jazz workflow schedule market-report --cron "0 8 * * 1"
    ```

@@ -51,13 +51,15 @@ To get the diff, use the `git_diff` tool with `commit` set to `__PR_BASE_SHA__..
 You MUST output ONLY a JSON array as the very last thing you write, wrapped in a four-backtick fenced code block. Each element:
 
 ```
+
 {
   "path": "src/example.ts",
   "line": 42,
   "side": "RIGHT",
   "body": "**Critical**: This can throw if `user` is null.\n\nSuggestion:\n```ts\nif (!user) return;\n```"
 }
-```
+
+```text
 
 Rules:
 - `path`: relative file path from repo root (must exist in the diff)

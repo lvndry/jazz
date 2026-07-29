@@ -13,6 +13,8 @@ on:
       - "eslint.config.*"
       - ".eslintrc*"
       - ".github/workflows/ci.yml"
+      - "**/*.md"
+      - ".markdownlint-cli2.jsonc"
   pull_request:
     paths:
       - "src/**"
@@ -24,11 +26,47 @@ on:
       - "eslint.config.*"
       - ".eslintrc*"
       - ".github/workflows/ci.yml"
+      - "**/*.md"
+      - ".markdownlint-cli2.jsonc"
 
 permissions:
   contents: read
 
 jobs:
+  # Docs-only checks. Gated on markdown changes via dorny/paths-filter, so a typo fix does
+  # not drag in the full lint/build, and this job skips in seconds when no .md changed.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Detect markdown changes
+        uses: dorny/paths-filter@v3
+        id: changed
+        with:
+          filters: |
+            markdown:
+              - '**/*.md'
+              - '.markdownlint-cli2.jsonc'
+              - 'scripts/check-docs-links.ts'
+
+      - name: Setup Bun
+        if: steps.changed.outputs.markdown == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Lint markdown style
+        if: steps.changed.outputs.markdown == 'true'
+        run: bunx markdownlint-cli2
+
+      # markdownlint has no rule for relative-link validity (MD051 only checks in-file
+      # #anchors), so this catches the breakage markdownlint cannot see.
+      - name: Check docs links
+        if: steps.changed.outputs.markdown == 'true'
+        run: bun run docs:check-links
+
   lint-and-build:
     runs-on: ubuntu-latest
     steps:
@@ -53,9 +91,6 @@ jobs:
 
       - name: Lint
         run: bun run lint --no-color
-
-      - name: Check docs links
-        run: bun run docs:check-links
 
       - name: Build
         run: bun run build

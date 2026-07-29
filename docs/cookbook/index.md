@@ -64,4 +64,3 @@ jazz workflow catchup                 # run any that missed their slot
 ```
 
 Logs land in `~/.jazz/logs/<workflow>.log` and `~/.jazz/logs/<workflow>.error.log` once scheduled.
-

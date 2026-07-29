@@ -4,7 +4,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![npm version](https://img.shields.io/npm/v/jazz-ai.svg)](https://www.npmjs.com/package/jazz-ai)
 
-### One agent. Every surface. Your rules.
+### One agent. Every surface. Your rules
 
 **Jazz is an AI agent you install once and run everywhere** — in your terminal, in your
 CI pipeline, on a cron schedule, in a Telegram thread, on a pull request. Same agent,
@@ -19,7 +19,7 @@ vendor, no per-seat pricing.
 
 ---
 
-## Why this isn't another chatbot
+## Why Jazz?
 
 A chatbot answers you. Jazz **does the thing** — and it does it wherever the work
 actually happens, not just in a chat window you have to visit.
@@ -44,13 +44,16 @@ jazz
 
 Jazz walks you through provider setup on first run. Keep it current with `jazz update`.
 
-> **Want it free?** Pick [OpenRouter](https://openrouter.ai) as your provider and the
-> [`Free Models Router`](https://openrouter.ai/openrouter/free) model. No credit card.
-> **Want it private?** Pick `ollama` and everything — model included — stays on your machine.
+> **Jazz itself is free — MIT, no account, no tiers.** The only thing that can cost money is
+> the model you point it at, and it doesn't have to.
+>
+> **Start using Jazz for free** — pick [OpenRouter](https://openrouter.ai) as your provider and
+> the [`Free Models Router`](https://openrouter.ai/openrouter/free) model. No credit card.
+> **Or keep it entirely local** — pick `ollama` and the model runs on your machine too.
 
 Then just talk to it:
 
-```
+```text
 > review the last 5 commits and flag anything risky
 > check my unread email, summarize what matters, archive the rest
 > deep-research the Three-Body Problem and write it into my Obsidian vault
@@ -101,13 +104,14 @@ implementation of it — copy it, swap the transport, and you have Slack or Disc
 
 ## Not locked in
 
-**18 providers, one interface:** OpenAI, Anthropic, Google, xAI, Mistral, DeepSeek, Groq,
-Cerebras, Fireworks, TogetherAI, OpenRouter, Vercel AI Gateway, Alibaba, Moonshot,
-MiniMax, Zhipu — plus **Ollama** and **llama.cpp** for local inference.
+**Bring whatever model you want.** 18 providers sit behind one interface — the big labs, the
+fast-inference hosts, the aggregators — and **Ollama** and **llama.cpp** for models running on
+your own hardware. Nothing in Jazz assumes a vendor, so switching is a config change, not a
+migration.
 
-Switch models with `/model` mid-conversation. Give an agent a cheap model for
-summarization and an expensive one for reasoning. Point at any OpenAI-compatible
-endpoint you host yourself.
+Swap models with `/model` mid-conversation. Give an agent a cheap model for summarization and
+an expensive one for reasoning. Point at any OpenAI-compatible endpoint you host yourself. See
+[Providers](docs/integrations/providers.md) for the full list.
 
 **Fully airgapped:** set `JAZZ_OFFLINE=1` and Jazz never makes an outbound request of its
 own — no update check, no model-catalog fetch. Pair it with local Ollama and the whole
@@ -133,26 +137,6 @@ tracked effects, and a recovery path for every failure instead of a silent `unde
 How each of these works, and what it trades away: [Agent loop](docs/internals/agent-loop.md) ·
 [Context management](docs/internals/context-management.md) ·
 [Design decisions](docs/internals/design-decisions.md).
-
-### And we measure it, rather than claiming it
-
-Jazz ships an eval harness, because "this prompt feels better" is not a result. It runs a task
-suite against a weak model and a strong one, so any harness improvement is expressed as a
-fraction of a known gap:
-
-```bash
-bun run evals --agent eval-sut --ab eval-sut-variant --samples 3
-```
-
-Same tasks, two configs, so a change's lift is **attributable**. It reports **Pass^k** — did
-it work on *every* one of k attempts — not just `pass@k`, because an agent that succeeds one
-time in three isn't two-thirds of a feature, it's an unreliable one. Bootstrap confidence
-intervals keep small-sample noise from being mistaken for progress, and the LLM judge has to
-correlate with human labels at Pearson ≥ 0.7 before its scores count.
-
-There's a grounding suite specifically for the failure mode that makes assistants feel useless
-while scoring fine on benchmarks: answering "how much RAM does this machine have" from training
-data instead of just checking. See [Evals](docs/internals/evals.md).
 
 ---
 

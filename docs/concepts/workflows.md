@@ -180,7 +180,7 @@ For more detail (including why this happens and other options), see [Scheduling]
 
 When you start Jazz with pending catch-up workflows:
 
-```
+```text
 $ jazz chat
 ⚠️  2 workflows need to catch up:
    • market-analysis (missed 6:00 AM today)

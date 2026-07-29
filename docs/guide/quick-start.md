@@ -29,9 +29,12 @@ jazz
 On first run Jazz walks you through provider setup and creates an agent. After that, `jazz`
 drops you straight into a conversation.
 
-**Want it free?** Choose [OpenRouter](https://openrouter.ai) and the
-[`Free Models Router`](https://openrouter.ai/openrouter/free) model — no credit card.
-**Want it private?** Choose `ollama` and nothing leaves your machine.
+Jazz itself is free and always will be — it's MIT-licensed with no account and no tiers. The
+only variable cost is the model you choose, and there are two ways to make that zero:
+
+- **Start using Jazz for free** — choose [OpenRouter](https://openrouter.ai) and the
+  [`Free Models Router`](https://openrouter.ai/openrouter/free) model. No credit card.
+- **Keep it entirely local** — choose `ollama`, and the model runs on your machine too.
 
 ## 3. Update Jazz
 

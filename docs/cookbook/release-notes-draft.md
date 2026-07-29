@@ -236,12 +236,15 @@ A new GitHub Release every time you dispatch the action, with a body like:
 > ## What's Changed
 >
 > ### Workflow scheduling
+>
 > Jazz now catches up on workflows that missed their slot while your machine was asleep. ...
 >
 > ### CLI experience
+>
 > ...
 >
 > ## Commits
+>
 > - `3b9d4a5` feat(ci,cli): /jazz PR trigger; redact API keys ...
 
 ## Limits

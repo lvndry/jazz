@@ -192,7 +192,7 @@ Running on a server without internet access? See the [Airgapped & Self-Hosted gu
 llama-server -m /path/to/model.gguf --jinja --port 8080
 ```
 
-3. Add to your config (all fields optional — defaults shown):
+1. Add to your config (all fields optional — defaults shown):
 
 ```json
 {
@@ -208,7 +208,6 @@ llama-server -m /path/to/model.gguf --jinja --port 8080
 You can also set `LLAMACPP_BASE_URL` and `LLAMACPP_API_KEY` env vars; the config file takes precedence.
 
 ---
-
 
 ---
 

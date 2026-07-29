@@ -34,7 +34,6 @@ Use the **calendar** skill with [khal](https://github.com/pimutils/khal) and [vd
 
 ---
 
-
 ---
 
 ## Related

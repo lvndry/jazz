@@ -160,7 +160,7 @@ are typed (`LLMRateLimitError`) so they're distinguishable from real failures.
 
 Pricing comes from the catalog, per million input and output tokens:
 
-```
+```text
 ownCost = promptTokens/1e6 × inputPrice + completionTokens/1e6 × outputPrice
 total   = ownCost + Σ(sub-agent cost)
 ```
