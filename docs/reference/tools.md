@@ -4,7 +4,7 @@
 
 Every tool an agent can call, generated from the registry. Risk tiers determine what runs
 unattended — see [Tools & approval](../internals/tools-and-approval.md) for the mechanism
-and [Security](../security.md) for the threat model.
+and [Security](../../SECURITY.md) for the threat model.
 
 > This page is verified by a test (`bun test scripts/docs-tools-sync.test.ts`) that fails if
 > the registry and this table drift apart. If you add a tool, update this page.

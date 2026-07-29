@@ -114,4 +114,4 @@ category. Gated tools use `defineApprovalTool` to produce the propose/execute pa
 - [Tools reference](../reference/tools.md) — every tool, every tier
 - [Internals → Tools & approval](../internals/tools-and-approval.md) — registry, concurrency, timeouts
 - [Skills](./skills.md) — packaged expertise, which is a different thing from a tool
-- [Security](../security.md) — the threat model for unattended runs
+- [Security](../../SECURITY.md) — the threat model for unattended runs

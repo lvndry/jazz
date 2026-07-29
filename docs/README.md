@@ -9,5 +9,4 @@ The documentation front door is **[`index.md`](./index.md)**.
 - **[Integrations](./integrations/index.md)** — [providers](./integrations/providers.md), [MCP](./integrations/mcp.md), [web search](./integrations/web-search.md), [email & calendar](./integrations/email-calendar.md)
 - **[Reference](./reference/index.md)** — CLI, configuration, tools, workflow frontmatter
 - **[Internals](./internals/index.md)** — agent loop, context management, design decisions, code map
-- **[Security guide](./security.md)** — risk model, approval system, best practices
-- **[Security policy](../SECURITY.md)** — reporting a vulnerability
+- **[Security](../SECURITY.md)** — threat model, approval tiers, hardening, vulnerability reporting

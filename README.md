@@ -239,8 +239,9 @@ much runs unattended — the same dial for your terminal, your CI job, and your 
 Approval is two-phase — propose, then execute — so interactive and headless runs go
 through exactly the same code path. Every action is logged; you see the full argument list
 before anything happens. Credentials stay local (OAuth2 for Gmail, API keys in your
-config). See [Tools & approval](docs/internals/tools-and-approval.md) and the
-[Security guide](docs/security.md). To report a vulnerability: [SECURITY.md](SECURITY.md).
+config). See [Tools & approval](docs/internals/tools-and-approval.md) and
+[SECURITY.md](SECURITY.md) — which covers both running Jazz safely and reporting a
+vulnerability.
 
 ---
 

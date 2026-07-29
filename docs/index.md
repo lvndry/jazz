@@ -63,10 +63,10 @@ watchdog, competitor watch, tech-debt radar, research digest, CI reviewer, relea
 - [Design decisions](./internals/design-decisions.md) — every harness choice and what it trades away
 - [Code map](./internals/code-map.md) — for contributors
 
-### [Security](./security.md)
+### [Security](../SECURITY.md)
 
-Risk model, the approval system, and how to run agents that accept input from other people.
-To report a vulnerability, see the [Security Policy](../SECURITY.md).
+The threat model, the approval tiers, hardening for unattended and chat-facing deployments,
+and how to report a vulnerability. Lives at the repository root.
 
 ---
 

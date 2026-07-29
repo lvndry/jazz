@@ -166,7 +166,7 @@ flowchart LR
 - **Treat the history volume as sensitive.** Transcripts are plaintext JSON under `~/.jazz/history/`.
 - **Cap spend.** Use the envelope's `costUSD` to enforce a daily ceiling.
 
-Full model: [Security](../security.md).
+Full model: [Security](../../SECURITY.md).
 
 ---
 

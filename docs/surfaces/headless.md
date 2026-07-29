@@ -113,7 +113,7 @@ echo "$UNTRUSTED_WEBHOOK_TEXT" | jazz run --agent bot   # stdin, preferred
 **Use stdin for anything a stranger typed.** Webhook text is untrusted; piping it avoids
 shell-escaping it into an argv, which is a whole class of injection bug you don't have to
 think about. (It does not make the *content* trusted — see
-[Security](../security.md).)
+[Security](../../SECURITY.md).)
 
 ---
 
@@ -197,7 +197,7 @@ around, rather than hanging forever on a prompt nobody will answer.
 
 Pick the lowest tier that lets the job finish. `high-risk` on a surface that accepts
 input from strangers means a prompt injection can run shell commands on that host — see
-[Security](../security.md).
+[Security](../../SECURITY.md).
 
 ---
 

@@ -174,6 +174,47 @@ tool's "always approve" may have changed the answer while this one waited.
 
 ---
 
+## Two shell-specific defenses
+
+`execute_command` gets two protections beyond the approval gate, both in
+[`shell-tools.ts`](../../src/core/agent/tools/shell-tools.ts).
+
+### A 56-pattern denylist
+
+Commands are matched against a denylist *before* execution — privilege escalation (`sudo`,
+`su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),
+power/runlevel changes (`shutdown`), and reads or copies of `/etc/passwd`, `/etc/shadow`,
+`/etc/sudoers`. A blocked command returns the specific reason, so the agent learns why rather
+than retrying blindly.
+
+It carries one carve-out worth knowing: `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` passes, because
+temp-dir cleanup is routine and blocking it trains users to disable the denylist. `rm -rf`
+against a real path — or a mix of temp and real paths — still blocks.
+
+**This is explicitly not a sandbox.** From the implementation:
+
+> It cannot stop a determined attacker — variable expansion, base64 obfuscation, eval, and
+> other indirection paths can route around any string matcher.
+
+Its purpose is catching an accident from a confused model. Approval is the real control, and
+container isolation is the real boundary. The known bypasses are documented as a regression
+suite in [`shell-tools.security.test.ts`](../../src/core/agent/tools/shell-tools.security.test.ts) —
+worth reading before you rely on the denylist for anything.
+
+### Environment sanitization
+
+Shell commands do not inherit your full environment. Variables whose *names* match
+`API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive), plus everything prefixed
+`SSH_`, are stripped before the command runs — so a command that echoes its environment cannot
+exfiltrate your provider keys.
+
+When a command genuinely needs one, an agent's `envAllowlist` exempts specific names. The
+allowlist can only un-hide a variable that already exists in the parent environment; it never
+invents a value, and the `SSH_` block applies regardless. Implementation:
+[`env-utils.ts`](../../src/core/utils/env-utils.ts).
+
+---
+
 ## The tool registry
 
 Tools are registered by category at startup, except MCP:
@@ -206,5 +247,5 @@ Current tool list: [Tools reference](../reference/tools.md).
 
 - [Agent loop](./agent-loop.md) — where the tool phase sits
 - [Headless](../surfaces/headless.md) — setting the policy for unattended runs
-- [Security](../security.md) — the threat model
+- [Security](../../SECURITY.md) — the threat model and hardening guidance
 - [Design decisions](./design-decisions.md#risk-tiers-instead-of-a-tool-allowlist) — why tiers, why two phases
