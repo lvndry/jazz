@@ -7,6 +7,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { escapeHtml } from "./telegram-html";
 import { wallClockToEpoch, zonedDateParts } from "./timezone";
 
 export interface Reminder {
@@ -130,7 +131,7 @@ async function fireDueReminders(dataDir: string, send: ReminderSender): Promise<
     );
     for (const reminder of due) {
       const late = now - reminder.fireAt > 90_000 ? " (delayed)" : "";
-      await send(reminder.chatId, `⏰ <b>Reminder</b>${late}\n${reminder.text}`);
+      await send(reminder.chatId, `⏰ <b>Reminder</b>${late}\n${escapeHtml(reminder.text)}`);
     }
   } finally {
     reminderSweepRunning = false;

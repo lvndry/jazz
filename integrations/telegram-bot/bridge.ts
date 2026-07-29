@@ -318,19 +318,27 @@ function messageIdOf(response: unknown): number | undefined {
   return typeof id === "number" ? id : undefined;
 }
 
+/**
+ * Send a reply, splitting to fit Telegram's message limit and attaching
+ * `markup` to the final chunk. Text is treated as ready-to-send Telegram HTML
+ * (command replies, confirmations); set `markdown: true` for content authored
+ * in Markdown (the agent's answer), which is converted per chunk. Any
+ * dynamic/untrusted text interpolated into HTML must be escaped by the caller.
+ */
 async function sendReply(
   config: BridgeConfig,
   chatId: number,
   text: string,
-  lastMarkup?: Record<string, unknown>,
+  options: { markup?: Record<string, unknown>; markdown?: boolean } = {},
 ): Promise<number | undefined> {
   const chunks = splitForTelegram(text);
   let lastMessageId: number | undefined;
   for (const [index, chunk] of chunks.entries()) {
-    const markup = lastMarkup !== undefined && index === chunks.length - 1 ? lastMarkup : undefined;
+    const markup =
+      options.markup !== undefined && index === chunks.length - 1 ? options.markup : undefined;
     const rendered = await callTelegram(config, "sendMessage", {
       chat_id: chatId,
-      text: markdownToTelegramHtml(chunk),
+      text: options.markdown ? markdownToTelegramHtml(chunk) : chunk,
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
       ...(markup ? { reply_markup: markup } : {}),
@@ -662,13 +670,16 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       await reporter?.finish(parts.join(" · "));
       // Send with static CTAs immediately, then (optionally) upgrade to
       // contextual ones once a quick follow-up generation returns.
-      const answerMessageId = await sendReply(config, chatId, envelope.answer, followupKeyboard());
+      const answerMessageId = await sendReply(config, chatId, envelope.answer, {
+        markdown: true,
+        markup: followupKeyboard(),
+      });
       if (config.dynamicCta && answerMessageId !== undefined) {
         void upgradeToDynamicCtas(config, chatId, answerMessageId, text, envelope.answer);
       }
     } else {
       await reporter?.finish("⚠️ <b>Failed</b>");
-      await sendReply(config, chatId, `⚠️ ${envelope.error}`);
+      await sendReply(config, chatId, `⚠️ ${escapeHtml(envelope.error)}`);
     }
   } finally {
     // Always release the run slot, even if runJazz or a reply throws.
@@ -851,7 +862,7 @@ const HELP_TEXT = [
   "/new — start a fresh conversation (clears earlier context)",
   "/remind <when> <text> — e.g. /remind 30m take pizza out",
   "  …or just say it: “remind me to call the dentist in 2 hours”, “send reminder next friday 2pm for review”",
-  "/reminders — list & cancel your reminders",
+  "/reminders — list and cancel your reminders",
   "/tz — set your timezone so reminder times are local (e.g. /tz Europe/Paris)",
   "/status — model, today's usage, uptime",
   "/help — show this",
