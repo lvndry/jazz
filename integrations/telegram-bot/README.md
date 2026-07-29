@@ -8,7 +8,7 @@ Markdown rendering.
 Works with any Jazz provider. **Defaults to OpenAI `gpt-5.4`**; point it at a
 local [Ollama](https://ollama.com) instead for fully self-hosted, no-cloud use.
 
-```
+```text
 Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --json──▶  OpenAI / Ollama / …
 ```
 
@@ -19,6 +19,8 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - 🎛️ **Per-person `/model` and `/persona`** — each user picks their own via inline keyboards; choices persist.
 - ♻️ **Auto reasoning** — switching to an Ollama model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
 - 📡 **Live progress** — a status bubble updates in real time with the agent's thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message (so it notifies).
+- ⏰ **Reminders** — `/remind 30m …` or plain language ("remind me next friday at 2pm …"), resolved in your own timezone (`/tz`, or auto-set from a shared location) and delivered even across restarts.
+- 📍 **Location aware** — share a pin to get oriented, find nearby places, and set your timezone automatically.
 - 💬 **Per-chat memory**, ✍️ **Markdown rendering** (with plain-text fallback), 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
 
 ## Requirements
@@ -57,17 +59,18 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| _(any message)_ | Answered by your agent |
-| `/model` | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model) |
-| `/persona` | Inline keyboard of available personas |
-| `/new` (`/reset`) | Start a fresh conversation — clears earlier context; keeps your model/persona |
-| `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, or `tomorrow 09:00` |
-| _(natural language)_ | Just say it — "remind me to call the dentist in 2 hours", "send reminder next friday at 2pm for the review", "send reminder september 23rd for Sam's birthday". The model resolves the date/time and schedules it. |
-| `/reminders` | List your pending reminders; tap one to cancel |
-| `/status` | Current model, today's runs/tokens/cost, daily cap, uptime |
-| `/help` | Usage |
+| Command                 | What it does                                                                                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| _(any message)_         | Answered by your agent                                                                                                                                                                                             |
+| `/model`                | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model)                                                                                                                           |
+| `/persona`              | Inline keyboard of available personas                                                                                                                                                                              |
+| `/new` (`/reset`)       | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                                                      |
+| `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, or `tomorrow 09:00`                                                                                                                       |
+| _(natural language)_    | Just say it — "remind me to call the dentist in 2 hours", "send reminder next friday at 2pm for the review", "send reminder september 23rd for Sam's birthday". The model resolves the date/time and schedules it. |
+| `/reminders`            | List your pending reminders (in your timezone); tap one to cancel                                                                                                                                                  |
+| `/tz [zone]`            | Show or set your timezone (IANA name, e.g. `/tz Europe/Paris`) so reminder times are local                                                                                                                         |
+| `/status`               | Current model, your timezone, today's runs/tokens/cost, daily cap, uptime                                                                                                                                          |
+| `/help`                 | Usage                                                                                                                                                                                                              |
 
 While a message is processing, the progress bubble carries a **⏹ Cancel** button
 that kills the run. Each answer gets **contextual follow-up buttons** — a quick
@@ -80,38 +83,44 @@ Set `JAZZ_DAILY_COST_CAP_USD` to cap total spend per day (0 = no cap).
 
 **Location.** Share a location (📎 → Location) and the bot reverse-geocodes it
 (OpenStreetMap Nominatim) and hands the agent the coordinates + address, so you
-can ask "where am I", "nearest pharmacy", or "directions to …". The coordinates
-are stored in the conversation history (plaintext) and sent to the geocoder — set
-`NOMINATIM_BASE_URL=""` to disable reverse-geocoding (coords still passed to the
-agent), or point it at a self-hosted Nominatim.
+can ask "where am I", "nearest pharmacy", or "directions to …". It also sets your
+timezone from the coordinates (offline, via `tz-lookup`) so reminders land at the
+right local time. The coordinates are stored in the conversation history
+(plaintext) and sent to the geocoder — set `NOMINATIM_BASE_URL=""` to disable
+reverse-geocoding (coords still passed to the agent), or point it at a self-hosted
+Nominatim.
+
+**Timezone.** Reminder times are resolved per person: an explicit `/tz` choice, a
+zone auto-detected from a shared location, the container's `TZ`, then UTC (in that
+order). So "next friday at 2pm" and `18:00` mean 2pm/6pm where the sender is,
+across DST. Each chat's zone is stored in `tg-tz.json`.
 
 Reminders are persisted in `tg-reminders.json` and delivered by a sweep, so they
 survive restarts (a reminder due while the bridge was down fires on next start,
-marked `(delayed)`). Clock times (`18:00`, `tomorrow 09:00`) use the container's
-timezone — set `TZ` in `.env` to your own; relative durations are unambiguous.
+marked `(delayed)`). Relative durations (`30m`, `2h`) are timezone-independent.
 
 Each Telegram user gets an independent agent (`tg_<chat_id>.json`, cloned from the
-`telegram` template on first contact), so `/model` and `/persona` change only *your*
+`telegram` template on first contact), so `/model` and `/persona` change only _your_
 experience. `JAZZ_TELEGRAM_PROVIDER` / `JAZZ_TELEGRAM_MODEL` / `JAZZ_REASONING` set
 the defaults new chats start from. (`/model` lists Ollama models — handy when you
 run Ollama; cloud users typically just keep the default.)
 
 ## Configuration
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | — | **Required.** Bot token from @BotFather. |
-| `TELEGRAM_ALLOWED_CHAT_IDS` | — | **Required.** Comma-separated chat ids allowed to use the bot. |
-| `JAZZ_TELEGRAM_PROVIDER` | `openai` | LLM provider — `openai`, `openrouter`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `ollama`, … |
-| `JAZZ_TELEGRAM_MODEL` | `gpt-5.4` | Default model id for the provider. |
-| `OPENAI_API_KEY` (or provider's key) | — | API key for the chosen provider (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, …). Not needed for `ollama`. |
-| `BRAVE_API_KEY` | — | If set, `web_search` uses Brave (configured as the provider in `config.json`). |
-| `JAZZ_REASONING` | `medium` | `disable`\|`low`\|`medium`\|`high`. |
-| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`). |
-| `JAZZ_APPROVAL_POLICY` | `low-risk` | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. |
-| `JAZZ_RUN_TIMEOUT_MS` | `300000` | Per-message agent timeout. |
-| `TELEGRAM_MODE` | `polling` | `polling` or `webhook`. |
-| `PORT` | `8080` | In-container health-check port. |
+| Variable                             | Default                                 | Purpose                                                                                                  |
+| ------------------------------------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`                 | —                                       | **Required.** Bot token from @BotFather.                                                                 |
+| `TELEGRAM_ALLOWED_CHAT_IDS`          | —                                       | **Required.** Comma-separated chat ids allowed to use the bot.                                           |
+| `JAZZ_TELEGRAM_PROVIDER`             | `openai`                                | LLM provider — `openai`, `openrouter`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `ollama`, …    |
+| `JAZZ_TELEGRAM_MODEL`                | `gpt-5.4`                               | Default model id for the provider.                                                                       |
+| `OPENAI_API_KEY` (or provider's key) | —                                       | API key for the chosen provider (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, …). Not needed for `ollama`. |
+| `BRAVE_API_KEY`                      | —                                       | If set, `web_search` uses Brave (configured as the provider in `config.json`).                           |
+| `JAZZ_REASONING`                     | `medium`                                | `disable`\|`low`\|`medium`\|`high`.                                                                      |
+| `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`).                                                 |
+| `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                          |
+| `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                               |
+| `TELEGRAM_MODE`                      | `polling`                               | `polling` or `webhook`.                                                                                  |
+| `PORT`                               | `8080`                                  | In-container health-check port.                                                                          |
 
 > **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
 > `medium`/`high`; models without it (mistral-small, gemma, …) error unless
@@ -121,7 +130,7 @@ run Ollama; cloud users typically just keep the default.)
 
 For each allowed message the bridge runs:
 
-```
+```sh
 jazz run --no-tui --json --agent tg_<chat_id> --conversation <chat_id> "<text>"
 ```
 
