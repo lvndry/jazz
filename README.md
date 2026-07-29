@@ -12,8 +12,6 @@ any model.
 
 [Quick Start](#quick-start) · [Where It Runs](#where-jazz-runs) · [Reliability](#reliability) · [Workflows](#workflows) · [Docs](docs/index.md) · [Discord](https://discord.gg/yBDbS2NZju)
 
-<img src="assets/jazz_demo_800.gif" alt="Jazz running in the terminal" width="800">
-
 </div>
 
 ---
