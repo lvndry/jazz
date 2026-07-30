@@ -100,8 +100,13 @@ export class ReminderServiceImpl implements ReminderService {
     operation: Effect.Effect<A, E, R>,
   ): Effect.Effect<A, E | ReminderGuardrailViolation | Error, R | FileSystem.FileSystem> {
     const lockPath = reminderLockPath(this.baseReminderDirectory, agentId);
+    const baseReminderDirectory = this.baseReminderDirectory;
     return Effect.gen(function* () {
       yield* requireValidAgentId(agentId);
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs
+        .makeDirectory(baseReminderDirectory, { recursive: true })
+        .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
       return yield* withLock(lockPath, operation);
     });
   }
