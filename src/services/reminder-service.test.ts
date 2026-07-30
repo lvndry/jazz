@@ -42,6 +42,20 @@ describe("add", () => {
     }
   });
 
+  test("succeeds on a fresh deployment where the base reminder directory does not exist yet", async () => {
+    // Regression: on a real fresh deploy (or an agent's first-ever reminder),
+    // ~/.jazz/reminders/ has never been created. The lock is a directory made
+    // with recursive:false, so if nothing creates the parent first, every
+    // makeDirectory attempt inside acquireLock fails with ENOENT and the whole
+    // call surfaces as a false "failed to acquire lock after retries" — tests
+    // using mkdtempSync never caught this because mkdtempSync always
+    // pre-creates the directory.
+    const freshDir = path.join(tmpDir, "not-created-yet");
+    const service = new ReminderServiceImpl({ baseReminderDirectory: freshDir });
+    const outcome = await runEffect(service.add("agent-1", "30m", "call the plumber", "UTC"));
+    expect(outcome.success).toBe(true);
+  });
+
   test("returns a clear failure message for an unparseable 'when', not a thrown error", async () => {
     const service = makeService();
     const outcome = await runEffect(
