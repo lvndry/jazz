@@ -19,7 +19,7 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - 🎛️ **Per-person `/model` and `/persona`** — each user picks their own via inline keyboards; choices persist.
 - ♻️ **Auto reasoning** — switching to an Ollama model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
 - 📡 **Live progress** — a status bubble updates in real time with the agent's thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message (so it notifies).
-- ⏰ **Reminders** — `/remind 30m …` or plain language ("remind me next friday at 2pm …"), resolved in your own timezone (`/tz`, or auto-set from a shared location) and delivered even across restarts.
+- ⏰ **Reminders** — `/remind 30m …` or plain language ("remind me in 2 hours …"), scheduled by the agent itself via a native tool, resolved in your own timezone (`/tz`, or auto-set from a shared location) and delivered even across restarts.
 - 📍 **Location aware** — share a pin to get oriented, find nearby places, and set your timezone automatically.
 - 💬 **Per-chat memory**, ✍️ **Markdown rendering** (with plain-text fallback), 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
 
@@ -65,8 +65,8 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | `/model`                | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model)                                                                                                                           |
 | `/persona`              | Inline keyboard of available personas                                                                                                                                                                              |
 | `/new` (`/reset`)       | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                                                      |
-| `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, or `tomorrow 09:00`                                                                                                                       |
-| _(natural language)_    | Just say it — "remind me to call the dentist in 2 hours", "send reminder next friday at 2pm for the review", "send reminder september 23rd for Sam's birthday". The model resolves the date/time and schedules it. |
+| `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, or `tomorrow 09:00`. Routed through a normal agent turn, which calls the `add_reminder` tool.                                             |
+| _(natural language)_    | Just say it — "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself; it understands the same `<when>` formats as `/remind` (durations, clock times, `tomorrow HH:MM`).                |
 | `/reminders`            | List your pending reminders (in your timezone); tap one to cancel                                                                                                                                                  |
 | `/tz [zone]`            | Show or set your timezone (IANA name, e.g. `/tz Europe/Paris`) so reminder times are local                                                                                                                         |
 | `/status`               | Current model, your timezone, today's runs/tokens/cost, daily cap, uptime                                                                                                                                          |
@@ -92,12 +92,16 @@ Nominatim.
 
 **Timezone.** Reminder times are resolved per person: an explicit `/tz` choice, a
 zone auto-detected from a shared location, the container's `TZ`, then UTC (in that
-order). So "next friday at 2pm" and `18:00` mean 2pm/6pm where the sender is,
-across DST. Each chat's zone is stored in `tg-tz.json`.
+order). Each `jazz run` is invoked with `--timezone <zone>`, so `18:00` means 6pm
+where the sender is, across DST. Each chat's zone is stored in `tg-tz.json`.
 
-Reminders are persisted in `tg-reminders.json` and delivered by a sweep, so they
-survive restarts (a reminder due while the bridge was down fires on next start,
-marked `(delayed)`). Relative durations (`30m`, `2h`) are timezone-independent.
+Reminders are stored per Telegram chat's agent, one JSON file per agent under
+`reminders/` in the Jazz home directory (`reminders/tg_<chat_id>.json`), written by
+the `add_reminder`/`cancel_reminder` tools rather than the bridge itself. A sweep
+delivers due reminders every 20s, so they survive restarts (one due while the
+bridge was down fires on next start, marked `(delayed)`). Relative durations
+(`30m`, `2h`) are timezone-independent. For one release the sweep also drains any
+leftover `tg-reminders.json` from before this per-agent layout.
 
 Each Telegram user gets an independent agent (`tg_<chat_id>.json`, cloned from the
 `telegram` template on first contact), so `/model` and `/persona` change only _your_

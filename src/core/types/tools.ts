@@ -232,5 +232,13 @@ export interface ToolExecutionContext {
    * consumers without holding a renderer reference themselves.
    */
   readonly emitEvent?: (event: StreamEvent) => Effect.Effect<void, never>;
+  /**
+   * IANA timezone (e.g. "Europe/Paris") for this run, threaded from the CLI's
+   * `--timezone` flag or a surface-specific caller (e.g. the Telegram bridge
+   * passing a per-chat zone). Not LLM-facing — tools that need "now" in the
+   * caller's local time (e.g. add_reminder) read this directly rather than
+   * asking the model to supply a timezone string. Defaults to "UTC" when unset.
+   */
+  readonly timezone?: string;
   readonly [key: string]: unknown;
 }

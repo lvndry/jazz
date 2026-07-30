@@ -81,6 +81,10 @@ function registerRunCommand(program: Command): void {
       "Comma-separated tool names to auto-approve without prompting, regardless of --approval-policy (e.g. execute_command). Narrower than raising the whole policy tier.",
     )
     .option(
+      "--timezone <iana-tz>",
+      "IANA timezone (e.g. Europe/Paris) used to resolve relative/clock times for this run, e.g. the add_reminder tool. Defaults to UTC.",
+    )
+    .option(
       "--timeout <ms>",
       "Abort the run after this many milliseconds",
       parsePositiveInt("--timeout"),
@@ -115,6 +119,7 @@ function registerRunCommand(program: Command): void {
           json?: boolean;
           approvalPolicy?: string;
           autoApproveTools?: string;
+          timezone?: string;
           timeout?: number;
           maxIterations?: number;
           events?: string;
@@ -163,6 +168,23 @@ function registerRunCommand(program: Command): void {
           return;
         }
 
+        if (options.timezone !== undefined) {
+          try {
+            new Intl.DateTimeFormat(undefined, { timeZone: options.timezone });
+          } catch {
+            const message = `Invalid --timezone "${options.timezone}". Expected an IANA timezone name (e.g. Europe/Paris).`;
+            if (json) {
+              process.stdout.write(
+                `${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`,
+              );
+            } else {
+              process.stderr.write(`${message}\n`);
+            }
+            process.exitCode = 1;
+            return;
+          }
+        }
+
         // Force plain terminal so Ink never mounts and writes to stdout; the
         // one-shot presentation layer keeps stdout clean for the payload.
         process.env["JAZZ_NO_TUI"] = "1";
@@ -181,6 +203,7 @@ function registerRunCommand(program: Command): void {
             ...(autoApproveTools && autoApproveTools.length > 0
               ? { autoApprovedTools: autoApproveTools }
               : {}),
+            ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
             ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
               ? { reasoningEffort: options.reasoning }
               : {}),

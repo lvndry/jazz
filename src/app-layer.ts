@@ -34,6 +34,7 @@ import { createMCPServerManagerLayer } from "./services/mcp/mcp-server-manager";
 import { createMemoryServiceLayer } from "./services/memory-service";
 import { NotificationServiceLayer } from "./services/notification";
 import { createPersonaServiceLayer } from "./services/persona-service";
+import { createReminderServiceLayer } from "./services/reminder-service";
 import { FileStorageService } from "./services/storage/file";
 import { createTelemetryServiceLayer } from "./services/telemetry/telemetry-service";
 import { createPlainTerminalServiceLayer, createTerminalServiceLayer } from "./services/terminal";
@@ -161,6 +162,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
   const personaLayer = createPersonaServiceLayer();
   const memoryServiceLayer = createMemoryServiceLayer();
+  const reminderServiceLayer = createReminderServiceLayer();
 
   const chatLayer = createChatServiceLayer().pipe(
     Layer.provide(terminalLayer),
@@ -198,6 +200,7 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     agentLayer,
     personaLayer,
     memoryServiceLayer,
+    reminderServiceLayer,
     chatLayer,
     telemetryLayer,
     presentationLayer,

@@ -18,6 +18,11 @@ import { git } from "./git";
 import { createHttpRequestTool } from "./http-tools";
 import { registerMCPServerTools } from "./mcp-tools";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
+import {
+  createAddReminderTool,
+  createCancelReminderTool,
+  createListRemindersTool,
+} from "./reminder-tools";
 import { createShellCommandTools } from "./shell-tools";
 import { createSkillTools } from "./skill-tools";
 import { createSubagentTools } from "./subagent-tools";
@@ -57,6 +62,7 @@ export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDe
     yield* registerHttpTools();
     yield* registerTodoTools();
     yield* registerMemoryTools();
+    yield* registerReminderTools();
     yield* registerContextTools();
     yield* registerSubagentTools();
     yield* registerUserInteractionTools();
@@ -427,6 +433,7 @@ export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Con
 export const SUBAGENT_CATEGORY: ToolCategory = { id: "subagent", displayName: "Sub Agents" };
 export const TODO_CATEGORY: ToolCategory = { id: "todo", displayName: "Todo" };
 export const MEMORY_CATEGORY: ToolCategory = { id: "memory", displayName: "Memory" };
+export const REMINDER_CATEGORY: ToolCategory = { id: "reminders", displayName: "Reminders" };
 export const USER_INTERACTION_CATEGORY: ToolCategory = {
   id: "user_interaction",
   displayName: "User Interaction",
@@ -487,6 +494,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   SKILLS_CATEGORY,
   TODO_CATEGORY,
   MEMORY_CATEGORY,
+  REMINDER_CATEGORY,
   CONTEXT_CATEGORY,
   SUBAGENT_CATEGORY,
   USER_INTERACTION_CATEGORY,
@@ -694,6 +702,21 @@ export function registerMemoryTools(): Effect.Effect<void, Error, ToolRegistry> 
 
     yield* registerTool(createViewMemoryTool());
     yield* registerTool(createManageMemoryTool());
+  });
+}
+
+// Register reminder tools (add_reminder, list_reminders, cancel_reminder) —
+// opt-in per agent via AgentConfig.tools, like memory, since scheduling a
+// future notification is a durable side effect on behalf of a specific
+// person, not pure orchestration state.
+export function registerReminderTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(REMINDER_CATEGORY);
+
+    yield* registerTool(createAddReminderTool());
+    yield* registerTool(createListRemindersTool());
+    yield* registerTool(createCancelReminderTool());
   });
 }
 

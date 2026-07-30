@@ -16,9 +16,13 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { NodeFileSystem } from "@effect/platform-node";
+import { Effect } from "effect";
 import tzlookup from "tz-lookup";
+import type { ReminderRecord } from "@/core/interfaces/reminder-service";
+import { ReminderServiceImpl } from "@/services/reminder-service";
 import {
   agentIdForChat,
   agentPath,
@@ -26,13 +30,7 @@ import {
   readAgentFile,
   writeAgentFile,
 } from "./agents";
-import {
-  addReminder,
-  cancelReminder,
-  parseWhen,
-  readReminders,
-  startReminderSweep,
-} from "./reminders";
+import { startReminderSweep } from "./reminders";
 import { conversationKey, startNewConversation } from "./sessions";
 import { escapeHtml, markdownToTelegramHtml, splitForTelegram } from "./telegram-html";
 import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
@@ -608,6 +606,8 @@ async function runJazz(
       ...(config.autoApproveTools.length > 0
         ? ["--auto-approve-tools", config.autoApproveTools.join(",")]
         : []),
+      "--timezone",
+      tzForChat(config.jazzHome, chatId),
       "--conversation",
       conversationKey(config.jazzHome, chatId),
       "--timeout",
@@ -679,23 +679,6 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   }
 
   await callTelegram(config, "sendChatAction", { chat_id: chatId, action: "typing" });
-
-  // Natural-language reminders ("remind me … in 2h", "send reminder next friday
-  // 2pm for X") are handled here instead of a full agent turn. If the time can't
-  // be parsed, fall through to a normal answer (so "remind me what X is" works).
-  if (looksLikeReminderRequest(text)) {
-    const now = Date.now();
-    const reminder = await parseReminderNL(config, text, now, tzForChat(config.jazzHome, chatId));
-    if (reminder) {
-      addReminder(config.jazzHome, chatId, reminder.fireAt, reminder.text);
-      await sendReply(
-        config,
-        chatId,
-        reminderConfirmation(config, chatId, reminder.fireAt, now, reminder.text),
-      );
-      return;
-    }
-  }
 
   const runToken = newRunToken();
   // A live-updated progress bubble with a ⏹ Cancel button. The final answer is
@@ -960,75 +943,39 @@ function keyboardFrom(options: string[], current: string, prefix: string): Inlin
   ]);
 }
 
-function reminderConfirmation(
-  config: BridgeConfig,
-  chatId: number,
-  fireAt: number,
-  now: number,
-  text: string,
-): string {
-  const tz = tzForChat(config.jazzHome, chatId);
-  const base = `⏰ Reminder set for ${formatWhen(fireAt, tz)} <i>(${escapeHtml(tz)})</i> — in ${formatUptime(fireAt - now)}.\n“${escapeHtml(text)}”`;
-  if (hasChatTz(config.jazzHome, chatId)) return base;
-  return `${base}\n\n🌍 Times are in <code>${escapeHtml(tz)}</code>. Set yours with <code>/tz Europe/Paris</code> or share your location.`;
-}
-
-/** True when a free-text message reads like a request to schedule a reminder. */
-function looksLikeReminderRequest(text: string): boolean {
-  return (
-    /^\s*(?:send|set|add|create|schedule)\s+(?:me\s+)?(?:a\s+)?reminder\b/i.test(text) ||
-    /\bremind me\b/i.test(text)
-  );
+function remindersFilePath(dataDir: string, chatId: number): string {
+  return join(dataDir, "reminders", `${agentIdForChat(chatId)}.json`);
 }
 
 /**
- * Use the model to turn a natural-language reminder ("next friday at 2pm for X",
- * "in 2 hours", "september 23rd birthday") into an absolute time + text.
- * Returns null when there's no clear future time.
+ * Synchronous read of this chat's per-agent reminder file, for display only
+ * (the /reminders list and /status). Reminders are only ever created or
+ * cancelled through the add_reminder/cancel_reminder tools (or, for the
+ * inline "cancel" buttons below, the same ReminderServiceImpl those tools use)
+ * — never written here.
  */
-async function parseReminderNL(
-  config: BridgeConfig,
-  request: string,
-  now: number,
-  tz: string,
-): Promise<{ fireAt: number; text: string } | null> {
-  ensureSuggestAgent(config);
-  const localNow = formatWhen(now, tz);
-  const prompt =
-    `Current date and time: ${new Date(now).toISOString()} — that is ${localNow} in the user's ` +
-    `timezone (${tz}).\n` +
-    `The user wants a reminder. Their request: "${request}"\n\n` +
-    "Work out the absolute time it should fire and what to remind them about. Reply with ONLY " +
-    "JSON, no prose or code fences:\n" +
-    '{"when":"<ISO 8601 with timezone offset>","text":"<concise reminder text>"}\n' +
-    'Interpret relative ("in 2 hours") and vague ("next friday at 2pm", "september 23rd") times ' +
-    "against the current date/time and timezone; choose the next future occurrence for bare " +
-    'dates. If there is no clear future time, reply {"when":null,"text":""}.';
-  const envelope = await jazzJson(config, SUGGEST_AGENT_ID, prompt, [
-    "--reasoning",
-    "disable",
-    "--max-iterations",
-    "1",
-    "--approval-policy",
-    "read-only",
-    "--timeout",
-    "60000",
-  ]);
-  if (!envelope.ok) return null;
-
-  const match = /\{[\s\S]*\}/.exec(envelope.answer);
-  if (!match) return null;
+function readRemindersForDisplay(dataDir: string, chatId: number): ReminderRecord[] {
   try {
-    const parsed = JSON.parse(match[0]) as { when?: unknown; text?: unknown };
-    if (typeof parsed.when !== "string" || typeof parsed.text !== "string") return null;
-    const fireAt = Date.parse(parsed.when);
-    if (!Number.isFinite(fireAt) || fireAt <= now) return null;
-    const text = parsed.text.trim();
-    if (text.length === 0) return null;
-    return { fireAt, text };
+    const path = remindersFilePath(dataDir, chatId);
+    if (!existsSync(path)) return [];
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return Array.isArray(parsed) ? (parsed as ReminderRecord[]) : [];
   } catch {
-    return null;
+    return [];
   }
+}
+
+/** Cancel via the same ReminderServiceImpl the cancel_reminder tool uses — the only reminder-cancelling code path. */
+async function cancelReminderForChat(
+  dataDir: string,
+  chatId: number,
+  id: string,
+): Promise<boolean> {
+  const service = new ReminderServiceImpl({ baseReminderDirectory: join(dataDir, "reminders") });
+  const outcome = await Effect.runPromise(
+    service.cancel(agentIdForChat(chatId), id).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+  return outcome.success;
 }
 
 async function handleRemind(config: BridgeConfig, chatId: number, args: string): Promise<void> {
@@ -1036,51 +983,16 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
     "Usage: <code>/remind &lt;when&gt; &lt;text&gt;</code>\n" +
     "Examples: <code>/remind 30m take pizza out</code>, <code>/remind 1h30m stretch</code>, " +
     "<code>/remind 18:00 standup</code>, <code>/remind tomorrow 09:00 gym</code>";
-  const words = args.split(/\s+/).filter((word) => word.length > 0);
-  if (words.length === 0) {
+  const trimmed = args.trim();
+  if (trimmed.length === 0) {
     await sendReply(config, chatId, usage);
     return;
   }
 
-  const now = Date.now();
-  const tz = tzForChat(config.jazzHome, chatId);
-  let fireAt: number | null = null;
-  let text = "";
-  if (words.length >= 2 && words[0]?.toLowerCase() === "tomorrow") {
-    fireAt = parseWhen(`tomorrow ${words[1]}`, now, tz);
-    if (fireAt !== null) text = words.slice(2).join(" ");
-  }
-  if (fireAt === null) {
-    fireAt = parseWhen(words[0] ?? "", now, tz);
-    if (fireAt !== null) text = words.slice(1).join(" ");
-  }
-
-  // Structured parse failed — fall back to natural-language understanding.
-  if (fireAt === null) {
-    const nl = await parseReminderNL(config, args, now, tz);
-    if (nl) {
-      addReminder(config.jazzHome, chatId, nl.fireAt, nl.text);
-      await sendReply(
-        config,
-        chatId,
-        reminderConfirmation(config, chatId, nl.fireAt, now, nl.text),
-      );
-      return;
-    }
-    await sendReply(config, chatId, `I couldn't work out when to remind you.\n${usage}`);
-    return;
-  }
-  if (text.trim().length === 0) {
-    await sendReply(
-      config,
-      chatId,
-      "What should I remind you about? e.g. <code>/remind 30m call the plumber</code>",
-    );
-    return;
-  }
-
-  addReminder(config.jazzHome, chatId, fireAt, text.trim());
-  await sendReply(config, chatId, reminderConfirmation(config, chatId, fireAt, now, text.trim()));
+  // Route through a normal full agent turn — the add_reminder tool (not this
+  // handler) does the actual time parsing and scheduling, so there is exactly
+  // one code path that creates reminders regardless of how the request arrived.
+  await handleMessage(config, chatId, `Add a reminder: ${trimmed}`);
 }
 
 async function handleTz(config: BridgeConfig, chatId: number, args: string): Promise<void> {
@@ -1136,9 +1048,9 @@ async function handleCommand(
   }
 
   if (command === "reminders") {
-    const mine = readReminders(config.jazzHome)
-      .filter((reminder) => reminder.chatId === chatId)
-      .sort((left, right) => left.fireAt - right.fireAt);
+    const mine = readRemindersForDisplay(config.jazzHome, chatId).sort(
+      (left, right) => left.fireAt - right.fireAt,
+    );
     if (mine.length === 0) {
       await sendReply(
         config,
@@ -1338,7 +1250,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   }
 
   if (kind === "r") {
-    const cancelled = cancelReminder(config.jazzHome, chatId, indexRaw ?? "");
+    const cancelled = await cancelReminderForChat(config.jazzHome, chatId, indexRaw ?? "");
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
       text: cancelled ? "Reminder cancelled" : "Not found",

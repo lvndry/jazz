@@ -108,6 +108,11 @@ export interface RunAgentOnceOptions {
    * shell commands without also auto-approving `rm`/`git_push`/etc.
    */
   readonly autoApprovedTools?: readonly string[] | undefined;
+  /**
+   * IANA timezone (e.g. "Europe/Paris") used to resolve relative/clock times
+   * for this run (e.g. the add_reminder tool). Defaults to UTC when unset.
+   */
+  readonly timezone?: string | undefined;
   readonly reasoningEffort?: ReasoningEffort | undefined;
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
@@ -324,6 +329,7 @@ export function runAgentOnceCommand(
       ...(options.autoApprovedTools?.length
         ? { autoApprovedTools: options.autoApprovedTools }
         : {}),
+      ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
     });
