@@ -611,16 +611,27 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   // be parsed, fall through to a normal answer (so "remind me what X is" works).
   if (looksLikeReminderRequest(text)) {
     const now = Date.now();
-    const reminder = await parseReminderNL(config, text, now, tzForChat(config.jazzHome, chatId));
-    if (reminder) {
-      addReminder(config.jazzHome, chatId, reminder.fireAt, reminder.text);
+    const result = await parseReminderNL(config, text, now, tzForChat(config.jazzHome, chatId));
+    if (result.kind === "scheduled") {
+      addReminder(config.jazzHome, chatId, result.fireAt, result.text);
       await sendReply(
         config,
         chatId,
-        reminderConfirmation(config, chatId, reminder.fireAt, now, reminder.text),
+        reminderConfirmation(config, chatId, result.fireAt, now, result.text),
       );
       return;
     }
+    if (result.kind === "error") {
+      console.error(`Reminder parse failed for chat ${chatId}: ${result.reason}`);
+      await sendReply(
+        config,
+        chatId,
+        "⚠️ I couldn't work out when to schedule that reminder. Try rephrasing the time, e.g. " +
+          '"remind me in 10 minutes to …" or "remind me tomorrow at 9am to …".',
+      );
+      return;
+    }
+    // result.kind === "ambiguous" — not actually a scheduling request, fall through to normal chat.
   }
 
   const runToken = newRunToken();
@@ -903,16 +914,28 @@ function looksLikeReminderRequest(text: string): boolean {
 }
 
 /**
+ * Result of trying to resolve a natural-language reminder request.
+ * "ambiguous" means the model determined the message isn't actually asking to
+ * schedule anything (e.g. "remind me what X is") — safe to fall through to a
+ * normal chat turn. "error" means it looked like a scheduling request but
+ * resolving it failed (subprocess error, bad JSON, unparseable/past date) —
+ * callers must surface this to the user rather than silently ignoring it.
+ */
+type ReminderParseResult =
+  | { kind: "scheduled"; fireAt: number; text: string }
+  | { kind: "ambiguous" }
+  | { kind: "error"; reason: string };
+
+/**
  * Use the model to turn a natural-language reminder ("next friday at 2pm for X",
  * "in 2 hours", "september 23rd birthday") into an absolute time + text.
- * Returns null when there's no clear future time.
  */
 async function parseReminderNL(
   config: BridgeConfig,
   request: string,
   now: number,
   tz: string,
-): Promise<{ fireAt: number; text: string } | null> {
+): Promise<ReminderParseResult> {
   ensureSuggestAgent(config);
   const localNow = formatWhen(now, tz);
   const prompt =
@@ -935,20 +958,37 @@ async function parseReminderNL(
     "--timeout",
     "60000",
   ]);
-  if (!envelope.ok) return null;
+  if (!envelope.ok) {
+    return { kind: "error", reason: `suggest agent failed: ${envelope.error}` };
+  }
 
   const match = /\{[\s\S]*\}/.exec(envelope.answer);
-  if (!match) return null;
+  if (!match) {
+    return { kind: "error", reason: `no JSON in suggest agent reply: ${envelope.answer}` };
+  }
   try {
     const parsed = JSON.parse(match[0]) as { when?: unknown; text?: unknown };
-    if (typeof parsed.when !== "string" || typeof parsed.text !== "string") return null;
+    if (parsed.when === null) return { kind: "ambiguous" };
+    if (typeof parsed.when !== "string" || typeof parsed.text !== "string") {
+      return { kind: "error", reason: `malformed reminder JSON: ${match[0]}` };
+    }
     const fireAt = Date.parse(parsed.when);
-    if (!Number.isFinite(fireAt) || fireAt <= now) return null;
+    if (!Number.isFinite(fireAt)) {
+      return { kind: "error", reason: `unparseable date "${parsed.when}"` };
+    }
+    if (fireAt <= now) {
+      return {
+        kind: "error",
+        reason: `resolved time ${parsed.when} is not in the future (now=${new Date(now).toISOString()})`,
+      };
+    }
     const text = parsed.text.trim();
-    if (text.length === 0) return null;
-    return { fireAt, text };
-  } catch {
-    return null;
+    if (text.length === 0) {
+      return { kind: "error", reason: "empty reminder text" };
+    }
+    return { kind: "scheduled", fireAt, text };
+  } catch (error) {
+    return { kind: "error", reason: `failed to parse reminder JSON: ${String(error)}` };
   }
 }
 
@@ -979,7 +1019,7 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
   // Structured parse failed — fall back to natural-language understanding.
   if (fireAt === null) {
     const nl = await parseReminderNL(config, args, now, tz);
-    if (nl) {
+    if (nl.kind === "scheduled") {
       addReminder(config.jazzHome, chatId, nl.fireAt, nl.text);
       await sendReply(
         config,
@@ -987,6 +1027,9 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
         reminderConfirmation(config, chatId, nl.fireAt, now, nl.text),
       );
       return;
+    }
+    if (nl.kind === "error") {
+      console.error(`Reminder parse failed for chat ${chatId}: ${nl.reason}`);
     }
     await sendReply(config, chatId, `I couldn't work out when to remind you.\n${usage}`);
     return;
