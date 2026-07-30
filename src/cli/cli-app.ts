@@ -77,6 +77,10 @@ function registerRunCommand(program: Command): void {
       "Auto-approve tools up to a risk level: read-only | low-risk | high-risk (high-risk approves everything). Tools above the level are declined.",
     )
     .option(
+      "--auto-approve-tools <names>",
+      "Comma-separated tool names to auto-approve without prompting, regardless of --approval-policy (e.g. execute_command). Narrower than raising the whole policy tier.",
+    )
+    .option(
       "--timeout <ms>",
       "Abort the run after this many milliseconds",
       parsePositiveInt("--timeout"),
@@ -110,6 +114,7 @@ function registerRunCommand(program: Command): void {
           agent: string;
           json?: boolean;
           approvalPolicy?: string;
+          autoApproveTools?: string;
           timeout?: number;
           maxIterations?: number;
           events?: string;
@@ -162,11 +167,19 @@ function registerRunCommand(program: Command): void {
         // one-shot presentation layer keeps stdout clean for the payload.
         process.env["JAZZ_NO_TUI"] = "1";
 
+        const autoApproveTools = options.autoApproveTools
+          ?.split(",")
+          .map((name) => name.trim())
+          .filter((name) => name.length > 0);
+
         runCliEffect(
           runAgentOnceCommand(options.agent, prompt, {
             json,
             ...(options.approvalPolicy !== undefined && isApprovalPolicyFlag(options.approvalPolicy)
               ? { approvalPolicy: options.approvalPolicy }
+              : {}),
+            ...(autoApproveTools && autoApproveTools.length > 0
+              ? { autoApprovedTools: autoApproveTools }
               : {}),
             ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
               ? { reasoningEffort: options.reasoning }

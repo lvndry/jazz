@@ -102,6 +102,12 @@ export function isReasoningEffortFlag(value: string): value is ReasoningEffort {
 export interface RunAgentOnceOptions {
   readonly json: boolean;
   readonly approvalPolicy?: ApprovalPolicyFlag | undefined;
+  /**
+   * Tool names to auto-approve without prompting, regardless of `approvalPolicy`.
+   * Narrower than raising the whole risk tier — e.g. `["execute_command"]` unblocks
+   * shell commands without also auto-approving `rm`/`git_push`/etc.
+   */
+  readonly autoApprovedTools?: readonly string[] | undefined;
   readonly reasoningEffort?: ReasoningEffort | undefined;
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
@@ -311,6 +317,9 @@ export function runAgentOnceCommand(
       conversationId: conversationKey ?? runId,
       ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+      ...(options.autoApprovedTools?.length
+        ? { autoApprovedTools: options.autoApprovedTools }
+        : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
     });

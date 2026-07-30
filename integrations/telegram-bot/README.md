@@ -118,6 +118,7 @@ run Ollama; cloud users typically just keep the default.)
 | `JAZZ_REASONING`                     | `medium`                                | `disable`\|`low`\|`medium`\|`high`.                                                                      |
 | `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`).                                                 |
 | `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                          |
+| `JAZZ_AUTO_APPROVE_TOOLS`            | —                                        | Comma-separated tool names to auto-approve regardless of policy (e.g. `execute_command`) — narrower than raising the whole tier. Tools needing approval that aren't in this list are sent to the chat as an accept/reject prompt instead of being declined. |
 | `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                               |
 | `TELEGRAM_MODE`                      | `polling`                               | `polling` or `webhook`.                                                                                  |
 | `PORT`                               | `8080`                                  | In-container health-check port.                                                                          |

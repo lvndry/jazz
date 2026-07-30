@@ -62,6 +62,8 @@ interface BridgeConfig {
   readonly allowedChatIds: ReadonlySet<number>;
   readonly baseAgentId: string;
   readonly approvalPolicy: string;
+  /** Tool names to auto-approve without prompting, regardless of approvalPolicy. */
+  readonly autoApproveTools: readonly string[];
   readonly runTimeoutMs: number;
   readonly jazzBinary: string;
   readonly jazzHome: string;
@@ -126,6 +128,10 @@ function loadConfig(): BridgeConfig {
     allowedChatIds,
     baseAgentId: process.env["JAZZ_TELEGRAM_AGENT"]?.trim() || "telegram",
     approvalPolicy: process.env["JAZZ_APPROVAL_POLICY"]?.trim() || "low-risk",
+    autoApproveTools: (process.env["JAZZ_AUTO_APPROVE_TOOLS"]?.trim() || "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0),
     runTimeoutMs: Number.parseInt(process.env["JAZZ_RUN_TIMEOUT_MS"]?.trim() || "300000", 10),
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || "jazz",
     jazzHome: process.env["JAZZ_HOME"]?.trim() || "/data",
@@ -539,6 +545,9 @@ async function runJazz(
       agentIdForChat(chatId),
       "--approval-policy",
       config.approvalPolicy,
+      ...(config.autoApproveTools.length > 0
+        ? ["--auto-approve-tools", config.autoApproveTools.join(",")]
+        : []),
       "--conversation",
       conversationKey(config.jazzHome, chatId),
       "--timeout",
