@@ -7,7 +7,6 @@
  * module only sweeps for due reminders and fires them.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect } from "effect";
@@ -19,67 +18,6 @@ export type ReminderSender = (chatId: number, html: string) => Promise<unknown>;
 
 export const REMINDER_SWEEP_MS = 20_000;
 let reminderSweepRunning = false;
-
-// --- TEMPORARY migration shim ---------------------------------------------
-// Before per-agent reminder files, all reminders lived in one flat
-// `tg-reminders.json`. For one release the sweep also drains whatever is left
-// in that file so nothing already scheduled is silently lost. Reminders are
-// short-lived, low-stakes data, so this is a deliberately cheap compatibility
-// read rather than a real migration script — delete this block (and its call
-// site in fireDueReminders) once the old file has naturally drained.
-
-interface LegacyReminder {
-  id: string;
-  chatId: number;
-  fireAt: number;
-  text: string;
-  createdAt: number;
-}
-
-function legacyRemindersPath(dataDir: string): string {
-  return join(dataDir, "tg-reminders.json");
-}
-
-function readLegacyReminders(dataDir: string): LegacyReminder[] {
-  try {
-    const path = legacyRemindersPath(dataDir);
-    if (!existsSync(path)) return [];
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (Array.isArray(parsed)) return parsed as LegacyReminder[];
-  } catch {
-    // ignore — treat as empty
-  }
-  return [];
-}
-
-function writeLegacyReminders(dataDir: string, reminders: LegacyReminder[]): void {
-  try {
-    writeFileSync(legacyRemindersPath(dataDir), `${JSON.stringify(reminders, null, 2)}\n`);
-  } catch (error) {
-    console.error(`Failed to write legacy reminders: ${String(error)}`);
-  }
-}
-
-async function fireDueLegacyReminders(
-  dataDir: string,
-  now: number,
-  send: ReminderSender,
-): Promise<void> {
-  const reminders = readLegacyReminders(dataDir);
-  const due = reminders.filter((reminder) => reminder.fireAt <= now);
-  if (due.length === 0) return;
-  // Remove first so a delivery failure can't loop-fire the same reminder.
-  writeLegacyReminders(
-    dataDir,
-    reminders.filter((reminder) => reminder.fireAt > now),
-  );
-  for (const reminder of due) {
-    const late = now - reminder.fireAt > 90_000 ? " (delayed)" : "";
-    await send(reminder.chatId, `⏰ <b>Reminder</b>${late}\n${escapeHtml(reminder.text)}`);
-  }
-}
-
-// --- End migration shim ----------------------------------------------------
 
 /** `tg_<chatId>` with negative ids encoded as `n<abs>` → reverse of agentIdForChat (agents.ts). */
 function chatIdFromAgentId(agentId: string): number | null {
@@ -99,9 +37,6 @@ async function fireDueReminders(dataDir: string, send: ReminderSender): Promise<
   reminderSweepRunning = true;
   try {
     const now = Date.now();
-
-    // TEMPORARY: also drain the pre-migration flat file — see block above.
-    await fireDueLegacyReminders(dataDir, now, send);
 
     const fired = await Effect.runPromise(
       sweepDueReminders(remindersRootDir(dataDir), now).pipe(Effect.provide(NodeFileSystem.layer)),

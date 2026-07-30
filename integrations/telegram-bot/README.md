@@ -100,8 +100,7 @@ Reminders are stored per Telegram chat's agent, one JSON file per agent under
 the `add_reminder`/`cancel_reminder` tools rather than the bridge itself. A sweep
 delivers due reminders every 20s, so they survive restarts (one due while the
 bridge was down fires on next start, marked `(delayed)`). Relative durations
-(`30m`, `2h`) are timezone-independent. For one release the sweep also drains any
-leftover `tg-reminders.json` from before this per-agent layout.
+(`30m`, `2h`) are timezone-independent.
 
 Each Telegram user gets an independent agent (`tg_<chat_id>.json`, cloned from the
 `telegram` template on first contact), so `/model` and `/persona` change only _your_
