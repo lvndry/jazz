@@ -104,6 +104,16 @@ export function getHistoryDirectory(): string {
 }
 
 /**
+ * Get the directory where Jazz stores per-agent memory (files the agent
+ * itself creates/edits via the memory tool). Scoped by agent id so memory
+ * follows an agent across every surface that invokes it (CLI, Telegram,
+ * Slack, ...), not by session or conversation.
+ */
+export function getMemoryDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "memory");
+}
+
+/**
  * Get the jazz-ai package's root directory (where package.json lives).
  *
  * This is used to locate built-in assets (skills, templates, etc.) that ship

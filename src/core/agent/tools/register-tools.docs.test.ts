@@ -16,6 +16,7 @@ import {
   registerFileTools,
   registerGitTools,
   registerHttpTools,
+  registerMemoryTools,
   registerSearchTools,
   registerShellTools,
   registerSubagentTools,
@@ -45,6 +46,7 @@ const collectTools = Effect.gen(function* () {
   yield* registerSearchTools();
   yield* registerHttpTools();
   yield* registerTodoTools();
+  yield* registerMemoryTools();
   yield* registerContextTools();
   yield* registerSubagentTools();
   yield* registerUserInteractionTools();

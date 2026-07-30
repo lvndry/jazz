@@ -1,13 +1,9 @@
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { Effect, Option } from "effect";
-import {
-  FILE_LOCK_MAX_RETRIES,
-  FILE_LOCK_RETRY_DELAY_MS,
-  FILE_LOCK_TIMEOUT_MS,
-  MAX_CONVERSATION_HISTORY_PER_AGENT,
-} from "@/core/constants/agent";
+import { Effect } from "effect";
+import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@/core/constants/agent";
 import type { ChatMessage } from "@/core/types/message";
+import { withLock } from "@/core/utils/file-lock";
 import { getHistoryDirectory } from "@/core/utils/runtime-detection";
 
 export interface ConversationRecord {
@@ -31,52 +27,6 @@ function getAgentHistoryPath(agentId: string, dir?: string): string {
 
 function getLockPath(agentId: string, dir?: string): string {
   return path.join(dir ?? getHistoryDirectory(), `${agentId}.lock`);
-}
-
-function acquireLock(lockPath: string): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    for (let attempt = 0; attempt < FILE_LOCK_MAX_RETRIES; attempt++) {
-      const acquired = yield* fs.makeDirectory(lockPath, { recursive: false }).pipe(
-        Effect.map(() => true),
-        Effect.catchAll(() => Effect.succeed(false)),
-      );
-      if (acquired) return;
-
-      const statResult = yield* fs.stat(lockPath).pipe(Effect.option);
-      const stat = Option.getOrNull(statResult);
-      const mtimeMs = Option.match(stat?.mtime ?? Option.none(), {
-        onNone: () => 0,
-        onSome: (d) => d.getTime(),
-      });
-      if (stat && Date.now() - mtimeMs > FILE_LOCK_TIMEOUT_MS) {
-        yield* fs.remove(lockPath, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
-        continue;
-      }
-      yield* Effect.sleep(FILE_LOCK_RETRY_DELAY_MS);
-    }
-    return yield* Effect.fail(new Error("Failed to acquire history lock after retries"));
-  });
-}
-
-function releaseLock(lockPath: string): Effect.Effect<void, never, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    yield* fs.remove(lockPath, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
-  });
-}
-
-function withLock<A, E, R>(
-  agentId: string,
-  dir: string | undefined,
-  operation: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | Error, R | FileSystem.FileSystem> {
-  const lockPath = getLockPath(agentId, dir);
-  return Effect.acquireUseRelease(
-    acquireLock(lockPath),
-    () => operation,
-    () => releaseLock(lockPath),
-  );
 }
 
 function readHistory(
@@ -149,8 +99,7 @@ export function saveConversation(
       .makeDirectory(historyDir, { recursive: true })
       .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
     yield* withLock(
-      record.agentId,
-      dir,
+      getLockPath(record.agentId, dir),
       Effect.gen(function* () {
         const history = yield* readHistory(record.agentId, dir);
         // Upsert by conversationId: saving an existing conversation replaces

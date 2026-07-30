@@ -15,11 +15,11 @@ and [Security](../../SECURITY.md) for the threat model.
 
 | | Count |
 | --- | --- |
-| **Agent-facing tools** | **43** |
+| **Agent-facing tools** | **45** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 15 |
-| Total registered | 58 |
-| `read-only` | 26 |
-| `low-risk` | 2 |
+| Total registered | 60 |
+| `read-only` | 27 |
+| `low-risk` | 3 |
 | `high-risk` | 15 |
 
 Plus, registered per agent rather than globally:
@@ -128,6 +128,15 @@ You never call `execute_*` names yourself; they are hidden from the model's tool
 | --- | --- | --- | --- |
 | `list_todos` | `read-only` | — | Read the current todo list. Returns all items with their status and priority. |
 | `manage_todos` | `low-risk` | — | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
+
+### Memory
+
+Opt-in per agent (like File Management or Git) rather than always-on — see [Memory](../internals/memory.md).
+
+| Tool | Risk | Approval pair | What it does |
+| --- | --- | --- | --- |
+| `view_memory` | `read-only` | — | Read what you've saved about this person or project from earlier conversations. Call with no pa… |
+| `manage_memory` | `low-risk` | — | Create, edit, rename, or delete files under your persistent memory directory — the durable notes… |
 
 ### Context
 

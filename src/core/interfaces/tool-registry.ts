@@ -15,6 +15,7 @@ import type { FileSystemContextService } from "./fs";
 import type { LLMService } from "./llm";
 import type { LoggerService } from "./logger";
 import type { MCPServerManager } from "./mcp-server";
+import type { MemoryService } from "./memory-service";
 import type { PresentationService } from "./presentation";
 import type { TerminalService } from "./terminal";
 
@@ -44,7 +45,8 @@ export type ToolRequirements =
   | MCPServerManager
   | TerminalService
   | SkillService
-  | PresentationService;
+  | PresentationService
+  | MemoryService;
 
 export interface Tool<R = never> {
   readonly name: string;
