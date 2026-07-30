@@ -13,13 +13,14 @@ import type { LoggerService } from "../../interfaces/logger";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import type { MCPServerManager } from "../../interfaces/mcp-server";
 import { MCPServerManagerTag } from "../../interfaces/mcp-server";
-import type { PresentationService } from "../../interfaces/presentation";
+import type { PresentationService, StreamingRenderer } from "../../interfaces/presentation";
 import { PresentationServiceTag } from "../../interfaces/presentation";
 import type { TerminalService } from "../../interfaces/terminal";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import type { ToolRegistry } from "../../interfaces/tool-registry";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
-import type { ToolCall, ToolExecutionResult } from "../../types/tools";
+import type { StreamEvent } from "../../types/streaming";
+import type { ApprovalRequest, ToolCall, ToolExecutionResult } from "../../types/tools";
 import type { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 
 /** Result shape of executeToolCall / executeToolCalls items */
@@ -321,5 +322,103 @@ describe("ToolExecutor.executeToolCalls", () => {
     expect(results).toHaveLength(2);
     expect(results[0].toolCallId).toBe("call_1");
     expect(results[1].toolCallId).toBe("call_2");
+  });
+});
+
+describe("ToolExecutor.executeToolCall approval events", () => {
+  it("emits approval_required/approval_resolved with the tool call's id, message, and previewDiff", async () => {
+    const mockToolRegistry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "approval_tool",
+          timeoutMs: 5000,
+          longRunning: false,
+          approvalExecuteToolName: "real_tool",
+          riskLevel: "high-risk" as const,
+        }),
+      executeTool: (name: string) =>
+        name === "approval_tool"
+          ? Effect.succeed({
+              success: true,
+              result: {
+                approvalRequired: true,
+                message: "About to run a risky command",
+                executeToolName: "real_tool",
+                executeArgs: { command: "echo hi" },
+                previewDiff: "- old\n+ new",
+              },
+            })
+          : Effect.succeed({ success: true, result: { data: "executed" } }),
+    } as unknown as ToolRegistry;
+
+    const receivedRequests: ApprovalRequest[] = [];
+    const approvingPresentationService = {
+      ...mockPresentationService,
+      requestApproval: (request: ApprovalRequest) => {
+        receivedRequests.push(request);
+        return Effect.succeed({ approved: true } as const);
+      },
+    } as unknown as PresentationService;
+
+    const emittedEvents: StreamEvent[] = [];
+    const recordingRenderer: StreamingRenderer = {
+      handleEvent: (event) =>
+        Effect.sync(() => {
+          emittedEvents.push(event);
+        }),
+      setInterruptHandler: () => Effect.void,
+      reset: () => Effect.void,
+      flush: () => Effect.void,
+    };
+
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, approvingPresentationService),
+      Layer.succeed(ToolRegistryTag, mockToolRegistry),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(LLMServiceTag, emptyLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
+    );
+
+    const toolCall: ToolCall = {
+      id: "call_approval_1",
+      type: "function",
+      function: { name: "approval_tool", arguments: "{}" },
+    };
+
+    await Effect.runPromise(
+      ToolExecutor.executeToolCall(
+        toolCall,
+        { agentId: "agent-1", conversationId: "conv-123", sessionId: "sess-1" },
+        displayConfig,
+        recordingRenderer,
+        makeRunMetrics(),
+        "agent-1",
+        "conv-123",
+        new Set(["approval_tool"]),
+      ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
+    );
+
+    expect(receivedRequests).toHaveLength(1);
+    expect(receivedRequests[0]?.toolCallId).toBe("call_approval_1");
+    expect(receivedRequests[0]?.message).toBe("About to run a risky command");
+    expect(receivedRequests[0]?.previewDiff).toBe("- old\n+ new");
+
+    const approvalRequired = emittedEvents.find((event) => event.type === "approval_required") as
+      | Extract<StreamEvent, { type: "approval_required" }>
+      | undefined;
+    expect(approvalRequired?.toolCallId).toBe("call_approval_1");
+    expect(approvalRequired?.message).toBe("About to run a risky command");
+    expect(approvalRequired?.previewDiff).toBe("- old\n+ new");
+
+    const approvalResolved = emittedEvents.find((event) => event.type === "approval_resolved") as
+      | Extract<StreamEvent, { type: "approval_resolved" }>
+      | undefined;
+    expect(approvalResolved?.toolCallId).toBe("call_approval_1");
+    expect(approvalResolved?.approved).toBe(true);
   });
 });

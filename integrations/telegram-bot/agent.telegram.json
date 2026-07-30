@@ -43,7 +43,10 @@
       "git_tag",
       "git_tag_list",
       "web_search",
-      "http_request"
+      "http_request",
+      "add_reminder",
+      "list_reminders",
+      "cancel_reminder"
     ]
   },
   "createdAt": "2026-07-20T00:00:00.000Z",

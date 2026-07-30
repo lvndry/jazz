@@ -108,6 +108,13 @@ export interface AgentRunnerOptions {
    * Not called for internal (sub-agent) runs.
    */
   readonly checkQueuedMessage?: () => string | undefined;
+  /**
+   * IANA timezone (e.g. "Europe/Paris") for this run, copied into the tool
+   * execution context so tools like add_reminder can resolve "now" in the
+   * caller's local time without asking the model to supply a timezone string.
+   * Defaults to "UTC" (via ToolExecutionContext) when unset.
+   */
+  readonly timezone?: string;
 }
 
 /**

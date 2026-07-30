@@ -233,6 +233,7 @@ function initializeAgentRun(
       // subsequent isAutoApproved checks within the same agent run.
       autoApprovedCommands,
       autoApprovedTools,
+      ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??
         ((command: string) =>

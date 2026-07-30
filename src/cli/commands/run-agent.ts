@@ -102,6 +102,17 @@ export function isReasoningEffortFlag(value: string): value is ReasoningEffort {
 export interface RunAgentOnceOptions {
   readonly json: boolean;
   readonly approvalPolicy?: ApprovalPolicyFlag | undefined;
+  /**
+   * Tool names to auto-approve without prompting, regardless of `approvalPolicy`.
+   * Narrower than raising the whole risk tier — e.g. `["execute_command"]` unblocks
+   * shell commands without also auto-approving `rm`/`git_push`/etc.
+   */
+  readonly autoApprovedTools?: readonly string[] | undefined;
+  /**
+   * IANA timezone (e.g. "Europe/Paris") used to resolve relative/clock times
+   * for this run (e.g. the add_reminder tool). Defaults to UTC when unset.
+   */
+  readonly timezone?: string | undefined;
   readonly reasoningEffort?: ReasoningEffort | undefined;
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
@@ -210,6 +221,10 @@ export function parseEventCategories(
 }
 
 function readStdin(): Promise<string> {
+  // Relies on the prompt being passed as a CLI argument in flows (e.g. the
+  // Telegram bridge) that also expect `OneShotPresentationService` to read
+  // approval decisions from this same stdin stream — reading the prompt here
+  // AND approval lines there would race over one stream.
   // If stdin already ended, the "end" event has fired and won't fire again —
   // registering a new listener would hang forever.
   if (process.stdin.readableEnded) {
@@ -311,6 +326,10 @@ export function runAgentOnceCommand(
       conversationId: conversationKey ?? runId,
       ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+      ...(options.autoApprovedTools?.length
+        ? { autoApprovedTools: options.autoApprovedTools }
+        : {}),
+      ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
     });

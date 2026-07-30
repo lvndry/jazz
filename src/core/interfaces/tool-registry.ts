@@ -17,6 +17,7 @@ import type { LoggerService } from "./logger";
 import type { MCPServerManager } from "./mcp-server";
 import type { MemoryService } from "./memory-service";
 import type { PresentationService } from "./presentation";
+import type { ReminderService } from "./reminder-service";
 import type { TerminalService } from "./terminal";
 
 /**
@@ -46,7 +47,8 @@ export type ToolRequirements =
   | TerminalService
   | SkillService
   | PresentationService
-  | MemoryService;
+  | MemoryService
+  | ReminderService;
 
 export interface Tool<R = never> {
   readonly name: string;

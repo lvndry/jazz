@@ -16,9 +16,13 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { NodeFileSystem } from "@effect/platform-node";
+import { Effect } from "effect";
 import tzlookup from "tz-lookup";
+import type { ReminderRecord } from "@/core/interfaces/reminder-service";
+import { ReminderServiceImpl } from "@/services/reminder-service";
 import {
   agentIdForChat,
   agentPath,
@@ -26,13 +30,7 @@ import {
   readAgentFile,
   writeAgentFile,
 } from "./agents";
-import {
-  addReminder,
-  cancelReminder,
-  parseWhen,
-  readReminders,
-  startReminderSweep,
-} from "./reminders";
+import { startReminderSweep } from "./reminders";
 import { conversationKey, startNewConversation } from "./sessions";
 import { escapeHtml, markdownToTelegramHtml, splitForTelegram } from "./telegram-html";
 import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
@@ -50,7 +48,13 @@ const PROGRESS_REASONING_CHARS = 180;
 const BRIDGE_STARTED_AT = Date.now();
 // In-flight runs keyed by a per-run token, so the ⏹ Cancel button can kill the
 // right jazz process.
-const activeRuns = new Map<string, { child: Bun.Subprocess; cancelled: boolean }>();
+const activeRuns = new Map<
+  string,
+  { child: Bun.Subprocess<"pipe", "pipe", "pipe">; cancelled: boolean }
+>();
+// Pending human approvals keyed by toolCallId, so an Accept/Reject tap can
+// find the run to write the decision back to and the message to clear.
+const pendingApprovals = new Map<string, { chatId: number; messageId: number; runToken: string }>();
 
 type TransportMode = "polling" | "webhook";
 
@@ -62,6 +66,8 @@ interface BridgeConfig {
   readonly allowedChatIds: ReadonlySet<number>;
   readonly baseAgentId: string;
   readonly approvalPolicy: string;
+  /** Tool names to auto-approve without prompting, regardless of approvalPolicy. */
+  readonly autoApproveTools: readonly string[];
   readonly runTimeoutMs: number;
   readonly jazzBinary: string;
   readonly jazzHome: string;
@@ -126,6 +132,10 @@ function loadConfig(): BridgeConfig {
     allowedChatIds,
     baseAgentId: process.env["JAZZ_TELEGRAM_AGENT"]?.trim() || "telegram",
     approvalPolicy: process.env["JAZZ_APPROVAL_POLICY"]?.trim() || "low-risk",
+    autoApproveTools: (process.env["JAZZ_AUTO_APPROVE_TOOLS"]?.trim() || "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0),
     runTimeoutMs: Number.parseInt(process.env["JAZZ_RUN_TIMEOUT_MS"]?.trim() || "300000", 10),
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || "jazz",
     jazzHome: process.env["JAZZ_HOME"]?.trim() || "/data",
@@ -362,6 +372,17 @@ function cancelKeyboard(runToken: string): Record<string, unknown> {
   return { inline_keyboard: [[{ text: "⏹ Cancel", callback_data: `x:${runToken}` }]] };
 }
 
+function approvalKeyboard(toolCallId: string): Record<string, unknown> {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Accept", callback_data: `a:${toolCallId}:1` },
+        { text: "❌ Reject", callback_data: `a:${toolCallId}:0` },
+      ],
+    ],
+  };
+}
+
 function followupKeyboard(): Record<string, unknown> {
   return {
     inline_keyboard: [
@@ -382,6 +403,9 @@ interface JazzEvent {
   readonly content?: string;
   readonly approved?: boolean;
   readonly task?: string;
+  readonly toolCallId?: string;
+  readonly message?: string;
+  readonly previewDiff?: string;
 }
 
 /** Read a byte stream and invoke onLine for each newline-delimited line. */
@@ -518,6 +542,46 @@ function createProgressReporter(
   };
 }
 
+// --- Human approval --------------------------------------------------------
+
+const APPROVAL_MESSAGE_MAX_CHARS = 500;
+const APPROVAL_PREVIEW_DIFF_MAX_CHARS = 500;
+
+/**
+ * Send a new Telegram message with Accept/Reject buttons for a tool awaiting
+ * human approval. A new message (not an edit of the progress bubble) so
+ * concurrent approvals within the same run don't collide.
+ */
+async function sendApprovalRequest(
+  config: BridgeConfig,
+  chatId: number,
+  runToken: string,
+  event: JazzEvent,
+): Promise<void> {
+  const toolCallId = event.toolCallId;
+  if (!toolCallId) return;
+
+  const toolName = event.toolName ?? "tool";
+  const message = (event.message ?? "").slice(0, APPROVAL_MESSAGE_MAX_CHARS);
+  const lines = ["⚠️ <b>Approval needed</b>", `<code>${escapeHtml(toolName)}</code>`];
+  if (message.length > 0) lines.push(escapeHtml(message));
+  if (event.previewDiff) {
+    const diff = event.previewDiff.slice(0, APPROVAL_PREVIEW_DIFF_MAX_CHARS);
+    lines.push(`<pre>${escapeHtml(diff)}</pre>`);
+  }
+
+  const sent = (await callTelegram(config, "sendMessage", {
+    chat_id: chatId,
+    text: lines.join("\n"),
+    parse_mode: "HTML",
+    reply_markup: approvalKeyboard(toolCallId),
+  })) as { result?: { message_id?: number } } | undefined;
+  const messageId = sent?.result?.message_id;
+  if (typeof messageId === "number") {
+    pendingApprovals.set(toolCallId, { chatId, messageId, runToken });
+  }
+}
+
 // --- Jazz invocation ------------------------------------------------------
 
 async function runJazz(
@@ -539,13 +603,18 @@ async function runJazz(
       agentIdForChat(chatId),
       "--approval-policy",
       config.approvalPolicy,
+      ...(config.autoApproveTools.length > 0
+        ? ["--auto-approve-tools", config.autoApproveTools.join(",")]
+        : []),
+      "--timezone",
+      tzForChat(config.jazzHome, chatId),
       "--conversation",
       conversationKey(config.jazzHome, chatId),
       "--timeout",
       String(config.runTimeoutMs),
       prompt,
     ],
-    { stdout: "pipe", stderr: "pipe", env: { ...process.env } },
+    { stdout: "pipe", stderr: "pipe", stdin: "pipe", env: { ...process.env } },
   );
   // Register so the ⏹ Cancel button can find and kill this process.
   activeRuns.set(runToken, { child, cancelled: false });
@@ -559,6 +628,11 @@ async function runJazz(
     try {
       const event = JSON.parse(trimmed) as JazzEvent;
       if (typeof event.type === "string") onEvent(event);
+      if (event.type === "approval_required" && event.toolCallId) {
+        void sendApprovalRequest(config, chatId, runToken, event).catch((error) =>
+          console.error(`Failed to send approval request for chat ${chatId}: ${String(error)}`),
+        );
+      }
     } catch {
       // Non-event stderr line (plain log chatter) — ignore.
     }
@@ -605,23 +679,6 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   }
 
   await callTelegram(config, "sendChatAction", { chat_id: chatId, action: "typing" });
-
-  // Natural-language reminders ("remind me … in 2h", "send reminder next friday
-  // 2pm for X") are handled here instead of a full agent turn. If the time can't
-  // be parsed, fall through to a normal answer (so "remind me what X is" works).
-  if (looksLikeReminderRequest(text)) {
-    const now = Date.now();
-    const reminder = await parseReminderNL(config, text, now, tzForChat(config.jazzHome, chatId));
-    if (reminder) {
-      addReminder(config.jazzHome, chatId, reminder.fireAt, reminder.text);
-      await sendReply(
-        config,
-        chatId,
-        reminderConfirmation(config, chatId, reminder.fireAt, now, reminder.text),
-      );
-      return;
-    }
-  }
 
   const runToken = newRunToken();
   // A live-updated progress bubble with a ⏹ Cancel button. The final answer is
@@ -684,6 +741,11 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   } finally {
     // Always release the run slot, even if runJazz or a reply throws.
     activeRuns.delete(runToken);
+    // Sweep any approvals left pending for this run (e.g. the run finished or
+    // errored before a human tapped Accept/Reject).
+    for (const [toolCallId, pending] of pendingApprovals) {
+      if (pending.runToken === runToken) pendingApprovals.delete(toolCallId);
+    }
   }
 }
 
@@ -881,75 +943,39 @@ function keyboardFrom(options: string[], current: string, prefix: string): Inlin
   ]);
 }
 
-function reminderConfirmation(
-  config: BridgeConfig,
-  chatId: number,
-  fireAt: number,
-  now: number,
-  text: string,
-): string {
-  const tz = tzForChat(config.jazzHome, chatId);
-  const base = `⏰ Reminder set for ${formatWhen(fireAt, tz)} <i>(${escapeHtml(tz)})</i> — in ${formatUptime(fireAt - now)}.\n“${escapeHtml(text)}”`;
-  if (hasChatTz(config.jazzHome, chatId)) return base;
-  return `${base}\n\n🌍 Times are in <code>${escapeHtml(tz)}</code>. Set yours with <code>/tz Europe/Paris</code> or share your location.`;
-}
-
-/** True when a free-text message reads like a request to schedule a reminder. */
-function looksLikeReminderRequest(text: string): boolean {
-  return (
-    /^\s*(?:send|set|add|create|schedule)\s+(?:me\s+)?(?:a\s+)?reminder\b/i.test(text) ||
-    /\bremind me\b/i.test(text)
-  );
+function remindersFilePath(dataDir: string, chatId: number): string {
+  return join(dataDir, "reminders", `${agentIdForChat(chatId)}.json`);
 }
 
 /**
- * Use the model to turn a natural-language reminder ("next friday at 2pm for X",
- * "in 2 hours", "september 23rd birthday") into an absolute time + text.
- * Returns null when there's no clear future time.
+ * Synchronous read of this chat's per-agent reminder file, for display only
+ * (the /reminders list and /status). Reminders are only ever created or
+ * cancelled through the add_reminder/cancel_reminder tools (or, for the
+ * inline "cancel" buttons below, the same ReminderServiceImpl those tools use)
+ * — never written here.
  */
-async function parseReminderNL(
-  config: BridgeConfig,
-  request: string,
-  now: number,
-  tz: string,
-): Promise<{ fireAt: number; text: string } | null> {
-  ensureSuggestAgent(config);
-  const localNow = formatWhen(now, tz);
-  const prompt =
-    `Current date and time: ${new Date(now).toISOString()} — that is ${localNow} in the user's ` +
-    `timezone (${tz}).\n` +
-    `The user wants a reminder. Their request: "${request}"\n\n` +
-    "Work out the absolute time it should fire and what to remind them about. Reply with ONLY " +
-    "JSON, no prose or code fences:\n" +
-    '{"when":"<ISO 8601 with timezone offset>","text":"<concise reminder text>"}\n' +
-    'Interpret relative ("in 2 hours") and vague ("next friday at 2pm", "september 23rd") times ' +
-    "against the current date/time and timezone; choose the next future occurrence for bare " +
-    'dates. If there is no clear future time, reply {"when":null,"text":""}.';
-  const envelope = await jazzJson(config, SUGGEST_AGENT_ID, prompt, [
-    "--reasoning",
-    "disable",
-    "--max-iterations",
-    "1",
-    "--approval-policy",
-    "read-only",
-    "--timeout",
-    "60000",
-  ]);
-  if (!envelope.ok) return null;
-
-  const match = /\{[\s\S]*\}/.exec(envelope.answer);
-  if (!match) return null;
+function readRemindersForDisplay(dataDir: string, chatId: number): ReminderRecord[] {
   try {
-    const parsed = JSON.parse(match[0]) as { when?: unknown; text?: unknown };
-    if (typeof parsed.when !== "string" || typeof parsed.text !== "string") return null;
-    const fireAt = Date.parse(parsed.when);
-    if (!Number.isFinite(fireAt) || fireAt <= now) return null;
-    const text = parsed.text.trim();
-    if (text.length === 0) return null;
-    return { fireAt, text };
+    const path = remindersFilePath(dataDir, chatId);
+    if (!existsSync(path)) return [];
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return Array.isArray(parsed) ? (parsed as ReminderRecord[]) : [];
   } catch {
-    return null;
+    return [];
   }
+}
+
+/** Cancel via the same ReminderServiceImpl the cancel_reminder tool uses — the only reminder-cancelling code path. */
+async function cancelReminderForChat(
+  dataDir: string,
+  chatId: number,
+  id: string,
+): Promise<boolean> {
+  const service = new ReminderServiceImpl({ baseReminderDirectory: join(dataDir, "reminders") });
+  const outcome = await Effect.runPromise(
+    service.cancel(agentIdForChat(chatId), id).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+  return outcome.success;
 }
 
 async function handleRemind(config: BridgeConfig, chatId: number, args: string): Promise<void> {
@@ -957,51 +983,16 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
     "Usage: <code>/remind &lt;when&gt; &lt;text&gt;</code>\n" +
     "Examples: <code>/remind 30m take pizza out</code>, <code>/remind 1h30m stretch</code>, " +
     "<code>/remind 18:00 standup</code>, <code>/remind tomorrow 09:00 gym</code>";
-  const words = args.split(/\s+/).filter((word) => word.length > 0);
-  if (words.length === 0) {
+  const trimmed = args.trim();
+  if (trimmed.length === 0) {
     await sendReply(config, chatId, usage);
     return;
   }
 
-  const now = Date.now();
-  const tz = tzForChat(config.jazzHome, chatId);
-  let fireAt: number | null = null;
-  let text = "";
-  if (words.length >= 2 && words[0]?.toLowerCase() === "tomorrow") {
-    fireAt = parseWhen(`tomorrow ${words[1]}`, now, tz);
-    if (fireAt !== null) text = words.slice(2).join(" ");
-  }
-  if (fireAt === null) {
-    fireAt = parseWhen(words[0] ?? "", now, tz);
-    if (fireAt !== null) text = words.slice(1).join(" ");
-  }
-
-  // Structured parse failed — fall back to natural-language understanding.
-  if (fireAt === null) {
-    const nl = await parseReminderNL(config, args, now, tz);
-    if (nl) {
-      addReminder(config.jazzHome, chatId, nl.fireAt, nl.text);
-      await sendReply(
-        config,
-        chatId,
-        reminderConfirmation(config, chatId, nl.fireAt, now, nl.text),
-      );
-      return;
-    }
-    await sendReply(config, chatId, `I couldn't work out when to remind you.\n${usage}`);
-    return;
-  }
-  if (text.trim().length === 0) {
-    await sendReply(
-      config,
-      chatId,
-      "What should I remind you about? e.g. <code>/remind 30m call the plumber</code>",
-    );
-    return;
-  }
-
-  addReminder(config.jazzHome, chatId, fireAt, text.trim());
-  await sendReply(config, chatId, reminderConfirmation(config, chatId, fireAt, now, text.trim()));
+  // Route through a normal full agent turn — the add_reminder tool (not this
+  // handler) does the actual time parsing and scheduling, so there is exactly
+  // one code path that creates reminders regardless of how the request arrived.
+  await handleMessage(config, chatId, `Add a reminder: ${trimmed}`);
 }
 
 async function handleTz(config: BridgeConfig, chatId: number, args: string): Promise<void> {
@@ -1057,9 +1048,9 @@ async function handleCommand(
   }
 
   if (command === "reminders") {
-    const mine = readReminders(config.jazzHome)
-      .filter((reminder) => reminder.chatId === chatId)
-      .sort((left, right) => left.fireAt - right.fireAt);
+    const mine = readRemindersForDisplay(config.jazzHome, chatId).sort(
+      (left, right) => left.fireAt - right.fireAt,
+    );
     if (mine.length === 0) {
       await sendReply(
         config,
@@ -1179,7 +1170,8 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   }
 
   if (kind === "x") {
-    const run = activeRuns.get(indexRaw ?? "");
+    const runToken = indexRaw ?? "";
+    const run = activeRuns.get(runToken);
     if (run) {
       run.cancelled = true;
       run.child.kill();
@@ -1187,6 +1179,53 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
       text: run ? "Cancelling…" : "Already finished.",
+    });
+    // A cancelled run can no longer answer pending approvals — sweep them so a
+    // stale Accept/Reject tap gets "already expired" instead of writing to a
+    // dead pipe, and best-effort clear their keyboards.
+    for (const [toolCallId, pending] of pendingApprovals) {
+      if (pending.runToken !== runToken) continue;
+      pendingApprovals.delete(toolCallId);
+      await callTelegram(config, "editMessageReplyMarkup", {
+        chat_id: pending.chatId,
+        message_id: pending.messageId,
+        reply_markup: { inline_keyboard: [] },
+      }).catch(() => undefined);
+    }
+    return;
+  }
+
+  if (kind === "a") {
+    const toolCallId = parts[1] ?? "";
+    const approved = parts[2] === "1";
+    const pending = pendingApprovals.get(toolCallId);
+    const run = pending ? activeRuns.get(pending.runToken) : undefined;
+    if (!pending || !run) {
+      await callTelegram(config, "answerCallbackQuery", {
+        callback_query_id: callback.id,
+        text: "This approval already expired or the run finished.",
+      });
+      return;
+    }
+    pendingApprovals.delete(toolCallId);
+    try {
+      // Bun's FileSink buffers writes; flush() pushes it through the pipe now
+      // rather than waiting for the buffer to fill on its own.
+      run.child.stdin.write(
+        `${JSON.stringify({ type: "approval_decision", toolCallId, approved })}\n`,
+      );
+      run.child.stdin.flush();
+    } catch (error) {
+      console.error(`Failed to write approval decision: ${String(error)}`);
+    }
+    await callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text: approved ? "Approved" : "Rejected",
+    });
+    await callTelegram(config, "editMessageReplyMarkup", {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: { inline_keyboard: [] },
     });
     return;
   }
@@ -1211,7 +1250,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   }
 
   if (kind === "r") {
-    const cancelled = cancelReminder(config.jazzHome, chatId, indexRaw ?? "");
+    const cancelled = await cancelReminderForChat(config.jazzHome, chatId, indexRaw ?? "");
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
       text: cancelled ? "Reminder cancelled" : "Not found",

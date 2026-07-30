@@ -1,9 +1,28 @@
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import type { StreamingRendererConfig } from "@/core/interfaces/presentation";
 import type { StreamEvent } from "@/core/types/streaming";
+import type { ApprovalRequest } from "@/core/types/tools";
 import { OneShotPresentationService } from "./oneshot-presentation-service";
+
+function makeApprovalRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
+  return {
+    toolCallId: "call_1",
+    toolName: "execute_command",
+    message: "Run `rm -rf /tmp/scratch`",
+    executeToolName: "execute_command_run",
+    executeArgs: {},
+    ...overrides,
+  };
+}
+
+/** Wait for one macrotask tick — long enough for any pending microtasks (e.g.
+ * Effect's fiber scheduling the `Effect.async` registration) to settle. */
+function tick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 const rendererConfig: StreamingRendererConfig = {
   displayConfig: DEFAULT_DISPLAY_CONFIG,
@@ -175,5 +194,101 @@ describe("OneShotPresentationService NDJSON stderr purity", () => {
 
     expect(captured.lines).toHaveLength(1);
     expect(captured.lines[0]).toBe("⚠ test-agent: heads up\n");
+  });
+});
+
+describe("OneShotPresentationService requestApproval", () => {
+  it("declines instantly with the exact regression message when no events are active", async () => {
+    const service = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
+
+    const outcome = await Effect.runPromise(
+      service.requestApproval(makeApprovalRequest({ toolName: "execute_command" })),
+    );
+
+    expect(outcome).toEqual({
+      approved: false,
+      userMessage:
+        `The "execute_command" tool requires approval and was automatically declined ` +
+        `because this is a non-interactive run. Do not ask the user to approve or retry — ` +
+        `there is no one to respond. Either accomplish the task using tools that do not ` +
+        `require approval, or clearly explain what could not be done and why.`,
+    });
+  });
+
+  it("resolves with the approved value once a matching approval_decision line arrives on stdin", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["approval_required"]),
+      stdin,
+    );
+
+    const pending = Effect.runPromise(
+      service.requestApproval(makeApprovalRequest({ toolCallId: "call_1" })),
+    );
+    await tick();
+
+    stdin.write(
+      `${JSON.stringify({ type: "approval_decision", toolCallId: "call_1", approved: true })}\n`,
+    );
+
+    expect(await pending).toEqual({ approved: true });
+  });
+
+  it("resolves with approved: false when the decision line says so", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["approval_required"]),
+      stdin,
+    );
+
+    const pending = Effect.runPromise(
+      service.requestApproval(makeApprovalRequest({ toolCallId: "call_1" })),
+    );
+    await tick();
+
+    stdin.write(
+      `${JSON.stringify({ type: "approval_decision", toolCallId: "call_1", approved: false })}\n`,
+    );
+
+    expect(await pending).toEqual({ approved: false });
+  });
+
+  it("ignores malformed or non-matching lines without resolving the wrong pending entry", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["approval_required"]),
+      stdin,
+    );
+
+    const pendingA = Effect.runPromise(
+      service.requestApproval(makeApprovalRequest({ toolCallId: "call_a", toolName: "tool_a" })),
+    );
+    const pendingB = Effect.runPromise(
+      service.requestApproval(makeApprovalRequest({ toolCallId: "call_b", toolName: "tool_b" })),
+    );
+    await tick();
+
+    // Malformed JSON and a well-formed line for an unrelated toolCallId: both ignored.
+    stdin.write("not json at all\n");
+    stdin.write(
+      `${JSON.stringify({ type: "approval_decision", toolCallId: "call_unknown", approved: true })}\n`,
+    );
+    // Missing "approved" field: also ignored.
+    stdin.write(`${JSON.stringify({ type: "approval_decision", toolCallId: "call_a" })}\n`);
+    await tick();
+
+    // Now resolve call_b only — call_a must remain untouched by the noise above.
+    stdin.write(
+      `${JSON.stringify({ type: "approval_decision", toolCallId: "call_b", approved: false })}\n`,
+    );
+    expect(await pendingB).toEqual({ approved: false });
+
+    stdin.write(
+      `${JSON.stringify({ type: "approval_decision", toolCallId: "call_a", approved: true })}\n`,
+    );
+    expect(await pendingA).toEqual({ approved: true });
   });
 });

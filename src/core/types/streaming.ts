@@ -86,8 +86,22 @@ export type StreamEvent =
   | { type: "usage_update"; usage: TokenUsage }
 
   // Tool approval flow (headless consumers can surface gated/declined tools)
-  | { type: "approval_required"; toolName: string; riskLevel?: string; autoApprovePolicy?: string }
-  | { type: "approval_resolved"; toolName: string; approved: boolean; auto: boolean }
+  | {
+      type: "approval_required";
+      toolCallId: string;
+      toolName: string;
+      message: string;
+      previewDiff?: string;
+      riskLevel?: string;
+      autoApprovePolicy?: string;
+    }
+  | {
+      type: "approval_resolved";
+      toolCallId: string;
+      toolName: string;
+      approved: boolean;
+      auto: boolean;
+    }
 
   // Sub-agent lifecycle (delegated spawn_subagent runs)
   | { type: "subagent_start"; task?: string; agentName?: string }
