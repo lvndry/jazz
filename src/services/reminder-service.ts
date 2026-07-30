@@ -104,11 +104,6 @@ export class ReminderServiceImpl implements ReminderService {
     return Effect.gen(function* () {
       yield* requireValidAgentId(agentId);
       const fs = yield* FileSystem.FileSystem;
-      // The lock is a directory created with recursive:false, so its parent
-      // (baseReminderDirectory) must already exist — on a fresh deployment or
-      // an agent's first-ever reminder it doesn't, and every makeDirectory
-      // attempt inside acquireLock fails with ENOENT until the retry budget
-      // is exhausted, surfacing as a false "failed to acquire lock" error.
       yield* fs
         .makeDirectory(baseReminderDirectory, { recursive: true })
         .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
