@@ -103,6 +103,9 @@ export interface ApprovalRequiredResult {
  * Request structure for approval prompts shown to the user
  */
 export interface ApprovalRequest {
+  /** Correlates this request with its `tool_call.id`, so an external approver
+   * (e.g. the Telegram bridge) can resolve the specific pending approval. */
+  readonly toolCallId: string;
   /** The name of the tool requesting approval */
   readonly toolName: string;
   /** Human-readable description of the action */

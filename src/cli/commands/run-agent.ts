@@ -216,6 +216,10 @@ export function parseEventCategories(
 }
 
 function readStdin(): Promise<string> {
+  // Relies on the prompt being passed as a CLI argument in flows (e.g. the
+  // Telegram bridge) that also expect `OneShotPresentationService` to read
+  // approval decisions from this same stdin stream — reading the prompt here
+  // AND approval lines there would race over one stream.
   // If stdin already ended, the "end" event has fired and won't fire again —
   // registering a new listener would hang forever.
   if (process.stdin.readableEnded) {

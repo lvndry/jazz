@@ -215,7 +215,10 @@ export class ToolExecutor {
           if (renderer) {
             yield* renderer.handleEvent({
               type: "approval_required",
+              toolCallId: toolCall.id,
               toolName: name,
+              message: approvalResult.message,
+              ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
               riskLevel,
               ...(autoApprovePolicy !== undefined
                 ? { autoApprovePolicy: String(autoApprovePolicy) }
@@ -247,6 +250,7 @@ export class ToolExecutor {
           const outcome = isAutoApproved
             ? { approved: true as const }
             : yield* presentationService.requestApproval({
+                toolCallId: toolCall.id,
                 toolName: name,
                 message: approvalResult.message,
                 executeToolName: approvalResult.executeToolName,
@@ -258,6 +262,7 @@ export class ToolExecutor {
           if (renderer) {
             yield* renderer.handleEvent({
               type: "approval_resolved",
+              toolCallId: toolCall.id,
               toolName: name,
               approved: outcome.approved,
               auto: isAutoApproved,

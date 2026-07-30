@@ -50,7 +50,13 @@ const PROGRESS_REASONING_CHARS = 180;
 const BRIDGE_STARTED_AT = Date.now();
 // In-flight runs keyed by a per-run token, so the ⏹ Cancel button can kill the
 // right jazz process.
-const activeRuns = new Map<string, { child: Bun.Subprocess; cancelled: boolean }>();
+const activeRuns = new Map<
+  string,
+  { child: Bun.Subprocess<"pipe", "pipe", "pipe">; cancelled: boolean }
+>();
+// Pending human approvals keyed by toolCallId, so an Accept/Reject tap can
+// find the run to write the decision back to and the message to clear.
+const pendingApprovals = new Map<string, { chatId: number; messageId: number; runToken: string }>();
 
 type TransportMode = "polling" | "webhook";
 
@@ -368,6 +374,17 @@ function cancelKeyboard(runToken: string): Record<string, unknown> {
   return { inline_keyboard: [[{ text: "⏹ Cancel", callback_data: `x:${runToken}` }]] };
 }
 
+function approvalKeyboard(toolCallId: string): Record<string, unknown> {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Accept", callback_data: `a:${toolCallId}:1` },
+        { text: "❌ Reject", callback_data: `a:${toolCallId}:0` },
+      ],
+    ],
+  };
+}
+
 function followupKeyboard(): Record<string, unknown> {
   return {
     inline_keyboard: [
@@ -388,6 +405,9 @@ interface JazzEvent {
   readonly content?: string;
   readonly approved?: boolean;
   readonly task?: string;
+  readonly toolCallId?: string;
+  readonly message?: string;
+  readonly previewDiff?: string;
 }
 
 /** Read a byte stream and invoke onLine for each newline-delimited line. */
@@ -524,6 +544,46 @@ function createProgressReporter(
   };
 }
 
+// --- Human approval --------------------------------------------------------
+
+const APPROVAL_MESSAGE_MAX_CHARS = 500;
+const APPROVAL_PREVIEW_DIFF_MAX_CHARS = 500;
+
+/**
+ * Send a new Telegram message with Accept/Reject buttons for a tool awaiting
+ * human approval. A new message (not an edit of the progress bubble) so
+ * concurrent approvals within the same run don't collide.
+ */
+async function sendApprovalRequest(
+  config: BridgeConfig,
+  chatId: number,
+  runToken: string,
+  event: JazzEvent,
+): Promise<void> {
+  const toolCallId = event.toolCallId;
+  if (!toolCallId) return;
+
+  const toolName = event.toolName ?? "tool";
+  const message = (event.message ?? "").slice(0, APPROVAL_MESSAGE_MAX_CHARS);
+  const lines = ["⚠️ <b>Approval needed</b>", `<code>${escapeHtml(toolName)}</code>`];
+  if (message.length > 0) lines.push(escapeHtml(message));
+  if (event.previewDiff) {
+    const diff = event.previewDiff.slice(0, APPROVAL_PREVIEW_DIFF_MAX_CHARS);
+    lines.push(`<pre>${escapeHtml(diff)}</pre>`);
+  }
+
+  const sent = (await callTelegram(config, "sendMessage", {
+    chat_id: chatId,
+    text: lines.join("\n"),
+    parse_mode: "HTML",
+    reply_markup: approvalKeyboard(toolCallId),
+  })) as { result?: { message_id?: number } } | undefined;
+  const messageId = sent?.result?.message_id;
+  if (typeof messageId === "number") {
+    pendingApprovals.set(toolCallId, { chatId, messageId, runToken });
+  }
+}
+
 // --- Jazz invocation ------------------------------------------------------
 
 async function runJazz(
@@ -554,7 +614,7 @@ async function runJazz(
       String(config.runTimeoutMs),
       prompt,
     ],
-    { stdout: "pipe", stderr: "pipe", env: { ...process.env } },
+    { stdout: "pipe", stderr: "pipe", stdin: "pipe", env: { ...process.env } },
   );
   // Register so the ⏹ Cancel button can find and kill this process.
   activeRuns.set(runToken, { child, cancelled: false });
@@ -568,6 +628,11 @@ async function runJazz(
     try {
       const event = JSON.parse(trimmed) as JazzEvent;
       if (typeof event.type === "string") onEvent(event);
+      if (event.type === "approval_required" && event.toolCallId) {
+        void sendApprovalRequest(config, chatId, runToken, event).catch((error) =>
+          console.error(`Failed to send approval request for chat ${chatId}: ${String(error)}`),
+        );
+      }
     } catch {
       // Non-event stderr line (plain log chatter) — ignore.
     }
@@ -693,6 +758,11 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   } finally {
     // Always release the run slot, even if runJazz or a reply throws.
     activeRuns.delete(runToken);
+    // Sweep any approvals left pending for this run (e.g. the run finished or
+    // errored before a human tapped Accept/Reject).
+    for (const [toolCallId, pending] of pendingApprovals) {
+      if (pending.runToken === runToken) pendingApprovals.delete(toolCallId);
+    }
   }
 }
 
@@ -1188,7 +1258,8 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   }
 
   if (kind === "x") {
-    const run = activeRuns.get(indexRaw ?? "");
+    const runToken = indexRaw ?? "";
+    const run = activeRuns.get(runToken);
     if (run) {
       run.cancelled = true;
       run.child.kill();
@@ -1196,6 +1267,53 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
       text: run ? "Cancelling…" : "Already finished.",
+    });
+    // A cancelled run can no longer answer pending approvals — sweep them so a
+    // stale Accept/Reject tap gets "already expired" instead of writing to a
+    // dead pipe, and best-effort clear their keyboards.
+    for (const [toolCallId, pending] of pendingApprovals) {
+      if (pending.runToken !== runToken) continue;
+      pendingApprovals.delete(toolCallId);
+      await callTelegram(config, "editMessageReplyMarkup", {
+        chat_id: pending.chatId,
+        message_id: pending.messageId,
+        reply_markup: { inline_keyboard: [] },
+      }).catch(() => undefined);
+    }
+    return;
+  }
+
+  if (kind === "a") {
+    const toolCallId = parts[1] ?? "";
+    const approved = parts[2] === "1";
+    const pending = pendingApprovals.get(toolCallId);
+    const run = pending ? activeRuns.get(pending.runToken) : undefined;
+    if (!pending || !run) {
+      await callTelegram(config, "answerCallbackQuery", {
+        callback_query_id: callback.id,
+        text: "This approval already expired or the run finished.",
+      });
+      return;
+    }
+    pendingApprovals.delete(toolCallId);
+    try {
+      // Bun's FileSink buffers writes; flush() pushes it through the pipe now
+      // rather than waiting for the buffer to fill on its own.
+      run.child.stdin.write(
+        `${JSON.stringify({ type: "approval_decision", toolCallId, approved })}\n`,
+      );
+      run.child.stdin.flush();
+    } catch (error) {
+      console.error(`Failed to write approval decision: ${String(error)}`);
+    }
+    await callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text: approved ? "Approved" : "Rejected",
+    });
+    await callTelegram(config, "editMessageReplyMarkup", {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: { inline_keyboard: [] },
     });
     return;
   }

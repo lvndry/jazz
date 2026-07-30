@@ -40,6 +40,36 @@ function truncateLongStrings(_key: string, value: unknown): unknown {
   return value;
 }
 
+/** Shape of a line written back to `stdinStream` to resolve a pending approval. */
+interface ApprovalDecisionLine {
+  readonly type: "approval_decision";
+  readonly toolCallId: string;
+  readonly approved: boolean;
+}
+
+function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const candidate = parsed as Record<string, unknown>;
+  if (
+    candidate["type"] === "approval_decision" &&
+    typeof candidate["toolCallId"] === "string" &&
+    typeof candidate["approved"] === "boolean"
+  ) {
+    return {
+      type: "approval_decision",
+      toolCallId: candidate["toolCallId"],
+      approved: candidate["approved"],
+    };
+  }
+  return undefined;
+}
+
 /**
  * Presentation service for headless, one-shot agent runs (`jazz run`).
  *
@@ -47,19 +77,57 @@ function truncateLongStrings(_key: string, value: unknown): unknown {
  * emits reaches stdout. Operational chatter (status, warnings, stray writes)
  * is routed to stderr instead. Interactive prompts cannot be answered without
  * a human, so:
- *  - approvals are DECLINED (the run's `autoApprovePolicy` already auto-approved
- *    everything it was allowed to; anything still asking is above the policy
- *    threshold and is refused rather than blanket-approved),
+ *  - approvals are DECLINED instantly UNLESS `--events approval` (or `all`) is
+ *    active, in which case a human may be watching the emitted
+ *    `approval_required` NDJSON event and can answer by writing an
+ *    `approval_decision` line back on `stdinStream` (e.g. the Telegram bridge).
+ *    When no consumer could possibly be watching, the run's
+ *    `autoApprovePolicy` already auto-approved everything it was allowed to;
+ *    anything still asking is above the policy threshold and is refused
+ *    rather than blanket-approved or left hanging forever,
  *  - user-input / file-picker requests return empty.
  *
  * This differs from QuietPresentationService, which blanket-approves every tool
  * and is meant for trusted background runs.
  */
 export class OneShotPresentationService implements PresentationService {
+  private readonly pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>();
+  private stdinReaderStarted = false;
+
   constructor(
     _displayConfig = DEFAULT_DISPLAY_CONFIG,
     private readonly emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
+    private readonly stdinStream: NodeJS.ReadableStream = process.stdin,
   ) {}
+
+  /**
+   * Start listening for `approval_decision` lines on stdin, once. Called lazily
+   * from `requestApproval` so runs that never hit a gated tool never attach a
+   * listener. Malformed or unmatched lines are ignored.
+   */
+  private ensureStdinReaderStarted(): void {
+    if (this.stdinReaderStarted) return;
+    this.stdinReaderStarted = true;
+
+    let buffer = "";
+    this.stdinStream.setEncoding?.("utf-8");
+    this.stdinStream.on("data", (chunk: string | Buffer) => {
+      buffer += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf("\n");
+        if (line.length === 0) continue;
+        const decision = parseApprovalDecisionLine(line);
+        if (!decision) continue;
+        const resolve = this.pendingApprovals.get(decision.toolCallId);
+        if (!resolve) continue;
+        this.pendingApprovals.delete(decision.toolCallId);
+        resolve({ approved: decision.approved });
+      }
+    });
+  }
 
   presentThinking(_agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {
     return Effect.void;
@@ -201,15 +269,31 @@ export class OneShotPresentationService implements PresentationService {
   }
 
   requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
-    // Headless: no human to approve. Decline, but steer the model away from the
-    // default "ask the user to try again" recovery (there is no user) and toward
-    // either an allowed tool or a clear explanation of what it could not do.
-    const userMessage =
-      `The "${request.toolName}" tool requires approval and was automatically declined ` +
-      `because this is a non-interactive run. Do not ask the user to approve or retry — ` +
-      `there is no one to respond. Either accomplish the task using tools that do not ` +
-      `require approval, or clearly explain what could not be done and why.`;
-    return Effect.succeed({ approved: false, userMessage });
+    if (!this.eventsActive) {
+      // Headless: no human to approve. Decline, but steer the model away from the
+      // default "ask the user to try again" recovery (there is no user) and toward
+      // either an allowed tool or a clear explanation of what it could not do.
+      const userMessage =
+        `The "${request.toolName}" tool requires approval and was automatically declined ` +
+        `because this is a non-interactive run. Do not ask the user to approve or retry — ` +
+        `there is no one to respond. Either accomplish the task using tools that do not ` +
+        `require approval, or clearly explain what could not be done and why.`;
+      return Effect.succeed({ approved: false, userMessage });
+    }
+
+    // Events are active, so an external consumer (e.g. the Telegram bridge) may
+    // be watching the `approval_required` NDJSON event and can write a matching
+    // `approval_decision` line back on stdin. Block until that happens (or the
+    // run is interrupted/killed by its own timeout — no separate timeout here).
+    this.ensureStdinReaderStarted();
+    const toolCallId = request.toolCallId;
+    const pendingApprovals = this.pendingApprovals;
+    return Effect.async<ApprovalOutcome, never>((resume) => {
+      pendingApprovals.set(toolCallId, (outcome) => resume(Effect.succeed(outcome)));
+      return Effect.sync(() => {
+        pendingApprovals.delete(toolCallId);
+      });
+    });
   }
 
   signalToolExecutionStarted(): Effect.Effect<void, never> {
