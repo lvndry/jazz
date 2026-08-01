@@ -28,6 +28,7 @@ import { createSkillTools } from "./skill-tools";
 import { createSubagentTools } from "./subagent-tools";
 import { createListTodosTool, createManageTodosTool } from "./todo-tools";
 import { userInteractionTools } from "./user-interaction-tools";
+import { createWebAppTool } from "./web-app-tools";
 import { createWebFetchTool } from "./web-fetch-tools";
 import { createWebSearchTool } from "./web-search-tools";
 
@@ -66,6 +67,7 @@ export function registerAllTools(): Effect.Effect<void, Error, MCPRegistrationDe
     yield* registerContextTools();
     yield* registerSubagentTools();
     yield* registerUserInteractionTools();
+    yield* registerWebAppTools();
     yield* registerMCPToolsLazy();
   });
 }
@@ -438,6 +440,7 @@ export const USER_INTERACTION_CATEGORY: ToolCategory = {
   id: "user_interaction",
   displayName: "User Interaction",
 };
+export const WEB_APP_CATEGORY: ToolCategory = { id: "web_app", displayName: "Web App" };
 
 /**
  * Get MCP server names as tool categories without connecting to servers
@@ -728,6 +731,18 @@ export function registerContextTools(): Effect.Effect<void, Error, ToolRegistry>
 
     yield* registerTool(createContextInfoTool());
     yield* registerTool(createGetTimeTool());
+  });
+}
+
+// Register web app tools (create_web_app) — opt-in per agent via
+// AgentConfig.tools, like memory/reminders, since generating and screenshotting
+// arbitrary HTML is a heavier capability than the always-on read-only tools.
+export function registerWebAppTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(WEB_APP_CATEGORY);
+
+    yield* registerTool(createWebAppTool());
   });
 }
 

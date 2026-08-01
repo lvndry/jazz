@@ -80,6 +80,22 @@ interface BridgeConfig {
   readonly geocodeUrl: string;
   /** Generate contextual follow-up CTAs per answer (a second short LLM call). */
   readonly dynamicCta: boolean;
+  /**
+   * Public HTTPS origin this bridge's own HTTP server is reachable at, used to
+   * build Web App button URLs for `create_web_app`'s "interactive" mode (e.g.
+   * a Tailscale Funnel origin). Falls back to TELEGRAM_WEBHOOK_URL's origin in
+   * webhook mode. Undefined disables interactive web apps (static/image mode
+   * still works — it needs no public URL).
+   */
+  readonly webAppBaseUrl: string | undefined;
+}
+
+interface JazzWebApp {
+  readonly id: string;
+  readonly mode: "static" | "interactive";
+  readonly title: string;
+  readonly htmlPath: string;
+  readonly imagePath?: string;
 }
 
 interface JazzSuccessEnvelope {
@@ -87,6 +103,7 @@ interface JazzSuccessEnvelope {
   readonly answer: string;
   readonly costUSD: number;
   readonly tokenUsage?: { readonly totalTokens?: number };
+  readonly webApp?: JazzWebApp;
 }
 
 interface JazzErrorEnvelope {
@@ -123,12 +140,16 @@ function loadConfig(): BridgeConfig {
 
   const mode: TransportMode =
     process.env["TELEGRAM_MODE"]?.trim() === "webhook" ? "webhook" : "polling";
+  const webhookUrl = process.env["TELEGRAM_WEBHOOK_URL"]?.trim() || undefined;
+  const webAppBaseUrl =
+    process.env["TELEGRAM_WEBAPP_BASE_URL"]?.trim() ||
+    (mode === "webhook" && webhookUrl !== undefined ? new URL(webhookUrl).origin : undefined);
 
   return {
     botToken: requireEnv("TELEGRAM_BOT_TOKEN"),
     mode,
     webhookSecret: process.env["TELEGRAM_WEBHOOK_SECRET"]?.trim() || "",
-    webhookUrl: process.env["TELEGRAM_WEBHOOK_URL"]?.trim() || undefined,
+    webhookUrl,
     allowedChatIds,
     baseAgentId: process.env["JAZZ_TELEGRAM_AGENT"]?.trim() || "telegram",
     approvalPolicy: process.env["JAZZ_APPROVAL_POLICY"]?.trim() || "low-risk",
@@ -147,7 +168,12 @@ function loadConfig(): BridgeConfig {
     dynamicCta: !["0", "false", "off"].includes(
       process.env["JAZZ_TELEGRAM_DYNAMIC_CTA"]?.trim().toLowerCase() ?? "",
     ),
+    webAppBaseUrl,
   };
+}
+
+function webAppsDirectory(config: BridgeConfig): string {
+  return `${config.jazzHome}/webapps`;
 }
 
 async function callTelegram(
@@ -163,6 +189,29 @@ async function callTelegram(
   const body = (await response.json().catch(() => undefined)) as { ok?: boolean } | undefined;
   if (!response.ok || body?.ok !== true) {
     console.error(`Telegram ${method} failed: ${response.status} ${JSON.stringify(body)}`);
+  }
+  return body;
+}
+
+/** Upload a local image file as a Telegram photo message (multipart, not JSON). */
+async function sendPhotoFile(
+  config: BridgeConfig,
+  chatId: number,
+  filePath: string,
+  caption?: string,
+): Promise<unknown> {
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append("photo", Bun.file(filePath), "chart.png");
+  if (caption) form.append("caption", caption);
+
+  const response = await fetch(`${TELEGRAM_API_BASE}/bot${config.botToken}/sendPhoto`, {
+    method: "POST",
+    body: form,
+  });
+  const body = (await response.json().catch(() => undefined)) as { ok?: boolean } | undefined;
+  if (!response.ok || body?.ok !== true) {
+    console.error(`Telegram sendPhoto failed: ${response.status} ${JSON.stringify(body)}`);
   }
   return body;
 }
@@ -381,6 +430,10 @@ function approvalKeyboard(toolCallId: string): Record<string, unknown> {
       ],
     ],
   };
+}
+
+function webAppKeyboard(url: string, title: string): Record<string, unknown> {
+  return { inline_keyboard: [[{ text: `📱 ${title}`, web_app: { url } }]] };
 }
 
 function followupKeyboard(): Record<string, unknown> {
@@ -666,6 +719,41 @@ async function runJazz(
   }
 }
 
+/**
+ * Deliver a `create_web_app` result: a static chart/diagram is uploaded
+ * directly as a photo (no tap needed); an interactive page needs a public URL
+ * to open in — falls back to a warning if TELEGRAM_WEBAPP_BASE_URL isn't set.
+ */
+async function deliverWebApp(
+  config: BridgeConfig,
+  chatId: number,
+  webApp: JazzWebApp,
+): Promise<void> {
+  if (webApp.mode === "static") {
+    if (webApp.imagePath === undefined) {
+      console.error(`create_web_app returned static mode with no imagePath (id=${webApp.id})`);
+      return;
+    }
+    await sendPhotoFile(config, chatId, webApp.imagePath, webApp.title);
+    return;
+  }
+
+  if (config.webAppBaseUrl === undefined) {
+    await sendReply(
+      config,
+      chatId,
+      "⚠️ Generated an interactive UI, but no public URL is configured for this bot " +
+        "(set <code>TELEGRAM_WEBAPP_BASE_URL</code>) — can't open it.",
+    );
+    return;
+  }
+
+  const url = `${config.webAppBaseUrl}/webapps/${webApp.id}`;
+  await sendReply(config, chatId, `Tap to open: <b>${escapeHtml(webApp.title)}</b>`, {
+    markup: webAppKeyboard(url, webApp.title),
+  });
+}
+
 async function handleMessage(config: BridgeConfig, chatId: number, text: string): Promise<void> {
   ensureChatAgent(config.jazzHome, chatId, config.baseAgentId);
 
@@ -733,6 +821,9 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       });
       if (config.dynamicCta && answerMessageId !== undefined) {
         void upgradeToDynamicCtas(config, chatId, answerMessageId, text, envelope.answer);
+      }
+      if (envelope.webApp) {
+        await deliverWebApp(config, chatId, envelope.webApp);
       }
     } else {
       await reporter?.finish("⚠️ <b>Failed</b>");
@@ -1397,6 +1488,17 @@ function startHealthServer(config: BridgeConfig): void {
 
       if (request.method === "GET" && url.pathname === "/health") {
         return new Response("ok", { status: 200 });
+      }
+
+      const webAppMatch =
+        request.method === "GET" ? /^\/webapps\/([A-Za-z0-9_-]+)$/.exec(url.pathname) : null;
+      if (webAppMatch) {
+        const id = webAppMatch[1];
+        const file = Bun.file(`${webAppsDirectory(config)}/${id}.html`);
+        if (!(await file.exists())) {
+          return new Response("not found", { status: 404 });
+        }
+        return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });
       }
 
       if (

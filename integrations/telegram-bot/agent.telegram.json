@@ -46,7 +46,8 @@
       "http_request",
       "add_reminder",
       "list_reminders",
-      "cancel_reminder"
+      "cancel_reminder",
+      "create_web_app"
     ]
   },
   "createdAt": "2026-07-20T00:00:00.000Z",
