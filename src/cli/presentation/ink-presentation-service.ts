@@ -33,7 +33,12 @@ import {
   formatToolExecutionErrorEffect,
   formatToolsDetectedEffect,
 } from "./format-utils";
-import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
+import {
+  formatMarkdown,
+  formatMarkdownHybrid,
+  wrapToWidth,
+  getTerminalWidth,
+} from "./markdown-formatter";
 import { isInsideOpenStructure } from "./markdown-split";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { getGlyphs } from "../ui/glyphs";
@@ -1395,10 +1400,9 @@ class InkPresentationService implements PresentationService {
       },
       resolve: (value: unknown) => {
         const response = String(value);
-        const rawMessage = `${chalk.dim("Your response:")} ${CHALK_THEME.success(response)}`;
         store.printOutput({
-          type: "log",
-          message: rawMessage,
+          type: "user",
+          message: wrapToWidth(response, getTerminalWidth() - 8),
           timestamp: new Date(),
         });
         store.setPrompt(null);
