@@ -21,6 +21,7 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - 📡 **Live progress** — a status bubble updates in real time with the agent's thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message (so it notifies).
 - ⏰ **Reminders** — `/remind 30m …` or plain language ("remind me in 2 hours …"), scheduled by the agent itself via a native tool, resolved in your own timezone (`/tz`, or auto-set from a shared location) and delivered even across restarts.
 - 📍 **Location aware** — share a pin to get oriented, find nearby places, and set your timezone automatically.
+- 📊 **On-demand UI** — the agent can write a self-contained webpage (a chart, a form, a small interactive tool) via `create_web_app` and deliver it as either a chat image (no tap) or a tappable Telegram Web App button.
 - 💬 **Per-chat memory**, ✍️ **Markdown rendering** (with plain-text fallback), 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
 
 ## Requirements
@@ -125,6 +126,7 @@ run Ollama; cloud users typically just keep the default.)
 | `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                               |
 | `TELEGRAM_MODE`                      | `polling`                               | `polling` or `webhook`.                                                                                  |
 | `PORT`                               | `8080`                                  | In-container health-check port.                                                                          |
+| `TELEGRAM_WEBAPP_BASE_URL`           | webhook URL's origin, else unset        | Public HTTPS origin used to serve `create_web_app`'s "interactive" pages as Telegram Web App buttons. Unset disables interactive mode (the static/image mode always works).                                    |
 
 > **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
 > `medium`/`high`; models without it (mistral-small, gemma, …) error unless

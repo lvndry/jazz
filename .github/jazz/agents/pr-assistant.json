@@ -2,11 +2,11 @@
   "id": "pr-assistant",
   "name": "pr-assistant",
   "description": "Pull request assistant agent for /jazz PR comments",
-  "model": "cohere/north-mini-code:free",
+  "model": "inclusionai/ling-3.0-flash:free",
   "config": {
     "persona": "coder",
     "llmProvider": "openrouter",
-    "llmModel": "cohere/north-mini-code:free",
+    "llmModel": "inclusionai/ling-3.0-flash:free",
     "reasoningEffort": "medium",
     "tools": [
       "context_info",

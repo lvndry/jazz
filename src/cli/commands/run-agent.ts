@@ -42,11 +42,54 @@ export interface OneShotToolCall {
   readonly arguments: string;
 }
 
+/**
+ * Structured result of a `create_web_app` tool call, surfaced alongside the
+ * text answer so callers (e.g. the Telegram bridge) can deliver it as an
+ * image or a Web App button without having to parse it out of `answer`.
+ */
+export interface OneShotWebApp {
+  readonly id: string;
+  readonly mode: "static" | "interactive";
+  readonly title: string;
+  readonly htmlPath: string;
+  readonly imagePath?: string;
+}
+
 export interface OneShotSuccess {
   readonly answer: string;
   readonly costUSD: number;
   readonly tokenUsage: OneShotTokenUsage;
   readonly toolCalls: readonly OneShotToolCall[];
+  readonly webApp?: OneShotWebApp;
+}
+
+/**
+ * Narrow `create_web_app`'s structured tool result (last call wins if invoked
+ * more than once in a turn) out of the agent run's `toolResults` map.
+ */
+export function extractWebAppResult(
+  toolResults: Record<string, unknown> | undefined,
+): OneShotWebApp | undefined {
+  const raw = toolResults?.["create_web_app"];
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const data = raw as Record<string, unknown>;
+  if (
+    typeof data["id"] !== "string" ||
+    (data["mode"] !== "static" && data["mode"] !== "interactive") ||
+    typeof data["title"] !== "string" ||
+    typeof data["htmlPath"] !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    id: data["id"],
+    mode: data["mode"],
+    title: data["title"],
+    htmlPath: data["htmlPath"],
+    ...(typeof data["imagePath"] === "string" ? { imagePath: data["imagePath"] } : {}),
+  };
 }
 
 export interface OneShotOutputOptions {
@@ -71,6 +114,7 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
     costUSD: result.costUSD,
     tokenUsage: result.tokenUsage,
     toolCalls: result.toolCalls,
+    ...(result.webApp ? { webApp: result.webApp } : {}),
   })}\n`;
 }
 
@@ -373,6 +417,7 @@ export function runAgentOnceCommand(
       name: toolCall.function?.name ?? "",
       arguments: toolCall.function?.arguments ?? "",
     }));
+    const webApp = extractWebAppResult(runResult.toolResults);
 
     yield* writeStdout(
       formatOneShotResult(
@@ -385,6 +430,7 @@ export function runAgentOnceCommand(
             totalTokens: promptTokens + completionTokens,
           },
           toolCalls,
+          ...(webApp ? { webApp } : {}),
         },
         outputOptions,
       ),
