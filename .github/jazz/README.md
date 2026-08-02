@@ -28,11 +28,11 @@ repo. This is the guide for doing that.
 
 ## Required secrets
 
-| Secret | Needed? | Purpose |
-|---|---|---|
-| `GITHUB_TOKEN` | automatic | Read PR context, post comments (no action needed) |
-| `OPENROUTER_API_KEY` | if using OpenRouter | Model access for the agents |
-| `OPENAI_API_KEY` | if using OpenAI | Model access for the agents |
+| Secret               | Needed?             | Purpose                                           |
+| -------------------- | ------------------- | ------------------------------------------------- |
+| `GITHUB_TOKEN`       | automatic           | Read PR context, post comments (no action needed) |
+| `OPENROUTER_API_KEY` | if using OpenRouter | Model access for the agents                       |
+| `OPENAI_API_KEY`     | if using OpenAI     | Model access for the agents                       |
 
 You only need the key that matches the provider in your agent configs.
 
@@ -59,10 +59,8 @@ SHAs into the `WORKFLOW.md` template (`__PR_BASE_SHA__`, `__PR_HEAD_SHA__`,
 Two files almost certainly need editing — the defaults are tuned for **this**
 (TypeScript / Bun / Effect-TS) repo:
 
-1. **`agents/*.json` — pick your model.** Both agents default to
-   `cohere/north-mini-code:free` via OpenRouter with `reasoningEffort: medium`.
-   Swap `model` / `llmModel` / `llmProvider` for whatever you want. A stronger
-   (paid) model gives noticeably better reviews on large diffs.
+1. **`agents/*.json` — pick your model.**.
+   Swap `model` / `llmModel` / `llmProvider` for whatever you want. A stronger model gives noticeably better reviews on large diffs.
 2. **`workflows/code-review/WORKFLOW.md` — match your codebase.** Its **"Runtime
    Model"** section describes Jazz's specifics (single-threaded JS, Effect-TS
    error channels, Bun). Replace it with your language, framework, and the risk
@@ -74,11 +72,11 @@ truncation-safety guidance) is project-agnostic and can be copied as-is.
 
 ## Commands
 
-| You do | What runs |
-|---|---|
-| Open a PR / mark ready | Automatic code review (inline comments) |
-| Comment `/jazz-review` | Re-run the code review |
-| Comment `/jazz <question>` | PR assistant answers your request |
+| You do                     | What runs                                             |
+| -------------------------- | ----------------------------------------------------- |
+| Open a PR / mark ready     | Automatic code review (inline comments)               |
+| Comment `/jazz-review`     | Re-run the code review                                |
+| Comment `/jazz <question>` | PR assistant answers your request                     |
 | Actions tab → Run workflow | Manual dispatch (choose `code-review` or `assistant`) |
 
 Note: `/jazz review` (space) is **not** `/jazz-review` (hyphen). The space form
