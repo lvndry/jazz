@@ -328,6 +328,10 @@ function registerAgentCommands(program: Command): void {
       "Maximum agent reasoning iterations per turn (default 80)",
       parsePositiveInt("--max-iterations"),
     )
+    .option(
+      "--ephemeral",
+      "Skip persistence for this session entirely: no conversation history save, no session log, and long-term memory writes are withheld. Nothing about the session touches disk.",
+    )
     .action(
       (
         agentIdentifier: string,
@@ -335,6 +339,7 @@ function registerAgentCommands(program: Command): void {
           stream?: boolean;
           noStream?: boolean;
           maxIterations?: number;
+          ephemeral?: boolean;
         },
       ) => {
         const opts = program.opts<CliOptions>();
@@ -346,6 +351,7 @@ function registerAgentCommands(program: Command): void {
             ...(options.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
               : {}),
+            ...(options.ephemeral === true ? { ephemeral: true } : {}),
           }),
           {
             verbose: opts.verbose,

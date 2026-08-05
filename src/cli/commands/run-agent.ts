@@ -64,10 +64,11 @@ export interface OneShotSuccess {
   /**
    * Full message transcript for this run, included only for `--ephemeral`
    * calls. Since ephemeral runs never load/save `--conversation` history on
-   * disk, a caller that wants multi-turn context (e.g. the Telegram bridge's
-   * incognito mode) round-trips this array back in as `--history-json` on
-   * the next call instead — the conversation lives in the caller's memory,
-   * never on disk.
+   * disk, any caller that wants multi-turn context (a webhook bridge, a
+   * script — this is generic to `jazz run`, not tied to any one integration)
+   * round-trips this array back in as `--history-json` on the next call
+   * instead. The conversation lives in the caller's own memory, never on
+   * disk.
    */
   readonly messages?: readonly ChatMessage[];
 }
