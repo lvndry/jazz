@@ -3,6 +3,6 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["src/**/*", "src/**/*.test.ts", "evals/**/*.test.ts"],
+  "include": ["src/**/*", "src/**/*.test.ts", "evals/**/*.test.ts", "integrations/**/*.test.ts"],
   "exclude": ["node_modules", "dist"]
 }

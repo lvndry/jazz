@@ -111,6 +111,14 @@ function registerRunCommand(program: Command): void {
       "Force streaming mode. Required for --events to emit in non-TTY contexts (scripts, webhooks), where streaming is otherwise auto-disabled.",
     )
     .option("--no-stream", "Disable streaming mode")
+    .option(
+      "--ephemeral",
+      "Skip persistence entirely: --conversation is ignored (no history load/save) and long-term memory writes are withheld. Nothing about this run touches disk.",
+    )
+    .option(
+      "--history-json <json>",
+      "Inline JSON array of prior ChatMessages, used only with --ephemeral in place of --conversation — pass back the `messages` field from a previous --ephemeral --json response to keep multi-turn context without persistence.",
+    )
     .action(
       (
         prompt: string | undefined,
@@ -127,6 +135,8 @@ function registerRunCommand(program: Command): void {
           conversation?: string;
           stream?: boolean;
           noStream?: boolean;
+          ephemeral?: boolean;
+          historyJson?: string;
         },
       ) => {
         const opts = program.opts<CliOptions>();
@@ -218,6 +228,8 @@ function registerRunCommand(program: Command): void {
               : options.stream === true
                 ? { stream: true }
                 : {}),
+            ...(options.ephemeral === true ? { ephemeral: true } : {}),
+            ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
           }),
           {
             verbose: opts.verbose,
