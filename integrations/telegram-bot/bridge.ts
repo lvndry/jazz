@@ -1033,6 +1033,24 @@ async function upgradeToDynamicCtas(
 
 // --- Commands & inline keyboards ------------------------------------------
 
+/**
+ * Registered with Telegram via `setMyCommands` so these show up in the
+ * client's "/" autocomplete menu — separate from, and kept in sync by hand
+ * with, the prose list in HELP_TEXT below. `command` must be lowercase
+ * letters/digits/underscores only (no slash, no arguments).
+ */
+const BOT_COMMANDS: { command: string; description: string }[] = [
+  { command: "model", description: "Pick which Ollama model I use (just for you)" },
+  { command: "persona", description: "Pick my persona / style" },
+  { command: "new", description: "Start a fresh conversation (clears earlier context)" },
+  { command: "incognito", description: "Start a private conversation (nothing saved) until /new" },
+  { command: "remind", description: "Set a reminder, e.g. /remind 30m take pizza out" },
+  { command: "reminders", description: "List and cancel your reminders" },
+  { command: "tz", description: "Set your timezone, e.g. /tz Europe/Paris" },
+  { command: "status", description: "Model, today's usage, uptime" },
+  { command: "help", description: "Show available commands" },
+];
+
 const HELP_TEXT = [
   "I'm your Jazz assistant. Just send a message and I'll answer.",
   "",
@@ -1630,6 +1648,9 @@ async function start(): Promise<void> {
   startReminderSweep(config.jazzHome, (reminderChatId, html) =>
     sendReply(config, reminderChatId, html),
   );
+  // Populates Telegram's "/" autocomplete menu. Cheap and idempotent, so it's
+  // just re-sent on every start rather than only when BOT_COMMANDS changes.
+  await callTelegram(config, "setMyCommands", { commands: BOT_COMMANDS });
   console.log(
     `Telegram → Jazz bridge started (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}")`,
   );
