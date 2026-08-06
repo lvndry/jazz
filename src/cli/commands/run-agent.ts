@@ -61,6 +61,16 @@ export interface OneShotSuccess {
   readonly tokenUsage: OneShotTokenUsage;
   readonly toolCalls: readonly OneShotToolCall[];
   readonly webApp?: OneShotWebApp;
+  /**
+   * Full message transcript for this run, included only for `--ephemeral`
+   * calls. Since ephemeral runs never load/save `--conversation` history on
+   * disk, any caller that wants multi-turn context (a webhook bridge, a
+   * script — this is generic to `jazz run`, not tied to any one integration)
+   * round-trips this array back in as `--history-json` on the next call
+   * instead. The conversation lives in the caller's own memory, never on
+   * disk.
+   */
+  readonly messages?: readonly ChatMessage[];
 }
 
 /**
@@ -115,6 +125,7 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
     tokenUsage: result.tokenUsage,
     toolCalls: result.toolCalls,
     ...(result.webApp ? { webApp: result.webApp } : {}),
+    ...(result.messages ? { messages: result.messages } : {}),
   })}\n`;
 }
 
@@ -173,6 +184,19 @@ export interface RunAgentOnceOptions {
    * per-chat memory across invocations. Absent = one-shot (no persistence).
    */
   readonly conversationId?: string | undefined;
+  /**
+   * Skip persistence entirely for this run: `--conversation` is ignored (no
+   * history load/save), and the `manage_memory` tool is withheld (no
+   * long-term memory writes). Nothing about this run ever touches disk.
+   */
+  readonly ephemeral?: boolean | undefined;
+  /**
+   * Inline JSON-encoded `ChatMessage[]` of prior turns, used only with
+   * `ephemeral` in place of `--conversation` — the caller (e.g. a webhook
+   * bridge) holds the transcript itself and passes it back in each call
+   * instead of it living on disk. Malformed JSON is treated as "no history".
+   */
+  readonly historyJson?: string | undefined;
 }
 
 /**
@@ -353,13 +377,26 @@ export function runAgentOnceCommand(
         ? { ...agent, config: { ...agent.config, reasoningEffort: options.reasoningEffort } }
         : agent;
 
-    const conversationKey = options.conversationId?.trim();
+    const ephemeral = options.ephemeral === true;
+    const conversationKey = ephemeral ? undefined : options.conversationId?.trim();
     if (conversationKey !== undefined && conversationKey.length === 0) {
       return yield* failOneShot("Invalid --conversation id: must be non-empty.", outputOptions);
     }
 
     const priorRecord =
       conversationKey !== undefined ? yield* loadConversation(agent.id, conversationKey) : null;
+
+    // Ephemeral runs never touch disk, so prior context (if any) comes back
+    // in as inline JSON from the caller rather than a `--conversation` load.
+    let inlineHistory: ChatMessage[] | undefined;
+    if (ephemeral && options.historyJson !== undefined) {
+      try {
+        const parsed: unknown = JSON.parse(options.historyJson);
+        if (Array.isArray(parsed)) inlineHistory = parsed as ChatMessage[];
+      } catch {
+        // Malformed inline history starts the run fresh rather than failing it.
+      }
+    }
 
     const autoApprovePolicy: AutoApprovePolicy | undefined = options.approvalPolicy;
     const runId = `run-${agent.id}-${Date.now()}`;
@@ -368,7 +405,11 @@ export function runAgentOnceCommand(
       userInput: prompt,
       sessionId: runId,
       conversationId: conversationKey ?? runId,
-      ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
+      ...(inlineHistory !== undefined
+        ? { conversationHistory: inlineHistory }
+        : priorRecord !== null
+          ? { conversationHistory: priorRecord.messages }
+          : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       ...(options.autoApprovedTools?.length
         ? { autoApprovedTools: options.autoApprovedTools }
@@ -376,6 +417,7 @@ export function runAgentOnceCommand(
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
+      ...(ephemeral ? { disablePersistence: true } : {}),
     });
 
     const runResult = yield* options.timeoutMs != null
@@ -431,6 +473,7 @@ export function runAgentOnceCommand(
           },
           toolCalls,
           ...(webApp ? { webApp } : {}),
+          ...(ephemeral ? { messages: runResult.messages ?? [] } : {}),
         },
         outputOptions,
       ),

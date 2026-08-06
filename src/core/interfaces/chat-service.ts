@@ -38,6 +38,13 @@ export interface ChatService {
       initialHistory?: ChatMessage[];
       initialConversationTitle?: string;
       maxIterations?: number;
+      /**
+       * Skip persistence for this session entirely: no conversation history
+       * save (on /new or exit), no per-message session log, and the
+       * `manage_memory` tool is withheld. Nothing about the session touches
+       * disk. Mirrors `jazz run --ephemeral`.
+       */
+      ephemeral?: boolean;
     },
   ) => Effect.Effect<
     void,

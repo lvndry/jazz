@@ -153,6 +153,12 @@ function initializeAgentRun(
       combinedToolNames = combinedToolNames.filter((name) => !denied.has(name));
     }
 
+    // Ephemeral runs (jazz run --ephemeral) withhold the memory-writing tool
+    // outright, so the model is never even offered a way to persist anything.
+    if (options.disablePersistence === true) {
+      combinedToolNames = combinedToolNames.filter((name) => name !== "manage_memory");
+    }
+
     // Filter out any non-existent tools silently — tools may have been removed
     // or MCP servers may be unavailable. The agent can still operate with its
     // remaining tools.

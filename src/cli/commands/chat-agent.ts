@@ -24,6 +24,7 @@ export function chatWithAIAgentCommand(
   options?: {
     stream?: boolean;
     maxIterations?: number;
+    ephemeral?: boolean;
   },
 ) {
   return Effect.gen(function* () {
@@ -63,6 +64,11 @@ export function chatWithAIAgentCommand(
     yield* terminal.info(
       "/help commands & shortcuts · /exit quit · Esc Esc interrupt · Shift+Tab approval mode · Ctrl+R reasoning · Ctrl+O expand output",
     );
+    if (options?.ephemeral === true) {
+      yield* terminal.warn(
+        "🕶️ Ephemeral session — nothing will be saved to history, memory, or the session log.",
+      );
+    }
 
     // Check if model supports tools and warn if not
     const modelMeta = yield* Effect.promise(() =>

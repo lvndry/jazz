@@ -55,6 +55,7 @@ export class ChatServiceImpl implements ChatService {
       initialHistory?: ChatMessage[];
       initialConversationTitle?: string;
       maxIterations?: number;
+      ephemeral?: boolean;
     },
   ): Effect.Effect<
     void,
@@ -118,6 +119,8 @@ export class ChatServiceImpl implements ChatService {
       }).pipe(Effect.catchAll(() => Effect.void));
 
       store.resetRunStats({ provider: agent.config.llmProvider, model: agent.config.llmModel });
+
+      const ephemeral = options?.ephemeral === true;
 
       let chatActive = true;
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
@@ -308,6 +311,7 @@ export class ChatServiceImpl implements ChatService {
             );
 
             if (
+              !ephemeral &&
               commandResult.saveCurrentHistory &&
               conversationTitle !== null &&
               conversationHistory.length > 0
@@ -429,6 +433,7 @@ export class ChatServiceImpl implements ChatService {
             ...(options?.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
               : {}),
+            ...(ephemeral ? { disablePersistence: true } : {}),
             autoApprovePolicy: getCurrentAutoApprovePolicy,
             autoApprovedCommands,
             autoApprovedTools,
@@ -544,12 +549,17 @@ export class ChatServiceImpl implements ChatService {
             };
           }
 
-          // Persist conversation history for next turn and log new messages
+          // Persist conversation history for next turn and log new messages.
+          // The in-memory bookkeeping (conversationHistory/loggedMessageCount)
+          // still runs for ephemeral sessions — only the on-disk session log
+          // (logMessageToSession) is skipped.
           if (response.messages) {
             // Log all new messages that haven't been logged yet
             const newMessages = response.messages.slice(loggedMessageCount);
-            for (const message of newMessages) {
-              yield* logMessageToSession(sessionId, message);
+            if (!ephemeral) {
+              for (const message of newMessages) {
+                yield* logMessageToSession(sessionId, message);
+              }
             }
             loggedMessageCount = response.messages.length;
             conversationHistory = response.messages;
@@ -561,25 +571,29 @@ export class ChatServiceImpl implements ChatService {
             }
           } else if (response.content) {
             // If we have content but no messages array, log both user and assistant messages
-            const userChatMessage: ChatMessage = {
-              role: "user",
-              content: userMessage,
-            };
-            yield* logMessageToSession(sessionId, userChatMessage);
+            if (!ephemeral) {
+              const userChatMessage: ChatMessage = {
+                role: "user",
+                content: userMessage,
+              };
+              yield* logMessageToSession(sessionId, userChatMessage);
 
-            const assistantMessage: ChatMessage = {
-              role: "assistant",
-              content: response.content,
-            };
-            yield* logMessageToSession(sessionId, assistantMessage);
+              const assistantMessage: ChatMessage = {
+                role: "assistant",
+                content: response.content,
+              };
+              yield* logMessageToSession(sessionId, assistantMessage);
+            }
             loggedMessageCount += 2; // user message + assistant message
           } else {
             // If no messages array and no content, still log the user message
-            const userChatMessage: ChatMessage = {
-              role: "user",
-              content: userMessage,
-            };
-            yield* logMessageToSession(sessionId, userChatMessage);
+            if (!ephemeral) {
+              const userChatMessage: ChatMessage = {
+                role: "user",
+                content: userMessage,
+              };
+              yield* logMessageToSession(sessionId, userChatMessage);
+            }
             loggedMessageCount += 1;
           }
 
@@ -628,7 +642,7 @@ export class ChatServiceImpl implements ChatService {
         });
       }
 
-      if (conversationTitle !== null && conversationHistory.length > 0) {
+      if (!ephemeral && conversationTitle !== null && conversationHistory.length > 0) {
         const record: ConversationRecord = {
           conversationId,
           title: conversationTitle,

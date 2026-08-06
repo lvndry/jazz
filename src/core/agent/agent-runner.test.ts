@@ -81,6 +81,7 @@ const mockToolRegistry = {
     Effect.succeed([
       "tool1",
       "tool2",
+      "manage_memory",
       "load_skill",
       "load_skill_section",
       "ask_user_question",
@@ -118,6 +119,13 @@ const mockToolRegistry = {
         function: {
           name: "tool2",
           description: "Tool 2 description",
+          parameters: {},
+        },
+      },
+      {
+        function: {
+          name: "manage_memory",
+          description: "Manage long-term memory",
           parameters: {},
         },
       },
@@ -287,6 +295,46 @@ describe("AgentRunner", () => {
       expect(result).toBeDefined();
       expect(result.content).toBe("Hello world");
       expect(result.conversationId).toBeDefined();
+    });
+  });
+
+  describe("disablePersistence", () => {
+    const agentWithMemoryTool: Agent = {
+      ...mockAgent,
+      config: { ...mockAgent.config, tools: ["tool1", "tool2", "manage_memory"] },
+    };
+
+    function lastRequestedToolNames(): string[] {
+      const lastCall = mockLlmService.createStreamingChatCompletion.mock.calls.at(-1);
+      const llmOptions = lastCall?.[1] as { tools?: { function: { name: string } }[] };
+      return (llmOptions.tools ?? []).map((tool) => tool.function.name);
+    }
+
+    it("withholds manage_memory when disablePersistence is set", async () => {
+      const options = {
+        ...defaultOptions,
+        agent: agentWithMemoryTool,
+        stream: true,
+        maxIterations: 1,
+        disablePersistence: true,
+      };
+
+      await runWithTestLayers(AgentRunner.run(options));
+
+      expect(lastRequestedToolNames()).not.toContain("manage_memory");
+    });
+
+    it("keeps manage_memory when disablePersistence is not set", async () => {
+      const options = {
+        ...defaultOptions,
+        agent: agentWithMemoryTool,
+        stream: true,
+        maxIterations: 1,
+      };
+
+      await runWithTestLayers(AgentRunner.run(options));
+
+      expect(lastRequestedToolNames()).toContain("manage_memory");
     });
   });
 });

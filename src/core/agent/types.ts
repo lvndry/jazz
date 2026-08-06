@@ -115,6 +115,13 @@ export interface AgentRunnerOptions {
    * Defaults to "UTC" (via ToolExecutionContext) when unset.
    */
   readonly timezone?: string;
+  /**
+   * When true, withhold the `manage_memory` tool for this run so nothing gets
+   * written to the agent's long-term memory. Unrelated to `ephemeralRegionId`
+   * above (that one is a streaming-UI concept) — this is the "no persistence"
+   * flag behind `jazz run --ephemeral`.
+   */
+  readonly disablePersistence?: boolean;
 }
 
 /**

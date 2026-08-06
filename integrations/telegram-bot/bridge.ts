@@ -31,7 +31,7 @@ import {
   writeAgentFile,
 } from "./agents";
 import { startReminderSweep } from "./reminders";
-import { conversationKey, startNewConversation } from "./sessions";
+import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./sessions";
 import { escapeHtml, markdownToTelegramHtml, splitForTelegram } from "./telegram-html";
 import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
 import { recordUsage, todayUsage } from "./usage";
@@ -55,6 +55,11 @@ const activeRuns = new Map<
 // Pending human approvals keyed by toolCallId, so an Accept/Reject tap can
 // find the run to write the decision back to and the message to clear.
 const pendingApprovals = new Map<string, { chatId: number; messageId: number; runToken: string }>();
+// Transcript for chats currently in /incognito mode. Lives only in this
+// process's memory — never written to disk — so a bridge restart drops the
+// context rather than ever falling back to a persisted history file. Cleared
+// on /new (which also turns incognito off, see handleCommand).
+const incognitoHistory = new Map<number, unknown[]>();
 
 type TransportMode = "polling" | "webhook";
 
@@ -104,6 +109,13 @@ interface JazzSuccessEnvelope {
   readonly costUSD: number;
   readonly tokenUsage?: { readonly totalTokens?: number };
   readonly webApp?: JazzWebApp;
+  /**
+   * Only present for `--ephemeral` runs (incognito chats): the full
+   * transcript, opaque to the bridge, round-tripped back in as
+   * `--history-json` on that chat's next turn instead of loading it from
+   * disk. See `incognitoHistory` below.
+   */
+  readonly messages?: unknown[];
 }
 
 interface JazzErrorEnvelope {
@@ -644,6 +656,8 @@ async function runJazz(
   onEvent: (event: JazzEvent) => void,
   runToken: string,
 ): Promise<JazzEnvelope> {
+  const incognito = isIncognito(config.jazzHome, chatId);
+  const priorIncognitoMessages = incognito ? incognitoHistory.get(chatId) : undefined;
   const child = Bun.spawn(
     [
       config.jazzBinary,
@@ -661,8 +675,14 @@ async function runJazz(
         : []),
       "--timezone",
       tzForChat(config.jazzHome, chatId),
-      "--conversation",
-      conversationKey(config.jazzHome, chatId),
+      ...(incognito
+        ? [
+            "--ephemeral",
+            ...(priorIncognitoMessages && priorIncognitoMessages.length > 0
+              ? ["--history-json", JSON.stringify(priorIncognitoMessages)]
+              : []),
+          ]
+        : ["--conversation", conversationKey(config.jazzHome, chatId)]),
       "--timeout",
       String(config.runTimeoutMs),
       prompt,
@@ -712,7 +732,14 @@ async function runJazz(
   }
 
   try {
-    return JSON.parse(lastJsonLine) as JazzEnvelope;
+    const envelope = JSON.parse(lastJsonLine) as JazzEnvelope;
+    // Carry the transcript forward in memory for this incognito chat's next
+    // turn — it never touches disk, so a dropped/missing `messages` field
+    // (e.g. the run errored) just means the next turn starts context-free.
+    if (incognito && envelope.ok) {
+      incognitoHistory.set(chatId, envelope.messages ?? []);
+    }
+    return envelope;
   } catch (error) {
     console.error(`Failed to parse Jazz envelope: ${String(error)}\nLine: ${lastJsonLine}`);
     return { ok: false, error: "Could not parse the agent response." };
@@ -1013,6 +1040,7 @@ const HELP_TEXT = [
   "/model — pick which Ollama model I use (just for you)",
   "/persona — pick my persona / style",
   "/new — start a fresh conversation (clears earlier context)",
+  "/incognito — start a private conversation (nothing saved to history or memory) until /new",
   "/remind <when> <text> — e.g. /remind 30m take pizza out",
   "  …or just say it: “remind me to call the dentist in 2 hours”, “send reminder next friday 2pm for review”",
   "/reminders — list and cancel your reminders",
@@ -1166,11 +1194,29 @@ async function handleCommand(
   }
 
   if (command === "new" || command === "reset") {
+    const wasIncognito = isIncognito(config.jazzHome, chatId);
+    if (wasIncognito) {
+      setIncognito(config.jazzHome, chatId, false);
+      incognitoHistory.delete(chatId);
+    }
     startNewConversation(config.jazzHome, chatId);
     await sendReply(
       config,
       chatId,
-      "🆕 Fresh conversation — I've cleared the earlier context. Your model and persona stay the same.",
+      wasIncognito
+        ? "🆕 Incognito conversation ended and discarded. Back to normal — your model and persona stay the same."
+        : "🆕 Fresh conversation — I've cleared the earlier context. Your model and persona stay the same.",
+    );
+    return;
+  }
+
+  if (command === "incognito") {
+    setIncognito(config.jazzHome, chatId, true);
+    incognitoHistory.delete(chatId);
+    await sendReply(
+      config,
+      chatId,
+      "🕶️ Incognito mode on — nothing from this conversation is saved to history or memory. Send /new to end it.",
     );
     return;
   }
@@ -1180,6 +1226,9 @@ async function handleCommand(
     const cap = config.dailyCostCapUsd;
     const lines = [
       "📊 <b>Status</b>",
+      ...(isIncognito(config.jazzHome, chatId)
+        ? ["🕶️ Incognito — nothing being saved right now"]
+        : []),
       `Model: <code>${escapeHtml(agent.config.llmProvider)}/${escapeHtml(agent.config.llmModel)}</code> (reasoning: ${escapeHtml(agent.config.reasoningEffort)})`,
       `Timezone: <code>${escapeHtml(tzForChat(config.jazzHome, chatId))}</code>${hasChatTz(config.jazzHome, chatId) ? "" : " (default)"}`,
       `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}`,

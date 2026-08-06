@@ -52,6 +52,20 @@ describe("formatOneShotResult", () => {
       toolCalls: [{ id: "call_1", name: "web_search", arguments: '{"q":"x"}' }],
     });
   });
+
+  it("omits messages by default", () => {
+    const output = formatOneShotResult(baseResult, { json: true });
+    expect(JSON.parse(output)).not.toHaveProperty("messages");
+  });
+
+  it("includes messages when set (--ephemeral round-trip)", () => {
+    const messages: ChatMessage[] = [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello" },
+    ];
+    const output = formatOneShotResult({ ...baseResult, messages }, { json: true });
+    expect(JSON.parse(output).messages).toEqual(messages);
+  });
 });
 
 describe("formatOneShotError", () => {
