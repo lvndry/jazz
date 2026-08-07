@@ -171,6 +171,8 @@ All fields are optional. When `base_url` is omitted, Jazz uses `http://localhost
 
 **Context window**: When you create an Ollama agent, Jazz asks you to pick a context window from a list capped to the model's real maximum. Ollama otherwise caps the runtime context to a small default (~4096 tokens) and silently truncates long conversations regardless of the model's trained size. The choice is stored per agent (`numCtx`) and sent as `num_ctx` on every request; change it later with `jazz agent edit`.
 
+It is also what Jazz compacts against, since it is the window the server will honour — the model's advertised maximum is not. An agent with no `numCtx` warns at run start: Jazz has no way to read the server's `OLLAMA_CONTEXT_LENGTH`, so it falls back to the advertised maximum and would compact too late if the server runs a smaller window.
+
 **Keep-alive**: Set `keep_alive` (e.g. `"30m"`, or `"-1"` to keep the model resident indefinitely) to avoid model-reload latency between agent turns. When unset, Ollama's own default (5 minutes) applies.
 
 Running on a server without internet access? See the [Airgapped & Self-Hosted guide](../guide/airgapped.md) — set `JAZZ_OFFLINE=1` to disable all outbound requests Jazz makes on its own.

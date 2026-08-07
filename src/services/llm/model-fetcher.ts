@@ -434,6 +434,9 @@ async function transformOllamaModels(
         return {
           ...base,
           supportsTools,
+          // `/api/show` describes the model file actually on this host, so it outranks
+          // the catalog's normalized bare-name match for the same reason tool support does.
+          ...(extras.contextWindow !== undefined ? { contextWindow: extras.contextWindow } : {}),
           ...(extras.template ? { chatTemplate: extras.template } : {}),
           ...(extras.capabilities ? { capabilities: extras.capabilities } : {}),
         };
@@ -481,7 +484,13 @@ async function transformLlamaCppModels(
       };
     }
     const base = resolveToModelInfo(entry, dev ? modelsDevMap : null);
-    return chatTemplate ? { ...base, chatTemplate } : base;
+    return {
+      ...base,
+      // `/props` reports the window llama-server was started with (`-c`), which is what
+      // it will honour — the catalog's advertised maximum is not.
+      ...(ctx !== undefined ? { contextWindow: ctx } : {}),
+      ...(chatTemplate ? { chatTemplate } : {}),
+    };
   });
 }
 

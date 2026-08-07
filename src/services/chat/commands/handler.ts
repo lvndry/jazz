@@ -6,6 +6,7 @@ import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { resolveEffectiveContextWindow } from "@/core/agent/context/effective-context-window";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { AVAILABLE_PROVIDERS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
@@ -1806,7 +1807,14 @@ function handleContextCommand(
     // Get model information
     const provider = agent.config.llmProvider;
     const modelId = agent.config.llmModel;
-    const contextWindow = yield* getModelContextWindowEffect(modelId, provider);
+    const effectiveContextWindow = resolveEffectiveContextWindow({
+      provider,
+      modelMaxTokens: yield* getModelContextWindowEffect(modelId, provider),
+      ...(typeof agent.config.numCtx === "number" && {
+        pinnedContextWindow: agent.config.numCtx,
+      }),
+    });
+    const contextWindow = effectiveContextWindow.tokens;
 
     // Get tool definitions for more accurate tool token estimation
     const toolDefinitions = yield* toolRegistry.getToolDefinitions();
@@ -1842,7 +1850,11 @@ function handleContextCommand(
 
     // Display model info and total usage on first row
     const modelDisplay = `${provider}/${modelId}`;
-    const usageDisplay = `${formatTokenCount(adjustedUsage.totalUsed)}/${formatTokenCount(contextWindow)} tokens (${usagePercent}%)`;
+    const runtimeWindowNote =
+      effectiveContextWindow.tokens < effectiveContextWindow.modelMaxTokens
+        ? ` · runtime window, model max ${formatTokenCount(effectiveContextWindow.modelMaxTokens)}`
+        : "";
+    const usageDisplay = `${formatTokenCount(adjustedUsage.totalUsed)}/${formatTokenCount(contextWindow)} tokens (${usagePercent}%)${runtimeWindowNote}`;
 
     yield* terminal.log(`   ${gridRows[0]}   ${modelDisplay} · ${usageDisplay}`);
     yield* terminal.log(`   ${gridRows[1]}`);

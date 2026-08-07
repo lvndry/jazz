@@ -13,6 +13,7 @@ import type { ConversationMessages } from "@/core/types/message";
 import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { AgentRunner } from "../agent-runner";
+import { resolveEffectiveContextWindow } from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 
 const SUBAGENT_PANEL_LINES = 12;
@@ -296,7 +297,13 @@ ${args.task}`;
             catch: () => new Error("Failed to fetch model metadata"),
           }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
-          const contextWindowMaxTokens = modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+          const contextWindowMaxTokens = resolveEffectiveContextWindow({
+            provider: parentAgent.config.llmProvider,
+            modelMaxTokens: modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+            ...(typeof parentAgent.config.numCtx === "number" && {
+              pinnedContextWindow: parentAgent.config.numCtx,
+            }),
+          }).tokens;
 
           const { systemMessage, messagesToSummarize, sanitizedRecentMessages } =
             Summarizer.splitMessages(

@@ -3,6 +3,7 @@ import { Effect, Layer, Option } from "effect";
 import { Box, Text } from "ink";
 import React from "react";
 import type { ActivityState } from "@/cli/ui/activity-state";
+import { resolveEffectiveContextWindow } from "@/core/agent/context/effective-context-window";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { NotificationServiceTag, type NotificationService } from "@/core/interfaces/notification";
@@ -470,7 +471,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.seenLength = 0;
         this.hasStreamedText = false;
         store.updateRunStats({ provider: event.provider, model: event.model });
-        this.resolveContextWindow(event.provider, event.model);
+        this.resolveContextWindow(event.provider, event.model, event.pinnedContextWindow);
       }
 
       if (this.displayConfig.showThinking) {
@@ -778,13 +779,27 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   /**
-   * Resolve the model's context window and publish it to the footer so
-   * tokens-in-context renders as `12.3k/200k` instead of a bare count.
+   * Resolve the context window the request will actually get and publish it to the
+   * footer, so tokens-in-context renders as `12.3k/200k` instead of a bare count —
+   * and so the denominator matches the one compaction accounts against.
    */
-  private resolveContextWindow(provider: string, model: string): void {
+  private resolveContextWindow(
+    provider: string,
+    model: string,
+    pinnedContextWindow: number | undefined,
+  ): void {
+    const publish = (modelMaxTokens: number): void => {
+      const effective = resolveEffectiveContextWindow({
+        provider,
+        modelMaxTokens,
+        ...(pinnedContextWindow !== undefined && { pinnedContextWindow }),
+      });
+      store.updateRunStats({ maxContextTokens: effective.tokens });
+    };
+
     const cached = getModelsDevMetadataSync(model, provider);
     if (cached !== undefined) {
-      store.updateRunStats({ maxContextTokens: cached.contextWindow });
+      publish(cached.contextWindow);
       return;
     }
     void getModelsDevMetadata(model, provider)
@@ -795,7 +810,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         // model and must not overwrite the footer denominator.
         const stats = store.getRunStatsSnapshot();
         if (stats.model !== model || stats.provider !== provider) return;
-        store.updateRunStats({ maxContextTokens: meta.contextWindow });
+        publish(meta.contextWindow);
       })
       .catch(() => {
         /* context window unavailable — footer shows the bare count */

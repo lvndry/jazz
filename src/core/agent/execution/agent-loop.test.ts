@@ -1,6 +1,10 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
-import { describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
+import { clearModelsDevCache } from "@/core/utils/models-dev-client";
 import {
   buildBudgetPressureMessage,
   detectMeltdown,
@@ -112,6 +116,8 @@ function recordingObserver() {
     onIterationLimit: (name: string, max: number) =>
       Effect.sync(() => void calls.push(`limit:${name}:${max}`)),
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
+    onContextWindowUnknown: (name: string) =>
+      Effect.sync(() => void calls.push(`context-window-unknown:${name}`)),
     onCompletion: (name: string) => Effect.sync(() => void calls.push(`completion:${name}`)),
   };
   return { observer, calls };
@@ -761,5 +767,147 @@ describe("detectMeltdown", () => {
     );
     const meltdown = Array(10).fill(tc("web_search", { query: "stuck" })) as TrackedToolCall[];
     expect(detectMeltdown([...diverse, ...meltdown])).toBe(true);
+  });
+});
+
+// qwen3.6:27b advertises 262144 tokens, but the Ollama host that serves it runs a
+// smaller runtime window. Accounting against the advertised number defers compaction
+// past the point the server starts silently dropping the middle of the conversation.
+describe("executeAgentLoop context window accounting", () => {
+  const MODEL_MAX_TOKENS = 262144;
+  const PINNED_CONTEXT_WINDOW = 131072;
+
+  const modelsDevCatalog = {
+    ollama: {
+      models: {
+        "qwen3.6:27b": {
+          name: "Qwen3.6 27B",
+          limit: { context: MODEL_MAX_TOKENS },
+          tool_call: true,
+        },
+      },
+    },
+  };
+
+  const originalJazzHome = process.env["JAZZ_HOME"];
+
+  // The suite runs offline, so the catalog is served from the on-disk snapshot.
+  beforeEach(() => {
+    const jazzHome = mkdtempSync(join(tmpdir(), "jazz-agent-loop-test-"));
+    mkdirSync(join(jazzHome, "cache"), { recursive: true });
+    writeFileSync(join(jazzHome, "cache", "models-dev.json"), JSON.stringify(modelsDevCatalog));
+    process.env["JAZZ_HOME"] = jazzHome;
+    clearModelsDevCache();
+  });
+
+  afterEach(() => {
+    clearModelsDevCache();
+    if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
+    else process.env["JAZZ_HOME"] = originalJazzHome;
+  });
+
+  // ~500k characters ≈ 143k tokens at qwen's 3.5 chars/token: over 80% of the pinned
+  // 131072 window, comfortably under 80% of the advertised 262144 one.
+  function longHistory(): { role: "user" | "assistant"; content: string }[] {
+    return [
+      { role: "user" as const, content: "system" },
+      ...Array.from({ length: 40 }, (_, index) => ({
+        role: index % 2 === 0 ? ("assistant" as const) : ("user" as const),
+        content: `turn ${index} `.padEnd(12500, "x"),
+      })),
+    ];
+  }
+
+  function ollamaAgent(numCtx?: number): unknown {
+    return {
+      id: "agent-1",
+      name: "local-agent",
+      config: {
+        persona: "default",
+        llmModel: "qwen3.6:27b",
+        llmProvider: "ollama",
+        reasoningEffort: "medium",
+        ...(numCtx !== undefined && { numCtx }),
+      },
+    };
+  }
+
+  function runWithHistory(numCtx?: number): Promise<{ compactions: number }> {
+    let compactions = 0;
+    const countingRunRecursive: RecursiveRunner = () =>
+      Effect.sync(() => {
+        compactions++;
+        return { content: "summary of earlier turns", conversationId: "id" } as AgentResponse;
+      });
+
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: { id: "c1", model: "qwen3.6:27b", content: "done" },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    return Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ agent: ollamaAgent(numCtx) as AgentRunnerOptions["agent"] }),
+        makeRunContext({
+          provider: "ollama",
+          model: "qwen3.6:27b",
+          agent: ollamaAgent(numCtx) as AgentRunContext["agent"],
+          messages: longHistory() as AgentRunContext["messages"],
+        }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        countingRunRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    ).then(() => ({ compactions }));
+  }
+
+  it("compacts against the pinned num_ctx rather than the advertised model maximum", async () => {
+    const { compactions } = await runWithHistory(PINNED_CONTEXT_WINDOW);
+    expect(compactions).toBeGreaterThan(0);
+  });
+
+  it("does not compact a history that genuinely fits the window", async () => {
+    const { compactions } = await runWithHistory(MODEL_MAX_TOKENS);
+    expect(compactions).toBe(0);
+  });
+
+  it("tells the user when a local agent pins no window", async () => {
+    const { observer, calls } = recordingObserver();
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: { id: "c1", model: "qwen3.6:27b", content: "done" },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ agent: ollamaAgent() as AgentRunnerOptions["agent"] }),
+        makeRunContext({
+          provider: "ollama",
+          model: "qwen3.6:27b",
+          agent: ollamaAgent() as AgentRunContext["agent"],
+        }),
+        displayConfig,
+        strategy,
+        observer,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(calls).toContain("context-window-unknown:local-agent");
   });
 });

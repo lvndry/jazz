@@ -29,6 +29,8 @@ function modelsDevEntry(
 
 let modelsDevProviderModels: readonly ModelsDevModelEntry[] = [];
 let modelsDevProviderError: Error | null = null;
+/** Catalog metadata every model resolves to, so tests can pit models.dev against a local server. */
+let modelsDevMetadata: ModelsDevMetadata | null = null;
 
 // Bun module mocks are process-global: snapshot the real exports so afterAll can
 // restore them for test files that run later in the same process.
@@ -39,7 +41,7 @@ const actualModelsDevClient = {
 // Mock models-dev-client
 mock.module("@/core/utils/models-dev-client", () => ({
   getModelsDevMap: mock(() => Promise.resolve(new Map())),
-  getMetadataFromMap: mock(() => null),
+  getMetadataFromMap: mock(() => modelsDevMetadata),
   getModelsDevProviderModels: mock(() => {
     if (modelsDevProviderError) return Promise.reject(modelsDevProviderError);
     return Promise.resolve(modelsDevProviderModels);
@@ -80,7 +82,7 @@ describe("ModelFetcher", () => {
   });
 
   beforeEach(() => {
-    // Reset global fetch mock if needed
+    modelsDevMetadata = null;
   });
 
   it("should fetch models from OpenRouter", async () => {
@@ -170,6 +172,58 @@ describe("ModelFetcher", () => {
     expect(result[0]!.id).toBe("llama3:latest");
     expect(result[0]!.contextWindow).toBe(4096);
     expect(result[0]!.supportsTemperature).toBe(true);
+  });
+
+  it("reports the window llama-server was started with, not the catalog maximum", async () => {
+    modelsDevMetadata = {
+      contextWindow: 262144,
+      supportsTools: true,
+      isReasoningModel: false,
+      supportsVision: false,
+      supportsPdf: false,
+      supportsTemperature: true,
+    };
+    const modelsResponse = { data: [{ id: "qwen3.6-27b" }] };
+    const propsResponse = {
+      default_generation_settings: { n_ctx: 131072 },
+      chat_template_caps: { supports_tools: true, supports_tool_calls: true },
+    };
+
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(modelsResponse) });
+      if (url.endsWith("/props"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(propsResponse) });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const result = await Effect.runPromise(
+      fetcher.fetchModels("llamacpp", "http://localhost:8080/v1", "/models"),
+    );
+
+    expect(result[0]!.contextWindow).toBe(131072);
+  });
+
+  it("reports the context length of the Ollama model on this host, not the catalog's", async () => {
+    modelsDevMetadata = {
+      contextWindow: 1000000,
+      supportsTools: true,
+      isReasoningModel: false,
+      supportsVision: false,
+      supportsPdf: false,
+      supportsTemperature: true,
+    };
+
+    mockOllamaFetch({
+      tags: { models: [{ name: "qwen3.6:27b" }] },
+      show: { model_info: { "qwen35.context_length": 262144 }, capabilities: ["tools"] },
+    });
+
+    const result = await Effect.runPromise(
+      fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags"),
+    );
+
+    expect(result[0]!.contextWindow).toBe(262144);
   });
 
   it("should fail gracefully on 404", async () => {

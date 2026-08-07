@@ -19,6 +19,10 @@ import {
   ContextWindowManager,
   DEFAULT_CONTEXT_WINDOW_MANAGER,
 } from "../context/context-window-manager";
+import {
+  describeContextWindowShortfall,
+  resolveEffectiveContextWindow,
+} from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import {
   beginIteration,
@@ -675,7 +679,14 @@ export function executeAgentLoop(
           catch: () => new Error("Failed to fetch model metadata"),
         }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
-        const contextWindowMaxTokens = modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+        const effectiveContextWindow = resolveEffectiveContextWindow({
+          provider,
+          modelMaxTokens: modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+          ...(typeof agent.config.numCtx === "number" && {
+            pinnedContextWindow: agent.config.numCtx,
+          }),
+        });
+        const contextWindowMaxTokens = effectiveContextWindow.tokens;
 
         const trimBudgetTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
         const protectedRecentTurns =
@@ -690,8 +701,15 @@ export function executeAgentLoop(
           model,
           provider,
           contextWindow: contextWindowMaxTokens,
+          modelMaxTokens: effectiveContextWindow.modelMaxTokens,
+          contextWindowSource: effectiveContextWindow.source,
           source: modelMetadata ? "models.dev" : "default",
         });
+
+        const shortfall = describeContextWindowShortfall(provider, effectiveContextWindow);
+        if (shortfall !== null && !options.internal) {
+          yield* observer.onContextWindowUnknown(agent.name, shortfall);
+        }
 
         const state: LoopState = {
           currentMessages: [messages[0], ...messages.slice(1)],

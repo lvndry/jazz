@@ -30,6 +30,12 @@ export type StreamEvent =
       provider: string;
       model: string;
       timestamp: number;
+      /**
+       * `num_ctx` sent to a local server for this request. It is the window the
+       * server will honour, so consumers showing context usage must prefer it
+       * over the model's advertised maximum.
+       */
+      pinnedContextWindow?: number;
     }
   | {
       type: "complete";

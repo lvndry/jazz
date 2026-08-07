@@ -1587,6 +1587,8 @@ class AISDKService implements LLMService {
                     ),
                     startTime: Date.now(),
                     toolsDisabled,
+                    ...(typeof options.num_ctx === "number" &&
+                      options.num_ctx > 0 && { pinnedContextWindow: options.num_ctx }),
                     ...(providerNativeToolNames && { providerNativeToolNames }),
                     ...(reasoningParser ? { reasoningParser } : {}),
                     ...(prepared
