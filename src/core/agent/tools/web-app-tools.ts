@@ -1,5 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
+import puppeteer, { type ChromeReleaseChannel } from "puppeteer-core";
 import shortuuid from "short-uuid";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
@@ -21,10 +22,68 @@ import { defineTool, makeZodValidator } from "./base-tool";
  * Surface-specific delivery (serving the interactive HTML over a public URL,
  * or posting the static image) is the caller's job — e.g. the Telegram
  * bridge reads this tool's structured result off `AgentResponse.toolResults`.
+ *
+ * "static" mode needs a Chrome/Chromium on the host. Jazz depends on
+ * `puppeteer-core`, which ships no browser, so that a global `npm i -g jazz-ai`
+ * never pays for a ~150MB Chrome download nobody asked for. "interactive" mode
+ * needs no browser at all.
  */
 
 function getWebAppsDirectory(): string {
   return `${getUserDataDirectory()}/webapps`;
+}
+
+/** Tried in order when `PUPPETEER_EXECUTABLE_PATH` is unset. */
+const CHROME_RELEASE_CHANNELS: readonly ChromeReleaseChannel[] = [
+  "chrome",
+  "chrome-beta",
+  "chrome-dev",
+  "chrome-canary",
+];
+
+export const MISSING_BROWSER_ERROR =
+  "create_web_app with mode 'static' needs a Chrome or Chromium install to screenshot the page, " +
+  "and none was found. Install Google Chrome or Chromium, or point PUPPETEER_EXECUTABLE_PATH at " +
+  "an existing browser binary. Retrying with mode 'interactive' needs no browser.";
+
+export interface BrowserExecutableLookup {
+  /** Value of `PUPPETEER_EXECUTABLE_PATH`, honoured verbatim and never probed. */
+  readonly configuredExecutablePath: string | undefined;
+  /** Resolves an installed Chrome for a release channel, or `null` if absent. */
+  readonly findSystemChrome: (channel: ChromeReleaseChannel) => Promise<string | null>;
+}
+
+/**
+ * An explicit `PUPPETEER_EXECUTABLE_PATH` wins outright — it is how containers
+ * and airgapped hosts point at a system Chromium that no release channel finds.
+ */
+export async function resolveBrowserExecutablePath(
+  lookup: BrowserExecutableLookup,
+): Promise<string | null> {
+  const configuredExecutablePath = lookup.configuredExecutablePath?.trim();
+  if (configuredExecutablePath !== undefined && configuredExecutablePath.length > 0) {
+    return configuredExecutablePath;
+  }
+
+  for (const channel of CHROME_RELEASE_CHANNELS) {
+    const systemChrome = await lookup.findSystemChrome(channel);
+    if (systemChrome !== null) return systemChrome;
+  }
+
+  return null;
+}
+
+export function createSystemBrowserLookup(): BrowserExecutableLookup {
+  return {
+    configuredExecutablePath: process.env["PUPPETEER_EXECUTABLE_PATH"],
+    findSystemChrome: async (channel) => {
+      try {
+        return await puppeteer.executablePath(channel);
+      } catch {
+        return null;
+      }
+    },
+  };
 }
 
 const createWebAppParameters = z
@@ -74,9 +133,11 @@ async function renderStaticScreenshot(
   pngPath: string,
   width: number,
   height: number,
+  executablePath: string,
 ): Promise<void> {
-  const { default: puppeteer } = await import("puppeteer");
   const browser = await puppeteer.launch({
+    browser: "chrome",
+    executablePath,
     headless: true,
     // --no-sandbox: Chromium's sandbox needs kernel privileges most
     // containers don't grant; harmless outside a container too.
@@ -92,7 +153,9 @@ async function renderStaticScreenshot(
   }
 }
 
-export function createWebAppTool(): Tool<FileSystem.FileSystem> {
+export function createWebAppTool(
+  browserLookup: () => BrowserExecutableLookup = createSystemBrowserLookup,
+): Tool<FileSystem.FileSystem> {
   return defineTool<FileSystem.FileSystem, CreateWebAppArgs>({
     name: "create_web_app",
     description:
@@ -132,8 +195,16 @@ export function createWebAppTool(): Tool<FileSystem.FileSystem> {
         const width = args.width ?? 800;
         const height = args.height ?? 600;
 
+        const executablePath = yield* Effect.tryPromise({
+          try: () => resolveBrowserExecutablePath(browserLookup()),
+          catch: () => new Error(MISSING_BROWSER_ERROR),
+        });
+        if (executablePath === null) {
+          return yield* Effect.fail(new Error(MISSING_BROWSER_ERROR));
+        }
+
         yield* Effect.tryPromise({
-          try: () => renderStaticScreenshot(htmlPath, pngPath, width, height),
+          try: () => renderStaticScreenshot(htmlPath, pngPath, width, height, executablePath),
           catch: (error) =>
             new Error(
               `Failed to render static web app: ${error instanceof Error ? error.message : String(error)}`,

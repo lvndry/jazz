@@ -269,8 +269,7 @@ class DefaultToolRegistry implements ToolRegistry {
       } else {
         // If this is an approval-required response, log as warning with special label
         const resultObj = result.result as
-          | { approvalRequired?: boolean; message?: string }
-          | undefined;
+          { approvalRequired?: boolean; message?: string } | undefined;
         const isApproval = resultObj?.approvalRequired === true;
         if (isApproval) {
           const approvalMsg = resultObj?.message || result.error || "Approval required";
