@@ -59,7 +59,6 @@ interface AgentEditAnswers {
   numCtx?: number;
   tools?: string[];
   webSearchProvider?: WebSearchProviderName;
-  delegatable?: boolean;
   whenToUse?: string;
 }
 
@@ -188,7 +187,7 @@ export function editAgentCommand(
           value: "tools",
           disabled: !supportsTools,
         },
-        { name: "Delegation (other agents may spawn this one)", value: "delegation" },
+        { name: "Delegation hint (when other agents should pick this one)", value: "whenToUse" },
         ...(agent.config.llmProvider === "ollama"
           ? [{ name: "Context Window", value: "contextWindow" }]
           : []),
@@ -492,14 +491,13 @@ export function editAgentCommand(
       ...(editAnswers.tools &&
         editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
       ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
-      ...(editAnswers.delegatable !== undefined && { delegatable: editAnswers.delegatable }),
-      ...(editAnswers.whenToUse !== undefined && { whenToUse: editAnswers.whenToUse }),
+      ...(editAnswers.whenToUse ? { whenToUse: editAnswers.whenToUse } : {}),
     };
 
-    // Turning delegation off drops the routing line too, so a re-enabled agent
-    // never resurfaces a stale one.
-    if (editAnswers.delegatable === false && updatedConfig.whenToUse !== undefined) {
-      const { whenToUse: _discardedWhenToUse, ...withoutWhenToUse } = updatedConfig;
+    // An empty submission clears the hint rather than leaving the old one in
+    // place; the roster then falls back to the agent's description.
+    if (editAnswers.whenToUse === "" && updatedConfig.whenToUse !== undefined) {
+      const { whenToUse: _clearedWhenToUse, ...withoutWhenToUse } = updatedConfig;
       updatedConfig = withoutWhenToUse;
     }
     if (editAnswers.llmApiKeyProvider) {
@@ -603,42 +601,25 @@ async function promptForAgentUpdates(
     answers.description = description;
   }
 
-  // Update delegation settings
-  if (fieldToUpdate === "delegation") {
-    const delegatable = await Effect.runPromise(
-      terminal.select<boolean>("Allow other agents to delegate tasks to this agent?", {
-        choices: [
-          { name: "Yes — list it in other agents' delegation roster", value: true },
-          { name: "No", value: false },
-        ],
-        default: currentAgent.config.delegatable === true,
+  // Update the delegation routing hint. Every agent is delegatable, so this is
+  // only about sharpening how other agents choose it. Submitting empty clears
+  // the hint and falls back to the description.
+  if (fieldToUpdate === "whenToUse") {
+    const whenToUse = await Effect.runPromise(
+      terminal.ask("When should another agent delegate to this one? (blank to use description)", {
+        defaultValue: currentAgent.config.whenToUse || "",
+        validate: (inputValue: string) => {
+          if (inputValue.length > 200) {
+            return "Keep it to 200 characters or less — it is re-sent in every delegating agent's prompt";
+          }
+          return true;
+        },
       }),
     );
-    if (delegatable === undefined) {
+    if (whenToUse === undefined) {
       throw new Error("Edit cancelled");
     }
-    answers.delegatable = delegatable;
-
-    if (delegatable) {
-      const whenToUse = await Effect.runPromise(
-        terminal.ask("When should another agent delegate to this one? (one line)", {
-          defaultValue: currentAgent.config.whenToUse || "",
-          validate: (inputValue: string) => {
-            if (!inputValue.trim()) {
-              return "A routing line is required so other agents know when to pick this agent";
-            }
-            if (inputValue.length > 200) {
-              return "Keep it to 200 characters or less — it is re-sent in every delegating agent's prompt";
-            }
-            return true;
-          },
-        }),
-      );
-      if (whenToUse === undefined) {
-        throw new Error("Edit cancelled");
-      }
-      answers.whenToUse = whenToUse.trim();
-    }
+    answers.whenToUse = whenToUse.trim();
   }
 
   // Update persona

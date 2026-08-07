@@ -63,6 +63,8 @@ export interface AgentPromptOptions {
    */
   readonly delegatableAgents?: readonly {
     readonly name: string;
+    /** The agent's own `provider/model`, shown so the parent can weigh cost against it. */
+    readonly defaultModel?: string;
     readonly whenToUse?: string;
   }[];
 }
@@ -78,16 +80,26 @@ export interface AgentPromptOptions {
 /**
  * Roster of saved agents the parent may delegate to by name.
  *
- * Deliberately terse: the block is re-sent every turn, so it carries a name and
- * a routing line and nothing else. The child still inherits the parent's tool
- * ceiling, which is why the prompt tells the model to expect a narrower toolset
- * rather than promising the named agent's own.
+ * Deliberately terse: the block is re-sent every turn, so each entry carries a
+ * name, its default model, and a routing line — nothing else. The default model
+ * is included because the choice of *who* and the choice of *what model* are
+ * separate decisions here, and the agent cannot weigh cost against the default
+ * it would otherwise get without seeing it.
  */
 function renderDelegatableAgents(
-  agents: readonly { readonly name: string; readonly whenToUse?: string }[],
+  agents: readonly {
+    readonly name: string;
+    readonly defaultModel?: string;
+    readonly whenToUse?: string;
+  }[],
 ): string {
   const roster = agents
-    .map((entry) => (entry.whenToUse ? `- ${entry.name}: ${entry.whenToUse}` : `- ${entry.name}`))
+    .map((entry) => {
+      const model = entry.defaultModel ? ` [${entry.defaultModel}]` : "";
+      return entry.whenToUse
+        ? `- ${entry.name}${model}: ${entry.whenToUse}`
+        : `- ${entry.name}${model}`;
+    })
     .join("\n");
 
   return `
@@ -98,6 +110,15 @@ agents below, instead of picking a persona. Use the roster line to choose; use a
 persona when none of them fits. The name must match exactly, and \`agent\` and
 \`persona\` cannot both be set. A delegated agent never gains a tool you lack, so
 it may run with fewer tools than its own configuration lists.
+
+Each entry shows the model it runs on by default, in brackets. You can override
+that per task with \`model: "provider/model"\` — and you should when the default is
+a poor fit for the work: **pick the cheapest model that can actually do the task.**
+A mechanical or well-scoped job (rename a symbol, summarise one file, extract
+fields from known text) does not need a frontier model; a subtle one (design
+review, ambiguous debugging, multi-step planning) does. Call \`list_models\` to see
+what is available with capabilities and per-token prices before overriding. Do not
+guess model names — an unknown or tool-incapable model is rejected.
 
 <delegatable_agents>
 ${roster}
@@ -194,7 +215,11 @@ export class AgentPromptBuilder {
     if (options.delegatableAgents && options.delegatableAgents.length > 0) {
       hash.update(
         `delegatable:${JSON.stringify(
-          options.delegatableAgents.map((entry) => [entry.name, entry.whenToUse ?? ""]),
+          options.delegatableAgents.map((entry) => [
+            entry.name,
+            entry.defaultModel ?? "",
+            entry.whenToUse ?? "",
+          ]),
         )}`,
       );
     }

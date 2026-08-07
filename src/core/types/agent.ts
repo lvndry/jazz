@@ -81,18 +81,14 @@ export interface AgentConfig {
    */
   readonly customTools?: readonly CustomToolDefinition[];
   /**
-   * Whether other agents may delegate to this one via `spawn_subagent`.
+   * One-line routing hint written for a delegating agent rather than for a
+   * human — e.g. "tracing call sites across the codebase; reads only". Shown
+   * in every other agent's delegation roster.
    *
-   * Opt-in on purpose: most saved agents are daily drivers whose description
-   * reads for a human ("friend"), which is useless for routing. Only agents
-   * marked delegatable are listed in a parent's system prompt, so the roster
-   * stays small and the per-turn token cost stays bounded.
-   */
-  readonly delegatable?: boolean;
-  /**
-   * One-line routing hint written for the delegating agent, not for a human —
-   * e.g. "use for tracing call sites across the codebase; reads only".
-   * Shown in the parent's roster block. Ignored unless `delegatable` is true.
+   * Every saved agent is delegatable; this only sharpens the routing decision.
+   * Falls back to `description` when unset, so an agent whose description
+   * already reads as a job ("reviews PRs for security issues") needs nothing
+   * here, while one described as "friend" benefits from a real hint.
    */
   readonly whenToUse?: string;
 }

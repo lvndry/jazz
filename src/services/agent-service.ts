@@ -329,18 +329,6 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
-      if (config.delegatable !== undefined && typeof config.delegatable !== "boolean") {
-        return yield* Effect.fail(
-          new AgentConfigurationError({
-            agentId: "unknown",
-            field: "config.delegatable",
-            message: "delegatable must be a boolean",
-            suggestion:
-              "Set true to let other agents delegate to this one via spawn_subagent, or remove the field.",
-          }),
-        );
-      }
-
       if (config.whenToUse !== undefined) {
         // Bounded because this string is rendered into the system prompt of
         // every delegating agent, on every turn.

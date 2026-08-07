@@ -41,24 +41,27 @@ import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } fro
 import { normalizeToolConfig } from "./utils/tool-config";
 
 /**
- * Cap on how many delegatable agents are advertised to a parent. The roster is
- * rendered into every system prompt of a delegating agent, so it is a per-turn
- * token cost — a runaway agent directory must not quietly inflate it.
+ * Cap on how many agents are advertised in a delegation roster. Every saved
+ * agent is delegatable, so this is the only thing standing between a large
+ * agent directory and an inflated per-turn prompt. When it bites, the most
+ * recently updated agents win — those are the ones in active use.
  */
-const MAX_DELEGATABLE_AGENTS = 24;
+const MAX_ROSTER_AGENTS = 24;
 
 /**
  * Saved agents this run may delegate to by name.
  *
- * Returns an empty list unless the agent actually holds `spawn_subagent`, so a
- * non-delegating agent pays neither the storage read nor the prompt tokens.
- * AgentService is optional here (as PersonaService is) because several test and
- * embedded layers omit it; without it, delegation falls back to personas.
+ * Every saved agent qualifies; the only exclusion is the running agent itself,
+ * which would otherwise invite a pointless self-delegation. Returns an empty
+ * list when the run cannot delegate at all, so those runs pay neither the
+ * storage read nor the prompt tokens. AgentService is optional here (as
+ * PersonaService is) because several test and embedded layers omit it; without
+ * it, delegation falls back to personas.
  */
-function resolveDelegatableAgents(
+function resolveDelegationRoster(
   agent: Agent,
   effectiveToolNames: readonly string[],
-): Effect.Effect<readonly Agent[], never, never> {
+): Effect.Effect<readonly Agent[], never, LoggerService> {
   return Effect.gen(function* () {
     if (!effectiveToolNames.includes("spawn_subagent")) return [];
 
@@ -69,10 +72,26 @@ function resolveDelegatableAgents(
       .listAgents()
       .pipe(Effect.catchAll(() => Effect.succeed([] as readonly Agent[])));
 
-    return allAgents
-      .filter((candidate) => candidate.config.delegatable === true && candidate.id !== agent.id)
-      .sort((first, second) => first.name.localeCompare(second.name))
-      .slice(0, MAX_DELEGATABLE_AGENTS);
+    const candidates = allAgents.filter((candidate) => candidate.id !== agent.id);
+    const selected =
+      candidates.length > MAX_ROSTER_AGENTS
+        ? [...candidates]
+            .sort((first, second) => second.updatedAt.getTime() - first.updatedAt.getTime())
+            .slice(0, MAX_ROSTER_AGENTS)
+        : candidates;
+
+    if (selected.length < candidates.length) {
+      const logger = yield* LoggerServiceTag;
+      yield* logger.info("Delegation roster truncated", {
+        agentId: agent.id,
+        advertised: selected.length,
+        total: candidates.length,
+      });
+    }
+
+    // Rendered in name order so the prompt (and its cache key) is stable
+    // regardless of which agents were last touched.
+    return [...selected].sort((first, second) => first.name.localeCompare(second.name));
   });
 }
 
@@ -245,7 +264,7 @@ function initializeAgentRun(
     // Deterministic, zero LLM overhead, predictable for skill authors.
     const triggeredSkillNames = matchSkillTriggers(userInput, relevantSkills);
 
-    const delegatableAgents = yield* resolveDelegatableAgents(agent, expandedToolNames);
+    const delegationRoster = yield* resolveDelegationRoster(agent, expandedToolNames);
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
@@ -260,9 +279,10 @@ function initializeAgentRun(
         availableTools,
         knownSkills: relevantSkills,
         ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
-        ...(delegatableAgents.length > 0 && {
-          delegatableAgents: delegatableAgents.map((candidate) => ({
+        ...(delegationRoster.length > 0 && {
+          delegatableAgents: delegationRoster.map((candidate) => ({
             name: candidate.name,
+            defaultModel: candidate.model,
             ...(candidate.config.whenToUse
               ? { whenToUse: candidate.config.whenToUse }
               : candidate.description
@@ -305,7 +325,7 @@ function initializeAgentRun(
       autoApprovedCommands,
       autoApprovedTools,
       parentToolNames: expandedToolNames,
-      ...(delegatableAgents.length > 0 ? { delegatableAgents } : {}),
+      ...(delegationRoster.length > 0 ? { delegatableAgents: delegationRoster } : {}),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??

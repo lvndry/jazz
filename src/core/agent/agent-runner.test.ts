@@ -377,9 +377,9 @@ describe("AgentRunner", () => {
     });
   });
 
-  describe("delegatable agent roster", () => {
-    const delegatable: Agent = {
-      id: "delegatable-1",
+  describe("delegation roster", () => {
+    const withHint: Agent = {
+      id: "explorer-1",
       name: "code-explorer",
       description: "traces call sites",
       model: "openai/gpt-4",
@@ -387,25 +387,29 @@ describe("AgentRunner", () => {
         persona: "coder",
         llmProvider: "openai",
         llmModel: "gpt-4",
-        delegatable: true,
         whenToUse: "use for tracing call sites",
       },
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    const notDelegatable: Agent = {
-      ...delegatable,
+    const withoutHint: Agent = {
+      ...withHint,
       id: "plain-1",
       name: "plain-agent",
-      config: { ...delegatable.config, delegatable: false, whenToUse: undefined },
+      description: "reviews PRs for security issues",
+      model: "openai/gpt-4o-mini",
+      config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
     };
 
-    function runWithAgentService(options: AgentRunnerOptions): Promise<unknown> {
+    function runWithAgentService(
+      options: AgentRunnerOptions,
+      roster: readonly Agent[] = [withHint, withoutHint],
+    ): Promise<unknown> {
       const layer = Layer.mergeAll(
         createTestLayer(),
         Layer.succeed(AgentServiceTag, {
-          listAgents: () => Effect.succeed([delegatable, notDelegatable]),
+          listAgents: () => Effect.succeed(roster),
         } as unknown as AgentService),
       );
       return Effect.runPromise(
@@ -423,21 +427,39 @@ describe("AgentRunner", () => {
       return llmOptions.messages.find((message) => message.role === "system")?.content ?? "";
     }
 
-    it("advertises only delegatable agents to a parent holding spawn_subagent", async () => {
+    const delegatingAgent: Agent = {
+      ...mockAgent,
+      config: { ...mockAgent.config, tools: ["tool1", "spawn_subagent"] },
+    };
+
+    it("advertises every saved agent, with its default model", async () => {
       await runWithAgentService({
         ...defaultOptions,
-        agent: {
-          ...mockAgent,
-          config: { ...mockAgent.config, tools: ["tool1", "spawn_subagent"] },
-        },
+        agent: delegatingAgent,
         stream: true,
         maxIterations: 1,
       });
 
       const systemPrompt = lastSystemPrompt();
       expect(systemPrompt).toContain("<delegatable_agents>");
-      expect(systemPrompt).toContain("- code-explorer: use for tracing call sites");
-      expect(systemPrompt).not.toContain("plain-agent");
+      expect(systemPrompt).toContain("- code-explorer [openai/gpt-4]: use for tracing call sites");
+      // No whenToUse, so the description carries the routing line instead.
+      expect(systemPrompt).toContain(
+        "- plain-agent [openai/gpt-4o-mini]: reviews PRs for security issues",
+      );
+    });
+
+    it("tells the delegating agent to pick the cheapest capable model", async () => {
+      await runWithAgentService({
+        ...defaultOptions,
+        agent: delegatingAgent,
+        stream: true,
+        maxIterations: 1,
+      });
+
+      const systemPrompt = lastSystemPrompt();
+      expect(systemPrompt).toContain("cheapest model that can actually do the task");
+      expect(systemPrompt).toContain("list_models");
     });
 
     it("advertises nothing to a run whose allowlist withheld spawn_subagent", async () => {
@@ -455,16 +477,19 @@ describe("AgentRunner", () => {
       expect(lastSystemPrompt()).not.toContain("<delegatable_agents>");
     });
 
-    it("excludes the parent itself from its own roster", async () => {
-      await runWithAgentService({
-        ...defaultOptions,
-        agent: {
-          ...delegatable,
-          config: { ...delegatable.config, tools: ["tool1", "spawn_subagent"] },
+    it("excludes the running agent from its own roster", async () => {
+      await runWithAgentService(
+        {
+          ...defaultOptions,
+          agent: {
+            ...withHint,
+            config: { ...withHint.config, tools: ["tool1", "spawn_subagent"] },
+          },
+          stream: true,
+          maxIterations: 1,
         },
-        stream: true,
-        maxIterations: 1,
-      });
+        [withHint],
+      );
 
       expect(lastSystemPrompt()).not.toContain("<delegatable_agents>");
     });

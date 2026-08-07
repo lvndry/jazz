@@ -25,7 +25,11 @@ function personaServiceReturning(systemPrompt: string): PersonaService {
 }
 
 const ROSTER = [
-  { name: "code-explorer", whenToUse: "use for tracing call sites" },
+  {
+    name: "code-explorer",
+    defaultModel: "anthropic/claude-sonnet-4-5",
+    whenToUse: "use for tracing call sites",
+  },
   { name: "deep-researcher" },
 ] as const;
 
@@ -52,9 +56,23 @@ describe("delegatable agent roster injection", () => {
     });
 
     expect(result).toContain("<delegatable_agents>");
-    expect(result).toContain("- code-explorer: use for tracing call sites");
+    expect(result).toContain(
+      "- code-explorer [anthropic/claude-sonnet-4-5]: use for tracing call sites",
+    );
+    // No model on file: the entry still renders, just without the bracket.
     expect(result).toContain("- deep-researcher");
     expect(result).toContain('agent: "<name>"');
+  });
+
+  test("instructs the agent to override the model by task difficulty", () => {
+    const result = build({
+      toolNames: ["spawn_subagent"],
+      delegatableAgents: [...ROSTER],
+    });
+
+    expect(result).toContain('model: "provider/model"');
+    expect(result).toContain("cheapest model that can actually do the task");
+    expect(result).toContain("list_models");
   });
 
   test("omits the roster when the agent cannot delegate", () => {

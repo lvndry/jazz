@@ -53,21 +53,16 @@ spawn_subagent({
 | `task` | The full brief, **including the expected output shape**. The child cannot see the parent's conversation, so an underspecified task produces an unusable answer. |
 | `name` | Short role label shown in the sub-agent panel, so parallel children are distinguishable. |
 | `persona` | `coder` for code and git work, `researcher` for investigation, `default` for general. |
-| `agent` | Name of a saved **delegatable** agent to run the task as. Mutually exclusive with `persona`. |
+| `agent` | Name of any saved agent to run the task as. Mutually exclusive with `persona`. |
+| `model` | `provider/model` to run this one task on, overriding whatever model it would otherwise use. |
 
 ---
 
 ## Delegating to a saved agent
 
-`persona` varies one thing: tone. Model, reasoning effort, and toolset all come from the
-parent. That is often enough — but when a task wants a *different* model or a narrower
-toolset, the thing that already describes that combination is a saved agent.
-
-Mark one delegatable and it appears in every other agent's system prompt:
-
-```json
-{ "delegatable": true, "whenToUse": "use for tracing call sites; reads only" }
-```
+`persona` varies one thing: tone. That is often enough — but when a task wants a different
+*specialist*, the thing that already describes one is a saved agent. **Every saved agent is
+delegatable**, with no flag to set: create one and every other agent can reach it.
 
 ```ts
 spawn_subagent({
@@ -76,15 +71,54 @@ spawn_subagent({
 })
 ```
 
-The child then runs with that agent's model, reasoning effort, and persona — but **not** its
-toolset, which is capped at the parent's (below). Naming an agent that isn't in the roster is an
-error listing the valid names, not a silent fall back to a persona: a task routed to the wrong
-specialist looks like it succeeded, which is worse than an error the parent can correct on its
-next iteration.
+The child runs with that agent's reasoning effort and persona — but **not** its toolset, which
+is capped at the parent's (below). Naming an agent that isn't in the roster is an error listing
+the valid names, not a silent fall back to a persona: a task routed to the wrong specialist looks
+like it succeeded, which is worse than an error the parent can correct on its next iteration.
 
-Delegation is opt-in because `description` is written for humans while `whenToUse` is written
-for the router, and because the roster costs prompt tokens every turn. Details and limits:
-[Configuration](../reference/configuration.md#agent-config-delegatable-and-whentouse).
+Each roster entry carries the agent's `whenToUse` line (or its description, when that line is
+unset) and its default model. Limits and validation:
+[Configuration](../reference/configuration.md#agent-config-whentouse).
+
+---
+
+## Choosing the model per task
+
+Which agent to ask and which model to run it on are **separate decisions**. Two agents can share
+the `coder` persona and still deserve different models depending on the job, so the model is not
+a fixed property of the delegation target:
+
+```ts
+spawn_subagent({
+  task: "Rename `foo` to `bar` across src/, leaving comments alone.",
+  agent: "code-explorer",
+  model: "anthropic/claude-haiku-4-5",   // mechanical work — do not pay frontier prices
+})
+```
+
+The parent is told to pick the cheapest model that can actually do the task, and to call
+`list_models` rather than guess names. That tool lists models across configured providers with
+capabilities, context window, and per-million-token prices, **cheapest first** — ranked on output
+price, since output dominates an agent run's cost. Models with unknown pricing sort last rather
+than masquerading as the cheapest option.
+
+An override is validated before the child starts and rejected with the reason when it is
+malformed, when the provider has no credentials, or when the model cannot call tools. A model the
+catalog has never heard of is allowed through, because that is the normal state for local
+providers and new releases — refusing it would make ollama and llama.cpp undelegatable.
+
+```mermaid
+flowchart LR
+    T["Task arrives"] --> D{"Difficulty?"}
+    D -->|"mechanical,<br/>well-scoped"| CHEAP["cheap model<br/><i>rename, extract, summarise one file</i>"]
+    D -->|"subtle,<br/>ambiguous"| STRONG["capable model<br/><i>design review, hard debugging</i>"]
+    CHEAP --> V["validate: configured provider?<br/>tool-capable?"]
+    STRONG --> V
+    V --> RUN["child runs"]
+
+    classDef good fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
+    class CHEAP good
+```
 
 ---
 
@@ -108,6 +142,10 @@ flowchart LR
 This is what keeps the claim in [Agents](../concepts/agents.md) true — that omitting a tool is
 the strongest safety control available. Without the intersection, a read-only CI reviewer could
 reach `execute_command` by delegating to an agent that has it. Withheld tools are logged.
+
+It is also what makes universal delegation safe. Because every saved agent is reachable, the
+ceiling is the only thing standing between a narrow agent and a broad one — the roster widens
+*who* can be asked, never *what* can be done.
 
 Because the parent can issue several tool calls in one iteration, sub-agents run in parallel
 up to the concurrency cap — each with its own panel in the TUI.
@@ -138,7 +176,7 @@ sequenceDiagram
 | --- | --- | --- |
 | The `task` string | The child's final answer | The parent's message history |
 | The chosen persona, or a named agent's config | Its cost, into the parent's total | The parent's tool results |
-| The provider/model — the parent's, or the named agent's | | The child's intermediate work |
+| The model — chosen per task, else the named agent's, else the parent's | | The child's intermediate work |
 | The parent's toolset, as a ceiling | | Any tool the parent itself lacks |
 
 **Cost rolls up.** Each child reports spend via `recordChildCost`, and the parent's
@@ -159,7 +197,8 @@ usual symptom is a confidently wrong answer to a question the child misunderstoo
 | Iterations | inherits the parent's budget | A child can't outlive the run that spawned it |
 | Nesting | children can delegate further | Bounded in practice by the parent's iteration budget |
 | Toolset | at most the parent's | A child must never be an escalation path |
-| Roster size | 24 delegatable agents | The roster is re-sent every turn |
+| Roster size | 24 agents, most recently updated first | The roster is re-sent every turn |
+| Model override | must be a configured provider and tool-capable | A toolless sub-agent fails in a confusing way |
 | Panel height | 12 lines | UI only |
 
 Budget pressure interacts deliberately with delegation: at 70% of its iteration budget the
