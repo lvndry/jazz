@@ -114,7 +114,7 @@
     "parallel-web": "^1.1.0",
     "pdf-parse": "^2.4.5",
     "plist": "^5.0.0",
-    "puppeteer": "^25.4.0",
+    "puppeteer-core": "^25.4.0",
     "react": "^19.2.7",
     "semver": "^7.8.4",
     "short-uuid": "^6.0.3",

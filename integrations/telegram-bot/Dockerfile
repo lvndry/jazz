@@ -4,14 +4,12 @@ FROM oven/bun:1
 
 WORKDIR /app
 
-# System Chromium for the create_web_app tool (Puppeteer screenshots HTML the
-# agent writes). PUPPETEER_SKIP_DOWNLOAD avoids also fetching Puppeteer's own
-# bundled copy — it launches this one instead via PUPPETEER_EXECUTABLE_PATH.
+# System Chromium for the create_web_app tool (puppeteer-core screenshots HTML
+# the agent writes). puppeteer-core ships no browser, so this is the only one.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
-ENV PUPPETEER_SKIP_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Dependencies first so the install layer caches across source edits.
 COPY package.json bun.lock bunfig.toml ./
